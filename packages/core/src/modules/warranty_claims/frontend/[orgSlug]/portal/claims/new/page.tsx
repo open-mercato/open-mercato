@@ -702,7 +702,8 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
     setError(null)
   }, [currentStepIndex])
 
-  const goNext = React.useCallback(() => {
+  const goNext = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
     if (!validateStep(currentStep)) return
     if (currentStepIndex >= WIZARD_STEP_IDS.length - 1) return
     setCurrentStep(WIZARD_STEP_IDS[currentStepIndex + 1]!)

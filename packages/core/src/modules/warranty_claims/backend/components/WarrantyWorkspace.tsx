@@ -45,7 +45,7 @@ export function WarrantyWorkspace({
       {summary ?? null}
       {tabs?.length && activeTab && onTabChange ? (
         <Tabs value={activeTab} onValueChange={onTabChange} variant="underline">
-          <TabsList className="flex h-auto w-full gap-1 overflow-x-auto px-7" aria-label={title}>
+          <TabsList className="flex h-auto w-full gap-1 overflow-x-auto px-7 pb-2" aria-label={title}>
             {tabs.map((tab) => (
               <TabsTrigger
                 key={tab.id}

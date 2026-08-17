@@ -3,15 +3,20 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
+import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import { clearAttachmentThumbnailCache } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
 import { isMultipartRequestWithinUploadLimit } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
   ScopedAttachmentUploadError,
@@ -25,6 +30,7 @@ import { loadPortalOwnedClaim } from '../../../lib/portalClaimAccess'
 import { resolvePortalAttachmentUploadService } from '../../../lib/portalAttachmentUpload'
 
 const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
+const logger = createLogger('warranty_claims').child({ route: 'portal-attachments' })
 const ATTACHMENT_ERROR_TRANSLATIONS: Partial<Record<ScopedAttachmentUploadErrorCode, readonly [string, string]>> = {
   dangerous_executable: ['attachments.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.'],
   max_upload_size: ['attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'],
@@ -34,6 +40,8 @@ const ATTACHMENT_ERROR_TRANSLATIONS: Partial<Record<ScopedAttachmentUploadErrorC
 export const metadata = {
   GET: { requireAuth: false },
   POST: { requireAuth: false },
+  PUT: { requireAuth: false },
+  DELETE: { requireAuth: false },
 }
 
 const attachmentQuerySchema = z.object({
@@ -45,6 +53,14 @@ const attachmentQuerySchema = z.object({
 const uploadBodySchema = z.object({
   claimId: z.string().uuid(),
   file: z.string().min(1).describe('Binary file payload; supplied as multipart form-data'),
+})
+
+const replaceBodySchema = uploadBodySchema.extend({
+  attachmentId: z.string().uuid(),
+})
+
+const deleteQuerySchema = z.object({
+  attachmentId: z.string().uuid(),
 })
 
 type PortalContext = {
@@ -108,6 +124,7 @@ async function runPortalAttachmentGuard(
   req: Request,
   context: PortalContext,
   claimId: string,
+  operation: 'create' | 'update' | 'delete',
   mutationPayload: Record<string, unknown>,
 ): Promise<RouteMutationGuardResult> {
   return runRouteMutationGuards({
@@ -122,7 +139,7 @@ async function runPortalAttachmentGuard(
     input: {
       resourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
       resourceId: claimId,
-      operation: 'create',
+      operation,
       mutationPayload,
     },
   })
@@ -159,25 +176,76 @@ async function resolveStorageDriverFactory(context: PortalContext): Promise<Stor
   }
 }
 
-async function streamOwnedAttachment(context: PortalContext, attachmentId: string): Promise<Response> {
+async function loadOwnedVisibleAttachment(
+  context: PortalContext,
+  attachmentId: string,
+): Promise<{ attachment: Attachment; claim: WarrantyClaim } | null> {
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
   const attachment = await findOneWithDecryption(
     context.em,
     Attachment,
-    { id: attachmentId, entityId: CLAIM_ATTACHMENT_ENTITY_ID, tenantId: context.tenantId, organizationId: context.organizationId },
+    {
+      id: attachmentId,
+      entityId: CLAIM_ATTACHMENT_ENTITY_ID,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+    },
     {},
     scope,
   )
-  if (!attachment) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
-  }
+  if (!attachment) return null
   const claim = await loadOwnedClaim(context, attachment.recordId)
-  if (!claim) {
+  if (!claim) return null
+  if (!isCustomerVisibleAttachment(readAttachmentMetadata(attachment.storageMetadata).tags)) return null
+  return { attachment, claim }
+}
+
+async function deletePortalAttachment(context: PortalContext, attachment: Attachment): Promise<void> {
+  await context.em.remove(attachment).flush()
+  await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((error) => {
+    logger.error('Failed to clean portal attachment thumbnails', { err: error, attachmentId: attachment.id })
+  })
+  if (attachment.storagePath) {
+    try {
+      const driver = await (await resolveStorageDriverFactory(context)).resolveForPartition(attachment.partitionCode, {
+        tenantId: attachment.tenantId ?? context.tenantId,
+        organizationId: attachment.organizationId ?? context.organizationId,
+      })
+      await driver.delete(attachment.partitionCode, attachment.storagePath)
+    } catch (error) {
+      logger.error('Failed to remove portal attachment storage', { err: error, attachmentId: attachment.id })
+    }
+  }
+
+  let dataEngine: DataEngine | null = null
+  try {
+    dataEngine = context.container.resolve<DataEngine>('dataEngine') ?? null
+  } catch {
+    dataEngine = null
+  }
+  if (dataEngine) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: attachment,
+      identifiers: {
+        id: attachment.id,
+        organizationId: attachment.organizationId ?? null,
+        tenantId: attachment.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
+  }
+}
+
+async function streamOwnedAttachment(context: PortalContext, attachmentId: string): Promise<Response> {
+  const owned = await loadOwnedVisibleAttachment(context, attachmentId)
+  if (!owned) {
     return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
-  if (!isCustomerVisibleAttachment(readAttachmentMetadata(attachment.storageMetadata).tags)) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
-  }
+  const { attachment } = owned
   const partition = await context.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
   if (!partition) {
     return NextResponse.json({ ok: false, error: 'warranty_claims.errors.load_failed' }, { status: 500 })
@@ -271,7 +339,7 @@ export async function GET(req: Request) {
   })
 }
 
-export async function POST(req: Request) {
+async function handleUpload(req: Request, replacement: boolean): Promise<Response> {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
@@ -288,8 +356,14 @@ export async function POST(req: Request) {
   }
 
   const form = await req.formData()
-  const parsed = attachmentQuerySchema.safeParse({ claimId: form.get('claimId') ?? undefined })
-  if (!parsed.success) {
+  const parsed = uploadBodySchema.safeParse({
+    claimId: form.get('claimId') ?? undefined,
+    file: form.get('file') instanceof File ? (form.get('file') as File).name : '',
+  })
+  const parsedAttachmentId = replacement
+    ? z.string().uuid().safeParse(form.get('attachmentId') ?? undefined)
+    : null
+  if (!parsed.success || (replacement && !parsedAttachmentId?.success)) {
     return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const claim = await loadOwnedClaim(context, parsed.data.claimId)
@@ -302,8 +376,17 @@ export async function POST(req: Request) {
   }
   const buffer = Buffer.from(await file.arrayBuffer())
 
-  const guarded = await runPortalAttachmentGuard(req, context, claim.id, {
+  const attachmentId = replacement && parsedAttachmentId?.success ? parsedAttachmentId.data : null
+  const replacementTarget = attachmentId
+    ? await loadOwnedVisibleAttachment(context, attachmentId)
+    : null
+  if (replacement && (!replacementTarget || replacementTarget.claim.id !== claim.id)) {
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+  }
+
+  const guarded = await runPortalAttachmentGuard(req, context, claim.id, replacement ? 'update' : 'create', {
     claimId: claim.id,
+    attachmentId,
     fileName: file.name,
     fileSize: file.size,
     mimeType: file.type,
@@ -342,31 +425,52 @@ export async function POST(req: Request) {
     throw error
   }
 
+  if (replacementTarget) {
+    await deletePortalAttachment(context, replacementTarget.attachment)
+  }
   await guarded.runAfterSuccess()
-  const metadata = readAttachmentMetadata(attachment.storageMetadata)
 
   return NextResponse.json({
     ok: true,
     item: {
-      id: attachment.id,
-      url: attachment.url,
-      downloadUrl: `/api/warranty_claims/portal/attachments?attachmentId=${encodeURIComponent(attachment.id)}`,
-      fileName: attachment.fileName,
-      fileSize: attachment.fileSize,
-      mimeType: attachment.mimeType,
-      partitionCode: attachment.partitionCode,
-      thumbnailUrl: buildAttachmentImageUrl(attachment.id, {
-        width: 320,
-        height: 320,
-        slug: slugifyAttachmentFileName(attachment.fileName),
-      }),
-      content: attachment.content ?? null,
-      tags: metadata.tags ?? [],
-      assignments: metadata.assignments ?? [],
-      createdAt: toIso(attachment.createdAt),
+      ...serializeAttachment(attachment),
       entityType: 'attachments:attachment',
     },
   })
+}
+
+export async function POST(req: Request) {
+  return handleUpload(req, false)
+}
+
+export async function PUT(req: Request) {
+  return handleUpload(req, true)
+}
+
+export async function DELETE(req: Request) {
+  const contextOrResponse = await resolvePortalContext(req)
+  if (contextOrResponse instanceof Response) return contextOrResponse
+  const context = contextOrResponse
+  const url = new URL(req.url)
+  const parsed = deleteQuerySchema.safeParse({
+    attachmentId: url.searchParams.get('attachmentId') ?? undefined,
+  })
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+  }
+  const owned = await loadOwnedVisibleAttachment(context, parsed.data.attachmentId)
+  if (!owned) {
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+  }
+  const guarded = await runPortalAttachmentGuard(req, context, owned.claim.id, 'delete', {
+    claimId: owned.claim.id,
+    attachmentId: owned.attachment.id,
+  })
+  if (!guarded.ok) return guarded.response
+
+  await deletePortalAttachment(context, owned.attachment)
+  await guarded.runAfterSuccess()
+  return NextResponse.json({ ok: true })
 }
 
 const assignmentSchema = z.object({
@@ -414,6 +518,28 @@ export const openApi: OpenApiRouteDoc = {
           status: 200,
           description: 'Attachment uploaded',
           schema: z.object({ ok: z.boolean(), item: attachmentItemSchema.extend({ entityType: z.string() }) }),
+        },
+      ],
+    },
+    PUT: {
+      summary: 'Replace an attachment on an owned claim',
+      requestBody: { contentType: 'multipart/form-data', schema: replaceBodySchema },
+      responses: [
+        {
+          status: 200,
+          description: 'Attachment replaced',
+          schema: z.object({ ok: z.boolean(), item: attachmentItemSchema.extend({ entityType: z.string() }) }),
+        },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete an attachment from an owned claim',
+      query: deleteQuerySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Attachment deleted',
+          schema: z.object({ ok: z.literal(true) }),
         },
       ],
     },

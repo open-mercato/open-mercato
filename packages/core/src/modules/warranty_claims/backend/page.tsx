@@ -44,6 +44,7 @@ import { ClaimsKpiStrip, type WarrantyClaimsStats } from './components/ClaimsKpi
 import { WarrantyWorkspace } from './components/WarrantyWorkspace'
 import { useUserDisplayNames } from './components/useUserDisplayNames'
 import { extensionPoints } from '../extension-points'
+import { appendSkippedBulkCount } from '../lib/bulkFeedback'
 
 type ClaimType = 'warranty' | 'return' | 'core_return' | 'vendor_recovery'
 type ClaimChannel = 'staff' | 'portal' | 'api'
@@ -788,17 +789,15 @@ export default function WarrantyClaimsPage() {
       'Bulk action finished: {succeeded} succeeded, {failed} failed.',
       { succeeded, failed: failures.length },
     )
-    const skippedNote = skipped > 0
-      ? ` ${t('warranty_claims.bulk.skipped', '{skipped} skipped.', { skipped })}`
-      : ''
+    const summaryWithSkipped = appendSkippedBulkCount(summary, skipped, t)
     if (failures.length) {
       flash(
-        `${summary}${skippedNote} ${t('warranty_claims.bulk.firstError', 'First error: {message}', { message: failures[0].message })}`,
+        `${summaryWithSkipped} ${t('warranty_claims.bulk.firstError', 'First error: {message}', { message: failures[0].message })}`,
         'warning',
       )
       return
     }
-    flash(`${summary}${skippedNote}`, skipped > 0 ? 'warning' : 'success')
+    flash(summaryWithSkipped, skipped > 0 ? 'warning' : 'success')
   }, [t])
 
   const runBulkAssign = React.useCallback(async (selectedRows: ClaimRow[], assigneeUserId: string | null) => {

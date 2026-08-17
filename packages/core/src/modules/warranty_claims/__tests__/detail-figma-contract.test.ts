@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const detailSource = readFileSync(join(__dirname, '../backend/warranty_claims/[id]/page.tsx'), 'utf8')
+const workspaceSource = readFileSync(join(__dirname, '../backend/components/WarrantyWorkspace.tsx'), 'utf8')
 
 describe('warranty claim detail Figma hierarchy', () => {
   it('keeps the stage, tabs, totals, and line table in the designed order', () => {
@@ -30,5 +31,10 @@ describe('warranty claim detail Figma hierarchy', () => {
     expect(detailSource).toContain('<TabsContent')
     expect(detailSource).toContain('await navigator.clipboard.writeText')
     expect(detailSource).toContain("warranty_claims.detail.copyFailed")
+  })
+
+  it('wraps localized risk badges and leaves room below horizontally scrollable list tabs', () => {
+    expect(detailSource).toContain('h-auto max-w-full whitespace-normal break-words text-left leading-snug')
+    expect(workspaceSource).toContain('overflow-x-auto px-7 pb-2')
   })
 })

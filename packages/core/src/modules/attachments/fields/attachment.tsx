@@ -2,11 +2,15 @@
 import * as React from 'react'
 import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Upload } from 'lucide-react'
+import { RefreshCw, Trash2, Upload } from 'lucide-react'
 
 function humanSize(n: number): string {
   if (!Number.isFinite(n)) return String(n)
@@ -21,6 +25,8 @@ type AttachmentsResponse = {
   items?: Array<{ id: string; url: string; fileName: string; fileSize: number }>
   error?: string
 }
+
+type AttachmentItem = NonNullable<AttachmentsResponse['items']>[number]
 
 type AttachmentFieldDef = CustomFieldDefDto & {
   configJson?: {
@@ -50,6 +56,8 @@ export const AttachmentInput = ({
   recordId,
   def,
   disabled,
+  allowDelete = false,
+  allowReplace = false,
   onCountChange,
   onUploaded,
 }: {
@@ -57,17 +65,27 @@ export const AttachmentInput = ({
   recordId?: string
   def?: AttachmentFieldDef
   disabled?: boolean
+  allowDelete?: boolean
+  allowReplace?: boolean
   // Optional: notified with the current attachment count after each load so a host page can keep
   // a derived badge (e.g. a tab count) in sync without a full reload. Additive/backward-compatible.
   onCountChange?: (count: number) => void
   onUploaded?: () => void
 }) => {
   const t = useT()
-  const [items, setItems] = React.useState<Array<{ id: string; url: string; fileName: string; fileSize: number }>>([])
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: `attachment-input:${entityId ?? 'unknown'}:${recordId ?? 'pending'}`,
+    blockedMessage: t('attachments.library.errors.saveBlocked', 'Attachment change blocked by validation.'),
+  })
+  const [items, setItems] = React.useState<AttachmentItem[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [uploading, setUploading] = React.useState(false)
+  const [mutatingId, setMutatingId] = React.useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const replacementInputRef = React.useRef<HTMLInputElement | null>(null)
+  const replacementTargetRef = React.useRef<AttachmentItem | null>(null)
   const onCountChangeRef = React.useRef(onCountChange)
   const accept = React.useMemo(() => buildAcceptAttribute(def), [def])
 
@@ -101,13 +119,52 @@ export const AttachmentInput = ({
 
   React.useEffect(() => { load() }, [load])
 
-  const onUpload = async (files: FileList | null) => {
+  const mutationContext = React.useCallback((operation: string, resourceId: string) => ({
+    moduleId: 'attachments',
+    entityId: 'attachments.attachment',
+    operation,
+    formId: `attachment-input:${entityId ?? 'unknown'}:${recordId ?? 'pending'}`,
+    resourceKind: 'attachments.attachment',
+    resourceId,
+    retryLastMutation,
+  }), [entityId, recordId, retryLastMutation])
+
+  const uploadFile = React.useCallback(async (file: File): Promise<void> => {
+    if (!entityId || !recordId) return
+    const fd = new FormData()
+    fd.set('entityId', entityId)
+    fd.set('recordId', recordId)
+    if (def?.key) fd.set('fieldKey', String(def.key))
+    fd.set('file', file)
+    const call = await apiCall<{ error?: string }>(
+      '/api/attachments',
+      { method: 'POST', body: fd },
+      { fallback: null },
+    )
+    if (!call.ok) {
+      throw new Error(call.result?.error || t('attachments.library.upload.failed', 'Upload failed.'))
+    }
+  }, [def?.key, entityId, recordId, t])
+
+  const deleteFile = React.useCallback(async (attachment: AttachmentItem): Promise<void> => {
+    const call = await apiCall<{ error?: string }>(
+      `/api/attachments?id=${encodeURIComponent(attachment.id)}`,
+      { method: 'DELETE' },
+      { fallback: null },
+    )
+    if (!call.ok) {
+      throw new Error(call.result?.error || t('attachments.library.errors.delete', 'Failed to delete attachment.'))
+    }
+  }, [t])
+
+  const onUpload = async (files: FileList | null, replacementTarget?: AttachmentItem) => {
     if (!files || !entityId || !recordId) return
     setError(null)
     setUploading(true)
+    if (replacementTarget) setMutatingId(replacementTarget.id)
     let uploadedCount = 0
     try {
-      for (const file of Array.from(files)) {
+      for (const file of Array.from(files).slice(0, replacementTarget ? 1 : undefined)) {
         const ext = (file.name || '').split('.').pop()?.toLowerCase() || ''
         const acceptExtensions = Array.isArray(def?.acceptExtensions) ? def.acceptExtensions : []
         if (acceptExtensions.length > 0) {
@@ -119,31 +176,87 @@ export const AttachmentInput = ({
           const maxBytes = Math.floor(maxAttachmentSizeMb * 1024 * 1024)
           if (file.size > maxBytes) { setError(`File exceeds ${maxAttachmentSizeMb} MB limit`); continue }
         }
-        const fd = new FormData()
-        fd.set('entityId', entityId)
-        fd.set('recordId', recordId)
-        if (def?.key) fd.set('fieldKey', String(def.key))
-        fd.set('file', file)
-        const call = await apiCall<{ error?: string }>(
-          '/api/attachments',
-          { method: 'POST', body: fd },
-          { fallback: null },
-        )
-        if (!call.ok) {
-          setError(call.result?.error || t('attachments.library.upload.failed', 'Upload failed.'))
+        try {
+          await runMutation({
+            operation: async () => {
+              await uploadFile(file)
+              if (replacementTarget) await deleteFile(replacementTarget)
+            },
+            context: mutationContext(
+              replacementTarget ? 'replace_attachment' : 'upload_attachment',
+              replacementTarget?.id ?? recordId,
+            ),
+            mutationPayload: {
+              entityId,
+              recordId,
+              attachmentId: replacementTarget?.id,
+              fileName: file.name,
+              fileSize: file.size,
+            },
+          })
+        } catch (uploadError) {
+          setError(uploadError instanceof Error
+            ? uploadError.message
+            : t('attachments.library.upload.failed', 'Upload failed.'))
           break
         }
         uploadedCount += 1
       }
       await load()
-      if (uploadedCount > 0) onUploaded?.()
+      if (uploadedCount > 0) {
+        onUploaded?.()
+        if (replacementTarget) {
+          flash(t('attachments.library.messages.replaced', 'Attachment replaced.'), 'success')
+        }
+      }
     } finally {
       setUploading(false)
+      setMutatingId(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
+      if (replacementInputRef.current) {
+        replacementInputRef.current.value = ''
+      }
     }
   }
+
+  const requestDelete = React.useCallback(async (attachment: AttachmentItem) => {
+    if (disabled || mutatingId) return
+    const confirmed = await confirm({
+      title: t('attachments.library.delete', 'Delete attachment'),
+      text: t('attachments.library.confirm.delete', 'Delete attachment "{name}"? This action cannot be undone.', {
+        name: attachment.fileName,
+      }),
+      confirmText: t('attachments.library.actions.delete', 'Delete'),
+      cancelText: t('attachments.library.upload.cancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    setError(null)
+    setMutatingId(attachment.id)
+    try {
+      await runMutation({
+        operation: () => deleteFile(attachment),
+        context: mutationContext('delete_attachment', attachment.id),
+        mutationPayload: { entityId, recordId, attachmentId: attachment.id },
+      })
+      flash(t('attachments.library.messages.deleted', 'Attachment removed.'), 'success')
+      await load()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error
+        ? deleteError.message
+        : t('attachments.library.errors.delete', 'Failed to delete attachment.'))
+    } finally {
+      setMutatingId(null)
+    }
+  }, [confirm, deleteFile, disabled, entityId, load, mutatingId, mutationContext, recordId, runMutation, t])
+
+  const requestReplace = React.useCallback((attachment: AttachmentItem) => {
+    if (disabled || uploading || mutatingId) return
+    replacementTargetRef.current = attachment
+    replacementInputRef.current?.click()
+  }, [disabled, mutatingId, uploading])
 
   return (
     <div className="space-y-3">
@@ -176,19 +289,58 @@ export const AttachmentInput = ({
             disabled={disabled || uploading}
             onChange={(event) => { void onUpload(event.target.files) }}
           />
+          <input
+            ref={replacementInputRef}
+            type="file"
+            className="hidden"
+            accept={accept}
+            disabled={disabled || uploading}
+            aria-label={t('attachments.library.actions.chooseReplacement', 'Choose replacement file')}
+            onChange={(event) => {
+              const target = replacementTargetRef.current
+              replacementTargetRef.current = null
+              if (target) void onUpload(event.target.files, target)
+            }}
+          />
         </div>
       )}
       {error ? <div className="text-xs text-status-error-text">{error}</div> : null}
       <div className="space-y-1">
         {loading ? <div className="text-xs text-muted-foreground">{t('attachments.library.loading', 'Loading attachments…')}</div> : null}
-        {items.map(it => (
-          <div key={it.id} className="text-sm">
-            <a className="underline" href={it.url} target="_blank" rel="noreferrer">{it.fileName}</a>
-            <span className="text-xs text-muted-foreground"> • {humanSize(it.fileSize)}</span>
+        {items.map((item) => (
+          <div key={item.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+            <div className="min-w-0 flex-1">
+              <a className="block truncate underline" href={item.url} target="_blank" rel="noreferrer">{item.fileName}</a>
+              <span className="text-xs text-muted-foreground">{humanSize(item.fileSize)}</span>
+            </div>
+            {allowReplace ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => requestReplace(item)}
+                disabled={disabled || uploading || mutatingId !== null}
+              >
+                <RefreshCw className="size-4" aria-hidden="true" />
+                {t('attachments.library.actions.replace', 'Replace')}
+              </Button>
+            ) : null}
+            {allowDelete ? (
+              <IconButton
+                type="button"
+                variant="ghost"
+                aria-label={t('attachments.library.actions.deleteNamed', 'Delete {name}', { name: item.fileName })}
+                onClick={() => { void requestDelete(item) }}
+                disabled={disabled || uploading || mutatingId !== null}
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+              </IconButton>
+            ) : null}
           </div>
         ))}
         {!loading && items.length === 0 ? <div className="text-xs text-muted-foreground">{t('attachments.library.table.empty', 'No attachments found.')}</div> : null}
       </div>
+      {ConfirmDialogElement}
     </div>
   )
 }

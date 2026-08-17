@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Check, CircleAlert, Info, Paperclip, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Check, CircleAlert, Info, Paperclip, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
@@ -24,6 +24,7 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -113,6 +114,7 @@ type ActivityEntry = {
   description: string
   createdAt: string | null
   href?: string
+  attachment?: PortalAttachment
 }
 
 const TRACKER_STEP_KEYS = ['received', 'review', 'decision', 'return', 'resolved'] as const
@@ -310,6 +312,7 @@ function buildActivityEntries(
     description: attachment.fileName,
     createdAt: attachment.createdAt,
     href: attachment.downloadUrl,
+    attachment,
   }))
   return [...eventEntries, ...attachmentEntries].sort((left, right) => {
     const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0
@@ -334,6 +337,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     contextId: DETAIL_MUTATION_CONTEXT_ID,
     blockedMessage: t('warranty_claims.portal.detail.blocked'),
   })
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [claim, setClaim] = React.useState<PortalClaim | null>(null)
   const [events, setEvents] = React.useState<PortalClaimEvent[]>([])
   const [attachments, setAttachments] = React.useState<PortalAttachment[]>([])
@@ -344,8 +348,11 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const [commentSubmitting, setCommentSubmitting] = React.useState(false)
   const [fileInputKey, setFileInputKey] = React.useState(0)
   const [uploading, setUploading] = React.useState(false)
+  const [attachmentMutationId, setAttachmentMutationId] = React.useState<string | null>(null)
   const [claimAction, setClaimAction] = React.useState<PortalClaimAction | null>(null)
   const [actionSubmitting, setActionSubmitting] = React.useState(false)
+  const replacementInputRef = React.useRef<HTMLInputElement | null>(null)
+  const replacementTargetRef = React.useRef<PortalAttachment | null>(null)
 
   React.useEffect(() => {
     if (!loading && !user) {
@@ -434,7 +441,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     }
   }, [claim, comment, commentSubmitting, guardedMutation, refreshEvents, t])
 
-  const uploadAttachment = React.useCallback(async (file: File) => {
+  const uploadAttachment = React.useCallback(async (file: File, replacementTarget?: PortalAttachment) => {
     if (!claim || uploading) return
     const validationError = await validateAttachmentFile(file, t)
     if (validationError) {
@@ -443,42 +450,114 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       return
     }
     setUploading(true)
+    setAttachmentMutationId(replacementTarget?.id ?? 'new')
     setError(null)
     try {
       const form = new FormData()
       form.set('claimId', claim.id)
       form.set('file', file)
+      if (replacementTarget) form.set('attachmentId', replacementTarget.id)
       const result = await guardedMutation.runMutation({
         operation: () => apiCall<UploadResponse>('/api/warranty_claims/portal/attachments', {
-          method: 'POST',
+          method: replacementTarget ? 'PUT' : 'POST',
           credentials: 'include',
           body: form,
         }),
         context: {
           moduleId: 'warranty_claims',
           entityId: 'attachments.attachment',
-          operation: 'portal_attachment_upload',
+          operation: replacementTarget ? 'portal_attachment_replace' : 'portal_attachment_upload',
           claimId: claim.id,
           formId: DETAIL_MUTATION_CONTEXT_ID,
           resourceKind: 'attachments.attachment',
-          resourceId: claim.id,
+          resourceId: replacementTarget?.id ?? claim.id,
           retryLastMutation: guardedMutation.retryLastMutation,
         },
-        mutationPayload: { claimId: claim.id, fileName: file.name, fileSize: file.size },
+        mutationPayload: {
+          claimId: claim.id,
+          attachmentId: replacementTarget?.id,
+          fileName: file.name,
+          fileSize: file.size,
+        },
       })
       if (!result.ok || !result.result?.ok) {
-        setError(t('warranty_claims.portal.detail.attachmentError'))
+        setError(replacementTarget
+          ? t('warranty_claims.portal.detail.attachmentReplaceError', 'Attachment replacement failed.')
+          : t('warranty_claims.portal.detail.attachmentError'))
         return
       }
-      flash(t('warranty_claims.portal.detail.attachmentSuccess'), 'success')
+      flash(
+        replacementTarget
+          ? t('warranty_claims.portal.detail.attachmentReplaceSuccess', 'Attachment replaced.')
+          : t('warranty_claims.portal.detail.attachmentSuccess'),
+        'success',
+      )
       await refreshAttachments(claim.id)
     } catch {
-      setError(t('warranty_claims.portal.detail.attachmentError'))
+      setError(replacementTarget
+        ? t('warranty_claims.portal.detail.attachmentReplaceError', 'Attachment replacement failed.')
+        : t('warranty_claims.portal.detail.attachmentError'))
     } finally {
       setUploading(false)
+      setAttachmentMutationId(null)
       setFileInputKey((current) => current + 1)
     }
   }, [claim, guardedMutation, refreshAttachments, t, uploading])
+
+  const deleteAttachment = React.useCallback(async (attachment: PortalAttachment) => {
+    if (!claim || uploading) return
+    const confirmed = await confirm({
+      title: t('warranty_claims.portal.detail.attachmentDelete', 'Delete attachment'),
+      text: t(
+        'warranty_claims.portal.detail.attachmentDeleteConfirm',
+        'Delete "{name}"? This action cannot be undone.',
+        { name: attachment.fileName },
+      ),
+      confirmText: t('warranty_claims.portal.detail.attachmentDelete', 'Delete attachment'),
+      cancelText: t('warranty_claims.portal.detail.dialogCancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    setUploading(true)
+    setAttachmentMutationId(attachment.id)
+    setError(null)
+    try {
+      const result = await guardedMutation.runMutation({
+        operation: () => apiCall<MutationOkResponse>(
+          `/api/warranty_claims/portal/attachments?attachmentId=${encodeURIComponent(attachment.id)}`,
+          { method: 'DELETE', credentials: 'include' },
+        ),
+        context: {
+          moduleId: 'warranty_claims',
+          entityId: 'attachments.attachment',
+          operation: 'portal_attachment_delete',
+          claimId: claim.id,
+          formId: DETAIL_MUTATION_CONTEXT_ID,
+          resourceKind: 'attachments.attachment',
+          resourceId: attachment.id,
+          retryLastMutation: guardedMutation.retryLastMutation,
+        },
+        mutationPayload: { claimId: claim.id, attachmentId: attachment.id },
+      })
+      if (!result.ok || !result.result?.ok) {
+        setError(t('warranty_claims.portal.detail.attachmentDeleteError', 'Attachment deletion failed.'))
+        return
+      }
+      flash(t('warranty_claims.portal.detail.attachmentDeleteSuccess', 'Attachment deleted.'), 'success')
+      await refreshAttachments(claim.id)
+    } catch {
+      setError(t('warranty_claims.portal.detail.attachmentDeleteError', 'Attachment deletion failed.'))
+    } finally {
+      setUploading(false)
+      setAttachmentMutationId(null)
+    }
+  }, [claim, confirm, guardedMutation, refreshAttachments, t, uploading])
+
+  const requestAttachmentReplacement = React.useCallback((attachment: PortalAttachment) => {
+    if (uploading) return
+    replacementTargetRef.current = attachment
+    replacementInputRef.current?.click()
+  }, [uploading])
 
   const runClaimAction = React.useCallback(async (action: PortalClaimAction) => {
     if (!claim || actionSubmitting) return
@@ -545,6 +624,15 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     const file = event.target.files?.[0] ?? null
     if (!file) return
     void uploadAttachment(file)
+  }, [uploadAttachment])
+
+  const handleReplacementFileChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const replacementTarget = replacementTargetRef.current
+    replacementTargetRef.current = null
+    const file = event.target.files?.[0] ?? null
+    event.target.value = ''
+    if (!replacementTarget || !file) return
+    void uploadAttachment(file, replacementTarget)
   }, [uploadAttachment])
 
   const handleCommentSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
@@ -769,14 +857,56 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                     ) : null}
                   </div>
                   {entry.href ? (
-                    <a
-                      href={entry.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="whitespace-pre-wrap text-xs text-muted-foreground underline-offset-2 hover:underline"
-                    >
-                      {entry.description}
-                    </a>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href={entry.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-w-0 whitespace-pre-wrap text-xs text-muted-foreground underline-offset-2 hover:underline"
+                      >
+                        {entry.description}
+                      </a>
+                      {entry.attachment ? (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="px-2 text-xs"
+                            aria-label={t(
+                              'warranty_claims.portal.detail.attachmentReplaceNamed',
+                              'Replace {name}',
+                              { name: entry.attachment.fileName },
+                            )}
+                            onClick={() => requestAttachmentReplacement(entry.attachment!)}
+                            disabled={uploading}
+                          >
+                            {attachmentMutationId === entry.attachment.id ? (
+                              <Spinner className="size-3" />
+                            ) : (
+                              <RefreshCw className="size-3" aria-hidden="true" />
+                            )}
+                            {t('warranty_claims.portal.detail.attachmentReplace', 'Replace')}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="px-2 text-xs text-status-error-text"
+                            aria-label={t(
+                              'warranty_claims.portal.detail.attachmentDeleteNamed',
+                              'Delete {name}',
+                              { name: entry.attachment.fileName },
+                            )}
+                            onClick={() => { void deleteAttachment(entry.attachment!) }}
+                            disabled={uploading}
+                          >
+                            <Trash2 className="size-3" aria-hidden="true" />
+                            {t('warranty_claims.portal.detail.attachmentDelete', 'Delete attachment')}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
                   ) : (
                     <p className="whitespace-pre-wrap text-xs text-muted-foreground">{entry.description}</p>
                   )}
@@ -788,6 +918,15 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               {t('warranty_claims.portal.detail.timelineEmpty.description')}
             </p>
           )}
+          <input
+            ref={replacementInputRef}
+            type="file"
+            accept={ATTACHMENT_ACCEPT_TYPES}
+            onChange={handleReplacementFileChange}
+            disabled={uploading}
+            className="sr-only"
+            aria-label={t('warranty_claims.portal.detail.attachmentChooseReplacement', 'Choose replacement file')}
+          />
         </div>
 
         <div className={SECTION_CLASS}>
@@ -892,6 +1031,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

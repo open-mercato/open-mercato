@@ -2,11 +2,12 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { waitFor } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const apiCallMock = jest.fn()
 const routerReplaceMock = jest.fn()
+const mockConfirm = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: routerReplaceMock, push: jest.fn() }),
@@ -28,6 +29,10 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
     runMutation: async <T,>({ operation }: { operation: () => Promise<T> }) => operation(),
     retryLastMutation: async () => true,
   }),
+}))
+
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  useConfirmDialog: () => ({ confirm: mockConfirm, ConfirmDialogElement: null }),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -75,7 +80,7 @@ function buildClaim(overrides: Record<string, unknown> = {}) {
 }
 
 function mockClaimResponses(claim: Record<string, unknown>) {
-  apiCallMock.mockImplementation(async (url: string) => {
+  apiCallMock.mockImplementation(async (url: string, options?: { method?: string }) => {
     if (url.startsWith('/api/warranty_claims/portal/claims/')) {
       return { ok: true, status: 200, result: { item: claim } }
     }
@@ -98,6 +103,9 @@ function mockClaimResponses(claim: Record<string, unknown>) {
       }
     }
     if (url.startsWith('/api/warranty_claims/portal/attachments')) {
+      if (options?.method === 'DELETE') {
+        return { ok: true, status: 200, result: { ok: true } }
+      }
       return {
         ok: true,
         status: 200,
@@ -124,6 +132,7 @@ function mockClaimResponses(claim: Record<string, unknown>) {
 describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockConfirm.mockResolvedValue(true)
   })
 
   it('renders the tracker card for an in-review claim', async () => {
@@ -156,6 +165,8 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     expect(view.getByText('Please send a photo of the damaged buckle.')).toBeTruthy()
     expect(view.getByText('You added an attachment')).toBeTruthy()
     expect(view.getByText('receipt.pdf').closest('a')?.getAttribute('href')).toBe('/files/receipt.pdf?download=1')
+    expect(view.getByRole('button', { name: 'Replace receipt.pdf' })).toBeTruthy()
+    expect(view.getByRole('button', { name: 'Delete receipt.pdf' })).toBeTruthy()
 
     expect(view.getByText('Message support')).toBeTruthy()
     expect(view.getByPlaceholderText('Write a message to our support team…')).toBeTruthy()
@@ -164,6 +175,24 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
 
     expect(view.queryByText('Withdraw claim')).toBeNull()
     expect(view.queryByText('Submit claim')).toBeNull()
+  })
+
+  it('deletes a persisted portal attachment after confirmation', async () => {
+    mockClaimResponses(buildClaim())
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(view.getByText('receipt.pdf')).toBeTruthy())
+    fireEvent.click(view.getByRole('button', { name: 'Delete receipt.pdf' }))
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/warranty_claims/portal/attachments?attachmentId=attachment-1',
+      { method: 'DELETE', credentials: 'include' },
+    ))
   })
 
   it('shows submit and withdraw actions with the draft banner for draft claims', async () => {

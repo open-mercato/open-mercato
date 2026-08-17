@@ -634,8 +634,11 @@ function RiskSignalChips({ signals, t }: { signals: ClaimRiskSignal[]; t: Transl
   return (
     <>
       {signals.map((signal) => (
-        <span key={signal.id} title={buildRiskSignalTitle(signal)}>
-          <StatusBadge variant={riskSignalVariant(signal)}>
+        <span key={signal.id} className="min-w-0 max-w-full" title={buildRiskSignalTitle(signal)}>
+          <StatusBadge
+            variant={riskSignalVariant(signal)}
+            className="h-auto max-w-full whitespace-normal break-words text-left leading-snug"
+          >
             {t(signal.messageKey, signal.params)}
           </StatusBadge>
         </span>
@@ -2199,7 +2202,14 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
 
             <TabsContent value="attachments" className="mt-0">
               <div className="px-8 pb-8 pt-6">
-                <AttachmentInput entityId="warranty_claims:warranty_claim" recordId={claim.id} onCountChange={setAttachmentCount} />
+                <AttachmentInput
+                  entityId="warranty_claims:warranty_claim"
+                  recordId={claim.id}
+                  allowDelete={featureAccess.claimManage}
+                  allowReplace={featureAccess.claimManage}
+                  disabled={!featureAccess.claimManage}
+                  onCountChange={setAttachmentCount}
+                />
               </div>
             </TabsContent>
 

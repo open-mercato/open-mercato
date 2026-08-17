@@ -382,7 +382,7 @@ test.describe('TC-WC-028: warranty claims portal submit and withdraw actions', (
     }
   })
 
-  test('portal attachment list and download only serve customer-visible attachments', async ({ request }) => {
+  test('portal attachment list, download, replace, and delete only operate on customer-visible attachments', async ({ request }) => {
     // Contract under test: portal uploads stamp the CUSTOMER_VISIBLE_ATTACHMENT_TAG
     // storageMetadata tag, and the portal list/download endpoints only serve
     // attachments carrying that tag.
@@ -482,6 +482,45 @@ test.describe('TC-WC-028: warranty claims portal submit and withdraw actions', (
         { headers: portalCookieHeaders(session) },
       )
       expect(ownDownload.status(), 'the customer should still download their own upload').toBe(200)
+
+      const staffDelete = await request.delete(
+        `/api/warranty_claims/portal/attachments?attachmentId=${encodeURIComponent(staffAttachmentId!)}`,
+        { headers: portalCookieHeaders(session) },
+      )
+      expect(staffDelete.status(), 'portal customers must not delete untagged staff attachments').toBe(404)
+
+      const originalPortalAttachmentId = portalAttachmentId!
+      const replacement = await request.fetch('/api/warranty_claims/portal/attachments', {
+        method: 'PUT',
+        headers: portalCookieHeaders(session),
+        multipart: {
+          claimId: claimId!,
+          attachmentId: originalPortalAttachmentId,
+          file: {
+            name: `wc-028-customer-replacement-${stamp}.txt`,
+            mimeType: 'text/plain',
+            buffer: Buffer.from(`replacement customer upload ${stamp}`, 'utf8'),
+          },
+        },
+      })
+      expect(replacement.status(), 'portal customers should replace their own visible attachments').toBe(200)
+      const replacementBody = await readJsonSafe<{ item?: { id?: string } }>(replacement)
+      portalAttachmentId = replacementBody?.item?.id ?? null
+      expect(portalAttachmentId, 'replacement should return the new attachment id').toBeTruthy()
+      expect(portalAttachmentId).not.toBe(originalPortalAttachmentId)
+
+      const replacedDownload = await request.get(
+        `/api/warranty_claims/portal/attachments?attachmentId=${encodeURIComponent(originalPortalAttachmentId)}`,
+        { headers: portalCookieHeaders(session) },
+      )
+      expect(replacedDownload.status(), 'the replaced attachment should no longer be available').toBe(404)
+
+      const ownDelete = await request.delete(
+        `/api/warranty_claims/portal/attachments?attachmentId=${encodeURIComponent(portalAttachmentId!)}`,
+        { headers: portalCookieHeaders(session) },
+      )
+      expect(ownDelete.status(), 'portal customers should delete their own visible attachments').toBe(200)
+      portalAttachmentId = null
     } finally {
       await deleteAttachmentIfExists(request, adminToken, staffAttachmentId)
       await deleteAttachmentIfExists(request, adminToken, portalAttachmentId)
