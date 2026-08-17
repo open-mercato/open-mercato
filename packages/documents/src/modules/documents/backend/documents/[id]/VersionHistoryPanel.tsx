@@ -15,12 +15,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import {
-  normalizeDocumentContent,
-  readArrayPayload,
-} from '../documentUi'
+import { readArrayPayload } from '../documentUi'
 import { resolveVersionRestoreCapability, type DocumentTier } from './componentCapabilities'
-import { restoreVersionWithObservedContentToken } from './restoreVersion'
+import { restoreVersionWithCurrentContentToken } from './restoreVersion'
 import type { VersionPreview } from './VersionPreviewDialog'
 import { normalizeVersion, type DocumentVersion } from './versionHistoryModel'
 
@@ -62,6 +59,11 @@ type VersionHistoryPanelProps = {
   /** Legacy compatibility; an explicit capability projection takes precedence. */
   tier?: DocumentTier
   canRestore?: boolean
+  /**
+   * Accepted for compatibility. Restore reads the content row's current
+   * optimistic-lock token immediately before the request instead of relying
+   * on a token observed at page load, which every own edit since invalidated.
+   */
   contentUpdatedAt?: string | null
   onRestored?: () => void | Promise<void>
 }
@@ -73,7 +75,6 @@ export function VersionHistoryPanel({
   documentId,
   tier,
   canRestore,
-  contentUpdatedAt,
   onRestored,
 }: VersionHistoryPanelProps) {
   const t = useT()
@@ -84,7 +85,6 @@ export function VersionHistoryPanel({
   const [isCreating, setIsCreating] = React.useState(false)
   const [restoringVersionId, setRestoringVersionId] = React.useState<string | null>(null)
   const [previewVersionId, setPreviewVersionId] = React.useState<string | null>(null)
-  const observedContentUpdatedAt = React.useRef<string | null>(contentUpdatedAt ?? null)
   const restoreInFlight = React.useRef(false)
   const reloadSequence = React.useRef(0)
   const activeReload = React.useRef<AbortController | null>(null)
@@ -142,26 +142,6 @@ export function VersionHistoryPanel({
     }
   }, [reload])
 
-  React.useEffect(() => {
-    if (contentUpdatedAt !== undefined) {
-      observedContentUpdatedAt.current = contentUpdatedAt
-      return
-    }
-
-    // Legacy deep-import callers do not have the additive contentUpdatedAt
-    // prop. Observe a token when the panel mounts, never immediately before a
-    // restore, so a collaborator edit after this read correctly produces 409.
-    let active = true
-    void apiCall<unknown>(`/api/documents/${encodeURIComponent(documentId)}/content`)
-      .then((call) => {
-        if (active && call.ok) {
-          observedContentUpdatedAt.current = normalizeDocumentContent(call.result).updatedAt
-        }
-      })
-      .catch(() => { if (active) observedContentUpdatedAt.current = null })
-    return () => { active = false }
-  }, [contentUpdatedAt, documentId])
-
   const handleSnapshot = React.useCallback(async () => {
     if (!mayRestore) return
     setIsCreating(true)
@@ -199,18 +179,16 @@ export function VersionHistoryPanel({
       })
       if (!confirmed || currentDocumentIdRef.current !== documentId) return
       setRestoringVersionId(version.id)
-      const call = await runMutation({
-        operation: () => restoreVersionWithObservedContentToken({
+      await runMutation({
+        operation: () => restoreVersionWithCurrentContentToken({
           documentId,
           versionId: version.id,
-          contentUpdatedAt: observedContentUpdatedAt.current,
           errorMessage: t('documents.versions.error.restore'),
         }),
         context: { formId: mutationContextId, resourceKind: 'documents.document_version', resourceId: version.id, retryLastMutation },
         mutationPayload: { action: 'restore', versionId: version.id },
       })
       if (currentDocumentIdRef.current !== documentId) return
-      observedContentUpdatedAt.current = normalizeDocumentContent(call.result).updatedAt
       await reload()
       if (currentDocumentIdRef.current !== documentId) return
       await onRestored?.()

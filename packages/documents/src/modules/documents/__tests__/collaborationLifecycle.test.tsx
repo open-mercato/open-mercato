@@ -14,6 +14,7 @@ type MockProvider = {
       status: string
       webSocket: { close: jest.Mock }
       connect: jest.Mock<Promise<void>, []>
+      disconnect: jest.Mock
     }
   }
   awareness: {
@@ -46,6 +47,7 @@ jest.mock('@hocuspocus/provider', () => ({
       connect: jest.fn(async () => {
         await configuration.token()
       }),
+      disconnect: jest.fn(),
     }
     const provider: MockProvider = {
       configuration: { ...configuration, websocketProvider },
@@ -187,6 +189,49 @@ describe('document collaboration client lifecycle', () => {
     unmount()
     act(() => window.dispatchEvent(new Event('pageshow')))
     expect(provider?.configuration.websocketProvider.connect).toHaveBeenCalledTimes(2)
+  })
+
+  it('discards the local document and starts a fresh session when the room was reset for replaced content', async () => {
+    // Regression for #5361: after a version restore the sidecar reloads the
+    // room from the restored content and closes every socket. Reconnecting
+    // with the same Y.Doc synced the pre-restore state straight back into the
+    // fresh room and silently undid the restore for everyone.
+    const documentId = '22222222-2222-4222-8222-222222222222'
+    const { result, unmount } = renderHook(() => useDocumentCollaboration(documentId))
+    await waitFor(() => expect(result.current.mode).toBe('collab'))
+    const stale = mockProviderInstances[0]
+    expect(stale).toBeDefined()
+    act(() => stale?.emit('synced'))
+
+    act(() => stale?.emit('close', { event: { code: 1000, reason: 'documents:content-reset' } }))
+    expect(stale?.configuration.websocketProvider.disconnect).toHaveBeenCalledTimes(1)
+    expect(stale?.configuration.websocketProvider.webSocket.close).not.toHaveBeenCalled()
+
+    if (stale) stale.configuration.websocketProvider.status = 'disconnected'
+    act(() => stale?.emit('disconnect'))
+    expect(stale?.configuration.websocketProvider.connect).not.toHaveBeenCalled()
+
+    await waitFor(() => expect(mockProviderInstances).toHaveLength(2))
+    expect(stale?.destroy).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(result.current.mode).toBe('collab'))
+    expect(result.current.mode === 'collab' && result.current.resources.provider).toBe(mockProviderInstances[1])
+    expect(mockProviderInstances[1]?.document).not.toBe(stale?.document)
+
+    unmount()
+  })
+
+  it('keeps the same session on an ordinary server-driven room close', async () => {
+    const documentId = '22222222-2222-4222-8222-222222222222'
+    const { result, unmount } = renderHook(() => useDocumentCollaboration(documentId))
+    await waitFor(() => expect(result.current.mode).toBe('collab'))
+    const provider = mockProviderInstances[0]
+
+    act(() => provider?.emit('close', { event: { code: 1000, reason: 'Reset Connection' } }))
+    expect(provider?.configuration.websocketProvider.webSocket.close).toHaveBeenCalledTimes(1)
+    expect(provider?.configuration.websocketProvider.disconnect).not.toHaveBeenCalled()
+    expect(mockProviderInstances).toHaveLength(1)
+
+    unmount()
   })
 
   it('retries a temporary sidecar auth rejection after the token endpoint succeeded', async () => {

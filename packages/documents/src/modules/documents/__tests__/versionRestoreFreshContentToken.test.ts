@@ -6,14 +6,14 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   withScopedApiRequestHeaders: (...args: unknown[]) => withScopedApiRequestHeadersMock(...args),
 }))
 
-import { restoreVersionWithObservedContentToken } from '../backend/documents/[id]/restoreVersion'
+import { restoreVersionWithCurrentContentToken } from '../backend/documents/[id]/restoreVersion'
 
 const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111'
 const VERSION_ID = '22222222-2222-4222-8222-222222222222'
-const OBSERVED_CONTENT_UPDATED_AT = '2026-07-10T14:15:16.123Z'
+const CURRENT_CONTENT_UPDATED_AT = '2026-07-10T14:15:16.123Z'
 const ERROR_MESSAGE = 'Failed to restore version'
 
-describe('restoreVersionWithObservedContentToken', () => {
+describe('restoreVersionWithCurrentContentToken', () => {
   beforeEach(() => {
     apiCallOrThrowMock.mockReset()
     withScopedApiRequestHeadersMock.mockReset().mockImplementation(
@@ -21,64 +21,72 @@ describe('restoreVersionWithObservedContentToken', () => {
     )
   })
 
-  it('sends the previously observed content token without a pre-restore GET', async () => {
+  it('reads the current content token immediately before the restore and sends it as the lock header', async () => {
+    // The token observed at page load is stale after every own edit (the
+    // collaboration sidecar materializes them into `updated_at`), so restoring
+    // after typing used to answer a spurious 409 (#5361).
     const callOrder: string[] = []
     apiCallOrThrowMock.mockImplementation(async (url: string, init?: RequestInit) => {
       callOrder.push(`${init?.method ?? 'GET'} ${url}`)
+      if (url.endsWith('/content')) {
+        return { ok: true, result: { contentHtml: '<p>now</p>', updatedAt: CURRENT_CONTENT_UPDATED_AT } }
+      }
       return { ok: true, result: { updatedAt: '2026-07-10T14:15:17.123Z' } }
     })
 
-    await restoreVersionWithObservedContentToken({
+    await restoreVersionWithCurrentContentToken({
       documentId: DOCUMENT_ID,
       versionId: VERSION_ID,
-      contentUpdatedAt: OBSERVED_CONTENT_UPDATED_AT,
       errorMessage: ERROR_MESSAGE,
     })
 
     expect(callOrder).toEqual([
+      `GET /api/documents/${DOCUMENT_ID}/content`,
       `POST /api/documents/${DOCUMENT_ID}/versions/${VERSION_ID}/restore`,
     ])
     expect(withScopedApiRequestHeadersMock).toHaveBeenCalledWith(
-      { 'x-om-ext-optimistic-lock-expected-updated-at': OBSERVED_CONTENT_UPDATED_AT },
+      { 'x-om-ext-optimistic-lock-expected-updated-at': CURRENT_CONTENT_UPDATED_AT },
       expect.any(Function),
     )
   })
 
-  it('propagates 409 when a collaborator edits after the client observed its token', async () => {
+  it('propagates 409 when a collaborator writes between the token read and the restore', async () => {
     const conflict = Object.assign(new Error('Record changed'), {
       status: 409,
       body: {
         code: 'optimistic_lock_conflict',
         currentUpdatedAt: '2026-07-10T14:15:18.123Z',
-        expectedUpdatedAt: OBSERVED_CONTENT_UPDATED_AT,
+        expectedUpdatedAt: CURRENT_CONTENT_UPDATED_AT,
       },
     })
-    apiCallOrThrowMock.mockRejectedValueOnce(conflict)
+    apiCallOrThrowMock
+      .mockResolvedValueOnce({ ok: true, result: { contentHtml: '', updatedAt: CURRENT_CONTENT_UPDATED_AT } })
+      .mockRejectedValueOnce(conflict)
 
-    await expect(restoreVersionWithObservedContentToken({
+    await expect(restoreVersionWithCurrentContentToken({
       documentId: DOCUMENT_ID,
       versionId: VERSION_ID,
-      contentUpdatedAt: OBSERVED_CONTENT_UPDATED_AT,
       errorMessage: ERROR_MESSAGE,
     })).rejects.toBe(conflict)
 
-    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
-    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(2)
+    expect(apiCallOrThrowMock).toHaveBeenLastCalledWith(
       `/api/documents/${DOCUMENT_ID}/versions/${VERSION_ID}/restore`,
       { method: 'POST' },
       { errorMessage: ERROR_MESSAGE },
     )
   })
 
-  it('fails closed when the client has no usable observed token', async () => {
-    await expect(restoreVersionWithObservedContentToken({
+  it('fails closed when the content row has no usable token', async () => {
+    apiCallOrThrowMock.mockResolvedValueOnce({ ok: true, result: { contentHtml: '', updatedAt: null } })
+
+    await expect(restoreVersionWithCurrentContentToken({
       documentId: DOCUMENT_ID,
       versionId: VERSION_ID,
-      contentUpdatedAt: null,
       errorMessage: ERROR_MESSAGE,
     })).rejects.toThrow(ERROR_MESSAGE)
 
     expect(withScopedApiRequestHeadersMock).not.toHaveBeenCalled()
-    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
   })
 })

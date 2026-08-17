@@ -17,6 +17,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ShareDialog } from '../components/ShareDialog'
 import { normalizeDocumentContent, normalizeDocumentDetail, type DocumentContent, type DocumentDetail } from '../documentUi'
@@ -43,6 +44,23 @@ function DocumentEditorLoading({ error, retry }: { error?: Error | null; retry?:
 
 const DocumentEditorIsland = dynamic(() => import('./DocumentEditorIsland'), { ssr: false, loading: DocumentEditorLoading })
 
+const PANEL_REVEAL_OFFSET_PX = 16
+
+export function revealPanelInScrollContainer(panel: HTMLElement): void {
+  const behavior: ScrollBehavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+  let container = panel.parentElement
+  while (container) {
+    const overflowY = window.getComputedStyle(container).overflowY
+    if ((overflowY === 'auto' || overflowY === 'scroll') && container.scrollHeight > container.clientHeight) {
+      const offset = panel.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+      container.scrollTo({ top: Math.max(0, offset - PANEL_REVEAL_OFFSET_PX), behavior })
+      return
+    }
+    container = container.parentElement
+  }
+  panel.scrollIntoView({ block: 'start', behavior })
+}
+
 type CommentFocusRequest = { anchor: CommentAnchor; requestId: number }
 type LoadState =
   | { status: 'loading' }
@@ -57,6 +75,8 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
   const [state, setState] = React.useState<LoadState>({ status: 'loading' })
   const [shareOpen, setShareOpen] = React.useState(false)
   const [showVersions, setShowVersions] = React.useState(false)
+  const versionsPanelRef = React.useRef<HTMLDivElement | null>(null)
+  const scrollVersionsIntoView = React.useRef(false)
   const [editorEpoch, setEditorEpoch] = React.useState(0)
   const [editor, setEditor] = React.useState<Editor | null>(null)
   const [commentFocusRequest, setCommentFocusRequest] = React.useState<CommentFocusRequest | null>(null)
@@ -133,6 +153,26 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     setEditor(null)
     setEditorEpoch((current) => current + 1)
   }, [])
+
+  const toggleVersions = React.useCallback(() => {
+    setShowVersions((value) => {
+      scrollVersionsIntoView.current = !value
+      return !value
+    })
+  }, [])
+
+  // The versions panel mounts at the bottom of the side rail, below the fold on
+  // a laptop screen, so opening it gave no visible feedback. Bring it to the
+  // top of whichever container scrolls the rail (the sticky aside on wide
+  // screens, the page otherwise) and hand it focus for keyboard users.
+  React.useLayoutEffect(() => {
+    if (!showVersions || !scrollVersionsIntoView.current) return
+    scrollVersionsIntoView.current = false
+    const panel = versionsPanelRef.current
+    if (!panel) return
+    revealPanelInScrollContainer(panel)
+    panel.focus({ preventScroll: true })
+  }, [showVersions])
 
   const setDocumentState = React.useCallback((mutate: (document: DocumentDetail) => DocumentDetail) => {
     setState((current) => current.status === 'ready'
@@ -293,25 +333,29 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       <PageHeader title={t('documents.nav.document')} actions={(
         <>
           <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
-          <IconButton
-            type="button"
-            variant="outline"
-            onClick={() => void runPersonalToggle('favorite', !document.isFavorite)}
-            aria-pressed={document.isFavorite}
-            aria-label={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
-          >
-            <Star />
-          </IconButton>
-          <IconButton
-            type="button"
-            variant="outline"
-            onClick={() => void runPersonalToggle('watch', !document.isWatching)}
-            aria-pressed={document.isWatching}
-            aria-label={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')}
-          >
-            <Bell />
-          </IconButton>
-          <Button type="button" variant={showVersions ? 'secondary' : 'outline'} onClick={() => setShowVersions((value) => !value)} aria-pressed={showVersions}>
+          <SimpleTooltip content={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')} size="sm">
+            <IconButton
+              type="button"
+              variant="outline"
+              onClick={() => void runPersonalToggle('favorite', !document.isFavorite)}
+              aria-pressed={document.isFavorite}
+              aria-label={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
+            >
+              <Star />
+            </IconButton>
+          </SimpleTooltip>
+          <SimpleTooltip content={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')} size="sm">
+            <IconButton
+              type="button"
+              variant="outline"
+              onClick={() => void runPersonalToggle('watch', !document.isWatching)}
+              aria-pressed={document.isWatching}
+              aria-label={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')}
+            >
+              <Bell />
+            </IconButton>
+          </SimpleTooltip>
+          <Button type="button" variant={showVersions ? 'secondary' : 'outline'} onClick={toggleVersions} aria-pressed={showVersions}>
             <History />{t('documents.actions.versions')}
           </Button>
           <ExportMenu documentId={document.id} editor={editor} />
@@ -385,12 +429,14 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
               canShare={capabilities.canShare}
             />
             {showVersions ? (
-              <VersionHistoryPanel
-                documentId={document.id}
-                canRestore={capabilities.canEdit}
-                contentUpdatedAt={content.updatedAt}
-                onRestored={reloadEditor}
-              />
+              <div ref={versionsPanelRef} tabIndex={-1} className="scroll-mt-4 outline-none">
+                <VersionHistoryPanel
+                  documentId={document.id}
+                  canRestore={capabilities.canEdit}
+                  contentUpdatedAt={content.updatedAt}
+                  onRestored={reloadEditor}
+                />
+              </div>
             ) : null}
           </aside>
         </div>

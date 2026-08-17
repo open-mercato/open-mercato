@@ -5,6 +5,10 @@ import { z } from 'zod'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import {
+  ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE,
+  resolveActiveOrganizationId,
+} from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -186,10 +190,16 @@ function resolveSelectedOrganization(
   auth: NonNullable<AuthContext>,
   scope: { selectedId?: string | null; filterIds?: string[] | null; allowedIds?: string[] | null; tenantId?: string | null } | null,
 ): string | null {
-  const allowed = scope?.filterIds ?? scope?.allowedIds ?? (auth.orgId ? [auth.orgId] : null)
+  // Every document row carries one organization, so there is no "all
+  // organizations" view of this module. When the super-admin switcher clears
+  // `auth.orgId`, keep the operator on their own organization (the shared
+  // helper refuses the fallback once the tenant override moved them elsewhere)
+  // instead of failing every request.
+  const activeOrganizationId = resolveActiveOrganizationId(auth)
+  const allowed = scope?.filterIds ?? scope?.allowedIds ?? (activeOrganizationId ? [activeOrganizationId] : null)
   const candidates = [
     scope?.selectedId ?? null,
-    auth.orgId ?? null,
+    activeOrganizationId,
     Array.isArray(allowed) && allowed.length > 0 ? allowed[0] : null,
   ]
   for (const candidate of candidates) {
@@ -334,6 +344,18 @@ export async function resolveDocumentsContext(
     throw new CrudHttpError(400, { error: 'documents.errors.organizationRequired' })
   }
   if (!organizationId) {
+    // An unrestricted caller with no resolvable organization (a super-admin
+    // viewing a foreign tenant with "all organizations" selected) is a 400, not
+    // a 401 (which `apiFetch` would turn into a refresh loop) and not a 403 (the
+    // caller is allowed in; they only need to pick an organization). A caller
+    // whose grants expand to no organization at all stays a 403.
+    const unrestricted = (scope?.filterIds ?? scope?.allowedIds ?? null) === null
+    if (unrestricted) {
+      throw new CrudHttpError(400, {
+        error: 'documents.errors.organizationRequired',
+        code: ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE,
+      })
+    }
     throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
   }
 

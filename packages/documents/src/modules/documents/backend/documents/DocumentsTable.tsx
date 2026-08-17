@@ -99,8 +99,11 @@ export function DocumentsTable(props: DocumentsTableProps) {
       cell: ({ row }) => <span className="text-sm">{formatDateTime(row.original.updatedAt, t('documents.list.noValue'))}</span>,
     },
   ], [t, props.onToggleFavorite])
+  // A fragment, not a nested flex box: the DataTable header owns the wrapping
+  // row, so on narrow layouts the refresh control and these buttons wrap as
+  // one group instead of a lone refresh icon above a second left-aligned row.
   const actions = (
-    <div className="flex flex-wrap items-center gap-2">
+    <>
       <Button
         type="button"
         variant={props.favoritesOnly ? 'secondary' : 'outline'}
@@ -122,7 +125,7 @@ export function DocumentsTable(props: DocumentsTableProps) {
       {props.canManageTemplates ? <LinkButton asChild variant="gray"><Link href="/backend/documents/templates">{t('documents.templates.actions.manage')}</Link></LinkButton> : null}
       {props.hasTemplates && props.canInstantiateTemplate ? <Button type="button" variant="outline" onClick={props.onNewFromTemplate}>{t('documents.templates.instantiate.title')}</Button> : null}
       {props.canCreateDocument ? <Button type="button" onClick={props.onCreate} disabled={props.isCreating}>{t('documents.actions.create')}</Button> : null}
-    </div>
+    </>
   )
   return (
     <DataTable<DocumentRow>

@@ -15,10 +15,12 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { getDocumentEditorExtensions } from '../../../lib/editorConfig'
 import { firstSafeDocumentsDisplayLabel } from '../../../lib/displayLabels'
 import { sanitizeDocumentVersionLabel } from '../../../lib/versionLabels'
 import { readRecord, readString } from '../documentUi'
+import { DOCUMENT_EDITOR_CONTENT_CLASS } from './editorTypes'
 
 export type VersionPreview = {
   id: string
@@ -68,7 +70,9 @@ function ReadOnlyVersion({ contentHtml, fallbackLabel }: { contentHtml: string; 
     editorProps: { attributes: { class: 'min-h-64 text-base leading-7 text-foreground focus-visible:outline-none' } },
   }, [contentHtml])
   React.useEffect(() => { editor?.commands.setContent(contentHtml) }, [contentHtml, editor])
-  return <EditorContent editor={editor} className="max-w-none rounded-md border border-border bg-card p-4" />
+  // Share the live editor's typography so tables keep their grid lines and
+  // headings/lists read the same in the preview as on the canvas.
+  return <EditorContent editor={editor} className={cn(DOCUMENT_EDITOR_CONTENT_CLASS, 'rounded-md border border-border bg-card p-4')} />
 }
 
 export function VersionPreviewDialog({

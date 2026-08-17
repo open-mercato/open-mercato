@@ -290,6 +290,63 @@ describe('documents route authorization freshness', () => {
     expect(rbacService.loadAcl).not.toHaveBeenCalled()
   })
 
+  it('keeps a superadmin viewing "all organizations" on their own organization', async () => {
+    // The super-admin switcher override clears `auth.orgId` and preserves the
+    // account organization in `actorOrgId`. Every document row belongs to one
+    // organization, so fall back to the operator's own org rather than 403.
+    mockGetAuthFromRequest.mockResolvedValue(interactiveAuth({
+      orgId: null,
+      actorOrgId: ORGANIZATION_ID,
+      isSuperAdmin: true,
+    }))
+    rbacService.loadAcl.mockResolvedValue({
+      isSuperAdmin: true,
+      features: [],
+      organizations: null,
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId: TENANT_ID,
+    })
+
+    await expect(resolve()).resolves.toMatchObject({
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      auth: { orgId: ORGANIZATION_ID, organizationId: ORGANIZATION_ID, isSuperAdmin: true },
+    })
+  })
+
+  it('answers 400 organization_scope_required when a superadmin views a foreign tenant with "all organizations"', async () => {
+    // The actor organization belongs to another tenant, so it must not be
+    // reused; a 400 (not 401, which would loop through session refresh, and
+    // not 403, which reads as denied) tells the caller to pick an organization.
+    mockGetAuthFromRequest.mockResolvedValue(interactiveAuth({
+      tenantId: '99999999-9999-4999-8999-999999999999',
+      actorTenantId: TENANT_ID,
+      orgId: null,
+      actorOrgId: ORGANIZATION_ID,
+      isSuperAdmin: true,
+    }))
+    rbacService.loadAcl.mockResolvedValue({
+      isSuperAdmin: true,
+      features: [],
+      organizations: null,
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId: '99999999-9999-4999-8999-999999999999',
+    })
+
+    await expect(resolve()).rejects.toMatchObject({
+      status: 400,
+      body: { code: 'organization_scope_required' },
+    })
+  })
+
   it('projects live superadmin as wildcard features for downstream query contexts', async () => {
     rbacService.loadAcl.mockResolvedValue({
       isSuperAdmin: true,

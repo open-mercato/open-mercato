@@ -62,7 +62,7 @@ function BacklinksSection({ documentId }: { documentId: string }) {
     )
     if (requestSequence.current !== requestId) return
     if (!call.ok) return setState({ status: 'error' })
-    const items = readArrayPayload(call.result)
+    const items = readArrayPayload(call.result, 'items', 'data')
       .flatMap((candidate) => {
         const record = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
           ? candidate as Record<string, unknown>

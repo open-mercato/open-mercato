@@ -79,11 +79,13 @@ describe('resolveUserLabels', () => {
     expect(labels.get(USER_ID_2)).toEqual({ label: 'safe@example.test', secondary: null })
   })
 
-  it('projects viewer-safe labels without email primary fallbacks or secondary metadata', async () => {
+  it('projects viewer-safe labels without secondary metadata while keeping an email-only display name', async () => {
+    // An account without a display name resolves to its email everywhere else
+    // (list owner column, version history); comment authors must match instead
+    // of degrading to the "unknown user" placeholder.
     const container = containerWithLabels([
       { id: USER_ID_1, label: 'Ada Lovelace', secondary: 'ada@example.test' },
       { id: USER_ID_2, label: 'grace@example.test', secondary: null },
-      { id: UNKNOWN_USER_ID, label: 'Grace <grace@example.test>', secondary: null },
     ])
 
     const labels = await resolveViewerSafeUserLabels(
@@ -94,6 +96,7 @@ describe('resolveUserLabels', () => {
 
     expect(Array.from(labels.entries())).toEqual([
       [USER_ID_1, { label: 'Ada Lovelace' }],
+      [USER_ID_2, { label: 'grace@example.test' }],
     ])
   })
 })

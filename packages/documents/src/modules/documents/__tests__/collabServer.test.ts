@@ -19,6 +19,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 import {
   assertDocumentsCollabRedisAggregateUpdate,
   assertCollabInboundFramePolicy,
+  closeCollabRoomConnectionsForContentReset,
   COLLAB_SERVER_RUNTIME_CONFIGURATION,
   COLLAB_SERVER_TRANSPORT_OPTIONS,
   COLLAB_SERVER_WEBSOCKET_CONFIGURATION,
@@ -1223,6 +1224,25 @@ describe('documents collaboration v2 server contract', () => {
   it('re-authenticates for access changes without suppressing durable stores', () => {
     expect(resolveCollabRoomEventAction('documents.document.shared')).toBe('reauth')
     expect(resolveCollabRoomEventAction('documents.document.unshared')).toBe('reauth')
+  })
+
+  it('closes a content-replaced room with the browser-recognizable content-reset reason', () => {
+    // A plain ResetConnection close makes the provider rejoin the reloaded
+    // room with its stale Y.Doc and sync the pre-restore state back (#5361).
+    const close = jest.fn()
+    const otherClose = jest.fn()
+    const registry = {
+      documents: new Map([
+        ['doc-1', { connections: new Map([[{ close }, { clients: new Set() }], [{ close }, { clients: new Set() }]]) }],
+        ['doc-2', { connections: new Map([[{ close: otherClose }, { clients: new Set() }]]) }],
+      ]),
+    }
+
+    expect(closeCollabRoomConnectionsForContentReset(registry, 'doc-1')).toBe(2)
+    expect(close).toHaveBeenCalledTimes(2)
+    expect(close).toHaveBeenCalledWith({ code: 4205, reason: 'documents:content-reset' })
+    expect(otherClose).not.toHaveBeenCalled()
+    expect(closeCollabRoomConnectionsForContentReset(registry, 'missing')).toBe(0)
   })
 
   it('waits for captured queues and consumes a trusted final-drain mark once', async () => {

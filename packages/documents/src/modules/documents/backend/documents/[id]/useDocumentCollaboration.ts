@@ -13,6 +13,7 @@ import {
   normalizeCollaborationColor,
   resolveCollaborationUserColor,
 } from '../../../lib/collaborationAwareness'
+import { isCollabContentResetCloseEvent } from '../../../lib/collabCloseEvents'
 import {
   readNumber,
   readRecord,
@@ -275,6 +276,11 @@ export function useDocumentCollaboration(documentId: string): CollabState {
   const fallbackUserLabel = sanitizeDocumentsDisplayLabel(t('documents.users.unknown'))
   const resourcesRef = React.useRef<CollabResources | null>(null)
   const [state, setState] = React.useState<CollabState>({ mode: 'connecting' })
+  // Bumped when the sidecar closes the room because its content was replaced
+  // (version restore). Re-running the effect discards the local Y.Doc and
+  // provider and joins the reloaded room from scratch; reconnecting with the
+  // stale document would sync the pre-restore state back into it.
+  const [sessionEpoch, setSessionEpoch] = React.useState(0)
   React.useEffect(() => {
     let active = true
     let terminal = false
@@ -407,7 +413,20 @@ export function useDocumentCollaboration(documentId: string): CollabState {
         statusController?.disconnected()
         socketLifecycle?.disconnected()
       })
-      provider.on('close', () => {
+      provider.on('close', (payload: unknown) => {
+        const closeEvent = readRecord(payload)?.event
+        if (isCollabContentResetCloseEvent(closeEvent)) {
+          if (!active || terminal || resourcesRef.current !== resources) return
+          // Stop every reconnect path for this session first: the provider's
+          // own retry and the socket lifecycle would otherwise rejoin the
+          // room with the stale document before the fresh session starts.
+          terminal = true
+          socketLifecycle?.dispose()
+          statusController?.dispose()
+          provider.configuration.websocketProvider.disconnect()
+          setSessionEpoch((current) => current + 1)
+          return
+        }
         statusController?.disconnected()
         socketLifecycle?.logicalClose()
       })
@@ -434,6 +453,6 @@ export function useDocumentCollaboration(documentId: string): CollabState {
       if (local) destroy(local)
       if (resourcesRef.current === local) resourcesRef.current = null
     }
-  }, [documentId, fallbackUserLabel])
+  }, [documentId, fallbackUserLabel, sessionEpoch])
   return state
 }

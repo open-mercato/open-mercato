@@ -38,3 +38,17 @@ describe('IconButton solid variants', () => {
     expect(className).not.toContain('dark:bg-input')
   })
 })
+
+describe('IconButton pressed state', () => {
+  // The pressed surface must be restated under `dark:` for the same reason:
+  // `variant="outline"` (`dark:bg-input/30`) and `variant="ghost"`
+  // (`dark:hover:bg-accent/50`) otherwise outrank `aria-pressed:bg-primary`
+  // while `aria-pressed:text-primary-foreground` still applies, leaving a
+  // dark icon on a dark surface (invisible favorite/watch toggles).
+  it.each(['outline', 'ghost'] as const)('keeps the primary fill on a pressed %s button in dark mode', (variant) => {
+    const classes = iconButtonVariants({ variant })
+    expect(classes).toContain('aria-pressed:bg-primary')
+    expect(classes).toContain('dark:aria-pressed:bg-primary')
+    expect(classes).toContain('dark:aria-pressed:hover:bg-primary-hover')
+  })
+})

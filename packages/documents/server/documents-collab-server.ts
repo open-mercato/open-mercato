@@ -73,6 +73,7 @@ import {
   assertDocumentYjsStateByteLength,
   DOCUMENTS_COLLAB_MAX_PAYLOAD_BYTES,
 } from '@open-mercato/documents/modules/documents/lib/resourceLimits'
+import { COLLAB_CONTENT_RESET_CLOSE_EVENT } from '@open-mercato/documents/modules/documents/lib/collabCloseEvents'
 
 export { htmlToYDoc, yDocToContent }
 
@@ -2983,6 +2984,31 @@ function eventDocumentId(payload: unknown): string | null {
   return typeof id === 'string' && id.length > 0 ? id : null
 }
 
+type CollabRoomConnectionRegistry = {
+  documents: Map<string, { connections: Map<{ close: (event?: { code: number; reason: string }) => void }, unknown> }>
+}
+
+/**
+ * A content-replaced room must not be rejoined by the same browser Y.Doc:
+ * Hocuspocus' plain `closeConnections` reset makes the provider reconnect with
+ * its local document, whose pre-replacement state would sync straight back
+ * into the freshly loaded room and undo the restore. Close these connections
+ * with the dedicated reason the browser resets its document on instead.
+ */
+export function closeCollabRoomConnectionsForContentReset(
+  registry: CollabRoomConnectionRegistry,
+  documentName: string,
+): number {
+  const room = registry.documents.get(documentName)
+  if (!room) return 0
+  let closed = 0
+  room.connections.forEach((_clients, connection) => {
+    connection.close(COLLAB_CONTENT_RESET_CLOSE_EVENT)
+    closed += 1
+  })
+  return closed
+}
+
 export type CollabRoomEventAction = 'ignore' | 'reauth' | 'invalidate'
 
 /**
@@ -3111,11 +3137,14 @@ export async function main(): Promise<void> {
   const finalDrainRegistry = createCollabFinalDrainRegistry()
   let server: HocuspocusServer<CollabContext> | null = null
   let redisStoreExtension: DocumentsCollabRedisExtension | null = null
+  const closeRoomConnectionsForContentReset = (documentName: string): void => {
+    if (server) closeCollabRoomConnectionsForContentReset(server.hocuspocus, documentName)
+  }
   const invalidateRoom = (documentName: string, document: Y.Doc): void => {
     redisStoreExtension?.discardPendingFanout(documentName, document)
     finalDrainRegistry.discard(document)
     invalidatedRoomDocuments.add(document)
-    server?.hocuspocus.closeConnections(documentName)
+    closeRoomConnectionsForContentReset(documentName)
   }
   const legacyTokenVerifier = resolveLegacyCollabTokenVerifier(process.env)
   const hooks = createCollabHooks({
@@ -3340,6 +3369,8 @@ export async function main(): Promise<void> {
         finalDrainRegistry.discard(roomDocument)
         invalidatedRoomDocuments.add(roomDocument)
       }
+      closeRoomConnectionsForContentReset(documentId)
+      return
     }
     runningServer.hocuspocus.closeConnections(documentId)
   })

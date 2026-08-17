@@ -137,6 +137,36 @@ describe('document side-panel reload freshness', () => {
     expect(screen.getByText('Fresh company')).toBeTruthy()
   })
 
+  it('lists the documents that reference this one from the paged list envelope', async () => {
+    // The list API answers `{ items, total }`; the section used to read the
+    // envelope as a bare array, so it counted the backlinks but listed none.
+    apiCallMock.mockImplementation((path: unknown, ...rest: unknown[]) => (
+      typeof path === 'string' && path.includes('entityType=document')
+        ? Promise.resolve({
+            ok: true,
+            status: 200,
+            result: {
+              items: [
+                { id: '44444444-4444-4444-8444-444444444444', title: 'Referencing brief' },
+                { id: '55555555-5555-4555-8555-555555555555', title: 'Referencing memo' },
+              ],
+              total: 3,
+            },
+          })
+        : panelApiCallMock(path, ...rest)
+    ))
+    panelApiCallMock.mockResolvedValue(relatedRecordsResponse('Fresh company'))
+
+    render(<RelatedRecordsPanel documentId={DOCUMENT_ID} canEdit editor={null} />)
+
+    await waitFor(() => expect(screen.getByText('Referencing brief')).toBeTruthy())
+    expect(screen.getByText('Referencing memo')).toBeTruthy()
+    expect(screen.queryByText('documents.relatedRecords.referencedBy.empty')).toBeNull()
+    expect(screen.getByText('documents.relatedRecords.referencedBy.more')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Referencing brief' }).getAttribute('href'))
+      .toBe('/backend/documents/44444444-4444-4444-8444-444444444444')
+  })
+
   it('aborts and ignores an obsolete version load after creating a snapshot', async () => {
     const staleLoad = deferred<ReturnType<typeof versionsResponse>>()
     let staleSignal: AbortSignal | undefined

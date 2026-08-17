@@ -7,8 +7,6 @@ import {
 export type UserLabel = { label: string; secondary?: string | null }
 export type ViewerSafeUserLabel = { label: string }
 
-const EMAIL_LIKE_DISPLAY_LABEL_PATTERN = /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/i
-
 function cleanString(value: unknown): string | null {
   return sanitizeDocumentsDisplayLabel(value)
 }
@@ -40,8 +38,11 @@ export async function resolveUserLabels(
 
 /**
  * Resolve labels safe for document viewers. Comment history needs readable
- * author names, but it is not a directory surface: secondary identifiers and
- * email-backed primary fallbacks must not cross this boundary.
+ * author names, but it is not a directory surface: secondary identifiers must
+ * not cross this boundary. The primary label itself is kept as the directory
+ * resolved it — for an account without a display name that is its email, the
+ * same label the list owner column and version history already show, so a
+ * commenter never degrades to the "unknown user" placeholder.
  */
 export async function resolveViewerSafeUserLabels(
   container: DocumentsServiceContainer | null | undefined,
@@ -51,7 +52,6 @@ export async function resolveViewerSafeUserLabels(
   const resolved = await resolveUserLabels(container, scope, userIds)
   const labels = new Map<string, ViewerSafeUserLabel>()
   for (const [userId, value] of resolved.entries()) {
-    if (EMAIL_LIKE_DISPLAY_LABEL_PATTERN.test(value.label)) continue
     labels.set(userId, { label: value.label })
   }
   return labels

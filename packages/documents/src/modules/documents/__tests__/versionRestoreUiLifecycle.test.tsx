@@ -120,7 +120,11 @@ describe('VersionHistoryPanel restore lifecycle', () => {
     expect(flashMock).not.toHaveBeenCalledWith('documents.versions.restored', 'success')
 
     fireEvent.click(screen.getByRole('button', { name: 'restore-preview' }))
-    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    // One restore = the fresh content-token read plus the restore POST; the
+    // duplicate click while the refresh is pending must not add a second pair.
+    const restoreCalls = apiCallOrThrowMock.mock.calls.filter(([url]) => String(url).endsWith('/restore'))
+    expect(restoreCalls).toHaveLength(1)
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(2)
 
     await act(async () => {
       resolveRefresh?.()
