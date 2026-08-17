@@ -32,7 +32,31 @@ most of the patterns listed below in a user's codebase.
 
 **Action for client authors:** send the object returned by `@simplewebauthn/browser`'s `startAuthentication()` as `payload.response`. The first-party UI already does this, so no change is needed for apps that use the shipped `PasskeyChallengeVerify` component. A client that submitted the credential id and challenge was, by construction, not performing cryptographic verification.
 
-**Action for operators:** the passkey *enrollment* path still accepts a client-supplied `publicKey` without attestation. A credential enrolled that way carries a public key no authenticator holds the private half of, so it can never produce a verifiable assertion and now fails every login. A user whose only MFA method is such a credential needs an admin MFA reset (`POST /api/security/users/{id}/mfa/reset`) and a fresh enrollment through the browser ceremony. Audit `mfa_methods` rows of type `passkey` before upgrading if you ever provisioned passkeys through the API rather than the UI.
+**Action for operators — read this before upgrading.** The passkey *enrollment* path still accepts a client-supplied `publicKey` with no attestation (tracked as #5296; **this release does not close it**). A credential stored through that shortcut can be one of two things, and the row does not say which:
+
+- **An unusable key** — the caller supplied a value no authenticator holds the private half of. It can never produce a verifiable assertion, so it now fails every login. A user whose only MFA method is such a credential is locked out until an admin resets it.
+- **An attacker-controlled but perfectly valid keypair** — the caller generated a real P-256 keypair in software and enrolled its COSE public key. That credential signs assertions this release accepts, exactly as a genuine authenticator would. Requiring a real assertion does not help here; the key is real, it is simply not the user's.
+
+The second case is an account-takeover path, not a lockout inconvenience, so **treat every shortcut-enrolled passkey as potentially hostile rather than merely broken.** It matters most for a user who already holds a password-only (`mfa_pending`) session: `authorizeMfaEnrollmentMutation` in `api/mfa/_shared.ts` authorizes enrollment on `auth.sub` and does not reject a pending token, so an attacker with a stolen password may be able to enroll a key they control and then satisfy the second factor with it.
+
+**Provenance cannot be reconstructed from the stored row.** Both enrollment paths write the same `provider_metadata` keys (`credentialId`, `credentialPublicKey`, `counter`, `transports`, `label`), and the shortcut lets the caller choose all of them, so there is no field that reliably distinguishes a browser-ceremony credential from an API-provisioned one. Do not assume a query can single out the affected rows.
+
+Effective mitigations, strongest first:
+
+1. **Sequence #5296 ahead of this upgrade** if you can, so no new shortcut credential can be enrolled after the audit.
+2. **Reset and re-enroll every passkey method** on any deployment that ever provisioned passkeys through the API, rather than trying to identify individual rows. Enumerate them with:
+
+   ```sql
+   SELECT id, user_id, tenant_id, label, created_at, last_used_at
+     FROM user_mfa_methods
+    WHERE type = 'passkey'
+      AND deleted_at IS NULL
+      AND is_active = true
+    ORDER BY created_at;
+   ```
+
+   Then reset each affected user with `POST /api/security/users/{id}/mfa/reset` and have them re-enroll through the browser ceremony. Communicate the reset in advance: for users whose only method is a passkey it is a lockout until they re-enroll.
+3. If a full re-enrollment is not feasible, at minimum reset the passkey methods of users who hold `security.mfa.manage` or an admin role, since those are the accounts a forged credential is worth targeting.
 
 ### Standalone apps gain deterministic design-system and i18n checks
 

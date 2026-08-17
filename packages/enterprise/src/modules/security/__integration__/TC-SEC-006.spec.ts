@@ -32,6 +32,9 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
     await deleteUserFixture(request, adminToken ?? null, targetUserId)
   })
 
+  // This test stops at the unconditional `test.skip` mid-body: the sudo-config assertions after it
+  // need a genuine WebAuthn assertion and are unreachable until #5307 lands a virtual authenticator.
+  // They stay in place as the blueprint for that work. Everything above the skip runs and can fail.
   test('requires sudo and refuses a passkey step-up without a WebAuthn assertion', async ({ request }) => {
     const adminMethods = await fetchJson<{
       methods: Array<{ type: string; providerMetadata?: Record<string, unknown> | null }>

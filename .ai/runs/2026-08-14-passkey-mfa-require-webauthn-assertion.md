@@ -95,3 +95,11 @@ PR: #5306
 ### Phase 5: Validation and delivery
 
 - [x] 5.1 Run the full validation gate and finalize the PR — fb98bf0d9 (review pass raised one major finding, fixed in that commit)
+
+### Phase 6: Address the strict review round
+
+- [x] 6.1 Resolve the compatibility waiver against the policy gate — added a defined Emergency Security Exception to the Deprecation Protocol and reclassified the passkey entry as an instance of it rather than a one-off
+- [x] 6.2 Write the migration spec the protocol's step 5 requires — `.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md`
+- [x] 6.3 Correct the operator guidance — a shortcut-enrolled credential may hold an attacker-controlled valid keypair, not only an unusable key
+- [x] 6.4 Fix the audit instruction to the real schema (`user_mfa_methods`, column `type`) and replace per-row auditing with reset-and-re-enroll, since provenance is not reconstructible
+- [x] 6.5 Note the mid-body `test.skip` in TC-SEC-006/007 so the unreachable tail is not a surprise
