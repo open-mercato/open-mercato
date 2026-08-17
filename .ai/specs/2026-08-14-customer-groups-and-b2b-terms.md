@@ -165,8 +165,7 @@ One row per group. Absent row means "inherit from parent group, then tenant defa
 | Column | Type | Notes |
 |---|---|---|
 | `group_id` | uuid | FK → `customer_groups`, unique |
-| `price_kind_id` | uuid, nullable | `catalog.CatalogPriceKind.id` — the price kind this group buys at |
-| `tax_display_mode` | text, nullable | `gross \| net` — drives `BuyerContext.taxMode` |
+| `price_kind_id` | uuid, nullable | `catalog.CatalogPriceKind.id` — the price kind this group buys at; its own `displayMode` (`including-tax` \| `excluding-tax`) is the **only** source of gross/net display for this group — see §6.1a. No separate `tax_display_mode` column: a `/om-pre-implement-spec` audit found the original draft stored gross/net twice (here, independently of `price_kind_id`), with no reconciliation rule and no codebase precedent for a buyer-level tax preference independent of the selected price kind (`catalog`'s own `LineItemDialog.tsx` derives mode from `displayMode` 1:1 everywhere). |
 | `payment_terms_days` | integer, nullable | Net days; `0` = prepayment |
 | `allow_purchase_on_account` | boolean | Default `false` |
 | `default_credit_limit` | numeric(16,2), nullable | Applied to new credit accounts in this group |
@@ -246,8 +245,7 @@ type GroupResolution = {
 }
 
 type ResolvedTerms = {
-  priceKindId: string | null
-  taxDisplayMode: 'gross' | 'net'
+  priceKindId: string | null   // gross/net display is derived downstream from this price kind's own `displayMode` — see §6.1a; ResolvedTerms does not carry a separate tax-mode field
   paymentTermsDays: number | null
   allowPurchaseOnAccount: boolean
   approvalRequiredAbove: number | null
@@ -299,9 +297,15 @@ interface CustomerGroupsService {
 
 `resolveTerms` walks, per field independently: highest-priority group with a non-null value → its ancestors → tenant default. Each field records its `sourceGroupId` so the admin UI can explain *why* a buyer got a given term — the single most common B2B support question.
 
+### 6.1a Tax display mode is derived, not stored (fixed 2026-08-17)
+
+An earlier draft gave `CustomerGroupTerms` its own `tax_display_mode: 'gross' | 'net'` column, independent of `price_kind_id`. A `/om-pre-implement-spec` audit found this created two unreconciled sources of truth: `catalog.CatalogPriceKind.displayMode` (`'including-tax' | 'excluding-tax'`, the field every existing gross/net computation in this codebase actually reads — `catalog`'s own `LineItemDialog.tsx` translates it 1:1) and this module's independent `tax_display_mode`, with no rule for what happens when an admin sets `price_kind_id` to an `excluding-tax` kind while leaving `tax_display_mode` at `'gross'`.
+
+Fixed: `resolveTerms` resolves only `priceKindId` (§5.3). The consumer that needs a gross/net display mode (`ecommerce.storeContextService.resolve()`, spec 3, which already depends on `catalog` for price-kind data) derives it by reading the resolved price kind's `displayMode` and translating `'excluding-tax' → 'net'`, `'including-tax' → 'gross'` — the same translation `LineItemDialog.tsx` already performs. This module has no reason to depend on `catalog` just to duplicate that lookup; `ecommerce` already makes it as part of the same resolution step.
+
 ### 6.2 Anonymous and ungrouped buyers
 
-`customerId: null` returns the default group (`is_default = true`) if one exists, otherwise an empty set and tenant-default terms with `taxDisplayMode: 'gross'` and `allowPurchaseOnAccount: false`. Absence of a group MUST NOT be an error — an anonymous storefront visitor is the common case.
+`customerId: null` returns the default group (`is_default = true`) if one exists, otherwise an empty set and tenant-default terms with `allowPurchaseOnAccount: false`. The anonymous buyer's gross/net display mode falls out of §6.1a — derived from whichever price kind the channel binding resolves to for an anonymous request, not from a value returned here. Absence of a group MUST NOT be an error — an anonymous storefront visitor is the common case.
 
 ### 6.3 Concurrency Strategy
 
@@ -514,7 +518,10 @@ Phases 1 and 2 unblock the rest of the ecommerce suite. Phases 3 and 4 are requi
 
 ## 17) Changelog
 
-### 2026-08-17
+### 2026-08-17 (rev 2)
+- Removed `CustomerGroupTerms.tax_display_mode`: found by the `/om-pre-implement-spec` audit on the sibling `SPEC-029-2026-02-17-ecommerce-storefront-module.md` (v4) to be an unreconciled second source of truth alongside `price_kind_id` — the only real gross/net computation path in this codebase (`catalog`'s `LineItemDialog.tsx`) always derives display mode from the price kind's own `displayMode`, never from an independent buyer-level field. Added §6.1a documenting the fix: gross/net is derived downstream by `ecommerce` from the resolved `priceKindId`, not carried in `ResolvedTerms`.
+
+### 2026-08-17 (rev 1)
 - Fixed three Critical gaps found by a `/om-pre-implement-spec` audit (see `ANALYSIS-2026-08-14-customer-groups-and-b2b-terms.md` in the upstream repo): removed the functionally-inert `version` optimistic-locking column from `CustomerCreditAccount` (§5.4) and `CustomerPurchaseApproval` (§5.6) in favor of this platform's actual `updated_at` + header-protocol mechanism; added §6.3 Concurrency Strategy specifying that the `SERIALIZABLE`-retry helper for `reserveCredit` has no reference implementation and must be built independently; resolved §7.3's admin-picker coupling direction as `crud-form:<entityId>:fields` widget injection, confirming `catalog`/`sales` gain no new `requires` entry.
 - Updated R8 and §16 accordingly.
 
