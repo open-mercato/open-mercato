@@ -1,0 +1,21 @@
+﻿{
+  "ai_assistant.agents.listAriaLabel": "انتخاب عامل (Agent)",
+  "ai_assistant.allowlist.addLabel": "افزودن به لیست مجاز",
+  "ai_assistant.chat.inputPlaceholder": "پیامی بنویسید یا '/' را برای دستورات بزنید...",
+  "ai_assistant.chat.title": "دستیار هوش مصنوعی",
+  "ai_assistant.launcher.triggerAriaLabel": "باز کردن دستیار هوش مصنوعی",
+  "ai_assistant.launcher.triggerLabel": "هوش مصنوعی",
+  "ai_assistant.launcher.welcome.suggestion1": "در چه مواردی می‌توانید به من کمک کنید؟",
+  "ai_assistant.launcher.welcome.suggestion2": "داده‌هایی که به آن‌ها دسترسی دارید را نشان دهید",
+  "ai_assistant.launcher.welcome.suggestion3": "پیشنهادهایی برای امتحان کردن بدهید",
+  "ai_assistant.launcher.welcome.suggestion4": "چگونه از این دستیار استفاده کنم؟",
+  "ai_assistant.mcp.title": "تنظیمات MCP",
+  "ai_assistant.modelPicker.activeBadge": "فعال",
+  "ai_assistant.modelPicker.defaultBadge": "پیش‌فرض",
+  "ai_assistant.notifications.conversation_shared.title": "گفتگو با شما به اشتراک گذاشته شد",
+  "ai_assistant.playground.navTitle": "محیط تست (Playground) هوش مصنوعی",
+  "ai_assistant.settings.pageTitle": "تنظیمات دستیار هوش مصنوعی",
+  "ai_assistant.settings.saveSuccess": "تغییرات با موفقیت ذخیره شد",
+  "ai_assistant.status.thinking": "در حال تفکر...",
+  "ai_assistant.status.working": "در حال پردازش..."
+}
