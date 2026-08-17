@@ -43,11 +43,12 @@ Add `apps/docs/docs/framework/modules/reference-example-module.mdx`, a developer
 
 ### Phase 2: Drift-detecting tests
 
-- [ ] 2.1 Add `apps/docs/__tests__/reference-example-module.test.mjs` (non-zero inventory count, full canonical-id coverage, no stale ids, resolvable source links, QA-only row distinctly marked, activation guidance present)
-- [ ] 2.2 Wire the new test file into `apps/docs/package.json`'s `test` script
-- [ ] 2.3 Extend `apps/docs/__tests__/search-index.test.mjs` with the new-page search-index assertion
-- [ ] 2.4 Run the full validation sequence (`yarn workspace open-mercato-docs build`, `yarn workspace open-mercato-docs test`) and fix anything it surfaces
+- [x] 2.1 Add `apps/docs/__tests__/reference-example-module.test.mjs` (non-zero inventory count, full canonical-id coverage, no stale ids, resolvable source links, QA-only row distinctly marked, activation guidance present) — 739ea5ed8
+- [x] 2.2 Wire the new test file into `apps/docs/package.json`'s `test` script — 739ea5ed8
+- [x] 2.3 Extend `apps/docs/__tests__/search-index.test.mjs` with the new-page search-index assertion — 739ea5ed8
+- [x] 2.4 Run the full validation sequence (`yarn workspace open-mercato-docs build`, `yarn workspace open-mercato-docs test`) and fix anything it surfaces — all 6 tests green, build has one pre-existing broken-anchor warning on `/installation/wsl2` unrelated to this change — 739ea5ed8
 
 ## Changelog
 
 - 2026-08-17 — Plan created.
+- 2026-08-17 — Phase 1 (showcase page + navigation) and Phase 2 (drift tests) complete. Verified the drift test actually fails red when a capability row is removed, then confirmed green on restore. Docs-only change: no `.tsx` outside tests, nothing under `packages/ui/src/`/`**/components/**`, no DB/API surface change — qualifies for `skip-qa` per the automated-verification exemption.
