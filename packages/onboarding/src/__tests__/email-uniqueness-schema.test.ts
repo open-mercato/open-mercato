@@ -19,11 +19,11 @@ type Snapshot = {
 }
 
 function onboardingRequestUniqueProperties(): string[][] {
-  const metadata = Object.entries(MetadataStorage.getMetadata()).find(
-    ([key]) => key === OnboardingRequest.name || key.startsWith(`${OnboardingRequest.name}-`),
+  const metadata = Object.values(MetadataStorage.getMetadata()).find(
+    (candidate) => candidate.className === OnboardingRequest.name,
   )
   if (!metadata) throw new Error('[internal] OnboardingRequest decorator metadata was not registered')
-  return metadata[1].uniques.map((unique) =>
+  return metadata.uniques.map((unique) =>
     Array.isArray(unique.properties) ? [...unique.properties] : [String(unique.properties)],
   )
 }
