@@ -77,6 +77,9 @@ const crud = makeCrudRoute({
       F.created_at,
       F.updated_at,
     ],
+    decorateCustomFields: {
+      entityIds: E.wms.warehouse,
+    },
     sortFieldMap: {
       name: F.name,
       code: F.code,

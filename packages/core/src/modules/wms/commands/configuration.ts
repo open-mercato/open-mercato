@@ -31,6 +31,7 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
@@ -38,6 +39,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
+import { E } from '#generated/entities.ids.generated'
 import {
   InventoryLot,
   type InventoryLotStatus,
@@ -93,6 +95,22 @@ function resolveEm(ctx: CommandRuntimeContext): EntityManager {
 function toJsonValue(value: Record<string, unknown> | null | undefined): JsonValue | null | undefined {
   if (value === undefined) return undefined
   return (value ?? null) as JsonValue | null
+}
+
+async function persistWarehouseCustomFields(
+  ctx: CommandRuntimeContext,
+  warehouse: Warehouse,
+  custom: Record<string, unknown>,
+) {
+  if (!custom || Object.keys(custom).length === 0) return
+  await setCustomFieldsIfAny({
+    dataEngine: ctx.container.resolve('dataEngine'),
+    entityId: E.wms.warehouse,
+    recordId: warehouse.id,
+    organizationId: warehouse.organizationId,
+    tenantId: warehouse.tenantId,
+    values: custom,
+  })
 }
 
 async function buildCrudLog(
@@ -647,7 +665,7 @@ const createWarehouseCommand: CommandHandler<
 > = {
   id: 'wms.warehouses.create',
   async execute(rawInput, ctx) {
-    const parsed = warehouseCreateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseCreateSchema, rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = resolveEm(ctx)
@@ -705,6 +723,7 @@ const createWarehouseCommand: CommandHandler<
       }
       throw err
     }
+    await persistWarehouseCustomFields(ctx, warehouse, custom)
     void emitWmsEvent('wms.warehouse.created', {
       id: warehouse.id,
       warehouseId: warehouse.id,
@@ -771,7 +790,7 @@ const updateWarehouseCommand: CommandHandler<
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = warehouseUpdateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseUpdateSchema, rawInput ?? {})
     const em = resolveEm(ctx)
     const warehouse = await loadWarehouse(em, ctx, parsed.id)
     if (parsed.code !== undefined && parsed.code !== warehouse.code) {
@@ -831,6 +850,7 @@ const updateWarehouseCommand: CommandHandler<
       }
       throw err
     }
+    await persistWarehouseCustomFields(ctx, warehouse, custom)
     void emitWmsEvent('wms.warehouse.updated', {
       id: warehouse.id,
       warehouseId: warehouse.id,
