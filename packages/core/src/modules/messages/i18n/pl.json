@@ -218,6 +218,7 @@
   "messages.searchPlaceholder": "Szukaj wiadomości",
   "messages.send": "Wyślij",
   "messages.sendViaEmail": "Wyślij także e-mailem",
+  "messages.sendViaEmailForcedPublic": "Dla widoczności publicznej wysyłka e-mail jest zawsze włączona.",
   "messages.sendViaEmailHint": "Odbiorcy dostaną kopię e-mail z bezpiecznym linkiem.",
   "messages.sending": "Wysyłanie...",
   "messages.sourceEntityId": "ID encji źródłowej",

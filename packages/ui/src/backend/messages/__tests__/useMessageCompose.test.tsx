@@ -67,8 +67,12 @@ describe('useMessageCompose recipient suggestions', () => {
 
     await waitFor(() => expect(result.current.visibility).toBe('public'))
     expect(result.current.sendViaEmail).toBe(false)
+    expect(result.current.isComposePublicVisibility).toBe(true)
 
     act(() => result.current.setSendViaEmail(true))
     expect(result.current.sendViaEmail).toBe(true)
+
+    act(() => result.current.setVisibility('internal'))
+    await waitFor(() => expect(result.current.isComposePublicVisibility).toBe(false))
   })
 })

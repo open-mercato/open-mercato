@@ -32,6 +32,16 @@ keeps the previous public-message default only when `sendViaEmail` is omitted. M
 that wants email delivery must therefore pass `sendViaEmail: true` explicitly when calling a
 message command directly.
 
+The exported `ComposeMessageInput.sendViaEmail` field is now optional, so direct command
+callers must handle `undefined`; the generated OpenAPI schema no longer declares a default.
+The public `POST /api/messages` route still applies its public-message default only when the
+field is omitted.
+
+Compatibility bridges remain available through 0.7.x: the deprecated
+`UseMessageComposeResult.isComposePublicVisibility` property and the
+`messages.sendViaEmailForcedPublic` locale key. External modules should derive the former
+from `variant` and `visibility`, and remove references to the legacy locale key before 0.8.0.
+
 Code that records a message which already exists in an external channel must use the new
 strict `messages.messages.record_existing` command instead of
 `messages.messages.compose`. The record command requires source identity, an idempotency

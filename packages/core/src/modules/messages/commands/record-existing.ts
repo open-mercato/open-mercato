@@ -81,9 +81,7 @@ async function findExisting(
     Message,
     {
       tenantId: input.tenantId,
-      organizationId: input.organizationId,
       idempotencyKey: input.idempotencyKey,
-      deletedAt: null,
     },
     undefined,
     { tenantId: input.tenantId, organizationId: input.organizationId },

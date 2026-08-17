@@ -68,6 +68,11 @@ export type UseMessageComposeResult = {
   normalizedRequiredActionMode: 'none' | 'optional' | 'required'
   contextActionOptions: Array<{ id: string; label: string }>
   shouldShowContextActions: boolean
+  /**
+   * @deprecated Derive this value from `variant === 'compose' && visibility === 'public'`.
+   * Kept for external module compatibility until version 0.8.0.
+   */
+  isComposePublicVisibility: boolean
   attachmentEntityId: string
   attachmentRecordId: string
   recipientIds: string[]
@@ -206,6 +211,7 @@ export function useMessageCompose({
     && normalizedRequiredActionMode !== 'none'
     && contextActionOptions.length > 0
   )
+  const isComposePublicVisibility = variant === 'compose' && visibility === 'public'
 
   const attachmentEntityId = variant === 'compose' && messageId ? 'messages:message' : 'attachments:library'
   const attachmentRecordId = variant === 'compose' && messageId ? messageId : temporaryAttachmentRecordId
@@ -764,6 +770,7 @@ export function useMessageCompose({
     normalizedRequiredActionMode,
     contextActionOptions,
     shouldShowContextActions,
+    isComposePublicVisibility,
     attachmentEntityId,
     attachmentRecordId,
     recipientIds,

@@ -143,6 +143,32 @@ describe('messages.messages.record_existing', () => {
     expect(eventBus.emitEvent).not.toHaveBeenCalled()
   })
 
+  it('deduplicates a soft-deleted record using the unique idempotency-key scope', async () => {
+    const { em, eventBus, ctx } = createHarness()
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: messageId,
+      threadId: messageId,
+      externalEmail: 'sender@example.com',
+      tenantId,
+      organizationId,
+      deletedAt: new Date(),
+    })
+    const command = registeredCommands.get('messages.messages.record_existing')
+
+    const result = await command!.execute(input(), ctx)
+
+    expect(result).toEqual(expect.objectContaining({ id: messageId, deduplicated: true }))
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      em,
+      Message,
+      { tenantId, idempotencyKey: 'cc:channel-1:external-1' },
+      undefined,
+      { tenantId, organizationId },
+    )
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(eventBus.emitEvent).not.toHaveBeenCalled()
+  })
+
   it('returns the winning message when a concurrent insert wins the idempotency race', async () => {
     const { em, eventBus, ctx } = createHarness()
     const winner = {
