@@ -73,6 +73,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       mode: 'patch',
       add: [
         { id: 'customers', from: CORE },
+        { id: 'attachments', from: CORE },
+        { id: 'messages', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'currencies', from: CORE },
