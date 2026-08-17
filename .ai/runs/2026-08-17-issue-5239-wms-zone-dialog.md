@@ -53,29 +53,35 @@ Make PR #5334 mergeable: deliver requirement 2 of #5239 (the zone dialog's custo
 
 ### Phase 2: B1 — make the zone custom fields readable
 
-- [ ] 2.1 Emit CRUD side effects with a warehouse-zone indexer from the zone create/update/delete commands and their undo handlers
+- [x] 2.1 Emit CRUD side effects with a warehouse-zone indexer from the zone create/update/delete commands and their undo handlers — 7fbae24
 
 ### Phase 3: B2 — unit coverage for the server-side custom-field change
 
-- [ ] 3.1 Add the zone custom-field command suite (create with/without values, update, both undo resets, snapshot loader)
+- [x] 3.1 Add the zone custom-field command suite (create with/without values, update, both undo resets, snapshot loader) — 7fbae24
 
 ### Phase 4: M1 and M2 — ComboboxInput
 
-- [ ] 4.1 Never sync a focused field to a self-mapping placeholder label
-- [ ] 4.2 Add the discriminating pick-then-stale-reload test plus the three blast-radius cases
+- [x] 4.1 Never sync a focused field to a self-mapping placeholder label — e35ad73
+- [x] 4.2 Add the discriminating pick-then-stale-reload test plus the three blast-radius cases — e35ad73
 
 ### Phase 5: Minor findings m1–m7
 
-- [ ] 5.1 Give the zone edit dialog optimistic locking (`id` + `updatedAt` in initialValues)
-- [ ] 5.2 Restore custom fields on delete-undo and stop discarding the snapshot
-- [ ] 5.3 Opt the new zones decorator into `stripPrefixedKeys` and type the `customFields` OpenAPI entry
-- [ ] 5.4 Feed the warehouse combobox from the cached query instead of a second round trip
-- [ ] 5.5 Narrow the `ZoneRow` / `ZoneFormValues` index signatures and short-circuit the custom-field snapshot load
+- [x] 5.1 Give the zone edit dialog optimistic locking (`id` + `updatedAt` in initialValues) — 656483e
+- [x] 5.2 Restore custom fields on delete-undo and stop discarding the snapshot — 7fbae24
+- [x] 5.3 Opt the new zones decorator into `stripPrefixedKeys` and type the `customFields` OpenAPI entry — 656483e
+- [x] 5.4 Feed the warehouse combobox from the cached query instead of a second round trip — 656483e
+- [x] 5.5 Narrow the `ZoneRow` / `ZoneFormValues` index signatures and short-circuit the custom-field snapshot load — 656483e
 
 ### Phase 6: Nits and follow-ups
 
-- [ ] 6.1 Annotate the non-discriminating test, de-couple the ComboboxInput comment from WMS, file the CrudForm accessibility issue
+- [x] 6.1 Annotate the non-discriminating test, de-couple the ComboboxInput comment from WMS, file the CrudForm accessibility issue (#5360) — e35ad73, 656483e
 
 ### Phase 7: Validation and delivery
 
-- [ ] 7.1 Run the full validation gate, push, update the PR body and labels, post the summary comment
+- [x] 7.1 Run the full validation gate, push, update the PR body and labels, post the summary comment — 656483e
+
+## Outcome notes
+
+- **m7 was answered with a measurement, not a short-circuit.** The review estimated four extra queries per zone update; `loadCustomFieldValues` returns early on an empty `custom_field_values` result and never issues the `custom_field_defs` query, so a tenant with no zone custom fields pays one lookup per snapshot, not two. Documented at the call site instead of adding a redundant guard.
+- **The row-action zone delete still has no optimistic locking.** m1 scoped the fix to the dialog, and half-wiring a row action — a header without the `surfaceRecordConflict` bar behind it — would be worse than the existing gap. Left for a follow-up that does both.
+- **B1 remains unproven end to end** until `TC-WMS-028-zone-dialog.spec.ts` runs against a live environment. The mechanism is traceable in code and the command-side contract is now pinned by unit tests.
