@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification |
+| **Status** | Specification (rev 2 — cache-split fix) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 4, Phase 1 |
 | **Modules** | `ecommerce` (public read surface) |
@@ -310,7 +310,7 @@ type StorefrontFacets = {
   categories: Array<{ id: string; name: string; slug: string | null
                       depth: number; parentId: string | null; count: number }>
   tags: Array<{ slug: string; label: string; count: number }>
-  priceRange: { min: number; max: number; currencyCode: string } | null
+  priceRange: { min: number; max: number; currencyCode: string } | null   // buyer-priced — see §9 cache note
   options: Array<{ code: string; label: string
                    values: Array<{ code: string; label: string; count: number }> }>
   productTypes: Array<{ type: string; label: string; count: number }>
@@ -318,6 +318,8 @@ type StorefrontFacets = {
   total: number
 }
 ```
+
+**`priceRange` is computed and cached separately from the rest of this type** (fixed 2026-08-17 — see §9): every other field here is a count over the assortment scope and does not depend on which buyer is asking, but `priceRange` is explicitly buyer-priced (§12 "Price range reflects the buyer's resolved prices, not list prices"). Bundling it into a response cached by assortment-scope hash alone — as an earlier draft's R2 mitigation did — would have let one buyer's negotiated price range leak into another buyer's response whenever the two share an assortment scope, which is exactly the class of bleed R1 rates Critical.
 
 ### 5.4 Cross-facet exclusion
 
@@ -413,13 +415,20 @@ Both phases return identical payloads. The client never learns which backend is 
 
 | Endpoint | TTL | Key | Notes |
 |---|---|---|---|
-| `/products` | 30s | `digest` + normalized query | `stale-while-revalidate: 30` |
+| `/products` items + `priceRange` | 30s | `digest` + normalized query | `stale-while-revalidate: 30` |
+| `/products` count facets (`categories`/`tags`/`options`/`productTypes`/`availability`) | 30s | `assortmentScopeHash` + normalized query, **excluding price/tax/customer fields from the digest** | See "Facet cache split" below — R2's cost optimization; safe only because these counts don't depend on price |
 | `/products/:idOrHandle` | 60s | `digest` + product id | |
 | `/categories` | 300s | `digest` + params | |
 | `/categories/:slug` | 60s | `digest` + slug + query | |
 | `/search/suggest` | 30s | `digest` + `q` + limit | |
 
-Every key is built through `buildStorefrontCacheKey(ctx, parts)` (SPEC-029 §6.1), which requires the `StoreContext` and therefore the digest.
+Every key is built through `buildStorefrontCacheKey(ctx, parts)` (SPEC-029 §6.1), which requires the `StoreContext` and therefore the digest — the count-facets row is the **one deliberate exception**, and it uses `assortmentScopeHash` (a documented sub-component of the digest, not an ad hoc value) rather than bypassing the helper.
+
+### 9.1 Facet cache split (fixed 2026-08-17)
+
+An earlier draft cached the entire `StorefrontFacets` block — `priceRange` included — by `assortmentScopeHash` alone (§11 R2's optimization), on the reasoning that buyers sharing an assortment scope can share facet counts. That reasoning holds for `categories`/`tags`/`options`/`productTypes`/`availability`, which are genuinely price-independent counts, but not for `priceRange`, which §5.3 and §12 both require to reflect the requesting buyer's own resolved prices. Two buyers sharing an assortment scope but on different price kinds or with different negotiated contract prices would otherwise see each other's price-range slider bounds — the same class of disclosure R1 rates Critical, introduced by R2's own mitigation.
+
+Fixed: `priceRange` is computed and cached with the `items` response (full `digest`), not with the count facets. The count-facet cache split by `assortmentScopeHash` is unchanged and still delivers R2's win for the expensive part (six aggregations collapsing to a shared cache entry across same-assortment buyers) — only the one buyer-priced field moves.
 
 Authenticated responses are `Cache-Control: private, no-store` at the HTTP layer while still using the **server-side** cache keyed on the digest. The two are distinct: shared server caching keyed per buyer context is safe; shared browser or CDN caching is not.
 
@@ -459,7 +468,7 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 | # | Risk | Severity | Area | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|---|
 | R1 | Contract pricing served to the wrong buyer | **Critical** | `ecommerce` | A `/products` response cached without the digest, or an authenticated response cached by a CDN, serves ACME's negotiated prices to an anonymous visitor or a competitor. | All keys via `buildStorefrontCacheKey`; authenticated responses `private, no-store`; a cross-context isolation suite is a Phase 1 gate; a CDN configuration note ships with the spec | Low |
-| R2 | Facet cost under B2B | **High** | `ecommerce` | Six aggregations per uncached listing request, and per-buyer caching means low hit rates exactly for the buyers whose queries are most expensive. | Dimensions without an active filter share one base query; facets computed with `Promise.all`; facet block cached separately from items, keyed on the assortment-scope hash rather than the full digest — buyers sharing an assortment share facet counts even when prices differ | Medium — a tenant with many distinct assortment scopes still pays; measured at the Phase 1 gate |
+| R2 | Facet cost under B2B | **High** | `ecommerce` | Six aggregations per uncached listing request, and per-buyer caching means low hit rates exactly for the buyers whose queries are most expensive. | Dimensions without an active filter share one base query; facets computed with `Promise.all`; the count-facet block (`categories`/`tags`/`options`/`productTypes`/`availability` — price-independent) is cached separately from items, keyed on the assortment-scope hash rather than the full digest; `priceRange` is excluded from that split and cached with `items` on the full digest instead (§9.1, fixed 2026-08-17 — bundling it into the assortment-hash cache would have leaked one buyer's price range to another sharing the same assortment scope) | Medium — a tenant with many distinct assortment scopes still pays for count facets; measured at the Phase 1 gate |
 | R3 | Price sort degrades silently | Medium | `ecommerce` | Above 5 000 matching products, price sort falls back to the default price kind and a buyer sees an order that does not match their prices, with no signal. | `X-Sort-Approximate: true` header, admin diagnostics entry, documented cap — not silent (§6.3) | Medium — accepted; a materialized price projection is the real fix and is out of scope |
 | R4 | Handle enumeration oracle | **High** | `ecommerce` | Probing `/products/<handle>` distinguishes "restricted" from "nonexistent" by status code, body or timing, mapping a competitor's private assortment. | Identical `404` body for all four cases; assortment filtering happens inside the same query rather than as a post-check, so timing does not diverge; a timing test asserts no measurable difference | Low |
 | R5 | Stored XSS via product description | **High** | `ecommerce` | A back-office user with catalogue access stores `<img onerror=…>`; every storefront visitor executes it. | Server-side allowlist sanitization before the field leaves the API; the client renders sanitized HTML; sanitizing client-side would trust every client equally | Low |
@@ -489,7 +498,8 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 - Cross-exclusion: with `color=red` selected, the colour facet still lists blue with a nonzero count
 - Category counts include descendants
 - Price range reflects the buyer's resolved prices, not list prices
-- With no filters applied, the facet block issues one aggregation, not six (R2)
+- **Two buyers sharing an assortment scope but on different price kinds never see each other's `priceRange`, even though they share the same count-facet cache entry** (regression test for the fixed §9.1 cache split)
+- With no filters applied, the count-facet block issues one aggregation, not six (R2)
 
 **Localization:**
 - Overlay applied to titles, descriptions, category names, tag labels, option and choice labels
@@ -563,6 +573,9 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 ---
 
 ## 16) Changelog
+
+### 2026-08-17
+- Fixed a self-contradiction between R2's facet-caching optimization and §5.3/§12's own requirement that `priceRange` reflect the requesting buyer's resolved prices: the original draft cached the entire facet block — `priceRange` included — by `assortmentScopeHash` alone, which would leak one buyer's price range to another buyer sharing the same assortment scope but a different price kind or contract price (the same class of disclosure R1 rates Critical). Split `priceRange` out to cache with `items` on the full digest (§9.1); the count-facet cache split by `assortmentScopeHash` is otherwise unchanged and still delivers R2's win.
 
 ### 2026-08-14
 - Initial specification, carrying forward SPEC-029 v3 §8, §9, §10, §12.1, §21 and the API half of §24.
