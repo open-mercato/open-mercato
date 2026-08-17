@@ -13,12 +13,17 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
   return { createLogger: jest.fn(() => mocked) }
 })
 const loggerDebug = createLogger('shared').debug as jest.Mock
+const loggerError = createLogger('shared').error as jest.Mock
 
 
 const GLOBAL_KEY = '__openMercatoModulesRegistry__'
+const LISTENERS_GLOBAL_KEY = '__openMercatoModulesRegistryListeners__'
+const SNAPSHOT_GLOBAL_KEY = '__openMercatoModulesRegistrySnapshot__'
 
 function clearGlobalRegistry(): void {
   delete (globalThis as any)[GLOBAL_KEY]
+  delete (globalThis as any)[LISTENERS_GLOBAL_KEY]
+  delete (globalThis as any)[SNAPSHOT_GLOBAL_KEY]
 }
 
 function clearRegistryModuleCache(): void {
@@ -170,5 +175,130 @@ describe('shared modules registry', () => {
         translations: { pl: { title: 'Kasa' } },
       }),
     ])
+  })
+
+  describe('onModulesRegistered (#5103)', () => {
+    it('notifies subscribers with the reconciled module list on first registration', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules(sampleModules)
+
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as Module[]).map((m) => m.id)).toEqual(['auth', 'customers'])
+    })
+
+    it('notifies subscribers when an i18n-only registration is merged with the full module list', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      registry.registerModules([{ id: 'checkout', translations: { pl: { title: 'Kasa' } } } as Module])
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules([
+        { id: 'checkout', dashboardWidgets: [] } as unknown as Module,
+        { id: 'reports', dashboardWidgets: [] } as unknown as Module,
+      ])
+
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as Module[]).map((m) => m.id)).toEqual(['checkout', 'reports'])
+    })
+
+    it('does not notify subscribers when the identical module set is re-registered', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      registry.registerModules(sampleModules)
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules(sampleModules)
+
+      expect(listener).not.toHaveBeenCalled()
+    })
+
+    it('stops notifying after the returned unsubscribe is called', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      const unsubscribe = registry.onModulesRegistered(listener)
+
+      registry.registerModules(sampleModules)
+      unsubscribe()
+      registry.registerModules([{ id: 'auth', dashboardWidgets: [] } as unknown as Module])
+
+      expect(listener).toHaveBeenCalledTimes(1)
+    })
+
+    it('notifies subscribers when a re-registered module object was mutated in place', () => {
+      const registry = loadRegistry()
+      const mutated = { id: 'dashboards', dashboardWidgets: [] } as unknown as Module
+      const modules = [mutated]
+      registry.registerModules(modules)
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      ;(mutated as unknown as { dashboardWidgets: unknown[] }).dashboardWidgets = [{ key: 'sales-kpi' }]
+      registry.registerModules(modules)
+
+      expect(listener).toHaveBeenCalledTimes(1)
+    })
+
+    it('notifies subscribers when an array-valued contract is mutated in place', () => {
+      const registry = loadRegistry()
+      const widgets: unknown[] = []
+      const mutated = { id: 'dashboards', dashboardWidgets: widgets } as unknown as Module
+      const modules = [mutated]
+      registry.registerModules(modules)
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      widgets.push({ key: 'sales-kpi' })
+      registry.registerModules(modules)
+
+      expect(listener).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not notify subscribers when a semantically identical fresh module list is registered', () => {
+      const registry = loadRegistry()
+      const widget = { key: 'sales-kpi' }
+      registry.registerModules([{ id: 'dashboards', dashboardWidgets: [widget] } as unknown as Module])
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules([{ id: 'dashboards', dashboardWidgets: [widget] } as unknown as Module])
+
+      expect(listener).not.toHaveBeenCalled()
+    })
+
+    it('observes and logs a rejected async subscriber instead of leaking an unhandled rejection', async () => {
+      const registry = loadRegistry()
+      const rejection = new Error('async listener boom')
+      const failing = jest.fn(async () => {
+        await Promise.resolve()
+        throw rejection
+      })
+      const healthy = jest.fn()
+      registry.onModulesRegistered(failing)
+      registry.onModulesRegistered(healthy)
+      loggerError.mockClear()
+
+      expect(() => registry.registerModules(sampleModules)).not.toThrow()
+      expect(healthy).toHaveBeenCalledTimes(1)
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(loggerError).toHaveBeenCalledWith('Module registration listener rejected', { err: rejection })
+    })
+
+    it('keeps registering modules when a subscriber throws', () => {
+      const registry = loadRegistry()
+      const failing = jest.fn(() => {
+        throw new Error('listener boom')
+      })
+      const healthy = jest.fn()
+      registry.onModulesRegistered(failing)
+      registry.onModulesRegistered(healthy)
+
+      expect(() => registry.registerModules(sampleModules)).not.toThrow()
+      expect(healthy).toHaveBeenCalledTimes(1)
+      expect(registry.getModules().map((m) => m.id)).toEqual(['auth', 'customers'])
+    })
   })
 })
