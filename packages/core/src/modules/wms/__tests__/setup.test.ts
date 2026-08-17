@@ -12,6 +12,7 @@ import {
   WMS_SUPERVISOR_FEATURES,
   WMS_SUPERVISOR_ROLE,
 } from '../lib/roleFeatures'
+import { seedWmsExamples } from '../seed/examples'
 
 jest.mock('@open-mercato/core/modules/auth/lib/setup-app', () => ({
   ensureRoles: jest.fn().mockResolvedValue(undefined),
@@ -21,8 +22,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn().mockResolvedValue({ id: 'existing-toggle' }),
 }))
 
+jest.mock('../seed/examples', () => ({
+  seedWmsExamples: jest.fn().mockResolvedValue(undefined),
+}))
+
 const mockEnsureRoles = ensureRoles as jest.MockedFunction<typeof ensureRoles>
 const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockSeedWmsExamples = seedWmsExamples as jest.MockedFunction<typeof seedWmsExamples>
 
 const ACL_FEATURE_IDS = features.map((feature) => feature.id)
 
@@ -133,5 +139,28 @@ describe('wms setup role mappings', () => {
   it('keeps built-in admin and employee grants', () => {
     expect(setup.defaultRoleFeatures?.admin).toEqual(['wms.*'])
     expect(setup.defaultRoleFeatures?.employee).toEqual(['wms.view'])
+  })
+})
+
+describe('wms setup seedExamples', () => {
+  beforeEach(() => {
+    mockSeedWmsExamples.mockClear()
+    mockSeedWmsExamples.mockResolvedValue(undefined as never)
+  })
+
+  it('delegates to seedWmsExamples for the tenant and organization', async () => {
+    const em = {
+      persist: jest.fn(),
+      create: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EntityManager
+
+    await setup.seedExamples?.({ em, tenantId: 'tenant-abc', organizationId: 'org-1', container: {} as never })
+
+    expect(mockSeedWmsExamples).toHaveBeenCalledTimes(1)
+    expect(mockSeedWmsExamples).toHaveBeenCalledWith(em, {
+      tenantId: 'tenant-abc',
+      organizationId: 'org-1',
+    })
   })
 })

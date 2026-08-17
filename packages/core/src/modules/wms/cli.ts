@@ -2,6 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { repairBalanceDrift, verifyBalances } from './lib/inventoryReconciliation'
+import { seedWmsExamples } from './seed/examples'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -91,6 +92,33 @@ const verifyBalancesCommand: ModuleCli = {
   },
 }
 
-const cliCommands: ModuleCli[] = [verifyBalancesCommand]
+const seedExamplesCommand: ModuleCli = {
+  command: 'seed-examples',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato wms seed-examples --tenant <tenantId> --org <organizationId>')
+      return
+    }
+
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      const result = await em.transactional(async (trx) =>
+        seedWmsExamples(trx, { tenantId, organizationId }),
+      )
+      console.log('WMS example data seeded:', JSON.stringify(result))
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+const cliCommands: ModuleCli[] = [verifyBalancesCommand, seedExamplesCommand]
 
 export default cliCommands
