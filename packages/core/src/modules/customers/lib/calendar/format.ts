@@ -21,6 +21,10 @@ export function formatDateRangeLabel(locale: string, from: Date, to: Date): stri
   }
 }
 
+export function formatTimeLabel(locale: string, date: Date): string {
+  return normalizeIntlSpacing(new Intl.DateTimeFormat(locale, TIME_OPTIONS).format(date))
+}
+
 export function formatTimeRangeLabel(locale: string, start: Date, end: Date): string {
   const formatter = new Intl.DateTimeFormat(locale, TIME_OPTIONS)
   try {
