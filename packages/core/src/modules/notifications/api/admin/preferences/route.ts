@@ -4,12 +4,14 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../../../auth/data/entities'
 import { assertActorCanAccessUserTarget } from '../../../../auth/lib/grantChecks'
+import { resolveOrganizationScopeForRequest } from '../../../../directory/utils/organizationScope'
 import type { RbacService } from '../../../../auth/services/rbacService'
 import { resolveNotificationPreferenceService, type NotificationPreferenceScope } from '../../../lib/notificationPreferenceService'
 import {
@@ -47,7 +49,8 @@ const unauthorized = async () => {
 async function authorizeTargetUser(
   container: AwilixContainer,
   em: EntityManager,
-  auth: { sub: string; tenantId: string },
+  auth: AuthContext & { sub: string; tenantId: string },
+  req: Request,
   targetUserId: string,
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
@@ -68,7 +71,14 @@ async function authorizeTargetUser(
       rbacService,
       actorUserId: auth.sub,
       tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? null,
       targetUserId,
+      organizationScope: await resolveOrganizationScopeForRequest({
+        container,
+        auth,
+        request: req,
+        tenantId: auth.tenantId,
+      }),
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
@@ -88,7 +98,7 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   try {
     const em = container.resolve('em') as EntityManager
-    const denied = await authorizeTargetUser(container, em, { sub: auth.sub, tenantId: auth.tenantId }, parsed.data.userId)
+    const denied = await authorizeTargetUser(container, em, { ...auth, sub: auth.sub, tenantId: auth.tenantId }, req, parsed.data.userId)
     if (denied) return denied
     const service = resolveNotificationPreferenceService(container)
     const scope: NotificationPreferenceScope = { tenantId: auth.tenantId, userId: parsed.data.userId }
@@ -115,7 +125,7 @@ export async function PUT(req: Request) {
   const container = await createRequestContainer()
   try {
     const em = container.resolve('em') as EntityManager
-    const denied = await authorizeTargetUser(container, em, { sub: auth.sub, tenantId: auth.tenantId }, parsed.data.userId)
+    const denied = await authorizeTargetUser(container, em, { ...auth, sub: auth.sub, tenantId: auth.tenantId }, req, parsed.data.userId)
     if (denied) return denied
     const service = resolveNotificationPreferenceService(container)
     const scope: NotificationPreferenceScope = { tenantId: auth.tenantId, userId: parsed.data.userId }

@@ -111,7 +111,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `onboarding` |
 | Static content pages (privacy policies, terms, legal pages) | `content` |
 | Standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `create-app` |
-| Editing `apps/mercato/src/app/**` or env vars in `apps/mercato/.env.example` — MUST mirror into the create-app template in the same task | `create-app` → Template Sync Checklist |
+| Editing `apps/mercato/src/app/**`, `apps/mercato/src/i18n/**`, or env vars in `apps/mercato/.env.example` — MUST mirror into the create-app template in the same task (`yarn template:sync:fix`) | `create-app` → Template Sync Checklist |
 | Deploying a scaffolded app to Railway with `mercato deploy railway` | [`.ai/specs/2026-05-12-railway-one-command-deploy.md`](.ai/specs/2026-05-12-railway-one-command-deploy.md) + [`apps/docs/docs/deployment/railway.mdx`](apps/docs/docs/deployment/railway.mdx) + `cli` |
 | **Performance** | |
 | Profiling dev-mode memory (`yarn dev:profile`), ranking memory hogs, watcher / Vite-vs-Turbopack tradeoffs | `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` + `scripts/profile-dev-rss.mjs` |

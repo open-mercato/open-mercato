@@ -101,6 +101,7 @@
   "dashboards.analytics.widgets.topProducts.empty": "이 기간에 상품 판매 데이터가 없습니다",
   "dashboards.analytics.widgets.topProducts.error": "상위 상품 데이터를 불러오지 못했습니다",
   "dashboards.analytics.widgets.topProducts.title": "매출 기준 상위 상품",
+  "dashboards.errors.forbidden_scope": "요청한 범위에 접근할 수 없습니다",
   "dashboards.errors.organization_required": "조직 컨텍스트가 필요합니다",
   "dashboards.errors.tenant_required": "테넌트 컨텍스트가 필요합니다",
   "dashboards.errors.unauthorized": "권한이 없습니다",

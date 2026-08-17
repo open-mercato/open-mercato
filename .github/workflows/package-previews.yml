@@ -20,7 +20,7 @@ concurrency:
 jobs:
   resolve-pr:
     name: Resolve PR
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       head_sha: ${{ steps.pr.outputs.head_sha }}
       head_repo: ${{ steps.pr.outputs.head_repo }}
@@ -60,7 +60,7 @@ jobs:
     name: Publish Package Previews
     needs: resolve-pr
     if: needs.resolve-pr.outputs.same_repo == 'true'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -75,7 +75,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 'lts/*'
+          node-version: '24.19.0'
 
       - name: Enable Corepack
         run: corepack enable

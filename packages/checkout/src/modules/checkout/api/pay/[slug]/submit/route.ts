@@ -5,8 +5,6 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { checkRateLimit } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
@@ -22,7 +20,8 @@ import {
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
 import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
-import { buildCheckoutRateLimitKey, checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
+import { checkoutSubmitRateLimitConfig, enforceCheckoutRateLimit } from '../../../../lib/rateLimiter'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { checkoutTag } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -274,14 +273,16 @@ export const metadata = {
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
     const container = await createRequestContainer()
-    try {
-      const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
-      const key = buildCheckoutRateLimitKey(req, rateLimiter, 'checkout-submit')
-      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, key, 'Too many payment attempts. Please try again later.')
-      if (rateLimitResponse) return rateLimitResponse
-    } catch {
-      // Rate limiting is fail-open
-    }
+    // Fail-closed: this endpoint creates payment sessions that can charge cards.
+    const rateLimitResponse = await enforceCheckoutRateLimit({
+      req,
+      container,
+      config: checkoutSubmitRateLimitConfig,
+      namespace: 'checkout-submit',
+      errorMessage: 'Too many payment attempts. Please try again later.',
+      posture: 'fail-closed',
+    })
+    if (rateLimitResponse) return rateLimitResponse
     const resolvedParams = await params
 
     const allowedOrigins = buildAllowedOrigins()
@@ -593,6 +594,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
 export const openApi = {
   tags: [checkoutTag],
+  methods: {
+    POST: {
+      errors: [
+        { status: 429, description: 'Too many payment attempts', schema: rateLimitErrorSchema },
+        { status: 503, description: 'Rate limiting could not be enforced, so the payment was rejected', schema: rateLimitErrorSchema },
+      ],
+    },
+  },
 }
 
 export default POST

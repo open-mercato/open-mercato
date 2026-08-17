@@ -59,7 +59,7 @@ jobs:
   #                      Only uploaded when integration tests will actually run;
   #                      skipped for CI/docs-only PRs to save ~2 min.
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
@@ -124,7 +124,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -225,7 +225,7 @@ jobs:
   # Determines whether dependency audit needs to run. Package manifests and
   # lockfiles are the only inputs that can change the dependency graph.
   audit-scope:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       should_run: ${{ steps.dependency-files.outputs.should_run }}
     steps:
@@ -274,7 +274,7 @@ jobs:
   # `.github/workflows/audit.yml` instead — this job is the change-triggered
   # half of the pair (#4479).
   audit:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     needs: audit-scope
     if: needs.audit-scope.outputs.should_run == 'true'
@@ -285,7 +285,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -335,7 +335,7 @@ jobs:
   # in scope: excluding it left turbo with zero commands and a permanently green
   # no-op job (issue #4472).
   lint:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -343,7 +343,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -396,7 +396,7 @@ jobs:
   # native compiler has no JS API, so the parser's `typescript` import must be
   # redirected to `typescript-js`.
   ds-lint:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
@@ -407,7 +407,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -502,7 +502,7 @@ jobs:
   # so typecheck cost does not add to the integration wall time.
   # merge-coverage and docker-build both wait for this job to complete.
   test:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
@@ -525,7 +525,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -682,7 +682,7 @@ jobs:
   #         wall time from ~45 min to ~6 min. A merge-coverage job then
   #         combines per-shard coverage reports.
   ephemeral-integration:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
@@ -699,7 +699,7 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
-      JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
+      JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
       # The mock inbound webhook adapter now requires a real HMAC-SHA256
@@ -742,7 +742,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -885,7 +885,7 @@ jobs:
   # Ensures both typecheck/units and integration must pass before reporting green.
   # On push: downloads per-shard artifacts, merges coverage reports, writes summary.
   merge-coverage:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, test, ephemeral-integration]
     if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
@@ -895,7 +895,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Download shard artifacts
         uses: actions/download-artifact@v8
@@ -963,7 +963,7 @@ jobs:
   # a 10+ min rebuild caused by Docker layer cache busting when files like
   # turbo.json or scripts/ are the only things that changed.
   docker-build:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: prepare
     # Only run on non-fork PRs and direct pushes (forks don't have access to GHA cache).
     # Also skip for CI/docs-only PRs — no app code changed, image is unchanged.
@@ -975,31 +975,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Build docs Dockerfile
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: apps/docs/Dockerfile
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Build fullapp (main app)
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: Dockerfile
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Build opencode container
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: ./docker/opencode
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

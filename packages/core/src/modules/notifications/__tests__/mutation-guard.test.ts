@@ -54,12 +54,16 @@ jest.mock('@open-mercato/shared/lib/api/context', () => ({
 // otherwise falls back to the caller's own account org. This mock returns what it yields
 // for a caller with no cookie, so the guard scope is auth.orgId.
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({
-    selectedId: organizationId,
-    filterIds: [organizationId],
-    allowedIds: null,
-    tenantId,
-  })),
+  resolveOrganizationScopeForRequest: jest.fn(async () => {
+    const scopeTenantId = ctx.auth?.tenantId || null
+    const scopeOrganizationId = scopeTenantId ? ctx.auth?.orgId ?? null : null
+    return {
+      selectedId: scopeOrganizationId,
+      filterIds: scopeOrganizationId ? [scopeOrganizationId] : null,
+      allowedIds: null,
+      tenantId: scopeTenantId,
+    }
+  }),
 }))
 
 jest.mock('../lib/notificationService', () => ({
