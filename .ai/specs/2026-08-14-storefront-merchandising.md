@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification |
+| **Status** | Specification (rev 2 — pre-implementation fixes 2026-08-17) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 8, Phase 4 |
 | **Modules** | `merchandising` (new) |
@@ -92,6 +92,39 @@ Spec 4's `relatedProducts` is "same category, limit 8". Merchants want to contro
 
 **Invariant:** every product a merchandising surface returns passes through `buildStorefrontProductScope` (spec 4 §3.3). A curated collection containing a product outside the buyer's assortment shows the collection without that product, never the product. Curation cannot widen visibility.
 
+### 3.1 Module file structure (added 2026-08-17)
+
+```
+packages/core/src/modules/merchandising/
+├── index.ts
+├── acl.ts
+├── setup.ts
+├── events.ts
+├── di.ts
+├── i18n/{en,pl}.json
+├── data/
+│   ├── entities.ts               # 8 entities, §4
+│   └── validators.ts
+├── lib/
+│   ├── menuResolver.ts
+│   ├── placementResolver.ts      # structure + resolved-product cache split, §8
+│   ├── collectionMaterializer.ts
+│   └── cacheKeys.ts               # buildStorefrontCacheKey-based; sole cache-key builder — §8
+├── api/
+│   ├── openapi.ts
+│   ├── get/ecommerce/storefront/{menus,placements,collections,recommendations,categories}/…   # public, §7.1
+│   └── {get,post,put,delete}/merchandising/…       # admin CRUD, §7.2
+├── backend/config/merchandising/     # admin composition UI
+├── workers/
+│   └── materialize-collections.ts   # §6
+├── __tests__/
+│   └── no-raw-cache-calls.test.ts   # structural guard, §8/R9 — register in scripts/repo-wide-guards.mjs
+└── subscribers/
+    └── merchandising-cache-invalidation.ts
+```
+
+Public routes live under `merchandising`'s own `api/` tree even though the URL namespace is `ecommerce`-prefixed (`/api/ecommerce/storefront/*`) — auto-discovery is path-based, so this is consistent with how `availability`'s and `customer_groups`' routes already sit outside the `ecommerce` module while serving under shared namespaces elsewhere in this suite.
+
 ---
 
 ## 4) Data Models
@@ -155,6 +188,8 @@ A slot on a page, for an audience.
 
 `html_embed` is deliberately last in the list and is **feature-gated behind `merchandising.blocks.embed_html`**, granted to no role by default. It renders operator-authored markup into the storefront and is a stored-XSS surface by construction (R3).
 
+**Price-bearing block types (stated explicitly, fixed 2026-08-17)**: `product_carousel`, `product_grid` and `collection_grid` resolve and embed priced product payloads (§7.1) — see §8's cache-key split for why this matters. `category_grid` is **not** price-bearing: it renders category tiles with names/media/counts only, never a resolved product or price. `hero`, `banner`, `rich_text`, `video`, `html_embed` and `countdown` are purely editorial/structural. A future block type that embeds any resolved product data MUST follow the same cache-key split as the three price-bearing types above, not the `audienceDigest`-only path the purely structural types use.
+
 The `config` discriminated union follows the pattern SPEC-055 established for promotion rules and benefits: one JSONB column, one Zod union, validated at write. Extension block types register through the same style of registry.
 
 ### 4.5 `MerchandisingCollection` (`merchandising_collections`)
@@ -174,6 +209,8 @@ The `config` discriminated union follows the pattern SPEC-055 established for pr
 | `is_active` | boolean | |
 
 `rule_query` reuses the public filter grammar verbatim rather than inventing a query language. A merchant builds a collection by filtering the storefront and saving the result, which is both the simplest implementation and the most learnable UI.
+
+**`sort` vs. `sort_strategy` (stated 2026-08-17)**: the public filter grammar's own `sort` parameter, if present in a saved `rule_query`, is ignored — `sort_strategy` (above) is the single source of ordering truth for a collection, so a collection's order is never split across two fields.
 
 ### 4.6 `MerchandisingCollectionItem` (`merchandising_collection_items`)
 
@@ -254,6 +291,8 @@ Rule collections resolve in one of two modes, chosen per collection:
 
 Materialization runs hourly by default, per collection, and on demand from admin. `materialized_at` is exposed in the admin UI so a merchant can see how current a collection is.
 
+**Worker definition (added 2026-08-17)**: `workers/materialize-collections.ts`, queue `merchandising-collection-materialization`, concurrency 5–10 (I/O-bound: catalog reads, no heavy computation per job). Idempotent by design — each run replaces a collection's `MerchandisingCollectionItem` rows in place (delete-and-reinsert inside one transaction, not append), so an overlapping scheduled run and an on-demand "materialize now" request never produce duplicates regardless of which finishes last. `POST /collections/:id/materialize` (§7.2) enqueues a job and returns immediately; it does not block the request on the materialization itself.
+
 **Materialized collections are still scope-filtered at read time.** Materialization decides membership; the buyer's assortment decides visibility. Skipping the read-time filter would leak restricted products through a curated surface (R1).
 
 ---
@@ -309,17 +348,19 @@ export const features = [
 
 ## 8) Caching
 
-| Surface | TTL | Key | Invalidation |
-|---|---|---|---|
-| Menu | 300s | audience digest + menu code | Menu or item write |
-| Placement blocks | 120s | audience digest + slot + context | Block or placement write; also on the next schedule boundary |
-| Collection membership (materialized) | 300s | collection id | Materialization |
-| Collection products | 30s | full buyer digest + collection + page | Product or price change |
-| Recommendations | 300s | audience digest + slot + source | Rule write |
+| Surface | TTL | Key | Invalidation | Tag |
+|---|---|---|---|---|
+| Menu | 300s | audience digest + menu code | Menu or item write | `merchandising-menu:{menuId}` |
+| Placement structure (block ordering, editorial content, unresolved product/collection references) | 120s | audience digest + slot + context | Block or placement write; also on the next schedule boundary | `merchandising-placement:{placementId}`, `merchandising-block:{blockId}` |
+| Placement resolved products (`product_carousel`/`product_grid`/`collection_grid` payloads only — fixed 2026-08-17, see below) | 30s | full buyer digest + slot + block id + context + page | Product or price change; block/placement write | `merchandising-block:{blockId}` |
+| Collection membership (materialized) | 300s | collection id | Materialization | `merchandising-collection:{collectionId}` |
+| Collection products | 30s | full buyer digest + collection + page | Product or price change | `merchandising-collection:{collectionId}` |
+| Recommendation selection (which products a strategy/rule picks) | 300s | audience digest + slot + source | Rule write | `merchandising-recommendation:{ruleId}` |
+| Recommendation resolved products (priced payloads — fixed 2026-08-17, see below) | 30s | full buyer digest + slot + source + selected product ids | Product or price change; rule write | `merchandising-recommendation:{ruleId}` |
 
-**Two digests, deliberately.** Menus, blocks and recommendations depend only on *audience* (groups, auth, locale, channel), not on price. They key on an `audienceDigest` — a coarser, higher-hit-rate subset of the full buyer digest. Only product payloads, which are price-bearing, key on the full digest. Keying the whole homepage on the full digest would make it uncacheable per customer, which is exactly the wrong outcome on the most-hit page (R2).
+**Fixed 2026-08-17 — the "two digests" claim was too broad and self-contradicted §7.1.** An earlier draft said "menus, blocks and recommendations depend only on audience... not on price," and cached the entire placement-blocks and recommendations surfaces on `audienceDigest` alone. But §7.1 states plainly that a block referencing products (`product_carousel`/`product_grid`/`collection_grid`) and every `/recommendations` response return **resolved, buyer-priced** `StorefrontProductListItem` payloads — the same class of buyer-priced data `storefront-public-api.md` §9.1 already had to split out of its own audience/assortment-scoped facet cache for the identical reason (two buyers sharing an audience but not a price kind would otherwise share cached prices — the same severity as that document's own R1, "contract pricing served to the wrong buyer"). This document's own "Collections" rows already got the split right (`Collection membership` on a coarse key, `Collection products` on the full digest) — the fix here is applying that same, already-demonstrated pattern to Placement and Recommendations: `audienceDigest` is safe **only** for the purely structural/editorial portion of a surface (which blocks appear, in what order, which collection or rule a block points at); any surface that embeds a **resolved** product or price payload — regardless of which cache row it lives in — keys on the full buyer digest, no exception. A structural CI test (`merchandising/__tests__/no-raw-cache-calls.test.ts`, mirroring SPEC-029 §6.1's guard, registered in `scripts/repo-wide-guards.mjs`) enforces that every route builds its cache key through `lib/cacheKeys.ts` rather than ad hoc, so a future price-bearing block type or recommendation strategy can't reintroduce this by construction.
 
-Scheduled blocks need care: a block whose window opens at 09:00 must not be served late because of a 120s TTL taken at 08:59. Cache entries carry an expiry clamped to the next schedule boundary among the blocks they contain.
+Scheduled blocks need care: a block whose window opens at 09:00 must not be served late because of a 120s TTL taken at 08:59. Cache entries carry an expiry clamped to the next schedule boundary among the blocks they contain — this applies to the structure layer; the resolved-product layer's short 30s TTL makes the same concern moot there.
 
 ---
 
@@ -329,12 +370,13 @@ Scheduled blocks need care: a block whose window opens at 09:00 must not be serv
 |---|---|---|---|---|---|
 | R1 | Curation leaks restricted products | **High** | A manual collection contains a product outside a B2B buyer's assortment; the collection surface renders it, bypassing the assortment scope. | Every product-returning surface composes `buildStorefrontProductScope`; materialized membership is still filtered at read time (§6); a test asserts a restricted product is absent from a collection containing it | Low |
 | R2 | Homepage becomes uncacheable | **High** | Audience targeting plus the buyer digest makes every homepage response unique; the most-hit page misses cache every time. | Two-digest split (§8): structure keys on the coarser audience digest, only product payloads on the full digest; hit rate measured at the Phase 4 gate | Medium — a tenant with many groups still fragments; bounded by group count, which is operator-controlled |
-| R3 | Stored XSS via `html_embed` and rich text | **High** | An operator stores a script in an embed block; every visitor executes it. | `html_embed` gated behind a feature granted to no role by default; `rich_text`, `intro_html` and `outro_html` sanitized server-side against an allowlist before leaving the API, as spec 4 R5 requires for descriptions; embed blocks additionally rendered inside a sandboxed frame | Low |
+| R3 | Stored XSS via `html_embed` and rich text | **High** | An operator stores a script in an embed block; every visitor executes it. | `html_embed` gated behind a feature granted to no role by default; `rich_text`, `intro_html` and `outro_html` sanitized server-side via the shared `sanitizeRichTextHtml` helper (`packages/shared/src/lib/html/sanitizeRichText.ts`, fixed 2026-08-17 — reuses the same allowlist `entities`/`messages`/the admin rich-text editor already share, instead of an independently hand-rolled one that could drift), same requirement as spec 4 R5 for descriptions; embed blocks additionally rendered inside a sandboxed frame | Low |
 | R4 | Composed page fan-out | **High** | A homepage with six product blocks issues six independent listing queries plus six pricing and availability resolutions. | Blocks resolve product references in one batched pass per request — one product query, one pricing resolution, one availability check across all blocks; query count asserted for a six-block homepage | Low |
 | R5 | Stale materialized collection | Medium | An hourly job means a discontinued product sits in "Bestsellers" for up to an hour. | Read-time scope filter removes inactive and deleted products regardless of materialization; `materialized_at` surfaced in admin; on-demand materialization available | Low |
 | R6 | Scheduled block served late or early | Medium | A campaign block appears minutes after its start or lingers after its end because of the cache TTL. | Cache expiry clamped to the next schedule boundary among the blocks in the entry (§8) | Low |
 | R7 | Preview token leaks unpublished campaigns | Medium | A shared preview URL exposes an unlaunched campaign, including pricing intentions, to anyone with the link. | Short-lived, single-store, admin-issued tokens; preview responses `no-store`; token issuance audited | Low |
 | R8 | `bought_together` promises what it does not deliver | Low | A merchant selects the strategy and gets empty or misleading results. | Out of scope for v1 and stated: the strategy returns empty with a logged warning and is disabled in the admin picker with an explanatory note | Low |
+| R9 | Buyer-priced block/recommendation cache bleed | **Critical** | A `product_carousel`/`product_grid`/`collection_grid` block or a `/recommendations` response is cached on `audienceDigest` alone, but embeds resolved, buyer-priced product data (§7.1). Two buyers sharing customer groups but on different price kinds or personal contract prices (personal price beats group price, per spec 1) share a cache entry and one sees the other's negotiated prices — the same class of disclosure `ecommerce`'s own R1 and `storefront-public-api`'s own R1 rate Critical, introduced here by an earlier draft's `audienceDigest`-only mitigation for R2 rather than by a runtime bug. | Resolved-product payloads for these two surfaces key on the full buyer digest, not `audienceDigest` (§8, fixed 2026-08-17); structural CI guard bans building these cache keys any other way; cross-buyer isolation is a Phase 2/4 gate | Low |
 
 ---
 
@@ -351,6 +393,7 @@ Scheduled blocks need care: a block whose window opens at 09:00 must not be serv
 - `excludeCustomerGroupIds` beats inclusion
 - `requiresAuthentication` hides a block from anonymous visitors
 - Two buyers in the same group share the audience-digest cache entry; two in different groups do not (R2)
+- **Two buyers sharing an audience digest (same customer groups) but differing `priceKindId`/`customerId` never see each other's prices in a `product_carousel`/`product_grid`/`collection_grid` block or in `/recommendations`, even though they share the same structural cache entry for that surface** (regression test for the fixed R9 cache split)
 
 **Scheduling and publishing:**
 - A draft block is absent from the public response and present under a valid preview token
@@ -420,7 +463,9 @@ Recommendation rules (excluding `bought_together`), category enrichment, `html_e
 | Zod validation | Block `config` as a discriminated union on `block_type`; all routes |
 | No `any` | Block config union and audience model fully typed |
 | i18n | Labels, titles and editorial copy via `translations`; no per-locale columns; no hard-coded strings |
-| Sanitization | Rich text and enrichment HTML sanitized server-side; `html_embed` feature-gated and sandboxed |
+| Sanitization | Rich text and enrichment HTML sanitized server-side via the shared `sanitizeRichTextHtml` helper (fixed 2026-08-17 — reuses existing infrastructure); `html_embed` feature-gated and sandboxed |
+| Cache safety — price isolation | Resolved product/price payloads embedded in Placement blocks and Recommendations key on the full buyer digest, never `audienceDigest` alone (§8, R9, fixed 2026-08-17); structural CI guard registered in `scripts/repo-wide-guards.mjs` |
+| Queue usage | Collection materialization via the `queue` worker contract (`workers/materialize-collections.ts`, §6, added 2026-08-17), not a custom timer |
 | Optimistic locking | All editable entities expose `updatedAt`; admin forms use `CrudForm` |
 | Cache safety | Audience digest and buyer digest split deliberately; preview responses `no-store` |
 | Design system | Admin UI uses `@open-mercato/ui` primitives and semantic tokens |
@@ -430,6 +475,16 @@ Recommendation rules (excluding `bought_together`), category enrichment, `html_e
 ---
 
 ## 14) Changelog
+
+### 2026-08-17 (rev 2 — pre-implementation fixes)
+
+Fixed the findings of a `/om-pre-implement-spec` audit (`ANALYSIS-2026-08-14-storefront-merchandising.md`):
+
+- **Critical (new R9)**: §8's cache table keyed "Placement blocks" and "Recommendations" on `audienceDigest` alone, directly contradicting §7.1's own statement that `product_carousel`/`product_grid`/`collection_grid` blocks and every `/recommendations` response embed resolved, buyer-priced product payloads. Two buyers sharing customer groups but differing price kinds or personal contract prices would have shared cached prices — the same severity `ecommerce`'s and `storefront-public-api`'s own R1 rate Critical, and the identical defect class already found and fixed once in this same suite (`storefront-public-api.md` §9.1's facet/`priceRange` split). Fixed: split both surfaces into a structural layer (`audienceDigest`) and a resolved-product layer (full buyer digest); added R9, a regression test (§10), and a structural CI guard.
+- Named the shared `sanitizeRichTextHtml` helper for rich-text/embed sanitization instead of an independently-described allowlist (R3, §13).
+- Declared the collection-materialization worker's queue, concurrency and idempotency (§6).
+- Stated `category_grid`'s price-independence and `rule_query.sort`'s precedence against `sort_strategy` explicitly (§4.4, §4.5).
+- Added a Module File Structure section (§3.1) and concrete cache-invalidation tag names (§8).
 
 ### 2026-08-14
 - Initial specification.
