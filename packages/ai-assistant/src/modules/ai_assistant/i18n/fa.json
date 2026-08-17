@@ -1,4 +1,4 @@
-﻿{
+{
   "ai_assistant.agents.agentPickerLabel": "Agent",
   "ai_assistant.agents.attachments.noneBadge": "No attachments accepted",
   "ai_assistant.agents.attachments.subtitle": "Accepted media types the agent declares. Read-only in Phase 2.",
