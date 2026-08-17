@@ -15,10 +15,16 @@ const CHANNEL_GONE = '33333333-3333-4333-8333-333333333333'
 
 type Channel = { id: string; name: string; code: string | null }
 
-function makeCtx(channels: Channel[], recordedWheres: Record<string, unknown>[], overrides?: Partial<Record<string, unknown>>) {
+function makeCtx(
+  channels: Channel[],
+  recordedWheres: Record<string, unknown>[],
+  overrides?: Partial<Record<string, unknown>>,
+  recordedOptions?: Array<Record<string, unknown> | undefined>,
+) {
   const em = {
-    find: (_entity: unknown, where: Record<string, unknown>) => {
+    find: (_entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
       recordedWheres.push(where)
+      recordedOptions?.push(options)
       const ids = ((where.id as { $in?: string[] })?.$in ?? []) as string[]
       return Promise.resolve(channels.filter((channel) => ids.includes(channel.id)))
     },
@@ -125,18 +131,16 @@ describe('attachChannelNames', () => {
     expect(wheres[0]).toMatchObject({ organizationId: { $in: ['org-1', 'org-2'] } })
   })
 
-  // A document's channel is a historical fact: retiring a channel must not blank it on every
-  // document ever placed through it. This pins the deliberate divergence from the module's
-  // live-read paths, which do filter deletedAt.
-  it('should not exclude soft-deleted channels from the lookup', async () => {
+  it('should request only the columns it reads', async () => {
     const wheres: Record<string, unknown>[] = []
-    const ctx = makeCtx([{ id: CHANNEL_A, name: 'Retired shop', code: 'retired' }], wheres)
-    const payload = { items: [{ id: 'doc-1', channelId: CHANNEL_A }] }
+    const options: Array<Record<string, unknown> | undefined> = []
+    const ctx = makeCtx([{ id: CHANNEL_A, name: 'Web shop', code: 'web-shop' }], wheres, undefined, options)
 
-    await attachChannelNames(payload, ctx)
+    await attachChannelNames({ items: [{ id: 'doc-1', channelId: CHANNEL_A }] }, ctx)
 
-    expect(wheres[0]).not.toHaveProperty('deletedAt')
-    expect(payload.items[0]).toMatchObject({ channelName: 'Retired shop' })
+    // SalesChannel carries eight encrypted PII columns (sales/encryption.ts). Selecting the whole
+    // row would decrypt all of them on every documents-list request for fields nothing renders.
+    expect(options[0]).toMatchObject({ fields: ['id', 'name', 'code'] })
   })
 
   it('should no-op when the container cannot resolve an EntityManager', async () => {

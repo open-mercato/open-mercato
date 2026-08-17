@@ -300,8 +300,17 @@ const attachTags = async (payload: any, ctx: any) => {
   })
 }
 
-export const attachChannelNames = async (payload: any, ctx: any) => {
-  const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
+// Liveness note: this hook runs BEFORE the CRUD list cache stores the payload, so `channelName`
+// and `channelCode` are embedded in the cached entry. What keeps them fresh is that the hook also
+// runs on the cache-HIT path (shared/lib/crud/factory.ts:1683) and reassigns both fields
+// unconditionally for every item carrying a channel id. Anything that later skips this hook on a
+// hit — the way `skipEnrichersOnCacheHit` does for record-pure enrichers — would start serving the
+// stale names baked into the entry.
+export const attachChannelNames = async (
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx,
+) => {
+  const items = Array.isArray(payload?.items) ? payload.items : []
   if (!items.length) return
   const channelIds = Array.from(
     new Set(
@@ -324,15 +333,15 @@ export const attachChannelNames = async (payload: any, ctx: any) => {
         : []
   if (orgIds.length) where.organizationId = { $in: orgIds }
 
-  // No `deletedAt: null` here, unlike the live-read paths in commands/configuration.ts: a document's
-  // channel is a historical fact, so retiring a channel must not blank it on every document ever
-  // placed through it. The visible consequence is that the list column can show a name the channel
-  // filter cannot offer, because the filter's options come from the channels list route.
+  // Only `name` and `code` are read. Without this projection the query loads the whole channel row,
+  // and `sales/encryption.ts` declares eight of its columns encrypted (contact email/phone, the
+  // address block) — so every documents-list request would decrypt PII it never renders, on the
+  // cache-hit path too.
   const channels = await findWithDecryption(
     em,
     SalesChannel,
     where,
-    {},
+    { fields: ['id', 'name', 'code'] },
     {
       tenantId: ctx?.auth?.tenantId ?? null,
       organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null,
