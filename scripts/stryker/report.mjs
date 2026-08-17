@@ -189,8 +189,15 @@ export function renderMarkdown(report, options = {}) {
   return `${lines.join('\n').trimEnd()}\n`
 }
 
+function splitFileList(value) {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+}
+
 export function parseReportArgs(argv) {
-  const args = { reportPath: null, packageName: null, enforced: false, uncoveredFiles: [] }
+  const args = { reportPath: null, packageName: null, enforced: false, uncoveredFiles: [], coveredFiles: [] }
 
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--package' && index + 1 < argv.length) {
@@ -199,10 +206,10 @@ export function parseReportArgs(argv) {
     } else if (argv[index] === '--enforced') {
       args.enforced = true
     } else if (argv[index] === '--uncovered' && index + 1 < argv.length) {
-      args.uncoveredFiles = argv[index + 1]
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry !== '')
+      args.uncoveredFiles = splitFileList(argv[index + 1])
+      index += 1
+    } else if (argv[index] === '--covered' && index + 1 < argv.length) {
+      args.coveredFiles = splitFileList(argv[index + 1])
       index += 1
     } else if (args.reportPath === null) {
       args.reportPath = argv[index]
@@ -218,21 +225,29 @@ export function parseReportArgs(argv) {
  * step runs `if: always()` precisely so both cases still explain themselves, so this
  * path must reach the job summary like any other — a run that leaves the summary
  * blank buries its only explanation in the step log.
+ *
+ * `coveredFiles` disambiguates the two causes: empty means Stryker was never
+ * invoked (every file was uncovered), so the "needs tests" note replaces the
+ * failure message entirely. Non-empty means Stryker *was* invoked on those files
+ * and still produced no report — a genuine crash — so the failure message stays
+ * primary and the uncovered note (if any) is only a supplementary aside; claiming
+ * "every changed file has no related test" there would bury the real crash.
  */
-export function renderMissingReportMarkdown(packageName = null, uncoveredFiles = []) {
+export function renderMissingReportMarkdown(packageName = null, uncoveredFiles = [], coveredFiles = []) {
   const suffix = packageName === null ? '' : ` for ${toInlineCode(packageName)}`
 
-  if (uncoveredFiles.length > 0) {
+  if (uncoveredFiles.length > 0 && coveredFiles.length === 0) {
     return (
       `## Mutation testing\n\nEvery changed file${suffix} has no related test, so nothing was ` +
       `mutated. ${renderUncoveredNote(uncoveredFiles)}\n`
     )
   }
 
+  const uncoveredAside = uncoveredFiles.length > 0 ? ` ${renderUncoveredNote(uncoveredFiles)}` : ''
   return (
     `## Mutation testing\n\nNo mutation report was produced${suffix}. ` +
     'The mutation run did not get far enough to write `mutation.json` — check the ' +
-    'mutation step above for the failure.\n'
+    `mutation step above for the failure.${uncoveredAside}\n`
   )
 }
 
@@ -248,7 +263,7 @@ function main() {
   const args = parseReportArgs(process.argv.slice(2))
 
   if (args.reportPath === null || !fs.existsSync(args.reportPath)) {
-    emit(renderMissingReportMarkdown(args.packageName, args.uncoveredFiles))
+    emit(renderMissingReportMarkdown(args.packageName, args.uncoveredFiles, args.coveredFiles))
     return
   }
 

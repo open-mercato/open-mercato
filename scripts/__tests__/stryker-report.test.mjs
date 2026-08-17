@@ -197,20 +197,28 @@ test('parses the report path, package name and enforcement flag', () => {
     packageName: null,
     enforced: false,
     uncoveredFiles: [],
+    coveredFiles: [],
   })
   assert.deepEqual(parseReportArgs(['mutation.json', '--package', 'shared', '--enforced']), {
     reportPath: 'mutation.json',
     packageName: 'shared',
     enforced: true,
     uncoveredFiles: [],
+    coveredFiles: [],
   })
 })
 
-test('parses a comma-separated --uncovered list, dropping blanks', () => {
-  assert.deepEqual(
-    parseReportArgs(['mutation.json', '--uncovered', 'src/lib/a.ts, src/lib/b.ts,']).uncoveredFiles,
-    ['src/lib/a.ts', 'src/lib/b.ts'],
-  )
+test('parses comma-separated --uncovered and --covered lists, dropping blanks', () => {
+  const args = parseReportArgs([
+    'mutation.json',
+    '--uncovered',
+    'src/lib/a.ts, src/lib/b.ts,',
+    '--covered',
+    'src/lib/c.ts,',
+  ])
+
+  assert.deepEqual(args.uncoveredFiles, ['src/lib/a.ts', 'src/lib/b.ts'])
+  assert.deepEqual(args.coveredFiles, ['src/lib/c.ts'])
 })
 
 test('surfaces uncovered files as a distinct needs-tests note, alongside surviving mutants', () => {
@@ -232,12 +240,24 @@ test('surfaces uncovered files even when no mutants were generated at all', () =
 })
 
 test('the missing-report fallback explains a fully-uncovered package without implying a crash', () => {
-  const markdown = renderMissingReportMarkdown('shared', ['src/lib/untested.ts'])
+  const markdown = renderMissingReportMarkdown('shared', ['src/lib/untested.ts'], [])
 
   assert.match(markdown, /## Mutation testing/)
   assert.match(markdown, /has no related test, so nothing was mutated/)
   assert.ok(markdown.includes(inlineCode('src/lib/untested.ts')))
   assert.ok(!markdown.includes('did not get far enough to write'))
+})
+
+test('the missing-report fallback keeps the crash explanation primary when some files were covered', () => {
+  // Stryker was actually invoked on the covered file(s) and still produced no report —
+  // a genuine crash, not a coverage skip — so claiming "every file has no related
+  // test" here would bury the real failure the mutation step logged.
+  const markdown = renderMissingReportMarkdown('shared', ['src/lib/untested.ts'], ['src/lib/boolean.ts'])
+
+  assert.match(markdown, /did not get far enough to write/)
+  assert.match(markdown, /Needs tests/)
+  assert.ok(markdown.includes(inlineCode('src/lib/untested.ts')))
+  assert.ok(!markdown.includes('Every changed file'))
 })
 
 test('the missing-report fallback explains itself and names the package', () => {

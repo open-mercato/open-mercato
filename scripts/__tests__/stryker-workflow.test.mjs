@@ -191,12 +191,14 @@ test('partitions files by related test coverage before mutating, and skips a ful
   assert.equal(mutateStep.if, "steps.partition.outputs.covered != ''")
 })
 
-test('passes uncovered files through to the report so a needs-tests note is never silent', () => {
+test('passes covered and uncovered files through to the report so a needs-tests note is never silent, and never confused with a crash', () => {
   const reportStep = workflow.jobs.mutate.steps.find(
     (step) => step.name === 'Write the survivor report to the job summary',
   )
 
+  assert.equal(reportStep.env.COVERED_FILES, '${{ steps.partition.outputs.covered }}')
   assert.equal(reportStep.env.UNCOVERED_FILES, '${{ steps.partition.outputs.uncovered }}')
+  assert.match(reportStep.run, /--covered "\$\{COVERED_FILES\}"/)
   assert.match(reportStep.run, /--uncovered "\$\{UNCOVERED_FILES\}"/)
 })
 

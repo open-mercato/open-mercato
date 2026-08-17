@@ -195,11 +195,13 @@ jobs:
         env:
           MUTATE_PACKAGE: ${{ matrix.package }}
           ENFORCED: ${{ vars.MUTATION_ENFORCE == 'true' && '--enforced' || '' }}
+          COVERED_FILES: ${{ steps.partition.outputs.covered }}
           UNCOVERED_FILES: ${{ steps.partition.outputs.uncovered }}
         run: |
           node scripts/stryker/report.mjs \
             "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json" \
             --package "${MUTATE_PACKAGE}" \
+            --covered "${COVERED_FILES}" \
             --uncovered "${UNCOVERED_FILES}" \
             ${ENFORCED}
 
