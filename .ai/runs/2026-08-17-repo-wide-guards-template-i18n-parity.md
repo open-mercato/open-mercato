@@ -52,6 +52,8 @@ This is not only a red check. The registry exists so the turbo `--filter=[base].
 
 ## Progress
 
+PR: #5340
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Register the test and verify the guard
@@ -63,4 +65,4 @@ This is not only a red check. The registry exists so the turbo `--filter=[base].
 ### Phase 2: Validation gate and PR
 
 - [x] 2.1 Run the validation gate — scoped to what a dev-script data entry can affect; see the gate table in the PR body. `test:scripts` (the CI job that was red) is 583/587 with the guard case green; the 3 remaining failures are the known host `fs.inotify.max_user_instances=128` dev-wrapper artifacts, **proven pre-existing** by a control run on clean `origin/develop` (0 pass / 3 fail there too, with this change absent).
-- [ ] 2.2 Open the PR
+- [x] 2.2 Open the PR — #5340
