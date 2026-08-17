@@ -20,7 +20,11 @@ import {
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
   waitForApplicationReadiness,
+  createBoundedOutputBuffer,
+  CAPTURED_OUTPUT_MAX_BYTES,
+  killProcessTree,
 } from '../integration'
+import type { CapturedOutputProcess } from '../integration'
 import { EventEmitter } from 'node:events'
 import type { ChildProcess } from 'node:child_process'
 
@@ -922,6 +926,85 @@ describe('waitForApplicationReadiness', () => {
       await expect(readiness).rejects.toThrow(/exited before readiness check \(exit 1\)/)
     } finally {
       fetchSpy.mockRestore()
+    }
+  })
+
+  it('includes the captured stderr tail when the application process exits unexpectedly', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async () => {
+      await sleep(20)
+      return { status: 503, ok: false, text: async () => '' } as unknown as Response
+    })
+    const fakeProcess = makeFakeProcess() as CapturedOutputProcess
+    fakeProcess.readCapturedOutput = () => 'Error: listen EADDRINUSE: address already in use :::5001'
+
+    try {
+      const readiness = waitForApplicationReadiness('http://127.0.0.1:5001', fakeProcess, {
+        timeoutMs: 5_000,
+        intervalMs: 5,
+      })
+      setTimeout(() => fakeProcess.emit('exit', 1), 30)
+      await expect(readiness).rejects.toThrow(/exited before readiness check \(exit 1\)/)
+      await expect(readiness).rejects.toThrow(/EADDRINUSE/)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+})
+
+describe('createBoundedOutputBuffer', () => {
+  it('keeps the most recent output and drops the oldest once the cap is exceeded', () => {
+    const buffer = createBoundedOutputBuffer()
+    const lineCount = 200
+
+    for (let index = 0; index < lineCount; index += 1) {
+      buffer.append(`line-${index}:${'x'.repeat(500)}\n`)
+    }
+
+    const result = buffer.read()
+    expect(result).toContain('…(truncated)…')
+    expect(result).toContain(`line-${lineCount - 1}:`)
+    expect(result).not.toContain('line-0:')
+    expect(result.length).toBeLessThanOrEqual(CAPTURED_OUTPUT_MAX_BYTES + '…(truncated)…'.length)
+  })
+
+  it('returns the raw output untouched when it stays under the cap', () => {
+    const buffer = createBoundedOutputBuffer()
+    buffer.append('hello ')
+    buffer.append('world')
+    expect(buffer.read()).toBe('hello world')
+  })
+})
+
+describe('killProcessTree', () => {
+  it('kills the POSIX process group via a negated pid', () => {
+    const calls: Array<[number, NodeJS.Signals]> = []
+    killProcessTree(4242, 'SIGTERM', {
+      platform: 'linux',
+      killPosixProcessGroup: (pid, signal) => {
+        calls.push([pid, signal])
+      },
+    })
+    expect(calls).toEqual([[4242, 'SIGTERM']])
+  })
+
+  it('shells out to a Windows process-tree kill with /t /f', () => {
+    const calls: number[] = []
+    killProcessTree(4242, 'SIGTERM', {
+      platform: 'win32',
+      killWindowsProcessTree: (pid) => {
+        calls.push(pid)
+      },
+    })
+    expect(calls).toEqual([4242])
+  })
+
+  it('negates the pid when falling back to the default POSIX killer', () => {
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      killProcessTree(4242, 'SIGTERM', { platform: 'linux' })
+      expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM')
+    } finally {
+      killSpy.mockRestore()
     }
   })
 })

@@ -1,4 +1,5 @@
 import type { ChildProcess, StdioOptions } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -762,23 +763,45 @@ function runNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<
   })
 }
 
+export type CapturedOutputProcess = ChildProcess & {
+  readCapturedOutput?: () => string
+}
+
+export const CAPTURED_OUTPUT_MAX_BYTES = 64 * 1024
+
+export function createBoundedOutputBuffer(): { append: (chunk: Buffer | string) => void; read: () => string } {
+  let buffered = ''
+  return {
+    append: (chunk: Buffer | string) => {
+      buffered += chunk.toString()
+      if (buffered.length > CAPTURED_OUTPUT_MAX_BYTES) {
+        buffered = `…(truncated)…${buffered.slice(-CAPTURED_OUTPUT_MAX_BYTES)}`
+      }
+    },
+    read: () => buffered,
+  }
+}
+
 function startYarnRawCommand(
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
-  opts: { silent?: boolean } = {},
+  opts: { silent?: boolean; detached?: boolean } = {},
   cwd: string = projectRootDirectory,
-): ChildProcess {
+): CapturedOutputProcess {
   const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
-  const resolvedSpawn = resolveSpawnCommand(resolveYarnBinary(), commandArgs)
-  const processHandle: ChildProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+  const resolvedSpawn = resolveSpawnCommand(resolveYarnBinary(), commandArgs, { detached: opts.detached })
+  const processHandle: CapturedOutputProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     cwd,
     env: environment,
     stdio: outputMode,
     ...resolvedSpawn.spawnOptions,
   })
   if (opts.silent) {
-    processHandle.stdout?.on('data', () => {})
-    processHandle.stderr?.on('data', () => {})
+    const stdoutBuffer = createBoundedOutputBuffer()
+    const stderrBuffer = createBoundedOutputBuffer()
+    processHandle.stdout?.on('data', (chunk: Buffer | string) => stdoutBuffer.append(chunk))
+    processHandle.stderr?.on('data', (chunk: Buffer | string) => stderrBuffer.append(chunk))
+    processHandle.readCapturedOutput = () => stderrBuffer.read().trim() || stdoutBuffer.read().trim()
   }
   return processHandle
 }
@@ -786,9 +809,9 @@ function startYarnRawCommand(
 function startYarnCommand(
   args: string[],
   environment: NodeJS.ProcessEnv,
-  opts: { silent?: boolean } = {},
+  opts: { silent?: boolean; detached?: boolean } = {},
   cwd: string = projectRootDirectory,
-): ChildProcess {
+): CapturedOutputProcess {
   return startYarnRawCommand(['run', ...args], environment, opts, cwd)
 }
 
@@ -1768,6 +1791,56 @@ function isProcessRunning(processId: number): boolean {
   }
 }
 
+export type ProcessTreeKillDependencies = {
+  platform?: NodeJS.Platform
+  killPosixProcessGroup?: (pid: number, signal: NodeJS.Signals) => void
+  killWindowsProcessTree?: (pid: number) => void
+}
+
+function defaultKillPosixProcessGroup(pid: number, signal: NodeJS.Signals): void {
+  process.kill(-pid, signal)
+}
+
+function defaultKillWindowsProcessTree(pid: number): void {
+  spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'])
+}
+
+export function killProcessTree(
+  pid: number,
+  signal: NodeJS.Signals,
+  dependencies: ProcessTreeKillDependencies = {},
+): void {
+  const platform = dependencies.platform ?? process.platform
+  if (platform === 'win32') {
+    const killWindowsProcessTree = dependencies.killWindowsProcessTree ?? defaultKillWindowsProcessTree
+    killWindowsProcessTree(pid)
+    return
+  }
+  const killPosixProcessGroup = dependencies.killPosixProcessGroup ?? defaultKillPosixProcessGroup
+  killPosixProcessGroup(pid, signal)
+}
+
+const PROCESS_TREE_KILL_GRACE_PERIOD_MS = 3_000
+
+async function terminateProcessTree(
+  childProcess: CapturedOutputProcess,
+  dependencies: ProcessTreeKillDependencies = {},
+): Promise<void> {
+  const pid = childProcess.pid
+  if (!pid) return
+
+  killProcessTree(pid, 'SIGTERM', dependencies)
+
+  const exitedBeforeGracePeriod = await Promise.race([
+    getProcessExitPromise(childProcess).then(() => true),
+    delay(PROCESS_TREE_KILL_GRACE_PERIOD_MS).then(() => false),
+  ])
+
+  if (!exitedBeforeGracePeriod && isProcessRunning(pid)) {
+    killProcessTree(pid, 'SIGKILL', dependencies)
+  }
+}
+
 async function getPathAgeMilliseconds(targetPath: string): Promise<number | null> {
   try {
     const stats = await stat(targetPath)
@@ -2082,7 +2155,7 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
 
 export async function waitForApplicationReadiness(
   baseUrl: string,
-  appProcess: ChildProcess,
+  appProcess: CapturedOutputProcess,
   options: { timeoutMs: number; intervalMs?: number; stabilizationMs?: number },
 ): Promise<void> {
   const startTimestamp = Date.now()
@@ -2103,8 +2176,15 @@ export async function waitForApplicationReadiness(
       return { exited: true as const }
     },
   )
-  const exitError = () =>
-    new Error(`Application process exited before readiness check (exit ${exitCode ?? 'unknown'})`)
+  const exitError = () => {
+    const capturedOutput = appProcess.readCapturedOutput?.().trim()
+    const capturedOutputTail = capturedOutput
+      ? `\nCaptured output:\n${capturedOutput.split('\n').slice(-20).join('\n')}`
+      : ''
+    return new Error(
+      `Application process exited before readiness check (exit ${exitCode ?? 'unknown'})${capturedOutputTail}`,
+    )
+  }
 
   while (Date.now() - startTimestamp < options.timeoutMs) {
     // Run one probe cycle to completion before starting the next. Overlapping cycles (the previous
@@ -3390,14 +3470,22 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     })
 
     const runtimeLock = await acquireEphemeralRuntimeLock(options.logPrefix)
-    let applicationProcess: ChildProcess | null = null
+    let applicationProcess: CapturedOutputProcess | null = null
     let isStopped = false
+    process.once('exit', () => {
+      if (isStopped) return
+      const pid = applicationProcess?.pid
+      if (!pid) return
+      try {
+        killProcessTree(pid, 'SIGKILL')
+      } catch {}
+    })
     const stop = async (): Promise<void> => {
       if (isStopped) return
       isStopped = true
       try {
         if (applicationProcess && !applicationProcess.killed) {
-          applicationProcess.kill('SIGTERM')
+          await terminateProcessTree(applicationProcess)
         }
         await databaseContainer.stop()
         await clearEphemeralEnvironmentState()
@@ -3491,6 +3579,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
       const startedAppProcess = startYarnCommand(['start'], commandEnvironment, {
         silent: !options.verbose,
+        detached: true,
       }, appDirectory)
       applicationProcess = startedAppProcess
 
