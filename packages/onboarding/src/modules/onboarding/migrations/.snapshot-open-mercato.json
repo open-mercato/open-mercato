@@ -260,16 +260,6 @@
           "unique": true
         },
         {
-          "keyName": "onboarding_requests_email_unique",
-          "columnNames": [
-            "email"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
           "keyName": "onboarding_requests_email_hash_unique",
           "columnNames": [
             "email_hash"

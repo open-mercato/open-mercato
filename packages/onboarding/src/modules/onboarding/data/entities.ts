@@ -3,7 +3,6 @@ import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/lega
 type OnboardingStatus = 'pending' | 'processing' | 'completed' | 'expired'
 
 @Entity({ tableName: 'onboarding_requests' })
-@Unique({ properties: ['email'] })
 @Unique({ properties: ['emailHash'] })
 @Unique({ properties: ['tokenHash'] })
 export class OnboardingRequest {
