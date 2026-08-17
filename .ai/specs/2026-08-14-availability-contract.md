@@ -10,10 +10,26 @@
 
 ---
 
+## Reconciliation note (2026-08-17)
+
+The parallel `open-mercato` upstream repo independently designed the same contract as a Phase 0 addition to its own `.ai/specs/2026-04-15-wms-roadmap.md` (rev 10), approved and reviewed there before this document's design was known to it. A joint `/om-pre-implement-spec` audit on both documents flagged the collision as a Critical backward-compatibility risk (a DI/type contract can only be frozen once — see `BACKWARD_COMPATIBILITY.md` categories 2 and 9). The two designs are reconciled as of rev 10 of that document and this revision of this one. What changed here, relative to the original 2026-08-14 design below:
+
+- The base `AvailabilityQuery` / `AvailabilityResult` / `AvailabilityProvider` types, the provider registry, and the built-in `catalog-only` fallback move to `packages/shared/src/lib/availability/` — they are **not** owned by this `availability` module. This keeps every consumer (`ecommerce`, `cart`, `checkout`, `catalog`) dependency-free the way `packages/shared` already is for every module, instead of requiring a new core module install.
+- Provider registration is an explicit `availabilityProviderRegistry.register({ id, getAvailability })` call (mirrors `packages/shared/src/lib/ai/llm-provider-registry.ts`), not "same DI key, registration order is module load order." `wms` registers as provider id `'wms'`.
+- Provider **selection** is per-tenant via `ModuleConfigService('availability', 'selectedProvider')` (`auto`/`wms`/`catalog-only`, safe fallback to `catalog-only` if the selected id is not currently registered) — not implicit "whichever registered last wins for the whole process."
+- This `availability` module is re-scoped, not removed: it keeps everything that is genuine net-new business capability and has no equivalent in the shared contract — `AvailabilityPolicy`, its resolution chain, the admin CRUD, and the reservation/checkout-hold lifecycle (§4.1, §10). It stops being the module that *defines* the base contract; it becomes one of several things (alongside `wms`) that can be consulted when a provider computes a result.
+- `AvailabilityItemRef.productId`/`.variantId` are renamed `catalogProductId`/`catalogVariantId` to match this repo's existing `catalog_product_id`/`catalog_variant_id` convention (used throughout `wms`'s own entities) and the shared contract's field names.
+- The fallback's `not_tracked` state and `canFulfil: true` default (§3.2 below) is unchanged and was in fact adopted upstream into `wms-roadmap.md` rev 11 as the more correct choice over an earlier draft that defaulted to `in_stock` — no change needed here.
+- `reserve`/`release`/`commit` (§4.1) MUST be implemented as undoable commands per root `AGENTS.md` — either by delegating directly to `wms`'s existing `reserveInventory`/`releaseReservation` commands (already command-driven, already undoable) or by registering their own commands with `extractUndoPayload()`. The original draft specified them as plain async interface methods with no stated command binding; this is fixed in §4.1 below.
+
+See `wms-roadmap.md` §"Cross-Module Availability Contract" for the canonical shared-side design this document now defers to for the base contract.
+
+---
+
 ## TLDR
 
 **Key Points:**
-- A thin `availability` module declares one DI contract, `availabilityService`, that answers *can this buyer get this quantity of this variant, and when*. `wms` registers the authoritative implementation; the module itself ships a `not tracked` fallback so a storefront works without `wms` installed.
+- A thin `availability` module owns `AvailabilityPolicy` — the sell-policy layer (stock-managed, backorder, preorder, thresholds) — and the reservation/checkout-hold lifecycle. The base `AvailabilityQuery`/`AvailabilityResult` contract, provider registry, and catalog-only fallback live in `packages/shared` (see Reconciliation note above); `wms` registers there as the authoritative provider.
 - `catalog` has **no stock fields whatsoever** — no `manage_stock`, no `allow_backorder`, no `is_in_stock`. Sell policy therefore has no home today, so this module owns it as `AvailabilityPolicy`, resolved variant → product → store default.
 - `InventoryBalance.quantity_available` is a **stored generated column** (`on_hand − reserved − allocated`) that does **not** subtract safety stock. Sellable quantity is a different number from available quantity, and conflating them oversells the safety buffer.
 - `InventoryReservation` already carries `expires_at`, `idempotency_key`, `status` and `source_type` — everything a time-boxed checkout hold needs. The only gap is that `InventoryReservationSourceType` is `'order' | 'transfer' | 'manual'`; `'checkout'` is added additively.
@@ -80,23 +96,24 @@ quantity_available = quantity_on_hand − quantity_reserved − quantity_allocat
 
 ```
 packages/core/src/modules/availability/
-├── index.ts
+├── index.ts                    # ejectable: true — this module is optional
 ├── acl.ts
-├── di.ts                       # registers the fallback; wms overrides
+├── di.ts                       # registers policyResolutionService; does NOT own the base contract
 ├── events.ts
 ├── data/
 │   ├── entities.ts             # AvailabilityPolicy
 │   └── validators.ts
 ├── lib/
-│   ├── contract.ts             # AvailabilityService types — the public contract
 │   ├── policyResolution.ts     # variant → product → store default
-│   └── fallbackService.ts      # catalog-only implementation
+│   └── reservationCommands.ts  # reserve/release/commit — wraps wms's InventoryReservation commands
 ├── api/                        # admin CRUD for policies
 ├── backend/                    # policy admin UI
 └── i18n/
 ```
 
-`wms/di.ts` registers its implementation under the same DI key, overriding the fallback when the module is enabled. Registration order is module load order; `wms` declares `availability` as a dependency so it always registers last.
+The base contract types (`AvailabilityQuery`, `AvailabilityResult`, `AvailabilityProvider`) and the `availabilityProviderRegistry` live in `packages/shared/src/lib/availability/` — this module does not define or own them (see Reconciliation note).
+
+`wms/di.ts` registers its implementation into the shared registry: `availabilityProviderRegistry.register({ id: 'wms', getAvailability })`. Registration is explicit and idempotent (replace-by-id), not order-dependent. Inside its `getAvailability`, the `wms` provider soft-resolves `availability`'s `policyResolutionService` via the local `tryResolve()` pattern (`packages/core/AGENTS.md` § Cross-Module Coupling) to layer sell-policy (backorder, preorder, thresholds, `maxOrderQuantity`) on top of the raw sellable-quantity computation (§4.2); when `availability` is ejected, policy fields default open (`allow_backorder: false`, no thresholds, no caps) exactly as if a store-level default row existed. `wms` never hard-`requires` `availability`.
 
 ### 3.2 States
 
@@ -118,68 +135,55 @@ type AvailabilityState =
 
 ### 4.1 Contract
 
-`availability/lib/contract.ts` — this is the public surface. Every field is required reading for implementers.
+The base query/result shape (`AvailabilityQuery` = `{ tenantId, organizationId, items: AvailabilityItemQuery[] }`, `AvailabilityResult` = `{ byItem: Record<string, AvailabilityItemResult> }`, the `AvailabilityProvider` interface) is defined once in `packages/shared/src/lib/availability/types.ts` per the Reconciliation note — not repeated here as a competing definition. This module's own surface is the **reservation lifecycle**, which the shared contract deliberately excludes (availability there is read-only):
 
 ```typescript
-export type AvailabilityItemRef = {
-  productId: string
-  variantId?: string | null      // null → product-level rollup over variants
-  quantity: number               // requested quantity; drives in_stock vs backorder
+// packages/core/src/modules/availability/lib/reservationCommands.ts
+export type AvailabilityShortfallLine = {
+  catalogProductId: string
+  catalogVariantId: string | null
+  requested: number
+  available: number
 }
 
-export type AvailabilityScope = {
+/**
+ * Time-boxed hold. Authoritative and transactional — this is the call that
+ * decides whether an order may be placed. MUST NOT be called at browse time;
+ * `resolveAvailability()` (packages/shared) is advisory only, this is not.
+ *
+ * Implemented as an undoable command (`registerCommand('availability.reserve', ...)`,
+ * `extractUndoPayload()` on undo) that wraps `wms`'s existing `reserveInventory`
+ * command per item — this module does not bypass wms's command layer, it composes
+ * it. When `wms` is absent, reservation is unavailable and this command returns
+ * `reserved: false` for every line with reason `'not_tracked'`.
+ */
+export async function reserveAvailability(input: {
+  items: Array<{ catalogProductId: string; catalogVariantId?: string | null; quantity: number }>
   tenantId: string
   organizationId: string
-  storeId?: string | null        // resolves store-level policy defaults
-  channelId?: string | null
-  locationIds?: string[] | null  // null = all fulfilment locations in scope
-}
+  sourceType: 'checkout'
+  sourceId: string
+  idempotencyKey: string
+  ttlSeconds: number
+}): Promise<{
+  reserved: boolean
+  reservationIds: string[]
+  expiresAt: string | null
+  shortfall: AvailabilityShortfallLine[]
+}>
 
-export type AvailabilityItemResult = {
-  state: AvailabilityState
-  sellableQuantity: number | null   // null when state is 'not_tracked'
-  canFulfil: boolean                // requested quantity is obtainable by some path
-  leadTimeDays: number | null       // populated for backorder and preorder
-  releaseAt: string | null          // ISO date, preorder only
-  maxOrderQuantity: number | null   // policy cap, independent of stock
-  policySourceId: string | null     // which AvailabilityPolicy row decided this
-}
+/** Undoable command wrapping wms's releaseReservation. */
+export async function releaseAvailability(input: { idempotencyKey: string; reason: string }): Promise<void>
 
-export type AvailabilityResult = {
-  byKey: Record<string, AvailabilityItemResult>  // key = `${productId}:${variantId ?? '-'}`
-  computedAt: string
-  isAuthoritative: boolean          // false when served from cache or by the fallback
-}
-
-export interface AvailabilityService {
-  check(items: AvailabilityItemRef[], scope: AvailabilityScope): Promise<AvailabilityResult>
-
-  /**
-   * Time-boxed hold. Authoritative and transactional — this is the call that
-   * decides whether an order may be placed. MUST NOT be called at browse time.
-   */
-  reserve(input: {
-    items: AvailabilityItemRef[]
-    scope: AvailabilityScope
-    sourceType: 'checkout'
-    sourceId: string
-    idempotencyKey: string
-    ttlSeconds: number
-  }): Promise<{
-    reserved: boolean
-    reservationIds: string[]
-    expiresAt: string | null
-    shortfall: Array<{ productId: string; variantId: string | null; requested: number; available: number }>
-  }>
-
-  release(input: { idempotencyKey: string; reason: string }): Promise<void>
-
-  /** Converts a checkout hold into an order reservation. Idempotent. */
-  commit(input: { idempotencyKey: string; orderId: string }): Promise<void>
-}
+/**
+ * Converts a checkout hold into an order reservation. Idempotent. Implemented as
+ * an undoable command that mutates the existing wms InventoryReservation's
+ * source_type/source_id in place inside one transaction — never release-then-reserve.
+ */
+export async function commitAvailability(input: { idempotencyKey: string; orderId: string }): Promise<void>
 ```
 
-**`check` is advisory. `reserve` is authoritative.** No caller may treat a `check` result as a guarantee. This is stated in the contract's doc comment because it is the single most likely misuse.
+**`resolveAvailability()` (shared) is advisory. `reserveAvailability()` (this module) is authoritative.** No caller may treat a `resolveAvailability()` result as a guarantee. This is stated here because it is the single most likely misuse.
 
 ### 4.2 The `wms` implementation
 
@@ -211,7 +215,7 @@ Product-level rollup (`variantId: null`) is `SUM` of sellable across the product
 
 ### 4.3 The fallback implementation
 
-Ships in `availability` itself. Returns `not_tracked` with `canFulfil: true` for every item, unless an `AvailabilityPolicy` explicitly marks the item unavailable or sets a preorder release date. This keeps a `wms`-less storefront fully functional and makes the policy entity useful on its own.
+Ships as the built-in `catalog-only` provider in `packages/shared` (Reconciliation note) — not in this module, so it works even when `availability` itself is ejected. Returns `not_tracked` with `canFulfil: true` for every item, unless `availability` is installed and an `AvailabilityPolicy` explicitly marks the item unavailable or sets a preorder release date (soft-resolved via `tryResolve`, same as the `wms` provider does — §3.1). This keeps a `wms`-less *and* `availability`-less storefront fully functional, and makes the policy entity useful on its own once installed.
 
 ### 4.4 Reservation source type
 
@@ -284,11 +288,11 @@ Cached results set `isAuthoritative: false`. A caller that needs certainty calls
 This is stated plainly because hiding it is how oversell bugs get shipped.
 
 ```
-t0  buyer loads PDP            check() → in_stock, possibly up to 60s stale
-t1  buyer adds to cart         check() → live, still advisory, no hold taken
+t0  buyer loads PDP            resolveAvailability() → in_stock, possibly up to 60s stale
+t1  buyer adds to cart         resolveAvailability() → live, still advisory, no hold taken
 t2  buyer fills checkout       (minutes; no hold)
-t3  buyer submits              reserve() → authoritative, transactional, may fail
-t4  payment confirmed          commit() → reservation becomes an order reservation
+t3  buyer submits              reserveAvailability() → authoritative, transactional, may fail
+t4  payment confirmed          commitAvailability() → reservation becomes an order reservation
 ```
 
 Stock is held only from **t3**. Between t0 and t3 another buyer may take it. At t3 the reservation either succeeds or returns `shortfall`, and checkout surfaces a line-level "no longer available" error rather than creating an unfulfillable order.
@@ -420,25 +424,39 @@ Phases 1 and 2 unblock spec 4 (public API). Phase 3 is required only by spec 7 (
 
 ---
 
-## 15) Final Compliance Report
+## 15) Migration & Backward Compatibility
+
+- This spec introduces a brand-new DI/type contract. Per the Reconciliation note, the base contract's canonical location and shape are decided by `wms-roadmap.md` rev 11 in the upstream repo, not by this document alone — implementers MUST build against that shape, not re-derive it from this file's original 2026-08-14 draft.
+- `InventoryReservationSourceType` gains `'checkout'` — additive per `BACKWARD_COMPATIBILITY.md` category 8 (Database Schema, additive-only); any exhaustive `switch` over the union needs a new branch, a compile-time failure caught by `yarn typecheck`, documented in `UPGRADE_NOTES.md`.
+- New ACL features (`availability.policies.view/.manage`, `availability.check`) are additive; `setup.ts` MUST declare `defaultRoleFeatures` for `admin`/`employee` so existing tenants receive them via `yarn mercato auth sync-role-acls`, not only new tenants via `onTenantCreated`.
+- No consumer (`catalog`, `sales`, `wms`) gets a hard `requires: ['availability']` — `availability` remains fully ejectable, matching `wms`'s own `ejectable: true` precedent. `wms`'s optional dependency on `availability`'s policy resolution is soft (`tryResolve`), never a hard `requires`.
+- `reserve`/`release`/`commit` ship as new commands (`availability.reserve`/`.release`/`.commit`); no existing command is renamed or removed.
+
+---
+
+## 16) Final Compliance Report
 
 | Requirement | Status |
 |---|---|
-| No cross-module ORM relations | `availability` reads `wms` data only through the `wms`-registered implementation; `product_id` / `variant_id` are FK ids |
+| No cross-module ORM relations | `wms`'s provider reads its own entities; `availability`'s policy resolution is soft-resolved by `wms` via `tryResolve`, never an ORM relation; `catalog_product_id` / `catalog_variant_id` are FK ids throughout |
 | Tenant/organization scoping | Every query and every policy row scoped; asserted per test |
-| No direct `wms` dependency from commerce | `ecommerce`, `cart` and `checkout` import only `availability/lib/contract` |
-| Optional-module tolerance | Fallback ships in `availability`; no consumer requires `wms` |
-| Backward compatibility | `InventoryReservationSourceType` extended additively; no field removed or retyped; noted in `UPGRADE_NOTES.md` |
-| Zod validation | Policy routes; service inputs validated at the boundary |
+| No direct `wms` dependency from commerce | `ecommerce`, `cart` and `checkout` depend only on `packages/shared`'s `resolveAvailability()` (no module `requires` edge at all) for reads, and on `availability`'s `reserveAvailability()`/`releaseAvailability()`/`commitAvailability()` commands for holds |
+| Optional-module tolerance | Base contract + `catalog-only` fallback ship in `packages/shared` (zero footprint); `availability` module itself is `ejectable: true`; no consumer requires either `wms` or `availability` to boot |
+| Backward compatibility | `InventoryReservationSourceType` extended additively; no field removed or retyped; noted in `UPGRADE_NOTES.md` — see §15 |
+| Zod validation | Policy routes; command inputs validated at the boundary |
 | No `any` | Contract fully typed |
 | Optimistic locking | `AvailabilityPolicy` exposes `updatedAt` for `CrudForm` |
+| Command pattern | `reserve`/`release`/`commit` are undoable commands wrapping `wms`'s existing `reserveInventory`/`releaseReservation`, not bypassing the command layer (Reconciliation note) |
 | Cache safety | Tag-based invalidation via the `cache` module; no raw Redis |
 | i18n | State labels and lead-time strings in `en.json` / `pl.json`; nothing hard-coded |
 | Integration coverage | §12, shipping in the same change |
 
 ---
 
-## 16) Changelog
+## 17) Changelog
+
+### 2026-08-17
+- Reconciled with the independently-approved `wms-roadmap.md` rev 10/11 design for the same contract, found by a joint `/om-pre-implement-spec` audit (see Reconciliation note at the top of this document). Base contract, registry, and catalog-only fallback move to `packages/shared`; this module is re-scoped to `AvailabilityPolicy` + the reservation lifecycle; `AvailabilityItemRef.productId`/`.variantId` renamed to `catalogProductId`/`catalogVariantId`; `reserve`/`release`/`commit` specified as undoable commands wrapping `wms`'s existing reservation commands; added §15 Migration & Backward Compatibility (previously missing).
 
 ### 2026-08-14
 - Initial specification.
