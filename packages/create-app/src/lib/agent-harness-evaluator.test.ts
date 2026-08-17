@@ -4311,7 +4311,7 @@ function stageSpecTarget(fixtureId: string): string {
       readStatus: 'readable',
       resolvedPath,
       referenceRole,
-      presets: ['classic', 'crm', 'empty', 'wms'],
+      presets: ['classic', 'crm', 'empty'],
       tiers: ['core'],
       galleryItemIds: ['buttons/button'],
       visualReferences: [{
@@ -4320,7 +4320,7 @@ function stageSpecTarget(fixtureId: string): string {
         entryId: 'button',
         importPath: '@open-mercato/ui/primitives/button',
         route: '/backend/design-system/buttons',
-        availabilityByPreset: { classic: 'source-only', crm: 'source-only', empty: 'source-only', wms: 'source-only' },
+        availabilityByPreset: { classic: 'source-only', crm: 'source-only', empty: 'source-only' },
         featureId: 'design_system.view',
         designFoundation: {
           galleryNodeId: 'buttons/button',
