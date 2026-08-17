@@ -191,4 +191,45 @@ describe('SalesDocumentsTable channel column and filter', () => {
     const url = mockApiCall.mock.calls.map((call) => String(call[0])).find((u) => u.includes('/api/sales/orders'))
     expect(url).toContain(`channelIds=${CHANNEL_A}`)
   })
+
+  // The request being right is not enough: the `tags` control reads `filterValues.channelId` and
+  // renders nothing for a non-array, so a legacy snapshot would filter the list while the field
+  // looked empty — and the next channel picked would replace the restored one rather than join it.
+  // Asserting the stored shape is what catches that; asserting the URL alone does not.
+  it('stores a legacy snapshot as an array so the control and the next pick see it', async () => {
+    await act(async () => {
+      render(<SalesDocumentsTable kind="order" />)
+    })
+
+    await applyChannelFilter(CHANNEL_A)
+
+    expect(lastProps().filterValues.channelId).toEqual([CHANNEL_A])
+  })
+
+  it('seeds the option label for a selected channel outside the first options page', async () => {
+    await act(async () => {
+      render(<SalesDocumentsTable kind="order" />)
+    })
+    mockApiCall.mockClear()
+
+    await applyChannelFilter([CHANNEL_B])
+
+    const idsCall = mockApiCall.mock.calls
+      .map((call) => String(call[0]))
+      .find((u) => u.includes('/api/sales/channels') && u.includes('ids='))
+    expect(idsCall).toContain(`ids=${CHANNEL_B}`)
+  })
+
+  it('does not offer the unassigned entry while searching', async () => {
+    await act(async () => {
+      render(<SalesDocumentsTable kind="order" />)
+    })
+
+    const filter = lastProps()?.filters?.find((def: any) => def.id === 'channelId')
+    const searched = await filter.loadOptions('web')
+    const browsed = await filter.loadOptions()
+
+    expect(searched.some((o: any) => o.value === '__unassigned__')).toBe(false)
+    expect(browsed.some((o: any) => o.value === '__unassigned__')).toBe(true)
+  })
 })

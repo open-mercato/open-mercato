@@ -194,9 +194,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     'Review documents with customer context, totals, and channels.'
   )
 
-  const fetchChannelOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
-    const params = new URLSearchParams({ page: '1', pageSize: '50' })
-    if (query && query.trim()) params.set('search', query.trim())
+  const fetchChannelOptionsBy = React.useCallback(async (params: URLSearchParams): Promise<FilterOption[]> => {
     try {
       const call = await apiCall<{ items?: unknown[] }>(`/api/sales/channels?${params.toString()}`)
       if (!call.ok) return []
@@ -213,6 +211,32 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       return []
     }
   }, [])
+
+  const fetchChannelOptions = React.useCallback(
+    (query?: string) => {
+      const params = new URLSearchParams({ page: '1', pageSize: '50' })
+      if (query && query.trim()) params.set('search', query.trim())
+      return fetchChannelOptionsBy(params)
+    },
+    [fetchChannelOptionsBy]
+  )
+
+  // A selected channel outside the first options page — restored from a perspective, or simply the
+  // 51st channel — would otherwise render as a bare uuid in the filter chip and the selected tag,
+  // which is the same defect this change removes from the column. The route supports `ids=`, so
+  // fetch exactly the selected ones and merge them in. See
+  // `.ai/lessons/async-edit-selects-must-be-hydrated-as-value-plus.md`.
+  const seedChannelOptionsForIds = React.useCallback(
+    async (ids: string[]) => {
+      const missing = ids.filter((id) => id !== UNASSIGNED_CHANNEL_VALUE)
+      if (!missing.length) return
+      const params = new URLSearchParams({ page: '1', pageSize: String(missing.length) })
+      params.set('ids', missing.join(','))
+      const opts = await fetchChannelOptionsBy(params)
+      if (opts.length) setChannelOptions((prev) => mergeOptions(prev, opts))
+    },
+    [fetchChannelOptionsBy]
+  )
 
   const fetchTagOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
     const params = new URLSearchParams({ page: '1', pageSize: '50' })
@@ -313,7 +337,9 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const loadChannelFilterOptions = React.useCallback(
     async (query?: string) => {
       const opts = await loadChannelOptions(query)
-      return [unassignedChannelOption, ...opts]
+      // Only offer the sentinel when the user is browsing rather than searching — typing "web"
+      // should not suggest "(No channel)".
+      return query && query.trim() ? opts : [unassignedChannelOption, ...opts]
     },
     [loadChannelOptions, unassignedChannelOption]
   )
@@ -562,10 +588,22 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     void loadDocuments()
   }, [loadDocuments, reloadToken, scopeVersion])
 
+  // Normalize at the hydration boundary, not only where the query string is built: a perspective
+  // saved while this filter was a single-value select restores `channelId` as a bare string, and
+  // the `tags` control renders nothing for a non-array value. Storing the normalized shape keeps
+  // the control, the active-filter chip and the query builder all reading one shape — otherwise the
+  // list is filtered while the field looks empty, and the next channel the user picks replaces the
+  // restored one instead of joining it.
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
-    setFilterValues(values)
+    if (values.channelId === undefined) {
+      setFilterValues(values)
+    } else {
+      const channelSelection = normalizeChannelSelection(values.channelId)
+      setFilterValues({ ...values, channelId: channelSelection })
+      void seedChannelOptionsForIds(channelSelection)
+    }
     setPage(1)
-  }, [])
+  }, [seedChannelOptionsForIds])
 
   const handleFiltersClear = React.useCallback(() => {
     setFilterValues({})
