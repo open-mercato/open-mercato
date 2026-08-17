@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import * as React from 'react'
 import { z } from 'zod'
@@ -185,7 +185,7 @@ export default function UmesHandlersPage() {
       setEnricherProbeError(message)
       setEnricherProbeStatus('error')
     }
-  }, [probeTodoTitle, t])
+  }, [probeTodoTitle, t, personId])
 
   const phaseASidebarItems = React.useMemo(
     () => sidebarMenuItems.filter((item) => item.id.startsWith('example-')),

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
@@ -112,7 +112,7 @@ export function BackendHeaderChrome({
 }: BackendHeaderChromeProps) {
   const t = useT()
   const { payload, isReady } = useBackendChrome()
-  const grantedFeatures = payload?.grantedFeatures ?? []
+  const grantedFeatures = React.useMemo(() => payload?.grantedFeatures ?? [], [payload?.grantedFeatures])
   const showIntegrationsButton = React.useMemo(
     () => hasVisibleRoute(payload?.groups, '/backend/integrations'),
     [payload?.groups],
@@ -177,7 +177,7 @@ export function BackendHeaderChrome({
       ) : null}
       {isReady ? <LazyOrganizationSwitcher /> : null}
 
-      {/* Secondary actions — inline on md+, grouped under a More button on <md */}
+      {/* Secondary actions â€” inline on md+, grouped under a More button on <md */}
       {showIntegrationsButton ? (
         <span className="hidden md:contents">
           <IntegrationsButton />
