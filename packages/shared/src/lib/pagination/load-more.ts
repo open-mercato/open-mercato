@@ -3,9 +3,11 @@
  *
  * A page that comes back full is the only reliable "there may be more" signal.
  * A server-reported `total` / `totalPages` can under-report — rows inserted
- * between two requests do it, and a capped list count (`OM_LIST_COUNT_CAP`)
- * does it by design — and gating the affordance on one strands every row past
- * the reported end behind a button that has already disappeared.
+ * between two requests do it today, and a capped list count will do it by
+ * design once `OM_LIST_COUNT_CAP` lands (see
+ * `.ai/specs/2026-07-27-list-count-strategies.md`) — and gating the affordance
+ * on one strands every row past the reported end behind a button that has
+ * already disappeared.
  *
  * `>=` rather than `===` so an endpoint that serves more than it was asked for
  * still terminates correctly.
