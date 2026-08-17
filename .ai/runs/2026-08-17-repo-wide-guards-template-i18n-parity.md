@@ -56,9 +56,9 @@ This is not only a red check. The registry exists so the turbo `--filter=[base].
 
 ### Phase 1: Register the test and verify the guard
 
-- [ ] 1.1 Add the `CROSS_PACKAGE_EXCEPTIONS` entry
-- [ ] 1.2 Verify the repo-wide guard test goes green, and red without the entry
-- [ ] 1.3 Verify the locale parity test still passes
+- [x] 1.1 Add the `CROSS_PACKAGE_EXCEPTIONS` entry — 96ea2ebe5
+- [x] 1.2 Verify the repo-wide guard test goes green, and red without the entry — 96ea2ebe5 (with the entry: 16 pass / 0 fail; stashed control without it: 15 pass / **1 fail**, so the entry is exactly what fixes the guard)
+- [x] 1.3 Verify the locale parity test still passes — 96ea2ebe5 (3 pass / 0 fail)
 
 ### Phase 2: Validation gate and PR
 
