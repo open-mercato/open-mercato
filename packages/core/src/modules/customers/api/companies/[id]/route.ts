@@ -17,8 +17,6 @@ import {
   CustomerDealCompanyLink,
   CustomerDeal,
   CustomerTodoLink,
-  CustomerPersonCompanyLink,
-  CustomerPersonProfile,
   CustomerInteraction,
 } from '../../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -46,10 +44,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
-import {
-  filterActivePersonCompanyLinks,
-  withActiveCustomerPersonCompanyLinkFilter,
-} from '../../../lib/personCompanyLinkTable'
+import { loadCompanyPeopleUnion, type CompanyPersonUnionEntry } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { runWithCacheTenant } from '@open-mercato/cache'
@@ -801,79 +796,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             deal.organizationId === company.organizationId,
         )
 
-  let relatedPeople: Array<{
-    entity: CustomerEntity
-    profile: CustomerPersonProfile | null
-    linkedAt: string | null
-  }> = []
+  const peopleUnionScope = {
+    tenantId: company.tenantId ?? auth.tenantId ?? null,
+    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+  }
+  let relatedPeople: CompanyPersonUnionEntry[] = []
   if (includePeople) {
-    const peopleDecryptionScope = {
-      tenantId: company.tenantId ?? auth.tenantId ?? null,
-      organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
-    }
-    const relatedPeopleById = new Map<
-      string,
-      { entity: CustomerEntity; profile: CustomerPersonProfile | null; linkedAt: string | null }
-    >()
-    const companyLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
-      em,
-      {
-        company: company.id,
-        organizationId: company.organizationId,
-        tenantId: company.tenantId,
-      },
-      'customers.companies.GET',
-    )
-    const companyLinks = filterActivePersonCompanyLinks(
-      await findWithDecryption(
-        em,
-        CustomerPersonCompanyLink,
-        companyLinkWhere,
-        {
-          populate: ['person', 'person.personProfile'],
-          orderBy: { isPrimary: 'desc', createdAt: 'asc' },
-        },
-        peopleDecryptionScope,
-      ),
-    )
-    companyLinks.forEach((link) => {
-      const entity = typeof link.person === 'string' ? null : link.person
-      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
-      const personProfile =
-        entity.personProfile && typeof entity.personProfile !== 'string'
-          ? entity.personProfile
-          : null
-      relatedPeopleById.set(entity.id, {
-        entity,
-        profile: personProfile,
-        linkedAt: link.createdAt instanceof Date ? link.createdAt.toISOString() : null,
-      })
-    })
-
-    const profiles = await findWithDecryption(
-      em,
-      CustomerPersonProfile,
-      {
-        company: company.id,
-        tenantId: company.tenantId,
-        organizationId: company.organizationId,
-        entity: { deletedAt: null },
-      },
-      { populate: ['entity'] },
-      peopleDecryptionScope,
-    )
-    profiles.forEach((entry) => {
-      const entity = entry.entity as CustomerEntity | null
-      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
-      if (!relatedPeopleById.has(entity.id)) {
-        relatedPeopleById.set(entity.id, {
-          entity,
-          profile: entry ?? null,
-          linkedAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
-        })
-      }
-    })
-    relatedPeople = Array.from(relatedPeopleById.values())
+    relatedPeople = await loadCompanyPeopleUnion(em, company, peopleUnionScope)
   }
 
   // Entity custom fields, profile custom fields, and the routing lookup do not
@@ -919,26 +848,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // instead of a waterfall (issue #3203).
   const peopleCountQuery = includePeople
     ? Promise.resolve(relatedPeople.length)
-    : (async () => {
-        const peopleLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
-          em,
-          {
-            company: company.id,
-            organizationId: company.organizationId,
-            tenantId: company.tenantId,
-          },
-          'customers.companies.GET',
-        )
-        return filterActivePersonCompanyLinks(
-          await findWithDecryption(
-            em,
-            CustomerPersonCompanyLink,
-            peopleLinkWhere,
-            {},
-            { tenantId: company.tenantId, organizationId: company.organizationId },
-          ),
-        ).length
-      })()
+    : loadCompanyPeopleUnion(em, company, peopleUnionScope).then((people) => people.length)
   const [
     activityCount,
     interactionCount,

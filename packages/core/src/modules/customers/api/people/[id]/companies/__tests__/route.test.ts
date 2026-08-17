@@ -74,6 +74,7 @@ jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({
 jest.mock('@open-mercato/core/modules/customers/lib/personCompanies', () => ({
   loadPersonCompanyLinks: jest.fn(),
   summarizePersonCompanies: jest.fn(),
+  removePersonCompanyLink: jest.fn(),
 }))
 
 import { POST as createLink, metadata as createMetadata } from '../route'
@@ -82,6 +83,9 @@ import {
   DELETE as deleteLink,
   metadata as updateMetadata,
 } from '../[linkId]/route'
+import { removePersonCompanyLink } from '@open-mercato/core/modules/customers/lib/personCompanies'
+
+const removePersonCompanyLinkMock = removePersonCompanyLink as jest.Mock
 
 describe('customer person company link routes', () => {
   beforeEach(() => {
@@ -242,5 +246,62 @@ describe('customer person company link routes', () => {
     expect(commandCall?.[1].input.linkId).toBe(linkId)
     const companyLookup = lookups.find((entry) => 'person' in entry && 'company' in entry)
     expect(companyLookup).toMatchObject({ person: personId, company: companyId })
+  })
+
+  it('detaches a profile-only company association when no link row exists (#5114)', async () => {
+    // `beforeEach` pre-queues two `mockResolvedValueOnce` responses that take
+    // priority over `mockImplementation` for the first two calls — reset them
+    // so every `findOne` call in this test goes through the implementation below.
+    em.findOne.mockReset()
+    em.findOne.mockImplementation(async (EntityClass: unknown, filter: Record<string, unknown>) => {
+      const classObj = EntityClass as { name?: string }
+      const name = classObj?.name ?? ''
+      if (name === 'CustomerEntity' || (typeof filter?.kind === 'string' && filter.kind === 'person')) {
+        return { id: personId, tenantId, organizationId, kind: 'person' }
+      }
+      if (name === 'CustomerPersonProfile' || 'entity' in filter) {
+        return { entity: personId, company: { id: companyId, displayName: 'Acme Corp' } }
+      }
+      // No CustomerPersonCompanyLink row exists at all — profile-only association.
+      return null
+    })
+    // Capture the profile's company id before mutating it — `toHaveBeenCalledWith`
+    // inspects the same object reference, so mutating it in place would make the
+    // recorded call args reflect the post-mutation state instead of what was passed in.
+    let capturedProfileCompanyId: string | undefined
+    removePersonCompanyLinkMock.mockImplementation(async (_em: unknown, _person: unknown, profile: { company: { id: string } | null }) => {
+      capturedProfileCompanyId = profile.company?.id
+      profile.company = null
+    })
+
+    const response = await deleteLink(
+      new Request(`http://localhost/api/customers/people/${personId}/companies/${companyId}`, {
+        method: 'DELETE',
+      }),
+      { params: { id: personId, linkId: companyId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    expect(removePersonCompanyLinkMock).toHaveBeenCalledWith(
+      em,
+      expect.objectContaining({ id: personId }),
+      expect.any(Object),
+      companyId,
+    )
+    expect(capturedProfileCompanyId).toBe(companyId)
+    expect(em.flush).toHaveBeenCalled()
+    expect(commandBusExecuteMock).not.toHaveBeenCalledWith(
+      'customers.personCompanyLinks.delete',
+      expect.anything(),
+    )
+    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({
+        resourceKind: 'customers.person',
+        resourceId: personId,
+        operation: 'custom',
+      }),
+    )
   })
 })
