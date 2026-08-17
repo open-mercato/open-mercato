@@ -1822,14 +1822,28 @@ export function killProcessTree(
 
 const PROCESS_TREE_KILL_GRACE_PERIOD_MS = 3_000
 
-async function terminateProcessTree(
+function killProcessTreeIfRunning(
+  pid: number,
+  signal: NodeJS.Signals,
+  dependencies: ProcessTreeKillDependencies,
+): void {
+  try {
+    killProcessTree(pid, signal, dependencies)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+      throw error
+    }
+  }
+}
+
+export async function terminateProcessTree(
   childProcess: CapturedOutputProcess,
   dependencies: ProcessTreeKillDependencies = {},
 ): Promise<void> {
   const pid = childProcess.pid
   if (!pid) return
 
-  killProcessTree(pid, 'SIGTERM', dependencies)
+  killProcessTreeIfRunning(pid, 'SIGTERM', dependencies)
 
   const exitedBeforeGracePeriod = await Promise.race([
     getProcessExitPromise(childProcess).then(() => true),
@@ -1837,7 +1851,7 @@ async function terminateProcessTree(
   ])
 
   if (!exitedBeforeGracePeriod && isProcessRunning(pid)) {
-    killProcessTree(pid, 'SIGKILL', dependencies)
+    killProcessTreeIfRunning(pid, 'SIGKILL', dependencies)
   }
 }
 

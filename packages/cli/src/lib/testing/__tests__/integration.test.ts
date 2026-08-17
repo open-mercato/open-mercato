@@ -23,6 +23,7 @@ import {
   createBoundedOutputBuffer,
   CAPTURED_OUTPUT_MAX_BYTES,
   killProcessTree,
+  terminateProcessTree,
 } from '../integration'
 import type { CapturedOutputProcess } from '../integration'
 import { EventEmitter } from 'node:events'
@@ -1006,5 +1007,41 @@ describe('killProcessTree', () => {
     } finally {
       killSpy.mockRestore()
     }
+  })
+})
+
+describe('terminateProcessTree', () => {
+  const makeFakeProcessWithPid = (pid: number): CapturedOutputProcess => {
+    const fakeProcess = new EventEmitter() as unknown as CapturedOutputProcess
+    fakeProcess.pid = pid
+    return fakeProcess
+  }
+
+  it('does not throw when the process already exited on its own (ESRCH)', async () => {
+    const fakeProcess = makeFakeProcessWithPid(4242)
+    const esrchError = Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' })
+
+    await expect(
+      terminateProcessTree(fakeProcess, {
+        platform: 'linux',
+        killPosixProcessGroup: () => {
+          throw esrchError
+        },
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('propagates a non-ESRCH failure from the killer', async () => {
+    const fakeProcess = makeFakeProcessWithPid(4242)
+    const permissionError = Object.assign(new Error('kill EPERM'), { code: 'EPERM' })
+
+    await expect(
+      terminateProcessTree(fakeProcess, {
+        platform: 'linux',
+        killPosixProcessGroup: () => {
+          throw permissionError
+        },
+      }),
+    ).rejects.toThrow(/EPERM/)
   })
 })
