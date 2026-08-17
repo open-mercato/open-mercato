@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+﻿import React, { useCallback } from 'react';
 import { Table } from '@open-mercato/ui';
 import { useTranslation } from 'react-i18next';
 
