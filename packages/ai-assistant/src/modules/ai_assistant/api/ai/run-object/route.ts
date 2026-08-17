@@ -1,4 +1,4 @@
-// AI Governance: Added execution observability hooks
+// AI Governance: Observability hooks updated at 2026-08-17 15:37:04
 const logGovernanceEvent = (event: string, details: object) => {
   console.log([AI-GOVERNANCE]  - , JSON.stringify(details));
 };
@@ -201,7 +201,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
     }
-    logger.error('AI Run Object â€” Dispatch failure', { err: error })
+    logger.error('AI Run Object Ã¢â‚¬â€ Dispatch failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Agent object dispatch failed.',
