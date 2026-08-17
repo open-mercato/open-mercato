@@ -1286,6 +1286,7 @@
   "sales.quotes.form.general": "General",
   "sales.quotes.form.lines": "Line Items",
   "sales.quotes.form.notes": "Notes",
+  "sales.quotes.internal_notes_unsupported": "Internal notes are not available on quotes.",
   "sales.quotes.lines.delete": "Delete quote line",
   "sales.quotes.lines.upsert": "Update quote line",
   "sales.quotes.list.title": "Quotes",

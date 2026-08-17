@@ -68,9 +68,21 @@ function makeOrder() {
 }
 
 // A quote carries `comments` but has no `internalNotes` column at all.
-function makeQuote() {
+function makeQuote(overrides: Record<string, unknown> = {}) {
   const { orderNumber: _orderNumber, internalNotes: _internalNotes, ...rest } = makeOrder()
-  return { ...rest, id: QUOTE_ID, quoteNumber: 'Q-1' }
+  return { ...rest, id: QUOTE_ID, quoteNumber: 'Q-1', ...overrides }
+}
+
+// A quote in `sent` status holds the customer's acceptance link. Any update
+// that reaches execution clears it and reverts the quote to draft, so a payload
+// that changes nothing must not reach execution.
+function makeSentQuote() {
+  return makeQuote({
+    status: 'sent',
+    statusEntryId: 'entry-sent',
+    acceptanceToken: 'tok-customer-link',
+    sentAt: new Date('2026-08-01T00:00:00.000Z'),
+  })
 }
 
 type StoredDocument = Record<string, unknown>
@@ -120,8 +132,10 @@ async function updateOrder(input: Record<string, unknown>) {
   return order
 }
 
-async function updateQuote(input: Record<string, unknown>) {
-  const quote = makeQuote()
+async function updateQuote(
+  input: Record<string, unknown>,
+  quote: Record<string, unknown> = makeQuote(),
+) {
   const em = makeEm(quote, SalesQuote)
   await getHandler('sales.quotes.update').execute(
     { id: QUOTE_ID, ...input } as never,
@@ -232,12 +246,26 @@ describe('sales.orders.update — note columns', () => {
   })
 
   // `entity` is `SalesOrder | SalesQuote` and only the order half declares
-  // internalNotes, so an unguarded assignment sets a property MikroORM has no
-  // column for — reporting success and persisting nothing. That is the same
-  // silent no-op this change exists to fix, one entity over.
-  it('does not put internalNotes on a quote, which has no such column', async () => {
-    const quote = await updateQuote({ internalNotes: 'should not land on a quote' })
+  // internalNotes. Assigning it anyway would set a property MikroORM has no
+  // column for; accepting and ignoring it would be worse still, because the
+  // field satisfies the schema's refine on its own — an otherwise-empty payload
+  // would run the whole update and report success having stored nothing.
+  it('rejects internalNotes on a quote rather than dropping it', async () => {
+    await expect(updateQuote({ internalNotes: 'should not land on a quote' })).rejects.toMatchObject(
+      { status: 400 },
+    )
+  })
 
+  it('leaves a sent quote intact when the payload it rejects would have emptied it', async () => {
+    const quote = makeSentQuote()
+
+    await expect(updateQuote({ internalNotes: 'x' }, quote)).rejects.toMatchObject({ status: 400 })
+
+    expect(quote).toMatchObject({
+      acceptanceToken: 'tok-customer-link',
+      sentAt: new Date('2026-08-01T00:00:00.000Z'),
+      status: 'sent',
+    })
     expect(Object.prototype.hasOwnProperty.call(quote, 'internalNotes')).toBe(false)
   })
 

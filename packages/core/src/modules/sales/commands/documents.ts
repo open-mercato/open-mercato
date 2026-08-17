@@ -1175,7 +1175,19 @@ async function applyDocumentUpdate({
       typeof input.comments === "string" ? input.comments.trim() : "";
     entity.comments = normalized.length ? normalized : null;
   }
-  // Orders only — SalesQuote has no internalNotes column.
+  // Orders only — SalesQuote has no internalNotes column. Reject rather than
+  // ignore it on a quote: the field now satisfies the schema's refine on its
+  // own, so silently dropping it would let an otherwise-empty payload run the
+  // update, and a quote in `sent` status loses its acceptance token and reverts
+  // to draft on any update that reaches execution.
+  if (kind === "quote" && input.internalNotes !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.internal_notes_unsupported",
+        "Internal notes are not available on quotes.",
+      ),
+    });
+  }
   if (kind === "order" && input.internalNotes !== undefined) {
     const normalized =
       typeof input.internalNotes === "string" ? input.internalNotes.trim() : "";
@@ -5182,10 +5194,6 @@ const updateQuoteCommand: CommandHandler<
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
-    if (shouldInvalidateSentToken) {
-      quote.acceptanceToken = null;
-      quote.sentAt = null;
-    }
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -5208,7 +5216,12 @@ const updateQuoteCommand: CommandHandler<
             input: parsed,
             em,
           });
+          // After applyDocumentUpdate, not before it: the reset must not happen
+          // for an update that turns out to be invalid, or a rejected payload
+          // still strips a sent quote of its acceptance link.
           if (shouldInvalidateSentToken) {
+            quote.acceptanceToken = null;
+            quote.sentAt = null;
             quote.status = "draft";
             quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
               tenantId: quote.tenantId,
