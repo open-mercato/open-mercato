@@ -169,8 +169,35 @@ test('never interpolates a GitHub expression into a run: script', () => {
 test('passes the diff-derived mutate list through the environment, quoted', () => {
   const mutateStep = workflow.jobs.mutate.steps.find((step) => step.id === 'mutate')
 
-  assert.equal(mutateStep.env.MUTATE_LIST, '${{ matrix.mutate }}')
+  assert.equal(mutateStep.env.MUTATE_LIST, '${{ steps.partition.outputs.covered }}')
   assert.match(mutateStep.run, /--mutate "\$MUTATE_LIST"/)
+})
+
+test('partitions files by related test coverage before mutating, and skips a fully uncovered package', () => {
+  const steps = workflow.jobs.mutate.steps.map((step) => step.name)
+  const partitionIndex = steps.indexOf('Partition files by related test coverage')
+  const runIndex = steps.indexOf('Run mutation testing')
+
+  assert.ok(partitionIndex >= 0, 'the mutate job must partition files by related test coverage')
+  assert.ok(partitionIndex < runIndex, 'partitioning must precede the mutation run')
+
+  const partitionStep = workflow.jobs.mutate.steps[partitionIndex]
+  assert.equal(partitionStep.id, 'partition')
+  assert.equal(partitionStep.env.MUTATE_LIST, '${{ matrix.mutate }}')
+  assert.match(partitionStep.run, /relatedTests\.mjs --mutate "\$MUTATE_LIST"/)
+  assert.match(partitionStep.run, />> "\$GITHUB_OUTPUT"/)
+
+  const mutateStep = workflow.jobs.mutate.steps.find((step) => step.id === 'mutate')
+  assert.equal(mutateStep.if, "steps.partition.outputs.covered != ''")
+})
+
+test('passes uncovered files through to the report so a needs-tests note is never silent', () => {
+  const reportStep = workflow.jobs.mutate.steps.find(
+    (step) => step.name === 'Write the survivor report to the job summary',
+  )
+
+  assert.equal(reportStep.env.UNCOVERED_FILES, '${{ steps.partition.outputs.uncovered }}')
+  assert.match(reportStep.run, /--uncovered "\$\{UNCOVERED_FILES\}"/)
 })
 
 test('exposes a workflow_dispatch trigger so the mutate job can be proven on demand', () => {

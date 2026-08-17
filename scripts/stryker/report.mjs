@@ -107,8 +107,15 @@ export function collectSurvivors(report) {
   return { survivors, totals, score }
 }
 
+function renderUncoveredNote(uncoveredFiles) {
+  return (
+    `**Needs tests:** ${uncoveredFiles.length} changed file(s) have no related test and were not ` +
+    `mutated: ${uncoveredFiles.map((file) => toInlineCode(file)).join(', ')}.`
+  )
+}
+
 export function renderMarkdown(report, options = {}) {
-  const { packageName = null, enforced = false, droppedFiles = [] } = options
+  const { packageName = null, enforced = false, droppedFiles = [], uncoveredFiles = [] } = options
   const { survivors, totals, score } = collectSurvivors(report)
   const heading = packageName === null ? '## Mutation testing' : `## Mutation testing — ${toInlineCode(packageName)}`
   const lines = [heading, '']
@@ -116,6 +123,10 @@ export function renderMarkdown(report, options = {}) {
   if (score === null) {
     lines.push('No mutants were generated for the changed files, so there is no score to report.')
     lines.push('')
+    if (uncoveredFiles.length > 0) {
+      lines.push(renderUncoveredNote(uncoveredFiles))
+      lines.push('')
+    }
     if (!enforced) lines.push(ADVISORY_NOTE)
     return `${lines.join('\n').trimEnd()}\n`
   }
@@ -165,6 +176,11 @@ export function renderMarkdown(report, options = {}) {
     )
   }
 
+  if (uncoveredFiles.length > 0) {
+    lines.push('')
+    lines.push(renderUncoveredNote(uncoveredFiles))
+  }
+
   if (!enforced) {
     lines.push('')
     lines.push(ADVISORY_NOTE)
@@ -174,7 +190,7 @@ export function renderMarkdown(report, options = {}) {
 }
 
 export function parseReportArgs(argv) {
-  const args = { reportPath: null, packageName: null, enforced: false }
+  const args = { reportPath: null, packageName: null, enforced: false, uncoveredFiles: [] }
 
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--package' && index + 1 < argv.length) {
@@ -182,6 +198,12 @@ export function parseReportArgs(argv) {
       index += 1
     } else if (argv[index] === '--enforced') {
       args.enforced = true
+    } else if (argv[index] === '--uncovered' && index + 1 < argv.length) {
+      args.uncoveredFiles = argv[index + 1]
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== '')
+      index += 1
     } else if (args.reportPath === null) {
       args.reportPath = argv[index]
     }
@@ -191,13 +213,22 @@ export function parseReportArgs(argv) {
 }
 
 /**
- * The report the summary shows when Stryker died before writing mutation.json. The
- * reporting step runs `if: always()` precisely so a failed run still explains itself,
- * so this path must reach the job summary like any other — a crashed run that leaves
- * the summary blank buries its only explanation in the step log.
+ * The report the summary shows when Stryker died before writing mutation.json, or
+ * never ran because every changed file had no related test to run. The reporting
+ * step runs `if: always()` precisely so both cases still explain themselves, so this
+ * path must reach the job summary like any other — a run that leaves the summary
+ * blank buries its only explanation in the step log.
  */
-export function renderMissingReportMarkdown(packageName = null) {
+export function renderMissingReportMarkdown(packageName = null, uncoveredFiles = []) {
   const suffix = packageName === null ? '' : ` for ${toInlineCode(packageName)}`
+
+  if (uncoveredFiles.length > 0) {
+    return (
+      `## Mutation testing\n\nEvery changed file${suffix} has no related test, so nothing was ` +
+      `mutated. ${renderUncoveredNote(uncoveredFiles)}\n`
+    )
+  }
+
   return (
     `## Mutation testing\n\nNo mutation report was produced${suffix}. ` +
     'The mutation run did not get far enough to write `mutation.json` — check the ' +
@@ -217,7 +248,7 @@ function main() {
   const args = parseReportArgs(process.argv.slice(2))
 
   if (args.reportPath === null || !fs.existsSync(args.reportPath)) {
-    emit(renderMissingReportMarkdown(args.packageName))
+    emit(renderMissingReportMarkdown(args.packageName, args.uncoveredFiles))
     return
   }
 
@@ -226,6 +257,7 @@ function main() {
     renderMarkdown(report, {
       packageName: args.packageName,
       enforced: args.enforced,
+      uncoveredFiles: args.uncoveredFiles,
     }),
   )
 }

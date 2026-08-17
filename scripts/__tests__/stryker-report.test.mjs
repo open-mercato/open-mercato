@@ -196,12 +196,48 @@ test('parses the report path, package name and enforcement flag', () => {
     reportPath: 'mutation.json',
     packageName: null,
     enforced: false,
+    uncoveredFiles: [],
   })
   assert.deepEqual(parseReportArgs(['mutation.json', '--package', 'shared', '--enforced']), {
     reportPath: 'mutation.json',
     packageName: 'shared',
     enforced: true,
+    uncoveredFiles: [],
   })
+})
+
+test('parses a comma-separated --uncovered list, dropping blanks', () => {
+  assert.deepEqual(
+    parseReportArgs(['mutation.json', '--uncovered', 'src/lib/a.ts, src/lib/b.ts,']).uncoveredFiles,
+    ['src/lib/a.ts', 'src/lib/b.ts'],
+  )
+})
+
+test('surfaces uncovered files as a distinct needs-tests note, alongside surviving mutants', () => {
+  const markdown = renderMarkdown(createReport([SURVIVED_MUTANT]), {
+    uncoveredFiles: ['src/lib/untested.ts'],
+  })
+
+  assert.match(markdown, /Needs tests/)
+  assert.match(markdown, /1 changed file\(s\) have no related test/)
+  assert.ok(markdown.includes(inlineCode('src/lib/untested.ts')))
+})
+
+test('surfaces uncovered files even when no mutants were generated at all', () => {
+  const markdown = renderMarkdown({ files: {} }, { uncoveredFiles: ['src/lib/untested.ts'] })
+
+  assert.match(markdown, /No mutants were generated/)
+  assert.match(markdown, /Needs tests/)
+  assert.ok(markdown.includes(inlineCode('src/lib/untested.ts')))
+})
+
+test('the missing-report fallback explains a fully-uncovered package without implying a crash', () => {
+  const markdown = renderMissingReportMarkdown('shared', ['src/lib/untested.ts'])
+
+  assert.match(markdown, /## Mutation testing/)
+  assert.match(markdown, /has no related test, so nothing was mutated/)
+  assert.ok(markdown.includes(inlineCode('src/lib/untested.ts')))
+  assert.ok(!markdown.includes('did not get far enough to write'))
 })
 
 test('the missing-report fallback explains itself and names the package', () => {

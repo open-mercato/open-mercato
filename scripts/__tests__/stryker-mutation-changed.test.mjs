@@ -8,7 +8,7 @@ import {
   runMutationChanged,
 } from '../stryker/mutation-changed.mjs'
 
-function createHarness({ status = '', diff = '', strykerStatus = 0 } = {}) {
+function createHarness({ status = '', diff = '', strykerStatus = 0, uncoveredByFile = {} } = {}) {
   const strykerCalls = []
   const written = []
 
@@ -23,7 +23,22 @@ function createHarness({ status = '', diff = '', strykerStatus = 0 } = {}) {
     return strykerStatus
   }
 
-  return { runGit, runStryker, write: (message) => written.push(message), strykerCalls, written }
+  // Every file is covered unless the test opts a specific one out — keeps the
+  // existing Stryker-call assertions below unaffected by the coverage filter.
+  const partitionRelatedTests = (files) => {
+    const uncovered = files.filter((file) => uncoveredByFile[file])
+    const covered = files.filter((file) => !uncoveredByFile[file])
+    return { covered, uncovered }
+  }
+
+  return {
+    runGit,
+    runStryker,
+    partitionRelatedTests,
+    write: (message) => written.push(message),
+    strykerCalls,
+    written,
+  }
 }
 
 test('refuses to run on a dirty tree, exits non-zero, and never invokes Stryker', () => {
@@ -106,6 +121,35 @@ test('reports capped files rather than silently truncating', () => {
   runMutationChanged(harness)
 
   assert.match(harness.written.join('\n'), /file cap reached; not mutated/)
+})
+
+test('drops a file with no related tests and mutates only the covered ones', () => {
+  const harness = createHarness({
+    status: '',
+    diff: 'packages/shared/src/lib/boolean.ts\npackages/shared/src/lib/untested.ts\n',
+    uncoveredByFile: { 'src/lib/untested.ts': true },
+  })
+
+  const result = runMutationChanged(harness)
+
+  assert.equal(result.exitCode, 0)
+  assert.deepEqual(harness.strykerCalls, [{ package: 'shared', mutate: 'src/lib/boolean.ts' }])
+  assert.match(harness.written.join('\n'), /no related tests, not mutated: src\/lib\/untested\.ts/)
+})
+
+test('skips Stryker entirely for a package where every file has no related tests', () => {
+  const harness = createHarness({
+    status: '',
+    diff: 'packages/shared/src/lib/untested.ts\n',
+    uncoveredByFile: { 'src/lib/untested.ts': true },
+  })
+
+  const result = runMutationChanged(harness)
+
+  assert.equal(result.exitCode, 0)
+  assert.deepEqual(harness.strykerCalls, [])
+  assert.deepEqual(result.ranPackages, [])
+  assert.match(harness.written.join('\n'), /nothing left to mutate after filtering for related tests/)
 })
 
 test('Stryker output is gitignored, so a run never self-blocks the next one', () => {
