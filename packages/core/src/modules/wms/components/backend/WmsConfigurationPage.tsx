@@ -81,8 +81,12 @@ type ZoneRow = {
   code?: string | null
   name?: string | null
   priority?: number | null
+  updated_at?: string | null
+  // The zones list route decorates with `stripPrefixedKeys: true`, so custom values
+  // arrive only under this canonical key — never as top-level `cf_*` / `cf:*`.
   customValues?: Record<string, unknown> | null
-} & Record<string, unknown>
+  customFields?: Array<{ key: string; label: string | null; value: unknown; kind: string | null; multi: boolean }>
+}
 
 type InventoryProfileRow = {
   id: string
@@ -111,12 +115,17 @@ type WarehouseFormValues = {
   isPrimary: boolean
 }
 
+// `id` / `updatedAt` are carried in edit mode so CrudForm recognises the form as an edit
+// and derives the optimistic-lock header; the `cf_` index signature holds the values
+// collected from the injected custom-field inputs.
 type ZoneFormValues = {
   warehouseId: string
   code: string
   name: string
   priority?: number
-} & Record<string, unknown>
+  id?: string
+  updatedAt?: string | null
+} & { [key: `cf_${string}`]: unknown }
 
 type InventoryProfileFormValues = {
   catalogProductId: string
@@ -627,20 +636,29 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
     return soleWarehouseId ? warehouseOptions : undefined
   }, [dialog, soleWarehouseId, warehouseOptions])
 
+  // The dialog already holds the first page of warehouses; serve the combobox's initial
+  // (unsearched) open from that cache instead of repeating the same request, and only go
+  // back to the network once the user actually types a term the cached page cannot answer.
+  const loadZoneWarehouseOptions = React.useCallback(async (query?: string) => {
+    const term = query?.trim()
+    if (!term) return warehouseOptionsQuery.data ?? loadWarehouseOptions()
+    return loadWarehouseOptions(term)
+  }, [warehouseOptionsQuery.data])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'warehouseId',
       type: 'combobox',
       label: t('wms.backend.config.zones.form.warehouse', 'Warehouse'),
       required: true,
-      loadOptions: loadWarehouseOptions,
+      loadOptions: loadZoneWarehouseOptions,
       allowCustomValues: false,
       seedOptions: warehouseSeedOptions,
     },
     { id: 'code', type: 'text', label: t('wms.backend.config.zones.form.code', 'Code'), required: true },
     { id: 'name', type: 'text', label: t('wms.backend.config.zones.form.name', 'Name'), required: true },
     { id: 'priority', type: 'number', label: t('wms.backend.config.zones.form.priority', 'Priority') },
-  ], [t, warehouseSeedOptions])
+  ], [t, loadZoneWarehouseOptions, warehouseSeedOptions])
 
   const columns = React.useMemo<ColumnDef<ZoneRow>[]>(() => [
     {
@@ -671,6 +689,8 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const initialValues = React.useMemo<ZoneFormValues>(() => {
     if (dialog?.mode === 'edit') {
       return {
+        id: dialog.row.id,
+        updatedAt: dialog.row.updated_at ?? null,
         warehouseId: dialog.row.warehouse_id || '',
         code: dialog.row.code || '',
         name: dialog.row.name || '',

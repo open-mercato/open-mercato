@@ -84,6 +84,10 @@ async function readZoneById(
  * CrudForm renders its labels as plain text rather than associating them with the input,
  * so no field in the dialog exposes an accessible name and `getByLabel` matches nothing.
  * Target the field container instead, the way the rest of the suite does.
+ *
+ * Tracked as a framework-level defect in
+ * https://github.com/open-mercato/open-mercato/issues/5360 — switch this helper to
+ * `getByLabel` once the label/control association lands.
  */
 function crudField(scope: Locator, fieldId: string): Locator {
   return scope.locator(`[data-crud-field-id="${fieldId}"] input`).first()
