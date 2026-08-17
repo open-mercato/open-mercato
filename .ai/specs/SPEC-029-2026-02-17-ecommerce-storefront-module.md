@@ -2,9 +2,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4 — rescoped) |
+| **Status** | Specification (v4.1 — rescoped, pre-implementation fixes) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
+| **Pre-implementation fixes** | 2026-08-17 — see §21 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 3, Phase 1 |
 | **Modules** | `ecommerce` (new) |
 | **Related Issues** | #289, #288 |
@@ -99,8 +100,11 @@ GET https://firda.pl/products/czerwona-sukienka
   ├─ 6. Buyer identity (optional portal session cookie)
   │        customer_accounts: CustomerUser → customers: CustomerEntity
   │        customer_groups: resolveGroups() → groupIds
-  │        customer_groups: resolveTerms()  → priceKind override, taxMode,
+  │        customer_groups: resolveTerms()  → priceKind override,
   │                                            assortment scope, credit flags
+  │        catalog: CatalogPriceKind.displayMode of the resolved priceKindId
+  │                 (group override, else channel default) → taxMode
+  │                 ('excluding-tax' → 'net', 'including-tax' → 'gross') — §6.1a
   │
   └─ 7. Locale:  ?locale → X-Locale → Accept-Language → store.defaultLocale
                  (must be in store.supportedLocales, else fall back)
@@ -170,7 +174,7 @@ type EcommerceStoreSettings = {
   display: {
     showOutOfStock: boolean          // default true — store-level default in the availability chain
     allowBackorder: boolean          // default false — idem
-    priceDisplayModeDefault: 'gross' | 'net'   // anonymous default; buyer terms override
+    priceDisplayModeDefault: 'gross' | 'net'   // fallback ONLY when no price kind resolves at all (misconfigured channel); normally taxMode is derived from the resolved price kind's displayMode — §6.1a
     enableSearch: boolean            // default true
   }
   seo: {
@@ -182,7 +186,7 @@ type EcommerceStoreSettings = {
 }
 ```
 
-**Removed from v3.** `features.enableReviews` and `features.enableWishlist` are gone — those modules do not exist and a settings flag for an unbuilt feature is dead configuration. `features.showPriceIncludingTax` is replaced by `display.priceDisplayModeDefault`, because the effective mode now comes from `CustomerGroupTerms.tax_display_mode` for identified buyers and this value is only the anonymous fallback.
+**Removed from v3.** `features.enableReviews` and `features.enableWishlist` are gone — those modules do not exist and a settings flag for an unbuilt feature is dead configuration. `features.showPriceIncludingTax` is replaced by `display.priceDisplayModeDefault`, a last-resort fallback for when no price kind resolves at all — the effective mode for an identified buyer is derived from their resolved price kind's `CatalogPriceKind.displayMode`, not stored as an independent per-buyer preference (§6.1a; fixed 2026-08-17 after a `/om-pre-implement-spec` audit found an earlier draft storing it twice, in a now-removed `CustomerGroupTerms.tax_display_mode` column, with no rule reconciling the two).
 
 `display.showOutOfStock` and `display.allowBackorder` are the **store-level defaults in the `AvailabilityPolicy` resolution chain** (availability spec §5.2), not independent switches. Per-product policy overrides them.
 
@@ -224,7 +228,7 @@ export type BuyerContext = {
   customerGroupIds: string[]        // priority-ordered, from customerGroupsService
   companyId: string | null
   isAuthenticated: boolean
-  taxMode: 'gross' | 'net'
+  taxMode: 'gross' | 'net'          // DERIVED from priceKindId's CatalogPriceKind.displayMode — see §6.1a; never set independently
   priceKindId: string | null        // group terms override the channel default
   allowPurchaseOnAccount: boolean
   approvalRequiredAbove: number | null
@@ -273,7 +277,13 @@ digest = sha256(
 
 Truncated to 16 hex characters. It deliberately includes `customerId`, so a customer with a personal price row does not share a cache entry with their group peers.
 
-**Enforcement.** The suite ships a helper `buildStorefrontCacheKey(context: StoreContext, parts: string[])` that takes `StoreContext` as a required argument. Endpoints construct keys through it. A key built any other way is a review-blocking defect — R1 depends on this being mechanical rather than remembered.
+**Enforcement.** The suite ships a helper `buildStorefrontCacheKey(context: StoreContext, parts: string[])` that takes `StoreContext` as a required argument. Endpoints construct keys through it. A key built any other way is a review-blocking defect. Because R1 is Critical, review discipline alone is not the only gate: a Phase 1 deliverable is a structural test (`ecommerce/__tests__/no-raw-cache-calls.test.ts`, plain-regex grep over `ecommerce/api/**` for `cache.resolve(` / `.get(`/`.set(` calls outside `lib/cacheKeys.ts`, mirroring the existing `optimistic-lock-editable-entities.test.ts` pattern) that fails CI if a route bypasses the helper. This test MUST be registered in `scripts/repo-wide-guards.mjs`'s `REPO_WIDE_GUARDS` list — otherwise turbo's dependency-filtered CI silently skips it on PRs touching only `ecommerce` route files, which would defeat the point.
+
+### 6.1a Tax display mode is derived, not resolved independently (fixed 2026-08-17)
+
+`BuyerContext.taxMode` is **computed**, not carried through from `customerGroupsService.resolveTerms()`. `resolveTerms()` (spec 1, `customer_groups`) returns only `priceKindId`; `resolve()` here reads that price kind's `CatalogPriceKind.displayMode` (`catalog`, which this module already depends on for channel binding — no new dependency) and translates `'excluding-tax' → 'net'`, `'including-tax' → 'gross'`, the same translation `catalog`'s own `LineItemDialog.tsx` already performs everywhere else in this codebase. When no price kind resolves at all (misconfigured channel, no group override), `taxMode` falls back to `settings.display.priceDisplayModeDefault`.
+
+A `/om-pre-implement-spec` audit found the original draft resolved `taxMode` independently (from a since-removed `CustomerGroupTerms.tax_display_mode` column) with no rule reconciling it against the selected price kind's own `displayMode` — a real defect, since a mismatch (e.g. a `net`-flagged buyer resolving to a `gross`-priced kind) mislabels a stored amount, not a cosmetic inconsistency.
 
 ### 6.2 Failure modes
 
@@ -379,8 +389,10 @@ GET|POST         /api/ecommerce/store-domain-bindings
 GET|PUT|DELETE   /api/ecommerce/store-domain-bindings/:id
 GET|POST         /api/ecommerce/store-channel-bindings
 GET|PUT|DELETE   /api/ecommerce/store-channel-bindings/:id
-POST             /api/ecommerce/stores/:id/preview-branding   // validate + return CSS, no persist
+GET              /api/ecommerce/stores/:id/preview-branding   // validate query params + return CSS, no persist
 ```
+
+**`preview-branding` is `GET`, not `POST`** (fixed 2026-08-17): it performs no domain write, and this repo's existing precedent for "validate and return, don't persist" endpoints (`messages/api/[id]/forward-preview/route.ts`, `sync_excel/api/preview/route.ts`) is `GET` in every case — `POST` here would have left it ambiguous whether the mutation-guard registry applies (`packages/core/AGENTS.md` § API Routes requires it for non-`GET` custom routes). Candidate branding values are passed as validated query params or a signed short-lived draft reference, not a body.
 
 ### 9.3 ACL features
 
@@ -409,13 +421,15 @@ packages/core/src/modules/ecommerce/
 ├── setup.ts                      # default store on tenant creation, role features
 ├── events.ts
 ├── di.ts                         # storeContextService
+├── notifications.ts              # missing-default-channel-binding, empty-assortment-scope (R7) types
+├── notifications.client.ts
 ├── i18n/{en,pl}.json
 ├── data/
 │   ├── entities.ts               # 3 entities
 │   └── validators.ts
 ├── lib/
 │   ├── storeContext.ts           # resolve(), resolveBySlug()
-│   ├── buyerContext.ts           # step 6
+│   ├── buyerContext.ts           # step 6, incl. taxMode derivation — §6.1a
 │   ├── brandingStyles.ts         # generation + OKLCH/hex validation
 │   └── cacheKeys.ts              # buildStorefrontCacheKey()
 ├── api/
@@ -425,9 +439,15 @@ packages/core/src/modules/ecommerce/
 ├── backend/config/ecommerce/
 │   ├── page.tsx                  # store list
 │   └── [id]/{page,branding,domains,channels,seo}.tsx
+├── widgets/notifications/
+│   └── index.ts                  # renderer for the notifications above
+├── __tests__/
+│   └── no-raw-cache-calls.test.ts  # R1 structural guard — §6.1
 └── subscribers/
     └── store-cache-invalidation.ts
 ```
+
+Added `notifications.ts`/`notifications.client.ts`/`widgets/notifications/` (fixed 2026-08-17): §6.2 and R7 already promised an admin notification and a warning event respectively, but the original file structure never declared where they'd be defined — per `packages/core/src/modules/customers/AGENTS.md` § Module Files Checklist, a module promising in-app notifications needs these files.
 
 Spec 4 adds `lib/storefront*.ts` and the public read routes to this same module.
 
@@ -467,7 +487,7 @@ All forms use `CrudForm` and derive the optimistic-lock header from `initialValu
 
 | # | Risk | Severity | Area | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|---|
-| R1 | Buyer-context cache bleed | **Critical** | `ecommerce` | A cached response keyed without the digest serves an ACME contract price to an anonymous visitor, or to a competitor with an account on the same store. Confidential commercial terms disclosed. | `digest` is a required field of `StoreContext`; `buildStorefrontCacheKey` takes the context as a required argument so a key cannot be built without it; authenticated responses are `no-store`; cross-context isolation tests gate Phase 1 | Low |
+| R1 | Buyer-context cache bleed | **Critical** | `ecommerce` | A cached response keyed without the digest serves an ACME contract price to an anonymous visitor, or to a competitor with an account on the same store. Confidential commercial terms disclosed. | `digest` is a required field of `StoreContext`; `buildStorefrontCacheKey` takes the context as a required argument so a key cannot be built without it; authenticated responses are `no-store`; cross-context isolation tests gate Phase 1; **structural CI guard** (§6.1) bans raw `cache` calls outside `lib/cacheKeys.ts`, so a bypass fails the build rather than relying on review alone | Low |
 | R2 | Resolution latency on every request | **High** | `ecommerce` | Four sequential lookups per uncached request; the resolver becomes the platform's slowest middleware and every storefront route inherits it. | Steps 2–5 are one joined query (§8.1); 300s cache with tag invalidation; anonymous requests skip buyer resolution; a latency budget test asserts P95 under 15 ms uncached | Low |
 | R3 | Divergent domain state | Medium | `ecommerce`, `customer_accounts` | An operator deletes a `DomainMapping`; the binding dangles and the store silently stops serving with no diagnostic. | Binding stores the FK id only and joins at read time; a deleted mapping surfaces as an explicit "domain removed" error state in admin, and the resolver logs a distinguishable error rather than a generic 404 | Low |
 | R4 | Branding CSS injection | **High** | `ecommerce` | A tenant admin stores `red; } body { background: url(https://evil/) } :root {` as a colour; the emitted stylesheet exfiltrates via a background request, or defaces the store. | Zod refinement validates OKLCH/hex and rejects anything else; fonts come from an allowlist; the generated sheet is a fixed declaration set with validated values, never interpolated markup; fuzz test over malformed colour inputs | Low |
@@ -526,8 +546,9 @@ Renumbered from v3's `TC-EC-*`; cases covering moved scope now live in the specs
 - `?storeSlug=` works in development and is rejected in production
 
 **Buyer context:**
-- Anonymous: no groups, `taxMode` from `display.priceDisplayModeDefault`, channel price kind
-- Authenticated B2B: groups priority-ordered, `taxMode: 'net'` from group terms, group price kind overriding the channel default
+- Anonymous: no groups, channel price kind resolves, `taxMode` derived from that price kind's `displayMode` (falls back to `display.priceDisplayModeDefault` only if no price kind resolves at all)
+- Authenticated B2B: groups priority-ordered, group price kind overriding the channel default, `taxMode` derived from the *resolved* (group-overridden) price kind's `displayMode` — not read from a stored per-buyer field
+- A price kind whose `displayMode` disagrees with the buyer's expected mode (regression test for the fixed dual-source-of-truth defect) resolves to the price kind's mode, never a stale independent value
 - Assortment scope is the intersection of channel and group scopes; empty intersection emits the warning event (R7)
 - Two buyers in different groups on the same store produce different digests
 - The same buyer across two locales produces different digests
@@ -609,16 +630,30 @@ Open:
 | Never expose cross-tenant data | §12; cache isolation is a Phase 1 gate |
 | Zod validation | All routes and the `settings` blob with a closed schema |
 | No `any` | Service contract and settings fully typed |
-| Optimistic locking | All three entities expose `updatedAt`; admin forms use `CrudForm` |
+| Optimistic locking | All three entities expose `updatedAt`; admin forms use `CrudForm`; no `version` counter (verified this document does not repeat the sibling customer-groups spec's original mistake) |
+| Encryption | `settings.contact` (email/phone/address) is the store's own public business contact info shown on the storefront, not personal customer data — same category as `sales.SalesChannel`'s plaintext contact fields; no field encryption |
+| Cache safety / structural guard | §6.1 — R1's mitigation includes a CI-enforced structural test, not review discipline alone, registered in `scripts/repo-wide-guards.mjs` |
+| Cross-module data derivation | `taxMode` is derived from `catalog.CatalogPriceKind.displayMode` at resolution time, never stored as an independent field — §6.1a (fixed 2026-08-17) |
 | i18n | No hard-coded strings; `en.json`, `pl.json` |
 | Design system | Admin UI uses `@open-mercato/ui` primitives and semantic tokens; no hardcoded status colours |
-| Backward compatibility | Additive; the withdrawn v3 scope was never implemented, so no contract surface is broken and no deprecation protocol applies |
+| Backward compatibility | Additive; the withdrawn v3 scope was never implemented (independently verified: zero matches for `EcommerceStoreDomain`, `ecommerce.checkout.manage`, `ecommerce.orders.view`, `ecommerce.storefront.*` anywhere in this repo), so no contract surface is broken and no deprecation protocol applies |
 | Migrations | `yarn db:generate`, snapshot reviewed |
 | Integration coverage | §16, shipping in the same change |
 
 ---
 
 ## 21) Changelog
+
+### 2026-08-17 — v4.1 (pre-implementation fixes)
+
+Fixed the findings of a `/om-pre-implement-spec` audit (`ANALYSIS-2026-08-14-spec-029-ecommerce-store-module.md`):
+
+- **Critical**: `BuyerContext.taxMode` was resolved independently of `priceKindId` via a since-removed `CustomerGroupTerms.tax_display_mode` column, with no rule reconciling the two — a genuine dual-source-of-truth defect (verified: `catalog`'s own `LineItemDialog.tsx` always derives gross/net from the price kind's `displayMode`, never from an independent buyer preference). Fixed: `taxMode` is now derived from the resolved price kind's `CatalogPriceKind.displayMode` at resolution time (§6.1a, §4.1 step 6). Coordinated fix applied to `customer-groups-and-b2b-terms.md` §5.3/§6.1a too.
+- R1's mitigation gained a CI-enforced structural guard (§6.1) alongside the existing type-level and review-based mitigations, given the risk's Critical severity.
+- Added `notifications.ts`/`notifications.client.ts`/`widgets/notifications/` to §10, which §6.2 and R7 already promised but the file structure never declared.
+- `POST .../preview-branding` (§9.2) changed to `GET`, matching this repo's existing "validate and return, don't persist" precedent and resolving mutation-guard-registry ambiguity.
+- Added an Encryption row to §20 justifying `settings.contact` as non-PII public business info.
+- Independently re-verified the BC self-audit claims in §15/§18 (withdrawn v3 scope, replaced `EcommerceStoreDomain`) — confirmed true, zero collisions found anywhere in this repo.
 
 ### 2026-08-14 — v4 (rescope)
 
