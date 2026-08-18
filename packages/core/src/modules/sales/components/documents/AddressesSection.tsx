@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 "use client"
 
 import * as React from 'react'
@@ -77,12 +75,35 @@ const emptyDraft: AddressEditorDraft = {
 
 const EDITABLE_SNAPSHOT_KEYS = new Set(Object.keys(emptyDraft))
 
+/**
+ * The twelve fields the editor owns, typed, plus whatever else the caller's snapshot carried.
+ *
+ * The index signature is what lets an integration's extra keys (`taxId`, `phone`, …) survive the
+ * merge-back below, while the named fields stay `string` for callers that read them — reading
+ * `normalized.city` off a bare `Record<string, unknown>` yields `unknown`, which is what forced the
+ * `@ts-nocheck` on this file.
+ */
+type NormalizedAddressDraft = {
+  name?: string
+  purpose?: string
+  companyName?: string
+  addressLine1?: string
+  addressLine2?: string
+  buildingNumber?: string
+  flatNumber?: string
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+  isPrimary?: boolean
+} & Record<string, unknown>
+
 function normalizeAddressDraft(
   draft?: AddressEditorDraft | null,
   previous?: Record<string, unknown> | null,
-): Record<string, unknown> | null {
+): NormalizedAddressDraft | null {
   if (!draft) return null
-  const normalized: Record<string, unknown> = {}
+  const normalized: NormalizedAddressDraft = {}
   let hasEditableContent = false
   const assign = (key: keyof AddressEditorDraft, target: string) => {
     const value = draft[key]
@@ -370,7 +391,10 @@ export function SalesDocumentAddressesSection({
               companyName: value.companyName ?? null,
             }
           })
-          .filter((entry): entry is DocumentAddressAssignment => entry !== null)
+          // Narrow to non-null only. Asserting `DocumentAddressAssignment` here was wrong: its
+          // optional fields (`name?`, `purpose?`, …) admit `undefined`, which the mapped literal's
+          // `string | null` does not, so the predicate was not assignable to what it filtered.
+          .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
         setDocumentAddresses(mapped)
       } else {
         setDocumentAddresses([])
