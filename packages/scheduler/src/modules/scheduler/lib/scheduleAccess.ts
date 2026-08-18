@@ -5,6 +5,7 @@ export type ScheduleScopeActor = {
 }
 
 export type ScheduleScopeSubject = {
+  scopeType?: string | null
   tenantId?: string | null
   organizationId?: string | null
 }
@@ -20,13 +21,27 @@ export type ScheduleAccessDecision = 'allowed' | 'not_found' | 'forbidden'
  * system-scope check below into dead code. `commands/jobs.ts` (update/delete) and
  * `api/jobs/buildFilters.ts` (list) already model visibility this way.
  *
+ * System scope is classified exactly as `ensureCanManageSystemScopedJob` classifies it, so
+ * update, delete, trigger and executions cannot disagree about what a system-scoped row is.
+ *
  * `not_found` vs `forbidden` is deliberate. Another tenant's or another organization's
  * schedule answers `not_found`, because a 403 would confirm that the id exists. Only a
  * system-scoped schedule answers `forbidden` — its existence is a property of the
  * deployment, not of a tenant.
  *
+ * An unresolved actor tenant fails closed for everyone, super admins included, matching
+ * `buildSchedulerJobsFilters`, which returns an unmatchable filter when the tenant is
+ * falsy. Such an actor cannot see a tenant-bound schedule in the list either.
+ *
  * Super-admin status reads the immutable `isSuperAdmin` flag derived from RoleAcl/UserAcl at
  * session resolution. Never compare role names, which are tenant-mutable and spoofable.
+ *
+ * Organization isolation compares the actor's single `orgId`, which is what both routes did
+ * before and is narrower than the list endpoint's resolved organization scope
+ * (`filterIds`: the selected organization plus its descendants). The two therefore still
+ * disagree for an actor whose scope spans several organizations. That divergence predates
+ * this helper and is tracked separately; it is preserved here rather than widened, because
+ * widening it silently would grant access the previous lookup did not.
  */
 export function resolveScheduleAccess(
   schedule: ScheduleScopeSubject,
@@ -34,20 +49,16 @@ export function resolveScheduleAccess(
 ): ScheduleAccessDecision {
   const isSuperAdmin = actor?.isSuperAdmin === true
   const scheduleTenantId = schedule.tenantId ?? null
-  const scheduleOrganizationId = schedule.organizationId ?? null
 
-  if (scheduleTenantId === null && scheduleOrganizationId === null) {
+  if (schedule.scopeType === 'system' || scheduleTenantId === null) {
     return isSuperAdmin ? 'allowed' : 'forbidden'
   }
 
   const actorTenantId = actor?.tenantId ?? null
-  if (actorTenantId === null) {
-    // Fail closed on an unresolved tenant, mirroring buildFilters. A super admin keeps
-    // full reach; anyone else without a tenant must not read across tenants.
-    return isSuperAdmin ? 'allowed' : 'not_found'
-  }
+  if (actorTenantId === null) return 'not_found'
   if (scheduleTenantId !== actorTenantId) return 'not_found'
 
+  const scheduleOrganizationId = schedule.organizationId ?? null
   const actorOrganizationId = actor?.orgId ?? null
   if (scheduleOrganizationId !== null && actorOrganizationId !== null && scheduleOrganizationId !== actorOrganizationId) {
     return 'not_found'

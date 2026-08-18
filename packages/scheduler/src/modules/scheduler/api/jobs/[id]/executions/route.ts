@@ -45,9 +45,12 @@ export async function GET(
     // tenant/org into the lookup would make every system-scoped schedule unmatchable.
     const schedule = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
 
-    const access = schedule ? resolveScheduleAccess(schedule, auth) : 'not_found'
+    if (!schedule) {
+      return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
+    }
 
-    if (!schedule || access === 'not_found') {
+    const access = resolveScheduleAccess(schedule, auth)
+    if (access === 'not_found') {
       return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
     }
     if (access === 'forbidden') {

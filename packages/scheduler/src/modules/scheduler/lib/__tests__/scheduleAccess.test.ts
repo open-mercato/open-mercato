@@ -11,9 +11,9 @@
 import { describe, it, expect } from '@jest/globals'
 import { resolveScheduleAccess } from '../scheduleAccess'
 
-const systemSchedule = { tenantId: null, organizationId: null }
-const tenantSchedule = { tenantId: 't1', organizationId: null }
-const orgSchedule = { tenantId: 't1', organizationId: 'o1' }
+const systemSchedule = { scopeType: 'system', tenantId: null, organizationId: null }
+const tenantSchedule = { scopeType: 'tenant', tenantId: 't1', organizationId: null }
+const orgSchedule = { scopeType: 'organization', tenantId: 't1', organizationId: 'o1' }
 
 describe('resolveScheduleAccess — system-scoped schedules', () => {
   it('allows a super admin whose session carries a tenant and an organization', () => {
@@ -45,6 +45,38 @@ describe('resolveScheduleAccess — system-scoped schedules', () => {
   })
 })
 
+/**
+ * `ensureCanManageSystemScopedJob` in commands/jobs.ts treats a row as system-scoped when
+ * `scopeType === 'system' || tenantId == null`. Update, delete, trigger and executions must
+ * not disagree about what a system-scoped row is, so the same test is applied here — including
+ * for the inconsistent rows the create validator's scope refinement should never produce.
+ */
+describe('resolveScheduleAccess — system-scope classification matches commands/jobs.ts', () => {
+  it('treats a null tenant as system-scoped even when an organization is set', () => {
+    expect(
+      resolveScheduleAccess(
+        { scopeType: 'organization', tenantId: null, organizationId: 'o1' },
+        { tenantId: 't1', orgId: 'o1', isSuperAdmin: false },
+      ),
+    ).toBe('forbidden')
+  })
+
+  it('treats scopeType "system" as system-scoped even when a tenant is set', () => {
+    expect(
+      resolveScheduleAccess(
+        { scopeType: 'system', tenantId: 't1', organizationId: null },
+        { tenantId: 't1', orgId: 'o1', isSuperAdmin: false },
+      ),
+    ).toBe('forbidden')
+  })
+
+  it('still classifies by nullability when scopeType is absent', () => {
+    expect(
+      resolveScheduleAccess({ tenantId: null, organizationId: null }, { tenantId: 't1', isSuperAdmin: false }),
+    ).toBe('forbidden')
+  })
+})
+
 describe('resolveScheduleAccess — tenant isolation', () => {
   it('reports another tenant\'s schedule as not_found, never forbidden', () => {
     expect(
@@ -64,10 +96,12 @@ describe('resolveScheduleAccess — tenant isolation', () => {
     ).toBe('not_found')
   })
 
-  it('keeps a tenant-less super admin reaching a tenant-bound schedule', () => {
+  // buildSchedulerJobsFilters returns an unmatchable filter when the tenant is falsy, for
+  // super admins too, so such an actor cannot see this row in the list either.
+  it('fails closed for a super admin whose tenant could not be resolved', () => {
     expect(
       resolveScheduleAccess(orgSchedule, { tenantId: null, orgId: null, isSuperAdmin: true }),
-    ).toBe('allowed')
+    ).toBe('not_found')
   })
 })
 
@@ -84,6 +118,10 @@ describe('resolveScheduleAccess — organization isolation', () => {
     ).toBe('allowed')
   })
 
+  // Inherited from the lookup this helper replaces, which omitted the organization clause
+  // entirely when the actor carried no orgId. The list endpoint hides the row in this case
+  // (its organization branch needs at least one id), so the two paths disagree. Pinned here
+  // to document the divergence, not to endorse it — narrowing it is a separate change.
   it('allows an actor with no selected organization to reach an org-bound schedule in its tenant', () => {
     expect(
       resolveScheduleAccess(orgSchedule, { tenantId: 't1', orgId: null, isSuperAdmin: false }),
@@ -98,7 +136,7 @@ describe('resolveScheduleAccess — organization isolation', () => {
 
   it('does not treat an undefined organizationId as a distinct organization', () => {
     expect(
-      resolveScheduleAccess({ tenantId: 't1' }, { tenantId: 't1', orgId: 'o1', isSuperAdmin: false }),
+      resolveScheduleAccess({ scopeType: 'tenant', tenantId: 't1' }, { tenantId: 't1', orgId: 'o1', isSuperAdmin: false }),
     ).toBe('allowed')
   })
 })

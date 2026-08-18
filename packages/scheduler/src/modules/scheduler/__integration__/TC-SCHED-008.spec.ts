@@ -1,27 +1,34 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { SCHEDULER_TRIGGER_PATH, createScheduleJob, deleteScheduleJob, uniqueScheduleName } from './helpers/scheduler'
+import {
+  SCHEDULER_JOBS_PATH,
+  SCHEDULER_TRIGGER_PATH,
+  createScheduleJob,
+  deleteScheduleJob,
+  uniqueScheduleName,
+} from './helpers/scheduler'
 
 const isAsyncQueueStrategy = (process.env.QUEUE_STRATEGY || 'local') === 'async'
 
 type TriggerBody = { ok?: boolean; jobId?: string; error?: string; message?: string }
 
 /**
- * TC-SCHED-008: POST /api/scheduler/trigger resolves the scope of a system-scoped
- * schedule on the loaded row, not in the lookup.
+ * TC-SCHED-008: POST /api/scheduler/trigger and GET /api/scheduler/jobs/[id]/executions
+ * resolve the scope of a system-scoped schedule on the loaded row, not in the lookup.
  *
- * A system-scoped schedule has `tenantId === null` and `organizationId === null`. When the
- * route folded the caller's tenant/org into the `where` clause, no such row could ever match
- * and every caller — super admins included — got 404, which also masked the route's own
+ * A system-scoped schedule has `tenantId === null` and `organizationId === null`. When both
+ * routes folded the caller's tenant/org into the `where` clause, no such row could ever match
+ * and every caller — super admins included — got 404, which also masked each route's own
  * super-admin gate. A super admin must now reach the schedule, and a non-super-admin must be
  * told 403 rather than 404.
  *
- * The super-admin assertion holds under either queue strategy: the `QUEUE_STRATEGY=async`
- * check sits after the lookup, so `local` yields the pre-existing 400 — never 404.
+ * The super-admin assertions hold under either queue strategy: each route's
+ * `QUEUE_STRATEGY=async` check sits after the lookup, so `local` yields the pre-existing
+ * 400 — never 404.
  */
-test.describe('TC-SCHED-008: manual trigger of a system-scoped schedule', () => {
-  test('super admin reaches the schedule; a non-super-admin is forbidden', async ({ request }) => {
+test.describe('TC-SCHED-008: system-scoped schedule access on trigger and executions', () => {
+  test('super admin reaches the schedule on both routes; a non-super-admin is forbidden', async ({ request }) => {
     const superToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
     let scheduleId: string | null = null
@@ -63,6 +70,21 @@ test.describe('TC-SCHED-008: manual trigger of a system-scoped schedule', () => 
       expect(
         adminResponse.status(),
         'a non-super-admin must be forbidden from triggering a system-scoped schedule',
+      ).toBe(403)
+
+      // The execution-history route carried the same lookup and needs the same guarantees.
+      const executionsPath = `${SCHEDULER_JOBS_PATH}/${scheduleId}/executions`
+      const superExecutions = await apiRequest(request, 'GET', executionsPath, { token: superToken })
+      expect(
+        superExecutions.status(),
+        'a super admin must not be told a system-scoped schedule has no execution history route',
+      ).not.toBe(404)
+      expect(superExecutions.status()).toBe(isAsyncQueueStrategy ? 200 : 400)
+
+      const adminExecutions = await apiRequest(request, 'GET', executionsPath, { token: adminToken })
+      expect(
+        adminExecutions.status(),
+        'a non-super-admin must be forbidden from reading a system-scoped execution history',
       ).toBe(403)
     } finally {
       await deleteScheduleJob(request, superToken, scheduleId)
