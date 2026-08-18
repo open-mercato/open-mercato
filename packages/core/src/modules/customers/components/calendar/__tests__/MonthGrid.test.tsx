@@ -5,6 +5,7 @@ import * as React from 'react'
 import { cleanup } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { MonthGrid } from '../MonthGrid'
+import { formatTimeRange } from '../EventBlock'
 import type { CalendarItem } from '../types'
 import { buildCalendarItem } from './fixtures'
 
@@ -27,6 +28,10 @@ function dayCellLabel(container: HTMLElement): string {
 
 function eventPillLabel(container: HTMLElement): string {
   return container.querySelector('button[aria-label*="–"]')?.getAttribute('aria-label') ?? ''
+}
+
+function eventPillLabelByTitle(container: HTMLElement, title: string): string {
+  return container.querySelector(`button[aria-label^="${title}"]`)?.getAttribute('aria-label') ?? ''
 }
 
 describe('MonthGrid — locale-aware date formatting (#5116)', () => {
@@ -79,4 +84,23 @@ describe('MonthGrid — locale-aware date formatting (#5116)', () => {
     expect(plLabel).not.toBe('')
     expect(plLabel).not.toBe(enLabel)
   })
+})
+
+describe('MonthGrid — shared time-range formatting (#5275)', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it.each(['pl', 'de'])(
+    'renders the event pill range exactly as the week view renders it in %s',
+    (locale) => {
+      const item = buildCalendarItem()
+
+      const view = renderGrid(locale, [item])
+      const pillLabel = eventPillLabelByTitle(view.container, item.title)
+      view.unmount()
+
+      expect(pillLabel).toBe(`${item.title} · ${formatTimeRange(locale, item.start, item.end)}`)
+    },
+  )
 })

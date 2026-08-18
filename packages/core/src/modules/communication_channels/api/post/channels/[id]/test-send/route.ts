@@ -7,7 +7,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../../data/entities'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
-import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
+import {
+  ChannelAccessDeniedError,
+  assertCanManageChannel,
+  channelOrgScopeWhere,
+} from '../../../../../lib/access-control'
 import { refreshCredentialsIfNeeded } from '../../../../../lib/credential-refresh'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
@@ -90,7 +94,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     {
       id,
       tenantId: auth.tenantId as string,
-      organizationId,
+      ...channelOrgScopeWhere(organizationId),
       deletedAt: null,
     },
     undefined,
@@ -99,6 +103,13 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   if (!channel) {
     return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
   }
+  // Resolve credentials at the channel's OWN org, not the caller's selected org.
+  // Tenant-wide channels store `organization_id = NULL` and their credentials
+  // live at `organization_id = tenantId` (see connect-credential-channel.ts), so
+  // the read key must be `channel.organizationId ?? tenantId` — keying on the
+  // session org would resolve `{}` for a tenant-wide channel viewed from a
+  // non-null org.
+  const channelCredentialsOrg = channel.organizationId ?? (auth.tenantId as string)
   // Load features via RBAC service so admin bypass (`communication_channels.admin`,
   // wildcards, super-admin) is honoured. The `auth` object from
   // `getAuthFromRequest` carries identity only — feature ACLs live in the RBAC
@@ -172,14 +183,14 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       (await credentialsService
         .resolve(`channel_${channel.providerKey}`, {
           tenantId: auth.tenantId as string,
-          organizationId: organizationId ?? (auth.tenantId as string),
+          organizationId: channelCredentialsOrg,
           userId: channel.userId ?? null,
         })
         .catch(() => null)) ?? {}
   }
   const credentialScope = {
     tenantId: auth.tenantId as string,
-    organizationId: organizationId ?? (auth.tenantId as string),
+    organizationId: channelCredentialsOrg,
     userId: channel.userId ?? null,
   }
   const refreshed = await refreshCredentialsIfNeeded(
@@ -203,7 +214,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       credentials,
       scope: {
         tenantId: auth.tenantId as string,
-        organizationId: organizationId ?? (auth.tenantId as string),
+        organizationId: channelCredentialsOrg,
       },
       metadata: { to: body.to, subject: body.subject ?? 'Test send', testSend: true },
     })
