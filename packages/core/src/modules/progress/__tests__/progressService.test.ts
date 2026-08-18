@@ -507,16 +507,22 @@ describe('progress service', () => {
     em.findOne.mockResolvedValue(job)
 
     const service = createProgressService(em as never, eventBus)
-    const result = await service.failJob('job-1', { errorMessage: 'Network error', errorStack: 'stack...' }, baseCtx)
+    const resultSummary = { affectedCount: 0, failedCount: 2 }
+    const result = await service.failJob(
+      'job-1',
+      { errorMessage: 'Network error', errorStack: 'stack...', resultSummary },
+      baseCtx,
+    )
 
     expect(result.status).toBe('failed')
     expect(result.finishedAt).toBeInstanceOf(Date)
     expect(result.errorMessage).toBe('Network error')
     expect(result.errorStack).toBe('stack...')
+    expect(result.resultSummary).toEqual(resultSummary)
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ id: 'job-1', status: { $in: ['pending', 'running'] } }),
-      expect.objectContaining({ status: 'failed', errorMessage: 'Network error' })
+      expect.objectContaining({ status: 'failed', errorMessage: 'Network error', resultSummary })
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,

@@ -52,11 +52,21 @@ const moduleEntities: Record<string, string[]> = {
   resources: ['ResourcesResource', 'ResourcesResourceType'],
   dictionaries: ['Dictionary', 'DictionaryEntry'],
   currencies: ['Currency'],
+  devices: ['UserDevice'],
   business_rules: ['BusinessRule', 'RuleSet'],
   feature_toggles: ['FeatureToggle'],
   workflows: ['WorkflowDefinition'],
   directory: ['Organization', 'Tenant'],
+  eudr: [
+    'EudrProductMapping',
+    'EudrEvidenceSubmission',
+    'EudrDueDiligenceStatement',
+    'EudrPlot',
+    'EudrRiskAssessment',
+    'EudrMitigationAction',
+  ],
   messages: ['Message'],
+  notifications: ['NotificationTypeOverride', 'NotificationPreference'],
 }
 
 function readEntitySource(moduleId: string): string {

@@ -461,6 +461,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         finishedAt: now,
         errorMessage: input.errorMessage,
         errorStack: input.errorStack,
+        ...(input.resultSummary ? { resultSummary: input.resultSummary } : {}),
         updatedAt: now,
         ...(entry
           ? {
@@ -486,6 +487,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       snapshot.finishedAt = now
       snapshot.errorMessage = input.errorMessage
       snapshot.errorStack = input.errorStack
+      if (input.resultSummary) {
+        snapshot.resultSummary = input.resultSummary
+      }
 
       const persistedJob = (await loadFreshJob(jobId, ctx)) ?? snapshot
 

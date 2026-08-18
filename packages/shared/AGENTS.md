@@ -20,6 +20,7 @@ Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and 
 - Never import from `@open-mercato/core` or any domain package; shared has zero domain dependencies.
 - Never gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc wildcard matching.
 - Never use `any` for exported shared interfaces.
+- Never call `getCliModules()` / `hasCliModules()` / `registerCliModules()` from runtime code. Only the `mercato` bin populates that registry and `getCliModules()` fails **open** (`[]`), so runtime readers silently do nothing outside a CLI process - this is what made the events worker drop every persistent subscriber. Runtime code uses the app registry (`getModules()` from `lib/modules/registry`) or a DI-resolved service; only `packages/cli/**` and a module's own `cli.ts` may read it. Enforced by `src/modules/__tests__/cli-registry-boundary.test.ts`.
 
 ## Validation Commands
 
@@ -44,12 +45,13 @@ yarn workspace @open-mercato/shared build
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
 | `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs) | `@open-mercato/shared/lib/db/mikro` |
+| `delivery/` | When scheduling delivery/retry attempts — exponential backoff with jitter for delivery pipelines (currently the push delivery worker) | `@open-mercato/shared/lib/delivery/retry` (`calculateBackoffDelayMs`) |
 | `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
 | `logger/` | When emitting diagnostics — `createLogger(namespace)` instead of raw `console.*` (migrate incrementally, Boy Scout rule). Message-first with structured fields (`logger.warn('Payload too large', { event, maxBytes })`), errors under `err`, `child(bindings)` for context, `getLogLevel()`/`isLevelEnabled()` to gate expensive fields; level via `OM_LOG_LEVEL`. Never log credentials, PII, or payload bodies | `@open-mercato/shared/lib/logger` |
-| `modules/` | When registering or listing modules; `surfaceFingerprint` gives a deploy-time hash of the enabled modules, their declared ACL features, and the backend route manifest — mix it into any cache key whose payload is derived from those (no DB write exists to tag-invalidate on, so an omitted fingerprint serves the pre-deploy payload forever). It cannot see React-element fields such as a route `icon`, so callers MUST still pass a `ttl` | `@open-mercato/shared/lib/modules/registry`, `@open-mercato/shared/lib/modules/surfaceFingerprint` |
+| `modules/` | When registering or listing modules; `onModulesRegistered(listener)` subscribes to (re-)registrations so a cache derived from the module list can drop what it built from an incomplete one — bootstrap may register an i18n-only set before the full module list merges in, and listeners fire only when the registered set actually changed, so nothing is added to the request path. Its governing contract — notification timing, fail-soft handling of a throwing or rejecting listener, snapshot-based change detection, listener lifetime under HMR, and the globals a test MUST clear — is [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](../../.ai/specs/2026-08-12-module-registry-registration-listeners.md); `surfaceFingerprint` gives a deploy-time hash of the enabled modules, their declared ACL features, and the backend route manifest — mix it into any cache key whose payload is derived from those (no DB write exists to tag-invalidate on, so an omitted fingerprint serves the pre-deploy payload forever). It cannot see React-element fields such as a route `icon`, so callers MUST still pass a `ttl` | `@open-mercato/shared/lib/modules/registry`, `@open-mercato/shared/lib/modules/surfaceFingerprint` |
 | `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
@@ -69,7 +71,10 @@ When you need shared type definitions, import from these:
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
+| Resolving authored `PageMetadata` into a route manifest's flat shape (`resolvePageRouteMetadata`, and `resolveDeclaredPageRouteMetadata` for partial merges such as page overrides) | `@open-mercato/shared/modules/registry` |
 | Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
+
+`registry.ts` re-exports `resolvePageRouteMetadata` from `@open-mercato/shared/modules/pageRouteMetadata`, where it lives so `overrides.ts` can reuse it without an import cycle. Import it from `registry` — the split is an implementation detail.
 
 ## Key Patterns
 

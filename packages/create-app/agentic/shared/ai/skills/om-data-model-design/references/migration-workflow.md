@@ -11,3 +11,5 @@ Load this reference whenever entity metadata changes.
 7. Ask before `yarn db:migrate`, greenfield reset, or changing a database target.
 
 Normal delivery stops after migration file/snapshot/tests; local applied state is not a PR artifact.
+
+Canonical example source — the shape `yarn db:generate` produces and diffs against: [`migrations/Migration20251030150038.ts`](../../../../src/modules/example/migrations/Migration20251030150038.ts), [`migrations/Migration20260226161000_example.ts`](../../../../src/modules/example/migrations/Migration20260226161000_example.ts), and the module-scoped [`migrations/.snapshot-open-mercato.json`](../../../../src/modules/example/migrations/.snapshot-open-mercato.json). Read them for style; never copy a migration into your own module.

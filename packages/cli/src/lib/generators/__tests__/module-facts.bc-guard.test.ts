@@ -1,6 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractAllModuleFacts, renderModuleFactsJson } from '../module-facts'
+import {
+  extractAllModuleFacts,
+  isExactSourceFilePath,
+  renderModuleFactsDirectory,
+  renderModuleFactsJson,
+} from '../module-facts'
 import { discoverPackageModuleSources } from '../module-facts-discovery'
 import { createResolver } from '../../resolver'
 
@@ -17,11 +22,31 @@ function isUnique(values: string[]): boolean {
   return values.length === new Set(values).size
 }
 
+const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
+const DIRECTORY_MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
+const MAX_ANCHORED_SECTION_BYTES = 32 * 1024
+
+function collectLinkTargets(markdown: string): string[] {
+  return [...markdown.matchAll(MARKDOWN_LINK_TARGET)].map((match) => match[1])
+}
+
+function expectAnchoredLeafCap(markdown: string): void {
+  const lines = markdown.split('\n')
+  const subheadings = lines.flatMap((line, index) => line.startsWith('### ') ? [index] : [])
+  if (Buffer.byteLength(markdown) > MAX_ANCHORED_SECTION_BYTES) expect(subheadings.length).toBeGreaterThan(0)
+  for (let index = 0; index < subheadings.length; index += 1) {
+    const start = subheadings[index]
+    const end = subheadings[index + 1] ?? lines.length
+    expect(Buffer.byteLength(lines.slice(start, end).join('\n'))).toBeLessThanOrEqual(MAX_ANCHORED_SECTION_BYTES)
+  }
+}
+
 describe('module-facts BC resolve guard (T2)', () => {
   const repoRoot = findRepoRoot()
   const sources = discoverPackageModuleSources(createResolver(repoRoot))
   const extractionStartedAt = process.cpuUsage()
-  const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
+  const { factsByModule, markdownByModule, directoryByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
+  const legacyFactsByModule = extractAllModuleFacts({ sources, factsContractVersion: 1 }).factsByModule
   const extractionCpuUsage = process.cpuUsage(extractionStartedAt)
   const extractionCpuDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
 
@@ -29,11 +54,29 @@ describe('module-facts BC resolve guard (T2)', () => {
     const repeated = extractAllModuleFacts({ sources })
     expect(renderModuleFactsJson(repeated.factsByModule)).toBe(renderModuleFactsJson(factsByModule))
     expect(repeated.markdownByModule).toEqual(markdownByModule)
+    expect(repeated.directoryByModule).toEqual(directoryByModule)
     expect(repeated.frameworkMarkdown).toBe(frameworkMarkdown)
     for (const facts of Object.values(factsByModule)) {
       expect(facts.extensionSurfaces).toBeDefined()
       expect(facts.extensionSurfaces?.unresolved).toEqual([])
     }
+  })
+
+  it('preserves stable v1 extension arrays while exposing corrected v2 facts separately', () => {
+    const legacySecurity = legacyFactsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    const v2Security = factsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    expect(legacySecurity?.kind === 'component-override' ? legacySecurity.details.mode : null).toBe('replace')
+    expect(v2Security?.kind === 'component-override' ? v2Security.details.mode : null).toBe('wrapper')
+
+    const recoveredContribution = 'catalog.injection.product-bulk-delete@data-table:catalog.products.list:bulk-actions'
+    expect(legacyFactsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .not.toContain(recoveredContribution)
+    expect(factsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .toContain(recoveredContribution)
   })
 
   it('keeps generated extension facts within bounded build-time and context budgets', () => {
@@ -43,6 +86,12 @@ describe('module-facts BC resolve guard (T2)', () => {
     ))
     const markdownBytes = Object.values(markdownByModule)
       .reduce((total, markdown) => total + Buffer.byteLength(markdown), Buffer.byteLength(frameworkMarkdown))
+    const directoryMarkdownBytes = Object.values(directoryByModule).reduce(
+      (total, directory) => total
+        + Buffer.byteLength(directory.index)
+        + directory.sections.reduce((sectionTotal, section) => sectionTotal + Buffer.byteLength(section.markdown), 0),
+      Buffer.byteLength(frameworkMarkdown),
+    )
 
     // Budget raised by the bidirectional-topology spec
     // (2026-08-02-module-facts-extension-activation-and-incoming-index): the
@@ -74,8 +123,9 @@ describe('module-facts BC resolve guard (T2)', () => {
     // copied provenance payloads. The cap also covers the newly reachable
     // framework-host activations (dashboard/menu/notification contributions now
     // resolve as bound instead of silently falling back to capability-only).
-    // This is a blow-up detector, not a performance target. It measures CPU time
-    // for a whole-repo extraction, and CPU time for fixed work varies with the
+    //
+    // The CPU bound is a blow-up detector, not a performance target. It measures CPU
+    // time for a whole-repo extraction, and CPU time for fixed work varies with the
     // machine: the same extraction measures ~7.3s on a developer workstation and
     // ~30.0s on a CI runner. At the previous 30s cap CI sat exactly on the line
     // (an observed failure at 30,052.8ms), so the guard could not tell a genuine
@@ -83,13 +133,156 @@ describe('module-facts BC resolve guard (T2)', () => {
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    // JSON cap raised a fourth time by the injection-table slot normalization:
+    // `extractInjectionTable` previously did `if (!Array.isArray(entries)) continue`,
+    // silently dropping every string and single-object slot form that
+    // `ModuleInjectionTable` allows. Twelve real contributions across catalog, sales,
+    // wms, staff, integrations and checkout were therefore invisible to every fact
+    // consumer — `integrations` published no contributions at all. Reading them costs
+    // ~28KB, which is the fix working, not drift.
+    // The additive EUDR module contributes its real routes, ACL, events,
+    // entities, and extension surfaces without changing the extraction shape.
+    //
+    // JSON cap raised a fifth time by the devices/push-notifications stack: the
+    // `devices` and `push_notifications` modules plus the `channel-fcm`,
+    // `channel-apns` and `channel-expo` provider packages add their own facts,
+    // provenance entries and override targets to every render.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_850_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_550_000)
+    expect(markdownBytes).toBeLessThan(1_650_000)
+    expect(directoryMarkdownBytes).toBeLessThan(2_050_000)
+  })
+
+  it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {
+    for (const [moduleId, directory] of Object.entries(directoryByModule)) {
+      expect(directory.index.trimEnd()).toMatch(
+        new RegExp(`<!-- end module facts: ${moduleId} — ${directory.sections.length} sections -->$`),
+      )
+      const bySlug = new Map(directory.sections.map((section) => [section.slug, section]))
+      for (const section of directory.sections) {
+        expect(section.markdown.trimEnd()).toMatch(
+          new RegExp(`<!-- end module facts section: ${moduleId}/${section.slug} -->$`),
+        )
+        expectAnchoredLeafCap(section.markdown)
+      }
+      const anchors = [...directory.index.matchAll(/^  - (.+) — ([a-z0-9-]+)\.md:L(\d+), ~\d+ KB$/gm)]
+      for (const anchor of anchors) {
+        const section = bySlug.get(anchor[2])
+        expect(section).toBeDefined()
+        const heading = section?.markdown.split('\n')[Number(anchor[3]) - 1]
+        expect(heading).toBe(`### ${anchor[1].slice(anchor[1].lastIndexOf(' / ') + 3)}`)
+      }
+      const expectedAnchorCount = directory.sections.reduce(
+        (total, section) => total + (section.markdown.match(/^### /gm) ?? []).length,
+        0,
+      )
+      expect(anchors).toHaveLength(expectedAnchorCount)
+    }
+  })
+
+  it('chunks oversized natural groups and rejects a single row larger than the read cap', () => {
+    const customers = factsByModule.customers
+    const routeTargets = customers.overrideTargets?.filter((target) => target.domain === 'routes') ?? []
+    expect(routeTargets.length).toBeGreaterThan(0)
+    const oversizedOverrides = renderModuleFactsDirectory({
+      ...customers,
+      overrideTargets: [
+        ...(customers.overrideTargets?.filter((target) => target.domain !== 'routes') ?? []),
+        ...Array.from({ length: 10 }, () => routeTargets).flat(),
+      ],
+    })
+    const overrideSection = oversizedOverrides.sections.find((section) => section.slug === 'exact-override-targets')
+    expect(overrideSection?.markdown).toMatch(/^### routes \(continued 2\)$/m)
+    expectAnchoredLeafCap(overrideSection?.markdown ?? '')
+
+    const boundHost = customers.extensionSurfaces?.hosts.find((host) => host.bound)
+    if (!boundHost) throw new Error('[internal] customers must expose a bound host for the chunking guard')
+    const oversizedHosts = renderModuleFactsDirectory({
+      ...customers,
+      extensionSurfaces: {
+        ...(customers.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }),
+        hosts: Array.from({ length: 400 }, (_, index) => ({
+          ...boundHost,
+          id: `${boundHost.id}:synthetic-${index}`,
+        })),
+      },
+    })
+    const hostSection = oversizedHosts.sections.find((section) => section.slug === 'umes-hosts')
+    expect(hostSection?.markdown).toMatch(/\(continued 2\)/)
+    expectAnchoredLeafCap(hostSection?.markdown ?? '')
+
+    const routeTarget = routeTargets[0]
+    if (!routeTarget) throw new Error('[internal] customers must expose a route target for the chunking guard')
+    const oversizedRow = {
+      ...routeTarget,
+      path: ['x'.repeat(MAX_ANCHORED_SECTION_BYTES)],
+    }
+    expect(() => renderModuleFactsDirectory({ ...customers, overrideTargets: [oversizedRow] }))
+      .toThrow(/contains a row larger than the anchored read cap/)
+  })
+
+  it('links every generated fact to an exact resolvable file, never a directory', () => {
+    const packageLinkRoot = path.join(repoRoot, 'node_modules', '@open-mercato')
+    const canCheckDisk = fs.existsSync(packageLinkRoot)
+    const nonExactTargets = new Set<string>()
+    const unresolvedTargets = new Set<string>()
+    let checkedTargets = 0
+
+    for (const markdown of Object.values(markdownByModule)) {
+      for (const target of collectLinkTargets(markdown)) {
+        checkedTargets += 1
+        if (!isExactSourceFilePath(target)) {
+          nonExactTargets.add(target)
+          continue
+        }
+        if (!canCheckDisk) continue
+        const absolute = path.join(repoRoot, target)
+        if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) unresolvedTargets.add(target)
+      }
+    }
+
+    expect(checkedTargets).toBeGreaterThan(1_000)
+    expect([...nonExactTargets]).toEqual([])
+    expect([...unresolvedTargets]).toEqual([])
+  })
+
+  it('keeps directory source hrefs exact and resolvable at their deeper relative depth', () => {
+    const packageLinkRoot = path.join(repoRoot, 'node_modules', '@open-mercato')
+    const canCheckDisk = fs.existsSync(packageLinkRoot)
+    const unresolvedTargets = new Set<string>()
+    let checkedTargets = 0
+
+    for (const directory of Object.values(directoryByModule)) {
+      for (const section of directory.sections) {
+        for (const match of section.markdown.matchAll(DIRECTORY_MARKDOWN_LINK_TARGET)) {
+          checkedTargets += 1
+          const target = match[1]
+          if (canCheckDisk && (!fs.existsSync(path.join(repoRoot, target)) || !fs.statSync(path.join(repoRoot, target)).isFile())) {
+            unresolvedTargets.add(target)
+          }
+        }
+      }
+    }
+
+    expect(checkedTargets).toBeGreaterThan(1_000)
+    expect([...unresolvedTargets]).toEqual([])
+  })
+
+  it('keeps directory-valued provenance readable as plain text', () => {
+    const frameworkHostMarkdowns = Object.values(markdownByModule)
+      .filter((markdown) => markdown.includes('packages/ui/src'))
+    expect(frameworkHostMarkdowns.length).toBeGreaterThan(0)
+    for (const markdown of frameworkHostMarkdowns) {
+      expect(markdown).not.toContain('(../../../packages/ui/src)')
+    }
+    for (const [moduleId, facts] of Object.entries(factsByModule)) {
+      expect(markdownByModule[moduleId]).toContain(`Source root: ${facts.sourceRoot}\n`)
+      expect(markdownByModule[moduleId]).not.toContain(`(../../../${facts.sourceRoot})`)
+    }
   })
 
   it('discovers a superset of the historical core modules', () => {

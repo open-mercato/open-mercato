@@ -74,6 +74,7 @@ export const validateCredentialsInputSchema = z.object({
 export const validateCredentialsResultSchema = z.object({
   ok: z.boolean(),
   errors: z.record(z.string(), z.string()).optional(),
+  errorCodes: z.record(z.string(), z.string()).optional(),
 })
 
 export const refreshCredentialsInputSchema = z.object({
