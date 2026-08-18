@@ -158,8 +158,11 @@ describe('module-facts BC resolve guard (T2)', () => {
     // `channel-apns` and `channel-expo` provider packages add their own facts,
     // provenance entries and override targets to every render. The
     // `warranty_claims` module (see above) and the additive Documents module
-    // land alongside it, so the cap absorbs all three additions.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_000_000)
+    // land alongside it, so the cap absorbs all three additions. Both sides of
+    // that merge had raised the cap independently (3_950_000 for Documents,
+    // 4_000_000 for the rest); neither number covers the union, which measures
+    // ~4.09MB. Keep bounded headroom over the measured size only.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_150_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
