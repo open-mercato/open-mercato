@@ -125,7 +125,7 @@ bridge, so the package is not loaded on the disabled path.
 
 | Export | Description |
 | --- | --- |
-| `withSpan(name, fn, opts?)` | Run `fn` in a provider-owned span |
+| `withSpan(name, fn, opts?)` | Run `fn` in a provider-owned span. `opts.root` starts a new trace; `opts.links` attaches causal links (see [Long-lived jobs](#long-lived-jobs-root-spans)) |
 | `currentSpan()` / `setAttributes(attrs)` | Active span access |
 | `counter` / `histogram` / `gauge` | Metric helpers |
 | `reportError(err, ctx?)` | Span exception + shared error log + `om.errors` |
@@ -137,6 +137,64 @@ bridge, so the package is not loaded on the disabled path.
 `registerTelemetryForNextjs()` and `recordHttpDuration()` helpers.
 `@open-mercato/telemetry/nextjs-config` separately exports only
 `telemetryServerExternalPackages` for build configuration.
+
+### Long-lived jobs: root spans
+
+Trace context propagates from the request that triggered a job through the queue
+into the worker, and `ParentBasedSampler` only decides sampling at a trace's
+**root**. A job that runs for hours therefore inherits one decision made on a
+request from long before it: below `TELEMETRY_SAMPLING_RATIO=1.0` an entire run
+can emit nothing at all, and at `1.0` the run becomes one unrenderable trace.
+
+Give the unit of work you actually analyse — a batch, a page — its own trace, and
+link it back so the causal chain survives:
+
+```ts
+import { withSpan, captureTraceContext } from '@open-mercato/telemetry'
+
+const runTrace = captureTraceContext() // the triggering job's trace
+
+for (const batch of batches) {
+  await withSpan('import.batch', async (span) => {
+    span.setAttributes({ 'import.batch_index': batch.index })
+    await processBatch(batch)
+  }, { root: true, links: [runTrace] })
+}
+```
+
+Each batch now samples independently and each trace stays small enough to render.
+Sampling stays probabilistic: at ratio `p` a run of `n` batches still emits
+nothing with probability `(1 - p)^n` — at `p = 0.25` that is 75% for one batch,
+32% for four, 0.3% for twenty. Rooting shrinks the blind spot fast as a run gets
+longer; it does not promise a signal from every run. Only ratio `1.0` does that,
+and rooting is what makes `1.0` renderable.
+
+`links` takes W3C **carriers**, so it accepts both `captureTraceContext()` and a
+carrier received from another process; empty or malformed carriers are dropped
+rather than emitted as invalid links.
+
+### Emitting spans without depending on this package
+
+Packages that must not take a dependency on `@open-mercato/telemetry` use the
+shared runtime bridge instead. With telemetry off, `withTelemetrySpan` is `fn`
+plus one global lookup — no span is allocated and the OTEL SDK is never reached.
+
+```ts
+import {
+  withTelemetrySpan,
+  captureTelemetryTrace,
+} from '@open-mercato/shared/lib/telemetry/runtime'
+
+const runTrace = captureTelemetryTrace() // undefined when telemetry is off
+
+await withTelemetrySpan('data_sync.import.batch', async (span) => {
+  span.setAttributes({ 'data_sync.batch_index': index })
+  await processBatch()
+}, { root: true, links: runTrace ? [runTrace] : undefined })
+```
+
+`packages/core/src/modules/data_sync/lib/batch-stream.ts` is the reference
+consumer.
 
 ## Security and privacy
 
