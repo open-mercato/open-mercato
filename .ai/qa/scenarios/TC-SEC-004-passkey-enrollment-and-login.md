@@ -43,3 +43,8 @@ Verify that a user can register a passkey MFA method from the security profile a
 - Cancel the browser passkey ceremony and expect the enrollment to remain incomplete
 - Attempt login challenge with a missing or rejected WebAuthn assertion and expect the session to remain MFA-pending
 - Verify that the test skips explicitly rather than failing when WebAuthn is unsupported in CI
+
+## Automation Coverage
+Steps 1-7 and the "no assertion" edge case are automated in `TC-SEC-004.spec.ts`, which asserts that a login challenge answered with the disclosed credential id and challenge rather than a signed assertion is refused with `401` (the second-factor bypass fixed in #3852).
+
+Step 8 — the passing browser verification ceremony — stays **manual**. A genuine assertion needs an authenticator, so automating it requires a Playwright virtual authenticator (`WebAuthn.addVirtualAuthenticator`); until that lands, a passing passkey login and a passing passkey sudo step-up must be confirmed by hand against a real authenticator.

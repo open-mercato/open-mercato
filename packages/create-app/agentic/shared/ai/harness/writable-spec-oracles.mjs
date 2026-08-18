@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-// Fixed, controller-owned grader for the two SPEC-P2 writable planning proofs. The other two
+// Fixed, controller-owned grader for the SPEC-P2 writable planning and resume proofs. The other two
 // writable runners grade TypeScript: `writable-ast-oracles.mjs` reads a target's own compiler
 // facts, `writable-behavior-oracles.mjs` executes a compiled seam. A planning proof produces
 // no TypeScript at all — its only permitted artifact is Markdown under `.ai/specs/` — so it
 // gets its own fixed runner rather than a Markdown branch bolted onto the AST oracle. The
 // case table below is hard-coded exactly like the other two runners: a case cannot bring its
-// own grading rules, and the evaluator resolves this file only for the two validator IDs it
+// own grading rules, and the evaluator resolves this file only for the validator IDs it
 // owns.
 
 import fs from 'node:fs'
@@ -194,6 +194,14 @@ const SPEC_CASES = Object.freeze({
     ],
     minChangelogEntries: 2,
     implementationKeywords: ['reminder', 'appointment'],
+  },
+  'OMH-230': {
+    kind: 'resume',
+    coveringSpec: `${SPEC_ROOT}/2026-08-10-interrupted-export-format.md`,
+    preservedArtifact: 'src/modules/resume_demo/lib/preserved.ts',
+    preservedSource: "export const immutableResumeBaseline = 'verified-v1'\n",
+    contractArtifact: 'src/modules/resume_demo/lib/export-contract.ts',
+    formatterArtifact: 'src/modules/resume_demo/lib/format-export.ts',
   },
 })
 
@@ -809,16 +817,76 @@ function existingSpecChecks(root, definition) {
   return checks
 }
 
+function resumeSpecChecks(root, definition) {
+  const authored = authoredSpecFiles(root)
+  const expected = definition.coveringSpec.slice(`${SPEC_ROOT}/`.length)
+  const markdown = readContainedFile(root, definition.coveringSpec)
+  const preserved = readContainedFile(root, definition.preservedArtifact)
+  const contract = readContainedFile(root, definition.contractArtifact)
+  const formatter = readContainedFile(root, definition.formatterArtifact)
+  const checks = [
+    check(
+      'resume.spec.single',
+      authored.length === 1 && authored[0] === expected,
+      `${definition.coveringSpec} must remain the only authored specification`,
+    ),
+    check(
+      'resume.preserved.unchanged',
+      preserved === definition.preservedSource,
+      `${definition.preservedArtifact} is verified by the ticked slice and must remain byte-identical`,
+    ),
+    check(
+      'resume.contract.complete',
+      contract !== null
+        && /export\s+type\s+ExportContract\s*=/.test(contract)
+        && /label\s*:\s*string/.test(contract),
+      `${definition.contractArtifact} must export ExportContract with a string label`,
+    ),
+    check(
+      'resume.formatter.complete',
+      formatter !== null
+        && /import\s+type\s*\{\s*ExportContract\s*\}\s+from\s+['"]\.\/export-contract['"]/.test(formatter)
+        && /formatExport\s*\(\s*label\s*:\s*string\s*\)\s*:\s*ExportContract/.test(formatter)
+        && /label\s*:\s*label\.trim\(\)/.test(formatter),
+      `${definition.formatterArtifact} must consume the paired contract and normalize a string label`,
+    ),
+  ]
+  if (markdown === null) {
+    checks.push(check('resume.ledger.readable', false, `${definition.coveringSpec} must remain readable`))
+    return checks
+  }
+  checks.push(
+    check('resume.ledger.progress', /^Progress:\s*2\/2\s*$/m.test(markdown), 'the canonical ledger must report Progress: 2/2'),
+    check(
+      'resume.ledger.preserved-slice',
+      /^- \[x\] Slice 1 .*verified: `yarn typecheck --pretty false`$/m.test(markdown),
+      'the previously verified first slice must stay ticked with its original evidence',
+    ),
+    check(
+      'resume.ledger.completed-slice',
+      /^- \[x\] Slice 2 .*verified: `yarn typecheck --pretty false`$/m.test(markdown),
+      'the resumed slice must be ticked only with exact focused verification evidence',
+    ),
+    check('resume.ledger.no-in-flight', !/\bIN FLIGHT\b/.test(markdown), 'a completed slice must clear its temporary IN FLIGHT marker'),
+  )
+  return checks
+}
+
 export function evaluateWritableSpecOracle({ root: requestedRoot, caseId, phase }) {
   if (typeof requestedRoot !== 'string' || !path.isAbsolute(requestedRoot)) throw new Error('root must be absolute')
   const definition = SPEC_CASES[caseId]
   if (!definition) throw new Error(`unsupported writable spec case: ${caseId}`)
   if (!['before', 'after'].includes(phase)) throw new Error('phase must be before or after')
   const root = fs.realpathSync(requestedRoot)
+  const contractChecks = definition.kind === 'new-feature'
+    ? newFeatureChecks(root, definition)
+    : definition.kind === 'existing-spec'
+      ? existingSpecChecks(root, definition)
+      : resumeSpecChecks(root, definition)
   const checks = [
-    ...(definition.kind === 'new-feature' ? newFeatureChecks(root, definition) : existingSpecChecks(root, definition)),
+    ...contractChecks,
     ...reservedSpecChecks(root),
-    ...implementationChecks(root, definition),
+    ...(definition.kind === 'resume' ? [] : implementationChecks(root, definition)),
   ]
   const failures = checks.filter((entry) => !entry.passed).map((entry) => `${entry.id}: ${entry.requirement}`)
   return { passed: failures.length === 0, failures, checks }

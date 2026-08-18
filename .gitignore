@@ -1,7 +1,10 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/**/node_modules/
+# No trailing slash: with one, the pattern matches directories only, and a
+# symlink named `node_modules` is a file — trackable, and committed by accident
+# at least once.
+/**/node_modules
 /node_modules
 /.pnp
 .pnp.*
