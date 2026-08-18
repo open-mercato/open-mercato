@@ -305,6 +305,63 @@ await queue.enqueue({
 Always use `QUEUE_STRATEGY=async` with Redis in production environments.
 :::
 
+## Jobs the Queue Abandons
+
+A handler can only report what it sees, and there is one failure mode it never sees: the queue giving
+up on a job before the handler is entered.
+
+BullMQ counts how many times a job has stalled, and that counter is cumulative for the job's life —
+it does not reset when a redelivery succeeds. So for a long-lived job (one job that owns an entire
+import for hours or days), `maxStalledCount` is not a tolerance for flakiness; it is a budget for how
+many worker restarts the job may survive. Every deploy spends one. Past the budget BullMQ writes a
+deferred failure onto the job and moves it back to `wait`; the next worker reads that marker and
+fails the job **before** calling the processor.
+
+The handler therefore never runs on that final delivery — it does not throw, and it never learns. (An
+earlier attempt of the same job usually *did* enter the handler, in a process that then died
+mid-flight; that attempt has no way to report anything either.) Any state created on enqueue — a run
+row, a progress record — is stranded in whatever "in progress" state it was left in, and nothing
+reconciles it: the queue says `failed` while the domain row still says `running`.
+
+`onJobAbandoned` is the hook for exactly that case:
+
+```typescript
+import { createModuleQueue } from '@open-mercato/queue'
+
+const queue = createModuleQueue<ImportPayload>('my-import', {
+  concurrency: 5,
+  onJobAbandoned: async (payload, info) => {
+    const data = payload as { payload?: { runId?: string } } | undefined
+    if (typeof data?.payload?.runId !== 'string') return
+    await markRunFailed(data.payload.runId, `the queue abandoned this job: ${info.reason}`)
+  },
+})
+```
+
+- It fires **only** when the queue abandons a job it never handed to the handler. It is deliberately
+  not a general "job failed" hook — a handler that ran and threw already owns its outcome, and firing
+  for that case would double-report and erase the difference between *the work failed* and *the work
+  never started*. The two are told apart by the reason BullMQ records (`job stalled more than
+  allowable limit`, `job started more than allowable limit`), which is exact and identical in every
+  worker process.
+- Keep it small and idempotent, and make it tolerate a payload it does not recognize. It runs on the
+  worker's event emitter; the queue catches and logs anything it throws so a reporting failure cannot
+  take the worker down, and `close()` waits for a report already in flight.
+- **Delivery is at-least-once.** The worker reports as soon as it observes the abandonment, and also
+  sweeps the queue's failed set — on worker start, then every five minutes — for abandoned jobs whose
+  report was never acknowledged. Acknowledgement is a marker written onto the stored job **after**
+  the callback returns, so a callback that threw, or a process that died mid-report, leaves the job
+  unmarked and a later sweep retries it. The failed job itself is kept for diagnosis; acknowledgement
+  marks it, it does not delete it. Two consequences: the callback can be invoked more than once for
+  the same job (hence the idempotency requirement above), and a report is delayed rather than lost.
+  Residual loss remains possible where the failure record itself disappears — `removeOnFail` caps the
+  failed set, and a Redis flush empties it — so state that absolutely must never be stranded should
+  also have a staleness check of its own at the domain level.
+- It is an async-strategy concept. The local strategy runs handlers in-process, so no queue can
+  outlive a handler and abandon its job, and the option is not forwarded.
+- It repairs reporting, not the job. A long-running job still dies when it exhausts its stall budget —
+  it just dies visibly instead of silently.
+
 ## Best Practices
 
 ### 1. Make Handlers Idempotent

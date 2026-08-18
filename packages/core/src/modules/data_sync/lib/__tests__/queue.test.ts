@@ -29,12 +29,14 @@ describe('data sync queue configuration', () => {
       attempts: 3,
       lockDuration: DATA_SYNC_LOCK_DURATION_MS,
       maxStalledCount: 10,
+      onJobAbandoned: expect.any(Function),
     })
     expect(mockCreateModuleQueue).toHaveBeenCalledWith('data-sync-export', {
       concurrency: 5,
       attempts: 3,
       lockDuration: DATA_SYNC_LOCK_DURATION_MS,
       maxStalledCount: 10,
+      onJobAbandoned: expect.any(Function),
     })
   })
 
