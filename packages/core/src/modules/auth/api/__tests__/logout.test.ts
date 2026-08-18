@@ -156,7 +156,6 @@ describe('POST /api/auth/logout — auth.logout event', () => {
 
     expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', {
       id: userId,
-      email: 'user@example.test',
       tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
       organizationId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
       sessionId,
@@ -200,6 +199,18 @@ describe('POST /api/auth/logout — auth.logout event', () => {
       expect.objectContaining({ id: userId, sessionId: null }),
       { persistent: true },
     )
+  })
+
+  it('identifies the user by id only, keeping the email out of the durable payload', async () => {
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    }))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('email')
+    expect(JSON.stringify(payload)).not.toContain('user@example.test')
   })
 
   it('does not emit when no verifiable auth_token identifies the caller', async () => {

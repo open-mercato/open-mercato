@@ -110,7 +110,6 @@ describe('auth.users.update — auth.password.changed event', () => {
 
     expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.password.changed', {
       id: USER_ID,
-      email: 'ada@example.com',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       changedBy: 'self',
@@ -147,6 +146,15 @@ describe('auth.users.update — auth.password.changed event', () => {
       expect.objectContaining({ id: USER_ID, changedBy: 'system', changedById: ADMIN_ID }),
       { persistent: true },
     )
+  })
+
+  it('identifies the user by id only, keeping the email out of the durable payload', async () => {
+    await getUpdateHandler().execute({ id: USER_ID, password: 'New-Passw0rd!' }, buildContext(USER_ID))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('email')
+    expect(JSON.stringify(payload)).not.toContain('ada@example.com')
   })
 
   it('does not emit when the update carries no password', async () => {

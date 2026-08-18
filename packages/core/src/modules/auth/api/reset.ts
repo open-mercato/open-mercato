@@ -60,7 +60,6 @@ export async function POST(req: Request) {
   const resetUrl = resetUrlTemplate.replace('__token__', token)
   void emitAuthEvent('auth.password.reset.requested', {
     id: String(user.id),
-    email: user.email,
     tenantId: user.tenantId ? String(user.tenantId) : null,
     organizationId: user.organizationId ? String(user.organizationId) : null,
     at: new Date().toISOString(),

@@ -727,16 +727,17 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     if (hashed) {
       const actorId = ctx.auth?.sub ? String(ctx.auth.sub) : null
-      // `system` covers internal automation — CLI, workers, tenant provisioning — which
-      // runs without an auth context. Without it those writes would be indistinguishable
-      // from an administrator setting someone else's password, which is exactly the case
-      // security alerting escalates on.
+      // `system` covers a command invocation with no auth context and one running under
+      // `ctx.systemActor`. Without it those writes would be indistinguishable from an
+      // administrator setting someone else's password, which is exactly the case security
+      // alerting escalates on. Password writes that never reach this command — `mercato
+      // auth set-password`, tenant provisioning — set `passwordHash` directly and emit
+      // nothing, so a subscriber cannot treat this event as covering every credential change.
       const changedBy = ctx.systemActor === true || !actorId
         ? 'system'
         : actorId === identifiers.id ? 'self' : 'admin'
       void emitAuthEvent('auth.password.changed', {
         id: identifiers.id,
-        email: String(user.email),
         tenantId: identifiers.tenantId,
         organizationId: identifiers.organizationId,
         changedBy,

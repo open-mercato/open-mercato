@@ -8,7 +8,6 @@ import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 type AuthTokenClaims = {
   userId: string | null
   sessionId: string | null
-  email: string | null
   tenantId: string | null
   organizationId: string | null
 }
@@ -16,7 +15,6 @@ type AuthTokenClaims = {
 const emptyAuthTokenClaims: AuthTokenClaims = Object.freeze({
   userId: null,
   sessionId: null,
-  email: null,
   tenantId: null,
   organizationId: null,
 })
@@ -40,7 +38,6 @@ function extractAuthTokenClaims(token: string | null): AuthTokenClaims {
     return {
       userId: readStringClaim(payload, 'sub'),
       sessionId: readStringClaim(payload, 'sid'),
-      email: readStringClaim(payload, 'email'),
       tenantId: readStringClaim(payload, 'tenantId'),
       organizationId: readStringClaim(payload, 'orgId'),
     }
@@ -70,7 +67,6 @@ export async function POST(req: Request) {
   if (claims.userId) {
     void emitAuthEvent('auth.logout', {
       id: claims.userId,
-      email: claims.email,
       tenantId: claims.tenantId,
       organizationId: claims.organizationId,
       sessionId: claims.sessionId,

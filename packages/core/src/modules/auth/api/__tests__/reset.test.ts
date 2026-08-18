@@ -199,7 +199,6 @@ describe('POST /api/auth/reset', () => {
 
     expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.password.reset.requested', {
       id: 'user-1',
-      email: 'staff@example.com',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       at: expect.any(String),
@@ -221,6 +220,15 @@ describe('POST /api/auth/reset', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
     const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
     expect(JSON.stringify(payload)).not.toContain('reset-token-1')
+  })
+
+  test('identifies the user by id only, keeping the email out of the durable payload', async () => {
+    await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('email')
+    expect(JSON.stringify(payload)).not.toContain('staff@example.com')
   })
 
   test('returns success even when email delivery fails', async () => {

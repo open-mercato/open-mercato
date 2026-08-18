@@ -78,11 +78,19 @@ describe('POST /api/auth/reset/confirm — auth.password.reset.completed event',
     expect(res.status).toBe(200)
     expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.password.reset.completed', {
       id: 'user-1',
-      email: 'staff@example.com',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       at: expect.any(String),
     }, { persistent: true })
+  })
+
+  test('identifies the user by id only, keeping the email out of the durable payload', async () => {
+    await POST(makeConfirmRequest())
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('email')
+    expect(JSON.stringify(payload)).not.toContain('staff@example.com')
   })
 
   test('does not emit when the token is invalid or expired', async () => {

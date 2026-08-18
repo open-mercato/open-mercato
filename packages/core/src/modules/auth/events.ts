@@ -19,11 +19,19 @@ const events = [
   // Authentication events
   { id: 'auth.login.success', label: 'Login Successful', category: 'lifecycle' },
   { id: 'auth.login.failed', label: 'Login Failed', category: 'lifecycle' },
+  // The logout and password payloads below identify the user by `id` only. They are
+  // emitted with `{ persistent: true }`, so the whole payload is serialized into the
+  // durable events queue, while `email` is encrypted at rest under the `auth:user`
+  // encryption map — a subscriber that needs the address resolves it with
+  // `findOneWithDecryption` under the tenant's own key.
+  // `sessionRevoked` reports that server-side revocation ran without throwing, not that
+  // a session row was removed: a session that had already expired still reports `true`.
   { id: 'auth.logout', label: 'User Logged Out', category: 'lifecycle' },
   // `changedBy` discriminates who performed the write: `self` (the account owner),
-  // `admin` (another authenticated user) or `system` (internal automation running
-  // without an auth context — CLI, workers, provisioning). `changedById` is null for
-  // `system` unless the automation carries an actor.
+  // `admin` (another authenticated user) or `system` (an `auth.users.update` carrying no
+  // auth context, or running under `ctx.systemActor`). `changedById` carries the actor id
+  // whenever there is one. Password writes that bypass the command emit nothing at all —
+  // `mercato auth set-password` and tenant provisioning both set `passwordHash` directly.
   { id: 'auth.password.changed', label: 'Password Changed', category: 'lifecycle' },
   { id: 'auth.password.reset.requested', label: 'Password Reset Requested', category: 'lifecycle' },
   // Also emitted when an invited user sets their initial password: invitation

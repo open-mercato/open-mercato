@@ -36,7 +36,6 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   void emitAuthEvent('auth.password.reset.completed', {
     id: String(user.id),
-    email: user.email,
     tenantId: user.tenantId ? String(user.tenantId) : null,
     organizationId: user.organizationId ? String(user.organizationId) : null,
     at: new Date().toISOString(),
