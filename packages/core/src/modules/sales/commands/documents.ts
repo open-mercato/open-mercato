@@ -2112,8 +2112,8 @@ async function loadCreditMemoSnapshot(
       organizationId: creditMemo.organizationId,
       tenantId: creditMemo.tenantId,
       creditMemoNumber: creditMemo.creditMemoNumber,
-      orderId: creditMemo.orderId ?? null,
-      invoiceId: creditMemo.invoiceId ?? null,
+      orderId: creditMemo.order?.id ?? null,
+      invoiceId: creditMemo.invoice?.id ?? null,
       statusEntryId: creditMemo.statusEntryId ?? null,
       status: creditMemo.status ?? null,
       reason: creditMemo.reason ?? null,
@@ -9471,8 +9471,8 @@ const createCreditMemoCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       creditMemoNumber: ensuredCreditMemoNumber,
-      orderId: parsed.orderId ?? null,
-      invoiceId: parsed.invoiceId ?? null,
+      order: parsed.orderId ? em.getReference(SalesOrder, parsed.orderId) : null,
+      invoice: parsed.invoiceId ? em.getReference(SalesInvoice, parsed.invoiceId) : null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       reason: parsed.reason ?? null,
@@ -9722,8 +9722,12 @@ const updateCreditMemoCommand: CommandHandler<
     ensureOrganizationScope(ctx, creditMemo.organizationId);
     ensureTenantScope(ctx, creditMemo.tenantId);
     creditMemo.creditMemoNumber = before.creditMemo.creditMemoNumber;
-    creditMemo.orderId = before.creditMemo.orderId;
-    creditMemo.invoiceId = before.creditMemo.invoiceId;
+    creditMemo.order = before.creditMemo.orderId
+      ? em.getReference(SalesOrder, before.creditMemo.orderId)
+      : null;
+    creditMemo.invoice = before.creditMemo.invoiceId
+      ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+      : null;
     creditMemo.statusEntryId = before.creditMemo.statusEntryId;
     creditMemo.status = before.creditMemo.status;
     creditMemo.reason = before.creditMemo.reason;
@@ -9826,8 +9830,12 @@ const deleteCreditMemoCommand: CommandHandler<
       organizationId: before.creditMemo.organizationId,
       tenantId: before.creditMemo.tenantId,
       creditMemoNumber: before.creditMemo.creditMemoNumber,
-      orderId: before.creditMemo.orderId,
-      invoiceId: before.creditMemo.invoiceId,
+      order: before.creditMemo.orderId
+        ? em.getReference(SalesOrder, before.creditMemo.orderId)
+        : null,
+      invoice: before.creditMemo.invoiceId
+        ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+        : null,
       statusEntryId: before.creditMemo.statusEntryId,
       status: before.creditMemo.status,
       reason: before.creditMemo.reason,
