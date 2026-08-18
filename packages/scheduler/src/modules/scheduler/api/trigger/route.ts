@@ -7,6 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createQueue } from '@open-mercato/queue'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { ScheduledJob } from '../../data/entities.js'
+import { resolveScheduleAccess } from '../../lib/scheduleAccess.js'
 import { scheduleTriggerSchema } from '../../data/validators.js'
 import type { ExecuteSchedulePayload } from '../../workers/execute-schedule.worker.js'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -40,30 +41,16 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const input = scheduleTriggerSchema.parse(body)
 
-    // Find the schedule with tenant/org scope filter
-    const findFilter: Record<string, unknown> = {
-      id: input.id,
-      deletedAt: null,
-    }
+    // Load by id alone, then apply isolation to the loaded row. Folding the actor's
+    // tenant/org into the lookup would make every system-scoped schedule unmatchable.
+    const schedule = await em.findOne(ScheduledJob, { id: input.id, deletedAt: null })
 
-    // Apply tenant isolation: scope the query to the user's tenant/org
-    if (auth.tenantId) {
-      findFilter.tenantId = auth.tenantId
-    }
-    if (auth.orgId) {
-      findFilter.organizationId = auth.orgId
-    }
+    const access = schedule ? resolveScheduleAccess(schedule, auth) : 'not_found'
 
-    const schedule = await em.findOne(ScheduledJob, findFilter)
-
-    if (!schedule) {
+    if (!schedule || access === 'not_found') {
       return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
     }
-
-    // System-scoped schedules (no tenantId/orgId) require super-admin. Use the
-    // immutable `isSuperAdmin` flag — never compare mutable/spoofable role names.
-    const isSuperAdmin = auth.isSuperAdmin === true
-    if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {
+    if (access === 'forbidden') {
       return NextResponse.json({ error: translate('scheduler.error.access_denied', 'Access denied') }, { status: 403 })
     }
 
