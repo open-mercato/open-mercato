@@ -335,4 +335,57 @@ describe('buildDocumentCrudOptions', () => {
       }
     })
   })
+  describe('afterList composition', () => {
+    const orderBinding = {
+      kind: 'order' as const,
+      entity: SalesOrder,
+      entityId: E.sales.sales_order,
+      numberField: 'orderNumber' as const,
+      createCommandId: 'sales.orders.create',
+      updateCommandId: 'sales.orders.update',
+      deleteCommandId: 'sales.orders.delete',
+      manageFeature: 'sales.orders.manage',
+      viewFeature: 'sales.orders.view',
+    }
+
+    // The channel-name resolution is appended to an afterList hook that already attaches tags and
+    // recalculates single-order display totals. Assigning the hook instead of extending it would
+    // silently drop both, so this pins that all three still run off one list payload.
+    it('should still attach tags alongside the channel names', async () => {
+      const options = buildDocumentCrudOptions(orderBinding)
+      const channelId = '11111111-1111-4111-8111-111111111111'
+      const assignments = [
+        { documentId: 'doc-1', tag: { id: 'tag-1', label: 'Priority', color: '#fff' } },
+      ]
+      const channels = [{ id: channelId, name: 'Web shop', code: 'web-shop' }]
+      const entitiesSeen: string[] = []
+      const em = {
+        find: (entity: { name?: string }, where: Record<string, unknown>) => {
+          const name = entity?.name ?? ''
+          entitiesSeen.push(name)
+          if ('documentId' in where) return Promise.resolve(assignments)
+          const ids = ((where.id as { $in?: string[] })?.$in ?? []) as string[]
+          return Promise.resolve(channels.filter((channel) => ids.includes(channel.id)))
+        },
+      }
+      const ctx = {
+        container: { resolve: (token: string) => (token === 'em' ? em : null) },
+        auth: { tenantId: 'ten-1', orgId: 'org-1' },
+        selectedOrganizationId: 'org-1',
+      }
+      // Two items keeps the single-order totals branch out of this test; it needs a live container.
+      const payload = {
+        items: [
+          { id: 'doc-1', channelId },
+          { id: 'doc-2', channelId: null },
+        ] as Array<Record<string, unknown>>,
+      }
+
+      await options.hooks.afterList(payload, ctx as never)
+
+      expect(payload.items[0].tags).toEqual([{ id: 'tag-1', label: 'Priority', color: '#fff' }])
+      expect(payload.items[0].channelName).toBe('Web shop')
+      expect(entitiesSeen).toHaveLength(2)
+    })
+  })
 })

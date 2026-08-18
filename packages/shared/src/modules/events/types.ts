@@ -64,9 +64,9 @@ export interface EventPayload {
 export interface EmitOptions {
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
-  /** Trusted tenant scope passed to subscribers independently of payload data. */
+  /** Trusted tenant scope forwarded to subscribers separately from the payload */
   tenantId?: string | null
-  /** Trusted organization scope passed to subscribers independently of payload data. */
+  /** Trusted organization scope forwarded to subscribers separately from the payload */
   organizationId?: string | null
   /**
    * Module that emitted a private cross-process coordination event.

@@ -132,6 +132,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // pathological regression from ordinary hardware variance and failed
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
+    //
+    // JSON and markdown caps raised a fourth time by the `warranty_claims`
+    // module (2026-07-03-warranty-rma-claims-desk): one large business module —
+    // eight entities, fourteen events, twelve ACL features, ~36 API routes, plus
+    // its search, notification, AI-tool and widget surfaces — costs ~202KB of
+    // facts and provenance references and ~67KB of rendered fact-sheet, which is
+    // ordinary linear growth for a module of that size rather than the
+    // multiplicative blow-up this detector exists to catch. The delta cap
+    // absorbed it unchanged.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
     // JSON cap raised a fourth time by the injection-table slot normalization:
     // `extractInjectionTable` previously did `if (!Array.isArray(entries)) continue`,
@@ -147,15 +156,16 @@ describe('module-facts BC resolve guard (T2)', () => {
     // JSON cap raised a fifth time by the devices/push-notifications stack: the
     // `devices` and `push_notifications` modules plus the `channel-fcm`,
     // `channel-apns` and `channel-expo` provider packages add their own facts,
-    // provenance entries and override targets to every render. Together with
-    // Documents the payload measures ~3.87MB; keep bounded headroom only.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_950_000)
+    // provenance entries and override targets to every render. The
+    // `warranty_claims` module (see above) and the additive Documents module
+    // land alongside it, so the cap absorbs all three additions.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_000_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_650_000)
+    expect(markdownBytes).toBeLessThan(1_750_000)
     expect(directoryMarkdownBytes).toBeLessThan(2_050_000)
   })
 

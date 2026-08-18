@@ -81,6 +81,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'catalog', from: '@open-mercato/core' },
   { id: 'sales', from: '@open-mercato/core' },
+  { id: 'warranty_claims', from: '@open-mercato/core' },
   { id: 'wms', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
