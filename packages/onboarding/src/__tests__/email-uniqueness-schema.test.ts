@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MetadataStorage } from '@mikro-orm/core'
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
@@ -28,12 +28,31 @@ function onboardingRequestUniqueProperties(): string[][] {
   )
 }
 
+function onboardingRequestIndexProperties(): string[][] {
+  const metadata = Object.values(MetadataStorage.getMetadata()).find(
+    (candidate) => candidate.className === OnboardingRequest.name,
+  )
+  if (!metadata) throw new Error('[internal] OnboardingRequest decorator metadata was not registered')
+  return metadata.indexes.map((index) =>
+    Array.isArray(index.properties) ? [...index.properties] : [String(index.properties)],
+  )
+}
+
+const migrationsDir = join(__dirname, '..', 'modules', 'onboarding', 'migrations')
+
 function onboardingRequestSnapshotIndexes(): SnapshotIndex[] {
-  const snapshotPath = join(__dirname, '..', 'modules', 'onboarding', 'migrations', '.snapshot-open-mercato.json')
+  const snapshotPath = join(migrationsDir, '.snapshot-open-mercato.json')
   const snapshot: Snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'))
   const table = snapshot.tables.find((candidate) => candidate.name === 'onboarding_requests')
   if (!table) throw new Error('[internal] onboarding_requests is missing from the migration snapshot')
   return table.indexes
+}
+
+function onboardingMigrationSql(): string {
+  return readdirSync(migrationsDir)
+    .filter((entry) => entry.endsWith('.ts'))
+    .map((entry) => readFileSync(join(migrationsDir, entry), 'utf8'))
+    .join('\n')
 }
 
 describe('onboarding request email uniqueness', () => {
@@ -55,5 +74,19 @@ describe('onboarding request email uniqueness', () => {
       .map((index) => index.columnNames)
     expect(uniqueColumns).not.toContainEqual(['email'])
     expect(uniqueColumns).toContainEqual(['email_hash'])
+  })
+
+  it('keeps a non-unique index over email so the deduplication lookup stays indexable', () => {
+    expect(onboardingRequestIndexProperties()).toContainEqual(['email'])
+    const nonUniqueColumns = onboardingRequestSnapshotIndexes()
+      .filter((index) => !index.unique)
+      .map((index) => index.columnNames)
+    expect(nonUniqueColumns).toContainEqual(['email'])
+  })
+
+  it('applies the same schema to a live database through the migrations', () => {
+    const sql = onboardingMigrationSql()
+    expect(sql).toContain('drop constraint if exists "onboarding_requests_email_unique"')
+    expect(sql).toContain('create index if not exists "onboarding_requests_email_idx" on "onboarding_requests" ("email")')
   })
 })

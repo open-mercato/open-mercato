@@ -270,6 +270,16 @@
           "unique": true
         },
         {
+          "keyName": "onboarding_requests_email_idx",
+          "columnNames": [
+            "email"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "onboarding_requests_pkey",
           "columnNames": [
             "id"
