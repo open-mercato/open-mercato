@@ -123,17 +123,19 @@ describe('customers utils - address formatting', () => {
       expect(formatAddressString(address, 'street_first')).toBe('Baker Street 10, NW1 London')
     })
 
-    it('is returned in a stable order, tax id first', () => {
+    it('is returned in a stable order, tax id first, keyed on the stable field name', () => {
       expect(formatAddressContactPairs(address, labels)).toEqual([
-        ['Tax ID', '1234567890'],
-        ['Phone', '+44 20 7946 0000'],
+        { field: 'taxId', label: 'Tax ID', value: '1234567890' },
+        { field: 'phone', label: 'Phone', value: '+44 20 7946 0000' },
       ])
     })
 
     // Opt-in per field: an unlabelled field stays hidden even when the address carries a value, so a
     // caller can surface the phone without also exposing a tax id.
     it('shows only the fields the caller labelled', () => {
-      expect(formatAddressContactPairs(address, { phone: 'Phone' })).toEqual([['Phone', '+44 20 7946 0000']])
+      expect(formatAddressContactPairs(address, { phone: 'Phone' })).toEqual([
+        { field: 'phone', label: 'Phone', value: '+44 20 7946 0000' },
+      ])
     })
 
     it('renders nothing at all without labels — the pre-existing behaviour', () => {
@@ -151,8 +153,8 @@ describe('customers utils - address formatting', () => {
     it('never emits the tax id TYPE as a displayed pair', () => {
       const pairs = formatAddressContactPairs(address, { ...labels, taxIdType: 'Type' } as never)
       expect(pairs).toEqual([
-        ['Tax ID', '1234567890'],
-        ['Phone', '+44 20 7946 0000'],
+        { field: 'taxId', label: 'Tax ID', value: '1234567890' },
+        { field: 'phone', label: 'Phone', value: '+44 20 7946 0000' },
       ])
     })
   })

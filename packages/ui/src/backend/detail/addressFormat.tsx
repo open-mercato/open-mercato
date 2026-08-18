@@ -34,6 +34,14 @@ export type AddressContactLabels = {
   taxId?: string
 }
 
+export type AddressContactField = 'phone' | 'taxId'
+
+/**
+ * One rendered contact line. `field` is the stable identity — React keys and any caller grouping key
+ * on it rather than on `label`, which is translated and therefore not guaranteed unique across
+ * locales.
+ */
+export type AddressContactPair = { field: AddressContactField; label: string; value: string }
 
 export type AddressJsonShape = {
   format: AddressFormatStrategy
@@ -136,16 +144,16 @@ export function formatAddressString(address: AddressValue, format: AddressFormat
 export function formatAddressContactPairs(
   address: AddressValue,
   labels: AddressContactLabels | undefined,
-): Array<[string, string]> {
+): AddressContactPair[] {
   if (!labels) return []
-  const pairs: Array<[string, string]> = []
-  const push = (label: string | undefined, value: string | null | undefined) => {
+  const pairs: AddressContactPair[] = []
+  const push = (field: AddressContactField, label: string | undefined, value: string | null | undefined) => {
     if (!label) return
     const trimmed = typeof value === 'string' ? value.trim() : ''
-    if (trimmed) pairs.push([label, trimmed])
+    if (trimmed) pairs.push({ field, label, value: trimmed })
   }
-  push(labels.taxId, address.taxId)
-  push(labels.phone, address.phone)
+  push('taxId', labels.taxId, address.taxId)
+  push('phone', labels.phone, address.phone)
   return pairs
 }
 
@@ -183,8 +191,8 @@ export function AddressView({
           {line}
         </div>
       ))}
-      {contact.map(([label, value]) => (
-        <div key={`contact-${label}`} className={contactClassName ?? lineClassName}>
+      {contact.map(({ field, label, value }) => (
+        <div key={`contact-${field}`} className={contactClassName ?? lineClassName}>
           {label}: {value}
         </div>
       ))}

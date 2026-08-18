@@ -110,6 +110,11 @@ jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () =>
 // a contact block wired to an address path that cannot carry contact details look like a working
 // feature. The real formatter is pure and cheap.
 
+let mockGrantedFeatures: string[] = []
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures }, isReady: true }),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
 }))
@@ -122,6 +127,10 @@ jest.mock('lucide-react', () => ({
 }))
 
 describe('SalesDocumentAddressesSection', () => {
+  beforeEach(() => {
+    mockGrantedFeatures = []
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
     mockApiCall.mockImplementation(async (url: string) => {
@@ -416,5 +425,87 @@ describe('SalesDocumentAddressesSection', () => {
     for (const marker of screen.getAllByTestId('address-editor-disabled')) {
       expect(marker.textContent).toBe('false')
     }
+  })
+
+  it('hides a domestic tax id from a viewer without a customer-PII grant', async () => {
+    // The spec's own risk mitigation: `pl_nip` / `other` may be a personal or local tax number and
+    // must not render to a user who cannot see customer PII. Only `eu_vat` is public (VIES).
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: '1234567890',
+          taxIdType: 'pl_nip',
+          phone: '+48 600 100 200',
+        }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    expect(screen.queryByText(/1234567890/)).toBeNull()
+    // The phone is not gated — only the tax id is.
+    expect(screen.getByText('Phone: +48 600 100 200')).toBeTruthy()
+  })
+
+  it('shows a domestic tax id to a viewer who can see customers', async () => {
+    mockGrantedFeatures = ['customers.companies.view']
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: '1234567890',
+          taxIdType: 'pl_nip',
+        }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    expect(screen.getByText('Tax ID: 1234567890')).toBeTruthy()
+  })
+
+  it('renders an EU VAT number without any grant — it is a public identifier', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: 'PL1234567890',
+          taxIdType: 'eu_vat',
+        }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    expect(screen.getByText('Tax ID: PL1234567890')).toBeTruthy()
+  })
+
+  it('hides the contact block once a saved address is selected, so it cannot show stale details', async () => {
+    // The block renders the FROZEN snapshot. With a saved address chosen the tile shows that address
+    // while the snapshot still describes the previous one, so the pairing would be a lie until save.
+    mockGrantedFeatures = ['customers.companies.view']
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressId="address-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: '1234567890',
+          taxIdType: 'pl_nip',
+        }}
+      />,
+    )
+    await screen.findAllByRole('combobox')
+    expect(screen.queryByText(/1234567890/)).toBeNull()
   })
 })

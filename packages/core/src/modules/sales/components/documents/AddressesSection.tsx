@@ -17,6 +17,8 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
@@ -224,29 +226,65 @@ function draftFromDocumentAddress(entry: DocumentAddressAssignment): AddressEdit
 }
 
 /**
+ * `eu_vat` is a public business identifier — VIES is an open lookup — so it renders to anyone who can
+ * read the document. A `pl_nip` or `other` number may be a local or personal tax number, so it sits
+ * behind the same customer-PII grant the search config already applies to `tax_id`
+ * (`customers/search.ts`: `excluded` for people, `hashOnly` for companies).
+ *
+ * Either customer-view grant is enough: a document address's identifier may belong to a person or to
+ * a company, and demanding both would hide a company's tax id from a user who can open that company.
+ * The spec leaves the exact id to this phase's review — see "Displaying a tax identifier is gated by
+ * type" in 2026-08-10-address-contact-and-tax-fields.
+ */
+function canSeeTaxId(taxIdType: unknown, grantedFeatures: string[] | null | undefined): boolean {
+  if (taxIdType === 'eu_vat') return true
+  return (
+    hasFeature(grantedFeatures ?? undefined, 'customers.people.view') ||
+    hasFeature(grantedFeatures ?? undefined, 'customers.companies.view')
+  )
+}
+
+/**
  * The contact details a document address snapshot carries — the phone the carrier calls, the tax id
- * the invoice was issued under — rendered as label–value lines under the tile (spec
- * 2026-08-10-address-contact-and-tax-fields). Reads the FROZEN snapshot, not the editor draft: these
- * keys are written by integrations, the editor has no field for them, and Phase 0 guarantees they
- * survive its saves. Self-hiding: an address carrying neither renders nothing.
+ * the invoice was issued under — rendered under the tile (spec
+ * 2026-08-10-address-contact-and-tax-fields).
+ *
+ * Renders through `AddressView` with a contact-ONLY address, so there is a single render path for the
+ * contact block rather than a second one living here: with no postal fields the component emits the
+ * contact lines alone. Reads the FROZEN snapshot, not the editor draft — these keys are written by
+ * integrations, the editor has no field for them, and Phase 0 guarantees they survive its saves.
  */
 function AddressContactBlock({
   snapshot,
   labels,
+  format,
+  grantedFeatures,
 }: {
   snapshot?: Record<string, unknown> | null
   labels: AddressContactLabels
+  format: AddressFormatStrategy
+  grantedFeatures: string[] | null | undefined
 }) {
-  const pairs = formatAddressContactPairs((snapshot ?? {}) as AddressValue, labels)
-  if (!pairs.length) return null
+  const record = (snapshot ?? {}) as Record<string, unknown>
+  const contactOnly: AddressValue = {
+    // No postal fields on purpose: with nothing for `formatAddressLines` to emit, `AddressView`
+    // renders the contact lines alone, beside the editor that already shows the street.
+    addressLine1: null,
+    phone: typeof record.phone === 'string' ? record.phone : null,
+    taxId: typeof record.taxId === 'string' ? record.taxId : null,
+    taxIdType: typeof record.taxIdType === 'string' ? record.taxIdType : null,
+  }
+  const permitted: AddressContactLabels = canSeeTaxId(contactOnly.taxIdType, grantedFeatures)
+    ? labels
+    : { ...labels, taxId: undefined }
+  if (!formatAddressContactPairs(contactOnly, permitted).length) return null
   return (
-    <div className="space-y-0.5">
-      {pairs.map(([label, value]) => (
-        <p key={label} className="text-xs text-muted-foreground">
-          {label}: {value}
-        </p>
-      ))}
-    </div>
+    <AddressView
+      address={contactOnly}
+      format={format}
+      contactLabels={permitted}
+      contactClassName="text-xs text-muted-foreground"
+    />
   )
 }
 
@@ -1088,6 +1126,7 @@ export function SalesDocumentAddressesSection({
     )
   }
 
+  const { payload } = useBackendChrome()
   const contactLabels: AddressContactLabels = {
     taxId: t('sales.documents.detail.addresses.taxId', 'Tax ID'),
     phone: t('sales.documents.detail.addresses.phone', 'Phone'),
@@ -1165,7 +1204,14 @@ export function SalesDocumentAddressesSection({
               />
             </div>
           ) : null}
-          <AddressContactBlock snapshot={shippingAddressSnapshot} labels={contactLabels} />
+          {useCustomShipping ? (
+            <AddressContactBlock
+              snapshot={shippingAddressSnapshot}
+              labels={contactLabels}
+              format={addressFormat}
+              grantedFeatures={payload?.grantedFeatures}
+            />
+          ) : null}
         </div>
 
         <div className="space-y-3 rounded border bg-card p-4">
@@ -1236,7 +1282,14 @@ export function SalesDocumentAddressesSection({
               ) : null}
             </>
           ) : null}
-          <AddressContactBlock snapshot={billingAddressSnapshot} labels={contactLabels} />
+          {useCustomBilling ? (
+            <AddressContactBlock
+              snapshot={billingAddressSnapshot}
+              labels={contactLabels}
+              format={addressFormat}
+              grantedFeatures={payload?.grantedFeatures}
+            />
+          ) : null}
         </div>
         </div>
 
