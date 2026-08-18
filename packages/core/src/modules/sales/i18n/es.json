@@ -512,6 +512,8 @@
   "sales.documents.detail.addresses.loadError": "No se pudieron cargar las direcciones.",
   "sales.documents.detail.addresses.loading": "Cargando direcciones del documento…",
   "sales.documents.detail.addresses.new": "Agregar nueva dirección",
+  "sales.documents.detail.addresses.phone": "Teléfono",
+  "sales.documents.detail.addresses.taxId": "NIF",
   "sales.documents.detail.addresses.removed": "Dirección eliminada.",
   "sales.documents.detail.addresses.save": "Guardar dirección",
   "sales.documents.detail.addresses.saveError": "No se pudieron actualizar las direcciones.",

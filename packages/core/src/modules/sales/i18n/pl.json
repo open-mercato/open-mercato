@@ -512,6 +512,8 @@
   "sales.documents.detail.addresses.loadError": "Nie udało się wczytać adresów.",
   "sales.documents.detail.addresses.loading": "Ładowanie adresów dokumentu…",
   "sales.documents.detail.addresses.new": "Dodaj nowy adres",
+  "sales.documents.detail.addresses.phone": "Telefon",
+  "sales.documents.detail.addresses.taxId": "NIP",
   "sales.documents.detail.addresses.removed": "Adres usunięty z dokumentu.",
   "sales.documents.detail.addresses.save": "Zapisz adres",
   "sales.documents.detail.addresses.saveError": "Nie udało się zaktualizować adresów.",

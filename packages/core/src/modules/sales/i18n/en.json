@@ -512,6 +512,8 @@
   "sales.documents.detail.addresses.loadError": "Failed to load addresses.",
   "sales.documents.detail.addresses.loading": "Loading document addresses…",
   "sales.documents.detail.addresses.new": "Add a new address",
+  "sales.documents.detail.addresses.phone": "Phone",
+  "sales.documents.detail.addresses.taxId": "Tax ID",
   "sales.documents.detail.addresses.removed": "Address unassigned.",
   "sales.documents.detail.addresses.save": "Save address",
   "sales.documents.detail.addresses.saveError": "Failed to update addresses.",

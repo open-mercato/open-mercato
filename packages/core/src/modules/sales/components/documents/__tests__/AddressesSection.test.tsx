@@ -84,8 +84,9 @@ jest.mock('@open-mercato/ui/primitives/switch-field', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () => ({
-  AddressEditor: ({ value, onChange }: any) => (
+  AddressEditor: ({ value, onChange, disabled }: any) => (
     <>
+      <span data-testid="address-editor-disabled">{String(Boolean(disabled))}</span>
       <button
         type="button"
         onClick={() =>
@@ -105,11 +106,9 @@ jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () =>
   ),
 }))
 
-jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({
-  AddressView: () => null,
-  formatAddressString: (value: Record<string, unknown>) =>
-    [value.addressLine1, value.city].filter(Boolean).join(', '),
-}))
+// `addressFormat` is deliberately NOT mocked: stubbing AddressView to () => null is what once let
+// a contact block wired to an address path that cannot carry contact details look like a working
+// feature. The real formatter is pure and cheap.
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
@@ -341,5 +340,81 @@ describe('SalesDocumentAddressesSection', () => {
       addressLine1: '12 Market Street',
       taxId: 'PL1234567890',
     })
+  })
+
+  it('renders the contact details an address snapshot carries', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+          taxId: 'PL1234567890',
+          taxIdType: 'eu_vat',
+          phone: '+48 600 100 200',
+        }}
+      />,
+    )
+
+    await screen.findByRole('combobox')
+    expect(screen.getByText('Tax ID: PL1234567890')).toBeTruthy()
+    expect(screen.getByText('Phone: +48 600 100 200')).toBeTruthy()
+    // The type interprets the value; it is never a displayed line of its own.
+    expect(screen.queryByText(/eu_vat/)).toBeNull()
+  })
+
+  it('renders nothing extra for a snapshot with no contact details', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+        }}
+      />,
+    )
+
+    await screen.findByRole('combobox')
+    expect(screen.queryByText(/^Tax ID:/)).toBeNull()
+    expect(screen.queryByText(/^Phone:/)).toBeNull()
+  })
+
+  it('renders a disabled editor on a locked document, instead of an editable form the API will refuse', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        lockedReason="Document is closed"
+        shippingAddressSnapshot={{ addressLine1: '12 Market Street', city: 'London' }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    for (const marker of screen.getAllByTestId('address-editor-disabled')) {
+      expect(marker.textContent).toBe('true')
+    }
+  })
+
+  it('keeps the editor editable while the document is not locked', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{ addressLine1: '12 Market Street', city: 'London' }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    for (const marker of screen.getAllByTestId('address-editor-disabled')) {
+      expect(marker.textContent).toBe('false')
+    }
   })
 })

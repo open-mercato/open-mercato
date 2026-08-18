@@ -21,7 +21,9 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
   AddressView,
+  formatAddressContactPairs,
   formatAddressString,
+  type AddressContactLabels,
   type AddressFormatStrategy,
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
@@ -219,6 +221,33 @@ function draftFromDocumentAddress(entry: DocumentAddressAssignment): AddressEdit
     country: entry.value.country ?? '',
     isPrimary: false,
   }
+}
+
+/**
+ * The contact details a document address snapshot carries — the phone the carrier calls, the tax id
+ * the invoice was issued under — rendered as label–value lines under the tile (spec
+ * 2026-08-10-address-contact-and-tax-fields). Reads the FROZEN snapshot, not the editor draft: these
+ * keys are written by integrations, the editor has no field for them, and Phase 0 guarantees they
+ * survive its saves. Self-hiding: an address carrying neither renders nothing.
+ */
+function AddressContactBlock({
+  snapshot,
+  labels,
+}: {
+  snapshot?: Record<string, unknown> | null
+  labels: AddressContactLabels
+}) {
+  const pairs = formatAddressContactPairs((snapshot ?? {}) as AddressValue, labels)
+  if (!pairs.length) return null
+  return (
+    <div className="space-y-0.5">
+      {pairs.map(([label, value]) => (
+        <p key={label} className="text-xs text-muted-foreground">
+          {label}: {value}
+        </p>
+      ))}
+    </div>
+  )
 }
 
 export function SalesDocumentAddressesSection({
@@ -1059,6 +1088,11 @@ export function SalesDocumentAddressesSection({
     )
   }
 
+  const contactLabels: AddressContactLabels = {
+    taxId: t('sales.documents.detail.addresses.taxId', 'Tax ID'),
+    phone: t('sales.documents.detail.addresses.phone', 'Phone'),
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
@@ -1120,6 +1154,7 @@ export function SalesDocumentAddressesSection({
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
+                disabled={locked}
               />
               <SwitchField
                 label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1130,6 +1165,7 @@ export function SalesDocumentAddressesSection({
               />
             </div>
           ) : null}
+          <AddressContactBlock snapshot={shippingAddressSnapshot} labels={contactLabels} />
         </div>
 
         <div className="space-y-3 rounded border bg-card p-4">
@@ -1187,6 +1223,7 @@ export function SalesDocumentAddressesSection({
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
+                    disabled={locked}
                   />
                   <SwitchField
                     label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1199,6 +1236,7 @@ export function SalesDocumentAddressesSection({
               ) : null}
             </>
           ) : null}
+          <AddressContactBlock snapshot={billingAddressSnapshot} labels={contactLabels} />
         </div>
         </div>
 
