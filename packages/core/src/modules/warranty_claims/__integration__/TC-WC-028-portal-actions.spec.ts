@@ -483,6 +483,51 @@ test.describe('TC-WC-028: warranty claims portal submit and withdraw actions', (
       )
       expect(ownDownload.status(), 'the customer should still download their own upload').toBe(200)
 
+      // Staff "Replace" is composed client-side as upload-then-delete; the upload
+      // carries the replaced attachment's tags so a customer-visible file stays
+      // visible in the portal after staff swap it out.
+      const staffListing = await request.get(
+        `/api/attachments?entityId=${encodeURIComponent(CLAIM_ATTACHMENT_ENTITY_ID)}&recordId=${encodeURIComponent(claimId!)}`,
+        { headers: { Authorization: `Bearer ${adminToken}` } },
+      )
+      expect(staffListing.status()).toBe(200)
+      const staffListingBody = await readJsonSafe<{ items?: Array<{ id?: string; tags?: string[] }> }>(staffListing)
+      const customerUploadAsSeenByStaff = (staffListingBody?.items ?? []).find((item) => item.id === portalAttachmentId)
+      expect(
+        customerUploadAsSeenByStaff?.tags ?? [],
+        'staff listing must expose the customer-visible tag so the replacement can inherit it',
+      ).toContain(CUSTOMER_VISIBLE_ATTACHMENT_TAG)
+
+      const staffReplacementOfCustomerUpload = await uploadAttachmentFixture(request, adminToken, {
+        entityId: CLAIM_ATTACHMENT_ENTITY_ID,
+        recordId: claimId!,
+        fileName: `wc-028-staff-replacement-${stamp}.txt`,
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`staff replacement of customer upload ${stamp}`, 'utf8'),
+        tags: customerUploadAsSeenByStaff?.tags ?? [],
+      })
+      expect(
+        staffReplacementOfCustomerUpload.tags,
+        'the staff-uploaded replacement must keep the inherited customer-visible tag',
+      ).toContain(CUSTOMER_VISIBLE_ATTACHMENT_TAG)
+      await deleteAttachmentIfExists(request, adminToken, portalAttachmentId)
+      const staffReplacedPortalAttachmentId = portalAttachmentId!
+      portalAttachmentId = staffReplacementOfCustomerUpload.id
+
+      const portalListAfterStaffReplace = await request.get(
+        `/api/warranty_claims/portal/attachments?claimId=${encodeURIComponent(claimId!)}`,
+        { headers: portalCookieHeaders(session) },
+      )
+      expect(portalListAfterStaffReplace.status()).toBe(200)
+      const portalListAfterStaffReplaceBody = await readJsonSafe<{ items?: Array<{ id?: string }> }>(portalListAfterStaffReplace)
+      const listedIdsAfterStaffReplace = (portalListAfterStaffReplaceBody?.items ?? []).map((item) => item.id)
+      expect(
+        listedIdsAfterStaffReplace,
+        'the customer must still see the file after staff replaced it',
+      ).toContain(portalAttachmentId)
+      expect(listedIdsAfterStaffReplace, 'the pre-replacement file is gone').not.toContain(staffReplacedPortalAttachmentId)
+      expect(listedIdsAfterStaffReplace, 'untagged staff attachments stay hidden').not.toContain(staffAttachmentId)
+
       const staffDelete = await request.delete(
         `/api/warranty_claims/portal/attachments?attachmentId=${encodeURIComponent(staffAttachmentId!)}`,
         { headers: portalCookieHeaders(session) },

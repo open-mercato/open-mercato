@@ -128,6 +128,7 @@
   "warranty_claims.detail.assignDialog.title": "Przypisz zgłoszenie ponownie",
   "warranty_claims.detail.assignToMe": "Przypisz do mnie",
   "warranty_claims.detail.assignee": "Osoba przypisana",
+  "warranty_claims.detail.attachments.customerVisible": "Widoczny dla klienta",
   "warranty_claims.detail.badge.customerReplied": "Klient odpowiedział",
   "warranty_claims.detail.claimNumberCopied": "Numer reklamacji skopiowany.",
   "warranty_claims.detail.confirm.cancelTitle": "Anulować reklamację?",

@@ -128,6 +128,7 @@
   "warranty_claims.detail.assignDialog.title": "Reklamation neu zuweisen",
   "warranty_claims.detail.assignToMe": "Mir zuweisen",
   "warranty_claims.detail.assignee": "Zuständige Person",
+  "warranty_claims.detail.attachments.customerVisible": "Für Kunden sichtbar",
   "warranty_claims.detail.badge.customerReplied": "Kunde hat geantwortet",
   "warranty_claims.detail.claimNumberCopied": "Claim-Nummer kopiert.",
   "warranty_claims.detail.confirm.cancelTitle": "Claim stornieren?",

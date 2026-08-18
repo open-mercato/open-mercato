@@ -34,7 +34,21 @@ describe('warranty claim detail Figma hierarchy', () => {
   })
 
   it('wraps localized risk badges and leaves room below horizontally scrollable list tabs', () => {
-    expect(detailSource).toContain('h-auto max-w-full whitespace-normal break-words text-left leading-snug')
+    expect(detailSource).toContain('h-auto max-w-full rounded-md py-1 whitespace-normal break-words text-left leading-snug')
     expect(workspaceSource).toContain('overflow-x-auto px-7 pb-2')
+  })
+
+  it('renders header risk signals on their own full-width row, not inside the SLA grid cell', () => {
+    const slaIndicator = detailSource.indexOf('<ClaimSlaIndicator')
+    const slaCellEnd = detailSource.indexOf('</div>', detailSource.indexOf('atRiskThresholdPct={slaAtRiskThresholdPct}', slaIndicator))
+    const riskRow = detailSource.indexOf('data-testid="warranty-claim-risk-signals"')
+    const headerRiskChips = detailSource.indexOf('<RiskSignalChips signals={riskSignals}')
+    const stage = detailSource.indexOf('<ClaimStageProgress')
+
+    expect(slaIndicator).toBeGreaterThan(-1)
+    expect(riskRow).toBeGreaterThan(slaCellEnd)
+    expect(headerRiskChips).toBeGreaterThan(riskRow)
+    expect(headerRiskChips).toBeLessThan(stage)
+    expect(detailSource.slice(slaIndicator, slaCellEnd)).not.toContain('<RiskSignalChips')
   })
 })

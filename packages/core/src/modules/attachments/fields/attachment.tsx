@@ -21,12 +21,28 @@ function humanSize(n: number): string {
   return `${x.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+type AttachmentAssignmentItem = {
+  type: string
+  id: string
+  href?: string | null
+  label?: string | null
+}
+
 type AttachmentsResponse = {
-  items?: Array<{ id: string; url: string; fileName: string; fileSize: number }>
+  items?: Array<{
+    id: string
+    url: string
+    fileName: string
+    fileSize: number
+    tags?: string[]
+    assignments?: AttachmentAssignmentItem[]
+  }>
   error?: string
 }
 
-type AttachmentItem = NonNullable<AttachmentsResponse['items']>[number]
+export type AttachmentInputItem = NonNullable<AttachmentsResponse['items']>[number]
+
+type AttachmentItem = AttachmentInputItem
 
 type AttachmentFieldDef = CustomFieldDefDto & {
   configJson?: {
@@ -60,6 +76,7 @@ export const AttachmentInput = ({
   allowReplace = false,
   onCountChange,
   onUploaded,
+  renderItemMeta,
 }: {
   entityId?: string
   recordId?: string
@@ -71,6 +88,9 @@ export const AttachmentInput = ({
   // a derived badge (e.g. a tab count) in sync without a full reload. Additive/backward-compatible.
   onCountChange?: (count: number) => void
   onUploaded?: () => void
+  // Optional: host-rendered metadata (e.g. a visibility badge derived from tags) shown next to
+  // each attachment's name. Additive/backward-compatible.
+  renderItemMeta?: (item: AttachmentInputItem) => React.ReactNode
 }) => {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -129,13 +149,19 @@ export const AttachmentInput = ({
     retryLastMutation,
   }), [entityId, recordId, retryLastMutation])
 
-  const uploadFile = React.useCallback(async (file: File): Promise<void> => {
+  const uploadFile = React.useCallback(async (file: File, replacementTarget?: AttachmentItem): Promise<void> => {
     if (!entityId || !recordId) return
     const fd = new FormData()
     fd.set('entityId', entityId)
     fd.set('recordId', recordId)
     if (def?.key) fd.set('fieldKey', String(def.key))
     fd.set('file', file)
+    if (replacementTarget) {
+      const inheritedTags = Array.isArray(replacementTarget.tags) ? replacementTarget.tags : []
+      const inheritedAssignments = Array.isArray(replacementTarget.assignments) ? replacementTarget.assignments : []
+      if (inheritedTags.length > 0) fd.set('tags', JSON.stringify(inheritedTags))
+      if (inheritedAssignments.length > 0) fd.set('assignments', JSON.stringify(inheritedAssignments))
+    }
     const call = await apiCall<{ error?: string }>(
       '/api/attachments',
       { method: 'POST', body: fd },
@@ -179,7 +205,7 @@ export const AttachmentInput = ({
         try {
           await runMutation({
             operation: async () => {
-              await uploadFile(file)
+              await uploadFile(file, replacementTarget)
               if (replacementTarget) await deleteFile(replacementTarget)
             },
             context: mutationContext(
@@ -311,7 +337,10 @@ export const AttachmentInput = ({
           <div key={item.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
             <div className="min-w-0 flex-1">
               <a className="block truncate underline" href={item.url} target="_blank" rel="noreferrer">{item.fileName}</a>
-              <span className="text-xs text-muted-foreground">{humanSize(item.fileSize)}</span>
+              <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>{humanSize(item.fileSize)}</span>
+                {renderItemMeta?.(item)}
+              </span>
             </div>
             {allowReplace ? (
               <Button

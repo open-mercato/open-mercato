@@ -190,4 +190,87 @@ describe('AttachmentInput', () => {
     expect(apiCallMock.mock.calls[2]?.[1]).toMatchObject({ method: 'DELETE' })
     expect(await screen.findByText('replacement.pdf')).toBeInTheDocument()
   })
+
+  it('carries the replaced attachment tags and assignments over to the replacement upload', async () => {
+    const assignments = [
+      { type: 'warranty_claims:warranty_claim', id: 'claim-1', href: null, label: null },
+      { type: 'sales:order', id: 'order-9', href: '/backend/sales/orders/order-9', label: 'SO-9' },
+    ]
+    apiCallMock
+      .mockResolvedValueOnce(buildApiCallResult({
+        items: [{
+          id: 'att-1',
+          url: '/files/original.pdf',
+          fileName: 'original.pdf',
+          fileSize: 128,
+          tags: ['customer-visible', 'photo'],
+          assignments,
+        }],
+      }))
+      .mockResolvedValueOnce(buildApiCallResult({ ok: true }))
+      .mockResolvedValueOnce(buildApiCallResult({ ok: true }))
+      .mockResolvedValueOnce(buildApiCallResult({ items: [] }))
+
+    renderWithI18n(
+      <AttachmentInput
+        entityId="warranty_claims:warranty_claim"
+        recordId="claim-1"
+        allowReplace
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /replace/i }))
+    fireEvent.change(screen.getByLabelText(/choose replacement file/i), {
+      target: { files: [new File(['replacement'], 'replacement.pdf', { type: 'application/pdf' })] },
+    })
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(4))
+    const formData = apiCallMock.mock.calls[1]?.[1]?.body
+    expect(formData).toBeInstanceOf(FormData)
+    expect(JSON.parse(String((formData as FormData).get('tags')))).toEqual(['customer-visible', 'photo'])
+    expect(JSON.parse(String((formData as FormData).get('assignments')))).toEqual(assignments)
+  })
+
+  it('renders host-provided item metadata next to each attachment', async () => {
+    apiCallMock.mockResolvedValueOnce(buildApiCallResult({
+      items: [
+        { id: 'att-1', url: '/files/customer.pdf', fileName: 'customer.pdf', fileSize: 128, tags: ['customer-visible'] },
+        { id: 'att-2', url: '/files/internal.pdf', fileName: 'internal.pdf', fileSize: 64, tags: [] },
+      ],
+    }))
+
+    renderWithI18n(
+      <AttachmentInput
+        entityId="warranty_claims:warranty_claim"
+        recordId="claim-1"
+        renderItemMeta={(item) => (item.tags?.includes('customer-visible') ? <span>Visible to customer</span> : null)}
+      />,
+    )
+
+    expect(await screen.findByText('customer.pdf')).toBeInTheDocument()
+    expect(screen.getAllByText('Visible to customer')).toHaveLength(1)
+    expect(screen.getByText('customer.pdf').closest('div')?.textContent).toContain('Visible to customer')
+    expect(screen.getByText('internal.pdf').closest('div')?.textContent).not.toContain('Visible to customer')
+  })
+
+  it('does not send tags or assignments for a plain upload', async () => {
+    apiCallMock
+      .mockResolvedValueOnce(buildApiCallResult({ items: [] }))
+      .mockResolvedValueOnce(buildApiCallResult({ ok: true }))
+      .mockResolvedValueOnce(buildApiCallResult({ items: [] }))
+
+    const { container } = renderWithI18n(
+      <AttachmentInput entityId="warranty_claims:warranty_claim" recordId="claim-1" />,
+    )
+
+    await screen.findByRole('button', { name: /choose files/i })
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [new File(['hello'], 'new.pdf', { type: 'application/pdf' })] },
+    })
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(3))
+    const formData = apiCallMock.mock.calls[1]?.[1]?.body as FormData
+    expect(formData.has('tags')).toBe(false)
+    expect(formData.has('assignments')).toBe(false)
+  })
 })

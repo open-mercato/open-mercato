@@ -128,6 +128,7 @@
   "warranty_claims.detail.assignDialog.title": "클레임 재배정",
   "warranty_claims.detail.assignToMe": "나에게 배정",
   "warranty_claims.detail.assignee": "담당자",
+  "warranty_claims.detail.attachments.customerVisible": "고객에게 공개",
   "warranty_claims.detail.badge.customerReplied": "고객이 답변함",
   "warranty_claims.detail.claimNumberCopied": "클레임 번호를 복사했습니다.",
   "warranty_claims.detail.confirm.cancelTitle": "클레임을 취소하시겠습니까?",

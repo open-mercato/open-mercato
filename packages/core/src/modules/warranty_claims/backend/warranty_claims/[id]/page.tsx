@@ -71,6 +71,7 @@ import { VendorRecoverySuggestionsPanel } from '../../components/VendorRecoveryS
 import { ClaimStageProgress } from '../../components/ClaimStageProgress'
 import { claimTypeAllowsLineFinancialAdjustments, resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
 import { isTerminal } from '../../../lib/stateMachine'
+import { isCustomerVisibleAttachment } from '../../../lib/attachmentVisibility'
 import { formatQuantity, parseQuantity, quantityInputValue } from '../../../lib/quantity'
 import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../lib/dictionaryLabels'
 import {
@@ -637,7 +638,7 @@ function RiskSignalChips({ signals, t }: { signals: ClaimRiskSignal[]; t: Transl
         <span key={signal.id} className="min-w-0 max-w-full" title={buildRiskSignalTitle(signal)}>
           <StatusBadge
             variant={riskSignalVariant(signal)}
-            className="h-auto max-w-full whitespace-normal break-words text-left leading-snug"
+            className="h-auto max-w-full rounded-md py-1 whitespace-normal break-words text-left leading-snug"
           >
             {t(signal.messageKey, signal.params)}
           </StatusBadge>
@@ -1986,7 +1987,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                     status={claim.status}
                     atRiskThresholdPct={slaAtRiskThresholdPct}
                   />
-                  <RiskSignalChips signals={riskSignals} t={t} />
                 </div>
               </div>
               <div>
@@ -2000,6 +2000,11 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                 </div>
               </div>
             </div>
+              {riskSignals.length > 0 ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 xl:max-w-4xl" data-testid="warranty-claim-risk-signals">
+                  <RiskSignalChips signals={riskSignals} t={t} />
+                </div>
+              ) : null}
             </div>
             <ClaimStageProgress status={claim.status} />
           <Tabs
@@ -2209,6 +2214,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   allowReplace={featureAccess.claimManage}
                   disabled={!featureAccess.claimManage}
                   onCountChange={setAttachmentCount}
+                  renderItemMeta={(item) => (
+                    isCustomerVisibleAttachment(item.tags) ? (
+                      <StatusBadge variant="info">
+                        {t('warranty_claims.detail.attachments.customerVisible', 'Visible to customer')}
+                      </StatusBadge>
+                    ) : null
+                  )}
                 />
               </div>
             </TabsContent>
