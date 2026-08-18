@@ -8,6 +8,7 @@ import type { ProgressService } from '../../../../progress/lib/progressService'
 import type { SyncRunService } from '../../../lib/sync-run-service'
 import { retrySyncSchema } from '../../../data/validators'
 import { startDataSyncRun } from '../../../lib/start-run'
+import { resolveAdapterForIntegration, resolveStartCursor } from '../../../lib/start-cursor'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -89,7 +90,14 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
 
   const cursor = parsedBody.data.fromBeginning
     ? null
-    : previous.cursor ?? await syncRunService.resolveCursor(previous.integrationId, previous.entityType, previous.direction, scope)
+    : previous.cursor ?? await resolveStartCursor({
+      syncRunService,
+      adapter: resolveAdapterForIntegration(previous.integrationId),
+      integrationId: previous.integrationId,
+      entityType: previous.entityType,
+      direction: previous.direction,
+      scope,
+    })
 
   const { run, progressJob } = await startDataSyncRun({
     syncRunService,

@@ -13,6 +13,7 @@ import {
   buildNotificationReadScopeWhere,
   getNotificationReadScopeTagOrganizationIds,
 } from '../../lib/notificationScope'
+import { inAppVisibleFilter } from '../../lib/notificationVisibility'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -75,7 +76,10 @@ export async function GET(req: Request) {
     recipientUserId: userId,
     tenantId: scope.tenantId,
     status: 'unread',
-    ...buildNotificationReadScopeWhere(scope),
+    $and: [
+      buildNotificationReadScopeWhere(scope),
+      inAppVisibleFilter(),
+    ],
   })
 
   if (cache && cacheKey) {

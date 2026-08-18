@@ -193,5 +193,9 @@
   "configs.upgrades.attachmentsOrgReconcile.cta": "Anhang-Organisationen abgleichen",
   "configs.upgrades.attachmentsOrgReconcile.loading": "Anhang-Organisationen werden abgeglichen…",
   "configs.upgrades.attachmentsOrgReconcile.message": "Version {{version}} behebt Anhänge, die unter der falschen Organisation gespeichert wurden. Führen Sie den Abgleich aus, um vorhandene Anhänge in die Organisation des zugehörigen Datensatzes zu verschieben.",
-  "configs.upgrades.attachmentsOrgReconcile.success": "Anhang-Organisationen abgeglichen."
+  "configs.upgrades.attachmentsOrgReconcile.success": "Anhang-Organisationen abgeglichen.",
+  "configs.upgrades.devicesPushTokenEncryption.cta": "Push-Tokens von Geräten verschlüsseln",
+  "configs.upgrades.devicesPushTokenEncryption.loading": "Verschlüsselungszuordnung für Push-Tokens wird angelegt…",
+  "configs.upgrades.devicesPushTokenEncryption.message": "Version {{version}} fügt mobile Push-Benachrichtigungen hinzu und verschlüsselt Geräte-Push-Tokens im Ruhezustand. Bestehende Mandanten haben keine Verschlüsselungszuordnung für die neue Geräte-Entität, sodass nach dem Upgrade registrierte Tokens unverschlüsselt gespeichert würden. Führen Sie dies aus, um die Zuordnung anzulegen, damit Push-Tokens verschlüsselt werden.",
+  "configs.upgrades.devicesPushTokenEncryption.success": "Verschlüsselungszuordnung für Push-Tokens angelegt."
 }
