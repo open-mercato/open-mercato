@@ -175,7 +175,10 @@ describe('query_index DI CRUD bridge', () => {
     })
   })
 
-  it('forwards complete payload scope without duplicating the downstream source lookup', async () => {
+  it.each([
+    ['created', 'upsert_one'],
+    ['deleted', 'delete_one'],
+  ])('forwards complete payload scope for %s events without duplicating the downstream source lookup', async (action, targetEvent) => {
     const entityType = 'customers:customer_person'
     const { handlers, emitEvent, sourceBuilder, container } = createBridgeHarness({
       entityType,
@@ -184,7 +187,7 @@ describe('query_index DI CRUD bridge', () => {
     register(container as never)
     await flushRegistration()
 
-    const handler = handlers.get('customers.customer_person.created')
+    const handler = handlers.get(`customers.customer_person.${action}`)
     expect(handler).toBeDefined()
     await handler!({ id: 'person-1', organizationId: 'payload-org', tenantId: 'payload-tenant' }, {
       resolve: container.resolve,
@@ -193,7 +196,7 @@ describe('query_index DI CRUD bridge', () => {
     })
 
     expect(sourceBuilder.select).not.toHaveBeenCalled()
-    expect(emitEvent).toHaveBeenCalledWith('query_index.upsert_one', {
+    expect(emitEvent).toHaveBeenCalledWith(`query_index.${targetEvent}`, {
       entityType,
       recordId: 'person-1',
       organizationId: 'payload-org',
@@ -228,6 +231,35 @@ describe('query_index DI CRUD bridge', () => {
     expect(mockRecordIndexerError).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['created', 'upsert', { organizationId: 'org-1' }],
+    ['deleted', 'delete', { tenantId: 'tenant-1' }],
+  ])('rejects partial non-null global scope on %s events', async (action, handlerName, scope) => {
+    const entityType = 'feature_toggles:feature_toggle'
+    const { handlers, emitEvent, container } = createBridgeHarness({ entityType, metadata: globalMetadata })
+    register(container as never)
+    await flushRegistration()
+
+    const handler = handlers.get(`feature_toggles.feature_toggle.${action}`)
+    expect(handler).toBeDefined()
+    await handler!({ id: 'toggle-1', ...scope }, {
+      resolve: container.resolve,
+      tenantId: null,
+      organizationId: null,
+    })
+
+    expect(emitEvent).not.toHaveBeenCalled()
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      expect.objectContaining({ em: expect.anything() }),
+      expect.objectContaining({
+        handler: `event:query_index.crud_bridge.${handlerName}`,
+        error: expect.any(QueryIndexScopeError),
+        entityType,
+        recordId: 'toggle-1',
+      }),
+    )
+  })
+
   it('treats malformed payload scope as absent and derives scoped rows from metadata', async () => {
     const entityType = 'customers:customer_person'
     const { handlers, emitEvent, sourceBuilder, container } = createBridgeHarness({
@@ -255,7 +287,36 @@ describe('query_index DI CRUD bridge', () => {
     })
   })
 
-  it('uses trusted context only when a deleted scoped row is already missing', async () => {
+  it('does not use event context when an upsert source row is missing', async () => {
+    const entityType = 'customers:customer_person'
+    const { handlers, emitEvent, container } = createBridgeHarness({
+      entityType,
+      metadata: scopedMetadata,
+    })
+    register(container as never)
+    await flushRegistration()
+
+    const handler = handlers.get('customers.customer_person.created')
+    expect(handler).toBeDefined()
+    await handler!({ id: 'person-1' }, {
+      resolve: container.resolve,
+      tenantId: 'actor-tenant',
+      organizationId: 'actor-org',
+    })
+
+    expect(emitEvent).not.toHaveBeenCalled()
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      expect.objectContaining({ em: expect.anything() }),
+      expect.objectContaining({
+        handler: 'event:query_index.crud_bridge.upsert',
+        error: expect.any(QueryIndexScopeError),
+        entityType,
+        recordId: 'person-1',
+      }),
+    )
+  })
+
+  it('does not treat default null event context as explicit scope for a missing delete row', async () => {
     const entityType = 'customers:customer_person'
     const { handlers, emitEvent, container } = createBridgeHarness({
       entityType,
@@ -268,16 +329,20 @@ describe('query_index DI CRUD bridge', () => {
     expect(handler).toBeDefined()
     await handler!({ id: 'person-1' }, {
       resolve: container.resolve,
-      tenantId: 'actor-tenant',
-      organizationId: 'actor-org',
+      tenantId: null,
+      organizationId: null,
     })
 
-    expect(emitEvent).toHaveBeenCalledWith('query_index.delete_one', {
-      entityType,
-      recordId: 'person-1',
-      organizationId: 'actor-org',
-      tenantId: 'actor-tenant',
-    })
+    expect(emitEvent).not.toHaveBeenCalled()
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      expect.objectContaining({ em: expect.anything() }),
+      expect.objectContaining({
+        handler: 'event:query_index.crud_bridge.delete',
+        error: expect.any(QueryIndexScopeError),
+        entityType,
+        recordId: 'person-1',
+      }),
+    )
   })
 
   it('records scope resolution failures instead of silently dropping them', async () => {

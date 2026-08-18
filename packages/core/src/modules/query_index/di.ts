@@ -9,6 +9,7 @@ import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
 import {
   loadQueryIndexRowScope,
+  QueryIndexScopeError,
   resolveQueryIndexRecordScope,
   resolveQueryIndexSourceMetadata,
 } from './lib/subscriber-scope'
@@ -37,7 +38,7 @@ async function resolveBridgeRecordScope(
   entityType: string,
   recordId: string,
   payload: unknown,
-  ctx: unknown,
+  action: 'upsert' | 'delete',
 ) {
   let organization = readScopeValue(payload, ['organizationId', 'orgId'])
   let tenant = readScopeValue(payload, ['tenantId'])
@@ -51,11 +52,12 @@ async function resolveBridgeRecordScope(
   const sourceScope = await loadQueryIndexRowScope(em, source, recordId)
 
   if (sourceScope.kind === 'global') {
-    organization = { value: null, present: true }
-    tenant = { value: null, present: true }
-  } else if (sourceScope.kind === 'missing') {
-    if (!organization.present) organization = readScopeValue(ctx, ['organizationId'])
-    if (!tenant.present) tenant = readScopeValue(ctx, ['tenantId'])
+    if (!organization.present) organization = { value: null, present: true }
+    if (!tenant.present) tenant = { value: null, present: true }
+  } else if (sourceScope.kind === 'missing' && action === 'upsert') {
+    throw new QueryIndexScopeError(
+      'Query index upsert event source row scope could not be resolved',
+    )
   }
 
   return resolveQueryIndexRecordScope({
@@ -171,7 +173,7 @@ export function register(container: AppContainer) {
           entityType,
           id,
           payload,
-          ctx,
+          'upsert',
         )
         // Optional: only index when custom field definitions exist for this entity (org/global)
         try {
@@ -219,7 +221,7 @@ export function register(container: AppContainer) {
           entityType,
           id,
           payload,
-          ctx,
+          'delete',
         )
         const bus = ctx.resolve('eventBus') as any
         await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })
