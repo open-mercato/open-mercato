@@ -3,6 +3,8 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'sales.order.created',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'sales',
     titleKey: 'sales.notifications.order.created.title',
     bodyKey: 'sales.notifications.order.created.body',
@@ -22,6 +24,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'sales.quote.created',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'sales',
     titleKey: 'sales.notifications.quote.created.title',
     bodyKey: 'sales.notifications.quote.created.body',
@@ -41,6 +45,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'sales.payment.received',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'sales',
     titleKey: 'sales.notifications.payment.received.title',
     bodyKey: 'sales.notifications.payment.received.body',
@@ -60,6 +66,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'sales.quote.expiring',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'sales',
     titleKey: 'sales.notifications.quote.expiring.title',
     bodyKey: 'sales.notifications.quote.expiring.body',
