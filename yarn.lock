@@ -18267,10 +18267,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"deepmerge-ts@npm:^7.1.5":
-  version: 7.1.5
-  resolution: "deepmerge-ts@npm:7.1.5"
-  checksum: 10/f86d1a0b3b803cbae749ebaabf2c6db388abec57d77a4003829ecf987504f3c93b01d1ff86ef89a5d56e2b06d7402ea2a7502f0d044f19e036ada1f543e78d3d
+"deepmerge-ts@npm:8.0.1":
+  version: 8.0.1
+  resolution: "deepmerge-ts@npm:8.0.1"
+  checksum: 10/baa3693eb310f905273639a07abf8f294ed5e7ae29bef36e4c77ffc5272818e7046421f408a050b6d0a26c6cfb490ca3acf68b82f3954f6451f0d36058f62c7b
   languageName: node
   linkType: hard
 
