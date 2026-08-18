@@ -254,11 +254,13 @@ test('preset applicability follows each genuine resolved preset instead of a glo
       classic: 'source-only',
       crm: 'live',
       empty: 'source-only',
+      wms: 'source-only',
     })
     assert.deepEqual(availabilityFromResolvedPresets(resolved, true), {
       classic: 'live',
       crm: 'live',
       empty: 'source-only',
+      wms: 'source-only',
     })
   } finally {
     additions.length = originalLength
