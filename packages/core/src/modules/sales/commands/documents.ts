@@ -594,6 +594,11 @@ export const documentUpdateSchema = z
     customerReference: z.string().nullable().optional(),
     externalReference: z.string().nullable().optional(),
     comment: z.string().nullable().optional(),
+    // Same names and limits as the create schema (data/validators.ts), so a
+    // caller can send one payload shape to create and update. Nullable here
+    // because an update — unlike a create — has an existing value to clear.
+    comments: z.string().trim().max(4000).nullable().optional(),
+    internalNotes: z.string().trim().max(4000).nullable().optional(),
     orderNumber: z.string().trim().min(1).max(191).optional(),
     quoteNumber: z.string().trim().min(1).max(191).optional(),
     currencyCode: currencyCodeSchema.optional(),
@@ -637,6 +642,8 @@ export const documentUpdateSchema = z
       input.customerReference !== undefined ||
       input.externalReference !== undefined ||
       input.comment !== undefined ||
+      input.comments !== undefined ||
+      input.internalNotes !== undefined ||
       input.orderNumber !== undefined ||
       input.quoteNumber !== undefined ||
       input.shippingAddressSnapshot !== undefined ||
@@ -1161,6 +1168,32 @@ async function applyDocumentUpdate({
     const normalized =
       typeof input.comment === "string" ? input.comment.trim() : "";
     entity.comments = normalized.length ? normalized : null;
+  }
+  // After `comment`, so the canonical name wins when a payload carries both.
+  if (input.comments !== undefined) {
+    const normalized =
+      typeof input.comments === "string" ? input.comments.trim() : "";
+    entity.comments = normalized.length ? normalized : null;
+  }
+  // Orders only — SalesQuote has no internalNotes column. Reject rather than
+  // ignore it on a quote: the field now satisfies the schema's refine on its
+  // own, so silently dropping it would let an otherwise-empty payload run the
+  // update, and a quote in `sent` status loses its acceptance token and reverts
+  // to draft on any update that reaches execution.
+  if (kind === "quote" && input.internalNotes !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.internal_notes_unsupported",
+        "Internal notes are not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.internalNotes !== undefined) {
+    const normalized =
+      typeof input.internalNotes === "string" ? input.internalNotes.trim() : "";
+    (entity as SalesOrder).internalNotes = normalized.length
+      ? normalized
+      : null;
   }
   if (typeof input.currencyCode === "string") {
     entity.currencyCode = input.currencyCode;
@@ -3692,9 +3725,11 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
   if (input.customerSnapshot !== undefined) keys.add("customerSnapshot");
   if (input.metadata !== undefined) keys.add("metadata");
   if (input.comment !== undefined) keys.add("comments");
+  if (input.comments !== undefined) keys.add("comments");
   if (input.currencyCode !== undefined) keys.add("currencyCode");
   if (input.channelId !== undefined) keys.add("channelId");
   if (kind === "order") {
+    if (input.internalNotes !== undefined) keys.add("internalNotes");
     if (input.placedAt !== undefined) keys.add("placedAt");
     if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
   }
@@ -5159,10 +5194,6 @@ const updateQuoteCommand: CommandHandler<
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
-    if (shouldInvalidateSentToken) {
-      quote.acceptanceToken = null;
-      quote.sentAt = null;
-    }
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -5185,7 +5216,12 @@ const updateQuoteCommand: CommandHandler<
             input: parsed,
             em,
           });
+          // After applyDocumentUpdate, not before it: the reset must not happen
+          // for an update that turns out to be invalid, or a rejected payload
+          // still strips a sent quote of its acceptance link.
           if (shouldInvalidateSentToken) {
+            quote.acceptanceToken = null;
+            quote.sentAt = null;
             quote.status = "draft";
             quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
               tenantId: quote.tenantId,
