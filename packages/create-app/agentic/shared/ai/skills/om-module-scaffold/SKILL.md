@@ -5,7 +5,7 @@ description: Build a complete standalone business app, module, or CRUD vertical 
 
 # Scaffold a Complete Module
 
-Create the smallest working vertical slice under `src/modules/<id>/`. START at [`src/modules/example/README.md`](../../../src/modules/example/README.md) and adapt only the [`references/surface-inventory.json`](../../../src/modules/example/references/surface-inventory.json) rows it names.
+Create the smallest working vertical slice under `src/modules/<id>/`. START at [`src/modules/example/README.md`](../../../src/modules/example/README.md) and adapt only the [`references/surface-inventory.json`](../../../src/modules/example/references/surface-inventory.json) rows it names. The inventory ships inside the emitted example module (`src/modules/example/references/`) — not under this skill's own `references/` folder, which holds only the procedure guides named below.
 
 ## Inputs
 
