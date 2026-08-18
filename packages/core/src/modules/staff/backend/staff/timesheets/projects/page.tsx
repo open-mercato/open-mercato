@@ -186,6 +186,7 @@ export default function TimesheetProjectsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -740,6 +741,7 @@ export default function TimesheetProjectsPage() {
               pageSize: PAGE_SIZE,
               total,
               totalPages,
+              totalIsCapped,
               onPageChange: setPage,
             }}
             rowActions={(row) => (

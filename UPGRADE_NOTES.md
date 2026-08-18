@@ -157,8 +157,13 @@ page until a page comes back with fewer rows than requested — never until you
 have collected `total` rows.
 
 **Action for UI authors:** thread `totalIsCapped` from your list response into
-`DataTable`'s `pagination` prop to render capped totals as "10 000+"; an
-unadopted table renders the floor as if it were exact.
+`DataTable`'s `pagination` prop. Every in-tree list does this already, and a
+CI guard (`yarn check:pagination-capped`) keeps the set closed, so this applies
+to tables you maintain outside the repo. It is not only a labelling concern: an
+unadopted table renders the floor as if it were exact **and stops offering rows
+past it**, because its page count is derived from a capped `total`. With the
+flag threaded, `DataTable` renders "10 000+", keeps Next available while pages
+come back full, and never clamps a deep-linked page down to the floor.
 
 **Escape hatch:** `OM_LIST_COUNT_CAP=0` disables capping and restores exact
 count *values* globally. It is read per request from the environment, is

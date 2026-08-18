@@ -58,6 +58,7 @@ type MessageListResponse = {
   page?: number
   pageSize?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type MessageTypeItem = {
@@ -138,6 +139,7 @@ export function MessagesInboxPageClient() {
         page: Number(call.result?.page ?? page),
         pageSize: Number(call.result?.pageSize ?? pageSize),
         totalPages: Number(call.result?.totalPages ?? 0),
+        totalIsCapped: call.result?.totalIsCapped === true,
       }
     },
   })
@@ -361,6 +363,7 @@ export function MessagesInboxPageClient() {
 
   const rows = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
+  const totalIsCapped = listQuery.data?.totalIsCapped === true
   const totalPages = listQuery.data?.totalPages ?? 0
 
   return (
@@ -398,6 +401,7 @@ export function MessagesInboxPageClient() {
           pageSize,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
         }}
         actions={

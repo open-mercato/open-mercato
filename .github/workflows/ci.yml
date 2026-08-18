@@ -589,6 +589,9 @@ jobs:
       - name: Check dependency version conflicts
         run: yarn check:dep-versions
 
+      - name: Check paginated lists forward totalIsCapped
+        run: yarn check:pagination-capped
+
       - name: Check i18n sync
         run: yarn tsx scripts/i18n-check-sync.ts
 

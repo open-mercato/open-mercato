@@ -89,6 +89,7 @@
     "logger:check-console": "node scripts/logger-check-console.mjs",
     "logger:check-console:ci": "node scripts/logger-check-console.mjs --strict",
     "check:dep-versions": "tsx scripts/check-dep-versions.ts",
+    "check:pagination-capped": "node scripts/check-pagination-capped.mjs --fail",
     "ds:tokens": "node scripts/ds-tokens-export.mjs --write",
     "ds:tokens:check": "node scripts/ds-tokens-export.mjs --check",
     "ds:tokens:figma": "node scripts/ds-tokens-export.mjs --figma-ops",
