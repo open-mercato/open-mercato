@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { createModuleQueue } from '../factory'
-import { ABANDONED_JOB_SWEEP_INTERVAL_MS } from '../strategies/async'
+import { ABANDONED_JOB_DRAIN_TIMEOUT_MS, ABANDONED_JOB_SWEEP_INTERVAL_MS } from '../strategies/async'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import type { QueuedJob } from '../types'
 
@@ -391,6 +391,77 @@ describe('onJobAbandoned', () => {
     await flushAsync()
     expect(job.updateData).toHaveBeenCalledTimes(1)
     await queue.close()
+  })
+
+  it('gives up on a hanging report at shutdown instead of blocking it forever', async () => {
+    jest.useFakeTimers()
+    try {
+      const onJobAbandoned = jest.fn(() => new Promise<void>(() => {})) // never settles
+      const queue = createModuleQueue<Payload>('test-queue', { onJobAbandoned })
+      await queue.process(async () => {})
+
+      emit('failed', bullJob('job-1', { runId: 'run-1' }), new Error('job stalled more than allowable limit'))
+      await flushAsync()
+      expect(onJobAbandoned).toHaveBeenCalledTimes(1)
+
+      let closed = false
+      const closePromise = queue.close().then(() => {
+        closed = true
+      })
+      await flushAsync()
+      expect(closed).toBe(false)
+
+      jest.advanceTimersByTime(ABANDONED_JOB_DRAIN_TIMEOUT_MS)
+      await closePromise
+      expect(closed).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('does not start a report from a sweep that was already running when close began', async () => {
+    let releaseGetJobs = (_jobs: unknown[]) => {}
+    mockQueueGetJobs.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseGetJobs = resolve as (jobs: unknown[]) => void
+        }),
+    )
+
+    const onJobAbandoned = jest.fn(async () => {})
+    const queue = createModuleQueue<Payload>('test-queue', { onJobAbandoned })
+    await queue.process(async () => {})
+    await flushAsync()
+
+    // The start-up sweep is parked inside getJobs; shutdown begins before it returns.
+    const closePromise = queue.close()
+    releaseGetJobs([failedSetJob('job-1', { runId: 'run-1' }, 'job stalled more than allowable limit')])
+    await flushAsync()
+    await closePromise
+
+    expect(onJobAbandoned).not.toHaveBeenCalled()
+  })
+
+  it('honours QUEUE_ABANDONED_SWEEP_INTERVAL_MS for the sweep cadence', async () => {
+    jest.useFakeTimers()
+    process.env.QUEUE_ABANDONED_SWEEP_INTERVAL_MS = '1000'
+    try {
+      mockQueueGetJobs.mockResolvedValue([])
+      const onJobAbandoned = jest.fn(async () => {})
+      const queue = createModuleQueue<Payload>('test-queue', { onJobAbandoned })
+      await queue.process(async () => {})
+      await flushAsync()
+      expect(mockQueueGetJobs).toHaveBeenCalledTimes(1)
+
+      jest.advanceTimersByTime(1000)
+      await flushAsync()
+
+      expect(mockQueueGetJobs).toHaveBeenCalledTimes(2)
+      await queue.close()
+    } finally {
+      delete process.env.QUEUE_ABANDONED_SWEEP_INTERVAL_MS
+      jest.useRealTimers()
+    }
   })
 
   it('is not forwarded to the local strategy, which cannot abandon a job', async () => {

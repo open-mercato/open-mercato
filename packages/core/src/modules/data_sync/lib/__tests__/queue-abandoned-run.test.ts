@@ -43,13 +43,15 @@ function abandonedJob(payload: unknown) {
   return { id: 'job-1', payload, createdAt: new Date(0).toISOString() }
 }
 
-function stubRunService(markStatus: jest.Mock) {
+function stubContainer(markStatus: jest.Mock, failJob: jest.Mock = jest.fn(async () => ({}))) {
   createRequestContainerMock.mockResolvedValue({
     resolve: (name: string) => {
-      if (name !== 'dataSyncRunService') throw new Error(`[internal] unexpected resolve: ${name}`)
-      return { markStatus }
+      if (name === 'dataSyncRunService') return { markStatus }
+      if (name === 'progressService') return { failJob }
+      throw new Error(`[internal] unexpected resolve: ${name}`)
     },
   } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+  return { markStatus, failJob }
 }
 
 describe('data_sync queue — abandoned job repair', () => {
@@ -61,7 +63,7 @@ describe('data_sync queue — abandoned job repair', () => {
   // resumable-queue policy. These cover what the callback itself does once it fires.
   it('marks the run failed with the reason the queue reported', async () => {
     const markStatus = jest.fn(async () => null)
-    stubRunService(markStatus)
+    stubContainer(markStatus)
 
     const hook = abandonedHookFor('data-sync-import')!
     await hook(abandonedJob({ runId: 'run-1', batchSize: 100, scope: { ...SCOPE, userId: null } }), {
@@ -77,9 +79,36 @@ describe('data_sync queue — abandoned job repair', () => {
     )
   })
 
+  it('fails the run progress job too, with the same reason', async () => {
+    const markStatus = jest.fn(async () => ({ id: 'run-1', progressJobId: 'progress-1' }))
+    const { failJob } = stubContainer(markStatus)
+
+    const hook = abandonedHookFor('data-sync-import')!
+    await hook(abandonedJob({ runId: 'run-1', scope: SCOPE }), {
+      jobId: 'job-1',
+      reason: 'job stalled more than allowable limit',
+    })
+
+    expect(failJob).toHaveBeenCalledWith(
+      'progress-1',
+      { errorMessage: "the queue abandoned this run's job without running it: job stalled more than allowable limit" },
+      SCOPE,
+    )
+  })
+
+  it('leaves the progress service alone for a run that has no progress job', async () => {
+    const markStatus = jest.fn(async () => ({ id: 'run-1', progressJobId: null }))
+    const { failJob } = stubContainer(markStatus)
+
+    const hook = abandonedHookFor('data-sync-import')!
+    await hook(abandonedJob({ runId: 'run-1', scope: SCOPE }), { jobId: 'job-1', reason: 'stalled' })
+
+    expect(failJob).not.toHaveBeenCalled()
+  })
+
   it('does nothing when the payload carries no run id or no tenant scope', async () => {
     const markStatus = jest.fn(async () => null)
-    stubRunService(markStatus)
+    stubContainer(markStatus)
 
     const hook = abandonedHookFor('data-sync-import')!
     await hook(abandonedJob({ progressJobId: 'progress-1', scope: SCOPE }), { jobId: 'job-1', reason: 'stalled' })

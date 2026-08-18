@@ -103,8 +103,28 @@ function isAbandonedJobReason(message: string): boolean {
  */
 const ABANDON_REPORT_ACK_KEY = 'abandonReportedAt'
 
-/** How often a worker re-sweeps the failed set for unacknowledged abandoned jobs. */
+/**
+ * How often a worker re-sweeps the failed set for unacknowledged abandoned jobs.
+ *
+ * Override with `QUEUE_ABANDONED_SWEEP_INTERVAL_MS` to trade recovery latency against Redis chatter.
+ */
 export const ABANDONED_JOB_SWEEP_INTERVAL_MS = 5 * 60 * 1000
+
+/**
+ * How long `close()` waits for in-flight reports before giving up on them.
+ *
+ * Bounded on purpose: the hook reaches a database, and a shutdown during an infrastructure incident
+ * is exactly when that write can hang rather than fail. An unbounded wait would turn a graceful
+ * shutdown into a SIGKILL and skip the telemetry flush that follows it. Abandoning the wait is safe
+ * because delivery is at-least-once — an unacknowledged report is re-delivered by the next worker's
+ * start-up sweep, the same path that covers a process which died mid-report.
+ */
+export const ABANDONED_JOB_DRAIN_TIMEOUT_MS = 5000
+
+function resolveSweepIntervalMs(): number {
+  const configured = Number.parseInt(process.env.QUEUE_ABANDONED_SWEEP_INTERVAL_MS ?? '', 10)
+  return Number.isFinite(configured) && configured > 0 ? configured : ABANDONED_JOB_SWEEP_INTERVAL_MS
+}
 
 function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
   if (!payload || typeof payload !== 'object') return false
@@ -176,6 +196,7 @@ export function createAsyncQueue<T = unknown>(
   let bullWorker: BullWorkerInterface | null = null
   let bullmqModule: BullMQModule | null = null
   let abandonedSweepTimer: ReturnType<typeof setInterval> | null = null
+  let closing = false
 
   // In-flight `onJobAbandoned` calls. Detached from the caller that started them (the 'failed'
   // listener or the sweep), so `close()` drains them rather than letting a deploy truncate a repair
@@ -242,10 +263,14 @@ export function createAsyncQueue<T = unknown>(
   // simply still unmarked when the next sweep looks. Residual loss: `removeOnFail` caps the set, so
   // a job evicted before any sweep sees it is gone for good.
   async function sweepAbandonedJobs(): Promise<void> {
-    if (!onJobAbandoned) return
+    if (!onJobAbandoned || closing) return
     try {
       const queue = await getQueue()
       const failedJobs = await queue.getJobs(['failed'], 0, -1)
+      // Re-checked after the awaits: a sweep already past its guard when `close()` ran would
+      // otherwise start a report the drain has stopped waiting for. The next start-up sweep
+      // re-delivers it, so stopping here loses nothing.
+      if (closing) return
       for (const failedJob of failedJobs) {
         const reason = failedJob.failedReason ?? ''
         if (!isAbandonedJobReason(reason)) continue
@@ -418,7 +443,7 @@ export function createAsyncQueue<T = unknown>(
       void sweepAbandonedJobs()
       abandonedSweepTimer = setInterval(() => {
         void sweepAbandonedJobs()
-      }, ABANDONED_JOB_SWEEP_INTERVAL_MS)
+      }, resolveSweepIntervalMs())
       ;(abandonedSweepTimer as unknown as { unref?: () => void }).unref?.()
     }
 
@@ -458,6 +483,7 @@ export function createAsyncQueue<T = unknown>(
   }
 
   async function close(): Promise<void> {
+    closing = true
     if (abandonedSweepTimer) {
       clearInterval(abandonedSweepTimer)
       abandonedSweepTimer = null
@@ -466,10 +492,21 @@ export function createAsyncQueue<T = unknown>(
       await bullWorker.close()
       bullWorker = null
     }
-    // Drain any abandonment report still in flight. Without this a deploy-time shutdown can cut off
-    // the very repair the callback exists to perform — and these never reject, so awaiting is safe.
+    // Drain any abandonment report still in flight, so a deploy-time shutdown cannot cut off the very
+    // repair the callback exists to perform. Bounded: the hook writes to a database, and a shutdown
+    // during an incident is exactly when that write can hang instead of failing. Giving up costs
+    // nothing permanent — an unacknowledged report is re-delivered by the next start-up sweep.
     if (pendingAbandonedReports.size) {
-      await Promise.all([...pendingAbandonedReports])
+      const drained = Promise.all([...pendingAbandonedReports]).then(() => true)
+      const expired = new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), ABANDONED_JOB_DRAIN_TIMEOUT_MS)
+        ;(timer as unknown as { unref?: () => void }).unref?.()
+      })
+      if (!(await Promise.race([drained, expired]))) {
+        logger.warn('Abandoned-job reports still in flight at shutdown; the sweep will retry them', {
+          pending: pendingAbandonedReports.size,
+        })
+      }
     }
     if (bullQueue) {
       await bullQueue.close()

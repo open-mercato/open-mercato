@@ -26,6 +26,11 @@ const resumableQueueNames = new Set<string>(DATA_SYNC_RESUMABLE_QUEUES)
  * It only ever moves a non-terminal run: `markStatus` refuses to overwrite `completed` / `failed` /
  * `cancelled`, so a job abandoned after its run has ended is a no-op. `onJobAbandoned` may deliver
  * the same job more than once, which for the same reason is also a no-op.
+ *
+ * The run's progress job is failed alongside it, the way the worker's own catch path does in
+ * `workers/sync-import.ts`. Without that the two halves disagree — the run reads `failed` while the
+ * operation still shows as in flight in the top bar — until the progress staleness sweep eventually
+ * fails it with a generic no-heartbeat message instead of the reason the queue recorded.
  */
 async function failAbandonedRun(payload: unknown, info: AbandonedJobInfo): Promise<void> {
   const data = payload as { payload?: { runId?: unknown; scope?: { organizationId?: unknown; tenantId?: unknown } } } | undefined
@@ -33,6 +38,9 @@ async function failAbandonedRun(payload: unknown, info: AbandonedJobInfo): Promi
   const scope = data?.payload?.scope
   // Nothing to repair without both: the run row is keyed by id AND tenant scope.
   if (typeof runId !== 'string' || typeof scope?.organizationId !== 'string' || typeof scope?.tenantId !== 'string') return
+
+  const runScope = { organizationId: scope.organizationId, tenantId: scope.tenantId }
+  const errorMessage = `the queue abandoned this run's job without running it: ${info.reason}`
 
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
   const container = await createRequestContainer()
@@ -42,14 +50,19 @@ async function failAbandonedRun(payload: unknown, info: AbandonedJobInfo): Promi
       status: string,
       scope: { organizationId: string; tenantId: string },
       error?: string,
+    ): Promise<{ progressJobId?: string | null } | null>
+  }
+  const run = await runService.markStatus(runId, 'failed', runScope, errorMessage)
+  if (!run?.progressJobId) return
+
+  const progressService = container.resolve('progressService') as {
+    failJob(
+      jobId: string,
+      input: { errorMessage: string },
+      ctx: { organizationId: string; tenantId: string },
     ): Promise<unknown>
   }
-  await runService.markStatus(
-    runId,
-    'failed',
-    { organizationId: scope.organizationId, tenantId: scope.tenantId },
-    `the queue abandoned this run's job without running it: ${info.reason}`,
-  )
+  await progressService.failJob(run.progressJobId, { errorMessage }, runScope)
 }
 
 export function getSyncQueue(queueName: string): Queue<Record<string, unknown>> {
