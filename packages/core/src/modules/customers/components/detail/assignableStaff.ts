@@ -18,6 +18,13 @@ type AssignableStaffResponse = {
 
 export type AssignableStaffMembersPage = {
   items: AssignableStaffMember[]
+  /**
+   * How many rows the server served for this page, before the dedupe below.
+   * "Load more" guards must measure this rather than `items.length`: a deduped
+   * length shorter than the served page reads as a short page and terminates
+   * the sequence early, stranding the rest of the roster.
+   */
+  servedCount: number
   total: number
   page: number
   pageSize: number
@@ -59,7 +66,7 @@ export async function fetchAssignableStaffMembersPage(
     )
   } catch (error) {
     if (isAssignableEndpointMissing(error)) {
-      return { items: [], total: 0, page, pageSize }
+      return { items: [], servedCount: 0, total: 0, page, pageSize }
     }
     throw error
   }
@@ -125,6 +132,7 @@ export async function fetchAssignableStaffMembersPage(
 
   return {
     items: Array.from(deduped.values()),
+    servedCount: rawItems.length,
     total:
       typeof data?.total === 'number' && Number.isFinite(data.total)
         ? data.total
