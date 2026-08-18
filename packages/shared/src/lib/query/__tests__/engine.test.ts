@@ -1134,3 +1134,85 @@ describe('BasicQueryEngine entity-extension joins', () => {
     expect(join.aliasObj).toEqual({ ext_example_session_note: 'example_session_notes' })
   })
 })
+
+describe('BasicQueryEngine like/ilike routing by column encryption', () => {
+  // The token rewrite exists because ILIKE against ciphertext cannot match. On a plaintext
+  // column SQL ILIKE is exact, and the rewrite silently changes the result set: tokenization
+  // splits on non-alphanumerics and drops tokens shorter than minTokenLength, so a
+  // document-number search like "ZK 1/2026" degrades to the tokens {202, 2026} and matches
+  // every record from that year instead of the one document.
+  const fakeDbWithTokens = () => createFakeKysely({
+    customer_entities: [],
+    search_tokens: [{ one: 1 }],
+    'information_schema.tables': [{ table_name: 'search_tokens' }],
+    'information_schema.columns': [
+      { table_name: 'customer_entities', column_name: 'tenant_id' },
+      { table_name: 'customer_entities', column_name: 'display_name' },
+    ],
+  })
+
+  test('a plaintext base column keeps exact SQL ILIKE even when tokens are available', async () => {
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%ZK 1/2026%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    expect(baseCall).toBeTruthy()
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%ZK 1/2026%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+
+  test('an encrypted base column still routes through search tokens', async () => {
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDbWithTokens() as any,
+      () => ({ getEncryptedFieldNames: async () => ['display_name'] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('without an encryption service every base column is plaintext, so ILIKE stays exact', async () => {
+    // No service means nothing could have encrypted the stored data -- the rewrite would
+    // change results without buying anything.
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%avision%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+})

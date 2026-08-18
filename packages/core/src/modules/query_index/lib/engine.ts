@@ -148,13 +148,25 @@ type SearchRuntime = {
   organizationScope?: { ids: string[]; includeNull: boolean } | null
   tenantId?: string | null
   searchSources?: SearchTokenSource[]
+  /**
+   * Base-column fields whose stored value is ciphertext, so a like/ilike on them can only be
+   * answered via search tokens. A plaintext column keeps exact SQL ILIKE instead: the token
+   * rewrite is approximate -- it splits on non-alphanumerics and drops tokens shorter than
+   * minTokenLength, so a document-number search like "ZK 1/2026" degrades to the tokens
+   * {202, 2026} and matches every record from that year, and an all-short term like "ZK"
+   * produces no tokens and silently drops the predicate. `null`/absent = the encryption
+   * service could not answer (or a caller predates this field); keep the old rewrite then,
+   * because guessing "plaintext" would turn encrypted-column search into an
+   * ILIKE-on-ciphertext that matches nothing.
+   */
+  encryptedFields?: Set<string> | null
   /** Per-`query()` alias minter for `search_tokens` subqueries (see #2738). */
   mintAlias: () => string
 }
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
-  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null, options?: { ignoreRuntimeHealth?: boolean }) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
 
@@ -496,6 +508,27 @@ export class HybridQueryEngine implements QueryEngine {
         ? await this.searchAvailability().anySourceHasTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
+      if (searchRuntime.enabled) {
+        // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
+        // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
+        try {
+          const encryptionService = this.getEncryptionService()
+          if (encryptionService?.getEncryptedFieldNames) {
+            const names = await encryptionService.getEncryptedFieldNames(
+              entity as EntityId,
+              opts.tenantId ?? null,
+              null,
+              { ignoreRuntimeHealth: true },
+            )
+            searchRuntime.encryptedFields = new Set((names ?? []).map((name) => String(name)))
+          } else {
+            // No encryption service, or one without the map reader: nothing is encrypted at rest.
+            searchRuntime.encryptedFields = new Set()
+          }
+        } catch {
+          searchRuntime.encryptedFields = null
+        }
+      }
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -1743,11 +1776,13 @@ export class HybridQueryEngine implements QueryEngine {
       return this.buildIndexDocFilterExpression(eb, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime)
     }
     // For like/ilike with active search-tokens, route through hashed-token EXISTS subquery
-    // so encrypted-at-rest columns can still be searched.
+    // so encrypted-at-rest columns can still be searched. Plaintext base columns keep exact
+    // SQL ILIKE -- see SearchRuntime.encryptedFields.
     if (
       (filter.op === 'like' || filter.op === 'ilike') &&
       searchRuntime?.enabled &&
-      typeof filter.value === 'string'
+      typeof filter.value === 'string' &&
+      (searchRuntime.encryptedFields == null || searchRuntime.encryptedFields.has(fieldName))
     ) {
       const tokens = tokenizeText(String(filter.value), searchRuntime.config)
       if (tokens.hashes.length) {
@@ -2384,7 +2419,9 @@ export class HybridQueryEngine implements QueryEngine {
     if (
       (filter.op === 'like' || filter.op === 'ilike') &&
       search?.enabled &&
-      typeof filter.value === 'string'
+      typeof filter.value === 'string' &&
+      // Plaintext base columns keep exact SQL ILIKE -- see SearchRuntime.encryptedFields.
+      (search.encryptedFields == null || search.encryptedFields.has(search.field))
     ) {
       const tokens = tokenizeText(String(filter.value), search.config)
       const hashes = tokens.hashes

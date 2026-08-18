@@ -43,7 +43,7 @@ const entityTableCache = new Map<string, string>()
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
-  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null, options?: { ignoreRuntimeHealth?: boolean }) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
 
@@ -345,6 +345,36 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
+    // Base-column like/ilike is rerouted through search tokens ONLY for encrypted columns, where
+    // ILIKE against ciphertext cannot match. On a plaintext column SQL ILIKE is exact, and the token
+    // rewrite silently changes the result set: tokenization splits on non-alphanumerics and drops
+    // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to
+    // the tokens {202, 2026} and matches every record from that year instead of the one document.
+    // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while the
+    // KMS is down -- so an outage keeps encrypted columns on the token path (#4622). `null` means
+    // the encryption service could not answer at all; keep the pre-existing rewrite-everything
+    // behavior then, because guessing "plaintext" would turn encrypted-column search into an
+    // ILIKE-on-ciphertext that matches nothing.
+    let encryptedLikeFields: Set<string> | null = null
+    if (searchActive && searchFilters.some((filter) => !String(filter.field).startsWith('cf:'))) {
+      try {
+        const service = this.getEncryptionService()
+        if (service?.getEncryptedFieldNames) {
+          const names = await service.getEncryptedFieldNames(
+            String(entity),
+            opts.tenantId ?? null,
+            null,
+            { ignoreRuntimeHealth: true },
+          )
+          encryptedLikeFields = new Set((names ?? []).map((name: unknown) => String(name)))
+        } else {
+          // No encryption service, or one without the map reader: nothing is encrypted at rest.
+          encryptedLikeFields = new Set()
+        }
+      } catch {
+        encryptedLikeFields = null
+      }
+    }
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -422,7 +452,11 @@ export class BasicQueryEngine implements QueryEngine {
         searchActive &&
         typeof value === 'string' &&
         fieldName &&
-        typeof column === 'string'
+        typeof column === 'string' &&
+        // Plaintext columns keep exact SQL ILIKE -- see the encryptedLikeFields note above. cf:*
+        // filters never reach this path (they are applied by the custom-field branches), so this
+        // gate only decides base columns.
+        (encryptedLikeFields === null || encryptedLikeFields.has(fieldName))
       ) {
         const tokens = tokenizeText(String(value), searchConfig)
         const hashes = tokens.hashes
