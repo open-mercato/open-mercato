@@ -39,6 +39,15 @@ jest.mock('../../../../lib/adapter-registry', () => ({
   getDataSyncAdapter: jest.fn((providerKey: string) => mockGetDataSyncAdapter(providerKey)),
 }))
 
+// The route resolves the adapter through `start-cursor`, which re-exports the
+// registry helper — the same one the cursor resolution uses, so both decisions
+// agree on one adapter per integration.
+jest.mock('../../../../lib/start-cursor', () => ({
+  ...jest.requireActual('../../../../lib/start-cursor'),
+  resolveAdapterForIntegration: jest.fn((integrationId: string) =>
+    mockGetDataSyncAdapter(mockGetIntegration(integrationId)?.providerKey ?? integrationId) ?? null),
+}))
+
 jest.mock('../../../../lib/start-run', () => ({
   startDataSyncRun: jest.fn((input) => mockStartDataSyncRun(input)),
 }))
