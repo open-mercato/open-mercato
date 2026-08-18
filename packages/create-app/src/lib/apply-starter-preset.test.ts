@@ -90,6 +90,35 @@ test('resolvePreset: crm returns 17-module list extending empty (includes curren
   assert.equal(unique.size, ids.length)
 })
 
+test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
+  const result = resolvePreset('wms')
+  assert.equal(result.isClassic, false)
+  assert.equal(result.modules.length, 18)
+  const ids = result.modules.map((m) => m.id)
+  assert.deepEqual(ids, [
+    'auth',
+    'directory',
+    'configs',
+    'entities',
+    'query_index',
+    'api_docs',
+    'audit_logs',
+    'notifications',
+    'dashboards',
+    'events',
+    'search',
+    'customers',
+    'dictionaries',
+    'feature_toggles',
+    'catalog',
+    'sales',
+    'wms',
+    'currencies',
+  ])
+  assert.equal(result.modules.find((module) => module.id === 'wms')?.from, '@open-mercato/core')
+  assert.equal(result.modules.find((module) => module.id === 'search')?.from, '@open-mercato/search')
+})
+
 test('resolvePreset: unknown preset throws', () => {
   assert.throws(() => resolvePreset('bogus'), /Unknown preset/)
 })
@@ -129,6 +158,15 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'ai_assistant'"))
   assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
   assert.ok(!content.includes('example_customers_sync'))
+})
+
+test('generateModulesTs: produces valid content for wms modules', () => {
+  const content = generateModulesTs(resolvePreset('wms').modules)
+  for (const moduleId of ['catalog', 'sales', 'feature_toggles', 'wms', 'currencies']) {
+    assert.ok(content.includes(`id: '${moduleId}'`))
+  }
+  assert.ok(!content.includes("id: 'ai_assistant'"))
+  assert.ok(!content.includes("id: 'example'"))
 })
 
 // applyStarterPreset filesystem tests
@@ -224,6 +262,23 @@ test('applyStarterPreset: crm writes 17-module modules.ts and keeps example sour
   }
 })
 
+test('applyStarterPreset: wms writes the WMS dependency chain and keeps example source present', () => {
+  const dir = makeTempDir()
+  try {
+    applyStarterPreset('wms', dir)
+    const content = readFileSync(join(dir, 'src', 'modules.ts'), 'utf-8')
+    for (const moduleId of ['customers', 'dictionaries', 'feature_toggles', 'catalog', 'sales', 'wms', 'currencies']) {
+      assert.ok(content.includes(`id: '${moduleId}'`))
+    }
+    assert.ok(!content.includes("id: 'ai_assistant'"))
+    assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
+    const marker = JSON.parse(readFileSync(join(dir, '.mercato', 'starter-preset.json'), 'utf-8'))
+    assert.equal(marker.preset, 'wms')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // Drift guard: the app shell's topbar renders each affordance on an ACL feature, and
 // `filterGrantsByEnabledModules` strips any feature whose owning module is not in the
 // enabled-modules registry — for every role, superadmin included. A preset that omits
@@ -250,12 +305,12 @@ test('every non-classic preset enables the modules the template topbar gates on'
   assert.ok(requiredModuleIds.includes('search'))
   assert.ok(requiredModuleIds.includes('notifications'))
 
-  for (const presetId of ['empty', 'crm']) {
+  for (const presetId of ['empty', 'crm', 'wms']) {
     const enabledIds = new Set(resolvePreset(presetId).modules.map((m) => m.id))
     for (const moduleId of requiredModuleIds) {
       // ai_assistant is a CRM capability rather than baseline chrome, so the empty
-      // preset is allowed to omit it; every other gated module must be present.
-      if (moduleId === 'ai_assistant' && presetId === 'empty') continue
+      // and WMS presets are allowed to omit it; every other gated module must be present.
+      if (moduleId === 'ai_assistant' && ['empty', 'wms'].includes(presetId)) continue
       assert.ok(
         enabledIds.has(moduleId),
         `preset "${presetId}" must enable module "${moduleId}" — the topbar gates an affordance on one of its features`,
@@ -265,7 +320,7 @@ test('every non-classic preset enables the modules the template topbar gates on'
 })
 
 test('any preset enabling ai_assistant also enables search', () => {
-  for (const presetId of ['classic', 'empty', 'crm']) {
+  for (const presetId of ['classic', 'empty', 'crm', 'wms']) {
     const resolved = resolvePreset(presetId)
     if (resolved.isClassic) continue
     const ids = new Set(resolved.modules.map((m) => m.id))

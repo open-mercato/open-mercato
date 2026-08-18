@@ -7,7 +7,11 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CommunicationChannel } from '../../../../data/entities'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../lib/access-control'
+import {
+  ChannelAccessDeniedError,
+  assertCanAccessChannel,
+  channelOrgScopeWhereFromFilter,
+} from '../../../../lib/access-control'
 
 type RbacServiceLike = {
   loadAcl: (
@@ -50,7 +54,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     {
       id,
       tenantId: auth.tenantId,
-      ...orgFilter.where,
+      ...channelOrgScopeWhereFromFilter(orgFilter),
       deletedAt: null,
     },
     undefined,

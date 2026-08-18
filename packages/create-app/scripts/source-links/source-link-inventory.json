@@ -129,7 +129,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -246,7 +247,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -358,7 +360,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -472,7 +475,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -504,7 +508,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -538,7 +543,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -572,7 +578,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -606,7 +613,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -640,7 +648,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -674,7 +683,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -708,7 +718,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -742,7 +753,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "automation",
@@ -780,7 +792,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -823,7 +836,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -866,7 +880,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -920,7 +935,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -975,7 +991,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1016,7 +1033,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1054,7 +1072,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1100,7 +1119,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1142,7 +1162,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1166,7 +1187,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1208,7 +1230,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1250,7 +1273,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1292,7 +1316,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1334,7 +1359,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1376,7 +1402,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1449,7 +1476,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1468,7 +1496,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1541,7 +1570,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1560,7 +1590,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1633,7 +1664,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1657,7 +1689,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1699,7 +1732,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1741,7 +1775,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1783,7 +1818,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1825,7 +1861,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1867,7 +1904,8 @@
           "availabilityByPreset": {
             "classic": "source-only",
             "crm": "source-only",
-            "empty": "source-only"
+            "empty": "source-only",
+            "wms": "source-only"
           },
           "featureId": "design_system.view",
           "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1929,7 +1967,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1962,7 +2001,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -1999,7 +2039,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2038,7 +2079,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2071,7 +2113,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2171,7 +2214,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2209,7 +2253,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2246,7 +2291,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2297,7 +2343,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2329,7 +2376,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2361,7 +2409,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2393,7 +2442,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2433,7 +2483,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2499,7 +2550,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2538,7 +2590,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2618,7 +2671,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2654,7 +2708,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2695,7 +2750,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2729,7 +2785,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2763,7 +2820,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2802,7 +2860,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2838,7 +2897,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2866,7 +2926,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2914,7 +2975,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -2958,7 +3020,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3000,7 +3063,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3042,7 +3106,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3078,7 +3143,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3118,7 +3184,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3159,7 +3226,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3203,7 +3271,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3241,7 +3310,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3281,7 +3351,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3332,7 +3403,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3382,7 +3454,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3417,7 +3490,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3458,7 +3532,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3496,7 +3571,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3528,7 +3604,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3560,7 +3637,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3602,7 +3680,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3639,7 +3718,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3679,7 +3759,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3725,7 +3806,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3770,7 +3852,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3807,7 +3890,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3849,7 +3933,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3889,7 +3974,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3926,7 +4012,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3962,7 +4049,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -3999,7 +4087,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4037,7 +4126,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4082,7 +4172,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4125,7 +4216,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4239,7 +4331,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4347,7 +4440,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4393,7 +4487,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4431,7 +4526,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4486,7 +4582,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4528,7 +4625,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4567,7 +4665,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4606,7 +4705,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4644,7 +4744,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4686,7 +4787,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4728,7 +4830,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4764,7 +4867,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4806,7 +4910,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4851,7 +4956,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4898,7 +5004,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4940,7 +5047,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -4982,7 +5090,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5026,7 +5135,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5076,7 +5186,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5120,7 +5231,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5162,7 +5274,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5205,7 +5318,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5244,7 +5358,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5284,7 +5399,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5402,7 +5518,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5441,7 +5558,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5474,7 +5592,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5510,7 +5629,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5552,7 +5672,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5585,7 +5706,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5617,7 +5739,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5651,7 +5774,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5687,7 +5811,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5724,7 +5849,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -5776,7 +5902,8 @@
       "presets": [
         "classic",
         "crm",
-        "empty"
+        "empty",
+        "wms"
       ],
       "tiers": [
         "core"
@@ -6655,7 +6782,9 @@
         "OMH-229",
         "OMH-230",
         "OMH-231",
-        "OMH-232"
+        "OMH-232",
+        "OMH-233",
+        "OMH-234"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -6909,7 +7038,9 @@
         "OMH-229",
         "OMH-230",
         "OMH-231",
-        "OMH-232"
+        "OMH-232",
+        "OMH-233",
+        "OMH-234"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [

@@ -30,7 +30,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 232-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 234-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -766,6 +766,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
+- **2026-08-18** — Reconciled with the upstream 233-case expansion (OMH-232 push-notification phone reach, OMH-233 tenant-wide push credentials) by moving the Documents facts-first reuse decision to OMH-234 and synchronizing the 234-case/49-writable schema, documentation, and tests.
 - **2026-08-17** — Reconciled with the upstream 231-case expansion by moving the Documents facts-first reuse decision to OMH-232, keeping the upstream OMH-230/OMH-231 identities intact, and synchronizing the 232-case/49-writable schema, documentation, and tests.
 - **2026-08-14** — Made the gate-evidence/typecheck validator hook layer opt-in across Claude Code, Codex, and Cursor. Fresh scaffolds and `agentic:init` runs omit it by default; the additive `--experimental-hooks-validator` flag or `OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR=1` enables it without changing the underlying validator semantics.
 - **2026-08-12** — Preserved the upstream 229-case expansion and allocated OMH-230 to the Documents facts-first reuse decision, retaining both contracts without reusing an existing identity; synchronized the 230-case/48-writable schema, documentation, and tests.
