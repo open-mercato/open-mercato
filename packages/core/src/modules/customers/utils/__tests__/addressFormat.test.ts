@@ -1,4 +1,5 @@
 import {
+  formatAddressContactPairs,
   formatAddressJson,
   formatAddressLines,
   formatAddressString,
@@ -101,5 +102,58 @@ describe('customers utils - address formatting', () => {
     }
     expect(formatAddressString(address, 'street_first')).toBe('Baker Street 10, NW1 London')
     expect(formatAddressString(address, 'line_first', ' | ')).toBe('Baker Street 10 | NW1 London')
+  })
+
+  describe('address-level contact details', () => {
+    const address = {
+      addressLine1: 'Baker Street',
+      buildingNumber: '10',
+      postalCode: 'NW1',
+      city: 'London',
+      taxId: '1234567890',
+      taxIdType: 'pl_nip',
+      phone: '+44 20 7946 0000',
+    }
+    const labels = { taxId: 'Tax ID', phone: 'Phone' }
+
+    // The whole point of keeping these out of formatAddressLines: that output is joined with ", "
+    // into one-line summaries for pickers and table cells, where a tax id would be nonsense.
+    it('never leaks into the postal lines or the one-line summary', () => {
+      expect(formatAddressLines(address, 'street_first')).toEqual(['Baker Street 10', 'NW1 London'])
+      expect(formatAddressString(address, 'street_first')).toBe('Baker Street 10, NW1 London')
+    })
+
+    it('is returned in a stable order, tax id first', () => {
+      expect(formatAddressContactPairs(address, labels)).toEqual([
+        ['Tax ID', '1234567890'],
+        ['Phone', '+44 20 7946 0000'],
+      ])
+    })
+
+    // Opt-in per field: an unlabelled field stays hidden even when the address carries a value, so a
+    // caller can surface the phone without also exposing a tax id.
+    it('shows only the fields the caller labelled', () => {
+      expect(formatAddressContactPairs(address, { phone: 'Phone' })).toEqual([['Phone', '+44 20 7946 0000']])
+    })
+
+    it('renders nothing at all without labels — the pre-existing behaviour', () => {
+      expect(formatAddressContactPairs(address, undefined)).toEqual([])
+      expect(formatAddressContactPairs(address, {})).toEqual([])
+    })
+
+    it('skips absent, blank and whitespace-only values', () => {
+      const sparse = { ...address, taxId: null, phone: '   ' }
+      expect(formatAddressContactPairs(sparse, labels)).toEqual([])
+    })
+
+    // `taxIdType` interprets the value (and will gate its display in a later phase); it must never
+    // surface as a pair of its own, whatever labels the caller passes.
+    it('never emits the tax id TYPE as a displayed pair', () => {
+      const pairs = formatAddressContactPairs(address, { ...labels, taxIdType: 'Type' } as never)
+      expect(pairs).toEqual([
+        ['Tax ID', '1234567890'],
+        ['Phone', '+44 20 7946 0000'],
+      ])
+    })
   })
 })
