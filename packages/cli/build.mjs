@@ -203,6 +203,6 @@ await buildPackage(packageDir, {
     if (existsSync(agenticDist)) renameSync(agenticDist, agenticPrevious)
     renameSync(agenticStaging, agenticDist)
     rmSync(agenticPrevious, { recursive: true, force: true })
-    console.log('Published create-app/agentic/ → dist/agentic/')
+    console.log('Published dist/agentic.staging/ → dist/agentic/')
   },
 })
