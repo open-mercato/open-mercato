@@ -101,6 +101,7 @@
   "dashboards.analytics.widgets.topProducts.empty": "No hay datos de ventas de productos para este período",
   "dashboards.analytics.widgets.topProducts.error": "No se pudieron cargar los datos de productos",
   "dashboards.analytics.widgets.topProducts.title": "Productos principales por ingresos",
+  "dashboards.errors.forbidden_scope": "El ámbito solicitado no es accesible",
   "dashboards.errors.organization_required": "Se requiere contexto de organización",
   "dashboards.errors.tenant_required": "Se requiere contexto de inquilino",
   "dashboards.errors.unauthorized": "No autorizado",
