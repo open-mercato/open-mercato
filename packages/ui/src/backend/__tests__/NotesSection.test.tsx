@@ -29,6 +29,109 @@ describe('NotesSection', () => {
     dismissRecordConflict()
   })
 
+  // In paged mode the guard used to be `currentPage >= totalPages`. A
+  // `totalPages` derived from an under-reporting total — a capped list count, or
+  // notes added between requests — hid the button and left the rest unreachable.
+  // `/api/customers/comments` is a `makeCrudRoute` list, so a page past the end
+  // comes back empty rather than clamped, and that is what ends the sequence.
+  describe('paged load-more termination', () => {
+    const PAGE_SIZE = 20
+
+    const makeNotes = (count: number, offset = 0) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `note-${offset + index + 1}`,
+        body: `Note ${offset + index + 1}`,
+        createdAt: '2026-04-10T08:00:00.000Z',
+        authorName: 'Ada Lovelace',
+      }))
+
+    const translator = (key: string, fallback?: string) =>
+      key === 'customers.people.detail.notes.loadMore' ? 'Load more' : fallback ?? key
+
+    const renderPaged = (listPage: jest.Mock) =>
+      renderWithProviders(
+        <NotesSection
+          entityId="person-1"
+          emptyLabel="—"
+          viewerUserId="user-1"
+          viewerName="Ada Lovelace"
+          addActionLabel="Add note"
+          emptyState={{ title: 'No notes yet', actionLabel: 'Add note' }}
+          dataAdapter={{
+            list: jest.fn(async () => []),
+            listPage,
+            create: jest.fn(async () => ({ id: 'note-new' })),
+            update: jest.fn(async () => undefined),
+            delete: jest.fn(async () => undefined),
+          } as NotesDataAdapter}
+          translator={translator}
+          disableMarkdown
+        />,
+      )
+
+    it('offers Load more on a full page even when totalPages reports a single page', async () => {
+      const listPage = jest.fn(async () => ({
+        items: makeNotes(PAGE_SIZE),
+        total: 3,
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalPages: 1,
+      }))
+
+      renderPaged(listPage)
+
+      expect(await screen.findByText('Note 1')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Load more' })).toBeInTheDocument()
+    })
+
+    it('hides Load more once a page comes back short', async () => {
+      const listPage = jest.fn(async () => ({
+        items: makeNotes(3),
+        // A large total must not conjure a next page.
+        total: 999,
+        page: 1,
+        pageSize: PAGE_SIZE,
+        totalPages: 50,
+      }))
+
+      renderPaged(listPage)
+
+      expect(await screen.findByText('Note 1')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+    })
+
+    it('stops on the empty page past the end without duplicating rows', async () => {
+      const listPage = jest
+        .fn()
+        .mockResolvedValueOnce({
+          items: makeNotes(PAGE_SIZE),
+          total: PAGE_SIZE,
+          page: 1,
+          pageSize: PAGE_SIZE,
+          totalPages: 1,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          total: PAGE_SIZE,
+          page: 2,
+          pageSize: PAGE_SIZE,
+          totalPages: 1,
+        })
+
+      renderPaged(listPage)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+      expect(listPage).toHaveBeenCalledTimes(2)
+      expect(screen.getAllByText('Note 20')).toHaveLength(1)
+    })
+  })
+
   it('keeps an add-note action visible after notes already exist', async () => {
     const dataAdapter: NotesDataAdapter = {
       list: jest.fn(async () => [

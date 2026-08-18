@@ -85,6 +85,9 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'resources:ResourcesResource': { status: 'enabled', resourceKind: 'resources.resource', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes sub-resource sends the lock header (Phase 7); tags exempt.' },
   'resources:ResourcesResourceType': { status: 'enabled', resourceKind: 'resources.resource_type', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
 
+  // --- devices ---
+  'devices:UserDevice': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — user devices are per-owner rows (rename/deactivate by the owning user or an admin), not a shared collaborative-edit surface; the hand-written deviceOps routes enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor (allowlisted in optimistic-lock-command-coverage). Enterprise record_locks migration deferred.' },
+
   // --- dictionaries ---
   'dictionaries:Dictionary': { status: 'enabled', resourceKind: 'dictionaries.dictionary', reason: 'enabled — Phase 6; routes migrated to the async command seam.' },
   'dictionaries:DictionaryEntry': { status: 'enabled', resourceKind: 'dictionaries.entry', reason: 'enabled — Phase 6; entry routes migrated to the async command seam; reorder/set-default exempt.' },
@@ -116,6 +119,10 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
 
   // --- messages ---
   'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
+
+  // --- notifications ---
+  'notifications:NotificationTypeOverride': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — a tenant-scoped operator override edited only via the custom `PATCH /api/notifications/types` handler (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and 409s a stale write on the shared conflict banner. Enterprise record_locks migration deferred.' },
+  'notifications:NotificationPreference': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — per-(user, type, channel) preference rows a user edits only for themselves (not a shared collaborative-edit surface); written via the idempotent `setPreferences` upsert, which is last-writer-wins by design. Carries updated_at for the OSS floor; tenant/org record_locks enrichment is not engaged.' },
 }
 
 /**

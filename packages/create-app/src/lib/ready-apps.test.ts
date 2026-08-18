@@ -302,6 +302,41 @@ test('CLI bare scaffold applies explicit crm preset without prompting', () => {
   }
 })
 
+test('CLI bare scaffold applies explicit wms preset without prompting', () => {
+  const targetRoot = makeTempDir('create-mercato-app-cli-wms-preset-')
+  const targetDir = join(targetRoot, 'wms-app')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI_ENTRY, targetDir, '--skip-agentic-setup', '--preset', 'wms'],
+      {
+        cwd: PACKAGE_ROOT,
+        encoding: 'utf8',
+        env: process.env,
+        timeout: CLI_SCAFFOLD_TIMEOUT_MS,
+      },
+    )
+
+    assert.equal(
+      result.status,
+      0,
+      `expected CLI scaffold with --preset wms to succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    )
+    assert.doesNotMatch(result.stdout, /No starter preset selected/)
+
+    const modulesTs = readFileSync(join(targetDir, 'src', 'modules.ts'), 'utf8')
+    for (const moduleId of ['catalog', 'sales', 'feature_toggles', 'wms', 'currencies']) {
+      assert.match(modulesTs, new RegExp(`id: '${moduleId}'`))
+    }
+    assert.doesNotMatch(modulesTs, /id: 'ai_assistant'/)
+    assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example')), true)
+    assert.equal(existsSync(join(targetDir, '.mercato', 'starter-preset.json')), true)
+  } finally {
+    rmSync(targetRoot, { recursive: true, force: true })
+  }
+})
+
 test('CLI imported ready apps skip wizard-generated files', async () => {
   const archive = await createGitHubStyleTarball({
     'package.json': '{"name":"ready-app-prm","version":"0.0.1"}\n',

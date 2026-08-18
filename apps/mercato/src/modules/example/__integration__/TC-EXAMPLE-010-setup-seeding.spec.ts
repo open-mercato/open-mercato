@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { expect, test } from '@playwright/test'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
@@ -21,10 +23,26 @@ type ModuleLike = {
   }
 }
 
-let bootstrapPromise: Promise<{ modules: ModuleLike[] }> | null = null
+type TargetAppBootstrap = {
+  modules: ModuleLike[]
+  entityIds: Record<string, Record<string, string>>
+}
+
+let bootstrapPromise: Promise<TargetAppBootstrap> | null = null
 
 async function getModules(): Promise<ModuleLike[]> {
-  if (!bootstrapPromise) bootstrapPromise = bootstrapFromAppRoot(APP_ROOT) as Promise<{ modules: ModuleLike[] }>
+  if (!bootstrapPromise) {
+    bootstrapPromise = (async () => {
+      const bootstrap = await bootstrapFromAppRoot(APP_ROOT) as TargetAppBootstrap
+      const targetRequire = createRequire(path.join(APP_ROOT, 'package.json'))
+      const targetEntityIdsPath = targetRequire.resolve('@open-mercato/shared/lib/encryption/entityIds')
+      const targetEntityIds = await import(pathToFileURL(targetEntityIdsPath).href) as {
+        registerEntityIds: (ids: TargetAppBootstrap['entityIds']) => void
+      }
+      targetEntityIds.registerEntityIds(bootstrap.entityIds)
+      return bootstrap
+    })()
+  }
   return (await bootstrapPromise).modules
 }
 
