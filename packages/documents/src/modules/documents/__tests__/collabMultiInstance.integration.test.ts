@@ -6,6 +6,7 @@ import * as Y from 'yjs'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import {
+  closeCollabRoomConnectionsForContentReset,
   createCollabHooks,
   DocumentsCollabRedisExtension,
   enforceDocumentsCollabSourceStoreOwnership,
@@ -14,6 +15,7 @@ import {
   type CollabContext,
   type CollabHooksDeps,
 } from '../../../../server/documents-collab-server'
+import { isCollabContentResetCloseEvent } from '../lib/collabCloseEvents'
 import { mintCollabToken, verifyCollabToken } from '../lib/collabToken'
 import { DOCUMENTS_MAX_YJS_STATE_BYTES } from '../lib/resourceLimits'
 
@@ -95,6 +97,13 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
   let observedPublishedDocumentId: string | null = null
   let signalPersistedPublish = (): void => undefined
   let persistedPublishObserved = Promise.resolve()
+  // Mirrors the production sidecar's `invalidateRoom` for the content-replaced
+  // case (`main()`): suppress the retiring room's store AND close its sockets
+  // with the reason the browser resets its local document on.
+  const retireRoomForContentReset = new Map<
+    Server<CollabContext>,
+    (documentName: string, document: Y.Doc) => void
+  >()
 
   beforeAll(async () => {
     process.env.JWT_SECRET = 'documents-real-multi-instance-test-secret'
@@ -304,6 +313,10 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
           })
         },
         onDisconnect: async (data) => hooks.releaseConnectionAuthorization(data.context),
+      })
+      retireRoomForContentReset.set(server, (documentName, document) => {
+        invalidatedDocuments.add(document)
+        closeCollabRoomConnectionsForContentReset(server.hocuspocus, documentName)
       })
       return server
     }
@@ -654,4 +667,110 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
       secondLarge.destroy()
     }
   }, 45_000)
+
+  // Issue #5361. The client-side and server-side halves of the content-reset
+  // fix were previously only covered by separate mocks — one injecting the
+  // expected close payload, the other asserting a mocked `connection.close`
+  // argument — so a protocol-shape or reconnect-synchronization regression
+  // could pass both while a restored version was silently overwritten again.
+  // This case drives the real Hocuspocus protocol end to end.
+  it('carries the content-reset close reason over the protocol and keeps the restored state durable', async () => {
+    const documentId = '99999999-9999-4999-8999-999999999999'
+    await pool!.query(
+      `INSERT INTO document_content
+        (document_id, tenant_id, organization_id, yjs_state, version)
+       VALUES ($1, $2, $3, $4, 0)`,
+      [documentId, TENANT_ID, ORGANIZATION_ID, Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()))],
+    )
+    const readDurableContent = async (): Promise<Record<string, unknown>> => {
+      const result = await pool!.query<{ yjs_state: Buffer }>(
+        'SELECT yjs_state FROM document_content WHERE document_id = $1',
+        [documentId],
+      )
+      const durable = new Y.Doc()
+      Y.applyUpdate(durable, new Uint8Array(result.rows[0].yjs_state))
+      const state = durable.getMap('reset').toJSON()
+      durable.destroy()
+      return state
+    }
+
+    const token = mintCollabToken({
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId,
+      tier: 'editor',
+    })
+    const staleDocument = new Y.Doc()
+    const rejoinDocument = new Y.Doc()
+    const stale = createProvider(firstServer!.webSocketURL, staleDocument, token, documentId)
+    let rejoin: ReturnType<typeof createProvider> | null = null
+    let resetCloseObserved = false
+    let staleDestroyed = false
+    stale.provider.on('close', (payload: unknown) => {
+      const event = (payload as { event?: unknown } | null)?.event
+      if (!isCollabContentResetCloseEvent(event)) return
+      resetCloseObserved = true
+      // Exactly what `useDocumentCollaboration` does on this reason: stop every
+      // reconnect path before the stale document can rejoin the reloaded room.
+      stale.provider.configuration.websocketProvider.disconnect()
+    })
+
+    try {
+      await stale.synced
+      staleDocument.getMap('reset').set('stale', 'pre-restore')
+      await waitFor(
+        async () => (await readDurableContent()).stale === 'pre-restore',
+        'The pre-restore edit never completed its debounce/store cycle',
+      )
+
+      // A version restore replaces the durable content behind the live room's
+      // back, then retires that room.
+      const restored = new Y.Doc()
+      restored.getMap('reset').set('restored', 'v1')
+      await pool!.query(
+        `UPDATE document_content
+            SET yjs_state = $1, version = version + 1
+          WHERE document_id = $2`,
+        [Buffer.from(Y.encodeStateAsUpdate(restored)), documentId],
+      )
+      restored.destroy()
+
+      const room = firstServer!.hocuspocus.documents.get(documentId)
+      expect(room).toBeTruthy()
+      retireRoomForContentReset.get(firstServer!)!(documentId, room!)
+
+      await waitFor(
+        () => resetCloseObserved,
+        'The content-reset reason did not survive the Hocuspocus close message',
+      )
+
+      staleDestroyed = true
+      stale.provider.destroy()
+      await waitFor(
+        () => !firstServer!.hocuspocus.documents.has(documentId),
+        'The sidecar never unloaded the content-replaced room',
+        20_000,
+      )
+      // The retired room must not have written its pre-restore Y.Doc back.
+      expect(await readDurableContent()).toEqual({ restored: 'v1' })
+
+      // The browser rejoins with a FRESH Y.Doc, as the session-epoch bump forces.
+      rejoin = createProvider(firstServer!.webSocketURL, rejoinDocument, token, documentId)
+      await rejoin.synced
+      expect(rejoinDocument.getMap('reset').toJSON()).toEqual({ restored: 'v1' })
+
+      rejoinDocument.getMap('reset').set('afterRestore', 'v2')
+      await waitFor(
+        async () => (await readDurableContent()).afterRestore === 'v2',
+        'The post-restore edit never completed its debounce/store cycle',
+      )
+      expect(await readDurableContent()).toEqual({ restored: 'v1', afterRestore: 'v2' })
+    } finally {
+      if (!staleDestroyed) stale.provider.destroy()
+      rejoin?.provider.destroy()
+      staleDocument.destroy()
+      rejoinDocument.destroy()
+    }
+  }, 60_000)
 })

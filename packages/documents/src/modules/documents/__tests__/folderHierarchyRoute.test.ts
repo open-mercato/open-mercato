@@ -50,6 +50,7 @@ jest.mock('../api/_shared', () => ({
     }
     return NextResponse.json({ error: 'Unexpected error' }, { status: 500 })
   },
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 jest.mock('../api/_commands', () => ({

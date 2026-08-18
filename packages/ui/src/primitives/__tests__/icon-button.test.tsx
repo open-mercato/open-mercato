@@ -47,8 +47,37 @@ describe('IconButton pressed state', () => {
   // dark icon on a dark surface (invisible favorite/watch toggles).
   it.each(['outline', 'ghost'] as const)('keeps the primary fill on a pressed %s button in dark mode', (variant) => {
     const classes = iconButtonVariants({ variant })
-    expect(classes).toContain('aria-pressed:bg-primary')
-    expect(classes).toContain('dark:aria-pressed:bg-primary')
-    expect(classes).toContain('dark:aria-pressed:hover:bg-primary-hover')
+    expect(classes).toContain('enabled:aria-pressed:bg-primary')
+    expect(classes).toContain('dark:enabled:aria-pressed:bg-primary')
+    expect(classes).toContain('dark:enabled:aria-pressed:hover:bg-primary-hover')
+  })
+
+  // A toggle can be pressed and disabled at once — an active editor tool on a
+  // read-only document. The pressed rules are more specific than the
+  // `disabled:` surface, so without an `enabled:` gate the disabled control
+  // renders as a primary, actionable button in both themes.
+  it.each(['outline', 'ghost'] as const)(
+    'never lets the pressed surface outrank the disabled surface on a %s button',
+    (variant) => {
+      const classes = iconButtonVariants({ variant })
+      expect(classes).toContain('disabled:bg-bg-disabled')
+      expect(classes).toContain('disabled:text-text-disabled')
+      for (const pressed of classes.split(' ').filter((cls) => cls.includes('aria-pressed:'))) {
+        expect(pressed).toContain('enabled:aria-pressed:')
+      }
+    },
+  )
+
+  it('renders a pressed disabled toggle with only enabled-gated pressed rules', () => {
+    const { getByRole } = render(
+      <IconButton variant="outline" aria-label="Highlight" aria-pressed disabled>
+        <svg />
+      </IconButton>,
+    )
+    const classes = getByRole('button').className.split(' ')
+    expect(classes).toContain('disabled:bg-bg-disabled')
+    expect(classes).not.toContain('aria-pressed:bg-primary')
+    expect(classes).not.toContain('dark:aria-pressed:bg-primary')
+    expect(classes).toContain('enabled:aria-pressed:bg-primary')
   })
 })

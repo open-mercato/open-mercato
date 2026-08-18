@@ -9,8 +9,13 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
 }))
 
+// The mock must forward `className`: the preview shares the live canvas'
+// typography class so tables keep their grid lines, and a mock that drops the
+// prop makes that fix untestable.
 jest.mock('@tiptap/react', () => ({
-  EditorContent: () => <div data-testid="version-content" />,
+  EditorContent: ({ className }: { className?: string }) => (
+    <div data-testid="version-content" className={className} />
+  ),
   useEditor: () => ({ commands: { setContent: jest.fn() } }),
 }))
 
@@ -51,6 +56,7 @@ import {
   normalizeVersionPreview,
   VersionPreviewDialog,
 } from '../backend/documents/[id]/VersionPreviewDialog'
+import { DOCUMENT_EDITOR_CONTENT_CLASS } from '../backend/documents/[id]/editorTypes'
 
 const documentId = '11111111-1111-4111-8111-111111111111'
 const versionId = '22222222-2222-4222-8222-222222222222'
@@ -96,6 +102,28 @@ describe('VersionPreviewDialog display labels', () => {
     expect(within(dialog).getByRole('heading', { name: 'Version preview' })).toBeTruthy()
     expect(within(dialog).getByText('Created by Unknown user')).toBeTruthy()
     expect(document.body.textContent).not.toContain(exposedId)
+  })
+
+  it('renders the preview with the shared document editor typography', async () => {
+    render(<VersionPreviewDialog
+      documentId={documentId}
+      versionId={versionId}
+      canRestore={false}
+      isRestoring={false}
+      onOpenChange={jest.fn()}
+      onRestore={jest.fn()}
+    />)
+
+    const content = await screen.findByTestId('version-content')
+    const applied = content.className.split(/\s+/).filter(Boolean)
+    // Without the shared class the preview loses table grid lines, heading
+    // rhythm and list indentation that the live canvas renders.
+    for (const token of DOCUMENT_EDITOR_CONTENT_CLASS.split(/\s+/).filter(Boolean)) {
+      expect(applied).toContain(token)
+    }
+    expect(applied).toEqual(
+      expect.arrayContaining(['rounded-md', 'border', 'border-border', 'bg-card', 'p-4']),
+    )
   })
 
   it('retries a failed preview request in place', async () => {

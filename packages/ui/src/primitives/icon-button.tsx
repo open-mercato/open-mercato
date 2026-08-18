@@ -9,7 +9,14 @@ const iconButtonVariants = cva(
   // otherwise outrank the un-prefixed `aria-pressed:` background while the
   // `aria-pressed:text-primary-foreground` still applies — leaving a dark icon
   // on a dark surface (invisible pressed star/bell buttons on the dark theme).
-  "inline-flex items-center justify-center cursor-pointer transition-all outline-none disabled:pointer-events-none disabled:bg-bg-disabled disabled:text-text-disabled disabled:border-border-disabled disabled:shadow-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:shadow-focus aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary-hover dark:aria-pressed:bg-primary dark:aria-pressed:hover:bg-primary-hover",
+  //
+  // Every pressed rule is additionally gated on `enabled:` because a toggle can
+  // be pressed AND disabled at the same time (an active editor tool while the
+  // document is read-only). Without the gate the pressed rules outrank the
+  // `disabled:` surface — `dark:aria-pressed:bg-primary` is more specific than
+  // `disabled:bg-bg-disabled` — and a control the user cannot operate renders
+  // as a primary, actionable button.
+  "inline-flex items-center justify-center cursor-pointer transition-all outline-none disabled:pointer-events-none disabled:bg-bg-disabled disabled:text-text-disabled disabled:border-border-disabled disabled:shadow-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:shadow-focus enabled:aria-pressed:bg-primary enabled:aria-pressed:text-primary-foreground enabled:aria-pressed:hover:bg-primary-hover dark:enabled:aria-pressed:bg-primary dark:enabled:aria-pressed:hover:bg-primary-hover",
   {
     variants: {
       variant: {

@@ -35,6 +35,7 @@ import {
   routeErrorSchema,
   runMutationGuardAfterSuccess,
   validateMutationGuard,
+  withDocumentsContextErrors,
 } from '../_shared'
 
 const listQuerySchema = z.object({
@@ -321,7 +322,7 @@ export async function DELETE(request: Request): Promise<Response> {
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Document templates',
   methods: {
@@ -362,6 +363,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { GET, POST, PUT, DELETE }

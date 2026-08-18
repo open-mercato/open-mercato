@@ -37,6 +37,7 @@ jest.mock('../api/_commands', () => ({
   attachDocumentsOperationMetadata: (response: Response) => response,
   buildDocumentsCommandRuntimeContext: jest.fn(),
   resolveDocumentsCommandBus: (...args: unknown[]) => mockResolveDocumentsCommandBus(...args),
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 jest.mock('../lib/permissions', () => ({

@@ -135,7 +135,15 @@ describe('versions panel reveal', () => {
     await act(async () => { toggle.click() })
     const panel = await screen.findByText('versions-panel')
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
-    expect(document.activeElement).toBe(panel.parentElement)
+    const wrapper = panel.parentElement
+    expect(document.activeElement).toBe(wrapper)
+    // The wrapper is focused programmatically, so a bare `outline-none` would
+    // leave a keyboard user with no idea where focus went. It must carry the
+    // design system's visible focus treatment instead.
+    const wrapperClasses = wrapper?.className.split(' ') ?? []
+    expect(wrapperClasses).not.toContain('outline-none')
+    expect(wrapperClasses).toContain('focus-visible:outline-none')
+    expect(wrapperClasses).toContain('focus-visible:shadow-focus')
 
     await act(async () => { toggle.click() })
     expect(screen.queryByText('versions-panel')).toBeNull()

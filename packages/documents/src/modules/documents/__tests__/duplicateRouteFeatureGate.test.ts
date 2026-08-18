@@ -21,6 +21,7 @@ jest.mock('../lib/permissions', () => {
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 import { POST, metadata } from '../api/[id]/duplicate/route'

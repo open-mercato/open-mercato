@@ -30,6 +30,7 @@ jest.mock('../api/_shared', () => ({
   runMutationGuardAfterSuccess: (...args: unknown[]) => mockRunMutationGuardAfterSuccess(...args),
   serializeContent: jest.fn(),
   validateMutationGuard: (...args: unknown[]) => mockValidateMutationGuard(...args),
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 jest.mock('../api/_commands', () => ({

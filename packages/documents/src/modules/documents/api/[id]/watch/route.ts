@@ -17,6 +17,7 @@ import {
   runMutationGuardAfterSuccess,
   validateMutationGuard,
   type DocumentsRouteContext,
+  withDocumentsContextErrors,
 } from '../../_shared'
 
 type RouteContext = {
@@ -81,7 +82,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   return runWatchToggle(request, context, 'documents.watch.delete', 'delete', 'documents.watch.delete')
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Document watch toggle',
   pathParams: z.object({ id: z.string().uuid() }),
@@ -105,6 +106,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { POST, DELETE }

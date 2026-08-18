@@ -20,6 +20,7 @@ import {
   runMutationGuardAfterSuccess,
   serializeDocument,
   validateMutationGuard,
+  withDocumentsContextErrors,
 } from '../_shared'
 import {
   attachDocumentsOperationMetadata,
@@ -222,7 +223,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Document detail',
   pathParams: z.object({ id: z.string().uuid() }),
@@ -260,6 +261,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { GET, PUT, DELETE }

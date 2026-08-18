@@ -14,6 +14,7 @@ import {
   routeErrorSchema,
   runMutationGuardAfterSuccess,
   validateMutationGuard,
+  withDocumentsContextErrors,
 } from '../../../_shared'
 import {
   buildDocumentsCommandRuntimeContext,
@@ -129,7 +130,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Read document attachment',
   pathParams: z.object({
@@ -160,6 +161,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { GET, DELETE }

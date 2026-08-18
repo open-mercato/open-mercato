@@ -18,6 +18,7 @@ import {
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { OpenApiHttpMethod, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   Document,
   DocumentContent,
@@ -77,7 +78,57 @@ export type DocumentCapabilityProjection = {
   capabilities: DocumentCapabilities
 }
 
-export const routeErrorSchema = z.object({ error: z.string() })
+/**
+ * Every documents error body carries a translated `error` message. Some also
+ * carry a machine-readable `code` discriminator: without it a client cannot
+ * tell an unresolved organization scope (recoverable — pick an organization)
+ * apart from an ordinary validation rejection, since both are a 400.
+ */
+export const routeErrorSchema = z.object({ error: z.string(), code: z.string().optional() })
+
+export const ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION =
+  `Organization scope could not be resolved (\`code: ${ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE}\`)`
+
+/**
+ * `resolveDocumentsContext` answers 400 with the
+ * `organization_scope_required` discriminator whenever an unrestricted caller
+ * (a super-admin viewing a foreign tenant with "all organizations" selected)
+ * has no resolvable organization. Every route that resolves a documents
+ * context can therefore return it, including methods whose own contract
+ * declares no 400 at all — so the contract has to say so, or generated clients
+ * and the API reference cannot model the recovery path.
+ *
+ * Responses are keyed by status when the document is built, so a route that
+ * already documents a 400 must merge rather than append a second entry.
+ */
+export function withDocumentsContextErrors(doc: OpenApiRouteDoc): OpenApiRouteDoc {
+  const methods: OpenApiRouteDoc['methods'] = {}
+  for (const method of Object.keys(doc.methods) as OpenApiHttpMethod[]) {
+    const methodDoc = doc.methods[method]
+    if (!methodDoc) continue
+    const declared = methodDoc.errors ?? []
+    const errors = declared.some((error) => error.status === 400)
+      ? declared.map((error) => (error.status === 400
+        ? {
+            ...error,
+            description: error.description
+              ? `${error.description}, or ${ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION}`
+              : ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION,
+            schema: error.schema ?? routeErrorSchema,
+          }
+        : error))
+      : [
+          ...declared,
+          {
+            status: 400,
+            description: ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION,
+            schema: routeErrorSchema,
+          },
+        ]
+    methods[method] = { ...methodDoc, errors }
+  }
+  return { ...doc, methods }
+}
 
 const actorUuidSchema = z.string().uuid()
 

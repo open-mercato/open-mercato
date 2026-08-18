@@ -20,6 +20,7 @@ jest.mock('../api/_shared', () => ({
   routeErrorSchema: {},
   runMutationGuardAfterSuccess: (...args: unknown[]) => mockRunMutationGuardAfterSuccess(...args),
   validateMutationGuard: (...args: unknown[]) => mockValidateMutationGuard(...args),
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 jest.mock('../api/_commands', () => ({

@@ -85,6 +85,7 @@ jest.mock('../api/_shared', () => ({
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   },
   routeErrorSchema: {},
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 type UploadRoute = typeof import('../api/[id]/attachments/route')

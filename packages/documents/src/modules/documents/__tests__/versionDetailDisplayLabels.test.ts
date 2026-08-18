@@ -16,6 +16,7 @@ jest.mock('../api/_shared', () => ({
   ),
   resolveDocumentsContext: (...args: unknown[]) => mockResolveDocumentsContext(...args),
   routeErrorSchema: {},
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({

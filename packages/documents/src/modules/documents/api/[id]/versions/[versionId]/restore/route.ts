@@ -23,6 +23,7 @@ import {
   routeErrorSchema,
   runMutationGuardAfterSuccess,
   validateMutationGuard,
+  withDocumentsContextErrors,
 } from '../../../../_shared'
 
 type RouteContext = {
@@ -129,7 +130,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Restore document version',
   pathParams: z.object({ id: z.string().uuid(), versionId: z.string().uuid() }),
@@ -146,6 +147,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { POST }

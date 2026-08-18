@@ -28,6 +28,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
       'api.errors.forbidden': 'Forbidden',
     })[key] ?? fallback ?? key,
   })),
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({

@@ -25,6 +25,7 @@ import {
   resolveDocumentCapabilityProjection,
   resolveDocumentsContext,
   routeErrorSchema,
+  withDocumentsContextErrors,
 } from '../../_shared'
 
 type RouteContext = {
@@ -351,7 +352,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Document-scoped principal picker',
   pathParams: z.object({ id: z.string().uuid() }),
@@ -369,6 +370,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { GET }

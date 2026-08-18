@@ -9,6 +9,7 @@ import {
   handleDocumentsRouteError,
   resolveDocumentsContext,
   routeErrorSchema,
+  withDocumentsContextErrors,
 } from '../../_shared'
 
 type RouteContext = {
@@ -70,7 +71,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Document template detail',
   pathParams: z.object({ templateId: templateIdSchema }),
@@ -86,6 +87,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { GET }

@@ -10,6 +10,7 @@ import {
   routeErrorSchema,
   runMutationGuardAfterSuccess,
   validateMutationGuard,
+  withDocumentsContextErrors,
 } from '../../../_shared'
 import {
   attachDocumentsOperationMetadata,
@@ -71,7 +72,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Delete a document entity link',
   pathParams: z.object({ id: z.string().uuid(), linkId: z.string().uuid() }),
@@ -86,6 +87,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { DELETE }

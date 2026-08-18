@@ -26,6 +26,7 @@ jest.mock('../api/_shared', () => ({
   routeErrorSchema: {},
   runMutationGuardAfterSuccess: jest.fn(),
   validateMutationGuard: jest.fn(),
+  withDocumentsContextErrors: (doc: unknown) => doc,
 }))
 
 jest.mock('../lib/permissions', () => ({

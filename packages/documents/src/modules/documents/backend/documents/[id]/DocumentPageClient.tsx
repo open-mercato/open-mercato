@@ -337,6 +337,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
             <IconButton
               type="button"
               variant="outline"
+              size="lg"
               onClick={() => void runPersonalToggle('favorite', !document.isFavorite)}
               aria-pressed={document.isFavorite}
               aria-label={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
@@ -348,6 +349,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
             <IconButton
               type="button"
               variant="outline"
+              size="lg"
               onClick={() => void runPersonalToggle('watch', !document.isWatching)}
               aria-pressed={document.isWatching}
               aria-label={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')}
@@ -429,7 +431,11 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
               canShare={capabilities.canShare}
             />
             {showVersions ? (
-              <div ref={versionsPanelRef} tabIndex={-1} className="scroll-mt-4 outline-none">
+              <div
+                ref={versionsPanelRef}
+                tabIndex={-1}
+                className="scroll-mt-4 rounded-md focus-visible:outline-none focus-visible:shadow-focus"
+              >
                 <VersionHistoryPanel
                   documentId={document.id}
                   canRestore={capabilities.canEdit}

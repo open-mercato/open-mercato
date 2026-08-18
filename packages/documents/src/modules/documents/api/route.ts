@@ -24,6 +24,7 @@ import {
   routeErrorSchema,
   runMutationGuardAfterSuccess,
   validateMutationGuard,
+  withDocumentsContextErrors,
 } from './_shared'
 import {
   attachDocumentsOperationMetadata,
@@ -330,7 +331,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Document collection',
   methods: {
@@ -355,6 +356,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { GET, POST }

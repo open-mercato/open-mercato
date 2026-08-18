@@ -19,6 +19,7 @@ import {
   runMutationGuardAfterSuccess,
   serializeFolder,
   validateMutationGuard,
+  withDocumentsContextErrors,
 } from '../_shared'
 import {
   attachDocumentsOperationMetadata,
@@ -238,7 +239,7 @@ export async function DELETE(request: Request): Promise<Response> {
   }
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Document folders',
   methods: {
@@ -279,6 +280,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { GET, POST, PUT, DELETE }
