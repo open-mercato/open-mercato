@@ -143,7 +143,34 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `getMapping(...)`
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
+- optional `runParameters` — see below
 - optional `persistsSharedCursor(entityType)`
+
+## Run parameters
+
+An adapter can declare operator-facing parameters that the Data Sync dashboard renders as inputs on the "Run once now" card, in the spirit of a GitHub Actions `workflow_dispatch` input:
+
+```ts
+runParameters: [
+  { key: 'dryRun', label: 'Dry run', type: 'boolean', defaultValue: false },
+  { key: 'startId', label: 'Start id', type: 'number', min: 0 },
+  { key: 'mode', label: 'Mode', type: 'select', options: [{ value: 'fast' }, { value: 'thorough' }] },
+  // Offered only for this entity's run:
+  { key: 'bulk', label: 'Bulk reindex', type: 'boolean', entityType: 'sales_orders' },
+]
+```
+
+Types are `boolean`, `string`, `number` and `select`. A parameter may be scoped with `direction` (`import`/`export`) and/or `entityType` (a `supportedEntities` value or an array); unscoped parameters apply to every run.
+
+`POST /api/data_sync/run` validates and coerces the submitted `parameters` object against the declaration — undeclared keys are dropped, blanks fall back to `defaultValue`, a required blank returns `422`, and numbers respect `min`/`max` while `select` values must be members. The normalized values are persisted on `sync_runs.parameters`, shown read-only on the run detail page, retained across retries, and handed to the adapter on `StreamImportInput.parameters` / `StreamExportInput.parameters`.
+
+Run parameters are operator-visible and stored in clear text, so they must never carry secrets — use the integration's credentials service for those.
+
+For a multi-locale deployment, pair each literal with an i18n key — `labelKey`, `descriptionKey`, `placeholderKey` — which the dashboard prefers over `label` / `description` / `placeholder`. Validation failures return `{ key, code, params, message }`, where `code` is one of `required`, `type`, `min`, `max`, `select`; the UI translates it through `data_sync.runParameters.errors.<code>` and treats the English `message` only as a fallback for non-UI callers.
+
+Retrying a run re-normalizes the stored values against the adapter's *current* declaration, so parameters you have since removed or re-scoped are dropped and a value that no longer satisfies its declaration fails the retry with a 422 rather than reaching the adapter.
+
+A recurring schedule cannot yet pin an operator-chosen value, but it does apply your declared defaults: the scheduled worker normalizes an empty input against the current declaration, so a scheduled run reaches the adapter with the same set an untouched dashboard form would rather than an empty object. Write the adapter against its defaults, not against `undefined`. A declared default that violates its own declaration skips the scheduled run with a logged error instead of starting it half-applied.
 
 ## Shared cursor vs run-scoped cursor
 

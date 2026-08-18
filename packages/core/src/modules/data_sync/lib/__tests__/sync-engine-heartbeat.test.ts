@@ -12,6 +12,10 @@ const mockRefreshCoverageSnapshot = jest.fn(async () => undefined)
 
 jest.mock('../adapter-registry', () => ({
   getDataSyncAdapter: (...args: unknown[]) => mockGetDataSyncAdapter(...args),
+  // Mirrors the real helper: the engine resolves the provider key through the
+  // integration registry, falling back to the integration id. Omitting it here
+  // made every case in this suite throw once the engine started calling it.
+  resolveProviderKey: (integrationId: string) => mockGetIntegration(integrationId)?.providerKey ?? integrationId,
 }))
 
 jest.mock('@open-mercato/shared/modules/integrations/types', () => ({

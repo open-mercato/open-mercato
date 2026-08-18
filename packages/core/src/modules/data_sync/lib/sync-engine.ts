@@ -7,13 +7,15 @@ import type { ProgressService } from '../../progress/lib/progressService'
 import { STALE_JOB_TIMEOUT_SECONDS } from '../../progress/lib/progressService'
 import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
-import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
+import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch, RunParameterValue } from './adapter'
 import { getDataSyncAdapter, resolveProviderKey } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
 import { SyncRunOwnershipConflictError } from './sync-run-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
+
+type RunParameters = Record<string, RunParameterValue>
 
 type SyncScope = {
   organizationId: string
@@ -550,6 +552,7 @@ export function createSyncEngine(deps: EngineDeps) {
             mapping,
             scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
             runId: run.id,
+            parameters: (run.parameters ?? {}) as RunParameters,
           }),
           makeHeartbeatTick(run.progressJobId, scope),
           HEARTBEAT_TICK_MS,
@@ -714,6 +717,7 @@ export function createSyncEngine(deps: EngineDeps) {
             mapping,
             scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
             runId: run.id,
+            parameters: (run.parameters ?? {}) as RunParameters,
           }),
           makeHeartbeatTick(run.progressJobId, scope),
           HEARTBEAT_TICK_MS,
