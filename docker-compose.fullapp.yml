@@ -281,7 +281,12 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
-      JWT_SECRET: ${JWT_SECRET:-JWT}
+      # Same required secret and bounded legacy-token window as the app service:
+      # the sidecar boots the app container and must never fall back to a
+      # published signing secret either.
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
+      JWT_LEGACY_GRACE_MINUTES: "${JWT_LEGACY_GRACE_MINUTES:-480}"
+      JWT_LEGACY_CUTOVER_AT: "${JWT_LEGACY_CUTOVER_AT:-}"
       APP_URL: ${APP_URL:-http://localhost:3000}
       NEXT_PUBLIC_APP_URL: ${APP_URL:-http://localhost:3000}
       DOCUMENTS_COLLAB_PORT: ${DOCUMENTS_COLLAB_PORT:-4101}

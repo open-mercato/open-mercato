@@ -62,16 +62,19 @@ for (const relPath of COMPOSE_FILES) {
     )
   })
 
-  test(`${relPath} never uses :? required interpolation`, () => {
+  test(`${relPath} never hard-requires a collaboration variable via :? interpolation`, () => {
     // docker compose interpolates the ENTIRE file for ANY command (ps, config,
-    // logs, ...) regardless of profiles or targeted services, so a single :?
-    // breaks every compose invocation for users without the variable set.
-    // Optional features must degrade via :- defaults instead.
+    // logs, ...) regardless of profiles or targeted services, so a :? on an
+    // optional-feature variable breaks every compose invocation for users who
+    // never enabled the documents-collab profile. Collaboration settings must
+    // degrade via :- defaults; only deployment-wide secrets the app itself
+    // refuses to start without (JWT_SECRET, see fullapp-compose-auth-defaults)
+    // may be required.
     const content = readCompose(relPath)
     assert.doesNotMatch(
       content,
-      /\$\{[^}]*:\?/,
-      `${relPath} must not hard-require env vars via :? interpolation`
+      /\$\{(?:DOCUMENTS_COLLAB_[A-Z0-9_]*|NEXT_PUBLIC_DOCUMENTS_COLLAB_URL)[^}]*:\?/,
+      `${relPath} must not hard-require collaboration env vars via :? interpolation`
     )
   })
 }
