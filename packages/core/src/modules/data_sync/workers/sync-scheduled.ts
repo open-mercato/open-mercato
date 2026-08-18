@@ -6,6 +6,7 @@ import type { ProgressService } from '../../progress/lib/progressService'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { SyncSchedule } from '../data/entities'
 import { startDataSyncRun } from '../lib/start-run'
+import { resolveAdapterForIntegration, resolveStartCursor } from '../lib/start-cursor'
 
 type ScheduledSyncPayload = {
   scheduleId: string
@@ -65,12 +66,14 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
 
   const cursor = schedule.fullSync
     ? null
-    : await syncRunService.resolveCursor(
-        schedule.integrationId,
-        schedule.entityType,
-        schedule.direction,
-        job.payload.scope,
-      )
+    : await resolveStartCursor({
+        syncRunService,
+        adapter: resolveAdapterForIntegration(schedule.integrationId),
+        integrationId: schedule.integrationId,
+        entityType: schedule.entityType,
+        direction: schedule.direction,
+        scope: job.payload.scope,
+      })
 
   schedule.lastRunAt = new Date()
   await em.flush()
