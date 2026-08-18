@@ -856,6 +856,7 @@
   "ui.dataTable.pagination.previousAriaLabel": "Go to previous page",
   "ui.dataTable.pagination.results": "Showing {start} to {end} of {total} results",
   "ui.dataTable.pagination.resultsCapped": "Showing {start} to {end} of {total}+ results",
+  "ui.dataTable.pagination.resultsCappedNoRows": "No further results past {total}",
   "ui.dataTable.pagination.resultsCappedWithDuration": "Showing {start} to {end} of {total}+ results in {duration}",
   "ui.dataTable.pagination.resultsWithDuration": "Showing {start} to {end} of {total} results in {duration}",
   "ui.dataTable.pagination.rowsPerPage": "Rows per page",

@@ -856,6 +856,7 @@
   "ui.dataTable.pagination.previousAriaLabel": "Przejdź do poprzedniej strony",
   "ui.dataTable.pagination.results": "Wyświetlanie {start} do {end} z {total} wyników",
   "ui.dataTable.pagination.resultsCapped": "Wyświetlanie {start} do {end} z {total}+ wyników",
+  "ui.dataTable.pagination.resultsCappedNoRows": "Brak dalszych wyników powyżej {total}",
   "ui.dataTable.pagination.resultsCappedWithDuration": "Wyświetlanie {start} do {end} z {total}+ wyników w {duration}",
   "ui.dataTable.pagination.resultsWithDuration": "Wyświetlanie {start} do {end} z {total} wyników w {duration}",
   "ui.dataTable.pagination.rowsPerPage": "Wierszy na stronę",

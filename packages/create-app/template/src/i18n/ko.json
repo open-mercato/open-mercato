@@ -856,6 +856,7 @@
   "ui.dataTable.pagination.previousAriaLabel": "이전 페이지로 이동",
   "ui.dataTable.pagination.results": "전체 {total}개 중 {start}-{end}개 표시",
   "ui.dataTable.pagination.resultsCapped": "전체 {total}+개 중 {start}-{end}개 표시",
+  "ui.dataTable.pagination.resultsCappedNoRows": "{total} 이후 결과 없음",
   "ui.dataTable.pagination.resultsCappedWithDuration": "전체 {total}+개 중 {start}-{end}개 표시 ({duration})",
   "ui.dataTable.pagination.resultsWithDuration": "전체 {total}개 중 {start}-{end}개 표시 ({duration})",
   "ui.dataTable.pagination.rowsPerPage": "페이지당 행 수",

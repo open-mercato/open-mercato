@@ -2631,6 +2631,11 @@ export function DataTable<T extends RowData>({
     const endItem = totalIsCapped
       ? Math.max(startItem, startItem + data.length - 1)
       : Math.min(page * pagination.pageSize, pagination.total)
+    // Short-page detection false-positives when the true row count is an exact
+    // multiple of `pageSize`: Next stays enabled on the last full page and the
+    // page after it comes back empty. `total` is the cap rather than 0, so the
+    // pager still renders — claim no range rather than "X to X" over no rows.
+    const pageIsEmpty = data.length === 0
     const effectiveDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0)
       ? durationMs
       : measuredDurationMs ?? undefined
@@ -2679,6 +2684,9 @@ export function DataTable<T extends RowData>({
           pageSizeOptions={pageSizeOptions}
           formatPageInfo={() => {
             if (totalIsCapped) {
+              if (pageIsEmpty) {
+                return t('ui.dataTable.pagination.resultsCappedNoRows', 'No further results past {total}', { total: pagination.total })
+              }
               return durationLabel
                 ? t('ui.dataTable.pagination.resultsCappedWithDuration', 'Showing {start} to {end} of {total}+ results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
                 : t('ui.dataTable.pagination.resultsCapped', 'Showing {start} to {end} of {total}+ results', { start: startItem, end: endItem, total: pagination.total })
