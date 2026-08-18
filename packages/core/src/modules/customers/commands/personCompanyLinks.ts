@@ -1,5 +1,5 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
@@ -24,12 +24,16 @@ import {
   findDeletedPersonCompanyLink,
   loadPersonCompanyLinks,
   promoteFallbackPrimaryLink,
+  removePersonCompanyLink,
 } from '../lib/personCompanies'
 import {
+  emitQueryIndexUpsertEvents,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
+  type QueryIndexEventEntry,
 } from './shared'
+import { E } from '#generated/entities.ids.generated'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
@@ -46,6 +50,65 @@ type PersonCompanyLinkSnapshot = {
 type PersonCompanyLinkUndoPayload = {
   before?: PersonCompanyLinkSnapshot | null
   after?: PersonCompanyLinkSnapshot | null
+}
+
+/**
+ * Snapshot of a legacy profile-only company assignment — `customer_person_profiles.company_id`
+ * set with no backing link row (#5114). It carries no link id because none exists; `kind`
+ * discriminates it from `PersonCompanyLinkSnapshot` in the delete command's undo payload.
+ */
+type PersonCompanyProfileAssignmentSnapshot = {
+  kind: 'profile-only'
+  personEntityId: string
+  companyEntityId: string
+  tenantId: string
+  organizationId: string
+}
+
+type PersonCompanyLinkDeleteSnapshot = PersonCompanyLinkSnapshot | PersonCompanyProfileAssignmentSnapshot
+
+type PersonCompanyLinkDeleteUndoPayload = {
+  before?: PersonCompanyLinkDeleteSnapshot | null
+}
+
+type PersonCompanyLinkDeleteResult = {
+  linkId: string | null
+  personEntityId: string | null
+  companyEntityId: string | null
+}
+
+function isProfileAssignmentSnapshot(
+  snapshot: PersonCompanyLinkDeleteSnapshot | null | undefined,
+): snapshot is PersonCompanyProfileAssignmentSnapshot {
+  return Boolean(snapshot) && (snapshot as PersonCompanyProfileAssignmentSnapshot).kind === 'profile-only'
+}
+
+function resolveProfileOnlyTarget(
+  parsed: PersonCompanyLinkDeleteInput,
+): { personEntityId: string; companyEntityId: string } | null {
+  if (parsed.linkId) return null
+  if (!parsed.personEntityId || !parsed.companyEntityId) return null
+  return { personEntityId: parsed.personEntityId, companyEntityId: parsed.companyEntityId }
+}
+
+function personQueryIndexEntries(
+  person: CustomerEntity,
+  profile: CustomerPersonProfile,
+): QueryIndexEventEntry[] {
+  return [
+    {
+      entityType: E.customers.customer_entity,
+      recordId: person.id,
+      tenantId: person.tenantId,
+      organizationId: person.organizationId,
+    },
+    {
+      entityType: E.customers.customer_person_profile,
+      recordId: profile.id,
+      tenantId: profile.tenantId,
+      organizationId: profile.organizationId,
+    },
+  ]
 }
 
 const personCompanyLinkCrudEvents: CrudEventsConfig = {
@@ -576,12 +639,107 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
   },
 }
 
-const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInput, { linkId: string }> = {
+/**
+ * Detach a legacy profile-only company assignment: `customer_person_profiles.company_id`
+ * points at the company but no `customer_person_company_links` row was ever created, so
+ * there is no link row for the id-based branch to soft-delete (#5114). Running it as part
+ * of the same command keeps the audit entry, the undo token and the CRUD cache
+ * invalidation identical to a link-backed detach.
+ */
+async function detachProfileOnlyCompany(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  parsed: PersonCompanyLinkDeleteInput,
+  target: { personEntityId: string; companyEntityId: string },
+): Promise<PersonCompanyLinkDeleteResult> {
+  const person = await requirePersonEntity(em, target.personEntityId, parsed.tenantId, parsed.organizationId)
+  const profile = await requirePersonProfile(em, person)
+  const assignedCompany = profile.company
+  const assignedCompanyId = typeof assignedCompany === 'string' ? assignedCompany : assignedCompany?.id ?? null
+  if (assignedCompanyId !== target.companyEntityId) {
+    throw notFound('Company link not found')
+  }
+
+  await withAtomicFlush(em, [
+    () => removePersonCompanyLink(em, person, profile, target.companyEntityId),
+  ], { transaction: true })
+
+  // There is no link entity to hand to `emitCrudSideEffects`; what changed is the
+  // person's own company assignment, so reindex the person and its profile instead.
+  await emitQueryIndexUpsertEvents(ctx, personQueryIndexEntries(person, profile))
+
+  return { linkId: null, personEntityId: person.id, companyEntityId: target.companyEntityId }
+}
+
+/**
+ * Undo counterpart of `detachProfileOnlyCompany`: re-point the person's legacy
+ * `profile.company` at the company it was detached from. The lookups run in the first
+ * flush phase and the assignment in the second so the encryption subscriber's
+ * re-baseline on find cannot drop the pending change (#2507).
+ */
+async function restoreProfileOnlyCompany(
+  ctx: CommandRuntimeContext,
+  before: PersonCompanyProfileAssignmentSnapshot,
+): Promise<void> {
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  let person: CustomerEntity | null = null
+  let profile: CustomerPersonProfile | null = null
+  let company: CustomerEntity | null = null
+
+  await withAtomicFlush(em, [
+    async () => {
+      person = await findOneWithDecryption(
+        em,
+        CustomerEntity,
+        { id: before.personEntityId, kind: 'person', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+        undefined,
+        { tenantId: before.tenantId, organizationId: before.organizationId },
+      )
+      if (!person) return
+      profile = await findOneWithDecryption(
+        em,
+        CustomerPersonProfile,
+        { entity: person },
+        { populate: ['company'] },
+        { tenantId: before.tenantId, organizationId: before.organizationId },
+      )
+      if (!profile) return
+      company = await findOneWithDecryption(
+        em,
+        CustomerEntity,
+        { id: before.companyEntityId, kind: 'company', tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+        undefined,
+        { tenantId: before.tenantId, organizationId: before.organizationId },
+      )
+    },
+    () => {
+      if (profile && company) profile.company = company
+    },
+  ], { transaction: true })
+
+  if (person && profile) {
+    await emitQueryIndexUpsertEvents(ctx, personQueryIndexEntries(person, profile))
+  }
+}
+
+const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInput, PersonCompanyLinkDeleteResult> = {
   id: 'customers.personCompanyLinks.delete',
   async prepare(rawInput, ctx) {
     const parsed = personCompanyLinkDeleteSchema.parse(rawInput)
+    const profileOnlyTarget = resolveProfileOnlyTarget(parsed)
+    if (profileOnlyTarget) {
+      return {
+        before: {
+          kind: 'profile-only',
+          personEntityId: profileOnlyTarget.personEntityId,
+          companyEntityId: profileOnlyTarget.companyEntityId,
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        } satisfies PersonCompanyProfileAssignmentSnapshot,
+      }
+    }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadPersonCompanyLinkSnapshot(em, parsed.linkId, {
+    const snapshot = await loadPersonCompanyLinkSnapshot(em, parsed.linkId as string, {
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
     })
@@ -593,11 +751,16 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const profileOnlyTarget = resolveProfileOnlyTarget(parsed)
+    if (profileOnlyTarget) {
+      return await detachProfileOnlyCompany(em, ctx, parsed, profileOnlyTarget)
+    }
+
     const link = await findOneWithDecryption(
       em,
       CustomerPersonCompanyLink,
       {
-        id: parsed.linkId,
+        id: parsed.linkId as string,
         tenantId: parsed.tenantId,
         organizationId: parsed.organizationId,
         deletedAt: null,
@@ -647,13 +810,15 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
       indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
-    return { linkId: link.id }
+    return { linkId: link.id, personEntityId: personId, companyEntityId: companyId }
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as PersonCompanyLinkSnapshot | undefined
+    const before = snapshots.before as PersonCompanyLinkDeleteSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.personCompanyLinks.delete', 'Remove company link'),
+      // Kept as `customers.personCompanyLink` for the profile-only shape too: the company
+      // detail cache tags this resource kind, so both detach shapes must invalidate it.
       resourceKind: 'customers.personCompanyLink',
       resourceId: result.linkId,
       parentResourceKind: 'customers.person',
@@ -664,14 +829,19 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
       payload: {
         undo: {
           before: before ?? null,
-        } satisfies PersonCompanyLinkUndoPayload,
+        } satisfies PersonCompanyLinkDeleteUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<PersonCompanyLinkUndoPayload>(logEntry)
+    const payload = extractUndoPayload<PersonCompanyLinkDeleteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+
+    if (isProfileAssignmentSnapshot(before)) {
+      await restoreProfileOnlyCompany(ctx, before)
+      return
+    }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const link = await findOneWithDecryption(

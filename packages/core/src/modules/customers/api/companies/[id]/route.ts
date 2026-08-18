@@ -44,7 +44,11 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
-import { loadCompanyPeopleUnion, type CompanyPersonUnionEntry } from '../../../lib/personCompanies'
+import {
+  countCompanyPeopleUnion,
+  loadCompanyPeopleUnion,
+  type CompanyPersonUnionEntry,
+} from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { runWithCacheTenant } from '@open-mercato/cache'
@@ -848,7 +852,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // instead of a waterfall (issue #3203).
   const peopleCountQuery = includePeople
     ? Promise.resolve(relatedPeople.length)
-    : loadCompanyPeopleUnion(em, company, peopleUnionScope).then((people) => people.length)
+    : countCompanyPeopleUnion(em, company)
   const [
     activityCount,
     interactionCount,

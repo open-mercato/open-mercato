@@ -11,7 +11,6 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveAuthActorId } from '@open-mercato/core/modules/customers/lib/interactionRequestContext'
-import { removePersonCompanyLink } from '@open-mercato/core/modules/customers/lib/personCompanies'
 import { CustomerPersonCompanyLink } from '@open-mercato/core/modules/customers/data/entities'
 import {
   personCompanyLinkDeleteSchema,
@@ -235,7 +234,7 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
   const { translate } = await resolveTranslations()
   try {
     const { id, linkId } = paramsSchema.parse({ id: ctx.params?.id, linkId: ctx.params?.linkId })
-    const { container, auth, selectedOrganizationId, em, person, profile } = await loadPersonContext(req, id)
+    const { container, auth, selectedOrganizationId, person, profile } = await loadPersonContext(req, id)
     if (!selectedOrganizationId) {
       throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
     }
@@ -263,47 +262,26 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
       auth.tenantId,
       selectedOrganizationId,
     )
-    if (!resolvedLinkId) {
-      // No `CustomerPersonCompanyLink` row exists — fall back to the profile-only
-      // association case (`CustomerPersonProfile.company` set without a link row,
-      // e.g. from a CRM migration). There is no link row to dispatch the delete
-      // command against, so this branch clears the profile field directly through
-      // the existing `removePersonCompanyLink` helper rather than 404ing (#5114).
-      // Uses the same `em` that loaded `person`/`profile` so the mutation flushes.
-      const isProfileOnlyMatch =
-        profile.company && typeof profile.company !== 'string' && profile.company.id === linkId
-      if (!isProfileOnlyMatch) {
-        throw notFound(translate('customers.errors.person_company_link_not_found', 'Person-company link not found'))
-      }
-
-      await removePersonCompanyLink(em, person, profile, linkId)
-      await em.flush()
-
-      if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-        await runCrudMutationGuardAfterSuccess(container, {
-          tenantId: auth.tenantId,
-          organizationId: selectedOrganizationId,
-          userId: guardUserId,
-          resourceKind: 'customers.person',
-          resourceId: person.id,
-          operation: 'custom',
-          requestMethod: req.method,
-          requestHeaders: req.headers,
-          metadata: guardResult.metadata ?? null,
-        })
-      }
-
-      return NextResponse.json({ ok: true as const })
+    // No `CustomerPersonCompanyLink` row resolves for the profile-only association case
+    // (`CustomerPersonProfile.company` set without a link row, e.g. from a CRM migration).
+    // The delete command accepts that shape too, so it is dispatched instead of 404ing and
+    // the detach keeps its audit entry, undo token and cache invalidation (#5114).
+    const isProfileOnlyMatch =
+      profile.company && typeof profile.company !== 'string' && profile.company.id === linkId
+    if (!resolvedLinkId && !isProfileOnlyMatch) {
+      throw notFound(translate('customers.errors.person_company_link_not_found', 'Person-company link not found'))
     }
 
     const commandInput = personCompanyLinkDeleteSchema.parse({
-      linkId: resolvedLinkId,
+      ...(resolvedLinkId
+        ? { linkId: resolvedLinkId }
+        : { personEntityId: person.id, companyEntityId: linkId }),
       tenantId: auth.tenantId,
       organizationId: selectedOrganizationId,
     } satisfies PersonCompanyLinkDeleteInput)
 
     const commandBus = container.resolve('commandBus') as CommandBus
-    const { result, logEntry } = await commandBus.execute<PersonCompanyLinkDeleteInput, { linkId: string }>(
+    const { result, logEntry } = await commandBus.execute<PersonCompanyLinkDeleteInput, { linkId: string | null }>(
       'customers.personCompanyLinks.delete',
       {
         input: commandInput,

@@ -248,7 +248,7 @@ describe('customer person company link routes', () => {
     expect(companyLookup).toMatchObject({ person: personId, company: companyId })
   })
 
-  it('detaches a profile-only company association when no link row exists (#5114)', async () => {
+  it('detaches a profile-only company association through the delete command when no link row exists (#5114)', async () => {
     // `beforeEach` pre-queues two `mockResolvedValueOnce` responses that take
     // priority over `mockImplementation` for the first two calls — reset them
     // so every `findOne` call in this test goes through the implementation below.
@@ -265,14 +265,7 @@ describe('customer person company link routes', () => {
       // No CustomerPersonCompanyLink row exists at all — profile-only association.
       return null
     })
-    // Capture the profile's company id before mutating it — `toHaveBeenCalledWith`
-    // inspects the same object reference, so mutating it in place would make the
-    // recorded call args reflect the post-mutation state instead of what was passed in.
-    let capturedProfileCompanyId: string | undefined
-    removePersonCompanyLinkMock.mockImplementation(async (_em: unknown, _person: unknown, profile: { company: { id: string } | null }) => {
-      capturedProfileCompanyId = profile.company?.id
-      profile.company = null
-    })
+    commandBusExecuteMock.mockResolvedValueOnce({ result: { linkId: null } })
 
     const response = await deleteLink(
       new Request(`http://localhost/api/customers/people/${personId}/companies/${companyId}`, {
@@ -283,18 +276,20 @@ describe('customer person company link routes', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
-    expect(removePersonCompanyLinkMock).toHaveBeenCalledWith(
-      em,
-      expect.objectContaining({ id: personId }),
-      expect.any(Object),
-      companyId,
+    // The route must not write the detach itself: going through the command is what
+    // produces the audit entry, the undo token and the CRUD cache invalidation that
+    // keeps the company People badge from serving a stale count.
+    const commandCall = commandBusExecuteMock.mock.calls.find(
+      (call) => call[0] === 'customers.personCompanyLinks.delete',
     )
-    expect(capturedProfileCompanyId).toBe(companyId)
-    expect(em.flush).toHaveBeenCalled()
-    expect(commandBusExecuteMock).not.toHaveBeenCalledWith(
-      'customers.personCompanyLinks.delete',
-      expect.anything(),
-    )
+    expect(commandCall?.[1].input).toEqual({
+      personEntityId: personId,
+      companyEntityId: companyId,
+      tenantId,
+      organizationId,
+    })
+    expect(removePersonCompanyLinkMock).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
       container,
       expect.objectContaining({
@@ -303,5 +298,30 @@ describe('customer person company link routes', () => {
         operation: 'custom',
       }),
     )
+  })
+
+  it('still 404s when neither a link row nor a matching profile company exists', async () => {
+    em.findOne.mockReset()
+    em.findOne.mockImplementation(async (EntityClass: unknown, filter: Record<string, unknown>) => {
+      const classObj = EntityClass as { name?: string }
+      const name = classObj?.name ?? ''
+      if (name === 'CustomerEntity' || (typeof filter?.kind === 'string' && filter.kind === 'person')) {
+        return { id: personId, tenantId, organizationId, kind: 'person' }
+      }
+      if (name === 'CustomerPersonProfile' || 'entity' in filter) {
+        return { entity: personId, company: null }
+      }
+      return null
+    })
+
+    const response = await deleteLink(
+      new Request(`http://localhost/api/customers/people/${personId}/companies/${companyId}`, {
+        method: 'DELETE',
+      }),
+      { params: { id: personId, linkId: companyId } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 })
