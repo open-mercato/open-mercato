@@ -2,6 +2,7 @@ import type { Module, ModuleDashboardWidgetEntry } from '@open-mercato/shared/mo
 import type { DashboardWidgetMetadata, DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { applyDashboardWidgetOverridesToEntries } from '@open-mercato/shared/modules/overrides'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { onModulesRegistered } from '@open-mercato/shared/lib/modules/registry'
 
 type LoadedWidgetModule = DashboardWidgetModule<any> & { metadata: DashboardWidgetMetadata }
 
@@ -17,6 +18,7 @@ export function invalidateWidgetCache() {
   widgetEntriesPromise = null;
   widgetCache.clear();
 }
+
 /**
  * An empty resolution means the module registry was not populated yet — a boot
  * race, not "this app has no dashboard widgets". Memoizing it would serve an
@@ -55,6 +57,17 @@ async function loadWidgetEntries(): Promise<WidgetEntry[]> {
 }
 
 const widgetCache = new Map<string, Promise<LoadedWidgetModule>>()
+
+// Close the boot race at its source (#5103). Bootstrap can register modules more
+// than once — an i18n-only registration is later reconciled with the full module
+// list — and a resolution computed in between describes a registry that no longer
+// exists. The registry notifies only when the registered set actually changed, so
+// a healthy boot costs nothing and no work is added to the request path. Declared
+// after both caches so the subscription can never observe them in their temporal
+// dead zone.
+onModulesRegistered(() => {
+  invalidateWidgetCache()
+})
 
 function ensureValidWidgetModule(mod: any, key: string, moduleId: string): LoadedWidgetModule {
   if (!mod || typeof mod !== 'object') {

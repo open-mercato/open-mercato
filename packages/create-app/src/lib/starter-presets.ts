@@ -1,4 +1,4 @@
-export type StarterPresetId = 'classic' | 'empty' | 'crm' | (string & {})
+export type StarterPresetId = 'classic' | 'empty' | 'crm' | 'wms' | (string & {})
 
 export type ModuleEntry = { id: string; from: string }
 
@@ -81,6 +81,27 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       ],
     },
     ui: { startPageVariant: 'crm', hideDemoLinks: true },
+    constraints: { rejectWithReadyApps: true },
+  },
+
+  wms: {
+    id: 'wms',
+    label: 'WMS',
+    description: 'Empty preset plus warehouse and inventory capabilities',
+    extends: 'empty',
+    modules: {
+      mode: 'patch',
+      add: [
+        { id: 'customers', from: CORE },
+        { id: 'dictionaries', from: CORE },
+        { id: 'feature_toggles', from: CORE },
+        { id: 'catalog', from: CORE },
+        { id: 'sales', from: CORE },
+        { id: 'wms', from: CORE },
+        { id: 'currencies', from: CORE },
+      ],
+    },
+    ui: { startPageVariant: 'minimal', hideDemoLinks: true },
     constraints: { rejectWithReadyApps: true },
   },
 }

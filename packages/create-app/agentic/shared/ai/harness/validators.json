@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "catalog": {
-    "expectedCaseCount": 229,
+    "expectedCaseCount": 233,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
     "maxTotalContextBytes": 1048576,
@@ -30,7 +30,7 @@
       "OMH-137", "OMH-140", "OMH-144", "OMH-146", "OMH-149", "OMH-150", "OMH-151", "OMH-153",
       "OMH-156", "OMH-163", "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
       "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193",
-      "OMH-223", "OMH-224"
+      "OMH-223", "OMH-224", "OMH-230"
     ]
   },
   "validators": {
@@ -77,6 +77,7 @@
     "oracle.business.data-flow": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
     "oracle.business.test-authoring": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
     "oracle.planning.spec-first": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-spec-oracles.mjs"] },
-    "oracle.planning.spec-reuse": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-spec-oracles.mjs"] }
+    "oracle.planning.spec-reuse": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-spec-oracles.mjs"] },
+    "oracle.planning.spec-resume": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-spec-oracles.mjs"] }
   }
 }

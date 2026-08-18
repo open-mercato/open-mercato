@@ -1103,7 +1103,7 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   'OMH-225': ['runtime.bulk-operation-progress'],
   'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
 }
-const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
+const REFERENCE_SHEET = '.ai/guides/reference-modules/example/index.md'
 
 type HarnessBudgets = {
   id: string
@@ -2338,7 +2338,7 @@ test('family 12: source-reference applicability follows real starter presets and
   const records = projectedInventory().records
   const byId = new Map(records.map((record) => [record.referenceId, record]))
   const record = recordIn(records, DESIGN_IMPLEMENTATION_REFERENCE)
-  assert.deepEqual(record.presets, ['classic', 'crm', 'empty'])
+  assert.deepEqual(record.presets, ['classic', 'crm', 'empty', 'wms'])
   assert.deepEqual(record.tiers, ['core'])
 
   const root = stageExampleApp()
