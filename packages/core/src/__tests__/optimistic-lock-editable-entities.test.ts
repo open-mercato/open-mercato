@@ -52,6 +52,7 @@ const moduleEntities: Record<string, string[]> = {
   resources: ['ResourcesResource', 'ResourcesResourceType'],
   dictionaries: ['Dictionary', 'DictionaryEntry'],
   currencies: ['Currency'],
+  devices: ['UserDevice'],
   business_rules: ['BusinessRule', 'RuleSet'],
   feature_toggles: ['FeatureToggle'],
   workflows: ['WorkflowDefinition'],
@@ -65,6 +66,7 @@ const moduleEntities: Record<string, string[]> = {
     'EudrMitigationAction',
   ],
   messages: ['Message'],
+  notifications: ['NotificationTypeOverride', 'NotificationPreference'],
 }
 
 function readEntitySource(moduleId: string): string {

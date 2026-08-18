@@ -94,6 +94,16 @@ export function useLocale() {
 }
 
 /**
+ * Like `useLocale`, but returns `undefined` instead of throwing when no
+ * `I18nProvider` is in scope. Use in shared components that receive their
+ * translator as a prop and may render outside a provider (galleries, tests).
+ */
+export function useOptionalLocale(): Locale | undefined {
+  const ctx = useContext(I18nContext)
+  return ctx?.locale
+}
+
+/**
  * True when the active locale is pinned via `OM_FORCE_LOCALE`. Returns `false`
  * when no provider is in scope so callers can render unconditionally.
  */

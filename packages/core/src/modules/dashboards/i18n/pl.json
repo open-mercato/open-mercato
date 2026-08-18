@@ -101,6 +101,7 @@
   "dashboards.analytics.widgets.topProducts.empty": "Brak danych o sprzedaży produktów dla tego okresu",
   "dashboards.analytics.widgets.topProducts.error": "Nie udało się załadować danych o produktach",
   "dashboards.analytics.widgets.topProducts.title": "Najlepsze produkty wg przychodu",
+  "dashboards.errors.forbidden_scope": "Żądany zakres jest niedostępny",
   "dashboards.errors.organization_required": "Wymagany kontekst organizacji",
   "dashboards.errors.tenant_required": "Wymagany kontekst najemcy",
   "dashboards.errors.unauthorized": "Brak autoryzacji",

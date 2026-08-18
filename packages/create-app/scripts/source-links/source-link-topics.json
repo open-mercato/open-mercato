@@ -2,6 +2,62 @@
   "$comment": "Checked topic registry for the CANON-C source-link contract. source-required topics are one per (emitted owner, rendered exact-file link) pair; their topicId is derived as <ownerSlug>:<targetKey> and re-derived by the validator. retained-normative-snippet topics name a rule that survives in prose; evidence is a literal substring the owner must still contain. The derived source-link inventory must assert that its topic set equals this registry exactly; this file is a contract, not a second authority.",
   "topics": [
     {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/types.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/registry.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/crud/factory.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/modules/events/factory.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "owner": ".ai/guides/framework-contracts.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/data/engine.ts"
+    },
+    {
       "topicId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
       "owner": ".ai/guides/backend-ui.md",
       "requirement": "source-required",
