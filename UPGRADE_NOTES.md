@@ -24,6 +24,71 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
+### Passkey MFA verification requires a real WebAuthn assertion (#3852)
+
+`PasskeyProvider.verify()` used to accept a second payload shape — `{ credentialId, challenge }` — beside the genuine `{ response }` assertion, and approved it by string comparison. Both compared values are public: `prepareChallenge()` returns the credential id and the challenge to the caller, and `GET /api/security/mfa/methods` discloses `providerMetadata.credentialId`. A third shape needed even less: with no prepared challenge at all, only the disclosed credential id was compared. Anyone who could reach the verify step for a session therefore passed the passkey second factor with no authenticator private key and no signature, in both login-time MFA and passkey-as-sudo step-up.
+
+**`POST /api/security/mfa/verify` and `POST /api/security/sudo/verify` now answer `401` for a passkey payload that is not a WebAuthn assertion.** This is a deliberate break of the request-shape contract with no deprecation window, because the shape being removed *is* the vulnerability — see the matching entry in [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md).
+
+**Action for client authors:** send the object returned by `@simplewebauthn/browser`'s `startAuthentication()` as `payload.response`. The first-party UI already does this, so no change is needed for apps that use the shipped `PasskeyChallengeVerify` component. A client that submitted the credential id and challenge was, by construction, not performing cryptographic verification.
+
+**Action for operators — read this before upgrading.** The passkey *enrollment* path still accepts a client-supplied `publicKey` with no attestation (tracked as #5296; **this release does not close it**). A credential stored through that shortcut can be one of two things, and the row does not say which:
+
+- **An unusable key** — the caller supplied a value no authenticator holds the private half of. It can never produce a verifiable assertion, so it now fails every login. A user whose only MFA method is such a credential is locked out until an admin resets it.
+- **An attacker-controlled but perfectly valid keypair** — the caller generated a real P-256 keypair in software and enrolled its COSE public key. That credential signs assertions this release accepts, exactly as a genuine authenticator would. Requiring a real assertion does not help here; the key is real, it is simply not the user's.
+
+The second case is an account-takeover path, not a lockout inconvenience, so **treat every shortcut-enrolled passkey as potentially hostile rather than merely broken.** It matters most for a user who already holds a password-only (`mfa_pending`) session: `authorizeMfaEnrollmentMutation` in `api/mfa/_shared.ts` authorizes enrollment on `auth.sub` and does not reject a pending token, so an attacker with a stolen password may be able to enroll a key they control and then satisfy the second factor with it.
+
+**Provenance cannot be reconstructed from the stored row.** Both enrollment paths write the same `provider_metadata` keys (`credentialId`, `credentialPublicKey`, `counter`, `transports`, `label`), and the shortcut lets the caller choose all of them, so there is no field that reliably distinguishes a browser-ceremony credential from an API-provisioned one. Do not assume a query can single out the affected rows.
+
+Effective mitigations, strongest first:
+
+1. **Sequence #5296 ahead of this upgrade** if you can, so no new shortcut credential can be enrolled after the audit.
+2. **Reset and re-enroll every passkey method** on any deployment that ever provisioned passkeys through the API, rather than trying to identify individual rows. Enumerate them with:
+
+   ```sql
+   SELECT id, user_id, tenant_id, label, created_at, last_used_at
+     FROM user_mfa_methods
+    WHERE type = 'passkey'
+      AND deleted_at IS NULL
+      AND is_active = true
+    ORDER BY created_at;
+   ```
+
+   Then reset each affected user with `POST /api/security/users/{id}/mfa/reset` and have them re-enroll through the browser ceremony. Communicate the reset in advance: for users whose only method is a passkey it is a lockout until they re-enroll.
+3. If a full re-enrollment is not feasible, at minimum reset the passkey methods of users who hold `security.mfa.manage` or an admin role, since those are the accounts a forged credential is worth targeting.
+
+### Standalone apps gain deterministic design-system and i18n checks
+
+New scaffolds ship `scripts/ds-check.mjs` as the hard-failing `yarn ds:check` gate and
+`scripts/i18n-check-hardcoded.mjs` as the advisory `yarn i18n:check-hardcoded` report. Their
+`typecheck` script also uses the same `NODE_OPTIONS=--max-old-space-size=8192` headroom as
+`build`. Existing apps keep their user-owned package scripts and `.ai/agentic.config.json`, so
+adoption is manual:
+
+1. Copy `packages/create-app/template/scripts/ds-check.mjs`,
+   `packages/create-app/template/scripts/i18n-check-hardcoded.mjs`, and the reasoned
+   `.ds-check-ignore` baseline into the matching app paths, then remove baseline entries as
+   their files move to semantic tokens.
+2. Add `"ds:check": "node scripts/ds-check.mjs"` and
+   `"i18n:check-hardcoded": "node scripts/i18n-check-hardcoded.mjs"` to `package.json`, and
+   change `typecheck` to
+   `cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit`.
+3. Add `"yarn ds:check"` immediately after `"yarn lint"` in
+   `.ai/agentic.config.json` `validation.commands`. Keep the i18n command advisory until a
+   project-specific allowlist has been reviewed.
+
+The design-system checker supports `--json` and fails on findings, malformed ignore data, or
+stale ignore entries. The i18n checker also supports `--json`, reports JSX and message-call
+findings, honors module `i18n/.hardcoded-allowlist.json` files and `[internal]` messages, and
+returns success for findings while it remains advisory.
+
+### Generated module fact-sheets moved to per-module directories
+
+`agentic:init` now writes each installed module's generated Markdown facts under `.ai/guides/modules/<id>/`, with `index.md` as the entry point and one file per non-empty section. Local reference projections use the matching `.ai/guides/reference-modules/<id>/index.md` layout. The JSON sidecars remain at `.ai/guides/module-facts.json`, `.ai/guides/module-facts.v2.json`, and `.ai/guides/reference-module-facts.json` with unchanged schemas.
+
+**Action for harness and automation authors:** replace literal `.ai/guides/modules/<id>.md` reads with `.ai/guides/modules/<id>/index.md`, then follow the section links needed for the task. The update harness removes prior-manifest-owned flat sheets, including locally modified generated copies, because retaining them would leave stale facts beside the authoritative directory. Unknown files that were never owned by the generated harness remain untouched.
+
 ### `JWT_SECRET` is required, and the legacy token grace period is now time-bounded (#5174)
 
 Three related changes close an authentication-bypass path on deployments that kept the documented Docker defaults. **Operator action is required before upgrading a Docker deployment.**
@@ -71,13 +136,23 @@ The key is `logContext`, not `context`, specifically so that the generic `metada
 
 Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.
 
-**The feature gate moved from `search.view` to `search.global`.** The topbar has always rendered the palette on `search.global` while the endpoint enforced `search.view`, so the two gates could disagree in either direction: a role holding only `search.global` got a focusable search box that 403'd on every keystroke, and a role holding only `search.view` could query the endpoint with no UI to reach it. `admin` holds `search.*`, which is why nobody noticed. Neither feature id was renamed or removed — ACL feature ids are FROZEN under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §10 — and `search.view` keeps gating the search administration endpoints under `api/search/settings/**`, plus the unchanged `GET /api/search/search`.
+**The feature gate moved from `search.view` to `search.global`.** The topbar has always rendered the palette on `search.global` while the endpoint enforced `search.view`, so the two gates could disagree in either direction: a role holding only `search.global` got a focusable search box that 403'd on every keystroke, and a role holding only `search.view` could query the endpoint with no UI to reach it. `admin` holds `search.*`, which is why nobody noticed. Neither feature id was renamed or removed — ACL feature ids are FROZEN under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §10 — and `search.view` keeps gating the search administration endpoints under `api/search/settings/**`, plus `GET /api/search/search`, whose gate is unchanged (see the per-entity filter note below).
 
 **Action for API consumers:** this is a **narrowing** for any integration that calls the global endpoint with a token holding `search.view` alone. Grant those callers `search.global`. Because the new employee default (below) only reaches existing roles through a sync, run `yarn mercato auth sync-role-acls` after upgrading.
 
 **Results are now filtered by the caller's per-entity view features.** The single feature gate authorizes *using* search, not *reading every indexed record*: a caller who passed it previously received presenter titles, subtitles and deep links for every indexed entity type, including ones the caller could not open. Each searchable entity now declares the owning module's view feature in `aclFeatures` in its module's `search.ts`, and the route drops results the caller has no grant for before they leave the server. This is the same rule the `search_get` / `search_aggregate` AI tools have applied since #2715; the `search_query` AI tool now applies it too. Superadmins are exempt.
 
 **Action for module authors:** the filter **fails closed**. An entity type whose config declares no `aclFeatures` — or that no `search.ts` declares at all, which includes user-defined custom entities projected into `search_tokens` by `query_index` — no longer appears in global-search results for any non-superadmin caller. Every enabled entity shipped by `@open-mercato/core` and `@open-mercato/checkout` has been backfilled. `messages:message`, `sales:sales_note`, and `sales:sales_document_address` are disabled because their APIs enforce participant-, record-, or document-kind-specific access that a static entity feature cannot represent safely; they can return only after search supports the same row-aware checks. If results disappeared for your own module, add `aclFeatures: ['<module>.<entity>.view']` to that entity's config; run with `OM_SEARCH_DEBUG=true` and look for `search.api.global entity-filtered` to see which entity types were dropped and why.
+
+### The hybrid search endpoint filters results per entity too (#5168)
+
+`GET /api/search/search` — the endpoint behind the Vector Search playground in search administration — applied tenant and organization scoping but no per-entity ACL, so a caller past its single `search.view` gate received presenter titles, subtitles and deep links for every indexed entity type. It now applies exactly the same per-entity `aclFeatures` filter as the global endpoint above: the query is narrowed to the entity types the caller may read, and the results are filtered again on the way out as defense in depth. Superadmins are exempt.
+
+**Its `requireFeatures` gate is deliberately unchanged** — `search.view` is the correct gate for an administration surface, and it is pinned by `TC-SEARCH-003`.
+
+**Action for API consumers:** this is a **narrowing** for an integration whose token holds `search.view` but not the view feature of the entity types it searches. Grant those callers the per-entity view features they need, or call the endpoint as a superadmin. Like the global endpoint, the filter fails closed for an entity type that declares no `aclFeatures`; run with `OM_SEARCH_DEBUG=true` and look for `search.api.search entity-filtered` to see which types were dropped and why. The endpoint also answers `503` when `rbacService` or `searchIndexer` is not registered, since neither the narrowing nor the filter can be evaluated without them.
+
+**The example module's `search.ts` is what keeps example todos visible.** `example:todo` is indexed through its CRUD route's `indexer: { entityType }`, so before that config existed the fail-closed filter hid it from every non-superadmin — the concrete symptom being `TC-EXAMPLE-001`, which searches todos as `admin`. The config (shipped separately, in the app and in the create-app template) declares `aclFeatures: ['example.todos.view']`, the same feature `GET /api/example/todos` enforces, and the drift guard now pins that mapping so the hybrid filter cannot regress it again. `example:example_customer_priority` stays unconfigured: it holds a customer id and a priority enum with no human-readable text.
 
 ### The `empty` and `crm` starter presets now enable the `search` module (#5164)
 
@@ -517,6 +592,66 @@ Vector/fulltext search settings (Cmd+K strategies, embedding provider/model, aut
 4. **Provider availability is now verified (behavior fix).** `isProviderConfigured('ollama')` previously returned `true` unconditionally. A new cached, fail-closed `embeddingProviderProbe` (additive DI key) actively checks Ollama via `GET {OLLAMA_BASE_URL}/api/tags` (key-presence for the other providers). The embeddings settings `GET` returns per-provider `available`/`reason`, and the embeddings `POST` rejects selecting an unreachable provider with `409 { error, reason }`. *Action for downstream:* environments that relied on Ollama always reporting "available" must ensure Ollama is actually reachable at `OLLAMA_BASE_URL` (which was already required for embedding to function).
 
 All changes are additive at the contract surface. No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands changed. The vector index (shared pgvector table) remains instance-level; per-tenant scoping covers settings selection, not stored vectors. See [`.ai/specs/2026-06-15-tenant-scoped-search-settings.md`](.ai/specs/2026-06-15-tenant-scoped-search-settings.md) (tracking issue #3092).
+
+### Notification channels unified on the delivery-strategy seam (Phase 7)
+
+All notification channels now flow through one seam and one gate. This is additive and backward-compatible, with one **intentional corrective behavior change** and one **deprecation** relevant to module authors.
+
+**Behavior change (corrective).** Per-channel opt-out and the `nonOptOut`/`silent` type flags are now enforced on **every** channel, not just push. Previously, disabling `in_app` or `email` for a notification type in a user's preferences was silently ignored — those channels always delivered. After upgrading, an `in_app` opt-out hides the notification from the bell/inbox/unread-count (the row is still written as a durable record), and an `email` opt-out suppresses the email. A user who has **never changed their preferences sees no difference** (preferences default to on). No action required unless you relied on opt-outs being ignored.
+
+**`Notification.channels` is now authoritative.** The new nullable `channels` JSONB column stores the resolved delivery-channel set. A create call with no `channels` still fans out to every registered channel (unchanged); pass `channels: ['push']` (etc.) to a `notificationService.create(...)` call to target specific channels. Legacy rows (`channels = NULL`) are treated as "all channels / visible".
+
+**Deprecation — `NotificationDeliveryContext` email fields.** For authors of custom `NotificationDeliveryStrategy` implementations: the context is now split into a channel-agnostic core (`NotificationDeliveryContextCore`) and `EmailDeliveryExtras` (`panelUrl`, `panelLink`, `actionLinks` — and `recipient.email` is email-specific). The flat shape is unchanged (all fields still present) so existing strategies compile and run as-is, but the email-shaped fields are now `@deprecated`: a non-email strategy MUST NOT depend on them and should derive whatever it needs from `notification`. They will move behind an email-scoped accessor in a future major.
+
+**New capability hooks.** `NotificationDeliveryStrategy` gained optional `isConfigured(ctx)` and `supports(notification)`; the dispatcher skips a channel when either returns `false`. Use `isConfigured` for tenant-config/technical deliverability (not per-user opt-out, which the create-time gate already handles).
+
+**Behavior change — built-in notification types no longer deliver push.** Every built-in notification type (auth, sales, messages, catalog, workflows, customers, customer accounts, staff, inbox ops, business rules, communication channels — 28 types) now declares the channel eligibility `channels: ['in_app', 'email']`: push is completely off for these types — it never delivers and users cannot enable it from their preferences (the push cell renders locked). Connecting FCM/APNs/Expo therefore no longer floods devices with **these built-in core types**; `nonOptOut` types (security alerts) are governed by the same eligibility, while the admin custom-send types stay unrestricted. **Caveat — this does not yet hold platform-wide.** Any notification type that *omits* `channels` still resolves to **every** registered channel, push included, the moment a push channel is connected. Types that ship without `channels` today — `enterprise/security`, `enterprise/record_locks`, `checkout`, both `example` modules, `webhooks`, `ai_assistant`, and every module scaffolded from the CLI generator template — are push-eligible by default. Whether the platform-wide default for a `channels`-less type should stay **opt-out-per-type** or become **push-opt-in** (a type must list `push` explicitly) is an open maintainer policy decision — see the spec's § Deferred Follow-ups. Module authors: declare `channels` on your own `NotificationTypeDefinition`s to choose the shipped channel set; **omitting it keeps the every-channel, push-eligible default** — set `channels: ['in_app', 'email']` to keep push off.
+
+**New capability — operators edit a type's channels without a code change, per tenant.** The new `notification_type_overrides` table (apply the notifications module migration; unique per `(tenant_id, notification_type_id)`) stores a tenant-scoped override of the code-declared eligibility: a stored array replaces the code set, an absent row inherits it, and one tenant's edit never changes delivery for another tenant. Edit it from the type-catalogue table on the **Notification Delivery** settings page or via `PATCH /api/notifications/types` with `{ "id": "<type>", "channels": ["in_app","email","push"] }` (pass `channels: null` to clear the override) — e.g. flip push back on for `messages.new` in a tenant that wants it. A channel outside the effective set is rejected by the delivery gate before both user preferences and the `nonOptOut` bypass, `setPreferences` drops writes for it server-side, and both preference UIs render the cell locked off. `GET /api/notifications/types` now returns `channels` (effective set for the caller's tenant, `null` = every channel), `storedChannels`/`storedNonOptOut` (the raw override), and `updatedAt` (the override row's optimistic-lock version — the PATCH honors the standard `x-om-ext-optimistic-lock-expected-updated-at` header and 409s a stale write, since the full `channels` array replaces). The same PATCH also accepts `nonOptOut: true | false | null` on the same row: `true` forces a type on for the tenant's users, `false` makes a code-required type user-editable, `null` inherits the code flag (`notification_types.non_opt_out` remains a pure code mirror). The catalogue re-sync never touches the overrides table, so operator edits survive upgrades; clearing both fields deletes the row.
+
+### Device `push_token` is encrypted at rest — existing tenants get a backfilled encryption map
+
+The devices module registers a new encrypted entity: `push_token` on `devices:user_device` is encrypted at rest via the standard tenant-data-encryption seam. Encryption is driven by an `encryption_maps` row that declares which fields to encrypt, and those rows are normally seeded **once at tenant creation** (`entities seed-encryption`). A pre-existing tenant therefore has **no map for the new device entity**, and `encryptEntityPayload` no-ops when no map resolves — so a device registered after the upgrade would have its `push_token` written as **plaintext**, silently.
+
+**This heals automatically on `yarn db:migrate`.** A forward-only, idempotent data migration (`entities` module, `Migration20260722120000`) inserts the `devices:user_device` map for every `(tenant, organization)` scope that already has active encryption maps — mirroring what `seed-encryption` does, and correctly skipping tenants that run with encryption disabled (they have no maps at all). New tenants continue to get the map from `seed-encryption` at creation. **No operator action is required** for the standard migrate-then-deploy flow, and there is no plaintext window because the map exists before the new code serves traffic.
+
+Two additional heal paths are available if you need them:
+
+- **Upgrade Action** (`devices.seed-push-token-encryption-map`, version `0.6.6`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). Use it if you skip migrations or want to re-assert the map from the admin banner.
+- **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including the device one.
+
+Note: only push tokens **written after** the map exists are encrypted. If a tenant already ran a build that wrote plaintext tokens before the map was present, those rows stay plaintext until the device re-registers (or you run `entities rotate-encryption` / `decrypt-database` tooling). The map is a declaration only — the tenant DEK drives the actual crypto, so seeding it is safe even when encryption is currently disabled; it simply activates once encryption is enabled.
+
+### Run `yarn mercato auth sync-role-acls` after upgrading — new devices/push ACL features
+
+This release adds new ACL feature IDs across the devices/push stack: `devices.*` (`view`/`manage`/`admin`), `push_notifications.view_deliveries` / `push_notifications.send_custom`, the tenant push-channel grants `communication_channels.connect_tenant_channel` / `communication_channels.channel.push.manage`, `notifications.manage_preferences` / `notifications.manage_user_preferences`, and the per-provider `channel_{fcm,apns,expo}.{view,configure}` features.
+
+New tenants receive these through each module's `setup.ts` `defaultRoleFeatures` at creation. **Existing tenants do not** — their role ACLs were written before these features existed, so until you sync them an admin gets `403`/blank UI on the new **Devices** page, the **Push Delivery Log**, the notification-preferences grid, and the push-channel connect flow. Run the idempotent sync once per upgrade:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It only *adds* the newly declared default grants to existing roles and never removes an operator's customizations. Target one tenant with `--tenant <tenantId>` if you prefer a staged rollout.
+
+### Advanced-filter conditions whose field names a Where combinator are now ignored
+
+`deserializeAdvancedFilter` (flat, v1) and `deserializeTree` (v2) — the shared parsers behind the `filter[...]` query params on every CRUD list route — now drop a condition whose `field` starts with `$`, i.e. names a Where combinator such as `$and`, `$or` or `$not`. A filter built only from such conditions deserializes to `null` and the route lists as if no filter were supplied.
+
+Condition field names are never validated against a route's field allowlist, so a combinator-named field previously compiled into a Where key sharing the namespace with real column names — reaching the query engine either as a filter on a non-existent column (matching every indexed row) or colliding with a key the route itself emitted. Dropping it matches how an unrecognized operator is already handled.
+
+**Action for module authors:** none expected — there is no legitimate `$`-prefixed column, so no real caller can be relying on this. It is documented because these two functions are shared surface used by every list route: if you are debugging a saved view or a hand-built filter that used to reach the engine and now appears to be ignored, check whether one of its conditions names a combinator. Route-level defence is independent of the parser — a route that consumes the filter itself via `consumeAdvancedFilterState` + `mergeAdvancedFilterTree` (customers/people, companies, deals, devices) already AND-combines it under its own filters, so no client key can overwrite a server-enforced scope. See [`.ai/specs/2026-04-28-push-notifications-and-devices.md`](.ai/specs/2026-04-28-push-notifications-and-devices.md) § Changelog.
+
+### New root `resolutions` entry: `node-forge@1.4.0`
+
+The new `@open-mercato/channel-apns` package depends on `@parse/node-apn@6.5.0`, which declares `node-forge` as an **exact** version (`node-forge: "npm:1.3.1"`) rather than a range — so no install can ever pick up a patched `node-forge`, including a security patch. The root `package.json` now pins `node-forge` to `1.4.0` in `resolutions`, alongside the other security-hygiene pins there.
+
+This applies monorepo-wide, so it also lifts `node-forge` for any other workspace that resolves it transitively. It is safe to leave in place; do not remove it while `channel-apns` is present, or the graph silently reverts to the exact 1.3.1 the SDK hard-codes. See `packages/channel-apns/AGENTS.md`.
+
+### New root `resolutions` entry: `websocket-driver@0.7.5`
+
+GHSA-xv26-6w52-cph6 (critical, published 2026-07-15) affects `websocket-driver < 0.7.5`, which the graph resolves transitively via two chains: `@docusaurus/core → webpack-dev-server → sockjs → faye-websocket` (already present on `develop`) and `@firebase/database → faye-websocket` (new with `channel-fcm`). Both declare ranges that satisfy `0.7.5`, so a plain re-resolve would eventually pick it up — the pin makes the floor explicit and keeps `yarn npm audit` (the CI `audit` job) green deterministically. Safe to remove once every chain's own minimum moves past 0.7.5.
+
 
 ### Versioned browser-storage envelopes for shared UI preference slots (#3457)
 

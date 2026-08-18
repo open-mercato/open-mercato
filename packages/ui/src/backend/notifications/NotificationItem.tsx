@@ -7,6 +7,7 @@ import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { ComponentType } from 'react'
 
@@ -75,6 +76,7 @@ export function NotificationItem({
   customRenderer: CustomRenderer,
 }: NotificationItemProps) {
   const router = useRouter()
+  const locale = useOptionalLocale()
   const [executing, setExecuting] = React.useState<string | null>(null)
 
   const isUnread = notification.status === 'unread'
@@ -96,7 +98,7 @@ export function NotificationItem({
     variables: notification.bodyVariables ?? undefined,
     t,
   })
-  const timeAgo = formatRelativeTime(notification.createdAt, { translate: t }) ?? ''
+  const timeAgo = formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''
   const sourceLabel = humanizeModuleId(notification.sourceModule)
 
   const handleClick = async () => {
