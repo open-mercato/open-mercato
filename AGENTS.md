@@ -94,7 +94,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | **Specific Modules** | |
 | Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
-| New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
+| New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` + `channel-*` |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |
 | Structured logging / replacing raw `console.*` with the facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `shared` |
@@ -111,7 +111,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `onboarding` |
 | Static content pages (privacy policies, terms, legal pages) | `content` |
 | Standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `create-app` |
-| Editing `apps/mercato/src/app/**` or env vars in `apps/mercato/.env.example` — MUST mirror into the create-app template in the same task | `create-app` → Template Sync Checklist |
+| Editing `apps/mercato/src/app/**`, `apps/mercato/src/i18n/**`, or env vars in `apps/mercato/.env.example` — MUST mirror into the create-app template in the same task (`yarn template:sync:fix`) | `create-app` → Template Sync Checklist |
 | Deploying a scaffolded app to Railway with `mercato deploy railway` | [`.ai/specs/2026-05-12-railway-one-command-deploy.md`](.ai/specs/2026-05-12-railway-one-command-deploy.md) + [`apps/docs/docs/deployment/railway.mdx`](apps/docs/docs/deployment/railway.mdx) + `cli` |
 | **Performance** | |
 | Profiling dev-mode memory (`yarn dev:profile`), ranking memory hogs, watcher / Vite-vs-Turbopack tradeoffs | `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` + `scripts/profile-dev-rss.mjs` |

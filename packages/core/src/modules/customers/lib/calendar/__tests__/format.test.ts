@@ -1,4 +1,4 @@
-import { formatDateLabel, formatDateRangeLabel, formatTimeRangeLabel } from '../format'
+import { formatDateLabel, formatDateRangeLabel, formatTimeLabel, formatTimeRangeLabel } from '../format'
 
 const JUN_15 = new Date(2026, 5, 15)
 const JUN_21 = new Date(2026, 5, 21)
@@ -47,6 +47,27 @@ describe('formatDateLabel', () => {
 
   it('keeps English month names for the English locale', () => {
     expect(formatDateLabel('en', JUN_28)).toContain('Jun')
+  })
+})
+
+describe('formatTimeLabel', () => {
+  it('renders a 24h time for Polish without AM/PM markers', () => {
+    expect(formatTimeLabel('pl', AT_14)).toBe('14:00')
+  })
+
+  it('uses the 12h clock for the English locale', () => {
+    expect(formatTimeLabel('en', AT_14)).toBe('2:00 PM')
+  })
+
+  it('uses hydration-stable spacing inside the localized time', () => {
+    expect(formatTimeLabel('en', AT_14)).not.toMatch(HYDRATION_UNSTABLE_SPACING)
+  })
+
+  it('formats each endpoint the same way the range formatter does', () => {
+    for (const locale of ['en', 'pl', 'de']) {
+      const range = formatTimeRangeLabel(locale, AT_14, AT_15)
+      expect(range).toContain(formatTimeLabel(locale, AT_15))
+    }
   })
 })
 

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 
 import {
-  EXAMPLE_ACTIVATION_ENTRY,
+  DESIGN_SYSTEM_ACTIVATION_ENTRY,
+  EXAMPLE_INTEGRATION_ACTIVATION_ENTRY,
   assertModulesUnregistered,
   enableModuleEntry,
   modulesConfigPath,
@@ -15,9 +16,11 @@ async function main(): Promise<void> {
   const appDir = path.resolve(appDirArgument)
 
   await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
-  enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
+  const configPath = modulesConfigPath(appDir)
+  enableModuleEntry(configPath, EXAMPLE_INTEGRATION_ACTIVATION_ENTRY)
+  enableModuleEntry(configPath, DESIGN_SYSTEM_ACTIVATION_ENTRY)
 
-  console.log(`Verified the runtime-disabled module baseline and activated example in ${appDir}`)
+  console.log(`Verified the runtime-disabled module baseline and activated the standalone integration fixtures in ${appDir}`)
 }
 
 void main()

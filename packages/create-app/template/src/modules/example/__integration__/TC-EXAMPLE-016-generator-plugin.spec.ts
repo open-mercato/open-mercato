@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
+import * as ts from 'typescript'
 
 const configuredAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
 const appRoot = configuredAppRoot ? path.resolve(configuredAppRoot) : null
@@ -23,6 +24,40 @@ function expectCommandPassed(result: ReturnType<typeof runYarn>, label: string):
   expect(result.status, `${label}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0)
 }
 
+function readStringProperty(objectLiteral: ts.ObjectLiteralExpression, propertyName: string): string | null {
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const name = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
+      ? property.name.text
+      : null
+    if (name !== propertyName || !ts.isStringLiteral(property.initializer)) continue
+    return property.initializer.text
+  }
+  return null
+}
+
+function removeModuleActivation(source: string, moduleId: string, moduleSource: string): string {
+  const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== 'enabledModules') continue
+      if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
+      for (const element of declaration.initializer.elements) {
+        if (!ts.isObjectLiteralExpression(element)) continue
+        if (readStringProperty(element, 'id') !== moduleId) continue
+        if (readStringProperty(element, 'from') !== moduleSource) continue
+        const separator = source.slice(element.end).match(/^[ \t]*,/)
+        const end = element.end + (separator?.[0].length ?? 0)
+        return source.slice(0, element.getStart(sourceFile)) + source.slice(end)
+      }
+    }
+  }
+
+  throw new Error(`[internal] Module '${moduleId}' from '${moduleSource}' is not enabled`)
+}
+
 test.describe('TC-EXAMPLE-016: generator plugin', () => {
   test.skip(!appRoot, 'requires the disposable standalone app selected by OM_TEST_APP_ROOT')
   test.setTimeout(240_000)
@@ -39,7 +74,7 @@ test.describe('TC-EXAMPLE-016: generator plugin', () => {
     const originalModules = fs.readFileSync(modulesPath, 'utf8')
     const originalGenerators = fs.readFileSync(generatorsPath, 'utf8')
 
-    expect(originalModules).toMatch(/\{\s*id: 'example',\s*from: '@app'\s*\}/)
+    const disabledModules = removeModuleActivation(originalModules, 'example', '@app')
     expect(originalGenerators).toContain("import type { GeneratorPlugin }")
     expect(originalGenerators).not.toMatch(/^import\s+(?!type\b)/m)
     expect(fs.existsSync(generatedPath)).toBe(true)
@@ -129,10 +164,6 @@ test.describe('TC-EXAMPLE-016: generator plugin', () => {
       expectCommandPassed(runYarn(['generate']), 'generation failed after restoring generators.ts')
     }
 
-    const disabledModules = originalModules.replace(
-      /^\s*\{\s*id: 'example',\s*from: '@app'\s*\},\s*$/m,
-      '',
-    )
     expect(disabledModules).not.toBe(originalModules)
     try {
       fs.writeFileSync(modulesPath, disabledModules)
