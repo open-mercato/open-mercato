@@ -11,6 +11,7 @@ import { runSyncSchema } from '../data/validators'
 import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
 import { normalizeRunParameters } from '../lib/run-parameters'
+import { resolveStartCursor } from '../lib/start-cursor'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -123,7 +124,14 @@ export async function POST(req: Request) {
 
     const cursor = parsed.data.fullSync
       ? null
-      : await syncRunService.resolveCursor(parsed.data.integrationId, parsed.data.entityType, parsed.data.direction, scope)
+      : await resolveStartCursor({
+        syncRunService,
+        adapter,
+        integrationId: parsed.data.integrationId,
+        entityType: parsed.data.entityType,
+        direction: parsed.data.direction,
+        scope,
+      })
 
     const { run, progressJob } = await startDataSyncRun({
       syncRunService,

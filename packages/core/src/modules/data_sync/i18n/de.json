@@ -129,6 +129,7 @@
   "data_sync.runs.detail.progress.percent": "{percent}% abgeschlossen",
   "data_sync.runs.detail.retry": "Wiederholen",
   "data_sync.runs.detail.retryError": "Lauf konnte nicht wiederholt werden",
+  "data_sync.runs.detail.retryParametersStale": "Die gespeicherten Laufparameter sind für diese Integration nicht mehr gültig. Starten Sie einen neuen Lauf über das Data-Sync-Dashboard.",
   "data_sync.runs.detail.retrySuccess": "Lauf wiederholt",
   "data_sync.runs.detail.title": "Synchronisierungslauf"
 }

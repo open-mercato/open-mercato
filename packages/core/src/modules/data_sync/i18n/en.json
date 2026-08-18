@@ -129,6 +129,7 @@
   "data_sync.runs.detail.progress.percent": "{percent}% complete",
   "data_sync.runs.detail.retry": "Retry",
   "data_sync.runs.detail.retryError": "Failed to retry sync run",
+  "data_sync.runs.detail.retryParametersStale": "The stored run parameters are no longer valid for this integration. Start a new run from the Data Sync dashboard.",
   "data_sync.runs.detail.retrySuccess": "Sync run retried",
   "data_sync.runs.detail.title": "Sync Run"
 }

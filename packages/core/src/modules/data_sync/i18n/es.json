@@ -129,6 +129,7 @@
   "data_sync.runs.detail.progress.percent": "{percent}% completado",
   "data_sync.runs.detail.retry": "Reintentar",
   "data_sync.runs.detail.retryError": "No se pudo reintentar la ejecución",
+  "data_sync.runs.detail.retryParametersStale": "Los parámetros de ejecución guardados ya no son válidos para esta integración. Inicia una nueva ejecución desde el panel de Data Sync.",
   "data_sync.runs.detail.retrySuccess": "Ejecución reintentada",
   "data_sync.runs.detail.title": "Ejecución de sincronización"
 }

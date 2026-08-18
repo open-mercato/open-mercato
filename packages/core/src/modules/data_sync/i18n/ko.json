@@ -129,6 +129,7 @@
   "data_sync.runs.detail.progress.percent": "{percent}% 완료",
   "data_sync.runs.detail.retry": "재시도",
   "data_sync.runs.detail.retryError": "동기화 실행 재시도에 실패했습니다",
+  "data_sync.runs.detail.retryParametersStale": "저장된 실행 매개변수가 이 연동에 더 이상 유효하지 않습니다. Data Sync 대시보드에서 새 실행을 시작하세요.",
   "data_sync.runs.detail.retrySuccess": "동기화 실행이 재시도되었습니다",
   "data_sync.runs.detail.title": "동기화 실행"
 }

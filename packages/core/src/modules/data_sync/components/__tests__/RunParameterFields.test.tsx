@@ -80,6 +80,15 @@ describe('hasRequiredRunParameterWithoutDefault', () => {
   it('ignores an optional param without a default', () => {
     expect(hasRequiredRunParameterWithoutDefault(params)).toBe(false)
   })
+
+  // A switch always submits true/false, so a boolean's `required` can never
+  // fail. Counting it here would block the schedule-table run forever for a
+  // constraint the run API does not enforce.
+  it('ignores a required boolean without a default', () => {
+    expect(hasRequiredRunParameterWithoutDefault([
+      { key: 'dryRun', label: 'Dry run', type: 'boolean', required: true },
+    ])).toBe(false)
+  })
 })
 
 describe('buildRunFailureMessage', () => {

@@ -6,11 +6,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import type { SyncRunService } from '../../../lib/sync-run-service'
-import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { retrySyncSchema } from '../../../data/validators'
 import { startDataSyncRun } from '../../../lib/start-run'
-import { getDataSyncAdapter } from '../../../lib/adapter-registry'
 import { normalizeRunParameters } from '../../../lib/run-parameters'
+import { resolveAdapterForIntegration, resolveStartCursor } from '../../../lib/start-cursor'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -96,8 +95,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   // the current declaration so an adapter never receives a set the run API
   // would reject today. Undeclared keys fall away silently; values that are now
   // invalid stop the retry, because the operator has no form here to fix them.
-  const retryIntegration = getIntegration(previous.integrationId)
-  const retryAdapter = retryIntegration?.providerKey ? getDataSyncAdapter(retryIntegration.providerKey) : null
+  const retryAdapter = resolveAdapterForIntegration(previous.integrationId)
   const normalizedParameters = normalizeRunParameters(
     retryAdapter?.runParameters,
     previous.direction,
@@ -108,6 +106,9 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     return NextResponse.json(
       {
         error: 'Stored run parameters are no longer valid for this integration. Start a new run from the Data Sync dashboard.',
+        // Machine-readable so the dashboard can render the way out in the
+        // operator's language; the English sentence stays for non-UI callers.
+        code: 'parametersStale',
         details: { parameters: normalizedParameters.errors },
       },
       { status: 422 },
@@ -119,7 +120,14 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
 
   const cursor = parsedBody.data.fromBeginning
     ? null
-    : previous.cursor ?? await syncRunService.resolveCursor(previous.integrationId, previous.entityType, previous.direction, scope)
+    : previous.cursor ?? await resolveStartCursor({
+      syncRunService,
+      adapter: retryAdapter,
+      integrationId: previous.integrationId,
+      entityType: previous.entityType,
+      direction: previous.direction,
+      scope,
+    })
 
   const { run, progressJob } = await startDataSyncRun({
     syncRunService,

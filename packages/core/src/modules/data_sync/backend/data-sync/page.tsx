@@ -49,8 +49,10 @@ import { getApplicableRunParameters } from '../../lib/run-parameters'
 import {
   RunParameterFields,
   buildDefaultRunParameterValues,
+  buildRetryFailureMessage,
   buildRunFailureMessage,
   buildRunParametersPayload,
+  type RetryFailureBody,
   type RunFailureBody,
   type RunParameterFormValue,
 } from '../../components/RunParameterFields'
@@ -358,7 +360,7 @@ export default function SyncRunsDashboardPage() {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       setReloadToken((token) => token + 1)
     } else {
-      flash(t('data_sync.runs.detail.retryError'), 'error')
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [t])
 

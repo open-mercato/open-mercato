@@ -129,6 +129,7 @@
   "data_sync.runs.detail.progress.percent": "{percent}% ukończono",
   "data_sync.runs.detail.retry": "Ponów",
   "data_sync.runs.detail.retryError": "Nie udało się ponowić przebiegu",
+  "data_sync.runs.detail.retryParametersStale": "Zapisane parametry uruchomienia nie są już poprawne dla tej integracji. Uruchom nowe zadanie z pulpitu Data Sync.",
   "data_sync.runs.detail.retrySuccess": "Przebieg ponowiony",
   "data_sync.runs.detail.title": "Przebieg synchronizacji"
 }

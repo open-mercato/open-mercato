@@ -53,9 +53,13 @@ export function buildRunParametersPayload(
  * parameter with no default to fall back on. Surfaces that cannot render the
  * full parameter form (the integration schedule table) use this to point the
  * operator at the Data Sync dashboard instead of failing with a 422.
+ *
+ * Booleans are excluded: a switch always submits `true` or `false`, so their
+ * `required` can never fail (see `RunParameter.required`). Counting them would
+ * send the operator away from a button that would in fact have worked.
  */
 export function hasRequiredRunParameterWithoutDefault(params: RunParameter[]): boolean {
-  return params.some((param) => param.required && param.defaultValue === undefined)
+  return params.some((param) => param.type !== 'boolean' && param.required && param.defaultValue === undefined)
 }
 
 export type RunParameterErrorEntry = {
@@ -118,6 +122,29 @@ export function buildRunFailureMessage(
     .filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
   if (rendered.length > 0) return rendered.join(' ')
   return failure?.error ?? fallback
+}
+
+export type RetryFailureBody = {
+  code?: string
+}
+
+/**
+ * Retry failures are otherwise indistinguishable to the operator, so both retry
+ * buttons flash one generic sentence. The stale-parameter refusal is the one
+ * whose remedy is not obvious from context — it is reported with a machine
+ * -readable `code` so the UI can name the way out instead of dead-ending.
+ */
+export function buildRetryFailureMessage(
+  failure: RetryFailureBody | null | undefined,
+  t: Translate,
+): string {
+  if (failure?.code === 'parametersStale') {
+    return t(
+      'data_sync.runs.detail.retryParametersStale',
+      'The stored run parameters are no longer valid for this integration. Start a new run from the Data Sync dashboard.',
+    )
+  }
+  return t('data_sync.runs.detail.retryError', 'Failed to retry sync run')
 }
 
 export type RunParameterFieldsProps = {

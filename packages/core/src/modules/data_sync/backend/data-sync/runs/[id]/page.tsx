@@ -19,7 +19,11 @@ import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
-import { resolveRunParameterText } from '../../../../components/RunParameterFields'
+import {
+  buildRetryFailureMessage,
+  resolveRunParameterText,
+  type RetryFailureBody,
+} from '../../../../components/RunParameterFields'
 
 type RunParameterDeclaration = {
   key: string
@@ -120,6 +124,10 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [logsPage, setLogsPage] = React.useState(1)
   const logsPageRef = React.useRef(1)
   const [parameterLabels, setParameterLabels] = React.useState<Record<string, string>>({})
+  // Declarations cannot change between two refreshes of the same run, so the
+  // options list is fetched once per integration rather than on every progress
+  // event that re-reads the run.
+  const parameterLabelsIntegrationRef = React.useRef<string | null>(null)
 
   const resolveCurrentRunId = React.useCallback(() => {
     return runId ?? (
@@ -133,6 +141,8 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   // past run reads as "Start id" rather than "startId"; keys the adapter no
   // longer declares keep their raw form, which keeps historical runs readable.
   const loadParameterLabels = React.useCallback(async (integrationId: string) => {
+    if (parameterLabelsIntegrationRef.current === integrationId) return
+    parameterLabelsIntegrationRef.current = integrationId
     const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[] }> }>(
       '/api/data_sync/options',
       undefined,
@@ -298,7 +308,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
-      flash(t('data_sync.runs.detail.retryError'), 'error')
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [resolveCurrentRunId, router, runMutation, t])
 

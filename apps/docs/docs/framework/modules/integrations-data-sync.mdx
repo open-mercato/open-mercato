@@ -144,6 +144,7 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
 - optional `runParameters` — see below
+- optional `persistsSharedCursor(entityType)`
 
 ## Run parameters
 
@@ -168,6 +169,53 @@ Run parameters are operator-visible and stored in clear text, so they must never
 For a multi-locale deployment, pair each literal with an i18n key — `labelKey`, `descriptionKey`, `placeholderKey` — which the dashboard prefers over `label` / `description` / `placeholder`. Validation failures return `{ key, code, params, message }`, where `code` is one of `required`, `type`, `min`, `max`, `select`; the UI translates it through `data_sync.runParameters.errors.<code>` and treats the English `message` only as a fallback for non-UI callers.
 
 Retrying a run re-normalizes the stored values against the adapter's *current* declaration, so parameters you have since removed or re-scoped are dropped and a value that no longer satisfies its declaration fails the retry with a 422 rather than reaching the adapter.
+
+A recurring schedule cannot yet pin an operator-chosen value, but it does apply your declared defaults: the scheduled worker normalizes an empty input against the current declaration, so a scheduled run reaches the adapter with the same set an untouched dashboard form would rather than an empty object. Write the adapter against its defaults, not against `undefined`. A declared default that violates its own declaration skips the scheduled run with a logged error instead of starting it half-applied.
+
+## Shared cursor vs run-scoped cursor
+
+Every committed batch advances the cursor on the run row (`sync_runs.cursor`) so a redelivered job resumes exactly where it stopped. By default the engine also mirrors that cursor into the shared `sync_cursors` row — one row per `(integration, entityType, direction, organization, tenant)` — which is what the next incremental run starts from.
+
+That mirror is right for an incremental feed, whose cursor is a durable position in a change log, and wrong for a whole-table backfill, whose cursor is one run's scan state. Two runs of the same backfill (say a full walk and a walk narrowed to the last week) overwrite each other in that single row, so the survivor's window silently redefines where the next run starts.
+
+Adapters that serve both kinds under one provider key opt out per entity type:
+
+```ts
+const adapter: DataSyncAdapter = {
+  providerKey: 'my_provider',
+  direction: 'bidirectional',
+  supportedEntities: ['orders.feed', 'orders.backfill'],
+  persistsSharedCursor: (entityType) => !entityType.endsWith('.backfill'),
+  // ...
+}
+```
+
+Omitting the hook keeps today's behaviour. When it returns `false` for an entity type:
+
+- the engine skips both the read and the write of `sync_cursors` for that entity type (one query less per batch on long imports)
+- an incremental run resolves its start position from the most recent run instead of from the shared row it never writes, and starts over from `null` when that run completed
+- `fullSync` still starts from `null`
+
+### Resetting an opted-out entity type
+
+Reset flows that wipe imported data usually clear where the next run starts by deleting the shared
+`sync_cursors` row. **An opted-out entity type has no such row**, and deleting nothing leaves the
+resume position on the last interrupted run — so a reset followed by an incremental run would
+re-import only the tail of the walk it just reset against, which is the same silent partial import
+the opt-out exists to prevent.
+
+Reset flows MUST therefore clear the run-scoped position too:
+
+```ts
+await syncRunService.resetResumePosition(integrationId, entityType, 'import', scope)
+
+await em.nativeDelete(SyncCursor, { integrationId, entityType, direction: 'import', ...scope })
+```
+
+`resetResumePosition` clears the cursor on every run for that entity type that never reached
+`completed` — the only runs the resume path reads — and returns how many it cleared. It is a no-op
+when nothing was interrupted, so it is safe to call unconditionally, including for entity types that
+do keep the shared row.
 
 ## Provider-owned environment preconfiguration
 

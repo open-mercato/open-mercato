@@ -2613,13 +2613,26 @@ methods (and the persisted record), not `getMapping` / `getInitialCursor` /
 `validateConnection`; values are set once at run start and are immutable for the
 duration of the run. These are additive extension points if richer needs arise.
 
-**Not covered (declared follow-up)**: recurring runs. `sync_schedules` carries
-`full_sync` but no `parameters` column, so a scheduled run cannot yet supply
-declared parameters — scheduled runs behave exactly as before. The integration
-detail page's schedule table starts one-off runs from a table row with no space
-for a parameter form; it submits the adapter's declared defaults and refuses the
-run when an applicable parameter is `required` with no `defaultValue`, directing
-the operator to the Data Sync dashboard.
+**Recurring runs — defaults yes, operator values no.** A schedule has no
+parameter form, and `sync_schedules` carries `full_sync` but no `parameters`
+column, so an operator cannot yet pin a *chosen* value to a recurring run — that
+stays a declared follow-up. The adapter's **declared defaults do** apply: the
+`data-sync-scheduled` worker normalizes an empty input against the current
+declaration, which materializes exactly those defaults, so a scheduled run hands
+the adapter the same set a manual run with an untouched form would. Without
+this, an adapter declaring `dryRun` with `defaultValue: true` would read
+`undefined` on the nightly job and write for real, while the dashboard run did
+not — a divergence invisible on both the schedule and the run detail page. An
+adapter whose own default violates its declaration (a `select` default outside
+its `options`, a number below its `min`) skips the scheduled run with a logged
+error rather than starting it with a half-applied set.
+
+The integration detail page's schedule table starts one-off runs from a table
+row with no space for a parameter form; it submits the adapter's declared
+defaults and refuses the run when an applicable parameter is `required` with no
+`defaultValue`, directing the operator to the Data Sync dashboard. `required` is
+inert on `boolean` parameters (a switch always submits a value), so those never
+trigger that refusal.
 
 **Secrets**: parameter values are operator-visible — persisted in clear text on
 `sync_runs.parameters` and rendered on the run detail page. Adapters MUST NOT

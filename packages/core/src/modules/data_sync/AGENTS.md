@@ -109,6 +109,7 @@ interface DataSyncAdapter {
   streamExport?(input: StreamExportInput): AsyncIterable<ExportBatch>
   getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
+  persistsSharedCursor?(entityType: string): boolean
   validateConnection?(input: {
     entityType: string
     credentials: Record<string, unknown>
@@ -180,6 +181,14 @@ an applicable parameter is `required` with no `defaultValue`, pointing the
 operator at the Data Sync dashboard. Declare a `defaultValue` for anything that
 should stay launchable from that table.
 
+**Recurring runs get your defaults, not operator values.** A `SyncSchedule`
+cannot yet pin a chosen value, but the scheduled worker normalizes an empty
+input against your declaration, so a scheduled run hands you the same set an
+untouched dashboard form would — never an empty object. Write your adapter
+against the defaults, not against `undefined`. A default that violates its own
+declaration skips the scheduled run with a logged error instead of starting it
+with a half-applied set.
+
 If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
 
 - read env vars in the provider package
@@ -191,7 +200,9 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 
 `pending` → `running` → `completed` | `failed` | `cancelled`
 
-- **Cursor persistence**: After each batch, cursor is saved to `SyncCursor`
+- **Cursor persistence**: After each batch, the cursor is saved on the run row and mirrored into the shared `SyncCursor` row
+- **Shared cursor opt-out**: An adapter returning `persistsSharedCursor(entityType) === false` keeps that entity type's cursor on the run row only — use it for whole-table backfills whose cursor is one run's scan state, not a durable log position. Those entity types resolve an incremental start position from the most recent run (`resolveResumeCursor`) instead of the shared row, and from `null` when that run completed
+- **Resetting an opt-out**: A reset flow that deletes the shared `SyncCursor` row MUST also call `syncRunService.resetResumePosition(integrationId, entityType, direction, scope)`. An opted-out entity type has no shared row to delete, so deleting only that leaves the resume position on the last interrupted run and the next incremental run re-imports just the tail of the walk it was reset against. The call is a no-op when nothing is interrupted, so make it unconditionally
 - **Resume**: Retry reads the last successful cursor, resumes from there
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
 - **Cancellation**: Via `progressService.isCancellationRequested()`
@@ -239,6 +250,8 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 
 - `ProgressTopBar` and sync-run detail pages use `progress.job.*` SSE updates for live progress.
 - Create `ProgressJob` in `run`/`retry` endpoints; start/update/complete/fail in `sync-engine`.
+- The engine heartbeats (`touchJobHeartbeat`, forked-EM) on a timer while an adapter batch is being produced, because batches can outlast the 60s stale-job sweep — keep the `withHeartbeat` wrapper around `streamImport`/`streamExport` when touching the batch loops.
+- On redelivery the progress counter is seeded from the progress job's own `processedCount` (`progressService.getJob`), mirroring how `committedBatches` resumes — never reset it to zero (`updateProgress` writes absolute counts) and never seed it from the run's `created/updated/skipped/failed` columns: those count emitted items, while progress counts source records (`batch.processedCount`), and adapters may emit several items per source record.
 - Include `progressJob` details in run detail response.
 - SSE DOM bridge forwards only events with `clientBroadcast: true`.
 - `progress.job.*` events are marked `clientBroadcast: true` and must reach the browser from both web and worker processes.
