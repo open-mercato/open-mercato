@@ -173,7 +173,7 @@ One row is one version of one document kind in one scope. Rows with `tenant_id I
 | `status` | text | `draft` \| `published` |
 | `locales` | jsonb | Authored source with identity tokens: `{ [locale]: { title, markdown } }` |
 | `published_locales` | jsonb NULL | Token-baked snapshot, written once at publish, immutable |
-| `content_hash` | text NULL | `sha256` hex over the canonical JSON (sorted keys) of `{ kind, version, locales: published_locales }`, set at publish |
+| `content_hash` | text NULL | `sha256:<hex>` digest over the canonical JSON (sorted keys) of `{ kind, version, locales: published_locales }`, set at publish. Algorithm-prefixed format follows the digest convention the `documents` module introduces (PR #4561, `contentDigest`/`previewDigest` as `sha256:<64 hex>` with golden-vector tests); the same string is copied verbatim into every snapshot column (`auth.document_content_hash`, onboarding) and event payload |
 | `effective_at` | timestamptz NULL | Set at publish (defaults to publish time; future dates allowed) |
 | `published_at` | timestamptz NULL | |
 | `created_at` / `updated_at` / `deleted_at` | timestamptz | `updated_at` powers optimistic locking (entity is user-editable → default ON, `updatedAt` returned in list/detail) |
@@ -512,6 +512,7 @@ None. Two review-gate acknowledgments (auth provisioning touchpoint; checkout pu
 
 ### 2026-08-18
 - Initial specification (autonomous om-spec-writing run from the 2026-08-18 brief). Open Questions resolved as autonomous defaults A1–A12; A2 (hash payload versioning) and A9 (erasure interplay) flagged ⚠ NEEDS HUMAN CONFIRMATION.
+- `content_hash` storage format changed from bare hex to the algorithm-prefixed `sha256:<hex>` form, aligning with the digest convention the `documents` module introduces (PR #4561) so the platform converges on one self-describing digest format. HMAC integrity values keep their layout-version prefixes (`v2:`/`cev1:`) — those version the signed payload layout, which is the property that changes there, while `sha256:` names the algorithm of a plain content digest.
 
 ### Review — 2026-08-18
 - **Reviewer**: Agent (autonomous run; scope-cohesion item delegated to a fresh-context subagent given only this file)
