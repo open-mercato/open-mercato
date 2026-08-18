@@ -94,7 +94,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | **Specific Modules** | |
 | Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress, warranty_claims / RMA) | `packages/core/src/modules/<module>/AGENTS.md` |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
-| New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
+| New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` + `channel-*` |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |
 | Structured logging / replacing raw `console.*` with the facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `shared` |

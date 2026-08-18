@@ -1560,7 +1560,9 @@
       ],
       "allowedExtra": [
         ".ai/guides/extensions.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/push_notifications/index.md",
+        ".ai/guides/modules/devices/index.md"
       ],
       "forbidden": [
         ".env*",
@@ -3090,7 +3092,10 @@
         ".ai/guides/modules/channel_imap/index.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/integrations/index.md"
+        ".ai/guides/modules/integrations/index.md",
+        ".ai/guides/modules/channel_fcm/index.md",
+        ".ai/guides/modules/channel_apns/index.md",
+        ".ai/guides/modules/channel_expo/index.md"
       ],
       "forbidden": [
         ".env*",
@@ -20927,5 +20932,173 @@
     "maxTotalContextBytes": 196608,
     "relatedCases": ["OMH-003", "OMH-222"],
     "source": { "paths": [".ai/specs/2026-08-14-standalone-harness-optimizations.md"] }
+  },
+  {
+    "id": "OMH-232",
+    "title": "Reach a customer's phone when an order ships without a private device table",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the business wants a shipment update to reach the customer's phone as a notification, and the mobile client already has a provider token per install. Before proposing any schema, establish whether installed modules already own the device registry and the push delivery path, and name them, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: where a per-user device and its provider token live and how that token is protected at rest and kept out of responses and logs, how one notification fans out to that user's devices, what happens when a provider reports a token that no longer exists, and how a user's per-type and per-channel opt-out is honoured before anything is sent. Keep tenant and organization boundaries intact, state the access-control posture for a user registering their own device versus an administrator reading the fleet, and identify the smallest relevant validation. Do not model your own device, token, or delivery-log tables, and do not call a provider SDK directly from a request handler, before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "device-registry",
+      "push-delivery"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/push_notifications/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "integration",
+        "umes",
+        "framework-context",
+        "backend-ui"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/devices/index.md",
+        ".ai/guides/modules/push_notifications/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/modules/notifications/index.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "encrypted-credentials",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:token|secret|password).{0,20}(?:console|log)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-020",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-233",
+    "title": "Add tenant-wide push provider credentials without a bespoke integration",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, operations hold a Firebase service account for Android, an APNs signing key for iOS, and an Expo access token for the managed client, and want each one connected once for the whole tenant so push can be sent. Before proposing any schema, establish whether installed provider modules already own these three connections and name them, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: where such credentials are stored and validated at connect time, why they belong to the tenant rather than to the person who connected them and what that means for a caller whose selected organization differs, and how a provider's permanent token rejection is distinguished from a retryable failure. Keep tenant and organization boundaries intact, state the access-control posture for connecting a tenant-wide provider versus reading its health, and identify the smallest relevant validation. Do not write your own credential store, and do not build a bespoke provider integration, before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "push-provider",
+      "encrypted-credentials"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/channel_fcm/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "integration",
+        "module-data",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/channel_fcm/index.md",
+        ".ai/guides/modules/channel_apns/index.md",
+        ".ai/guides/modules/channel_expo/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/integrations.md",
+        ".ai/guides/modules/push_notifications/index.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "encrypted-credentials",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:token|secret|password).{0,20}(?:console|log)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-039",
+      "OMH-232"
+    ]
   }
 ]

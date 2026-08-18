@@ -41,6 +41,7 @@ function createProgressService(): ProgressService {
   return {
     startJob: jest.fn(async () => undefined),
     isCancellationRequested: jest.fn(async () => false),
+    getJob: jest.fn(async () => null),
     updateProgress: jest.fn(async () => undefined),
     completeJob: jest.fn(async () => undefined),
     failJob: jest.fn(async () => undefined),

@@ -105,6 +105,7 @@ describe('data sync engine export item failures', () => {
     const progressService = {
       startJob: jest.fn(async () => undefined),
       isCancellationRequested: jest.fn(async () => false),
+      getJob: jest.fn(async () => null),
       updateProgress: jest.fn(async () => undefined),
       completeJob: jest.fn(async () => undefined),
     } as unknown as ProgressService

@@ -95,11 +95,18 @@ export async function apiRequest(
   request: APIRequestContext,
   method: string,
   path: string,
-  options: { token: string; data?: unknown; timeout?: number; retryTransport?: boolean },
+  options: {
+    token: string;
+    data?: unknown;
+    timeout?: number;
+    retryTransport?: boolean;
+    headers?: Record<string, string>;
+  },
 ) {
   const headers = {
     Authorization: `Bearer ${options.token}`,
     'Content-Type': 'application/json',
+    ...(options.headers ?? {}),
   };
   const timeout = options.timeout ?? 30_000;
   let lastError: unknown = null;
