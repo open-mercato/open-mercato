@@ -57,6 +57,7 @@ function createBridgeHarness(input: {
   entityType: string
   metadata?: MetadataShape
   sourceRow?: Record<string, string | null>
+  hasCustomField?: boolean
 }) {
   const handlers = new Map<string, (payload: unknown, ctx: unknown) => Promise<void>>()
   const emitEvent = jest.fn(async () => {})
@@ -66,7 +67,10 @@ function createBridgeHarness(input: {
     }),
     emitEvent,
   }
-  const customFieldBuilder = makeBuilder([{ entity_id: input.entityType }], { id: 'field-1' })
+  const customFieldBuilder = makeBuilder(
+    [{ entity_id: input.entityType }],
+    input.hasCustomField === false ? undefined : { id: 'field-1' },
+  )
   const sourceBuilder = makeBuilder([], input.sourceRow)
   const db = {
     selectFrom: jest.fn((table: string) => {
@@ -202,6 +206,48 @@ describe('query_index DI CRUD bridge', () => {
       organizationId: 'payload-org',
       tenantId: 'payload-tenant',
     })
+  })
+
+  it.each([
+    [
+      'a mismatched complete payload',
+      { organization_id: 'row-org', tenant_id: 'row-tenant' },
+      { organizationId: 'other-org', tenantId: 'other-tenant' },
+    ],
+    [
+      'a missing source row with complete payload scope',
+      undefined,
+      { organizationId: 'payload-org', tenantId: 'payload-tenant' },
+    ],
+  ])('validates %s before returning when no scoped custom field exists', async (_label, sourceRow, scope) => {
+    const entityType = 'customers:customer_person'
+    const { handlers, emitEvent, container } = createBridgeHarness({
+      entityType,
+      metadata: scopedMetadata,
+      sourceRow,
+      hasCustomField: false,
+    })
+    register(container as never)
+    await flushRegistration()
+
+    const handler = handlers.get('customers.customer_person.created')
+    expect(handler).toBeDefined()
+    await handler!({ id: 'person-1', ...scope }, {
+      resolve: container.resolve,
+      tenantId: 'actor-tenant',
+      organizationId: 'actor-org',
+    })
+
+    expect(emitEvent).not.toHaveBeenCalled()
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      expect.objectContaining({ em: expect.anything() }),
+      expect.objectContaining({
+        handler: 'event:query_index.crud_bridge.upsert',
+        error: expect.any(QueryIndexScopeError),
+        entityType,
+        recordId: 'person-1',
+      }),
+    )
   })
 
   it.each([

@@ -39,13 +39,15 @@ async function resolveBridgeRecordScope(
   recordId: string,
   payload: unknown,
   action: 'upsert' | 'delete',
+  options?: { validateCompletePayload?: boolean },
 ) {
   let organization = readScopeValue(payload, ['organizationId', 'orgId'])
   let tenant = readScopeValue(payload, ['tenantId'])
-  if (organization.present && tenant.present) {
+  if (organization.present && tenant.present && options?.validateCompletePayload !== true) {
     return {
       organizationId: organization.value ?? null,
       tenantId: tenant.value ?? null,
+      sourceValidated: false,
     }
   }
   const source = resolveQueryIndexSourceMetadata(em, entityType)
@@ -60,13 +62,14 @@ async function resolveBridgeRecordScope(
     )
   }
 
-  return resolveQueryIndexRecordScope({
+  const resolvedScope = resolveQueryIndexRecordScope({
     payloadOrganizationId: organization.value,
     payloadTenantId: tenant.value,
     hasPayloadOrganizationId: organization.present,
     hasPayloadTenantId: tenant.present,
     sourceScope,
   })
+  return { ...resolvedScope, sourceValidated: true }
 }
 
 async function recordBridgeError(input: {
@@ -168,7 +171,7 @@ export function register(container: AppContainer) {
         em = ctx.resolve('em') as EntityManager
         id = String(payload?.id || payload?.recordId || '')
         if (!id) return
-        const { organizationId: orgId, tenantId } = await resolveBridgeRecordScope(
+        const { organizationId: orgId, tenantId, sourceValidated } = await resolveBridgeRecordScope(
           em,
           entityType,
           id,
@@ -176,6 +179,7 @@ export function register(container: AppContainer) {
           'upsert',
         )
         // Optional: only index when custom field definitions exist for this entity (org/global)
+        let hasCustomFields: boolean | null = null
         try {
           const db = (em as any).getKysely()
           let cfQuery = db
@@ -199,9 +203,21 @@ export function register(container: AppContainer) {
           } else {
             cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
           }
-          const hasCf = await cfQuery.executeTakeFirst()
-          if (!hasCf) return
+          hasCustomFields = !!await cfQuery.executeTakeFirst()
         } catch {}
+        if (hasCustomFields === false) {
+          if (!sourceValidated) {
+            await resolveBridgeRecordScope(
+              em,
+              entityType,
+              id,
+              payload,
+              'upsert',
+              { validateCompletePayload: true },
+            )
+          }
+          return
+        }
         const bus = ctx.resolve('eventBus') as any
         await bus.emitEvent('query_index.upsert_one', { entityType, recordId: id, organizationId: orgId, tenantId })
       } catch (error) {

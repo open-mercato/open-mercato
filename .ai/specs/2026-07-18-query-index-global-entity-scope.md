@@ -446,6 +446,7 @@ None.
 - Closed the remaining legacy DI CRUD-bridge gap: bridge-generated upsert/delete events now reuse the metadata-aware source-scope resolver instead of selecting hard-coded `organization_id` and `tenant_id` columns.
 - Preserved explicit global null/null payloads ahead of actor context and added bridge-level regression coverage for both event paths.
 - Followed up on review by treating only payload scope as an assertion, requiring explicit payload scope when source rows are missing, preserving partial global assertions for strict validation, recording fail-closed bridge errors, and exercising the real metadata resolver in regression tests.
+- Kept the complete-payload fast path while requiring authoritative source validation before a no-custom-field upsert may return, so a mismatched or missing scoped row cannot bypass the downstream resolver silently.
 
 ## Implementation Status
 
