@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { assertActorCanAccessUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { GET, PUT } from '../route'
 
 const ACTOR_TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -109,10 +110,12 @@ function wireEm(options: { targetUserTenantId: string | null; acls?: AclRow[] })
  * create/update path failed the constraint with a 500 and clear was a silent
  * no-op. Nothing cross-tenant was ever matched.
  *
- * Scope now resolves an explicit tenant first, then the actor's, then the target
- * user's, mirroring the role ACL route, and only refuses when none exists — and
- * GET resolves it identically, because the admin form PUTs the ACL panel on
- * every save and a narrower read would clear the override it never showed.
+ * Scope now resolves an explicit tenant first, then the actor's, then — for a
+ * super admin only — the target user's, mirroring the role ACL route, and only
+ * refuses when none exists. GET resolves it identically, because the admin form
+ * PUTs the ACL panel on every save and a narrower read would clear the override
+ * it never showed. The guards are a separate question and always run in the
+ * actor's own scope.
  */
 describe('user ACL tenant resolution', () => {
   beforeEach(() => {
@@ -242,6 +245,58 @@ describe('user ACL tenant resolution', () => {
 
     expect(res.status).toBe(403)
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('refuses a tenant-less non-super-admin instead of adopting the target tenant', async () => {
+    // The target must never pick the scope its own access is checked against.
+    // `assertActorCanAccessUserTarget` compares the actor's tenant with the
+    // target's, so a scope derived from the target makes that comparison a
+    // tautology — an actor holding `auth.acl.manage` with `users.tenant_id IS
+    // NULL` could then write an override into any tenant. Only a super admin
+    // resolves through the target.
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: false })
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: null, orgId: null })
+    wireEm({ targetUserTenantId: TARGET_TENANT_ID, acls: [aclRow(TARGET_TENANT_ID)] })
+
+    const res = await PUT(putRequest())
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ error: 'Tenant required' })
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    // The decrypting target read is a super-admin-only step, and it ran ahead of
+    // every guard — so it must not happen here at all.
+    expect(mockEm.findOne.mock.calls.some(([ctor]) => ctor === User)).toBe(false)
+  })
+
+  it('reads no foreign override for a tenant-less non-super-admin', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: false })
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: null, orgId: null })
+    wireEm({ targetUserTenantId: TARGET_TENANT_ID, acls: [aclRow(TARGET_TENANT_ID)] })
+
+    const res = await GET(getRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.hasCustomAcl).toBe(false)
+    expect(mockEm.findOne.mock.calls.some(([ctor]) => ctor === User)).toBe(false)
+    // The guard is answered in the actor's scope, so it sees the actor's `null`
+    // tenant and hides the foreign target — never the tenant read off that target.
+    const guardArgs = (assertActorCanAccessUserTarget as jest.Mock).mock.calls[0]?.[0]
+    expect(guardArgs).toMatchObject({ tenantId: null })
+  })
+
+  it('hands the guards the actor tenant on a same-tenant edit', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: false })
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: ACTOR_TENANT_ID, orgId: 'org-1' })
+    wireEm({ targetUserTenantId: ACTOR_TENANT_ID, acls: [aclRow(ACTOR_TENANT_ID)] })
+    // The organization scope for the guard is resolved from the directory tree.
+    mockEm.find.mockResolvedValue([])
+
+    const res = await PUT(putRequest())
+
+    expect(res.status).toBe(200)
+    const guardArgs = (assertActorCanAccessUserTarget as jest.Mock).mock.calls[0]?.[0]
+    expect(guardArgs).toMatchObject({ tenantId: ACTOR_TENANT_ID })
   })
 
   it('refuses only when neither the actor nor the target has a tenant', async () => {

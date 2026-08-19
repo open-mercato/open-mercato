@@ -67,14 +67,18 @@ type TenantResolution = { tenantId: string | null } | { error: NextResponse }
  *
  * `user_acls.tenant_id` is NOT NULL while `users.tenant_id` is nullable, so a
  * global account legitimately signs in with `auth.tenantId === null` and the
- * scope has to come from the target user instead. That read is skipped whenever
- * a tenant is already known: it decrypts, and running it under the actor's scope
- * for a user in another tenant is the cross-tenant read `loadTarget` in
- * `commands/acl.ts` deliberately avoids.
+ * scope has to come from the target user instead. That fallback is reserved for
+ * a super admin: for anyone else it would let the target pick the scope its own
+ * access is then checked against, and it decrypts a possibly foreign user ahead
+ * of every guard. A tenant-less non-super-admin therefore resolves to `null`,
+ * which reads as "no override" and refuses to write — the behaviour that held
+ * before this route resolved a scope at all. The read is also skipped whenever a
+ * tenant is already known.
  *
- * An explicit `tenantId` (the ACL editor sends the one selected in the form)
- * wins, mirroring the role ACL route — but only for a super admin or for the
- * actor's own tenant, so it cannot widen anyone's reach.
+ * An explicit `tenantId` wins, mirroring the role ACL route (additive there and
+ * here; no caller sends it yet) — but only for a super admin or for the actor's
+ * own tenant, so it cannot widen anyone's reach. The result is that for a
+ * non-super-admin the resolved scope is always the actor's own.
  */
 async function resolveAclTenantId(args: {
   em: EntityManager
@@ -89,6 +93,7 @@ async function resolveAclTenantId(args: {
   }
   const known = args.requestedTenantId ?? authTenantId
   if (known) return { tenantId: known }
+  if (!args.actorIsSuperAdmin) return { tenantId: null }
   const targetUser = await findOneWithDecryption(
     args.em,
     User,
@@ -111,8 +116,13 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
   const rbacService = container.resolve('rbacService') as any
+  // Every grant check is answered in the actor's own scope, never in the scope
+  // resolved for the record: passing the resolved one would ask a foreign tenant
+  // whether this caller may act there, and for a tenant-less actor — whose scope
+  // comes from the target — it would compare the target against itself.
+  const actorTenantId = auth.tenantId ?? null
   const actorAcl = auth.sub
-    ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    ? await rbacService.loadAcl(auth.sub, { tenantId: actorTenantId, organizationId: auth.orgId ?? null })
     : null
   const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
 
@@ -134,7 +144,7 @@ export async function GET(req: Request) {
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId,
+        tenantId: actorTenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -143,7 +153,7 @@ export async function GET(req: Request) {
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId,
+        tenantId: actorTenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -151,7 +161,7 @@ export async function GET(req: Request) {
           container,
           auth,
           request: req,
-          tenantId,
+          tenantId: actorTenantId,
         }),
       })
     } catch (err) {
@@ -198,21 +208,22 @@ export async function PUT(req: Request) {
   const em = container.resolve('em') as any
   const rbacService = container.resolve('rbacService') as any
 
-  // The actor's own grants are evaluated in the actor's own scope — resolving
-  // them in the target tenant would ask whether a foreign tenant's ACL makes
-  // this caller a super admin.
+  // Every grant check is answered in the actor's own scope, never in the scope
+  // resolved for the record: passing the resolved one would ask a foreign tenant
+  // whether this caller may act there, and for a tenant-less actor — whose scope
+  // comes from the target — it would compare the target against itself.
+  const actorTenantId = auth.tenantId ?? null
   const actorAcl = auth.sub
-    ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    ? await rbacService.loadAcl(auth.sub, { tenantId: actorTenantId, organizationId: auth.orgId ?? null })
     : null
   const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
 
-  // Resolved before the guards so authorization is decided in the same tenant
-  // the write lands in. `auth.tenantId` is `string | null` — never `undefined`,
-  // since every producer normalizes with `?? null` — so the pre-fix lookup ran
-  // `tenant_id IS NULL` against a NOT NULL column: it matched no row, leaving
-  // create/update to fail the NOT NULL constraint and clear to no-op silently.
-  // Nothing cross-tenant was ever matched; the fix turns a 500 into a working,
-  // correctly scoped write.
+  // The scope the row is read and written in. `auth.tenantId` is `string | null`
+  // — never `undefined`, since every producer normalizes with `?? null` — so the
+  // pre-fix lookup ran `tenant_id IS NULL` against a NOT NULL column: it matched
+  // no row, leaving create/update to fail the NOT NULL constraint and clear to
+  // no-op silently. Nothing cross-tenant was ever matched; the fix turns a 500
+  // into a working, correctly scoped write.
   const resolution = await resolveAclTenantId({
     em: em as EntityManager,
     auth,
@@ -230,7 +241,7 @@ export async function PUT(req: Request) {
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId,
+        tenantId: actorTenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -239,7 +250,7 @@ export async function PUT(req: Request) {
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId,
+        tenantId: actorTenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -247,7 +258,7 @@ export async function PUT(req: Request) {
           container,
           auth,
           request: req,
-          tenantId,
+          tenantId: actorTenantId,
         }),
       })
     } catch (err) {
@@ -286,7 +297,7 @@ export async function PUT(req: Request) {
       em: em as EntityManager,
       rbacService: rbacService as RbacService,
       actorUserId: auth.sub,
-      tenantId,
+      tenantId: actorTenantId,
       organizationId: auth.orgId ?? null,
       isSuperAdmin: requestedIsSuperAdmin,
       features: requestedFeatures,
