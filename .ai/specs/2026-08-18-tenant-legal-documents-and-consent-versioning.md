@@ -5,9 +5,9 @@
 ## TLDR
 
 **Key Points:**
-- Legal documents (`/privacy`, `/terms`) become tenant-scoped, versioned, publishable data records in the `content` module. A fresh install renders a built-in neutral sample clearly banner-marked as a placeholder — never the vendor's legal identity. The vendor's own texts become deployment data of the vendor's own instance (instance-scope rows), not package code.
+- Legal documents (`/privacy`, `/terms`) become tenant-scoped, versioned, publishable data records in the `content` module. A fresh install renders a built-in neutral sample clearly banner-marked as a placeholder — never the vendor's legal identity, and never another scope's: a tenant resolves its own rows or the sample, never the instance rows. The vendor's own texts become deployment data of the vendor's own instance (instance-scope rows serving the platform host), not package code.
 - Data-controller identity becomes tenant-scoped configuration (`module_configs`, owner `directory`, key `legal_entity`) consumed by `content` documents (token interpolation), `onboarding` consent labels, and the checkout pay-page footer. The next vendor/company rename is a data change, not a multi-module PR.
-- `auth` gains an append-only `consent_events` ledger pinning document id, document version, and content hash per grant/withdraw, with a versioned consent-integrity hash payload that keeps every existing `user_consents` row verifiable forever.
+- `auth` gains an append-only `consent_events` ledger pinning document id, document version, and content hash per grant/withdraw, keyed by a salted subject pseudonym (`subject_ref`) whose salt lives in `consent_subjects` and is destroyed by Art. 17 erasure, with a versioned consent-integrity hash payload that keeps every existing `user_consents` row verifiable forever.
 
 **Scope:**
 - `content`: module grows a data slice (entity, migrations, CRUD + publish API, admin pages, `acl.ts`, `setup.ts`, `i18n/`), page rendering from records, neutral fallback, AGENTS.md contract amendment.
@@ -38,7 +38,7 @@ The brief pre-answered the always-checked split question: this is **one OSS spec
 | A6 | Evidence fidelity vs. instant rename: are identity tokens interpolated live at render? | No — publish **bakes** tokens into an immutable `published_locales` snapshot; the content hash covers the baked text. A rename inside documents therefore requires a one-click republish; labels and footers (config-read surfaces) still update live. | The audit question this spec exists to answer is "which exact text was in force". A hash over un-interpolated templates cannot answer it because config rows keep no history. | — |
 | A7 | Does Phase 1 need per-tenant seed rows for neutral defaults? | No. Neutral samples ship as package constants used as a render fallback when no published row resolves; nothing is seeded. | Zero migration and zero drift. The brief is internally inconsistent here — its Agreed-direction item 5 says "neutral sample seeds" while its Resolved-unknowns table says "fallback to built-in neutral sample text clearly marked as a placeholder"; this spec follows the Resolved-unknowns table (the brief's authoritative gate-answer section) and records the discrepancy. | — |
 | A8 | Admin UI scope? | Document list/edit/publish pages (Phase 1), legal-entity settings page (Phase 2), read-only consent history inside the existing `UserConsentsPanel` (Phase 3). No withdraw UI, no portal self-service, no consent report/export. | Smallest surface that makes each phase operable without the CLI. | — |
-| A9 | What happens to consent evidence when the data subject is erased (Art. 17 / enterprise `data_erasure`)? | Split by table role. `user_consents` projection rows are hard-deleted with the user — per-user current state is meaningless after account deletion. `consent_events` ledger rows are retained and anonymized by **referent destruction**: the sealed record is never rewritten — `user_id` stays in the row and in its sealed `cev1` payload, and hard-deleting the auth user row it references leaves that uuid an unlinkable surrogate mapping to no person (Recital 26: no means reasonably likely to be used for identification remain). The only in-place update is metadata-only: the unsealed `ip_address` column is cleared and the unsealed `anonymized_at` is set; the sealed payload and stored seal are untouched, and `integrityValid` keeps verifying against the original seal. Retained sealed fields: tenant/organization scope, consent type, action, original `occurred_at`, `source`, and the document snapshot (id, kind, version, content hash). Performed only by the auth user-deletion path; never exposed via any API or command. | GDPR Art. 7(1) requires the controller to demonstrate that consent was given, and Art. 17(3)(e) exempts data needed for the defense of legal claims from the erasure obligation — anonymized, document-pinned proof satisfies both without retaining an identifiable subject. No name or e-mail ever enters these columns (see the column list); the sole personal-data column, `ip_address`, sits outside the sealed payload and is cleared. This is the market-converged pattern in surveyed ERP inalterability implementations (accounting hash chains, POS anti-fraud certification): seals cover opaque record references, never identity data; erasure anonymizes the referent, so sealed records are never rewritten. In-repo precedent: the enterprise erasure spec's `erasure_request` ledger retains PII-free masked entries after erasure. Deliberately narrow, consent-only anonymization slice; #208 remains the umbrella for general PII anonymization — neither blocked nor implemented here. | 🔄 Overridden by maintainer 2026-08-19: anonymize, not delete |
+| A9 | What happens to consent evidence when the data subject is erased (Art. 17 / enterprise `data_erasure`)? | Salted subject pseudonym, destroyed on erasure. The ledger never stores `user_id`: `consent_events.subject_ref` is `HMAC-SHA256(subject_salt, user_id)` over a per-subject random salt kept in a separate `consent_subjects` table (auth), and the `cev1` seal covers `subject_ref`, never the uuid. Two deliberately different paths: the ordinary undoable `auth.users.delete` leaves the ledger and the salt untouched and snapshots the `user_consents` projection rows into its undo payload (the same snapshot pattern its role and ACL restores already use), so delete→undo restores the subject's consent state exactly; the **erasure-only** path (Art. 17, invoked by enterprise `data_erasure`, never undoable) hard-deletes the salt row, hard-deletes the projection, clears the unsealed `ip_address`, and stamps `anonymized_at`. Destroying the salt makes `subject_ref` uncomputable from the uuid, so re-creating the same user id — by undo, by re-registration, or from any other module's retained rows — cannot relink the retained events. | The reviewer's option (b): a genuinely unlinkable subject reference with provable destruction of every mapping. It answers both prongs of the blocker — undo cannot relink (the mapping is gone and HMAC has no preimage), and no log, audit snapshot, or peer table carrying the uuid can be joined to the ledger either, because the uuid was never written there. Accepted and documented consequence: after erasure a retained row proves that a consent of that type against that document version existed, no longer **which person** gave it — Art. 7(1) demonstrability ends at erasure by design, which is exactly what Art. 17 asks for, so Art. 17(3)(e) is no longer load-bearing here. Backup copies of `consent_subjects` are governed by the deployment's backup-retention policy, not by this design; the spec says so instead of claiming the backups are anonymous. | ✅ Confirmed by maintainer 2026-08-20 (supersedes the 2026-08-19 referent-destruction override, per review #5364) |
 | A10 | The demo-feedback route's hardcoded fallback admin address (`piotr@catchthetornado.com`)? | Removed. Unset `ADMIN_EMAIL` → the route skips the send and logs a warning instead of mailing a superseded vendor address. | Same vendor-identity-leak class Phase 1 exists to remove; two-line change in a file the phase already touches. | — |
 | A11 | How does the checkout footer consume controller identity? | The public pay GET response gains an additive optional `legalEntity` field (`{ name: string }` or `null`); `PayPageFooter` renders one line when present. | The brief names the checkout footer as a consumer; an additive optional response field is the smallest mechanism. Checkout's Ask-First rule on public pay-page contracts is satisfied by this spec's review gate. | — |
 | A12 | What do the neutral samples actually say? | English-only, jurisdiction-neutral sample terms/privacy derived from the current documents' structure with identity tokens; governing-law, jurisdiction, and liability-cap clauses are omitted (an operator must supply those); every render of a sample carries a visible "Sample document — replace before production" banner. | Placeholders must not fabricate legal specifics that no operator has adopted. | — |
@@ -62,8 +62,8 @@ This spec turns the mechanism into framework code and the identity into data: ve
 
 Four capabilities, one owning module each, coupled only through FK-id + snapshot, DI soft-resolution, and tenant-scoped configuration:
 
-1. **`content` owns legal documents as data.** A `legal_documents` entity (one row = one version of one kind for one scope) with draft→published lifecycle, per-locale content, publish-time token baking, and a SHA-256 content hash over the baked text. `/privacy` and `/terms` resolve: tenant published rows → instance published rows (`tenant_id IS NULL`) → built-in neutral sample with a placeholder banner. This deliberately amends `content`'s AGENTS.md contract.
-2. **`directory` owns controller identity as configuration.** One `module_configs` entry (`directory` / `legal_entity`) resolved through the existing tenant→instance fallback of `moduleConfigService`, exposed via a fail-open resolver helper (the `search` module's resolver pattern), a small settings API, and a settings page.
+1. **`content` owns legal documents as data.** A `legal_documents` entity (one row = one version of one kind for one scope) with draft→published lifecycle, per-locale content, publish-time token baking, and a SHA-256 content hash over the baked text. Resolution is **scope-exact**: a request that carries a tenant resolves that tenant's published rows and, failing that, the built-in neutral sample with a placeholder banner — it never falls back to instance rows. Instance rows (`tenant_id IS NULL`) serve only requests with no tenant context, i.e. the platform host's own pages. This deliberately amends `content`'s AGENTS.md contract.
+2. **`directory` owns controller identity as configuration.** One `module_configs` entry (`directory` / `legal_entity`), read **tenant-exactly** for tenant-context requests (no instance fallback) and at instance scope only for the platform host, exposed as the DI service `legalEntityService` that each consumer soft-resolves, plus a small settings API and a settings page.
 3. **`auth` owns consent evidence.** An append-only `consent_events` ledger plus a `consentLogService` that writes the event and upserts the `user_consents` projection in one transaction, with versioned integrity hashes and a consent-type registry mapping types to document kinds.
 4. **`onboarding` and `checkout` consume, never own.** Onboarding records terms + marketing consent events with the instance document snapshot captured at submit; checkout prefills new links/templates from the tenant's published documents (client-side, degrade-to-empty) and renders the configured legal-entity name in the pay-page footer.
 
@@ -75,13 +75,13 @@ Four capabilities, one owning module each, coupled only through FK-id + snapshot
 | Publish bakes identity tokens into `published_locales`; hash covers baked text | Evidence must pin what the user could actually read. Config has no history, so live interpolation would make the hash unreconstructible. See A6. |
 | Published rows are immutable and undeletable; corrections are a new version | Anything consent evidence points at must never change. Draft CRUD is fully undoable; `publish` is the documented undoability exception (precedent: the enterprise erasure ledger). |
 | Neutral fallback is code, not seed data | No per-tenant markdown blobs to seed, migrate, or drift; "explicitly unconfigured" beats "looks configured". See A7. |
-| Instance scope = `tenant_id IS NULL` rows, mirroring `module_configs` | The vendor (or any operator) stores its real documents as deployment data of its own instance; every tenant without overrides inherits them; the platform-host `/privacy` page has a well-defined source without inventing a "default tenant". |
+| Instance scope = `tenant_id IS NULL` rows, but **never inherited by a tenant** | The operator stores its real documents and identity as deployment data of its own instance, and the platform-host `/privacy` page has a well-defined source without inventing a "default tenant". Inheriting those rows into a tenant context would recreate the exact failure this spec exists to remove — an unconfigured tenant publishing the operator's legal identity as its own — so tenant resolution stops at the tenant's own rows and falls through to the neutral sample. This is where the design deliberately diverges from `module_configs` fallback semantics; the divergence is the point, not an oversight. |
 | Identity config in `directory`, not `content` and not a content entity | Four modules consume it; putting it in content would make onboarding depend on content for something that is not content (brief decision); `directory` already owns tenant/org master data. |
 | `consent_events` + `user_consents` projection, written together | Evidence and current state have different shapes and different mutability. The projection preserves every existing contract (table, API, panel). See A1. |
 | Hash version lives inside the stored value (`v2:`/`cev1:` prefix) and inside the signed payload | Self-describing rows need no schema flag and no backfill; the in-payload domain tag prevents cross-format collisions; absent prefix = frozen legacy v1 semantics forever. See A2. |
 | Cross-module reads: onboarding→content and checkout→content via soft-optional resolution | Onboarding resolves `legalDocumentService` from DI in `try/catch` (absent content → consent events with null document fields); checkout prefills via authenticated `apiCall` (404/403 → empty form as today). No hard `requires`, no cross-module ORM, matching the decoupling test. |
 | Consent writes go through a DI service, not command-bus commands | The ledger is deliberately not undoable (evidence), has no admin mutation route, and is written from system flows (provisioning). Draft-document CRUD, by contrast, uses regular undoable commands via `makeCrudRoute`. |
-| Subject erasure anonymizes the referent, never the sealed ledger row | The market-converged pattern in surveyed ERP inalterability implementations (accounting hash chains, POS anti-fraud certification): seals cover opaque record references, never identity data; erasure anonymizes the referent, so sealed records are never rewritten and no re-seal machinery exists. Art. 7(1) demonstrability and Art. 17(3)(e) defense-of-legal-claims retention beat evidence destruction; hard-deleting the auth user row leaves the sealed `user_id` an unlinkable surrogate (Recital 26), and the one sanctioned in-place update touches only unsealed columns — `ip_address` cleared, `anonymized_at` set. Performed only by the auth user-deletion path — no API, no command. Explicit, justified, narrow exception to the ledger's append-only rule (precedent: the enterprise erasure ledger's own PII-free entries survive erasure). See A9. |
+| The ledger identifies its subject by a salted pseudonym; erasure destroys the salt | Seals must verify forever **and** the subject must become unlinkable — both hold only when the identifier under the seal is already a pseudonym. `consent_events.subject_ref = HMAC(subject_salt, user_id)`, salt in `consent_subjects`; Art. 17 erasure hard-deletes that salt row, which is the entire mapping, so no seal is ever rewritten and no re-seal machinery exists. The ordinary undoable delete keeps the salt and snapshots the projection, so an admin mistake stays reversible while erasure stays irreversible. Sealing the raw `user_id` would put those two properties out of reach at once. See A9. |
 
 ### Alternatives Considered
 
@@ -108,7 +108,7 @@ Four capabilities, one owning module each, coupled only through FK-id + snapshot
                     ┌────────────────────────────────────────────────────────┐
                     │ directory (owner: controller identity)                 │
                     │  module_configs: ('directory','legal_entity')          │
-                    │  lib/legalEntity.ts: resolveLegalEntityIdentity(...)   │
+                    │  di.ts: legalEntityService.resolve({ scope })          │
                     │  GET/PUT /api/directory/legal-entity + settings page   │
                     └───────┬──────────────────┬──────────────────┬──────────┘
               config read   │                  │                  │  config read
@@ -116,18 +116,23 @@ Four capabilities, one owning module each, coupled only through FK-id + snapshot
                     ▼                          ▼                  ▼
 ┌───────────────────────────────┐   ┌──────────────────┐   ┌─────────────────────┐
 │ content (owner: documents)    │   │ onboarding       │   │ checkout            │
-│  entity: legal_documents      │   │  submit: snapshot│   │  form prefill via   │
-│  CRUD + publish (commands +   │   │  instance terms  │   │  GET /legal-documents│
-│  guarded action route)        │◄──┤  via DI try/resolve │  /current (apiCall,  │
-│  /privacy /terms render:      │   │  verify: record  │   │  degrade to empty)  │
-│  tenant → instance → sample   │   │  consent events  │   │  per-link jsonb copy│
-│  event: content.legal_document│   └────────┬─────────┘   │  stays authoritative│
-│  .published                   │            │             └─────────────────────┘
-└───────────────────────────────┘            │ consentLogService.record(...)
+│  entity: legal_documents      │   │  submit: snapshot│   │  own route, guard   │
+│  CRUD + publish (commands +   │◄──┤  via tryResolve  │   │  checkout.create →  │
+│  guarded action route)        │   │  verify: record  │   │  tryResolve content │
+│  /privacy /terms render:      │   │  consent events  │   │  (degrade to empty) │
+│  tenant rows → sample         │   └────────┬─────────┘   │  per-link jsonb copy│
+│  (no instance inheritance)    │            │             │  stays authoritative│
+│  event: content.legal_document│            │             └─────────────────────┘
+│  .published                   │            │
+└───────────────────────────────┘            │
+                                             │ consentLogService.record(...)
                                              ▼
                               ┌────────────────────────────────────┐
                               │ auth (owner: consent evidence)     │
-                              │  consent_events (append-only)      │
+                              │  consent_events (append-only,      │
+                              │    subject_ref = HMAC(salt, user)) │
+                              │  consent_subjects (salt — erasure  │
+                              │    destroys the mapping)           │
                               │  user_consents (projection, upsert)│
                               │  hash: cev1 / v2 / legacy dispatch │
                               │  events: auth.consent.granted /    │
@@ -139,15 +144,15 @@ Four capabilities, one owning module each, coupled only through FK-id + snapshot
 
 | Touchpoint | Mechanism | Glue owner | Peer-absent behavior |
 |---|---|---|---|
-| onboarding → content (document snapshot at submit) | soft-optional DI resolve of `legalDocumentService` in `try/catch` | onboarding | Consent events record null document fields; flow unaffected |
+| onboarding → content (document snapshot at submit) | soft-optional DI resolve of `legalDocumentService` through onboarding's own local `tryResolve` seam | onboarding | Consent events record null document fields; flow unaffected |
 | onboarding → auth (record consent) | DI service `consentLogService` (auth is a hard platform dependency of onboarding already — it creates users) | onboarding | n/a (auth always present) |
-| checkout → content (prefill defaults) | authenticated `apiCall` from the admin form to `GET /api/content/legal-documents/current` | checkout | 404/403/network error → empty defaults exactly as today |
-| content / onboarding / checkout → directory (identity) | fail-open resolver helper over `moduleConfigService` (duck-typed `{ resolve }`), copied from the `search` global-search-config pattern | each consumer | Neutral fallback phrase / hidden disclosure / no footer line |
-| content → customer_accounts (tenant for public pages on a custom domain) | soft-optional DI resolve of `domainMappingService` in `try/catch` | content | Platform host or module absent → instance-scope resolution (then sample) |
+| checkout → content (prefill defaults) | checkout-owned route `GET /api/checkout/legal-document-defaults`, gated by `checkout.create`, which soft-resolves content's `legalDocumentService` server-side through checkout's own `tryResolve` | checkout | Content absent, or resolve throws → `{ items: [] }` → empty defaults exactly as today |
+| content / onboarding / checkout → directory (identity) | optional DI service `legalEntityService`, resolved through each consumer's own local `tryResolve` seam (never a cross-module import of `directory/lib`) | each consumer | Neutral fallback phrase / hidden disclosure / no footer line |
+| content → customer_accounts (tenant for public pages on a custom domain) | soft-optional DI resolve of `domainMappingService` in `try/catch` | content | Module absent or domain unmapped → "tenant unknown" → neutral sample; only the platform host itself resolves instance-scope rows |
 | auth → content | **none** — auth stores `document_id`/`document_kind`/`document_version`/`document_content_hash` as its own snapshot columns (FK-id + snapshot), callers pass them in | callers | Null document fields |
-| enterprise `data_erasure` → consent tables | **none directly** — erasure calls `auth.users.delete`; this spec extends that path to hard-delete the user's `user_consents` projection and anonymize their `consent_events` (A9: referent destroyed, unsealed metadata cleared) | auth | n/a |
+| enterprise `data_erasure` → consent tables | **none directly** — erasure calls auth's erasure-only entry point (`eraseConsentSubject`), a different path from the undoable `auth.users.delete`: it destroys the subject salt, hard-deletes the projection, clears `ip_address`, and stamps `anonymized_at` (A9) | auth | n/a |
 
-No new cross-module ORM relations. No core module names an enterprise identifier. Every identity consumer (content, onboarding, checkout, and directory's own settings surface) resolves `moduleConfigService` defensively.
+No new cross-module ORM relations, and no consumer imports another module's `lib/` business helper: every cross-module read goes through a DI service name resolved in the consumer's own `tryResolve` seam, per `packages/core/AGENTS.md` § Cross-Module Coupling. No core module names an enterprise identifier. Every identity consumer (content, onboarding, checkout, and directory's own settings surface) resolves defensively and degrades to its neutral state when the peer is absent.
 
 ### Commands & Events
 
@@ -162,7 +167,7 @@ No new cross-module ORM relations. No core module names an enterprise identifier
 
 ### LegalDocument (`content`, table `legal_documents`) — NEW
 
-One row is one version of one document kind in one scope. Rows with `tenant_id IS NULL` are instance-scope (inheritable by every tenant), mirroring `module_configs` semantics.
+One row is one version of one document kind in one scope. Rows with `tenant_id IS NULL` are instance-scope and serve the platform host only — they are **not** inherited by tenants, which is where this design deliberately departs from `module_configs` fallback semantics (see the Design Decisions row and A9's sibling risk entry).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -181,7 +186,7 @@ One row is one version of one document kind in one scope. Rows with `tenant_id I
 
 Indexes: partial uniques `("tenant_id","kind","version") where tenant_id is not null and deleted_at is null` and `("kind","version") where tenant_id is null and deleted_at is null`; lookup index `(tenant_id, kind, status, effective_at)`.
 
-Immutability rules (enforced in commands + publish route): `published` rows reject update and delete; drafts are fully editable and soft-deletable. Resolution for rendering: highest `version` among `status='published' AND effective_at <= now()` for `(tenant, kind)`, else same query at instance scope, else built-in sample (`document_id = null`, `version = 0`, hash computed over the resolved sample at evaluation time). For an unauthenticated public request, the tenant scope comes from the custom-domain mapping when one resolves (soft-optional `domainMappingService`, see the coupling table); on the platform host there is no ambient tenant, so resolution starts at instance scope.
+Immutability rules (enforced in commands + publish route): `published` rows reject update and delete; drafts are fully editable and soft-deletable. Resolution for rendering is scope-exact and never crosses from tenant to instance: with a tenant in context, the highest `version` among `status='published' AND effective_at <= now()` for `(tenant, kind)` — matched on `tenant_id = :t` alone — else the built-in sample (`document_id = null`, `version = 0`, hash computed over the resolved sample at evaluation time). Instance rows (`tenant_id IS NULL`) are resolved **only** when there is no tenant in context — the platform host — and then likewise fall through to the sample. For an unauthenticated public request the tenant comes from the custom-domain mapping when one resolves (soft-optional `domainMappingService`, see the coupling table); an unmapped custom domain is treated as "tenant unknown", which renders the sample rather than the operator's documents.
 
 New module infrastructure this entails: `packages/content/src/modules/content/{data/entities.ts, data/validators.ts, api/, backend/, lib/, i18n/, acl.ts, setup.ts, di.ts, events.ts, commands/, migrations/ + .snapshot-open-mercato.json}` — the module today has none of these (only `frontend/` + `index.ts`), and `package.json` gains the standard entity/CRUD dependencies.
 
@@ -190,22 +195,38 @@ New module infrastructure this entails: `packages/content/src/modules/content/{d
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | |
-| `user_id` | uuid | indexed; sealed in the `cev1` payload and never modified — retained after subject erasure, when the referenced auth user row is hard-deleted and the uuid becomes an unlinkable surrogate (A9) |
+| `subject_ref` | text | `HMAC-SHA256(subject_salt, user_id)`, hex; indexed. The **only** subject identifier this table stores — the raw `user_id` is never written to it, in any column or in the sealed payload. Resolvable to a user only while the matching `consent_subjects` salt row exists; after Art. 17 erasure it is a permanently unlinkable pseudonym (A9) |
 | `tenant_id` / `organization_id` | uuid NULL | |
 | `consent_type` | text | From the consent-type registry |
 | `action` | text | `granted` \| `withdrawn` |
 | `occurred_at` | timestamptz | |
 | `source` | text NULL | e.g. `onboarding` — constrained system tag, never free text (it is sealed in `cev1`) |
-| `ip_address` | text NULL | **Encrypted** via a new `auth` `defaultEncryptionMaps` entry; reads via `findWithDecryption`. Deliberately **outside** the sealed `cev1` payload (unsealed column): the ledger's sole personal-data column, cleared (NULL) by subject-erasure anonymization (A9) — which therefore cannot affect any seal |
+| `ip_address` | text NULL | **Encrypted** via a new `auth` `defaultEncryptionMaps` entry; reads via `findWithDecryption`. Deliberately **outside** the sealed `cev1` payload (unsealed column): the ledger's sole directly personal column, cleared (NULL) by the erasure-only path (A9) — which therefore cannot affect any seal |
 | `document_id` | uuid NULL | FK-id snapshot of `legal_documents.id` — no ORM relation |
 | `document_kind` | text NULL | |
 | `document_version` | int NULL | `0` = built-in sample |
 | `document_content_hash` | text NULL | |
-| `integrity_hash` | text | `cev1:<hex>` (see hash design); written once at insert and never recomputed — subject erasure (A9) touches only unsealed columns |
-| `anonymized_at` | timestamptz NULL | Unsealed metadata column; set by the subject-erasure anonymization update (A9), NULL on live rows |
-| `created_at` | timestamptz | Deliberately **no** `updated_at` / `deleted_at`: append-only; rows are never updated or deleted, with one sanctioned exception — the subject-erasure anonymization update (A9), which touches only the unsealed `ip_address` and `anonymized_at` columns and never a sealed field or a seal. Not user-editable → optimistic-locking rule N/A. |
+| `idempotency_key` | text | Caller-supplied stable key identifying the consent act at its source (`<source>:<sourceRecordId>:<consentType>:<action>`, e.g. `onboarding:<requestId>:marketing_email:granted`). **DB-unique** per subject scope, so a retry can never produce a second event — see the idempotency contract below |
+| `integrity_hash` | text | `cev1:<hex>` (see hash design); written once at insert and never recomputed — the erasure-only path (A9) touches only unsealed columns and the salt table, never a seal |
+| `anonymized_at` | timestamptz NULL | Unsealed metadata column; stamped by the erasure-only path (A9), NULL on live rows and after an ordinary delete→undo cycle |
+| `created_at` | timestamptz | Deliberately **no** `updated_at` / `deleted_at`: append-only; rows are never updated or deleted, with one sanctioned exception — the erasure-only path (A9), which touches the unsealed `ip_address` and `anonymized_at` columns and never a sealed field or a seal. Not user-editable → optimistic-locking rule N/A. |
 
-Index: `(user_id, tenant_id, consent_type, occurred_at)`.
+Indexes: lookup `(subject_ref, tenant_id, consent_type, occurred_at)`; unique `(subject_ref, tenant_id, idempotency_key)` — the database, not the application, is what makes a retry idempotent.
+
+**Idempotency contract.** `occurred_at` is wall-clock metadata and never participates in duplicate detection: the onboarding verification flow mints a fresh `new Date()` on every attempt (`packages/onboarding/src/modules/onboarding/api/get/onboarding/verify.ts:243`), so a timestamp-keyed guard would write a second immutable event on each retry, and an application-level `SELECT`-then-`INSERT` check would still race two concurrent retries. Every caller therefore passes `idempotencyKey`; `consentLogService.record` inserts under the unique index and, on a unique-violation, loads and returns the original event (`{ eventId, deduplicated: true }`) instead of raising. The projection upsert is idempotent by its own singleton constraint.
+
+### ConsentSubject (`auth`, table `consent_subjects`) — NEW
+
+The pseudonym mapping, and the only thing Art. 17 erasure destroys.
+
+| Column | Type | Notes |
+|---|---|---|
+| `user_id` | uuid | Part of the PK; the live subject reference |
+| `tenant_id` | uuid NULL | Part of the PK — salts are per subject **per tenant**, so erasure in one tenant cannot unlink another |
+| `subject_salt` | bytea | 32 random bytes from `crypto.randomBytes`, minted on the subject's first consent write. **Encrypted** via `defaultEncryptionMaps`. Never derived from the user id, the tenant id, or any platform secret — a derived salt would be recomputable and erasure would prove nothing |
+| `created_at` | timestamptz | |
+
+PK `(user_id, tenant_id)`. The row is hard-deleted — never soft-deleted — by the erasure-only path; the ordinary undoable user delete does not touch it. `subject_ref` is computed only inside `consentLogService`; no route, command, or event payload ever carries a salt.
 
 ### UserConsent (`auth`, table `user_consents`) — ADDITIVE changes only
 
@@ -229,13 +250,13 @@ v2:<hex>       (projection)  JSON.stringify(["om-consent-state.v2", userId, tena
                               iso(withdrawnAt) ?? null, ipAddress ?? null, source ?? null,
                               documentId ?? null, documentKind ?? null,
                               documentVersion ?? null, documentContentHash ?? null])
-cev1:<hex>         (ledger)  JSON.stringify(["om-consent-event.v1", userId, tenantId ?? null,
+cev1:<hex>         (ledger)  JSON.stringify(["om-consent-event.v1", subjectRef, tenantId ?? null,
                               consentType, action, iso(occurredAt),
                               source ?? null, documentId ?? null, documentKind ?? null,
                               documentVersion ?? null, documentContentHash ?? null])
 ```
 
-Properties: the JSON-array encoding closes the v1 field-collision gap (a `source` containing `|` can no longer bleed into an adjacent field); the in-payload domain tag prevents cross-format second-preimage games under one secret; `tenantId` enters the signed payload (v1 omitted it); `null` and `''` become distinguishable. Verification dispatches on the stored prefix; an unknown prefix verifies as `false`. The `cev1` payload deliberately seals only opaque references, enums, timestamps, and constrained system tags: `ip_address` — the ledger's sole personal-data column — stays **outside** the sealed payload as an unsealed encrypted column, and no free text enters the payload. Transferable rule: sealed payloads must never contain free-text fields — a value frozen under a seal can trap PII forever. Seals are write-once with no re-seal machinery anywhere: subject erasure (A9) destroys the referent (the auth user row) and clears unsealed columns only, so every stored seal verifies unchanged forever. (The `v2` projection payload still carries `ipAddress`; that row is hard-deleted with the user, so its seal never needs to outlive the subject.) `computeConsentIntegrityHash` keeps its exact signature and legacy behavior with a `@deprecated` JSDoc for at least one minor version; new exports `computeConsentStateIntegrityHash` and `computeConsentEventIntegrityHash` sit beside it. Unit tests add golden vectors for all three layouts (v1 currently has none — an accidental payload change is undetectable today), an assertion that the `cev1` payload contains no `ip_address` and no free-text field, and an assertion that the original seal still verifies unchanged after the anonymization update.
+Properties: the JSON-array encoding closes the v1 field-collision gap (a `source` containing `|` can no longer bleed into an adjacent field); the in-payload domain tag prevents cross-format second-preimage games under one secret; `tenantId` enters the signed payload (v1 omitted it); `null` and `''` become distinguishable. Verification dispatches on the stored prefix; an unknown prefix verifies as `false`. The `cev1` payload seals only pseudonyms, opaque references, enums, timestamps, and constrained system tags: the subject appears as `subject_ref`, never as a `user_id`; `ip_address` — the ledger's sole directly personal column — stays **outside** the sealed payload as an unsealed encrypted column; no free text enters the payload. Transferable rule: sealed payloads must never contain free-text fields or raw subject identifiers — a value frozen under a seal can trap PII forever, and an identifier frozen under a seal cannot be erased without breaking the seal. Seals are write-once with no re-seal machinery anywhere: Art. 17 erasure (A9) destroys the salt and clears unsealed columns only, so every stored seal verifies unchanged forever while the subject behind it becomes unlinkable. (The `v2` projection payload still carries `userId`; that row is hard-deleted both by the ordinary delete — snapshotted for undo — and by erasure, so its seal never needs to outlive the subject.) `computeConsentIntegrityHash` keeps its exact signature and legacy behavior with a `@deprecated` JSDoc for at least one minor version; new exports `computeConsentStateIntegrityHash` and `computeConsentEventIntegrityHash` sit beside it. Unit tests add golden vectors for all three layouts (v1 currently has none — an accidental payload change is undetectable today), an assertion that the `cev1` payload contains no `ip_address`, no free-text field and no raw `user_id`, and an assertion that the original seal still verifies unchanged after erasure.
 
 ### Controller identity (`module_configs`, no new table)
 
@@ -245,7 +266,7 @@ Properties: the JSON-array encoding closes the v1 field-collision gap (a `source
 { name: string (1..200), email?: string (email), address?: string (..500), registration?: string (..1000) }
 ```
 
-Resolution: existing `moduleConfigService` tenant → instance fallback (reads are tenant-keyed only — `organizationId` does not participate, which is why this value is tenant-scoped by design). Resolver helper `resolveLegalEntityIdentity(resolver, { scope })` in `packages/core/src/modules/directory/lib/legalEntity.ts`: duck-typed resolver, `try/catch` fail-open to `null`, and a `source: 'tenant' | 'instance' | 'none'` discriminator for the settings UI.
+Resolution is scope-exact, mirroring document resolution: with a tenant in context `moduleConfigService` is read with the tenant pinned and **without** its instance fallback (`{ inherit: false }` — the helper passes the flag explicitly rather than relying on the service default), so an unconfigured tenant reports `source: 'none'` and every consumer renders its neutral fallback. The instance row is read only when there is no tenant in context (the platform host). Reads are tenant-keyed only — `organizationId` does not participate, which is why this value is tenant-scoped by design. The owning module exposes `legalEntityService.resolve({ scope })` from `packages/core/src/modules/directory/di.ts` (implementation in `lib/legalEntity.ts`, internal to `directory`): fail-open to `null`, with a `source: 'tenant' | 'instance' | 'none'` discriminator for the settings UI.
 
 ## API Contracts
 
@@ -253,7 +274,7 @@ Resolution: existing `moduleConfigService` tenant → instance fallback (reads a
 
 - `GET/POST/PUT/DELETE /api/content/legal-documents` — `makeCrudRoute` (commands above, `indexer: { entityType }`, `softDeleteField: 'deletedAt'`). List: filters `kind?`, `status?`; `pageSize ≤ 100`; fields include `id, kind, version, status, effectiveAt, publishedAt, contentHash, updatedAt`. Detail returns `locales` (and `publishedLocales` when published). Guards: `GET → content.legal_documents.view`, writes → `content.legal_documents.manage`. Update/delete of a `published` row → 409 with `content.legalDocuments.errors.publishedImmutable`.
 - `POST /api/content/legal-documents/[id]/publish` — custom write route: mutation-guard registry (`update` guard class, `bridgeLegacyGuard`, `runMutationGuards` with `userFeatures`, after-success callbacks), optimistic-lock header from `updatedAt`. Body `{ effectiveAt?: ISO }`. Bakes tokens, computes hash, sets status/publishedAt, emits `content.legal_document.published`, invalidates the render cache tag. Errors: 409 already published, 409 optimistic-lock conflict, 422 no locale content. Not undoable (documented).
-- `GET /api/content/legal-documents/current?kinds=terms,privacy&locale=en` — `requireAuth: true`, `content.legal_documents.view`. Returns the resolved current documents for the caller's tenant (tenant → instance; **never** the built-in sample — callers prefill real data or nothing): `{ items: [{ id, kind, version, effectiveAt, contentHash, locale, title, markdown }] }` with per-item locale fallback `requested → en → first available`.
+- `GET /api/content/legal-documents/current?kinds=terms,privacy&locale=en` — `requireAuth: true`, `content.legal_documents.view`. Content's own admin surfaces use it. Returns the resolved current documents for the caller's tenant (tenant rows only; **never** instance rows and **never** the built-in sample — callers prefill real data or nothing): `{ items: [{ id, kind, version, effectiveAt, contentHash, locale, title, markdown }] }` with per-item locale fallback `requested → en → first available`. Peer modules do **not** call this route from the browser (see the checkout route below): a checkout admin holding `checkout.create` has no reason to hold content's ACL feature.
 - All routes export `openApi`.
 
 ### directory
@@ -263,13 +284,14 @@ Resolution: existing `moduleConfigService` tenant → instance fallback (reads a
 ### auth
 
 - `GET /api/auth/users/consents` — **unchanged route, additive response**: items gain optional `documentId`, `documentKind`, `documentVersion`, `documentContentHash`. Verification dispatch handles all three hash formats; existing rows keep reporting exactly the `integrityValid` they report today.
-- `GET /api/auth/users/consents/events?userId=&page=&pageSize=` — NEW, same guard (`auth.users.edit`) and the same scoping discipline the #3820 fix established, applied unconditionally: tenant filter always pinned (null-tenant super admin → pinned to the target user's tenant; non-super-admin without tenant → 403) **and** the organization filter always applied from the resolved organization scope (not conditionally — closing the residual looseness of the sibling route rather than copying it). Sorted `occurred_at DESC`, `pageSize ≤ 100` default 20. Response: `{ ok, items: ConsentEventItem[], total }`.
-- `consentLogService` (DI, auth `di.ts`): `record(input: { userId, tenantId, organizationId?, consentType, action, occurredAt?, source?, ipAddress?, document?: { id?, kind?, version?, contentHash? } }): Promise<{ eventId }>` — validates against the consent-type registry, transactionally inserts the event and upserts the projection, computes both hashes, emits the event-bus event. No update/delete methods exist; the subject-erasure anonymization (A9) is an internal function of the auth user-deletion path, not part of this service's surface and never exposed via any API or command.
+- `GET /api/auth/users/consents/events?userId=&page=&pageSize=` — NEW, same guard (`auth.users.edit`) and the same scoping discipline the #3820 fix established, applied unconditionally: tenant filter always pinned (null-tenant super admin → pinned to the target user's tenant; non-super-admin without tenant → 403) **and** the organization filter always applied from the resolved organization scope (not conditionally — closing the residual looseness of the sibling route rather than copying it). The route takes a `userId` and resolves it to `subject_ref` through `consent_subjects` before querying; a subject whose salt was erased has no resolvable ref, so the endpoint returns an empty page rather than another subject's rows. Sorted `occurred_at DESC`, `pageSize ≤ 100` default 20. Response: `{ ok, items: ConsentEventItem[], total }`.
+- `consentLogService` (DI, auth `di.ts`): `record(input: { userId, tenantId, organizationId?, consentType, action, idempotencyKey, occurredAt?, source?, ipAddress?, document?: { id?, kind?, version?, contentHash? } }): Promise<{ eventId, deduplicated: boolean }>` — validates against the consent-type registry, mints or loads the subject salt, derives `subject_ref`, then transactionally inserts the event under the unique `(subject_ref, tenant_id, idempotency_key)` index and upserts the projection, computing both hashes and emitting the event-bus event. A unique violation is caught and resolved to the original event (`deduplicated: true`), which is what makes concurrent retries safe. `idempotencyKey` is required — there is no timestamp-derived fallback. No update or delete method exists; Art. 17 erasure is the separate `eraseConsentSubject({ userId, tenantId })` entry point (A9), invoked only by the enterprise erasure flow, never exposed via any API or command, and never reachable from the undoable `auth.users.delete`.
 
 ### checkout
 
-- `GET /api/checkout/pay/[slug]` — additive optional response field `legalEntity: { name } | null`, resolved server-side from the link's `tenant_id` via the fail-open helper. `PayPageFooter` renders one muted line when present. No other public-contract change; consent-proof shape, spot IDs, and replaceable-component handles untouched.
-- `LinkTemplateForm` prefill (client): on create mode only, `apiCall('/api/content/legal-documents/current?kinds=terms,privacy'…)` — mapping content kinds to checkout keys (`terms → terms`, `privacy → privacyPolicy`); success prefills `{ title, markdown, required: false }` per kind; any failure keeps today's empty defaults. Edit mode never re-prefills. The link's own jsonb copy remains the sole source of truth for the public page (snapshot pattern — a later document republish does not mutate existing links).
+- `GET /api/checkout/pay/[slug]` — additive optional response field `legalEntity: { name } | null`, resolved server-side from the link's `tenant_id` through checkout's `tryResolve` seam over `legalEntityService`. `PayPageFooter` renders one muted line when present. No other public-contract change; consent-proof shape, spot IDs, and replaceable-component handles untouched.
+- `GET /api/checkout/legal-document-defaults?kinds=terms,privacy&locale=en` — NEW, **checkout-owned**, guard `checkout.create` (the permission the form itself already requires). Server-side it soft-resolves content's `legalDocumentService` through checkout's local `tryResolve`; content absent or throwing → `{ items: [] }`. This is the seam that keeps the prefill working for a checkout-only admin: the browser user never needs `content.legal_documents.view`, and checkout never imports a content helper.
+- `LinkTemplateForm` prefill (client): on create mode only, `apiCall('/api/checkout/legal-document-defaults?kinds=terms,privacy'…)` — the checkout-owned route above, mapping content kinds to checkout keys (`terms → terms`, `privacy → privacyPolicy`); success prefills `{ title, markdown, required: false }` per kind; any failure keeps today's empty defaults. Edit mode never re-prefills. The link's own jsonb copy remains the sole source of truth for the public page (snapshot pattern — a later document republish does not mutate existing links).
 
 ### onboarding
 
@@ -287,7 +309,7 @@ Resolution: existing `moduleConfigService` tenant → instance fallback (reads a
 
 Standard CRUD is not re-specified; unique surfaces only. All screens use DS primitives (`Page`/`PageBody`, `DataTable`, `CrudForm`, `Alert`, `StatusBadge`, `SectionHeader`, `CollapsibleSection`, `LoadingMessage`/`ErrorMessage`, `EmptyState`, `flash`), lucide icons, semantic status tokens, dialogs with `Cmd/Ctrl+Enter`/`Escape`, `aria-label` on icon-only buttons.
 
-1. **Public `/privacy` and `/terms`** (existing routes, re-rendered from data): `ContentLayout` retained; body = sanitized markdown (`MarkdownContent`) of the resolved document in the active locale (fallback `en` → first available). When the built-in sample renders, a prominent `Alert variant="warning"` banner: "Sample document — replace before production" (localized). `ContentLayout` chrome (logo path, wordmark, footer copyright line) switches to the configured identity name with a neutral fallback — Boy Scout scope for lines touched.
+1. **Public `/privacy` and `/terms`** (existing routes, re-rendered from data): `ContentLayout` retained; body = sanitized markdown (`MarkdownContent`) of the resolved document in the active locale (fallback `en` → first available). When the built-in sample renders, a prominent `Alert status="warning" style="light"` banner: "Sample document — replace before production" (localized) — the current DS API, not the legacy `variant` shim. `ContentLayout` chrome (logo path, wordmark, footer copyright line) switches to the configured identity name with a neutral fallback — Boy Scout scope for lines touched.
    ![Public privacy page in the unconfigured sample state (mockup)](assets/tenant-legal-documents-and-consent-versioning/mockup-03-privacy-sample-state.png)
 2. **Backend: Content → Legal documents** (`/backend/content/legal-documents`, list): DataTable with stable `entityId`; columns kind, version, `StatusBadge` (draft/published), effective date, updated. Row actions: edit (draft), view (published), publish (draft, confirm dialog stating immutability), "New version from this" (copies `locales`, version = max+1, draft). Scope note chip when the actor manages instance rows (null-tenant super admin).
    ![Legal documents list (mockup)](assets/tenant-legal-documents-and-consent-versioning/mockup-01-legal-documents-list.png)
@@ -299,7 +321,48 @@ Standard CRUD is not re-specified; unique surfaces only. All screens use DS prim
 6. **Checkout pay page footer**: one muted line with the configured legal-entity name; nothing renders when unconfigured.
 7. **Onboarding page**: labels interpolate the resolved controller name (or the neutral fallback phrase); the registry-disclosure paragraph renders only when identity is configured.
 
-Frontend-architecture note: both public pages remain server components (no `"use client"` additions; the pages go from static JSX to one indexed query + markdown render server-side). Admin pages follow the existing backend client-page pattern — no new providers, no bundle-budget-relevant additions beyond the markdown editor already used elsewhere.
+### Frontend Architecture Contract
+
+**1. Server/client boundary map**
+
+| Route / surface | Server root | Client islands | Data owner | Notes |
+|---|---|---|---|---|
+| `/privacy`, `/terms` (content) | `frontend/{privacy,terms}/page.tsx` | none | server-side `legalDocumentService` point lookup | Static JSX today → one indexed query + server-rendered markdown; no `"use client"` added |
+| `/backend/content/legal-documents` (list) | `page.tsx` | `LegalDocumentsTableClient` (DataTable + row actions) | `GET /api/content/legal-documents` | Existing backend list pattern; no new provider |
+| `/backend/content/legal-documents/[id]` (editor) | `page.tsx` | `LegalDocumentEditorClient` (CrudForm + per-locale markdown tabs) | CRUD + publish routes | Markdown editor is the primitive checkout already uses |
+| `/backend/config/legal-entity` (directory) | `page.tsx` | `LegalEntityFormClient` (CrudForm, four fields) | `GET/PUT /api/directory/legal-entity` | Settings-page pattern, no new provider |
+| `/backend/auth/users/[id]` consent history (auth) | existing server root | existing `UserConsentsPanel` (138 LOC, already a client component) gains a `CollapsibleSection` | `GET /api/auth/users/consents/events` | Additive section inside an existing island; no new island |
+| Checkout link/template form | existing server root | existing `LinkTemplateForm` (1759 LOC, already `"use client"`) | `GET /api/checkout/legal-document-defaults` | Prefill only; see the blob guardrail below |
+
+**2. `"use client"` ledger**
+
+| File | Reason | Imported by | Heavy deps? | Cleanup / hydration risk | Alternative rejected |
+|---|---|---|---|---|---|
+| `LegalDocumentsTableClient.tsx` (new) | DataTable selection, row actions, publish confirm dialog | list `page.tsx` | no (shared DataTable) | none beyond the shared table | Server-rendered table — rejected, row actions and the confirm dialog need state |
+| `LegalDocumentEditorClient.tsx` (new) | CrudForm state, per-locale tab switching, markdown editor | editor `page.tsx` | the shared markdown input already bundled for checkout | editor unmounts with the form | Server actions only — rejected, per-locale tabs are client state |
+| `LegalEntityFormClient.tsx` (new) | CrudForm state + optimistic-lock conflict bar | settings `page.tsx` | no | none | Plain form post — rejected, `surfaceRecordConflict` needs the client mutation seam |
+| `UserConsentsPanel.tsx` (touched) | Already client; gains a lazily loaded history section | user edit page | no | fetch on expand, aborted on unmount | Eager server render — rejected, history must not cost every page load |
+| `LinkTemplateForm.tsx` (touched) | Already client; gains a create-mode prefill call | checkout backend | unchanged | prefill aborted on unmount; failure degrades to empty | — |
+
+**3. Client blob guardrail.** No new client file is expected to exceed 300 LOC; the editor is the largest and stays under it by keeping each locale tab a leaf component. `LinkTemplateForm.tsx` is already 1759 LOC and is **not** grown structurally here: the prefill is one `useEffect` + one state write (< 30 LOC). Splitting that file is real, pre-existing debt this spec does not take on — it is filed as a follow-up rather than smuggled into a legal-documents change, and no other work in this spec adds to it.
+
+**4. Budgets**
+
+| Budget | Default target | Spec value |
+|---|---|---|
+| Generated backend page-root `"use client"` | 0 new unallowlisted | 0 — every new page root stays a server component |
+| Touched client page/root files over 300 LOC | 0 unless justified | 1 (`LinkTemplateForm.tsx`, pre-existing, +<30 LOC, justified above) |
+| Heavy browser libraries at page/provider root | 0 | 0 — markdown input is route-scoped, already bundled |
+| Per-route hydration smoke test | required for changed interactive route | 4 routes: legal-documents list, editor, legal-entity settings, checkout link form |
+| Performance evidence | static check + one runtime signal | `yarn check:client-boundaries` clean, plus the public-page render path measured as one point lookup behind the 60 s DI cache |
+
+**5. Provider / bootstrap scope**
+
+| Provider/bootstrap | Global? | Scope | Why | Exit criteria to narrow |
+|---|---|---|---|---|
+| none added | — | — | The feature reuses the existing backend shell providers and adds no bootstrap registration | n/a |
+
+**6. Test and evidence plan.** Hydration smoke (Playwright route load) for each of the four changed interactive routes; key interaction tests for the list (publish confirm), the editor (locale tab + save), the settings form (save + 409 conflict bar) and the checkout form (create-mode prefill, edit-mode untouched); `yarn check:client-boundaries` run in the same PR with its output quoted; public `/privacy` and `/terms` asserted to ship no client bundle beyond today's baseline.
 
 ## Configuration
 
@@ -311,19 +374,21 @@ Frontend-architecture note: both public pages remain server components (no `"use
 
 | Scenario | Behavior |
 |---|---|
-| No published document, tenant or instance | Neutral sample + banner; consent evidence records `document_id = null`, `version = 0`, hash of the resolved sample — never blocks signup or rendering |
-| Identity unconfigured | Tokens bake to bracketed `[data controller not configured]` in documents; labels use the localized fallback phrase; disclosure and footer line hidden |
+| No published document for the tenant in context (instance rows are not consulted) | Neutral sample + banner; consent evidence records `document_id = null`, `version = 0`, hash of the resolved sample — never blocks signup or rendering |
+| Identity unconfigured for the tenant in context (instance config is not consulted) | Tokens bake to bracketed `[data controller not configured]` in documents; labels use the localized fallback phrase; disclosure and footer line hidden |
 | Document published between onboarding submit and verify | Evidence pins the submit-time snapshot from the request row (that is what the user saw) |
 | Content module disabled in an app | Onboarding records events with null document fields (soft resolve); checkout prefill degrades to empty; `/privacy`/`/terms` routes simply don't exist (as today when content is off) |
 | `moduleConfigService` or cache unavailable | Fail-open helpers return `null` identity / fall through to direct query; pages still render |
 | Publish with future `effective_at` | Render keeps serving the previous effective version until the moment passes; consent evidence always references the resolved (currently effective) version |
 | Two admins publish concurrently | Optimistic-lock header on publish → second gets 409 conflict bar; version uniqueness is DB-enforced |
 | Draft edited while another admin publishes it | Publish requires the lock header; the stale editor's subsequent save hits the published-row 409 |
-| Re-consent (grant after withdraw, or repeat grant) | New ledger row; projection upserted — history preserved, singleton constraint satisfied; duplicate-event guard keeps re-verification idempotent |
+| Re-consent (grant after withdraw, or repeat grant) | New ledger row under a new `idempotency_key`; projection upserted — history preserved, singleton constraint satisfied |
+| Retried or concurrent re-verification of the same consent act | The unique `(subject_ref, tenant_id, idempotency_key)` index rejects the second insert; the service returns the original event with `deduplicated: true`. Two concurrent retries race into the database, not into an application-level check, so exactly one event survives either way |
 | Consent write fails mid-transaction | Single transaction: no event without projection and vice versa; onboarding wraps it best-effort (logged, provisioning continues) exactly as today |
 | Hash secret absent in production | Unchanged existing behavior: `getSecret()` throws (fails closed) |
 | Legacy consent row read | Bare-hex prefix → frozen v1 verification; `integrityValid` identical to today, permanently |
-| User erased (Art. 17) | `auth.users.delete` hard-deletes the user's `user_consents` projection rows and anonymizes their `consent_events` by referent destruction (A9): sealed payload and stored seal untouched (`user_id` now maps to no person), unsealed `ip_address` cleared, `anonymized_at` set; every original `cev1` seal keeps verifying — `integrityValid` unchanged; the enterprise erasure ledger never stores consent PII |
+| User erased (Art. 17) | The erasure-only `eraseConsentSubject` path hard-deletes the `consent_subjects` salt row and the `user_consents` projection rows, clears the unsealed `ip_address`, and stamps `anonymized_at`. The ledger rows survive with their seals intact and verifying (`integrityValid` unchanged), but `subject_ref` is now uncomputable from any uuid — including a uuid re-created later — so nothing can relink them to a person. The enterprise erasure ledger never stores consent PII |
+| Admin deletes a user, then undoes it | The undoable `auth.users.delete` never touches the salt or the ledger, and it snapshots the `user_consents` projection rows into its undo payload alongside the existing role/ACL snapshots. Undo restores the user with the same uuid **and** its consent projection; `subject_ref` still resolves, so the consent history reappears intact. An ordinary delete is therefore not an erasure, and the spec never treats it as one |
 | Tenant with a huge document set | Bounded: documents grow by explicit versions only; list is paginated; render is a point lookup |
 | Sample-hash drift across releases | The sample hash is computed at event time from the shipped constant; a release changing the sample changes future evidence only — recorded hashes stay historically accurate (they attest what was shown then); golden test pins the current sample hash so changes are deliberate |
 
@@ -333,15 +398,22 @@ Frontend-architecture note: both public pages remain server components (no `"use
 - **Scenario**: A payload or dispatch mistake flips `integrityValid` to false (or worse, true) for existing rows.
 - **Severity**: High
 - **Affected area**: `auth` consent read route, admin panel, audit posture; scrutiny history #2690/#2726/#2743.
-- **Mitigation**: Legacy builder frozen byte-for-byte and locked by a new golden-hash test (none exists today); dispatch on stored prefix with unknown-prefix → false; v2/cev1 payloads JSON-encoded with in-payload domain tags; no re-hash migration; secret chain untouched; seals are write-once — the subject-erasure update (A9) touches only unsealed columns, pinned by a test asserting the original seal verifies unchanged after anonymization.
-- **Residual risk**: Design-level payload choices — flagged ⚠ (A2) for human review before implementation.
+- **Mitigation**: Legacy builder frozen byte-for-byte and locked by a new golden-hash test (none exists today); dispatch on stored prefix with unknown-prefix → false; v2/cev1 payloads JSON-encoded with in-payload domain tags; no re-hash migration; secret chain untouched; seals are write-once — Art. 17 erasure (A9) destroys the salt and touches only unsealed columns, pinned by a test asserting the original seal verifies unchanged after erasure.
+- **Residual risk**: Design-level payload choices; A2 is maintainer-confirmed, and the `cev1` layout now seals `subject_ref` instead of a raw uuid (A9) — a pre-implementation change to an unimplemented layout, not a change to any stored value.
 
-#### Instance-scope inheritance leaks the wrong documents to a tenant
-- **Scenario**: A tenant without its own documents serves the operator's instance documents; on a multi-tenant SaaS these may name the operator, not the tenant, as controller.
+#### Erasure leaves the subject re-identifiable
+- **Scenario**: After an Art. 17 erasure, someone relinks retained ledger rows to the person — by undoing the user delete, by re-registering the same uuid, or by joining another table that still carries it.
+- **Severity**: High
+- **Affected area**: GDPR compliance posture, the claim the spec makes about its own evidence.
+- **Mitigation**: The ledger never stores the uuid — only `subject_ref = HMAC(subject_salt, user_id)` — and erasure hard-deletes the salt, which is the whole mapping; HMAC has no preimage, so a re-created uuid computes nothing. Erasure is a separate, non-undoable entry point from the reversible `auth.users.delete`, so an admin delete can never masquerade as an erasure (or vice versa). Locked by `TC-AUTH-047` (post-erasure re-creation resolves no history) and `TC-AUTH-048` (delete→undo restores everything).
+- **Residual risk**: Database backups taken before the erasure still contain the salt; that is governed by the deployment's backup-retention and restore policy, which this spec does not and cannot override. Stated plainly rather than claimed away.
+
+#### Instance-scope rows reach a tenant that never configured its own
+- **Scenario**: A tenant without its own documents or identity serves the operator's instance rows, naming the operator as that tenant's data controller — the exact failure in the problem statement.
 - **Severity**: Medium
 - **Affected area**: Public pages, consent evidence correctness.
-- **Mitigation**: This mirrors `module_configs` semantics and is the intended single-operator story; the admin list shows a "inherited from instance" source; documentation states multi-tenant operators should leave instance rows neutral. Tenant rows are always strictly tenant-filtered — no cross-**tenant** row can ever resolve (queries filter `tenant_id = :t OR tenant_id IS NULL`, nothing else).
-- **Residual risk**: Operator misconfiguration; acceptable — it is strictly better than today's hardcoded vendor identity.
+- **Mitigation**: Resolution is scope-exact by construction — a tenant-context query filters `tenant_id = :t` and nothing else, so no instance row can enter a tenant's render, prefill, label, or consent snapshot. Instance rows are reachable only on the platform host, where there is no tenant to mislabel. Locked by tests on the four consuming surfaces (public page, onboarding label, checkout prefill/footer, resolver) asserting that an unconfigured tenant gets the sample and `source: 'none'`, never the instance row.
+- **Residual risk**: An operator that deliberately wants shared defaults across its tenants must now publish them per tenant; that cost is accepted in exchange for the guarantee the TLDR makes.
 
 #### Consent tables diverge from the ledger
 - **Scenario**: Partial write leaves projection without event or vice versa.
@@ -380,7 +452,8 @@ Contract surfaces per `BACKWARD_COMPATIBILITY.md`:
 
 | Surface | Change | Classification |
 |---|---|---|
-| Database schema | New tables `legal_documents`, `consent_events`; new nullable columns on `user_consents` (4) and `onboarding_requests` (3); new indexes | ✓ ADDITIVE (defaults NULL, nothing renamed/removed/narrowed) |
+| Database schema | New tables `legal_documents`, `consent_events`, `consent_subjects`; new nullable columns on `user_consents` (4) and `onboarding_requests` (3); new indexes including the unique `(subject_ref, tenant_id, idempotency_key)` guard | ✓ ADDITIVE (defaults NULL, nothing renamed/removed/narrowed) |
+| `auth.users.delete` undo payload | Gains a `user_consents` snapshot so undo restores the projection it deletes | ✓ ADDITIVE (payload grows; existing undo entries without the key restore exactly as they do today) |
 | `user_consents.integrity_hash` **values** | New writes carry a `v2:` prefix; column type `text` unchanged; legacy bare-hex rows verify under the frozen v1 payload indefinitely | ✓ Behavior-preserving for existing rows; value format documented in UPGRADE_NOTES |
 | Function signatures | `computeConsentIntegrityHash` unchanged + `@deprecated` (bridge ≥ 1 minor); new sibling exports; `verifyConsentIntegrityHash` keeps its signature, gains prefix dispatch | ✓ ADDITIVE + deprecation protocol |
 | API routes | New: content CRUD + publish + current, directory legal-entity, auth consent events. Existing `GET /api/auth/users/consents` and `GET /api/checkout/pay/[slug]` gain **optional** response fields | ✓ ADDITIVE (new routes; optional response fields) |
@@ -423,20 +496,20 @@ Phase 2 can ship before or after Phase 3/4; Phase 3 depends on Phase 1 (document
 
 ### Phase 2 — Controller identity configuration
 
-1. **Directory config + resolver.** `lib/legalEntity.ts` (constants, zod schema, fail-open resolver with `source`), ACL feature + setup grant. → verify: resolver unit tests (fail-open, tenant/instance/none).
+1. **Directory config + service.** `lib/legalEntity.ts` (constants, zod schema, scope-exact fail-open resolution with `source`) exposed as `legalEntityService` in `directory/di.ts`; ACL feature + setup grant. → verify: unit tests for fail-open, tenant/instance/none, and the no-inherit rule (a tenant with no row resolves `none`, never the instance value).
 2. **Settings API + page.** GET/PUT with optimistic lock + cache invalidation; settings page under Module Configs. → verify: route tests (scope pinning, super-admin instance write, 409 on stale), page test.
-3. **Consumers.** Content bake resolves real identity; onboarding server page resolves instance identity → labels + conditional disclosure; checkout pay GET `legalEntity` field + footer line (additive contract, flagged per checkout Ask-First). → verify: per-consumer unit tests incl. unconfigured fallbacks; checkout public-payload test asserts field optionality.
+3. **Consumers.** Each consumer adds its own local `tryResolve` seam over `legalEntityService` — content bakes the resolved identity; onboarding's server page resolves it for labels + conditional disclosure; checkout's pay GET adds the `legalEntity` field and footer line (additive contract, flagged per checkout Ask-First). → verify: per-consumer unit tests including the peer-absent path and the unconfigured-tenant fallback; checkout public-payload test asserts field optionality.
 
 ### Phase 3 — Append-only consent evidence
 
-1. **Hash v2 module.** Extend `consentIntegrity.ts`: frozen v1 builder + golden test, new state/event builders + prefix dispatch in verify, `@deprecated` on the legacy export. → verify: golden vectors all three formats; payload-hygiene assertion (`cev1` seals no `ip_address`, no free text); legacy rows verify unchanged.
-2. **Ledger entity + service.** `consent_events` + migration + encryption-map entry for `ip_address`; consent-type registry; `consentLogService` (transactional dual-write, duplicate-event guard, event emission); extend the auth user hard-delete path per A9 — hard-delete `user_consents` projection rows, anonymize `consent_events` metadata-only (clear unsealed `ip_address`, set `anonymized_at`; `user_id`, sealed payload, and stored seal untouched — the deleted user row leaves the uuid unlinkable). → verify: service unit tests (dual-write atomicity, upsert, idempotency, registry validation; erasure path: projection deleted, ledger rows anonymized, original seals verify unchanged — `integrityValid` true after anonymization).
-3. **Onboarding evidence.** Submit-time snapshot columns + soft resolve; verification records `terms` (+ conditional `marketing_email`) through the service. → verify: updated TC-ONB-001 asserting ledger + projection + document snapshot; content-absent path records nulls.
-4. **Read surfaces.** Events endpoint (strict scoping incl. unconditional organization filter); additive fields on the consents route; `UserConsentsPanel` history section + i18n'd type labels. → verify: scoping tests mirroring `tenant-ownership-guards.route.test.ts` patterns; panel test.
+1. **Hash v2 module.** Extend `consentIntegrity.ts`: frozen v1 builder + golden test, new state/event builders (the `cev1` payload seals `subjectRef`, never a raw uuid) + prefix dispatch in verify, `@deprecated` on the legacy export. → verify: golden vectors for all three formats; payload-hygiene assertion (`cev1` seals no `ip_address`, no free text, no `user_id`); legacy rows verify unchanged.
+2. **Ledger entity, salt table + service.** `consent_events` (with `subject_ref` and the unique `idempotency_key` index) and `consent_subjects` + migration + encryption-map entries for `ip_address` and `subject_salt`; consent-type registry; `consentLogService` (salt mint/lookup, `subject_ref` derivation, transactional dual-write, DB-enforced idempotency with unique-violation resolution, event emission); the erasure-only `eraseConsentSubject` entry point per A9; and — separately — extend the undoable `auth.users.delete` to snapshot and restore `user_consents` rows in its existing undo payload. → verify: service unit tests (dual-write atomicity, upsert, sequential **and** concurrent idempotency against the real unique index, registry validation); erasure tests (salt row gone, projection gone, `ip_address` NULL, `anonymized_at` set, seals still verifying, `subject_ref` uncomputable after re-creating the same uuid); delete→undo tests (salt and ledger untouched, projection restored, history intact).
+3. **Onboarding evidence.** Submit-time snapshot columns + soft resolve through onboarding's own `tryResolve` seam; verification records `terms` (+ conditional `marketing_email`) through the service, passing the stable `onboarding:<requestId>:<consentType>:granted` idempotency key rather than the per-attempt `new Date()` (`api/get/onboarding/verify.ts:243`). → verify: updated TC-ONB-001 asserting ledger + projection + document snapshot; repeat-verification asserts a single ledger row; content-absent path records nulls.
+4. **Read surfaces.** Events endpoint (strict scoping incl. unconditional organization filter, `userId` → `subject_ref` resolution, empty page for an erased subject); additive fields on the consents route; `UserConsentsPanel` history section + i18n'd type labels. → verify: scoping tests mirroring `tenant-ownership-guards.route.test.ts` patterns; erased-subject test; panel test.
 
 ### Phase 4 — Checkout defaults
 
-1. **Prefill.** Create-mode `apiCall` prefill with kind mapping and silent degradation. → verify: form unit test (prefill on success, empty on 404/403, edit mode untouched); existing checkout tests green (proof shape untouched).
+1. **Prefill.** Checkout-owned `GET /api/checkout/legal-document-defaults` (guard `checkout.create`, server-side soft resolve of content) plus create-mode `apiCall` prefill with kind mapping and silent degradation. → verify: route test (checkout-only admin with no content ACL still gets defaults; content absent → empty); form unit test (prefill on success, empty on 404/500, edit mode untouched); existing checkout tests green (proof shape untouched).
 
 ### Testing Strategy — integration coverage (required; ships with the same change, per `.ai/qa/AGENTS.md`: self-contained fixtures, cleanup in teardown, no seeded-data reliance)
 
@@ -448,11 +521,15 @@ Phase 2 can ship before or after Phase 3/4; Phase 3 depends on Phase 1 (document
 | `GET/PUT /api/directory/legal-entity` | `TC-DIR-LEGAL-001`: roundtrip, source discrimination, ACL denial, stale-lock 409 (directory) |
 | Onboarding consent evidence | Extend `TC-ONB-001`: verify creates `terms` + `marketing_email` ledger rows and projections with document snapshot + valid hashes (onboarding) |
 | `GET /api/auth/users/consents` (+ events) | `TC-AUTH-046`: additive fields present, legacy-row `integrityValid` stable, events pagination + tenant/org scoping incl. 403 branch (auth) |
-| Subject-erasure consent path | `TC-AUTH-047`: create user + consents, delete the user → `user_consents` rows gone; `consent_events` rows remain with `ip_address` NULL and `anonymized_at` set, `user_id` and all sealed fields untouched, original seals verifying — `integrityValid` true (auth) |
-| Checkout prefill | `TC-CHKT-040`: new-link form prefills from published docs; content-off/error → empty; per-link edit + public rendering unchanged (checkout) |
+| Subject-erasure consent path (Art. 17) | `TC-AUTH-047`: create user + consents, run the erasure-only path → `consent_subjects` row gone, `user_consents` rows gone; `consent_events` rows remain with `ip_address` NULL, `anonymized_at` set, all sealed fields untouched and original seals verifying (`integrityValid` true); re-creating a user with the same uuid resolves no ledger history (auth) |
+| Ordinary user delete and undo | `TC-AUTH-048`: create user + consents, `auth.users.delete`, then undo → user, `user_consents` projection and consent history all restored; `consent_subjects` salt row and every ledger row untouched throughout; `anonymized_at` still NULL (auth) |
+| Consent idempotency under retry | `TC-AUTH-049`: the same `idempotencyKey` recorded twice sequentially and twice concurrently yields exactly one `consent_events` row and one projection row, with the second call reporting `deduplicated: true` (auth) |
+| Tenant never inherits instance rows | `TC-CONTENT-004`: with instance documents and an instance `legal_entity` configured, a tenant that has neither renders the sample + banner, resolves `source: 'none'`, and prefills nothing — on the public page, the onboarding label, the checkout footer, and the resolver (content, directory) |
+| Checkout defaults without content ACL | `TC-CHKT-041`: an admin holding only `checkout.create` receives prefill defaults from `GET /api/checkout/legal-document-defaults`; with content disabled the same call returns empty and the form still opens (checkout) |
+| Checkout prefill | `TC-CHKT-040`: new-link form prefills from published docs via the checkout-owned route; content-off/error → empty; per-link edit + public rendering unchanged (checkout) |
 | Key UI paths | Legal-documents list/editor/publish flow (content); legal-entity settings save + conflict bar (directory); user-detail consent history (auth) — covered inside the specs above via UI steps |
 
-Unit-test surface (in `yarn test`): hash golden vectors (v1/v2/cev1 + sample hash), `cev1` payload-hygiene (no `ip_address`, no free text) and seal-stability-after-anonymization assertions, canonical-JSON hash, token baking, resolver fail-open, immutability refusals, rewritten neutral identity locks, template parity.
+Unit-test surface (in `yarn test`): hash golden vectors (v1/v2/cev1 + sample hash), `cev1` payload-hygiene (no `ip_address`, no free text, no raw `user_id`) and seal-stability-after-erasure assertions, `subject_ref` derivation and salt-destruction unlinkability, canonical-JSON hash, token baking, scope-exact resolver (no instance inheritance in tenant context), immutability refusals, rewritten neutral identity locks, template parity.
 
 ## Final Compliance Report — 2026-08-18
 
@@ -468,14 +545,16 @@ Unit-test surface (in `yarn test`): hash golden vectors (v1/v2/cev1 + sample has
 | Rule Source | Rule | Status | Notes |
 |-------------|------|--------|-------|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | FK-id + snapshot columns only (`consent_events.document_*`, onboarding request columns) |
-| root AGENTS.md | Tenant scoping on every scoped query | Compliant | Documents: `tenant = :t OR tenant IS NULL` (deliberate instance inheritance, mirrors `module_configs`); the NEW consent-events route pins tenant + organization unconditionally; the existing consents route keeps its current behavior (tenant pinned, organization conditional — pre-existing #3820 residual left untouched per the surgical-change rule) |
-| root AGENTS.md | Optimistic locking default ON for new user-editable entities | Compliant | `legal_documents.updated_at` + `updatedAt` in responses; publish + settings PUT enforce lock headers; ledger is not user-editable (N/A documented) |
-| root AGENTS.md | Never expose cross-tenant data | Compliant | Instance rows are shared by design (documented risk); tenant rows never cross |
+| root AGENTS.md | Tenant scoping on every scoped query | Compliant | Documents and identity resolve scope-exactly (`tenant_id = :t` in a tenant context, instance rows only for the platform host — no `OR tenant_id IS NULL` inheritance); the NEW consent-events route pins tenant + organization unconditionally; the existing consents route keeps its current behavior (pre-existing #3820 residual left untouched per the surgical-change rule) |
+| root AGENTS.md | Optimistic locking default ON for new user-editable entities | Compliant | `legal_documents.updated_at` + `updatedAt` in responses; publish + settings PUT enforce lock headers; ledger and salt table are not user-editable (N/A documented) |
+| root AGENTS.md | Never expose cross-tenant data | Compliant | Tenant rows never cross tenants, and instance rows never reach a tenant at all |
 | root AGENTS.md | Event id convention `module.entity.action` singular | Compliant | `content.legal_document.published`, `auth.consent.granted/withdrawn` |
 | root AGENTS.md | Template Sync Checklist for `apps/mercato`-mirrored changes | Compliant | Phase 1 step 8 |
 | core AGENTS.md → API Routes | CRUD via `makeCrudRoute` + `indexer`, per-method `metadata`, `openApi` exports | Compliant | Content CRUD; publish + settings are guarded custom routes per the mutation-guard rule |
 | core AGENTS.md → Custom write routes | Mutation-guard registry (`runMutationGuards`, `bridgeLegacyGuard`, after-success callbacks) | Compliant | Publish route; directory PUT follows the entities settings pattern |
-| core AGENTS.md → Encryption | PII columns declared in `defaultEncryptionMaps`, reads via `findWithDecryption` | Compliant | `consent_events.ip_address`; pre-existing unencrypted `user_consents.ip_address` noted as out-of-scope follow-up (surgical-change rule) |
+| core AGENTS.md → Encryption | PII columns declared in `defaultEncryptionMaps`, reads via `findWithDecryption` | Compliant | `consent_events.ip_address` and `consent_subjects.subject_salt`; pre-existing unencrypted `user_consents.ip_address` noted as an out-of-scope follow-up (surgical-change rule) |
+| core AGENTS.md → Cross-Module Coupling | Optional peers reached through a DI service and the consumer's own `tryResolve` seam, never a direct import of the peer's `lib/` | Compliant | `legalEntityService` and `legalDocumentService`; checkout's prefill runs through a checkout-owned route so no browser user needs a peer module's ACL |
+| om-spec-writing | Frontend Architecture Contract required for App Router / UI specs | Compliant | Boundary map, `"use client"` ledger, blob guardrail, budgets, provider scope, and evidence plan in the UI/UX section |
 | core AGENTS.md → Module Setup | New ACL features seeded via `defaultRoleFeatures` + sync-role-acls note | Compliant | content + directory setup |
 | auth AGENTS.md | Ask-first on tenant-provisioning outputs | Addressed in spec | Provisioning consent write is replaced 1:1 (same trigger, same best-effort wrapper) — flagged here as the review-gate acknowledgment |
 | checkout AGENTS.md | Isolation from core modules; server-authoritative consent; stable spot IDs; Ask-first on public pay-page contracts | Compliant / flagged | DI/API-only coupling; consent validation untouched; spot IDs untouched; additive `legalEntity` field flagged (A11) for the review gate |
@@ -497,19 +576,19 @@ Unit-test surface (in `yarn test`): hash golden vectors (v1/v2/cev1 + sample has
 
 ### Non-Compliant Items
 
-None. Two review-gate acknowledgments (auth provisioning touchpoint; checkout public-contract additive field) and two ⚠ human-confirmation assumptions (A2, A9) are recorded above rather than left implicit.
+None. Two review-gate acknowledgments (auth provisioning touchpoint; checkout public-contract additive field) remain recorded above rather than left implicit. Both ⚠ human-confirmation assumptions are now resolved: A2 confirmed 2026-08-18, A9 confirmed 2026-08-20 in its salted-pseudonym form.
 
 ### Verdict
 
-- **Fully compliant** — ready for implementation once the two ⚠ assumptions are confirmed or overridden by a maintainer.
+- **Fully compliant** — ready for implementation; both ⚠ assumptions (A2, A9) are maintainer-confirmed and the review findings from PR #5364 are resolved in the text above.
 
 ## Non-goals
 
-- GDPR Art. 17 erasure — owned by `.ai/specs/enterprise/2026-07-08-gdpr-data-erasure.md`; this spec's only interplay is the auth-side erasure behavior (A9: projection hard-delete + in-place ledger anonymization), and that spec contains no consent surface to collide with.
+- GDPR Art. 17 erasure — owned by `.ai/specs/enterprise/2026-07-08-gdpr-data-erasure.md`; this spec's only interplay is the auth-side erasure-only entry point (A9: salt destruction + projection hard-delete + unsealed-column clearing), and that spec contains no consent surface to collide with.
 - A monolithic `gdpr` module; a generic CMS (records are scoped to legal documents: version, effective date, consent linkage — nothing beyond).
 - Anything from PR #4561's `documents` module; the name is not used here.
-- Removing checkout's per-link document customization.
-- Portal/end-user self-service consent management, withdraw UI, consent export/reporting, general PII anonymization (upstream #208) — the ledger and registry are the extension points; none of it ships here. The A9 anonymize-on-erasure rewrite is a deliberately narrow, consent-only slice that neither blocks nor implements #208.
+- Removing checkout's per-link document customization; splitting the pre-existing 1759-LOC `LinkTemplateForm.tsx` client blob (filed as a follow-up, see the Frontend Architecture Contract).
+- Portal/end-user self-service consent management, withdraw UI, consent export/reporting, general PII anonymization (upstream #208) — the ledger and registry are the extension points; none of it ships here. The A9 salted-pseudonym design is a deliberately narrow, consent-only slice that neither blocks nor implements #208.
 
 ## Changelog
 
@@ -528,6 +607,17 @@ None. Two review-gate acknowledgments (auth provisioning touchpoint; checkout pu
 - **Risks**: Passed — register covers hash change, instance inheritance, dual-write divergence, immutability bypass, vendor-instance regression, template drift.
 - **Findings applied post-review**: consumer-count wording in the coupling paragraph; public-page tenant-resolution rule lifted into Data Models; compliance-matrix overclaim on the existing consents route corrected; the brief's seeds-vs-fallback internal contradiction recorded in A7; stale brief line reference noted in Overview.
 - **Verdict**: Approved (implementation gated on maintainer confirmation of ⚠ A2 and ⚠ A9).
+
+### 2026-08-20
+
+- **Review #5364 (@pkarw, `om-auto-review-pr`) resolved.** One blocker, three majors and two minors were fixed in this document; the autofix pass ran under `om-auto-fix-pr`.
+- **A9 replaced again — salted subject pseudonym instead of referent destruction** (blocker). The 2026-08-19 override was unsound: `auth.users.delete` is an undoable command (`packages/core/src/modules/auth/commands/users.ts:888`) whose `undo` re-creates the user with `id: before.id` (`:981`), so a hard-deleted auth row could come back and relink every retained event while the erased projection and IP could not — and a retained uuid is pseudonymous, not anonymous, while any other table, log or backup still carries it. The ledger now stores `subject_ref = HMAC-SHA256(subject_salt, user_id)` and never the uuid, with the per-subject random salt in a new `consent_subjects` table; Art. 17 erasure is a separate, non-undoable `eraseConsentSubject` entry point that destroys the salt (and the projection, and the unsealed `ip_address`), while the ordinary undoable delete leaves the ledger and salt alone and snapshots the projection into its undo payload. Consequence accepted and written down: after erasure the row proves a consent existed, not who gave it; backup copies of the salt are a retention-policy matter, not an anonymity claim.
+- **Tenant context no longer inherits instance rows** (major). Document resolution and `legal_entity` resolution are scope-exact: a tenant resolves its own rows or the neutral sample, and instance rows serve only the platform host. The risk entry that accepted the inheritance is rewritten as a mitigation, since accepting it contradicted the TLDR's own guarantee. An unmapped custom domain now counts as "tenant unknown" and renders the sample.
+- **Consent idempotency is database-enforced** (major). Callers pass a stable `idempotencyKey` (`onboarding:<requestId>:<type>:<action>`) instead of relying on `occurred_at`, which the verify flow re-mints per attempt (`packages/onboarding/src/modules/onboarding/api/get/onboarding/verify.ts:243`); a unique `(subject_ref, tenant_id, idempotency_key)` index resolves concurrent retries to the original event.
+- **Cross-module reads go through DI seams, not peer imports or peer ACLs** (major). Identity is the `legalEntityService` each consumer soft-resolves in its own `tryResolve`, never an import of `directory/lib`; checkout prefills through a new checkout-owned `GET /api/checkout/legal-document-defaults` gated by `checkout.create`, so a checkout admin no longer needs `content.legal_documents.view`.
+- **Frontend Architecture Contract added** (minor): boundary map, `"use client"` ledger, blob guardrail (including the pre-existing 1759-LOC `LinkTemplateForm.tsx`, split filed as a follow-up), budgets, provider scope and the hydration/performance evidence plan.
+- **DS API corrected** (minor): the sample banner specifies `Alert status="warning" style="light"`; `variant` is a backward-compatibility shim.
+- Test coverage extended accordingly: `TC-AUTH-047` rewritten for erasure, `TC-AUTH-048` (delete→undo), `TC-AUTH-049` (sequential and concurrent idempotency), `TC-CONTENT-004` (no instance inheritance), `TC-CHKT-041` (prefill without a content ACL), plus the unit-surface assertions that no raw `user_id` is sealed and that seals survive erasure.
 
 ### 2026-08-19
 - A9 overridden by the maintainer: **anonymize, not delete**. On subject erasure the `user_consents` projection rows are still hard-deleted, but `consent_events` rows are retained and anonymized by **referent destruction** — the sealed record is never rewritten: `user_id` stays in the row and in its sealed `cev1` payload, and hard-deleting the auth user row leaves that uuid an unlinkable surrogate (Recital 26 identifiability reasoning). The only in-place update is metadata-only: the unsealed `ip_address` column (moved out of the `cev1` payload — the seal covers opaque references, enums, timestamps, and constrained tags only, never PII or free text) is cleared and the new unsealed `anonymized_at` is set; every original seal keeps verifying and `integrityValid` is unchanged. Pattern: the market-converged design in surveyed ERP inalterability implementations (accounting hash chains, POS anti-fraud certification) — seals cover opaque record references, never identity data; erasure anonymizes the referent, so sealed records are never rewritten and no re-seal machinery exists. Grounding: GDPR Art. 7(1) demonstrability and Art. 17(3)(e) defense-of-legal-claims retention; in-repo precedent: the enterprise erasure ledger's PII-free masked entries surviving erasure. Recorded as the ledger's one sanctioned append-only exception, narrowed to unsealed columns — performed only by the auth user-deletion path, never exposed via any API or command.
