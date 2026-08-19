@@ -80,9 +80,47 @@ If you're using an existing database volume (from before this setup), you may ne
 docker exec mercato-postgres psql -U postgres -d open_mercato -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
+## Running Several Stacks Side by Side
+
+Every container, volume, and network name in `docker-compose.yml` is prefixed
+with `${MERCATO_STACK:-mercato}`. Leave the variable unset and every name keeps
+its historical value (`mercato-postgres`, `mercato-postgres-data`,
+`mercato-network`, ...), so existing stacks and volumes are unaffected.
+
+Set it to run a second, fully independent stack alongside the first — useful
+when you keep two checkouts of the repo:
+
+```bash
+# .env in the second checkout's repo root (the compose interpolation channel)
+MERCATO_STACK=mercato2
+```
+
+**`MERCATO_STACK` renames things; it does not remap host ports.** A second stack
+also needs its own ports, or it will collide with the first on `5432`, `6379`,
+and friends:
+
+```bash
+MERCATO_STACK=mercato2
+POSTGRES_PORT=5433
+REDIS_PORT=6380
+MEILISEARCH_PORT=7701
+OPENCODE_PORT=4097
+LOCALSTACK_PORT=4567
+VERDACCIO_PORT=4874
+```
+
+Because the volume names are prefixed too, each stack gets its own database,
+cache, and search index — switching `MERCATO_STACK` points at different data,
+it does not migrate the old data across.
+
+Note that the `docker-compose.fullapp*.yml` stacks use a different scheme: a
+`${DEPLOY_ENV:-local}` **suffix** (`mercato-postgres-local`). `MERCATO_STACK`
+applies to the base `docker-compose.yml` services only.
+
 ## Data Persistence
 
-Data is stored in named Docker volumes:
+Data is stored in named Docker volumes (prefixed by `${MERCATO_STACK:-mercato}`,
+shown here at the default):
 - `mercato-postgres-data` - PostgreSQL data
 - `mercato-redis-data` - Redis data
 
