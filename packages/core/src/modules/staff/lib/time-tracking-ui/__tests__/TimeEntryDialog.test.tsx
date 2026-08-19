@@ -485,6 +485,64 @@ describe('TimeEntryDialog — saving', () => {
     expect(lastWriteBody().id).toBe(ENTRY_ID)
   })
 
+  it('asks for the entry by `ids`, the parameter the list schema actually reads', async () => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 60,
+        description: 'Analiza planów zapytań',
+        task_id: TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await waitFor(() =>
+      expect((screen.getByTestId('entry-dialog-description') as HTMLInputElement).value).toBe(
+        'Analiza planów zapytań',
+      ),
+    )
+
+    // The list schema declares `ids` and is `.passthrough()`, so `?id=` was
+    // accepted, never read, and the filter silently disappeared — every row then
+    // opened whichever entry happened to sort first.
+    const entryRequest = mockApiCall.mock.calls
+      .map((call) => String(call[0]))
+      .find((url) => url.includes('/time-entries?'))
+    expect(entryRequest).toContain(`ids=${ENTRY_ID}`)
+    expect(entryRequest).not.toMatch(/[?&]id=/)
+  })
+
+  it('refuses to populate when the response carries a different entry', async () => {
+    // Only a dropped filter can produce this, and populating anyway would write
+    // one entry's values onto another the moment the user pressed Save.
+    entryRows = [
+      {
+        id: OVERLAP_ID,
+        date: '2026-07-20',
+        duration_minutes: 180,
+        description: 'Wpis innego zadania',
+        task_id: OTHER_TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await waitFor(() =>
+      expect(screen.getByText('Could not load the time entry.')).toBeInTheDocument(),
+    )
+    expect(screen.queryByTestId('entry-dialog-description')).not.toBeInTheDocument()
+  })
+
   it('opens a locked entry read-only with a link to its report', async () => {
     entryRows = [
       {
