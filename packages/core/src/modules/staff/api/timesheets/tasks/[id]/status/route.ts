@@ -23,6 +23,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { resolveFeatureAccess } from '../../../../../lib/time-tracking/featureAccess'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -132,7 +133,11 @@ export async function PATCH(req: Request, context?: RouteContext): Promise<Respo
 
     const actorId = auth.sub ?? ''
     const grantedFeatures = await resolveGrantedFeatures(container, actorId, tenantId, organizationId)
-    if (grantedFeatures && !authorizeFeatures([MANAGE_FEATURE], { grantedFeatures })) {
+    // Checked unconditionally. The `grantedFeatures &&` this replaces turned the
+    // check off whenever the grant read failed — harmless here only because the
+    // route metadata happens to require the same feature, which is exactly the
+    // shape that leaked rates on the report routes where no such backstop existed.
+    if (!(await resolveFeatureAccess(container, actorId, [MANAGE_FEATURE], { tenantId, organizationId })).allowed) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
 

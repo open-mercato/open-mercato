@@ -14,6 +14,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeProject, StaffTimeProjectMember, StaffTeamMember } from '../../../data/entities'
 import { staffTimeProjectCreateSchema, staffTimeProjectUpdateSchema } from '../../../data/validators'
+import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { buildSqlInClause } from '../../../lib/time-tracking/sqlInClause'
@@ -175,19 +176,18 @@ async function loadProjectAccess(
   if (!tenantId || !organizationId) return { ...DENIED_ACCESS }
   const scope = { tenantId, organizationId }
   try {
-    const grantedFeatures = userId ? await resolveGrantedFeatures(container, userId, scope) : []
-    // Asked of the service, not inferred from the array: `getGrantedFeatures`
-    // cannot express super-admin, so matching its output locally silently demotes
-    // one to a non-member.
-    const unrestricted = userId ? await resolveUnrestricted(container, userId, scope) : false
+    // One lookup, one authority, and a failure that says so. The two-call version
+    // this replaces rescued `canManageAll` but still fed a possibly-empty array
+    // into `userFeatures`, which the guards downstream read.
+    const access = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
     const em = container.resolve('em') as EntityManager
     return await resolveProjectAccess({
       em: em.fork(),
       userId,
       tenantId,
       organizationId,
-      unrestricted,
-      userFeatures: grantedFeatures,
+      canManageAll: access.allowed,
+      userFeatures: access.grantedFeatures,
       assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
     })
   } catch (err) {

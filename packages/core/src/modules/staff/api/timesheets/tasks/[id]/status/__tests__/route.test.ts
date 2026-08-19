@@ -23,7 +23,19 @@ const mockEm = {
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'commandBus') return { execute: mockExecute }
-    if (token === 'rbacService') return { getGrantedFeatures: mockGetGrantedFeatures }
+    if (token === 'rbacService') return {
+      getGrantedFeatures: mockGetGrantedFeatures,
+      // Answers from the same grants the fake already carries, so a test that
+      // grants a feature still grants it once the code asks the service.
+      userHasAllFeatures: async (_u: string, required: string[]) => {
+        const granted = (await mockGetGrantedFeatures()) ?? []
+        return required.every((feature: string) =>
+          granted.some((grant: string) =>
+            grant === '*' || grant === feature || (grant.endsWith('.*') && feature.startsWith(grant.slice(0, -1))),
+          ),
+        )
+      },
+    }
     if (token === 'em') return mockEm
     return undefined
   }),

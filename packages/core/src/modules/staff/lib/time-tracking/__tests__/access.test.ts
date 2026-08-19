@@ -408,13 +408,12 @@ describe('assertProjectAccess', () => {
   })
 })
 
-describe('resolveProjectAccess — super-admin', () => {
-  it('treats an unrestricted caller as managing everything', async () => {
-    // `getGrantedFeatures` cannot express super-admin, so a caller that matched
-    // its output locally demoted one to a non-member: the KPI endpoint (asking
-    // the RBAC service) reported the manager shape while the list fell back to
-    // memberships, and the same person saw a portfolio summarised above a list
-    // that did not contain it.
+describe('resolveProjectAccess — caller-supplied decision', () => {
+  it('trusts the decision the caller resolved through the RBAC service', async () => {
+    // The array path cannot tell "denied" from "could not ask": a failed grant
+    // read came back empty and silently demoted a manager to their own
+    // memberships, while the KPI endpoint — asking the service — kept reporting
+    // the full portfolio. The decision is the caller's to resolve and pass in.
     const access = await resolveProjectAccess({
       // The staff lookup still runs — a super-admin may also be a team member —
       // so the fake answers it rather than pretending it does not happen.
@@ -423,7 +422,7 @@ describe('resolveProjectAccess — super-admin', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       userFeatures: [],
-      unrestricted: true,
+      canManageAll: true,
     })
     expect(access.canManageAll).toBe(true)
   })
@@ -435,7 +434,7 @@ describe('resolveProjectAccess — super-admin', () => {
       tenantId: null,
       organizationId: null,
       userFeatures: [],
-      unrestricted: true,
+      canManageAll: true,
     })
     expect(access.projectIds).toEqual([])
   })

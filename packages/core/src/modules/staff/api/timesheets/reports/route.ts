@@ -27,7 +27,8 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { StaffTimeReport, StaffTimeReportProject } from '../../../data/entities'
 import { staffTimeReportCreateSchema, staffTimeReportUpdateSchema } from '../../../data/validators'
 import { staffTimeReportCommandIds } from '../../../commands/timesheets-reports'
-import { resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
+import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
+import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { sanitizeSearchTerm } from '../../helpers'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
@@ -105,20 +106,6 @@ type ContainerLike = { resolve: (name: string) => unknown }
 
 const accessByRequest = new WeakMap<Request, Promise<ProjectAccess>>()
 
-async function resolveGrantedFeatures(
-  container: ContainerLike,
-  userId: string,
-  scope: { tenantId: string; organizationId: string },
-): Promise<string[]> {
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return []
-    return (await rbac.getGrantedFeatures(userId, scope)) ?? []
-  } catch {
-    return []
-  }
-}
-
 async function resolveAssignmentGraceDays(container: ContainerLike, tenantId: string): Promise<number | null> {
   try {
     const configService = container.resolve('moduleConfigService') as ModuleConfigService
@@ -138,14 +125,18 @@ async function loadProjectAccess(
   if (!tenantId || !organizationId) return { ...DENIED_ACCESS }
   const scope = { tenantId, organizationId }
   try {
-    const grantedFeatures = userId ? await resolveGrantedFeatures(container, userId, scope) : []
+    // One lookup, one authority, and a failure that says so. The previous
+    // `catch → []` could not tell "denied" from "could not ask", so an RBAC
+    // hiccup silently demoted a manager to their own memberships.
+    const access = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
     const em = container.resolve('em') as EntityManager
     return await resolveProjectAccess({
       em: em.fork(),
       userId,
       tenantId,
       organizationId,
-      userFeatures: grantedFeatures,
+      canManageAll: access.allowed,
+      userFeatures: access.grantedFeatures,
       assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
     })
   } catch (err) {

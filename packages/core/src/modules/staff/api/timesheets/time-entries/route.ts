@@ -36,7 +36,8 @@ import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } fro
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
 import { buildTimeEntryListFilters, isParseableDateFilter } from '../../../lib/timesheets/timeEntryListFilters'
 import { staffTimeEntryCommandIds } from '../../../lib/crud'
-import { resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
+import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
+import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { entryAmount } from '../../../lib/time-tracking/cost'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
@@ -176,21 +177,6 @@ type ContainerLike = { resolve: (name: string) => unknown }
 /** One access decision per request, shared by every filter that needs it. */
 const accessByRequest = new WeakMap<Request, Promise<ProjectAccess>>()
 
-async function resolveGrantedFeatures(
-  container: ContainerLike,
-  userId: string,
-  scope: { tenantId: string; organizationId: string },
-): Promise<string[]> {
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return []
-    return (await rbac.getGrantedFeatures(userId, scope)) ?? []
-  } catch {
-    // Fail closed: an unreadable grant set is no grant set.
-    return []
-  }
-}
-
 async function resolveAssignmentGraceDays(container: ContainerLike, tenantId: string): Promise<number | null> {
   try {
     const configService = container.resolve('moduleConfigService') as ModuleConfigService
@@ -211,14 +197,18 @@ async function loadProjectAccess(
   if (!tenantId || !organizationId) return { ...DENIED_ACCESS }
   const scope = { tenantId, organizationId }
   try {
-    const grantedFeatures = userId ? await resolveGrantedFeatures(container, userId, scope) : []
+    // One lookup, one authority, and a failure that says so. The previous
+    // `catch → []` could not tell "denied" from "could not ask", so an RBAC
+    // hiccup silently demoted a manager to their own memberships.
+    const access = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
     const em = container.resolve('em') as EntityManager
     return await resolveProjectAccess({
       em: em.fork(),
       userId,
       tenantId,
       organizationId,
-      userFeatures: grantedFeatures,
+      canManageAll: access.allowed,
+      userFeatures: access.grantedFeatures,
       assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
     })
   } catch (err) {

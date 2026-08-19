@@ -13,10 +13,11 @@ export type ProjectAccessContext = {
   organizationId?: string | null
   userFeatures?: readonly string[]
   /**
-   * `true` when the caller is a super-admin, resolved by the route from the RBAC
-   * service. A grant array cannot express it — see the note in `resolveProjectAccess`.
+   * The manage-all decision, resolved by the caller through `resolveFeatureAccess`.
+   * Preferred over `userFeatures`: a grant array cannot distinguish "denied" from
+   * "could not ask", and the difference is a silently downgraded manager.
    */
-  unrestricted?: boolean
+  canManageAll?: boolean
   /**
    * Resolved `access.assignmentGraceDays` setting. Passed in rather than read
    * here so the resolver stays independent of `ModuleConfigService`; callers
@@ -90,17 +91,17 @@ export async function resolveProjectAccess(ctx: ProjectAccessContext): Promise<P
   const userId = ctx.userId ?? null
   const grantedFeatures = ctx.userFeatures ?? []
 
-  // `unrestricted` is the super-admin escape hatch and has to be threaded through
-  // explicitly: `RbacService.userHasAllFeatures` passes `acl.isSuperAdmin` into
-  // `authorizeFeatures`, but a caller that fetched a grant *array* with
-  // `getGrantedFeatures` and matched it locally has already lost that flag. The
-  // two paths then disagree about the same person — which is exactly what
-  // happened here: the KPI endpoint (asking the service) reported the manager
-  // shape while this resolver (matching an array) fell back to memberships, so a
-  // super-admin with no staff record saw a portfolio of seven projects summarised
-  // above a list of zero.
+  // The decision is the caller's to make, through `resolveFeatureAccess`, which
+  // asks the RBAC service once and fails closed loudly. Deriving it here from a
+  // grant array is what let a failed lookup pass as "no permission": the array
+  // came back empty, `canManageAll` went false, and a manager silently dropped to
+  // their own memberships while the KPI endpoint — asking the service directly —
+  // kept reporting the full portfolio.
+  //
+  // The array path remains for callers that have not been migrated, but it cannot
+  // distinguish "denied" from "could not ask", so it is deprecated.
   const canManageAll =
-    ctx.unrestricted === true ||
+    ctx.canManageAll ??
     authorizeFeatures([MANAGE_PROJECTS_FEATURE], {
       grantedFeatures,
       scopeAllowed: Boolean(tenantId) && Boolean(organizationId),

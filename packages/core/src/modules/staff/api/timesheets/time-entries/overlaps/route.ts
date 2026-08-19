@@ -14,7 +14,12 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { StaffTimeEntry, StaffTimeProject, StaffTimeTask } from '../../../../data/entities'
 import { deriveInterval, formatClock, parseClock } from '../../../../lib/time-tracking/interval'
 import { findOverlaps, type OverlapSpan } from '../../../../lib/time-tracking/overlap'
-import { assertProjectAccess, resolveProjectAccess } from '../../../../lib/time-tracking/access'
+import { resolveFeatureAccess } from '../../../../lib/time-tracking/featureAccess'
+import {
+  MANAGE_PROJECTS_FEATURE,
+  assertProjectAccess,
+  resolveProjectAccess,
+} from '../../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/overlaps' })
@@ -278,18 +283,19 @@ export async function GET(req: Request) {
     const scope = { tenantId, organizationId }
     const em = (container.resolve('em') as EntityManager).fork()
     const userId = typeof auth.sub === 'string' ? auth.sub : null
-    const grantedFeatures = userId ? await resolveGrantedFeatures(container, userId, scope) : []
-    const canManageAll = authorizeFeatures([MANAGE_ALL_FEATURE], {
-      grantedFeatures,
-      scopeAllowed: true,
-    })
+    // Both questions go to the service. Asking one and inferring the other from a
+    // grant array is how the two could disagree when the read failed.
+    const manageAll = await resolveFeatureAccess(container, userId, [MANAGE_ALL_FEATURE], scope)
+    const manageProjects = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
+    const canManageAll = manageAll.allowed
 
     const access = await resolveProjectAccess({
       em,
       userId,
       tenantId,
       organizationId,
-      userFeatures: grantedFeatures,
+      canManageAll: manageProjects.allowed,
+      userFeatures: manageAll.grantedFeatures,
       assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
     })
 

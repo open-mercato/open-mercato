@@ -79,7 +79,17 @@ const container = {
     if (name === 'em') return em
     if (name === 'rbacService') {
       if (rbacThrows) throw new Error('[internal] rbacService unavailable')
-      return { getGrantedFeatures: async () => grantedFeatures }
+      return {
+      getGrantedFeatures: async () => grantedFeatures,
+      // Same grants, asked the way the code now asks — a test that grants a
+      // feature must still grant it once the check goes through the service.
+      userHasAllFeatures: async (_u: string, required: string[]) =>
+        required.every((feature: string) =>
+          (grantedFeatures ?? []).some((grant: string) =>
+            grant === '*' || grant === feature || (grant.endsWith('.*') && feature.startsWith(grant.slice(0, -1))),
+          ),
+        ),
+    }
     }
     if (name === 'moduleConfigService') throw new Error('[internal] moduleConfigService not registered')
     throw new Error(`[internal] Unexpected container resolve: ${name}`)
