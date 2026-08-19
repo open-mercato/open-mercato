@@ -31,6 +31,8 @@ This quarter targets **foundations + one closed operational loop**: **receive �
 
 **Commerce coherence:** WMS must not ship as “another module beside” `sales`. A **minimum sales integration** is in scope for the quarter (see Month 2): multi-warehouse visibility on the order, deterministic default warehouse for automation, reserve/release tied to order lifecycle, and insufficient-stock UX **before** the customer calls.
 
+This is a product-priority integration layer, not a permanent architectural dependency. WMS remains the inventory authority and the Sales-facing subscribers, enrichers, widgets, and compatibility bridge must be optional when the modules are packaged separately. The current `wms -> sales` metadata dependency may remain for the first standard-composition MVP, but P1.1 must remove it before standalone WMS or WMS+Manufacturing packaging is claimed.
+
 ### Rule for “phase complete”
 
 Each month ends with a **Definition of Done**: a short set of **acceptance scenarios** plus **minimum auditability** (who changed inventory state, when).
@@ -65,7 +67,7 @@ Each month ends with a **Definition of Done**: a short set of **acceptance scena
 
 ### Month 2 (weeks 5–8) — “There is stock, inbound works, and sales sees the warehouse”
 
-**End state:** receiving creates inventory movements and updates availability; **`sales` is integrated end-to-end** for the minimum commerce surface (not a disconnected WMS).
+**End state:** receiving creates inventory movements and updates availability; when Sales is installed, **`sales` is integrated end-to-end** for the minimum commerce surface through the optional compatibility layer.
 
 - **Inventory (MVP):** `on-hand` per location; reservation model consistent with **auto-reserve / release** below; concurrency-safe mutations.
 - **Receiving (light ASN/GRN):** header + lines, statuses (e.g., draft → posted), minimum discrepancy handling (e.g., note + quantity correction before posting).

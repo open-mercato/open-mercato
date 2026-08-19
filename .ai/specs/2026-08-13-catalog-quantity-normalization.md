@@ -8,13 +8,13 @@ This capability does not change WMS storage or add inventory evidence. It is ind
 
 ## Overview and Status
 
-**Status:** Draft implementation specification based on the 2026-08-13 code audit.
+**Status:** Design complete — readiness review pending.
 
 **Wave 0 capability:** P1.3a, first part of the quantity/UoM/precision gate.
 
 **Predecessor:** `implemented/SPEC-034-2026-02-18-units-of-measure-conversions.md`.
 
-**Consumers:** P1.3b WMS precision alignment, P1.3c WMS quantity evidence/reversal, P1.7 released definitions, and P1.8 production postings.
+**Consumers:** P1.3b WMS precision alignment, P1.3c WMS quantity evidence/reversal, P1.4 BOM authoring, P1.7 released definitions, P1.8 production postings, and P1.10 production orders.
 
 ## Problem Statement
 
@@ -33,10 +33,11 @@ The same product, quantity, and unit can therefore produce different results dep
 
 ### In scope
 
-- Pure exact-decimal parse, canonicalize, compare, add, subtract, multiply, negate, and round operations in `@open-mercato/shared`.
+- Pure exact-decimal parse, canonicalize, compare, add, subtract, multiply, divide, negate, and round operations in `@open-mercato/shared`.
 - A Catalog DI service that resolves product policy and returns a provider-neutral immutable normalization snapshot.
 - Product-level UoM inheritance for variants.
 - Convergence of successful Catalog pricing and Sales line normalization paths.
+- A provider-neutral Manufacturing consumer contract for BOM base-output and component-line quantities: the caller resolves each entered quantity/UoM against the scoped product/variant and persists the returned immutable snapshot in the released definition or execution snapshot.
 - Compatibility adapters for existing numeric API inputs and existing Sales snapshots.
 - Unit, contract, integration, scope, and backward-compatibility tests.
 
@@ -45,7 +46,7 @@ The same product, quantity, and unit can therefore produce different results dep
 - WMS column precision, profiles, balances, reservations, movements, or reversal.
 - Variant-specific UoM overrides.
 - A global conversion graph or dimensional-analysis engine.
-- Purchasing/supplier UoM, catch weight, density, potency, yield, or process loss.
+- Purchasing/supplier UoM, catch weight, density, potency, yield, or process loss. Manufacturing owns component `yieldFactor` and consumption-basis semantics; it calls this resolver only for exact UoM conversion and decimal arithmetic.
 - New Catalog UoM configuration UI; the existing editor remains authoritative.
 
 ## Current State Audit
@@ -83,11 +84,14 @@ Existing routes may continue accepting published JSON numbers, but compatibility
 
 Implementation first evaluates existing repository exact-decimal code. A new production dependency requires separate approval.
 
+Division requires an explicit result scale and rounding mode, rejects a zero divisor, and returns the same canonical string form. It exists for bounded consumers such as Manufacturing yield arithmetic; it does not move yield or process policy into Catalog or `shared`.
+
 ### Rounding
 
 - The existing product scale `0..6` remains authoritative.
 - `half_up`, `down`, and `up` are all implemented and tested.
 - Normalization performs exact multiplication, then rounds once to product scale.
+- Manufacturing calculates gross variable demand as normalized nominal demand divided by `yieldFactor`, using exact division and applying the product rounding policy once to the final demand; it does not round intermediate ratios.
 - For signed values, the rounding policy applies to magnitude before restoring the sign. This makes negation deterministic for downstream reversals.
 - Already normalized values are not re-rounded by consumers.
 - Intermediate multiplication retains sufficient digits for an `18,6` entered quantity and `24,12` factor; overflow is checked before and after rounding.
@@ -162,7 +166,7 @@ Operational resolution fails closed. Existing pricing routes may retain a docume
 | Task | Deliverable | Evidence |
 |---|---|---|
 | A1 | Complete inventory of Catalog/Sales normalization call sites | Reviewed list with no unclassified successful path |
-| A2 | Pure shared exact-decimal utility | Unit tests for canonical form, signs, ties, scale `0..12`, overflow, negative zero |
+| A2 | Pure shared exact-decimal utility | Unit tests for canonical form, signs, ties, scale `0..12`, division/zero-divisor behavior, overflow, negative zero |
 | A3 | Catalog resolver and batch method | Scoped service contract tests and bounded query count |
 | A4 | Product-list and price-filter convergence | Identical tier result for identical input/policy |
 | A5 | Sales command convergence | Snapshot reflects actual product mode/scale and exact normalized value |
@@ -175,6 +179,7 @@ Operational resolution fails closed. Existing pricing routes may retain a docume
 - `2.5 box × 12 pc/box` returns `30 pc`.
 - Half ties differ correctly under `half_up`, `down`, and `up`, including signed inputs.
 - Twelve-decimal factors and scale `0..6` produce declared exact strings.
+- Exact division requires explicit scale/mode, rejects zero, and gives deterministic positive and signed results without intermediate IEEE-754 arithmetic.
 - Maximum accepted input persists; the next value fails before database use.
 - Product listing, price filtering, and Sales line creation return the same normalization.
 - Changing a factor after Sales line creation does not change the old snapshot.
@@ -182,7 +187,7 @@ Operational resolution fails closed. Existing pricing routes may retain a docume
 - Explicit missing/invalid conversion never falls back to raw quantity.
 - Integration fixtures are created through APIs and cleaned in `finally`/teardown.
 
-P1.3a is complete when one exact resolver governs every successful Catalog/Sales normalization path and compatibility tests show no unintended contract break. This unblocks P1.3b but does not by itself satisfy the Wave 0 quantity gate.
+P1.3a is complete when one exact resolver governs every successful Catalog/Sales normalization path and compatibility tests show no unintended contract break. It is the quantity prerequisite for stable draft/release contracts and unblocks P1.3b, but it does not by itself enable stock-affecting production.
 
 ## Risks and Impact Review
 
@@ -218,6 +223,8 @@ Implementation validation includes `yarn generate`, relevant shared/core unit te
 ## Changelog
 
 - 2026-08-13: Created P1.3a from the audited Catalog/Sales portion of the original quantity/UoM/precision proposal.
+- 2026-08-19: Clarified P1.3a as the exact-quantity source for BOM base-output and component-line snapshots, including fixed/variable consumption and yield calculations owned by the Manufacturing definition contract.
+- 2026-08-19: Added bounded exact division so Manufacturing can apply `gross = nominal / yieldFactor` with one final policy rounding step while keeping yield semantics outside Catalog/shared.
 
 ### Review — 2026-08-13
 

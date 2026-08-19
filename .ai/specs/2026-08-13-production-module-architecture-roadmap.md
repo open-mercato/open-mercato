@@ -4,7 +4,7 @@
 
 This document is the long-term product roadmap and architecture map for Open Mercato Manufacturing. It defines capability boundaries, ownership, dependency direction, and readiness gates. It is not a release calendar, delivery commitment, or detailed implementation specification.
 
-Before a detailed `production` specification may be approved, Wave 0 must establish a minimal site identity, shared resource/calendar ownership, released manufacturing definitions, production-capable WMS posting contracts, minimum append-only manufacturing facts, quality-aware availability, and the ERP-to-MES confirmation boundary.
+Manufacturing readiness is staged. Draft BOM/routing CRUD may proceed before stock execution exists. Releasing an executable order requires the minimal site, exact quantity, work-centre, released-definition, and append-only fact contracts. Stock-affecting execution additionally requires exact WMS precision/evidence and an atomic production-posting contract. Planning, advanced numbering, full QMS/MES, costing, and enterprise packaging are not first-MVP blockers.
 
 Production material issues, returns, and finished- or intermediate-goods receipts belong to the Manufacturing business process. Manufacturing owns their intent, semantics, authorization, order/operation correlation, idempotency, ordering, reversals, and reconciliation. WMS remains the authoritative owner of physical inventory, lots, serials, reservations, balances, and movements, and executes the atomic stock postings requested through its contracts. Manufacturing therefore uses WMS mechanisms; WMS does not own the production workflow.
 
@@ -16,13 +16,13 @@ The first product objective is not to deliver every manufacturing capability at 
 
 The roadmap deliberately keeps responsibilities clear. Manufacturing owns production decisions and the history of work performed. Warehouse Management owns the physical inventory and stock movements. Quality, planning, maintenance, costing, and shop-floor systems can add their specialist capabilities through controlled integrations. This avoids duplicate records, conflicting decisions, and costly rework as customers adopt more advanced capabilities.
 
-Before implementation of the initial `production` module is approved, Wave 0 must prove that these foundations work together: production postings are safe and reversible, stock is not consumed twice, changes remain traceable, unavailable stock is not planned as usable, and integrations with shop-floor systems can handle delayed or repeated confirmations. These are readiness conditions, not delivery dates or commercial commitments.
+Before stock-affecting execution is approved, the minimum foundations must prove that postings are exact, atomic, idempotent, reversible, scoped, and reconcilable; stock cannot be consumed twice; and accepted confirmations retain an auditable history. Advanced shop-floor/offline behaviour remains a later MES/edge contract. These are readiness conditions, not delivery dates or commercial commitments.
 
 After Wave 0, capabilities such as material planning, finite scheduling, quality management, traceability, costing, shop-floor execution, and specialist manufacturing models may be specified and prioritized independently based on customer evidence, product fit, and the required operating model. This lets Open Mercato offer value incrementally without turning the first manufacturing release into an inflexible monolith.
 
 ## Purpose and Document Status
 
-**Status:** Approved product roadmap; Wave 0 gates are not yet met; implementation is not approved.
+**Status:** Approved product roadmap. Draft definition authoring may proceed; executable order release and stock-affecting execution remain gated by their named minimum dependencies.
 
 The roadmap describes the complete manufacturing capability landscape Open Mercato may grow into and the architectural constraints that keep those capabilities composable. Positions in the dependency map mean "requires this contract or trusted data first", never "will be delivered next".
 
@@ -42,9 +42,9 @@ The roadmap is intentionally self-contained. Supporting documents refine deliver
 | [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) | P1.3a Catalog quantity normalization | Capability specification |
 | [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) | P1.3b WMS precision and profile alignment | Capability specification |
 | [`2026-08-13-wms-quantity-evidence-reversal.md`](2026-08-13-wms-quantity-evidence-reversal.md) | P1.3c immutable quantity evidence and correlated reversal | Capability specification |
-| Dedicated production number-range specification | Numbering authority, storage, concurrency, reset, and offline behavior | Required Wave 0 document; not yet authored |
+| Dedicated advanced production number-range specification | Configurable order/batch/lot/serial formats, reset and offline allocation | Future necessary capability; not an MVP gate; not yet authored |
 
-Decisions C1-C3, H1-H4, M1-M4, and S1-S3 below consolidate the architectural review outcome into this source-of-truth document. Their rationale is preserved by the surrounding architecture laws, kernel boundaries, ownership matrix, risks, and validation gates; no unavailable review file is required to interpret or approve a downstream specification.
+Decisions C1-C3, H1-H6, M1-M4, and S1-S3 below consolidate the architectural review outcome into this source-of-truth document. Their rationale is preserved by the surrounding architecture laws, kernel boundaries, ownership matrix, risks, and validation gates; no unavailable review file is required to interpret or approve a downstream specification.
 
 ## Product Thesis
 
@@ -68,7 +68,7 @@ The most important ambiguity concerned inventory operations generated by product
 
 ## Proposed Solution
 
-Establish a small manufacturing kernel and eight Wave 0 foundation contracts before specifying discrete core entities. Keep discrete and process models as siblings, place authoritative concepts in the existing shared domains, capture immutable Manufacturing facts, and express every inter-module relationship as a hard runtime requirement, product/data prerequisite, or optional provider with explicit fallback.
+Establish a small manufacturing kernel and stage readiness per slice. Draft discrete definitions may be implemented before execution contracts. Released orders and stock effects unlock only after their named minimum safety gates. Keep discrete and process models as siblings, place authoritative concepts in existing shared domains, capture immutable Manufacturing facts, and classify every inter-module relationship explicitly.
 
 For production inventory transactions, Manufacturing owns the business command and WMS owns its physical execution. The integration is semantic, atomic or durably compensatable, idempotent, reversible, tenant/organization/site scoped, and reconcilable. This boundary is a roadmap law for all later discrete, process, repetitive, subcontracting, and remanufacturing specs.
 
@@ -79,43 +79,49 @@ For production inventory transactions, Manufacturing owns the business command a
 - `wms` owns physical inventory, lots, serials, reservations, balances, locations, movements, and the physical inventory ledger.
 - Manufacturing owns manufacturing definitions, order and operation intent, manufacturing confirmations, and manufacturing-specific history.
 - Production issues, returns, and receipts are Manufacturing use cases executed through semantic WMS commands. Generic `manual` or `adjust` movements must not represent normal production postings.
-- Shared `resources` owns reusable resource identity and base capacity; `planner` owns reusable calendars and availability rules. Manufacturing adds work-center and manufacturing constraint extensions through IDs, never duplicate masters.
-- Every manufacturing definition used for execution is released atomically and versioned. An order retains immutable snapshots of the exact definition, documents, applicability, site, UoM conversions, and instructions used.
+- Shared `resources` owns reusable resource identity and base capacity; `planner` owns reusable calendars and availability rules. Manufacturing adds minimal work centres and routing constraints through IDs, never duplicate masters. Calendars and finite-capacity checks are not required for a manual first-core order.
+- Every manufacturing definition used for execution is released atomically and versioned. Child BOM revisions are selected and frozen when the parent definition is released. A draft order becomes executable only when release selects the top-level definition by item/variant, site, and `plannedStartDate` and freezes the execution snapshot.
 - The core captures non-reconstructable append-only facts from day one. Optional traceability, quality, costing, and intelligence modules derive advanced decisions, valuations, graphs, and read models from those facts.
 - Cross-module data uses FK IDs plus snapshots where historical interpretation must survive module absence or later master-data changes. No direct ORM relationships cross module boundaries.
 - Optional consumers own integration glue and degrade gracefully when peers are absent. A product dependency is not automatically a runtime `ModuleInfo.requires` dependency.
 - All scoped records and operations validate `tenantId`, `organizationId`, and, where applicable, `siteId`; cross-scope links and postings fail closed.
 - Commands, events, workers, optimistic locking, mutation guards, cache, queue, and progress use canonical Open Mercato mechanisms.
 - Foundation configuration UI uses canonical `CrudForm`/`DataTable` extension hosts but enables only controls justified by workflow frequency. Setup-once tables do not inherit CRM-scale search, filters, perspectives, exports, or bulk actions by default.
+- The first Manufacturing UI is limited to list/detail, create/edit, release, confirm, and reverse flows. Bulk actions, saved views, advanced analytics, approval workflows, and segregation-of-duties policy are later capabilities; MVP ACL is bounded to view, manage, execute, and reverse.
+- Manufacturing list/read caching is omitted initially. Bounded import/export may run synchronously with explicit limits; cache invalidation, queued bulk migration, and progress UI are introduced only with measured need.
+- Tenant-defined custom fields are supported on WMS Site in the first foundation. Manufacturing BOM/order custom fields are a later extension, not a draft/release gate.
+- Basic instructions and attachment references may be frozen into a released snapshot. Controlled document packages, approval/signature semantics, and full document-control lifecycle remain separate capabilities.
 - Public contracts follow `BACKWARD_COMPATIBILITY.md`; additive changes must also be operationally backward compatible.
 - The manufacturing kernel is a standalone package; every specialist model depends on the kernel, never on discrete `production`.
-- `wms` owns the quality-aware availability projection and resolves an optional disposition provider; no other module recomputes availability.
-- Lot/serial numbers are assigned by Manufacturing at production time from a site/type-scoped range defined by a dedicated Wave 0 number-range specification; WMS records and validates identity and uniqueness. The minimal WMS site CRUD does not itself provide numbering.
-- Physical stock commitment lives only in WMS reservations/allocations; planning pegs are proposals that resolve into reservations at release.
-- Released definitions carry valid-time effectivity; every fact carries transaction-time, source-event-time, and timezone; "as-of" queries resolve against valid-time.
-- Manufacturing facts are domain events persisted in the module's own append-only store; the platform event bus is their transport and the fact store is the system of record.
+- `wms` owns the basic status/expiry-aware availability projection; no other module recomputes availability. A future optional quality disposition provider may refine that projection without becoming an MVP requirement.
+- Production orders use UUID identity plus a simple concurrency-safe, site-scoped display number owned by `production`. Output lot/serial values may be supplied explicitly and WMS validates their identity and uniqueness. Configurable formats, reset policies, generated batch/lot/serial numbers, block reservation, and offline allocation belong to later P1.13.
+- Physical stock commitment lives only in WMS reservations/allocations. Release does not reserve automatically; an explicit optional reservation command may convert planning intent into a WMS reservation, and issue/backflush always rechecks eligibility.
+- Released definitions carry date-based `validFrom`/`validTo` effectivity. Every fact carries UTC `recordedAt` and `occurredAt`; external sources may additionally supply their timestamp/timezone. Full bitemporal correction and general "as-of" analytics are later capabilities.
+- Manufacturing facts are domain events persisted in a dedicated append-only table owned by the module; current operational state remains in normal order/operation entities. The platform event bus is transport, not the system of record, and full aggregate event sourcing is not required.
 - Client-specific data, terminology, rules, metrics, and integrations remain outside this OSS product roadmap until validated as generic product capabilities.
 
 ## Wave 0 Contract Decisions
 
-The following decisions resolve eleven contract-shaping questions and three governance notes. They are binding on Wave 0 and all later capability specs.
+The following decisions resolve thirteen contract-shaping questions and three governance notes. They are binding on the relevant readiness slice and all later capability specs.
 
 | # | Decision | Binding rule |
 |---|---|---|
 | C1 | Kernel is its own package | The manufacturing kernel ships as a standalone `manufacturing` package, not inside `production`. Discrete `production`, `production_process`, `production_repetitive`, and `production_remanufacturing` each depend on `manufacturing`, never on each other or on discrete `production`. |
-| C2 | WMS owns the availability projection | WMS computes and serves quality-aware availability by resolving an optional disposition provider. No other module recomputes it. Present-but-unreachable provider fails closed; absent provider falls back to WMS-controlled availability. |
-| C3 | Production assigns lot/serial numbers from a shared range | The lot/serial number is assigned at production time by Manufacturing, drawn from a site/type-scoped range whose storage, allocation, concurrency, reset, and offline rules are frozen in a separate mandatory Wave 0 specification. Manufacturing supplies the pre-assigned identifier to WMS at posting; WMS records and validates uniqueness. The P1.2 WMS site model does not allocate numbers. |
+| C2 | WMS owns the availability projection | WMS computes and serves basic status/expiry-aware availability. No other module recomputes it. A future optional disposition provider may refine the result; present-but-unreachable fails closed, while absence preserves the basic WMS result. |
+| C3 | Basic identity first; advanced number ranges later | UUID is canonical identity. `production` provides a simple concurrency-safe site-scoped order display number. Lot/serial values may be supplied explicitly and WMS validates uniqueness. P1.13 later adds configurable order/batch/lot/serial formats, resets, generated values, block reservation, and offline allocation without blocking the MVP. |
 | H1 | Backflush is a first-class posting mode | The WMS posting contract supports explicit issue AND backflush (issue-on-completion derived from the released definition), with a defined backflush point per operation, symmetric reversal, and precision cases. |
-| H2 | Order networks are a reserved kernel seam | The kernel models parent/child production-order links and a hand-off policy (receive-to-stock vs. direct-issue). First core may support single-level only, but the seam is frozen now. |
-| H3 | Minimal demand-signal contract | Planning consumes a provider-neutral demand contract: manually entered independent demand plus dependent demand from released orders. Sales/forecast are optional providers. Planning runs without any commercial demand module. |
-| H4 | Facts are the module's own event store | Manufacturing facts are domain events persisted in the module's own append-only store. Correlation/causation IDs align with the platform event-bus envelope; the bus is transport, the fact store is system of record. Facts are neither the audit log nor a second copy of bus history. |
-| M1 | Bitemporal time model | Every released definition carries valid-time (effectivity). Every fact carries transaction-time, source-event-time, and timezone. "As-of" queries resolve against valid-time. |
-| M2 | WMS is the single source of committed stock | Physical commitment lives only in WMS reservations/allocations. Planning pegs are proposals that resolve into WMS reservations at release. No module persists a competing "committed" balance. |
-| M3 | Facts capture an as-of valuation reference | At posting time, facts store a stable valuation reference (WMS posting id + valuation-context/as-of reference) sufficient for deterministic later costing. |
-| M4 | Idempotency/dedup retention policy | Posting and confirmation contracts define an idempotency-key retention window and a dedup window beyond which a replayed message is rejected rather than deduplicated. |
-| S1 | Spike-then-freeze for the hardest contracts | One explicitly non-shippable vertical spike (one site, one discrete order, explicit issue + backflush + output receipt through one WMS posting command, minimum facts) MAY be built to validate the atomicity, precision, backflush, and lot-numbering contracts before they freeze. It is marked throwaway and never becomes a de-facto contract. All other Wave 0 contracts freeze analytically. |
+| H2 | Multi-level BOMs and manual order links are mandatory | The first discrete core supports a multi-level BOM tree. A subassembly may be stock-supplied or produced by a manually linked child order. The MVP hand-off is receive-to-stock followed by explicit parent issue. Direct issue and automatic child-order creation remain later capabilities. |
+| H3 | Demand signal belongs to planning | A provider-neutral demand contract is a prerequisite of future `production_planning`, not the first production flow. Manual/API-created orders work without it. When planning ships, it must run on manual independent plus released-order dependent demand without requiring Sales/forecast providers. |
+| H4 | Facts use a dedicated append-only table | Manufacturing facts are domain events stored in the module's append-only fact table. Normal entities store current operational state. Correlation/causation IDs align with the event-bus envelope; the bus is transport, the fact table is historical truth, and no full event-sourcing framework is required. |
+| H5 | BOM lines are distinct component occurrences | A BOM line is an occurrence, not a unique product reference. The same product or variant may appear on multiple lines in one BOM, including with identical quantity/UoM, and each occurrence retains its own stable line identity, position, role/operation context when applicable, and execution-snapshot path. Definitions and explosions must not silently merge or deduplicate occurrences; planning may offer an aggregate view derived from them. |
+| H6 | BOM applicability and consumption are deterministic | Each released BOM revision records output item/variant, base output quantity/UoM, site scope, and effectivity. Each occurrence records exact quantity/UoM, `variable` or `fixed` basis, and `yieldFactor` in `(0, 1]`. Gross requirement is nominal divided by yield. `fixed` applies once per order/occurrence; `variable` backflush is a cumulative `good + scrap` target minus already posted net consumption. Missing or overlapping applicability fails closed. Alternatives, substitutes, phantom explosion, and unit/serial effectivity are later capabilities. |
+| M1 | Minimal temporal model | Released definitions have date-based `validFrom`/`validTo`. Facts have UTC `recordedAt` and `occurredAt`; external source timestamp/timezone is optional. Full bitemporal queries, retroactive correction policy, and clock-skew handling are later MES/reporting work. |
+| M2 | WMS is the single source of committed stock | Physical commitment lives only in WMS reservations/allocations. Release creates no automatic reservation; a planning peg may later request an explicit optional WMS reservation. No module persists a competing "committed" balance, and issue/backflush rechecks availability. |
+| M3 | Facts retain WMS posting evidence | Stock facts require WMS posting IDs, quantity/UoM evidence, and posting time. An opaque valuation-context reference is optional when WMS provides it; the mandatory valuation contract is a prerequisite of future `production_costing`, not MVP execution. |
+| M4 | Durable MVP idempotency | Stock commands and external confirmations require idempotency keys. Deduplication records live with the related order/fact/posting in MVP. Retention windows, pruning, and replay-after-expiry policy are later scale/MES work. |
+| S1 | Spike-then-freeze for the hardest stock contracts | One explicitly non-shippable vertical spike (one site, one discrete order, explicit issue + backflush + output receipt through one atomic WMS batch, minimum facts) MAY validate atomicity, precision, cumulative backflush, and reversal before contracts freeze. It is throwaway and never becomes a de-facto contract. |
 | S2 | Early bounded-context test for fuzzy pairs | Before splitting, `production_data_collection`↔`production_execution` and `production_tooling`↔`asset_management`↔`production_workforce` must pass the bounded-context gate; if they fail it, they ship merged. |
-| S3 | Dependency diagram shows costing and pegging | The logical dependency map includes the costing read-model consumer and the planning peg → WMS reservation flow. |
+| S3 | Dependency diagram shows costing and pegging | The logical dependency map includes the costing read-model consumer and the optional planning peg → explicit WMS reservation-request flow. |
 
 ### Manufacturing kernel package contents (C1)
 
@@ -126,7 +132,9 @@ The standalone `manufacturing` kernel owns only what every manufacturing model s
 - the abstract released-definition and order/operation lifecycle contracts (state machine), implemented by sibling aggregates;
 - the minimum append-only fact contract, correlation/causation IDs, and reversal/compensation semantics;
 - the WMS posting interface (issue/return/scrap/output/reversal **and** backflush mode) and the MES/edge confirmation interface;
-- reserved seams: alternate/parallel routing, overlap/setup/queue/move time, phantom explosion, rework/transform/disassembly/split-merge, order-network links, and orderless reporting.
+- mandatory multi-level BOM occurrence and explosion contract, including cycle detection and stable occurrence paths in released/execution snapshots;
+- a minimal work-centre boundary over shared resource IDs and an optional single-sequence routing contract;
+- reserved seams: alternate/parallel routing, overlap/setup/queue/move time, phantom explosion, rework/transform/disassembly/split-merge, direct-issue order networks, and orderless reporting.
 
 The kernel owns no discrete-only or process-only aggregate. Discrete `ProductionDefinition`/`ProductionOrder` and process `Formula`/`Recipe`/`BatchOrder`/`Campaign` are sibling implementations in their own packages that depend on the kernel.
 
@@ -134,17 +142,17 @@ The kernel owns no discrete-only or process-only aggregate. Discrete `Production
 
 ### 1. Site and warehouse scope
 
-A minimal WMS-owned site foundation owns stable plant/site identity within a tenant and organization. It stores current assignments between a site and one or more WMS warehouses under fixed roles such as raw material, line-side, WIP, finished goods, quarantine, and shipping. A configured role has exactly one default warehouse; explicit operations may select another assigned warehouse.
+A minimal WMS-owned site foundation owns stable plant/site identity within a tenant and organization. It stores current assignments between a site and one or more WMS warehouses under fixed roles such as raw material, line-side, WIP, finished goods, quarantine, and shipping. A configured role has exactly one default warehouse; explicit operations may select another assigned warehouse. A new site is inactive. Activation for discrete production requires default `raw_material` and `finished_goods` assignments; the same warehouse may serve both roles.
 
 Every released manufacturing definition and order has a `siteId`. Administrators may change current assignments, but released definitions, orders, postings, and historical facts retain immutable site and warehouse-role snapshots needed for interpretation. Audit history does not replace those snapshots. The later `production_network` capability may extend the site model but must not introduce the first site identity.
 
 The site record is an extensible business master and supports tenant-defined custom fields through the canonical entity/CrudForm/command/undo pipeline. Warehouse-role assignments remain a closed configuration contract and do not accept custom fields. Because site setup is infrequent and normally small, the first UI uses minimal paginated DataTables and stable injection surfaces, but no built-in search bar, advanced filters, column chooser, saved views, export, selection, or bulk actions. The API retains narrow search/filter parameters for integrations and lookup consumers.
 
-Scheduled/effective-dated assignment changes and site timezone/calendars are future capabilities, not prerequisites of the current-assignment CRUD. Before timezone-sensitive execution ships, a dedicated contract must add and migrate site timezone. Before production allocates order, batch, lot, or serial numbers, a separate mandatory Wave 0 specification must define the site/type-scoped numbering authority, guarantee uniqueness within tenant and organization, and preserve the production-assigns/WMS-records direction (see §4).
+In the MVP a warehouse may serve several roles but may belong to only one active site. Shared warehouses across active sites require a later production-network/shared-stock policy. Scheduled/effective-dated assignment changes and site timezone/calendars are future capabilities, not prerequisites of current-assignment CRUD. Before timezone-sensitive execution ships, a dedicated contract must add and migrate site timezone. Advanced production number ranges remain later P1.13 rather than a site-activation or MVP gate.
 
 ### 2. Resource, work-center, asset, staff, and calendar ownership
 
-Reusable resource identity, capacity unit, and active state remain in `resources`; reusable timezone-aware availability rules remain in `planner`. Manufacturing owns work centers, routing applicability, setup/queue/move semantics, and manufacturing-specific resource extensions linked by scalar IDs.
+Reusable resource identity, capacity unit, and active state remain in `resources`; reusable timezone-aware availability rules remain in `planner`. Manufacturing owns minimal work centres and routing applicability linked by scalar IDs. The MVP routing is optional and sequential and may record basic setup/run time and instructions. Calendars, queue/move/overlap, alternate resources, crews, tools, and finite-capacity enforcement are later capabilities.
 
 Assets, tools, and people remain separate identities. Maintenance downtime, calibration state, tool life, skills, and qualifications are optional constraint-provider inputs to scheduling and execution. Scheduling never becomes the master of those states.
 
@@ -152,48 +160,57 @@ Assets, tools, and people remain separate identities. Maintenance downtime, cali
 
 The shared manufacturing kernel defines release identity, site, product/item and UoM references, effectivity, quantity/configuration applicability, readiness, document package identity, and immutable revision semantics. It ships as a standalone `manufacturing` package (see "Manufacturing kernel package contents") that discrete and process models depend on; it encodes no model-specific aggregate.
 
-Discrete manufacturing uses sibling aggregates such as `ProductionDefinition` and `ProductionOrder`. Process manufacturing uses `Formula`/`Recipe` and `BatchOrder`/`Campaign`. Releasing a definition atomically binds all applicable BOM/formula, routing/recipe, site, document, UoM, and readiness inputs. Creating an order freezes an exploded execution snapshot; later master-data changes never reinterpret existing work.
+Discrete manufacturing uses sibling aggregates such as `ProductionDefinition` and `ProductionOrder`. Process manufacturing uses `Formula`/`Recipe` and `BatchOrder`/`Campaign`. Releasing a definition atomically selects and freezes every applicable child BOM revision using site and the definition's business-effective date. A production order begins as an editable draft. Transition to `released` selects exactly one top-level released definition using item/variant, site, and `plannedStartDate`, then freezes the execution snapshot; later master-data changes never reinterpret existing work.
 
-Extension seams must permit alternate/parallel routing, overlap, setup, queue and move time, phantom explosion, rework, transform, disassembly, split/merge, prototypes, parent/child order-network links, per-operation backflush points, and orderless reporting without changing the meaning of the discrete aggregate. The first core may support single-level orders only, but the parent/child order-network seam is frozen now so multi-level and configure/engineer-to-order flows are additive later.
+The first discrete core must support a multi-level BOM tree. A component may be a raw material or an assembly whose applicable released BOM is expanded beneath the component occurrence. The released-definition and execution snapshots retain the selected BOM revisions and the full occurrence path, so later master-data changes cannot change the meaning of an in-flight order.
+
+A BOM line is a distinct occurrence identified by its own stable line ID and line position. `componentProductId` or `componentVariantId` is deliberately **not** unique within a BOM revision: the same item may occur more than once, even at the same level and with the same quantity/UoM. For example, two separate `5`-unit rolls of the same material remain two lines when they represent different physical feed points, operations, roles, instructions, or traceability contexts. The system may derive an aggregate planning demand of `10`, but it must preserve both occurrences in the definition, explosion, execution snapshot, UI, and posting correlation.
+
+Before a BOM revision can be released, and again before an execution snapshot is created, validation must reject direct or indirect BOM cycles. Repeated use of the same item in separate occurrences is valid and is not a cycle. The persistence model must therefore key line uniqueness by BOM revision plus line identity/position, never by BOM revision plus component item alone.
+
+Parent/child order links are required for a subassembly produced for the parent. The MVP hand-off receives child output to WMS stock and then explicitly issues it to the parent, retaining correlation between both postings. Direct issue, automatic child-order creation, MRP-driven explosion choices, phantom behaviour, and configure/engineer-to-order specialisation remain later capabilities.
+
+Every BOM revision declares its output item/variant, base output quantity/UoM, site scope, effectivity interval, and release status. Every BOM line declares exact component quantity/UoM, `consumptionBasis` (`variable` or `fixed`), and `yieldFactor` greater than `0` and at most `1` (default `1`). Gross requirement equals nominal requirement divided by yield. `fixed` is planned once per production order and occurrence and may be issued in parts; first qualifying backflush posts its remaining amount. `variable` backflush calculates a cumulative target from accepted `good + scrap` at the occurrence's operation/order backflush point and posts only the delta from already posted net consumption. Exact cumulative arithmetic avoids per-confirmation drift. Reversal copies and negates persisted posting values rather than recalculating them.
+
+The first core uses an explicit applicability resolver based on output item/variant, site, and business-effective date. It must resolve exactly one released BOM revision for each assembly occurrence, or fail closed with an actionable error. Overlapping applicable released revisions are rejected in the first core; it does not invent a priority, silently choose the newest revision, or substitute another component. Lot-size alternatives, manual/automatic substitutes, phantom flattening, and unit/serial effectivity are deliberately later extensions.
+
+The first production-order lifecycle is `draft → released → in_progress → completed`, with controlled `cancelled`. Draft intent is editable and has no stock effects. Release validates the active site and definition and freezes the execution snapshot. The first accepted issue or confirmation starts work. Normal completion requires cumulative `good + scrap` to reach planned quantity and a successful atomic posting of required backflush/output/scrap. Overproduction is rejected. `complete_short` closes an unexecuted remainder with a required reason. Cancellation after stock effects requires reversal of every posting; later hold/close/archive and approval states are additive capabilities.
 
 ### 4. Production-capable WMS posting contract
 
-WMS must expose semantic manufacturing operations for reservation/allocation, component issue, component backflush (issue-on-completion), component return, output receipt, by-product/co-product receipt where applicable, scrap movement, transfer to/from external operations, and reversal. Each request carries tenant, organization, site, warehouse role, production order/operation, item/variant, lot/serial, quantity/UoM snapshot, actor/source, correlation ID, and idempotency key.
+WMS must expose semantic manufacturing operations for optional reservation/allocation, component issue, component backflush, component return, output receipt, scrap movement, and reversal. Co-/by-products, external operations, and direct-issue hand-off are later capabilities. Each request carries tenant, organization, site, warehouse role, production order/operation, occurrence path where applicable, item/variant, optional explicit lot/serial, quantity/UoM snapshot, actor/source, correlation ID, and idempotency key.
 
-The contract must provide one of the following, chosen in the detailed spec:
-
-- an atomic batch command that commits all required inventory changes together; or
-- a durable saga with persisted step state, compensations, replay, and reconciliation.
+The built-in WMS provider exposes an atomic batch command that commits all movements in one posting group or none. Backflush plus output receipt at completion is one group; an explicit issue posted earlier is a separate group. A future external WMS provider may use a durable saga internally, but it must satisfy the same public result, compensation, idempotency, and reconciliation contract.
 
 Manufacturing owns orchestration and business validity. WMS owns stock validation and the resulting physical ledger entries. WMS returns stable posting identifiers; Manufacturing stores them in its append-only transaction facts. Reversal creates compensating records and never deletes history.
 
-Backflush is a first-class posting mode: on operation/order completion WMS posts the derived component issues and the output receipt in one atomic unit, reverses them symmetrically on reversal, and is covered by the §5 precision cases. New reservation sources, movement reference types, and movement types are added additively to the WMS enums for production issue/return/scrap/output/backflush; `manual` and `adjust` must never represent production postings.
+Backflush is a first-class posting mode: on operation/order completion WMS posts cumulative-delta component issues and the output receipt in one atomic group, reverses exact persisted amounts symmetrically, and is covered by the §5 precision cases. New reservation sources, movement reference types, and movement types are added additively to the WMS enums for production issue/return/scrap/output/backflush; `manual` and `adjust` must never represent production postings.
 
-Lot/serial identity is assigned by Manufacturing at production time from the site/type-scoped number range (§1), so labels/travelers can be produced and offline capture works before posting. Manufacturing supplies the pre-assigned identifier on the output-receipt request; WMS records it and validates uniqueness, and never mints a competing identity.
+In the MVP an output lot/serial value is supplied explicitly by the user or integration before receipt, and WMS records and validates uniqueness. Automatic generation, configurable formats/resets, pre-assigned offline pools, and block allocation belong to later P1.13.
 
-WMS reservations/allocations are the single source of truth for committed physical stock. Planning pegs are proposals that resolve into WMS reservations at release; no module persists a competing committed balance.
+WMS reservations/allocations are the single source of truth for committed physical stock. Release does not reserve automatically. Planning pegs remain proposals until an explicit optional command requests a WMS reservation; no module persists a competing committed balance, and issue/backflush rechecks availability.
 
-Each posting request captures a stable as-of valuation reference (posting id plus valuation context) so `production_costing` can value the immutable facts deterministically. The contract defines an idempotency-key retention window and a dedup window beyond which a replayed request is rejected rather than deduplicated.
+Each posting result returns stable WMS posting IDs, quantity evidence, and posting time. An opaque valuation-context reference is optional when WMS provides it; the mandatory valuation contract belongs to `production_costing`. MVP deduplication records live with the related order/fact/posting and do not expire automatically.
 
-Before this contract is frozen, the existing `wms` hard requirement on `sales` must be extracted into optional sales-owned glue or explicitly approved as an intentional platform coupling. A manufacturing-only composition must not silently require Sales.
+The existing `wms` hard requirement on `sales` does not block the first MVP in the standard composition that includes Sales. P1.1 remains mandatory before claiming or packaging a standalone WMS/Manufacturing composition; the optional integration must preserve existing Sales reservation behaviour through a compatibility bridge.
 
 ### 5. UoM precision and immutable conversions
 
-Catalog remains the UoM master. P1.3 is delivered through three specifications: [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) freezes variant policy and exact normalization; the WMS-owned [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) aligns WMS storage, arithmetic, and profile identity; and the WMS-owned [`2026-08-13-wms-quantity-evidence-reversal.md`](2026-08-13-wms-quantity-evidence-reversal.md) adds provider-neutral immutable evidence and correlated exact reversal. The latter two record an existing WMS inconsistency and are non-critical backlog for current Catalog/Sales/WMS operation: they do not block Site, draft BOM/routing, kernel, or non-stock order work. They remain mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production. The detailed core spec consumes the accepted contracts rather than redefining them. Process loss, yield, and domain tolerance policies remain with their later manufacturing capabilities.
+Catalog remains the UoM master. P1.3 is delivered through three specifications: [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) freezes variant policy and exact normalization; the WMS-owned [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) aligns WMS storage, arithmetic, and profile identity; and the WMS-owned [`2026-08-13-wms-quantity-evidence-reversal.md`](2026-08-13-wms-quantity-evidence-reversal.md) adds provider-neutral immutable evidence and correlated exact reversal. The latter two record an existing WMS inconsistency and are non-critical backlog for current Catalog/Sales/WMS operation: they do not block Site, draft BOM/routing, kernel, or non-stock order work. They remain mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production. The detailed core spec consumes the accepted contracts rather than redefining them. The first discrete core owns its bounded `yieldFactor` rule; broader process loss, potency, tolerance, and variance policies remain with their specialist manufacturing capabilities.
 
 The current Catalog precision and WMS `numeric(16,4)` storage already differ. P1.3a must freeze canonical normalization before a BOM or order quantity schema freezes. P1.3b–c track the existing WMS inconsistency as non-critical WMS backlog for current and non-stock work, but they must align storage/evidence before production posts inventory so the new module does not amplify that debt.
 
 ### 6. Minimum append-only manufacturing facts
 
-The core records non-reconstructable facts with correlation and causation IDs: definition/order snapshots, operation state transitions, quantities started/completed/scrapped/reworked, resource/time confirmations when supplied, WMS posting IDs, consumed and produced lot/serial links, quality-state references, cost-driver quantities, an as-of valuation reference, and — on every fact — transaction-time, source-event-time, and timezone (valid-time effectivity lives on the released definition, per M1).
+The core records non-reconstructable facts with correlation and causation IDs: definition/order snapshot references, operation state transitions, quantities started/completed/scrapped, resource/time confirmations when supplied, WMS posting IDs, consumed and produced lot/serial links, quality-state references when present, and cost-driver quantities. Every fact has UTC `recordedAt` and `occurredAt`; an external source may add its timestamp/timezone. Rework and mandatory valuation context are later capabilities.
 
-Manufacturing facts are domain events persisted in the module's own append-only store; the platform event bus is their transport and the fact store is the system of record. Reconciliation and replay authority are the fact store, not the bus and not the audit log.
+Manufacturing facts are domain events persisted in a dedicated append-only table; normal order/operation entities retain current operational state. The platform event bus is transport. Reconciliation authority is the fact table plus WMS posting references, not the bus or audit log, and aggregates need not be rebuilt by event replay.
 
 These facts are the ERP manufacturing transaction history, not a substitute for WMS movements, the audit log, a genealogy graph, QMS decisions, or financial valuation. Append-only facts are not user-editable CRUD entities and are exempt from optimistic locking; commands that change operational state remain undoable through explicit reversal/compensation.
 
 ### 7. Quality disposition and planning availability
 
-A foundational disposition/availability contract represents whether stock is unrestricted, held, quarantined, rejected, expired, or otherwise ineligible. WMS remains the source of physical quantities and owns the quality-aware availability projection, resolving an optional disposition provider that owns disposition decisions. MRP, ATP, allocation, and execution consume that single projection and never recompute eligibility independently. A present-but-unreachable provider fails closed; an absent provider falls back to basic WMS-controlled availability.
+A basic WMS status/expiry contract represents whether stock is unrestricted, held, quarantined, rejected, expired, or otherwise ineligible. WMS remains the source of physical quantities and owns the availability projection. Allocation and execution consume that projection and never recompute eligibility independently. A future optional disposition provider may refine decisions; when configured but unreachable it fails closed. Its absence does not block MVP production.
 
 Without a QMS module, deployments retain basic WMS-controlled availability and no advanced inspection/CAPA behavior. Planning must never assume held or expired stock is usable merely because it exists physically.
 
@@ -201,7 +218,7 @@ Without a QMS module, deployments retain basic WMS-controlled availability and n
 
 Manufacturing core is the Level 4 authority for released orders, permitted operations, material intent, and accepted manufacturing transactions. MES is the Level 3 authority for dispatch, operator interaction, detailed execution capture, and local sequencing within granted bounds.
 
-The canonical confirmation contract covers partial/final confirmations, scrap, rework, resource/labor/machine time, sequence number, source timestamp and timezone, provenance, deduplication, ordering, acceptance/rejection, reversal, replay authority, offline capture, and reconciliation. MES or edge data becomes ERP truth only after Manufacturing validates and accepts it.
+The MVP confirmation command covers partial/final good quantity, scrap, order/operation and backflush point, `occurredAt`, optional source timestamp/timezone, correlation, idempotency, acceptance/rejection, and explicit correction/reversal. UI and API use the same command. Offline buffering, arbitrary out-of-order replay, device sequence windows, multiple-edge conflict policy, rework, and detailed labor/machine capture belong to the later MES/edge contract. External data becomes ERP truth only after Manufacturing validates and accepts it.
 
 Telemetry/read paths are separate from machine command/control paths. Command support requires a dedicated safety and security profile, including zones/conduits, device and certificate lifecycle, allowlists, safety-interlock ownership, audit, replay protection, and reconciliation.
 
@@ -213,7 +230,7 @@ Telemetry/read paths are separate from machine command/control paths. Command su
 | Site/plant identity | WMS `Site` foundation | Require site on releases/orders/facts and snapshot concrete assignments | Same tenant/organization; current assignment plus immutable consumer snapshot |
 | Warehouse, location, physical WIP stock | `wms` | Select role; request semantic postings | WMS commands and returned posting IDs |
 | Resource identity/base capacity | `resources` | Manufacturing extension and work-center membership | Scalar IDs; no duplicate resource master |
-| Calendars/availability rules | `planner` | Consume effective capacity snapshots | Provider/service contract; snapshot when released |
+| Calendars/availability rules | `planner` | Optional input to later scheduling | Not required for manual MVP release; snapshot only when a capability uses it |
 | Work center and routing constraints | Manufacturing kernel/discrete or process capability | Own semantics and applicability | Extensions over shared resource IDs |
 | Asset condition, maintenance, calibration | Reusable asset domain | Consume constraints; correlate usage | Optional provider/events; asset domain does not require APS |
 | Skills and qualifications | Staff/workforce domain | Validate execution/scheduling eligibility | Optional provider; absence behavior specified per deployment |
@@ -226,11 +243,12 @@ Telemetry/read paths are separate from machine command/control paths. Command su
 | Quality disposition decision | Quality capability/provider | Enforce eligibility and retain reference | Availability projection combines quality with WMS quantity |
 | Cost-driver quantities | Manufacturing | Capture consumed/output/time/scrap facts | Costing values facts; finance owns postings |
 | Manufacturing kernel package | Standalone `manufacturing` package | Own shared contracts/seams only | Discrete/process/repetitive/reman depend on kernel, never on `production` |
-| Quality-aware availability projection | `wms` | Consume the projection | WMS resolves optional disposition provider; consumers never recompute |
-| Lot/serial number range and identity | Dedicated Wave 0 number-range contract; exact WMS-local storage frozen there | Assign number at production time from the range | WMS records/validates uniqueness; Manufacturing never invents identity; P1.2 sites do not allocate numbers |
-| Planning peg (supply↔demand link) | `production_planning` | Emit peg proposals | Pegs resolve into WMS reservations; WMS owns committed stock |
-| Temporal/effectivity authority | Manufacturing kernel | Stamp valid-time on definitions, transaction/source time on facts | As-of queries resolve against valid-time |
-| Demand signal | Minimal demand-signal contract | Consume independent + dependent demand | Sales/forecast are optional providers |
+| Status/expiry-aware availability projection | `wms` | Consume the projection | Basic WMS result works alone; an optional disposition provider may refine it; consumers never recompute |
+| Production display numbers | `production` | Generate a simple concurrency-safe site-scoped number over canonical UUID identity | Configurable formats/resets and offline ranges move to P1.13 |
+| Output lot/serial identity | WMS validates authoritative inventory identity | Manufacturing supplies an explicit value in MVP and snapshots it | Automatic generation and offline pools move to P1.13 |
+| Planning peg (supply↔demand link) | `production_planning` | Emit peg proposals | An explicit optional command may request a WMS reservation; WMS owns committed stock |
+| Temporal/effectivity authority | Manufacturing kernel | Stamp date effectivity on definitions and `recordedAt`/`occurredAt` on facts | Full bitemporal/as-of analytics are later |
+| Demand signal | Future `production_planning` contract | Consume independent + dependent demand when planning is installed | Not required for manual/API production orders; Sales/forecast remain optional providers |
 | Controlled document package | `production_document_control` | Snapshot released package ID/hash/revision | Generic attachments remain file storage only |
 | Audit trail | `audit_logs` | Emit command/action context | Audit supports evidence; never replaces production ledger |
 
@@ -251,17 +269,17 @@ Every detailed capability spec must use these meanings:
 | Capability | Owned data | Hard runtime requirements | Soft integrations/providers | Snapshot/fallback when absent | Placement/licensing |
 |---|---|---|---|---|---|
 | Catalog and product master | Products, variants, UoM and conversions | Existing Catalog requirements | Product configuration, compliance | Manufacturing snapshots released values | Existing OSS foundation; P1.3a exact normalization is the blocking quantity-schema contract |
-| WMS sites | Stable, custom-field-extensible site identity and closed current warehouse-role assignments | Existing WMS requirements; site contract itself adds no Manufacturing requirement | Manufacturing consumers, directory, network planning | Required before released production; consumers snapshot assignments; no warehouse-as-site fallback | Existing OSS `wms` module per P1.2 spec; setup-once UI remains deliberately minimal |
-| WMS and inventory | Warehouses, locations, stock, lots, serials, reservations and movement ledger | Current code: Catalog, Sales, feature toggles; Sales coupling is a Wave 0 blocker | Sales and Manufacturing consumers | Physical ledger remains usable without manufacturing | Existing OSS foundation; sales glue must become optional consumer. P1.3b precision/profile alignment and P1.3c evidence/reversal are WMS-owned work to resolve an existing UoM mismatch; non-critical for current operation and early authoring, mandatory before stock-affecting production |
-| Resources and calendars | Resource identity/capacity and planner availability rules | Current code: `resources` requires `planner` | Assets, workforce, manufacturing extensions | Released work snapshots applicable capacity inputs | Existing foundations; boundary frozen in Wave 0 |
+| WMS sites | Stable, custom-field-extensible site identity and closed current warehouse-role assignments | Existing WMS requirements; site contract itself adds no Manufacturing requirement | Manufacturing consumers, directory, network planning | Inactive by default; discrete activation requires raw-material and finished-goods defaults; one warehouse belongs to only one active site in MVP | Existing OSS `wms` module per P1.2 spec; setup-once UI remains deliberately minimal |
+| WMS and inventory | Warehouses, locations, stock, lots, serials, reservations and movement ledger | Current code: Catalog, Sales, feature toggles; Sales coupling is a standalone-packaging gate, not a standard-composition MVP blocker | Sales and Manufacturing consumers | Physical ledger remains usable without manufacturing | Existing OSS foundation; P1.3b–c remain mandatory before stock-affecting production |
+| Resources and calendars | Resource identity/capacity and planner availability rules | Current code: `resources` requires `planner` | Assets, workforce, manufacturing extensions | Manual MVP uses active resource references without calendar enforcement | Existing foundations; minimal work-centre boundary freezes before released routing, advanced calendars before scheduling |
 | Attachments, audit and workflows | Generic files, audit evidence and workflow orchestration | Their existing package contracts | Document control, engineering and approvals | Manufacturing remains authoritative when workflow is absent | Existing foundations |
-| Manufacturing kernel | Site/applicability/effectivity, released-definition contract, accepted facts and posting/confirmation interfaces | Auth/organization, Catalog, and the WMS site data prerequisite; exact runtime composition frozen by core spec | WMS posting provider, resources/calendars, documents, quality, MES | Cannot execute stock-affecting production without a compatible WMS provider | Standalone `manufacturing` package that all manufacturing models depend on; encodes no discrete- or process-only aggregate |
+| Manufacturing kernel | Site/applicability/effectivity, released-definition contract, accepted facts and posting/confirmation interfaces | Auth/organization and Catalog; WMS Site is required at executable release | WMS posting provider, resources/calendars, documents, quality, MES | Draft authoring works before stock execution; stock-affecting execution requires a compatible WMS provider | Standalone `manufacturing` package that all manufacturing models depend on; encodes no discrete- or process-only aggregate |
 
 ### Discrete core, engineering, and traceability
 
 | Capability | Owned data | Hard runtime requirements | Soft integrations/providers | Snapshot/fallback when absent | Placement/licensing |
 |---|---|---|---|---|---|
-| `production` | Discrete `ProductionDefinition`, BOM/routing releases, `ProductionOrder`, operation intent and manufacturing transactions | Manufacturing kernel and compatible WMS posting contract | Resources/planner, documents, workflows, quality, execution, costing | Manual ERP confirmations remain possible without MES/QMS/APS | Dedicated spec decides OSS/official placement |
+| `production` | Discrete `ProductionDefinition`, BOM/routing releases, `ProductionOrder`, operation intent and manufacturing transactions | Manufacturing kernel; compatible WMS posting contract only for stock-affecting execution | Resources/planner, documents, workflows, quality, execution, costing | Drafts and non-stock lifecycle remain separable; manual confirmations work without MES/QMS/APS | Dedicated spec decides OSS/official placement |
 | `production_engineering` | ECR/ECO, impact analysis, effectivity and release decisions | Catalog and released-definition contract | Workflows, documents, external PLM | Deterministic internal release lifecycle when workflows are absent | Dedicated spec decides placement |
 | `production_document_control` | Controlled packages, checksums, revisions and release links | Attachments and released-definition contract | Engineering, signatures/compliance | Production snapshots package identity/hash; generic attachment alone is not controlled release | Dedicated spec decides placement |
 | `production_traceability` | Genealogy graph/read models, recall and investigation | Minimum Manufacturing facts and WMS movement facts | Execution, quality, serialization/labeling | Base lot/serial correlations remain in core facts; no advanced graph UI | Dedicated spec decides placement |
@@ -272,7 +290,7 @@ Traceability consumes core/WMS/execution facts. `production_execution` must not 
 
 | Capability | Owned data | Hard runtime requirements | Soft integrations/providers | Snapshot/fallback when absent | Placement/licensing |
 |---|---|---|---|---|---|
-| `production_planning` | MRP scenarios, netting, pegging, proposals and exceptions | Minimal demand-signal contract (independent + dependent demand), released supply contracts, site policy, quality-aware availability | Substitute resolver, procurement/sales/forecast demand, external-operation sources | Runs on manual independent demand plus released-order dependent demand when sales/forecast providers are absent; primary released components used without optional substitution | Dedicated spec decides placement |
+| `production_planning` | MRP scenarios, netting, pegging, proposals and exceptions | Its own provider-neutral demand contract (manual independent + released-order dependent demand), released supply contracts, site policy, WMS availability | Substitute resolver, procurement/sales/forecast demand, external-operation sources | Runs without Sales/forecast providers; primary released components are used without substitution | Dedicated spec decides placement; not a first-production prerequisite |
 | `production_material_substitution` | Technical equivalence, directional substitutions and contextual eligibility | Catalog and released component applicability | Quality/compliance and inventory availability | Planning proceeds with primary material when resolver is absent | Optional provider before/inside MRP; not downstream of MRP |
 | `production_network` | Cross-site sourcing, transfer proposals and distributed plans | Planning and WMS `Site` foundation | WMS transfers, procurement | Single-site planning continues when absent | Dedicated spec decides placement |
 | `production_scheduling` | Finite schedules, sequences, scenarios and exceptions | Released operations, calendars and planning inputs | Execution feedback, asset downtime/calibration, tools, workforce, solvers | Deterministic/infinite-capacity dates remain available without optional constraints | Solver is replaceable; package decided by spec |
@@ -332,12 +350,12 @@ Connectivity is not a mandatory child of MES. Telemetry ingestion and condition 
 ## Corrected Logical Dependency Map
 
 ```text
-organization/auth + catalog + WMS sites + separate number-range contract
+organization/auth + catalog + WMS sites + simple production order number
        |                 |                  |
-       |                 |                  +--> resources + planner calendars
+       |                 |                  +--> resources (planner calendars optional for MVP)
        |                 +--> WMS physical inventory + semantic posting contract
        |                          |          (WMS owns availability projection + reservations)
-       |                          +--> quality-aware availability <-- quality/disposition provider
+       |                          +--> status/expiry-aware availability <-- optional quality/disposition provider
        v
 manufacturing kernel (standalone package: shared contracts, facts, seams)
        |                     |
@@ -351,9 +369,9 @@ discrete production      process/batch (sibling)   <-- both depend on kernel, no
                   |            +--> traceability / costing /    |
                   |                 intelligence read models    +-- reusable edge connectivity
                   |
-   demand signal (manual independent + dependent) --> MRP / supply planning
+   future demand signal (manual independent + dependent) --> MRP / supply planning
                   |                                <---- optional substitution/source providers
-                  |            (planning emits pegs --> resolve into WMS reservations)
+                  |            (planning emits pegs --> optional explicit WMS reservation request)
                   +--------------------+--------------------+
                   |                                         |
                   v                                         v
@@ -381,47 +399,61 @@ This graph shows product/data direction, not automatic runtime `requires`. Full 
 
 ## Product Readiness Waves, Not Release Phases
 
-### Wave 0: architecture and contract readiness
+Readiness is evaluated per delivered slice. A later capability is not an implicit blocker for an earlier safe slice.
 
-All blocking clauses below must pass before the detailed `production` core spec is approved. A clause explicitly marked as a later WMS execution prerequisite may remain open during core authoring but must pass before the named stock-affecting capability freezes or ships:
+### Gate A: draft definition authoring
 
-1. Minimal WMS-owned site identity and current site-to-warehouse assignments are specified, including tenant/organization invariants, one-default-per-configured-role semantics, immutable consumer snapshots, migration/backfill strategy, canonical custom fields on the site record, closed assignment semantics, and a deliberately minimal setup-once DataTable/CrudForm UI. Effective-dated assignments are an optional later capability.
-2. Resource, work-center, asset, staff, and calendar ownership is frozen against the actual `resources` and `planner` contracts.
-3. Released-definition and immutable order/document/UoM snapshot semantics are specified for discrete and process sibling models.
-4. WMS supports named production reservation/issue/return/output/scrap/reversal semantics with atomicity or durable saga behavior, stable posting IDs, idempotency, and reconciliation.
-5. WMS-to-Sales hard coupling is removed from the manufacturing composition or consciously approved and documented.
-6. P1.3a proves one Catalog-owned exact-decimal normalization policy before quantity-bearing Manufacturing schemas freeze. P1.3b–c remain explicit WMS-owned, non-critical backlog for current operation and do not block early core authoring; their acceptance reports become mandatory before P1.8 stock-posting payloads freeze or P1.11 stock-affecting execution ships, proving non-narrowing WMS storage, immutable operational UoM evidence, and reference cases for fractional consumption, conversion, reversal, partial completion, and cumulative drift.
-7. Minimum manufacturing facts and the ERP-to-MES confirmation lifecycle cover partial, final, duplicate, out-of-order, offline, rejected, reversed, and replayed confirmations.
-8. Quality-aware availability excludes held/quarantined/rejected/expired stock from MRP/ATP and allocation reference scenarios.
-9. Dependency tables distinguish hard runtime requirements from product prerequisites and optional providers; disabled-module tests are planned.
-10. The full backward-compatibility, risk, security, queue/progress, and integration-test gates below are accepted.
-11. The manufacturing kernel is specified as a standalone package with the contents in "Manufacturing kernel package contents"; no specialist model requires discrete `production`.
-12. A separate number-range specification freezes order/batch/lot/serial numbering authority, storage, concurrency, reset/offline behavior, and the production-assigns/WMS-records direction before any production number is allocated; backflush is a defined posting mode with symmetric reversal and precision cases.
-13. The bitemporal time model, the facts-as-module-event-store rule, the WMS-owned availability projection, single-source-of-truth reservations, the as-of valuation reference on facts, and the idempotency/dedup retention windows are all specified.
-14. The minimal provider-neutral demand-signal contract and the reserved parent/child order-network seam are specified.
+Draft multi-level BOM and optional sequential-routing CRUD/API/UI may be implemented immediately. Before quantity-bearing public contracts freeze, P1.3a must provide one Catalog-owned exact-decimal/UoM policy. Before released routing references freeze, P1.6 must confirm the minimal work-centre extension over `resources`. Drafts may omit `siteId`; they have no stock effects and cannot create executable work.
 
-#### Wave 0 evidence register
+### Gate B: released definitions and production-order lifecycle
 
-This register is the canonical index for gate ownership and evidence. A row marked "not authored" is an explicit readiness gap, not a reference to an expected file.
+Before P1.10 releases an executable order:
 
-| Gate | Primary owner | Required evidence | Current document status |
+1. P1.2 provides inactive-by-default WMS Sites, required raw-material/finished-goods defaults, one-active-site-per-warehouse semantics, scoping, and immutable consumer snapshots.
+2. P1.3a is accepted for exact definition/order quantities.
+3. P1.6 defines minimal work centres; calendars and finite scheduling remain optional.
+4. P1.7 defines atomic definition release, child-revision selection, occurrence-preserving multi-level snapshots, cycle rejection, optional sequential routing, and order release by `plannedStartDate`.
+5. P1.9 defines normal order/operation entities plus the append-only fact table and the basic idempotent confirmation/correction lifecycle.
+6. `production` provides UUID identity and a simple concurrency-safe site-scoped order display number.
+7. Cross-scope, optimistic-lock, audit, backward-compatibility, and self-contained API/UI integration tests pass.
+
+P1.1 WMS–Sales decoupling is not a blocker for the first standard composition that includes Sales. It remains a gate before claiming or packaging standalone WMS/Manufacturing operation without Sales.
+
+### Gate C: stock-affecting execution
+
+Before P1.11 issues, backflushes, returns, scraps, receives output, or reverses stock:
+
+1. P1.3b proves non-narrowing WMS precision and exact authoritative arithmetic.
+2. P1.3c proves immutable quantity evidence plus exact, correlated full/partial reversal.
+3. P1.8 provides the built-in atomic WMS batch, stable posting IDs, persistent idempotency, exact reversal, and on-demand reconciliation.
+4. WMS basic status/expiry availability excludes ineligible stock; no external QMS provider is required.
+5. Reference tests cover fractional conversion, cumulative partial completion, fixed consumption, yield, `good + scrap`, duplicate requests, rollback, reversal, and scope isolation.
+
+### Deferred readiness gates
+
+The following do not block the first production flow and receive dedicated specifications when their capability is selected:
+
+- P1.13 configurable order/batch/lot/serial formats, resets, generated values, block reservation, and offline allocation;
+- demand-signal, MRP, pegs, and automatic child-order generation in `production_planning`;
+- direct-issue child hand-off, shared warehouses across active sites, and production-network sourcing;
+- full QMS/disposition provider, genealogy graph, costing valuation context, and controlled-document product;
+- offline/out-of-order MES replay, device sequencing, dedup retention/pruning, clock-skew, and full bitemporal analytics;
+- durable saga implementations for external WMS providers.
+
+### Readiness evidence register
+
+| Slice | Primary owner | Required evidence | Current document status |
 |---|---|---|---|
-| 1 | WMS | Site identity, warehouse-role assignments, scoping, snapshots, migration, and setup UI | [`2026-08-13-wms-production-sites.md`](2026-08-13-wms-production-sites.md) proposed; gate not yet passed |
-| 2 | `resources`, `planner`, Manufacturing | Audited ownership and extension contract for resources, work centers, assets, staff, and calendars | Not authored |
-| 3 | Manufacturing kernel and sibling production models | Released-definition lifecycle and immutable execution snapshot contract | Not authored |
-| 4 | WMS with Manufacturing as command consumer | Production posting contract covering reservation, issue, return, output, scrap, reversal, atomicity/idempotency, and reconciliation | Not authored; required before P1.8/P1.11 |
-| 5 | WMS and Sales | Removal or explicit approval of the WMS-to-Sales hard dependency | Not authored |
-| 6 | Catalog and WMS | Exact normalization, non-narrowing precision, immutable evidence, and exact correlated reversal | P1.3a–c draft specifications exist; gate not yet passed |
-| 7 | Manufacturing kernel and MES/edge boundary | Minimum fact store and confirmation lifecycle contract | Not authored |
-| 8 | WMS with an optional quality disposition provider | Quality-aware availability contract and reference scenarios | Not authored |
-| 9 | All capability owners | Runtime/prerequisite/provider classification plus disabled-module tests | Rules frozen here; downstream evidence pending |
-| 10 | All capability owners | Backward compatibility, risk, security, queue/progress, and integration-test acceptance | Rules frozen here; downstream evidence pending |
-| 11 | Manufacturing kernel | Standalone package specification implementing the kernel boundary defined here | Not authored |
-| 12 | Manufacturing and WMS | Number-range contract plus first-class backflush and symmetric reversal | Not authored |
-| 13 | Manufacturing, WMS, Quality, and Costing boundaries | Time, fact-store, availability, reservation, valuation-reference, and dedup-retention contracts | Not authored |
-| 14 | Planning and Manufacturing kernel | Provider-neutral demand signal and parent/child order-network seam | Not authored |
+| Draft quantities | Catalog | Exact normalization and immutable snapshot contract | P1.3a design complete — readiness review pending |
+| WMS Site | WMS | Scope, activation roles, one-active-site-per-warehouse, snapshots, migration, setup UI | P1.2 design complete — readiness review pending |
+| Work centres | `resources`, `planner`, Manufacturing | Minimal work-centre/resource boundary and optional sequential routing | Not authored |
+| Released definitions | Manufacturing kernel and `production` | Lifecycle, child selection, occurrence snapshots, cycle validation, fixed/variable/yield semantics | Not authored |
+| Minimum facts/confirmations | Manufacturing kernel | Append-only fact table, basic partial/final/scrap/idempotency/correction contract | Not authored |
+| Exact WMS execution | Catalog and WMS | P1.3b precision plus P1.3c evidence/reversal | P1.3b–c design complete — readiness reviews pending |
+| Atomic production postings | WMS with Manufacturing consumer | Issue/return/backflush/output/scrap/reversal atomic batch and reconciliation | Not authored |
+| Standalone packaging | WMS and Sales | P1.1 optional integration boundary with compatibility bridge | Not authored; not first-MVP blocker |
 
-One explicitly non-shippable validation spike (single site, single discrete order, explicit issue, backflush, and output receipt through one WMS posting command, minimum facts) MAY be built to empirically validate the atomicity, precision, backflush, and lot-numbering contracts before they freeze; it is marked throwaway and never becomes a de-facto contract. All other Wave 0 contracts freeze analytically.
+One explicitly non-shippable validation spike (single site, single discrete order, explicit issue, cumulative backflush, output receipt, minimum facts, and reversal through one atomic WMS batch) MAY validate the hardest stock contracts before they freeze. It is throwaway and never becomes a de-facto contract.
 
 ### Later capability waves
 
@@ -429,28 +461,32 @@ After Wave 0, capabilities may be specified independently when customer evidence
 
 ## Mandatory Validation Scenarios for Detailed Specs
 
+- Draft BOM/routing CRUD works without stock postings; an incomplete or site-less draft cannot be released.
 - Discrete release and order creation retain exact site, definition, document, and UoM snapshots after masters change.
-- A component issue plus output receipt is atomic or recoverably reconciled after failure at every step.
+- Definition release freezes the selected child revision at every assembly node; order release selects the top-level definition by `plannedStartDate` and freezes the execution snapshot.
+- A built-in component posting group commits atomically or not at all; backflush plus output receipt is one atomic group.
 - Repeated requests with the same idempotency key do not double-consume or double-receive stock.
-- Reversals preserve both Manufacturing and WMS histories and restore quantities within defined rounding tolerance.
+- Reversals preserve both Manufacturing and WMS histories and restore the exact persisted quantity without current-policy recalculation.
 - Cross-tenant, cross-organization, cross-site, and invalid warehouse-role requests fail closed.
-- Held, quarantined, rejected, and expired lots are unavailable to planning and allocation under the defined policy.
-- MES confirmations handle partial/final, duplicate, out-of-order, offline, rejected, corrected, and reversed messages.
-- Advanced traceability reconstructs genealogy from core/WMS/execution facts without becoming a prerequisite for fact production.
-- MRP works without a substitution provider; ATP works without APS; CTP reports unavailable when finite scheduling is absent.
-- Scheduling consumes optional asset/tool/workforce constraints without those provider domains depending on APS.
-- Discrete and process orders coexist without sharing incompatible aggregate semantics.
+- Held, quarantined, rejected, and expired lots are unavailable to allocation/execution under the basic WMS policy.
+- Basic confirmations handle partial/final good quantity, scrap, duplicate, rejected, corrected, and reversed requests; no MES installation is required.
+- The append-only fact table retains state transitions, quantity facts, occurrence paths, WMS posting IDs, and consumed/produced lot/serial correlations without replacing current order entities.
 - Every optional integration has a disabled-module test and documented fallback.
-- Long-running MRP/APS/intelligence jobs use queue workers, progress jobs, bounded concurrency, idempotent retries, and scenario retention limits.
-- Backflush completion posts component issues and output receipt atomically, reverses symmetrically, and stays within rounding tolerance across repeated cycles.
-- A lot/serial number pre-assigned at production time (including offline) is accepted and validated as unique by WMS at posting, with no parallel identity.
-- Parent/child production orders hand off WIP under the defined policy without double-counting quantity.
-- An "as-of" query returns the definition and disposition valid on a past date after later master-data and effectivity changes.
-- MRP runs on manual independent demand plus released-order dependent demand with no sales/forecast provider present.
+- Cumulative backflush produces the same exact result across one or many partial confirmations, includes `good + scrap`, posts fixed consumption once per order/occurrence, and reverses exact persisted deltas.
+- An explicitly supplied output lot/serial is accepted only when WMS uniqueness rules pass.
+- A manually linked child is received to stock and explicitly issued to its parent with correlation and no double counting.
+- A released multi-level BOM expands into the same occurrence tree in the execution snapshot, including the selected BOM revision at every assembly node.
+- Two BOM lines for the same component item (for example, two separate five-unit rolls) remain two distinct occurrences through release, explosion, UI, execution, and posting correlation; an aggregate demand view may show ten units but cannot replace the two lines.
+- Direct and indirect BOM cycles are rejected before release and before order creation, while repeated component occurrences remain valid.
+- A BOM revision with no applicable or more than one overlapping applicable revision at an assembly occurrence fails closed.
+- Base output, exact UoM, fixed/variable basis, and `yieldFactor` in `(0, 1]` produce reproducible required quantities from the snapshot.
+- Normal order completion requires cumulative `good + scrap` to reach planned quantity; overproduction is rejected and `complete_short` requires a reason.
+- An optional single-sequence routing works without calendars or finite scheduling; released resource references remain interpretable after master changes.
 - Availability is served only by the WMS projection; no consumer recomputes held/quarantined/expired eligibility independently.
-- Idempotency/dedup stores honor the retention window; a replayed message beyond the window is rejected, not silently deduplicated.
 - No specialist manufacturing model (`production_process`, `production_repetitive`, `production_remanufacturing`) declares a runtime requirement on discrete `production`.
 - Every affected API path and key UI path has self-contained integration tests with fixture setup and cleanup.
+
+When later capabilities are selected, their own specs add the corresponding scenarios: generated/offline number ranges, direct issue, MRP without Sales/forecast, scheduling with optional constraints, advanced genealogy, costing valuation, full bitemporal/as-of queries, offline/out-of-order MES replay, dedup retention/pruning, and queue/progress for long-running workloads.
 
 ## Migration and Backward Compatibility
 
@@ -485,19 +521,19 @@ Operational compatibility requirements:
 | Severity | Failure scenario and impact | Mitigation and detection | Residual risk |
 |---|---|---|---|
 | High | Warehouse becomes a plant surrogate, forcing later migration of definitions, orders, resources, costs, and genealogy | Minimal site foundation; invariant tests; migration/backfill audit | Site hierarchy may still need additive extension for enterprise networks |
-| High | Partial or duplicate production posting diverges Manufacturing and WMS ledgers | Atomic batch or durable saga, idempotency sequence, compensations, reconciliation job and mismatch alert | External outages can delay convergence but not lose state |
+| High | Partial or duplicate production posting diverges Manufacturing and WMS ledgers | Built-in atomic batch, persistent idempotency, exact compensations, and on-demand reconciliation; external providers must prove equivalent saga behaviour | External outages can delay convergence for future providers but not lose accepted state |
 | High | Production issues/receipts are modeled as generic WMS adjustments, losing business meaning and authorization | Manufacturing-owned semantic commands; WMS posting IDs; contract tests reject generic types | Legacy manual corrections remain distinct and require audit |
-| High | Minimum genealogy, cost, or quality facts are absent until optional modules are installed | Append-only core facts and immutable correlations from first release | Advanced historical views remain limited to captured facts |
-| High | Catalog/WMS precision mismatch creates cumulative inventory drift | Wave 0 precision decision, conversion snapshots, tolerance/reversal reference tests and reconciliation metrics | Physical measurement variance remains a domain policy |
-| High | Quality-blind availability plans held or expired stock | Quality-aware availability projection, fail-closed eligibility and scenario tests | Provider outage may reduce available stock conservatively |
+| High | Minimum genealogy or quantity facts are absent until optional modules are installed | Append-only facts and immutable lot/serial/posting correlations from first release | Advanced genealogy, costing, and quality views remain limited to captured facts |
+| High | Catalog/WMS precision mismatch creates cumulative inventory drift | P1.3 exact arithmetic, conversion snapshots, cumulative-delta tests, exact reversal, and reconciliation evidence | Physical measurement variance remains a later policy |
+| High | Quality-blind availability uses held or expired stock | Basic WMS status/expiry projection, fail-closed eligibility and scenario tests | A configured future provider outage may reduce availability conservatively |
 | High | Discrete aggregates are reused for process manufacturing and later require semantic breaking changes | Small shared kernel plus sibling aggregates and extension seams | Some hybrid flows may require new additive orchestration |
-| High | Dependency graph creates cycles or forces Sales/MES/QMS in minimal deployments | Hard/soft matrix, optional-consumer glue, module-decoupling tests, WMS-Sales Wave 0 gate | Deployment policies may deliberately require optional capabilities |
+| High | Dependency graph creates cycles or forces Sales/MES/QMS in minimal deployments | Staged gates, optional-consumer glue, module-decoupling tests, and P1.1 before standalone packaging | The first standard-composition MVP temporarily includes Sales through current WMS metadata |
 | High | Kernel placed inside discrete `production`, forcing process/repetitive/reman to depend on discrete semantics | Standalone `manufacturing` package; siblings depend on kernel; module-decoupling test asserts no `requires` on `production` | Hybrid flows may need additive kernel seams |
 | High | Availability recomputed inconsistently across MRP/ATP/allocation/execution | WMS owns a single availability projection; consumers call it; contract tests | Provider outage reduces available stock conservatively |
-| Medium | Lot identity invented in two places (production vs WMS) breaks genealogy | Production assigns from the sites/WMS-owned range; WMS validates uniqueness | Offline pre-assignment needs reconciliation on reconnect |
+| Medium | Explicit lot/serial input collides or loses genealogy | Manufacturing snapshots the supplied value and WMS validates authoritative uniqueness before receipt | Automatic/offline allocation remains unavailable until P1.13 |
 | Medium | Backflush omitted from posting contract, blocking repetitive/lean and drifting quantities | Backflush as a first-class posting mode with symmetric reversal and precision cases | Physical measurement variance remains a domain policy |
 | Medium | Planning pegs and WMS reservations diverge on committed stock | WMS is single source of truth; pegs are proposals resolving into reservations | Late peg changes require re-reservation |
-| Medium | Bitemporal/effectivity retrofitted onto frozen fact schema | Valid-time on definitions and transaction/source time on facts from day one | Time-zone and clock-skew policy remains operational |
+| Medium | Later temporal analysis cannot interpret first-core history | Date effectivity plus `recordedAt`/`occurredAt` and optional source timestamp/timezone exist from day one | Retroactive correction, site timezone, and clock-skew policy remain later work |
 | Medium | Resource/calendar duplication causes execution and APS to disagree | Reuse `resources`/`planner`; ownership contract and snapshot tests | Specialized capacity models may require additive extensions |
 | Medium | Asset/tool/workforce constraints become cyclic APS dependencies | Provider inputs point into scheduling; provider domains remain independent | Missing provider data may yield less constrained schedules |
 | Medium | Connectivity combines telemetry and machine control without adequate safeguards | Separate read/control profiles; security review and control-path ban until approved | OT integration remains vendor/site specific |
@@ -604,6 +640,7 @@ This is the business view of the roadmap: what each capability owns and what it 
 - Do not expose machine-control commands before a separately approved OT safety/security architecture exists.
 - Do not market digital twins, AI optimization, sustainability, or regulated compliance before their evidence and governance foundations are proven.
 - Do not generalize a single customer's terminology, workflow, substitution, quality, or costing rules into the public model without cross-industry validation.
+- Do not put automatic BOM-alternative selection, material substitution, phantom flattening, unit/serial effectivity, or customer-specific BOM rules into the first discrete core without a dedicated specification and evidence that the generic model is insufficient.
 
 ## External Research Signals
 
@@ -614,9 +651,15 @@ Enterprise suites consistently separate manufacturing, planning, execution, qual
 - [Siemens OT-to-MES architecture](https://www.siemens.com/en-us/content/architecture-hub/op-center/)
 - [Oracle Manufacturing](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/26b/faumf/overview-of-oracle-manufacturing-cloud.html)
 - [Oracle Fusion SCM applications](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/26b/faips/about-oracle-fusion-cloud-supply-chain-manufacturing.html)
+- [Oracle BOM component occurrence and quantity model](https://docs.oracle.com/en/cloud/saas/supply-chain-and-manufacturing/25c/oedsc/mscstbomcomponents-12762.html)
 - [Dynamics 365 production lifecycle](https://learn.microsoft.com/en-us/dynamics365/supply-chain/production-control/production-process-overview)
 - [Dynamics 365 master planning](https://learn.microsoft.com/en-us/dynamics365/supply-chain/master-planning/master-planning-home-page)
-- [Infor industrial manufacturing portfolio](https://www.infor.com/en/industries/industrial-manufacturing)
+- [Dynamics 365 BOM versions and multi-level structures](https://learn.microsoft.com/en-us/dynamics365/supply-chain/production-control/bill-of-material-bom)
+- [SAP multi-level BOM explosion](https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/18ee18df146f46e9a7738186eebceaa7/eeb1b853ff98b44ce10000000a174cb4.html)
+- [SAP BOM alternative selection](https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/34de0103497c4b80a7c7fbf6952ff971/c701b753128eb44ce10000000a174cb4.html)
+- [IFS Product Structures](https://docs.ifs.com/ifsclouddocs/26r1/lang/en/MfgStandard/AboutProductStructures.htm)
+- [IFS structure components](https://docs.ifs.com/ifsclouddocs/26r1/MfgStandard/ActivityAddProductStructureComponent.htm)
+- [Infor LN BOM documentation](https://docs.infor.com/ln/latest/en-us/lnolh/tiolh/tiomtibom.html)
 - [Epicor Kinetic production management](https://www.epicor.com/en-us/products/enterprise-resource-planning-erp/kinetic/production-management/)
 
 ## Specification Rules for Every Capability
@@ -631,6 +674,8 @@ Before implementation, every capability spec must:
 6. Use queue workers and progress jobs for long-running MRP/APS/intelligence/bulk work, with bounded concurrency and idempotent retry.
 7. Include self-contained integration tests for every affected API path and key UI path, disabled optional modules, conflicts/concurrency, reversals, partial failure, and scope isolation.
 8. Complete a pre-implementation review against all public contract surfaces and confirm that the capability is generic product rather than client-specific customization.
+9. For ownership, lifecycle, data-model, effectivity, posting, and public-contract decisions, benchmark current official documentation for SAP S/4HANA, Oracle Fusion Cloud SCM, IFS Cloud, Microsoft Dynamics 365 Supply Chain Management, and Infor CloudSuite Industrial. A capability-specific analysis may omit non-material products only with an explicit rationale. Routine CRUD/UI/ACL or implementation-detail work may rely on an accepted architecture decision without repeating the benchmark. A single vendor is never sufficient evidence for a new architecture rule.
+10. Preserve basic data portability: document bounded BOM/routing import and export plus production-order/fact export when those records ship. Small jobs may run synchronously with explicit limits. Advanced mappings, cross-version migration, continuous synchronization, connectors, and queued bulk migration are separate capabilities.
 
 ## Final Compliance Report - 2026-08-13
 
@@ -668,15 +713,15 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 | Ownership matches dependency direction | Pass | WMS owns physical stock; Manufacturing owns production workflow; advanced modules consume facts. |
 | Discrete and process boundaries | Pass | Both are siblings over a small kernel. |
 | ATP/CTP and planning/scheduling order | Pass | ATP follows trusted planning; CTP requires finite scheduling. |
-| Quality and availability order | Pass | Foundational disposition precedes MRP/ATP; full QMS remains optional. |
+| Quality and availability order | Pass | Basic WMS status/expiry availability supports MVP; an advanced disposition provider and full QMS remain optional. |
 | Asset/tool/workforce direction | Pass | Providers feed scheduling and do not require APS. |
 | Traceability/execution cycle | Pass | Traceability consumes facts; execution does not require the graph. |
 | API/data/UI consistency | N/A | Detailed contracts are intentionally deferred. |
-| Risks cover critical cross-module writes | Pass | Atomicity/saga, idempotency, reversals, precision, isolation, and reconciliation are covered. |
+| Risks cover critical cross-module writes | Pass | Built-in atomicity, future-provider saga equivalence, idempotency, reversals, precision, isolation, and reconciliation are covered. |
 
 ### Verdict
 
-**Roadmap architecture approved conditionally.** It is suitable to govern product discussion and Wave 0 foundation specs. The detailed `production` implementation spec remains blocked until all blocking Wave 0 clauses pass; explicitly marked WMS execution prerequisites may remain open only until their named stock-affecting gate.
+**Roadmap architecture approved with staged readiness.** Draft definition authoring may proceed. Released-order and stock-execution specifications/implementation unlock only after their named Gate B or Gate C dependencies; deferred planning, numbering, MES/QMS, costing, and packaging work does not implicitly block the MVP.
 
 ## Changelog
 
@@ -686,14 +731,18 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - 2026-08-13: Replaced ambiguous dependencies with hard/runtime, soft/provider, fallback, and placement semantics; corrected traceability, quality, asset, connectivity, substitution, ATP/CTP, and process-model directions.
 - 2026-08-13: Added ownership, backward-compatibility, risk, validation, readiness, and compliance sections.
 - 2026-08-13: Added a business-facing module catalogue explaining responsibility and user capabilities for each roadmap area.
-- 2026-08-13 (Revision 3): Added the "Wave 0 Contract Decisions" section resolving C1–C3, H1–H4, M1–M4, and S1–S3; froze the kernel as a standalone `manufacturing` package with defined contents.
+- 2026-08-13 (Revision 3): Added the "Wave 0 Contract Decisions" section resolving C1–C3, H1–H6, M1–M4, and S1–S3; froze the kernel as a standalone `manufacturing` package with defined contents.
 - 2026-08-13 (Revision 3): Made WMS the owner of the quality-aware availability projection and the single source of truth for committed stock; planning pegs are proposals.
 - 2026-08-13 (Revision 3): Fixed lot/serial numbering direction (production assigns from a sites/WMS-owned range; WMS records/validates), added backflush as a first-class posting mode, a bitemporal time model, an as-of valuation reference, idempotency/dedup retention, the facts-as-module-event-store rule, a minimal demand-signal contract, and the parent/child order-network seam.
 - 2026-08-13 (Revision 3): Expanded Wave 0 gates (11–14), risks, validation scenarios, ownership matrix, and the dependency diagram (now shows costing and the peg→reservation flow) to match the above.
 - 2026-08-13 (Revision 4): Aligned the roadmap with the accepted P1.2 WMS `Site` design: current warehouse-role assignments with one default replace effective-dated mappings in the MVP; consumers preserve history through immutable snapshots; site timezone/effective dating are future capabilities; production number ranges move to a separate mandatory Wave 0 specification.
 - 2026-08-13 (Revision 5): Clarified that `Site` uses the full canonical custom-field/CrudForm/undo extension pipeline while warehouse-role assignments remain closed; the setup-once UI keeps stable DataTable injection hosts but deliberately omits CRM-scale search, filters, column chooser, saved views, exports, selection, and bulk actions.
 - 2026-08-13 (Revision 6): Split the audited P1.3 quantity work into Catalog/Sales normalization plus two WMS-owned specifications for precision/profile alignment and evidence/reversal; corrected the backflush precision cross-reference. P1.3a blocks quantity-schema freeze, while the existing WMS mismatch is tracked as non-critical backlog until it becomes mandatory for stock-affecting production.
+- 2026-08-19: Made multi-level BOM explosion and occurrence-preserving duplicate component lines mandatory for the first discrete core. Added cycle rejection, deterministic site/date revision selection, exact base-output and fixed/variable/yield line-consumption semantics, and a multi-vendor official-documentation benchmark rule. Deferred alternatives, substitutions, phantom flattening, and unit/serial effectivity to dedicated later specifications.
 - 2026-08-14: Made the roadmap self-contained by consolidating decision provenance, linking the committed Wave 0 document set, identifying the number-range specification as not yet authored, and removing unverifiable references to uncommitted review files.
+- 2026-08-19: Replaced the all-or-nothing fourteen-gate model with staged draft, released-order, stock-execution, packaging, and deferred-capability readiness. Allowed real draft BOM/routing CRUD before execution while retaining exact quantity and stock safety gates.
+- 2026-08-19: Simplified the first production flow to optional sequential routing, inactive-by-default sites, one active site per warehouse, simple order numbering, explicit lot/serial input, receive-to-stock child hand-off, basic WMS availability, minimal timestamps, persistent idempotency without expiry, and atomic built-in WMS posting.
+- 2026-08-19: Froze yield as `(0,1]` with nominal/yield grossing, fixed consumption per order/occurrence, cumulative `good + scrap` variable backflush, exact persisted reversal, the basic order lifecycle, and `complete_short`; moved demand signals, full number ranges, direct issue, advanced MES/QMS, costing valuation, and bitemporal analytics to later capabilities.
 
 ### Review - 2026-08-13
 
@@ -703,11 +752,11 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - **Cache**: N/A; no read API or cache contract is defined in this roadmap.
 - **Commands**: Passed at roadmap level; semantic commands, idempotency, reversal/compensation, and reconciliation are mandatory.
 - **Risks**: Passed; concrete severity, detection, mitigation, and residual risk are documented.
-- **Verdict**: Approved as product roadmap; detailed `production` spec remains blocked by Wave 0.
+- **Verdict**: Approved as product roadmap with staged readiness; each production slice follows its named minimum gates.
 
 ### Document Integrity Check - 2026-08-14
 
 - **Local references**: All explicitly named Markdown files resolve in the repository.
-- **Pending document**: The dedicated production number-range specification is intentionally identified as not yet authored and remains a Wave 0 gate, not a dangling link.
-- **Decision provenance**: C1–C3, H1–H4, M1–M4, and S1–S3 are recorded directly in this roadmap and require no external review artifact for interpretation.
-- **Verdict**: The roadmap is self-contained and suitable for Wave 0 contract authoring. The detailed `production` core spec remains blocked until the fourteen Wave 0 gates pass.
+- **Pending document**: The advanced P1.13 number-range specification is intentionally not authored and is a future necessary capability, not an MVP gate or dangling link.
+- **Decision provenance**: C1–C3, H1–H6, M1–M4, and S1–S3 are recorded directly in this roadmap and require no external review artifact for interpretation.
+- **Verdict**: The roadmap is self-contained and suitable for staged contract authoring and implementation.

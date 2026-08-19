@@ -8,7 +8,7 @@ It is independently deployable: WMS becomes safer for all inventory consumers ev
 
 ## Overview and Status
 
-**Status:** Draft implementation specification based on the 2026-08-13 code audit.
+**Status:** Design complete — readiness review pending.
 
 **Roadmap classification:** P1.3b, WMS-owned backlog. It resolves an existing inconsistency and is non-critical for current WMS operation, Site, draft BOM/routing, kernel, and non-stock order work. It is mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production.
 

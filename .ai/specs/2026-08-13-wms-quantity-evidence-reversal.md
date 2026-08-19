@@ -8,7 +8,7 @@ This capability is independently deployable after P1.3a and P1.3b. It does not i
 
 ## Overview and Status
 
-**Status:** Draft implementation specification based on the 2026-08-13 code audit.
+**Status:** Design complete — readiness review pending.
 
 **Roadmap classification:** P1.3c, WMS-owned backlog. It resolves missing historical evidence in the existing ledger and is non-critical for current WMS operation and non-stock Manufacturing work. It is mandatory before P1.8/P1.11 stock-affecting production.
 
@@ -17,7 +17,7 @@ This capability is independently deployable after P1.3a and P1.3b. It does not i
 - `2026-08-13-catalog-quantity-normalization.md` for `QuantityNormalizationSnapshotV1`.
 - `2026-08-13-wms-quantity-precision-alignment.md` for exact WMS storage and arithmetic.
 
-**Consumer:** P1.8 production-capable WMS posting contract.
+**Consumer:** P1.8 production-capable WMS posting contract, including exact compensation of explicit issues and cumulative/fixed backflush postings from their persisted evidence.
 
 ## Problem Statement
 
