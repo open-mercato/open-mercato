@@ -37,7 +37,7 @@ Q2 does not block Gate A, Gate B, or the first standard composition containing S
 
 ## Scope
 
-This backlog covers specification authoring and readiness work for P1.0 through P1.12. It records P1.13 as deferred and non-blocking but does not create its specification.
+This backlog covers Wave 0 specification authoring and readiness work for P1.0 through P1.12. It also records the owner-approved, non-blocking post-Wave 0 BOM candidates P1.4c through P1.4h and P1.13; neither group is an implementation commitment.
 
 The backlog will define:
 
@@ -63,6 +63,12 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 | 7 | P1.3c WMS quantity evidence and reversal | Readiness analysis of existing specification | Design complete; depends on P1.3b |
 | 8a | P1.4a BOM draft authoring and integrity | Full specification | Implementation-ready design; fresh-context review **PASS**; upstream gates remain |
 | 8b | P1.4b bounded multi-level BOM draft preview | Full specification | Implementation-ready read-only design; fresh-context review **PASS**; upstream gates remain |
+| Post-W0 1 | P1.4c BOM list workspace | New specification | Decision queue accepted; tracker [#5408](https://github.com/open-mercato/open-mercato/issues/5408) open |
+| Post-W0 2 | P1.4d BOM business identity | New specification | Decision queue accepted; tracker [#5409](https://github.com/open-mercato/open-mercato/issues/5409) open |
+| Post-W0 3 | P1.4e BOM history, change context and comments | New specification | Decision queue accepted; tracker [#5410](https://github.com/open-mercato/open-mercato/issues/5410) open |
+| Post-W0 4 | P1.4f BOM revision comparison and where-used | New specification | Decision queue accepted; tracker [#5411](https://github.com/open-mercato/open-mercato/issues/5411) open |
+| Post-W0 5 | P1.4g BOM copy | New specification | Decision queue accepted; tracker [#5412](https://github.com/open-mercato/open-mercato/issues/5412) open |
+| Post-W0 6 | P1.4h BOM extensibility and document control | New specification | Decision queue accepted; tracker [#5413](https://github.com/open-mercato/open-mercato/issues/5413) open |
 | 9 | P1.6 Work Center boundary | New specification | Missing |
 | 10 | P1.5 routing and operation drafts | New specification | Missing; finalization depends on P1.6 |
 | 11 | P1.7 released definitions and immutable definition snapshots | New specification | Missing |
@@ -82,10 +88,42 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 - P1.9 owns the model-neutral append-only fact ledger, acceptance/correction primitives and opaque evidence-reference envelope only. P1.10 owns order/operation-aware basic confirmations and their UI/API orchestration.
 - P1.8a and P1.8b are separate because generic WMS posting groups are independently deployable and usable without Manufacturing.
 - P1.4a and P1.4b are separate because direct-level BOM authoring/integrity remains useful without recursive preview, while bounded explosion is an independently deployable read capability over that aggregate.
+- P1.4c through P1.4h are separate post-Wave 0 candidates: list workspace; business identity; history/comments; revision comparison/where-used; copy; and extensibility/document control. They do not change the P1.4a/P1.4b contract or gate Wave 0 delivery.
 - P1.4a is reusable definition master data and therefore carries no customer, sales-order, required-date, or planned-date fields. P1.7 owns definition effectivity/Site applicability; P1.10 owns demand source and scheduling dates; a future ETO/order-specific BOM requires a separate snapshot/overlay specification.
 - P1.12 is evidence attached to every capability; it does not own product data or a lifecycle.
 - P1.13, MRP, APS, full MES/QMS, costing, advanced genealogy, automatic numbering, and enterprise packaging do not block the first production flow.
 - Existing P1.2 and P1.3a-c documents require formal pre-implementation readiness reports before they may be marked ready.
+
+## Deferred Future Consideration: Collaborative BOM Drafting
+
+This is a future feature candidate, not a Wave 0 work item and not a prerequisite for P1.4a. P1.4a uses the same optimistic-concurrency behavior as Sales documents: the editor sends the revision token it loaded, a stale write receives the standard conflict response, and the user refreshes before intentionally reapplying the change.
+
+Only revisit richer collaboration after evidence that concurrent authorship of the same BOM draft is frequent and costly. A future, cross-domain proposal may evaluate:
+
+- visible "currently editing" presence or short-lived soft locks;
+- explicit editor ownership/handoff for a draft;
+- a change summary or comparison before refresh/reapply;
+- selective merge or recovery of non-overlapping field/line edits;
+- whether this should extend the existing shared/Enterprise record-locking capability rather than create a Manufacturing-only mechanism.
+
+It must not weaken the always-required graph transaction lock, row locking, or complete candidate-cycle validation. Those mechanisms preserve BOM data integrity even for a single user and are not collaboration UX.
+
+## Post-Wave 0 Candidate Work Items: BOM Usability and Control
+
+These are independent post-Wave 0 candidates with owner-approved identifiers and GitHub trackers. They are a decision queue, not approved implementation scope. Each needs its own short specification after the stated product decision; none reopens the direct-authoring, graph-integrity, or lifecycle boundaries of P1.4a/P1.7.
+
+| Candidate | Outcome | Decision required before specification | Suggested dependency / order |
+|---|---|---|---|
+| [P1.4c — BOM list workspace](https://github.com/open-mercato/open-mercato/issues/5408) | A Sales-level list experience adapted to BOMs: text search over product code/name and revision label; product, variant, unresolved-`produce`, line-count and modified-date filters; supported sort fields; personal `perspective` for visible/order/width of columns, filters, sorting, search and page size. | Confirm the search fields and which aggregate counters are worth indexing; do not copy Sales customer, amount, payment, or fulfillment filters. | First usability candidate after P1.4a. Must retain keyset pagination; no bulk mutation. |
+| [P1.4d — BOM business identity](https://github.com/open-mercato/open-mercato/issues/5409) | A clear human reference beyond the current product/variant plus system revision number and optional revision label. | Decide whether the Catalog target is sufficient, or whether BOM family needs a unique code and/or name; define ownership and uniqueness if added. | Decide alongside the list workspace, before global search/export. |
+| [P1.4e — BOM history, change context and comments](https://github.com/open-mercato/open-mercato/issues/5410) | A visible version/action history plus team comments and, if required, an explicit change-reason field. It should reuse the platform action log/history and Notes patterns used by Sales. | Decide whether comments and reason belong to a BOM family, editable revision, or individual line; define what becomes immutable on release. | After P1.4a; any released-revision behavior consumes P1.7 rather than blocking it. |
+| [P1.4f — BOM revision comparison and where-used](https://github.com/open-mercato/open-mercato/issues/5411) | Compare two revisions and show the reverse dependency impact of a component/BOM before a change or release. | Define the comparison granularity and whether reverse use includes drafts only, released definitions, or later production-order snapshots. | After P1.4b; final released/execution semantics consume P1.7/P1.10. |
+| [P1.4g — BOM copy](https://github.com/open-mercato/open-mercato/issues/5412) | Copy a BOM into a new target, with complete quantity/UoM, scope, uniqueness and graph revalidation. | Define allowed copy sources and target rebinding. Import and export are deliberately not included. | After P1.4a and P1.3a. |
+| [P1.4h — BOM extensibility and document control](https://github.com/open-mercato/open-mercato/issues/5413) | Tenant-configurable fields, optional tags, and controlled links/attachments for drawings, instructions and certificates. | Choose the provider and whether each field/reference belongs to family, revision or line; define release snapshot/audit and retention rules. | After P1.4a; released-document semantics consume P1.7. |
+
+### Explicitly excluded from the BOM decision queue
+
+Sales-document behavior remains outside reusable BOM master data: customer/contact/address data, currency/pricing/taxes, payments, shipments, returns, fulfillment and payment statuses, and sales-order demand dates. P1.10 owns production-order demand, planned dates and execution snapshots; it must not be backfilled into a BOM family or draft revision.
 
 ## Architecture and Package Topology
 
@@ -110,6 +148,10 @@ P1.0 roadmap acceptance
 
 P1.0a + P1.3a --> P1.4a BOM draft authoring/integrity
 P1.4a --> P1.4b bounded draft preview
+P1.4a --> P1.4c list workspace, P1.4d business identity, P1.4e history/comments, P1.4g copy
+P1.4a + P1.4b --> P1.4f revision comparison/where-used
+P1.4a --> P1.4h extensibility/document control
+P1.7/P1.10 add released/execution semantics to P1.4e, P1.4f and P1.4h; none of P1.4c-h gates Wave 0.
 P1.0a --> P1.6 Work Centers --> P1.5 routing drafts
 P1.0a --> P1.9 fact ledger
 
@@ -140,6 +182,12 @@ The lanes describe contract-finalization order, not a ban on earlier skeletons o
 | P1.3c | `analysis/ANALYSIS-2026-08-19-wms-quantity-evidence-reversal.md` | WMS | Audit preparation now | P1.3b ready and storage/arithmetic envelope frozen |
 | P1.4a | `2026-08-19-manufacturing-bom-drafts.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a package contract and P1.3a quantity contract ready |
 | P1.4b | `2026-08-19-manufacturing-bom-draft-preview.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a, P1.3a and P1.4a ready |
+| P1.4c | `manufacturing-bom-list-workspace.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | Search/filter/index/sort/perspective decisions resolved; P1.4a list contract stable |
+| P1.4d | `manufacturing-bom-business-identity.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | Code/name ownership, uniqueness and compatibility decision resolved |
+| P1.4e | `manufacturing-bom-history-and-comments.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | History/comment ownership and immutable-release behavior resolved where P1.7 is consumed |
+| P1.4f | `manufacturing-bom-revision-comparison-and-where-used.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4b | Diff/reverse-use scope and released/execution visibility resolved |
+| P1.4g | `manufacturing-bom-copy.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a/P1.3a | Eligible source/target and revalidation behavior resolved |
+| P1.4h | `manufacturing-bom-extensibility-and-document-control.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | Field/reference ownership, provider, retention and release behavior resolved |
 | P1.6 | `2026-08-19-manufacturing-work-centres.md` | `manufacturing` with optional `resources` input | Skeleton/code audit now | Ownership, resource cardinality, snapshot and planner-absent behavior resolved |
 | P1.5 | `2026-08-19-manufacturing-routing-drafts.md` | `manufacturing` | Skeleton after P1.6 questions are known | P1.6 Work Center contract ready |
 | P1.7 | `2026-08-19-manufacturing-released-definitions.md` | `manufacturing` | Skeleton after P1.4a/P1.5 release inputs and P1.6 ownership shapes are known | P1.2, P1.3a, P1.4a, P1.5 and P1.6 ready; scope stops before order release; P1.4b is not a release prerequisite |
@@ -226,6 +274,12 @@ Every capability specification and implementation epic must record the applicabl
 | P1.3c | Movement/reservation evidence, reversal commands, legacy rows, idempotency and existing movement API contracts |
 | P1.4a | Catalog product/variant/UoM contracts, revision-like entities, commands/undo, locking, CRUD/API/UI extension hosts, ACL/events and disabled-module conventions |
 | P1.4b | Recursive/batched read patterns, exact-decimal explosion, transaction isolation, custom action routes/OpenAPI, bounded tree UI, cache/event and performance conventions |
+| P1.4c | Sales DataTable filters/search/export/perspective patterns, BOM keyset cursor contract, per-user perspective persistence and required list indexes |
+| P1.4d | Catalog product identifiers, existing code/name uniqueness and migration/compatibility patterns |
+| P1.4e | Action-log/version-history, Notes, comments ACL, author display and released-record immutability patterns |
+| P1.4f | Revision diff, reverse-dependency/where-used, query bounds and released/execution snapshot visibility patterns |
+| P1.4g | Command-based copy/clone, Catalog rebinding, quantity/UoM and graph validation, source-provenance patterns |
+| P1.4h | Custom fields, tags, attachments/document-control provider, retention and immutable-snapshot patterns |
 | P1.6/P1.5 | `resources` and `planner` ownership, capacity/calendar data, module requirements, resource references and existing scheduling/UI extension points |
 | P1.8a | WMS balance/movement/reservation commands, transaction boundaries, location/lot/serial selection, movement enums, references, reversal and reconciliation surfaces |
 | P1.9 | Event envelope, append-only evidence, correction/idempotency patterns, audit-vs-domain-fact boundaries and generic opaque evidence references |
@@ -284,6 +338,12 @@ Tracking was created on 2026-08-19. [Issue #5386](https://github.com/open-mercat
 | P1.3c | [#5392](https://github.com/open-mercato/open-mercato/issues/5392) |
 | P1.4a | [#5393](https://github.com/open-mercato/open-mercato/issues/5393) |
 | P1.4b | [#5405](https://github.com/open-mercato/open-mercato/issues/5405) |
+| P1.4c | [#5408](https://github.com/open-mercato/open-mercato/issues/5408) |
+| P1.4d | [#5409](https://github.com/open-mercato/open-mercato/issues/5409) |
+| P1.4e | [#5410](https://github.com/open-mercato/open-mercato/issues/5410) |
+| P1.4f | [#5411](https://github.com/open-mercato/open-mercato/issues/5411) |
+| P1.4g | [#5412](https://github.com/open-mercato/open-mercato/issues/5412) |
+| P1.4h | [#5413](https://github.com/open-mercato/open-mercato/issues/5413) |
 | P1.6 | [#5394](https://github.com/open-mercato/open-mercato/issues/5394) |
 | P1.5 | [#5395](https://github.com/open-mercato/open-mercato/issues/5395) |
 | P1.7 | [#5396](https://github.com/open-mercato/open-mercato/issues/5396) |
@@ -360,7 +420,7 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 | No implementation before a ready spec | Compliant | Skeleton, full-spec and implementation readiness are distinct gates. |
 | Backward compatibility audited before implementation | Compliant | Definition of Ready requires all public contract surfaces. |
 | Integration coverage ships with implementation | Compliant | P1.12 evidence matrix requires API/UI, isolation, failure, reversal and compatibility coverage. |
-| Deferred capabilities do not block MVP | Compliant | P1.13 and later planning/enterprise capabilities remain outside the first flow. |
+| Deferred capabilities do not block MVP | Compliant | P1.4c-h, P1.13 and later planning/enterprise capabilities remain outside the first flow. |
 
 ### Internal Consistency Check
 
@@ -389,3 +449,6 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 - 2026-08-19: Fresh-context review split P1.4 into P1.4a direct-level BOM draft authoring/integrity (#5393) and P1.4b bounded read-only multi-level preview (#5405); the roadmap owner accepted the boundary.
 - 2026-08-19: Completed both split specifications, fresh-context reviews (**PASS**), P1.12 mappings and final compliance gates; implementation remains blocked by their named P1.0/P1.0a/P1.3a/P1.4a prerequisites.
 - 2026-08-19: Re-ran the P1.4a pre-implementation audit, remediated framework/data/API/UI/export findings, and recorded that reusable BOMs exclude customer/order/due-date context owned by P1.10.
+- 2026-08-19: Added deferred future consideration for collaborative BOM drafting. P1.4a remains aligned with the standard Sales/platform optimistic-lock pattern; presence, ownership, comparison, merge, and recovery stay outside Wave 0 pending real collaboration evidence.
+- 2026-08-19: Added a post-Wave 0 BOM decision queue for list perspectives/filtering, business identity, history/comments, revision impact analysis, reuse/import/export, extensibility/document control, and alternatives. Each remains an independent candidate rather than an unapproved expansion of P1.4a.
+- 2026-08-19: Owner assigned the approved post-Wave 0 BOM decision queue to P1.4c-h and created trackers #5408-#5413: list workspace, business identity, history/comments, revision comparison/where-used, copy only, and extensibility/document control. Import/export and alternatives remain unassigned future work.

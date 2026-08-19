@@ -33,6 +33,12 @@ The opt-in `manufacturing` module owns production intent, semantic commands, der
 | P1.3c | Add immutable WMS quantity evidence and correlated reversal | Design complete; [readiness task #5392](https://github.com/open-mercato/open-mercato/issues/5392) open | Audit preparation after P1.3b | P1.3a–P1.3b | Audit quantity snapshots and exact correlated reversal before stock execution |
 | P1.4a | Author direct-level BOM drafts and enforce aggregate integrity | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md); [spec task #5393](https://github.com/open-mercato/open-mercato/issues/5393) | Implementation-ready design; fresh-context review **PASS** | P1.0 acceptance, P1.0a, P1.3a | Accept upstream gates, then implement versioned families/revisions/occurrences, exact quantities, optimistic locking, commands/undo and cycle-safe CRUD/API/UI |
 | P1.4b | Preview bounded multi-level BOM drafts | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-draft-preview.md); [spec task #5405](https://github.com/open-mercato/open-mercato/issues/5405) | Implementation-ready read-only design; fresh-context review **PASS** | P1.0 acceptance, P1.0a, P1.3a, P1.4a | Accept upstream gates, then implement the occurrence tree, exact fixed/variable/yield explosion, repeatable-read snapshot and hard depth/node bounds |
+| P1.4c | Add a Sales-level BOM list workspace | [Spec task #5408](https://github.com/open-mercato/open-mercato/issues/5408) | Post-Wave 0 decision/specification work | P1.4a | Search, BOM-appropriate filters/sorting and per-user column/filter/sort perspectives; retain keyset pagination and exclude bulk mutation |
+| P1.4d | Establish human-readable BOM business identity | [Spec task #5409](https://github.com/open-mercato/open-mercato/issues/5409) | Post-Wave 0 decision/specification work | P1.4a | Decide whether a family code/name is required beyond Catalog target plus revision identity |
+| P1.4e | Add BOM history, change context and comments | [Spec task #5410](https://github.com/open-mercato/open-mercato/issues/5410) | Post-Wave 0 decision/specification work | P1.4a; P1.7 only where released semantics are shown | Reuse action-log/version-history and Notes patterns; decide family/revision/line ownership and immutable evidence |
+| P1.4f | Compare BOM revisions and show where-used | [Spec task #5411](https://github.com/open-mercato/open-mercato/issues/5411) | Post-Wave 0 decision/specification work | P1.4a, P1.4b; P1.7/P1.10 for released/execution visibility | Define occurrence diff and bounded reverse-dependency views without adding planning behavior |
+| P1.4g | Copy a BOM into a new target | [Spec task #5412](https://github.com/open-mercato/open-mercato/issues/5412) | Post-Wave 0 decision/specification work | P1.4a, P1.3a | One validated copy flow only; no import/export or mass copy |
+| P1.4h | Add BOM customisation and document control | [Spec task #5413](https://github.com/open-mercato/open-mercato/issues/5413) | Post-Wave 0 decision/specification work | P1.4a; P1.7 for released-document semantics | Custom fields, optional tags and controlled attachments/links; provider, retention and ownership remain decisions |
 | P1.5 | Author draft routings and operations | [Spec task #5395](https://github.com/open-mercato/open-mercato/issues/5395) open | Preparation after P1.6 questions are known | P1.0a, P1.6 | Author the specification for an optional single-sequence routing draft without scheduling semantics |
 | P1.6 | Establish the work-centre extension boundary | [Spec task #5394](https://github.com/open-mercato/open-mercato/issues/5394) open | Skeleton/current-state audit now | P1.0a | Resolve resource cardinality, snapshot and planner-absent behavior |
 | P1.7 | Define the released-definition lifecycle and immutable definition snapshots | [Spec task #5396](https://github.com/open-mercato/open-mercato/issues/5396) open | Preparation only until upstream shapes stabilize | P1.2, P1.3a, P1.4a, P1.5, P1.6 | Freeze child revisions and occurrence-preserving definition snapshots; stop before order release; P1.4b preview is not a release prerequisite |
@@ -53,6 +59,8 @@ Parallel foundation work
   P1.2 WMS Site
   P1.3a Catalog/Sales quantity normalisation → P1.3b precision → P1.3c evidence/reversal
   P1.4a direct BOM draft authoring/integrity → P1.4b bounded multi-level preview
+  Post-Wave 0 BOM usability/control lane: P1.4c list workspace, P1.4d identity, P1.4e history/comments,
+    P1.4f revision comparison/where-used, P1.4g copy, P1.4h extensibility/document control
   P1.5 optional sequential routing drafts, P1.6 work-centre boundary
 
 Foundation contracts
@@ -126,7 +134,7 @@ If an official source is unavailable or a product does not document the relevant
 | [#5260 — decouple WMS from Sales](https://github.com/open-mercato/open-mercato/issues/5260) | Issue | Open | Tracker for P1.1 |
 | [#5386 — Wave 0 specification readiness backlog](https://github.com/open-mercato/open-mercato/issues/5386) | Issue | Open | Parent tracker for specification and readiness work |
 
-Child trackers [#5387–#5401](https://github.com/open-mercato/open-mercato/issues/5386) plus the split-out P1.4b tracker [#5405](https://github.com/open-mercato/open-mercato/issues/5405) are linked from the parent Issue and the relevant workstream rows. P1.12 has no separate tracker because its evidence matrix applies to every child. P1.13 remains deferred and has no Wave 0 MVP tracker.
+Child trackers [#5387–#5401](https://github.com/open-mercato/open-mercato/issues/5386) plus P1.4b [#5405](https://github.com/open-mercato/open-mercato/issues/5405) and the post-Wave 0 P1.4c–h decision trackers [#5408–#5413](https://github.com/open-mercato/open-mercato/issues/5408) are linked from the parent Issue and the relevant workstream rows. P1.12 has no separate tracker because its evidence matrix applies to every child. P1.13 remains deferred and has no Wave 0 MVP tracker.
 
 ## Source documents
 

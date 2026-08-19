@@ -52,6 +52,26 @@ P1.4b reads this aggregate to render a bounded tree. P1.7 later owns release, ef
 | Detect conflicting or unsafe concurrent work | Revision token, graph lock and cycle validator; stable `version_conflict`/`cycle_detected`; conflict banner. |
 | Recover an accidental authoring action | Soft deletion and before/after command evidence; command undo/redo; operation metadata exposed to platform UX. |
 
+### Story map for prototype review
+
+This story map turns the authoring contract into reviewable user journeys. It is
+also the requirements source for the local clickable prototype. The prototype
+uses fictional Catalog data and illustrates the intended flow; it does not
+claim to execute commands or persist a real BOM.
+
+| Epic | Story | Acceptance criteria |
+|---|---|---|
+| Find and start a draft | **US-BOM-01** — As a Manufacturing manager, I can find BOM drafts by output product and optionally variant, so that I can resume the right product structure. | The list shows target, active draft revision, direct-line count, unresolved `produce` count, and last update. Product/variant filters reset cursor navigation. An empty list offers Create only to a manager. A viewer sees the list but no write affordance. |
+| Find and start a draft | **US-BOM-02** — As a Manufacturing manager, I can create the first draft for an output product or variant, so that I have an editable revision 1. | The create form requires a product, offers only its variants, defaults base output to `1` in the base unit, and permits an optional revision label. A duplicate exact target is rejected without creating a second family. |
+| Define the output | **US-BOM-03** — As a Manufacturing manager, I can revise the target, label, and base output while the definition is still a draft, so that the BOM represents the intended manufactured output. | The editor shows the active draft revision and its current version. Product/variant/base-output edits retain a valid pair and show a field-level error when Catalog validation fails. Missing read enrichment remains readable by UUID with a warning. |
+| Compose direct components | **US-BOM-04** — As a Manufacturing manager, I can add a direct component occurrence, so that I can describe every material or subassembly needed for the output. | The Add component dialog defaults quantity to `1`, basis to `variable`, yield to `1`, and supply to `stock`. It supports an optional component variant and quantity/UoM. Adding the same component twice creates two distinct rows. Cmd/Ctrl+Enter saves and Escape cancels. |
+| Compose direct components | **US-BOM-05** — As a Manufacturing manager, I can edit or remove a component occurrence, so that I can correct the draft without affecting another identical occurrence. | Each row has its own Edit and Delete actions. Quantity/UoM validation is explicit. Undo/redo feedback is illustrated as a recoverable operation, while an actual prototype never claims to alter persisted data. |
+| Shape the draft | **US-BOM-06** — As a Manufacturing manager, I can move an occurrence up or down, so that the direct-component sequence expresses the intended authoring order. | Up/down actions are keyboard accessible, disabled at the first/last position, and preserve occurrence identity. No drag-and-drop is offered. |
+| Resolve production dependencies safely | **US-BOM-07** — As a Manufacturing manager, I can mark a component as `produce` and understand whether it resolves to a child BOM, so that I can author top-down without hiding structural risk. | A resolved variant or product-fallback child is visibly identified. An unresolved `produce` line remains saveable but shows a warning. A cycle attempt is rejected with a clear error and leaves the existing draft unchanged. `stock` is visibly a leaf. |
+| Review the multi-level structure | **US-BOM-08** — As a viewer or manager, I can open a read-only multi-level preview, so that I can inspect the draft's expanded dependency structure before release work exists. | The tab loads on demand; it shows output, returned depth/node totals, applied limits, separate repeated occurrences, basis/yield/supply/resolution, and expand/collapse controls. It never exposes editing controls in the tree. |
+| Review exceptions | **US-BOM-09** — As a viewer or manager, I can find unresolved occurrences and understand preview limits or stale data, so that I can decide what to fix next. | A warning summary focuses the relevant tree occurrence. Limit errors explain the cap and offer only bounded retry choices. A change marks the loaded tree stale and asks for explicit Refresh; no partial tree is silently displayed after an error. |
+| Work safely together | **US-BOM-10** — As a Manufacturing manager, I receive clear conflict, loading, empty, permission, and error states, so that I do not overwrite another author's changes or mistake an incomplete view for a saved result. | Existing mutations show an optimistic-lock conflict banner with a retry/reload path. Loading, empty, access-denied, Catalog-missing, and server-error states are distinct. The prototype includes these as review states using Open Mercato patterns. |
+
 ## Problem Statement
 
 Without a dedicated authoring contract, an initial implementation could store an unqueryable nested JSON document, merge repeated components, duplicate Catalog conversion logic, expose cross-scope references, treat each line as an independent concurrency root, or allow two concurrent writes to create a cycle neither observed alone. It could also couple the BOM to one production definition and prevent later revision reuse.
@@ -83,16 +103,16 @@ Standard `makeCrudRoute` writes assume one row-shaped CRUD resource. This aggreg
 - routing, `operationId`, operations, and Work Centers (P1.5/P1.6);
 - production definitions beyond their later BOM revision reference;
 - production orders, customer/sales-order demand references, required/planned dates, facts, confirmations, WMS effects, or planning;
-- alternative BOM families, substitutes, alternates, phantoms, and automatic child orders;
+- revision comparison/where-used (P1.4f), alternative BOM families, substitutes, alternates, phantoms, and automatic child orders;
 - formulas/recipes, co-/by-products, batch, repetitive, rework, or remanufacturing semantics;
-- import/export, custom fields, bulk actions, saved views, global search, attachments, and document control.
+- BOM list search/filters/personal perspectives (P1.4c), business identity (P1.4d), history/comments (P1.4e), copy (P1.4g), custom fields/tags/attachments/document control (P1.4h), import/export, bulk actions, and global cross-module search.
 
 ### Accepted design decisions
 
 | Area | Rule |
 |---|---|
 | Aggregate | BOM is a standalone versioned aggregate; a later `ProductionDefinition` references a BOM revision. |
-| Draft lifecycle | Draft is editable with optimistic locking. P1.7 freezes release and clones a later draft. |
+| Draft lifecycle | Draft is editable with the platform optimistic-lock pattern. P1.7 freezes release and clones a later draft. |
 | Target | `productId` is required; optional `variantId` must belong to it. |
 | Resolution | A variant family wins over the product-level fallback. |
 | Family cardinality | One family per exact product or product/variant target in Wave 0. |
@@ -159,7 +179,7 @@ Only vendor-owned sources are used.
 ### Aggregate behavior
 
 1. `manufacturing.bom.create` validates target and base output through Catalog, acquires the organization graph lock, validates uniqueness/candidate acyclicity, and inserts family plus revision `1` atomically.
-2. Active draft revision is the optimistic-lock root. Header, target, line, delete, and reorder mutations require its exact `updatedAt`.
+2. Active draft revision is the optimistic-lock root. The UI sends its loaded `updatedAt` for header, target, line, delete, and reorder mutations; a stale supplied token is rejected without applying the mutation.
 3. Every mutation updates changed rows, revision `updatedAt`, and family `updatedAt`. The next aggregate time is `max(now, previous+1 ms)` so serialized changes cannot expose the same token.
 4. Every write/undo/redo takes the graph lock because family changes can alter variant-fallback edges even without touching a line.
 5. Release and clone commands are absent; P1.7 reuses the allocator.
@@ -420,12 +440,12 @@ type BomLineDeleteResult = { lineId: string; deletedAt: string; updatedAt: strin
 | `POST /api/manufacturing/boms` | manage | `{target,revisionLabel?,baseOutput}`; atomically creates family+revision 1; `201 BomMutationResult`. |
 | `GET /api/manufacturing/boms/{bomId}` | view | `BomDetailDto`: family, active draft, target enrichment, and direct-line summary. |
 | `GET /api/manufacturing/boms/{bomId}/lines` | view | `limit=1..100` default 50 and opaque `(position,id)` cursor bound to the revision token; returns `{items:BomLineDto[],nextCursor,hasMore,snapshotUpdatedAt}`. |
-| `PUT /api/manufacturing/boms/{bomId}` | manage | Required lock header; at least one of complete `target` or `draft:{revisionLabel?,baseOutput?}`; `200 BomMutationResult`. |
-| `DELETE /api/manufacturing/boms/{bomId}` | manage | Required lock header; soft-deletes family, draft, lines atomically; `200 BomDeleteResult`. |
-| `POST /api/manufacturing/boms/{bomId}/lines` | manage | Required lock header; appends one `BomLineInput`; `201 BomLineMutationResult`. |
-| `PUT /api/manufacturing/boms/{bomId}/lines/{lineId}` | manage | Required lock header; partial nested line input with at least one change; `200 BomLineMutationResult`. |
-| `DELETE /api/manufacturing/boms/{bomId}/lines/{lineId}` | manage | Required lock header; deletes exact occurrence; `200 BomLineDeleteResult`. |
-| `POST /api/manufacturing/boms/{bomId}/lines/{lineId}/reorder` | manage | Required lock header; `{direction:'up'|'down'}`; `200 {line,adjacentLine,updatedAt}`; boundary no-op returns `200 {line,adjacentLine:null,updatedAt,changed:false}` without operation header/action log. |
+| `PUT /api/manufacturing/boms/{bomId}` | manage | UI sends the standard expected-version header from the loaded revision; at least one of complete `target` or `draft:{revisionLabel?,baseOutput?}`; `200 BomMutationResult`. |
+| `DELETE /api/manufacturing/boms/{bomId}` | manage | UI sends the standard expected-version header; soft-deletes family, draft, lines atomically; `200 BomDeleteResult`. |
+| `POST /api/manufacturing/boms/{bomId}/lines` | manage | UI sends the standard expected-version header; appends one `BomLineInput`; `201 BomLineMutationResult`. |
+| `PUT /api/manufacturing/boms/{bomId}/lines/{lineId}` | manage | UI sends the standard expected-version header; partial nested line input with at least one change; `200 BomLineMutationResult`. |
+| `DELETE /api/manufacturing/boms/{bomId}/lines/{lineId}` | manage | UI sends the standard expected-version header; deletes exact occurrence; `200 BomLineDeleteResult`. |
+| `POST /api/manufacturing/boms/{bomId}/lines/{lineId}/reorder` | manage | UI sends the standard expected-version header; `{direction:'up'|'down'}`; `200 {line,adjacentLine,updatedAt}`; boundary no-op returns `200 {line,adjacentLine:null,updatedAt,changed:false}` without operation header/action log. |
 
 Update commands always derive one effective state before validation. A family target change combines the new target with a supplied base output or the stored entered base-output quantity/unit, calls P1.3a exactly once for that effective tuple, and atomically replaces the target plus all normalized scalars and snapshot. A line component or quantity change likewise combines the supplied nested object with the stored effective component/entered quantity, validates the complete product/variant pair, and atomically replaces all normalized scalars and snapshot. When present, `target`, `component`, and `quantity` objects are complete objects rather than field-by-field patches. Label, basis, yield, supply-mode, and reorder-only changes preserve the existing normalization evidence and do not call the resolver.
 
@@ -439,12 +459,11 @@ Canonical header:
 x-om-ext-optimistic-lock-expected-updated-at: <active revision updatedAt>
 ```
 
-- mandatory for every interactive HTTP mutation of an existing aggregate, independent of the platform's optional global optimistic-lock setting;
-- a BOM-specific strict adapter parses the header before command dispatch; missing/invalid → `428` with `domainCode:'bom.version_conflict'`;
-- the handler re-reads and compares the token under the revision row lock; mismatch → platform `409 {error:'record_modified',code:'optimistic_lock_conflict',currentUpdatedAt,expectedUpdatedAt}` plus `domainCode:'bom.version_conflict'`;
-- the adapter also invokes the platform Enterprise-aware optimistic-lock guard integration, but never inherits its fail-open behavior for this aggregate;
-- execute command input requires the parsed expected token; semantic undo/redo is invoked by CommandBus and instead verifies the recorded current state under the same row/graph locks, so it does not require a fresh browser header;
-- UI uses canonical helpers/conflict banner.
+- the BOM UI sends this header for every mutation of an existing aggregate, using the token received from the loaded detail or the preceding mutation response;
+- endpoints use the same platform optimistic-lock behavior as Sales documents: an absent header remains compatible with the platform default, while a supplied stale token is rejected under the revision row lock with `409 {error:'record_modified',code:'optimistic_lock_conflict',currentUpdatedAt,expectedUpdatedAt}`;
+- the revision remains the single aggregate resource, so a header, target, line, delete, or reorder mutation all compare the same active-revision token;
+- semantic undo/redo is invoked by CommandBus and instead verifies the recorded current state under the same row/graph locks, so it does not require a fresh browser header;
+- UI uses the canonical expected-version helper and shared conflict banner. On conflict it refreshes the detail and lets the manager explicitly reapply the intended change; P1.4a adds no field merge, presence indicator, edit ownership, or live collaboration.
 
 ### Stable domain errors
 
@@ -452,7 +471,7 @@ x-om-ext-optimistic-lock-expected-updated-at: <active revision updatedAt>
 |---|---:|---|
 | `bom.target_conflict` | 409 | Exact live family target exists. |
 | `bom.active_draft_conflict` | 409 | A second live draft is attempted. |
-| `bom.version_conflict` | 428/409 | Expected aggregate version missing/invalid/stale. |
+| `bom.version_conflict` | 409 | Stale direct-line cursor snapshot after an aggregate mutation. |
 | `bom.cycle_detected` | 409 | Candidate direct/indirect graph is cyclic. |
 | `bom.variant_product_mismatch` | 404 | Variant missing/out-of-scope/not owned by product. |
 | `bom.quantity_invalid` | 422 | Quantity/yield invalid or overflowed. |
@@ -462,7 +481,7 @@ x-om-ext-optimistic-lock-expected-updated-at: <active revision updatedAt>
 
 Other auth/ACL/UUID/body/cursor/not-found errors retain platform behavior. Named check/FK constraint names and partial-unique index names map to domain codes; raw upsert, if used, must use exact conflict-column and predicate inference rather than `ON CONFLICT ON CONSTRAINT` for a partial unique index. P1.3a variant failures map to mismatch, precision/input failures to quantity, and unit/conversion/factor failures to UoM.
 
-OpenAPI documents all request/response schemas, decimal strings, cursor opacity, warning model, ACL, required optimistic-lock request header, compatibility error shape, and errors. Runtime and integration tests separately assert `x-om-operation` on changed undoable writes because the current shared OpenAPI route type cannot describe response headers without an approved shared-library enhancement. Tests assert `metadata`/`openApi` on every route.
+OpenAPI documents all request/response schemas, decimal strings, cursor opacity, warning model, ACL, optional platform expected-version request header, compatibility error shape, and errors. Runtime and integration tests separately assert `x-om-operation` on changed undoable writes because the current shared OpenAPI route type cannot describe response headers without an approved shared-library enhancement. Tests assert `metadata`/`openApi` on every route.
 
 ## Commands, Events, Undo, and Redo
 
@@ -569,14 +588,14 @@ No cache: no keys/tags/aliases/invalidation/cache-status UI. Cold and warm paths
 
 One additive migration creates the three tables, checks, internal composite FKs, partial uniques, and read/graph indexes. There is no backfill. It alters no Catalog/optional-peer table and adds no default activation or public package export. Soft-deleted rows retain audit/undo identity. P1.7 must preserve these drafts, reuse allocator, add release/clone/snapshots, and constrain deletion where released references exist.
 
-No environment variable is added. Existing platform optimistic-lock configuration remains, while these new endpoints require the header by contract.
+No environment variable is added. Existing platform optimistic-lock configuration and compatibility semantics apply to these endpoints; the Manufacturing UI always supplies the current revision token.
 
 ## Implementation Plan
 
 ### Phase 1 — Data and integrity utilities
 
 1. Add entities, validators, migration, scope helpers, `setup.ts`, ACL/event declarations, extension hosts, package dependencies/exports, and generator participation.
-2. Add the module-local P1.3a adapter, target resolution, strict optimistic-lock adapter, cursor, monotonic version, scoped repository, and neutral graph/cycle utility; do not publish/register a P1.4a BOM DI service.
+2. Add the module-local P1.3a adapter, target resolution, platform optimistic-lock integration, cursor, monotonic version, scoped repository, and neutral graph/cycle utility; do not publish/register a P1.4a BOM DI service.
 3. Prove schema/constraint/decimal/resolution/cycle behavior with unit/database tests.
 
 ### Phase 2 — Commands
@@ -588,7 +607,7 @@ No environment variable is added. Existing platform optimistic-lock configuratio
 ### Phase 3 — API
 
 1. Add collection/detail/line/reorder custom routes.
-2. Add zod, per-method metadata, full guard registry/legacy bridge, strict version adaptation, operation headers, and OpenAPI.
+2. Add zod, per-method metadata, full guard registry/legacy bridge, platform expected-version integration, operation headers, and OpenAPI.
 3. Add keyset pagination and batch Catalog enrichment.
 
 ### Phase 4 — UI and i18n
@@ -624,13 +643,13 @@ Expected internal paths include `data/*`, one migration, `lib/structure/graph.ts
 - concurrent combined-cycle race: exactly one commits;
 - tenant/organization non-disclosure;
 - `resolveOrganizationScopeForRequest` rejection occurs before reads and guard-transformed scope/path values cannot override authenticated authority;
-- missing/invalid/stale interactive versions independent of global optional-lock configuration, plus monotonic changes;
+- UI mutations with a fresh expected-version token succeed; stale supplied tokens receive the standard `409 optimistic_lock_conflict`; header-less callers retain the platform compatibility behavior, plus monotonic changes;
 - every command semantic undo/redo without a fresh HTTP token, same IDs, exact deletion marker, stale/conflicting restore, aggregate-root resource ordering, and full UoM evidence;
 - advisory-lock failure aborts; post-commit event/callback failure is logged without rollback, duplicate mutation, or event retry from the client.
 
 ### API and UI
 
-- complete ten route/read operations and `401/403/404/428/409/422` cases;
+- complete ten route/read operations and `401/403/404/409/422` cases;
 - mutation guard block/transform/re-parse, legacy bridge, and isolated after-success failure;
 - operation header only on changed undoable writes;
 - all stable errors and no SQL leakage;
@@ -658,7 +677,7 @@ Expected internal paths include `data/*`, one migration, `lib/structure/graph.ts
 | Category | Evidence |
 |---|---|
 | Isolation | Command/API/enrichment/cursor cross-scope tests |
-| Optimistic concurrency | Strict interactive header, stale/gone, monotonic versions, semantic stale undo/redo |
+| Optimistic concurrency | UI-supplied expected-version header, stale/gone, monotonic versions, semantic stale undo/redo |
 | Transaction failure | Atomic family+revision/line/reorder rollback and post-commit event injection |
 | Domain concurrency | Target/active-draft/allocator races and concurrent cycle |
 | Exact quantity | P1.3a snapshot and decimal/UoM/basis/yield validation corpus |
@@ -777,7 +796,7 @@ Dedicated P1.5/P1.6/P1.7/P1.10 full specs do not yet exist; alignment uses accep
 | Data/migration | Compliant | Three scoped entities, explicit entered/normalized quantity+unit fields, exact snapshots, partial uniques/checks/indexes, additive migration and no backfill. |
 | Concurrency | Compliant | Revision aggregate token, graph advisory lock, stable row-lock order, monotonic versions and atomic allocator. |
 | Commands/undo | Compliant | Seven singular commands; one atomic create handler; aggregate-root logs and conditional semantic same-ID undo/redo; post-commit effects. |
-| API/OpenAPI | Compliant | Ten justified custom operations; per-method metadata, ACL, zod, full guards, strict lock adapter, runtime operation headers, stable errors and exported OpenAPI. |
+| API/OpenAPI | Compliant | Ten justified custom operations; per-method metadata, ACL, zod, full guards, platform expected-version integration, runtime operation headers, stable errors and exported OpenAPI. |
 | Pagination/scale | Compliant | Family and direct-line keyset cursors, `limit<=100`, stale line snapshot detection, indexed/batched reads and graph benchmark. |
 | UI/HTTP/DS | Compliant | DataTable/CrudForm ownership, apiCallOrThrow/useGuardedMutation for external writes, conflict UI, shared primitives, dialog keys, stable extension hosts. |
 | Frontend architecture | Compliant | Server roots, exact client ledger, LOC/provider/heavy-dependency budgets, hydration/client-boundary/bundle/RAM evidence. |
@@ -813,6 +832,8 @@ Implementation remains gated by P1.0 acceptance, P1.0a, and ready P1.3a. No prod
 - 2026-08-19: Roadmap owner accepted the split. Refocused this file as P1.4a direct-level authoring/integrity and moved bounded recursive preview to P1.4b.
 - 2026-08-19: Added bounded direct-line keyset reads, complete DTO/UI/frontend contracts, security/performance evidence, and final compliance mapping.
 - 2026-08-19: Remediated the pre-implementation audit: froze explicit entered/normalized unit fields and purposes, effective-state normalization, strict interactive locking versus semantic undo/redo, one-handler atomic create, generator export plumbing, guard/event/UI/setup contracts, and the reusable-BOM versus order-demand boundary.
+- 2026-08-19: Aligned BOM draft conflict handling with the platform/Sales optimistic-lock pattern: the UI supplies the revision token and receives the shared `409 optimistic_lock_conflict` state when stale; BOM no longer introduces a mandatory `428` header contract or bespoke merge behavior. Rich collaborative drafting is deferred in the Wave 0 backlog.
+- 2026-08-19: Linked the owner-approved post-Wave 0 BOM capability lane: P1.4c list workspace, P1.4d business identity, P1.4e history/comments, P1.4f revision comparison/where-used, P1.4g copy, and P1.4h extensibility/document control. These remain explicitly out of P1.4a scope.
 
 ### Review — 2026-08-19
 
