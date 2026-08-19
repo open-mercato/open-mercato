@@ -197,7 +197,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
     }
-    logger.error('AI Run Object — Dispatch failure', { err: error })
+
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Agent object dispatch failed.',
