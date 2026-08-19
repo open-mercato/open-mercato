@@ -16,7 +16,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - ✨ Warranty & RMA claims desk module — type-adaptive intake, line-level dispositions and supplier recovery. (#4092) *(@haxiorz)*
 - ✨ Devices registry and end-to-end mobile push notifications — FCM, APNs and Expo via communication_channels (supersedes #4326). (#5366) *(@Frshy, via @patzick)*
 - ✨ Add root/links span options and trace data-sync batches (supersedes #5196). (#5375) *(@jtomaszewski, via @patzick)*
-- ✨ Declare data-sync run parameters from the adapter (supersedes #5199). (#5374) *(@maxidragon, via @patzick)*
+- ✨ Declare data-sync run parameters from the adapter (supersedes #5199). (#5374) *(@KamilGrocholski, @maxidragon, via @patzick)*
 - ✨ Add a WMS starter preset to create-mercato-app. (#5356) *(@dominikpalatynski)*
 - ✨ Add attachments and messages to the CRM starter preset. (#5355) *(@dominikpalatynski)*
 - ✨ Resolve sales channel names on the documents list. (#5350) *(@maxidragon)*
@@ -393,6 +393,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - @KramarSellision
 - @PatrickMade
 - @bartek5412
+- @KamilGrocholski
 
 ---
 
