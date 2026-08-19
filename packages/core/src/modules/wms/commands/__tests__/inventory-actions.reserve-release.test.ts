@@ -343,6 +343,34 @@ describe('wms inventory allocate command', () => {
 
     expect(driftedBalance.quantityReserved).toBe('2')
   })
+
+  it('rejects allocating a non-active reservation', async () => {
+    const em = createEm()
+    const reservation = makeReservation({ status: 'released' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+      if (entity === InventoryReservation) return reservation
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.allocate')
+    await expect(
+      handler!.execute!(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          reservationId: RESERVATION_ID,
+          performedBy: USER_ID,
+        },
+        createCtx(em),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'reservation_not_active' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 })
 
 describe('wms inventory release command', () => {
@@ -385,6 +413,41 @@ describe('wms inventory release command', () => {
     expect(Number(balance.quantityReserved)).toBe(0)
     expect(reservation.status).toBe('released')
     expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('rejects releasing an already released reservation without changing the balance', async () => {
+    const em = createEm()
+    const reservation = makeReservation({ status: 'released' })
+    const balance = makeBalance({ quantityReserved: '5' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    await expect(
+      handler!.execute!(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          reservationId: RESERVATION_ID,
+          reason: 'manual_release',
+          reasonCode: 'manual_release',
+          performedBy: USER_ID,
+        },
+        createCtx(em),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'reservation_not_active' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(balance.quantityReserved).toBe('5')
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('throws balance_integrity_violation when quantityReserved is less than the bucket quantity (ledger drift)', async () => {
