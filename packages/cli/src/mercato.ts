@@ -1678,6 +1678,9 @@ export async function run(argv = process.argv) {
                 Math.max(...queueWorkers.map((w) => w.concurrency), 1)
               const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
               const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
+              // One queue, one report. Handlers on the same queue share its abandoned-job reporting,
+              // so the first declared hook wins rather than each handler reporting the same job.
+              const onJobAbandoned = queueWorkers.find((w) => w.onJobAbandoned)?.onJobAbandoned
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1688,6 +1691,7 @@ export async function run(argv = process.argv) {
                 concurrency,
                 lockDuration,
                 maxStalledCount,
+                onJobAbandoned,
                 background: true,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
@@ -1733,6 +1737,9 @@ export async function run(argv = process.argv) {
               const concurrency = budgetPlan.entries[0]?.effective ?? requested
               const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
               const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
+              // One queue, one report. Handlers on the same queue share its abandoned-job reporting,
+              // so the first declared hook wins rather than each handler reporting the same job.
+              const onJobAbandoned = queueWorkers.find((w) => w.onJobAbandoned)?.onJobAbandoned
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1743,6 +1750,7 @@ export async function run(argv = process.argv) {
                 concurrency,
                 lockDuration,
                 maxStalledCount,
+                onJobAbandoned,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {

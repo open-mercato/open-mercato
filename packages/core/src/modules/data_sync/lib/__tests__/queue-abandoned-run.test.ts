@@ -4,19 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncRun } from '../../data/entities'
 import { createSyncRunService } from '../sync-run-service'
-import { getSyncQueue } from '../queue'
-
-// `getSyncQueue` memoizes its queues, so the hook is only handed over on the first call per queue
-// name. Record it here rather than reading it back off the mock's call list, which the per-test
-// reset clears.
-const mockRegisteredHooks = new Map<string, unknown>()
-
-jest.mock('@open-mercato/queue', () => ({
-  createModuleQueue: jest.fn((name: string, options?: { onJobAbandoned?: unknown }) => {
-    mockRegisteredHooks.set(name, options?.onJobAbandoned)
-    return { name, strategy: 'async' }
-  }),
-}))
+import { failAbandonedRun } from '../abandoned-run'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -34,9 +22,8 @@ type AbandonedHook = (payload: unknown, info: { jobId: string | null; reason: st
 
 const createRequestContainerMock = createRequestContainer as jest.MockedFunction<typeof createRequestContainer>
 
-function abandonedHookFor(queueName: string): AbandonedHook | undefined {
-  getSyncQueue(queueName)
-  return mockRegisteredHooks.get(queueName) as AbandonedHook | undefined
+function abandonedHookFor(_queueName: string): AbandonedHook {
+  return failAbandonedRun as AbandonedHook
 }
 
 function abandonedJob(payload: unknown) {
@@ -59,8 +46,9 @@ describe('data_sync queue — abandoned job repair', () => {
     jest.clearAllMocks()
   })
 
-  // Which queues receive the callback is asserted in `queue.test.ts`, next to the rest of the
-  // resumable-queue policy. These cover what the callback itself does once it fires.
+  // Where the callback is declared is asserted in `queue.test.ts`; that it reaches the queue the
+  // worker actually runs on is asserted in the queue package's worker-runner test. These cover what
+  // the callback itself does once it fires.
   it('marks the run failed with the reason the queue reported', async () => {
     const markStatus = jest.fn(async () => null)
     stubContainer(markStatus)

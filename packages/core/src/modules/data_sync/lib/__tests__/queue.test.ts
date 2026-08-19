@@ -11,6 +11,7 @@ import {
   DATA_SYNC_LOCK_DURATION_MS,
   DATA_SYNC_RESUMABLE_QUEUES,
 } from '../queue-policy'
+import { failAbandonedRun } from '../abandoned-run'
 import { metadata as importWorkerMetadata } from '../../workers/sync-import'
 import { metadata as exportWorkerMetadata } from '../../workers/sync-export'
 
@@ -29,14 +30,12 @@ describe('data sync queue configuration', () => {
       attempts: 3,
       lockDuration: DATA_SYNC_LOCK_DURATION_MS,
       maxStalledCount: 10,
-      onJobAbandoned: expect.any(Function),
     })
     expect(mockCreateModuleQueue).toHaveBeenCalledWith('data-sync-export', {
       concurrency: 5,
       attempts: 3,
       lockDuration: DATA_SYNC_LOCK_DURATION_MS,
       maxStalledCount: 10,
-      onJobAbandoned: expect.any(Function),
     })
   })
 
@@ -44,6 +43,17 @@ describe('data sync queue configuration', () => {
     getSyncQueue('data-sync-something-else')
 
     expect(mockCreateModuleQueue).toHaveBeenCalledWith('data-sync-something-else', { concurrency: 5 })
+  })
+
+  it('declares the abandoned-job hook on the workers, where the queue that runs jobs is built', () => {
+    // Not on `getSyncQueue`: that instance only ever enqueues. `runWorker` builds its own queue from
+    // worker metadata, so a hook attached to the producer is never installed on the consumer.
+    expect(importWorkerMetadata.onJobAbandoned).toBe(failAbandonedRun)
+    expect(exportWorkerMetadata.onJobAbandoned).toBe(failAbandonedRun)
+    expect(mockCreateModuleQueue).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ onJobAbandoned: expect.anything() }),
+    )
   })
 
   it('keeps the worker queue names and the retry policy on the same constants', () => {

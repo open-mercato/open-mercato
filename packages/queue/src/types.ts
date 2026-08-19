@@ -299,6 +299,14 @@ export type WorkerMeta = {
   lockDuration?: number
   /** Number of stalled-job recoveries BullMQ permits before failing a job. */
   maxStalledCount?: number
+  /**
+   * Called when the queue abandons one of this worker's jobs without running the handler.
+   *
+   * Declared here rather than on the producing queue because the worker is the side that must hear
+   * it: the event being reported is a worker restart, and the process that restarts never
+   * constructs the enqueueing queue. See `AsyncQueueOptions.onJobAbandoned` for the contract.
+   */
+  onJobAbandoned?: AsyncQueueOptions['onJobAbandoned']
 }
 
 /**
@@ -318,4 +326,6 @@ export type WorkerDescriptor<T = unknown> = {
   lockDuration?: number
   /** Number of stalled-job recoveries BullMQ permits before failing a job. */
   maxStalledCount?: number
+  /** Called when the queue abandons one of this worker's jobs without running the handler. */
+  onJobAbandoned?: AsyncQueueOptions['onJobAbandoned']
 }

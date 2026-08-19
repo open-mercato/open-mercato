@@ -246,6 +246,15 @@ type SerializableWorkerMetadata = {
   concurrency?: number
   lockDuration?: number
   maxStalledCount?: number
+  /**
+   * Whether the worker's metadata declares an `onJobAbandoned` callback.
+   *
+   * A function cannot be serialized into the registry the way the scalar options are, so the flag is
+   * resolved here at build time and the callback itself is emitted as a lazy import beside the
+   * handler. Recorded only when the source module could actually be loaded — the object-literal
+   * fallback below cannot see whether a referenced identifier is a function.
+   */
+  hasJobAbandonedHook?: boolean
 }
 
 type PageMetadataManifestLoadResult = {
@@ -575,6 +584,55 @@ function extractObjectPropertiesFromAst(sourceFile: string, exportName: string):
   }
 
   return Object.keys(result).length > 0 ? result : null
+}
+
+/**
+ * Whether an exported object literal declares a property, regardless of what it evaluates to.
+ *
+ * Needed for callbacks: the value resolvers above can read literals and local constants, but a
+ * property whose value is an imported function stays unresolvable, so "did the author declare it"
+ * cannot be answered by inspecting the extracted value. Answering it from the syntax instead is what
+ * lets the generator emit a lazy accessor for a hook it can see but cannot serialize.
+ */
+export function namedObjectLiteralDeclaresProperty(sourceFile: string, exportName: string, propertyName: string): boolean {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return false
+  }
+
+  const parsed = ts.createSourceFile(sourceFile, source, ts.ScriptTarget.Latest, true, inferScriptKind(sourceFile))
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) exportedNames.add(element.name.text)
+    }
+  }
+
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const exportsDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier: ts.Modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue
+      if (!exportsDirectly && !exportedNames.has(exportName)) continue
+      const objectLiteral = unwrapObjectLiteralExpression(declaration.initializer)
+      if (!objectLiteral) return false
+      return objectLiteral.properties.some((property) => {
+        const name = property.name
+        if (!name) return false
+        const key = ts.isIdentifier(name) ? name.text : ts.isStringLiteral(name) ? name.text : null
+        return key === propertyName
+      })
+    }
+  }
+  return false
 }
 
 export function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
@@ -1777,6 +1835,7 @@ function normalizeWorkerMetadata(raw: unknown): SerializableWorkerMetadata | nul
   if (typeof source.concurrency === 'number') normalized.concurrency = source.concurrency
   if (typeof source.lockDuration === 'number') normalized.lockDuration = source.lockDuration
   if (typeof source.maxStalledCount === 'number') normalized.maxStalledCount = source.maxStalledCount
+  if (typeof source.onJobAbandoned === 'function') normalized.hasJobAbandonedHook = true
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -1788,8 +1847,16 @@ async function loadSubscriberMetadata(sourceFile: string): Promise<SerializableS
 
 async function loadWorkerMetadata(sourceFile: string): Promise<SerializableWorkerMetadata | null> {
   const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
-  return normalizeWorkerMetadata(sourceModule?.metadata)
+  const metadata = normalizeWorkerMetadata(sourceModule?.metadata)
     ?? normalizeWorkerMetadata(extractNamedObjectLiteralExport(sourceFile, 'metadata'))
+  if (!metadata) return null
+  // Resolved from the syntax, not the extracted value: a worker module that cannot be imported at
+  // build time falls back to the literal extractor, which cannot tell an imported function from an
+  // unresolvable identifier. Missing this is silent — the hook is simply never installed.
+  if (!metadata.hasJobAbandonedHook && namedObjectLiteralDeclaresProperty(sourceFile, 'metadata', 'onJobAbandoned')) {
+    metadata.hasJobAbandonedHook = true
+  }
+  return metadata
 }
 
 async function discoverSubscribers(
@@ -2326,12 +2393,16 @@ function processSubscribers(discovered: DiscoveredSubscriber[]): string[] {
   return subscribers
 }
 
+function workersDeclareAbandonHook(discovered: DiscoveredWorker[]): boolean {
+  return discovered.some(({ metadata }) => metadata.hasJobAbandonedHook === true)
+}
+
 function processWorkers(discovered: DiscoveredWorker[]): string[] {
   const workers: string[] = []
   for (const { id, importPath, metadata } of discovered) {
     const workerId = metadata.id ?? id
     workers.push(
-      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}${metadata.lockDuration === undefined ? '' : `, lockDuration: ${toLiteral(metadata.lockDuration)}`}${metadata.maxStalledCount === undefined ? '' : `, maxStalledCount: ${toLiteral(metadata.maxStalledCount)}`}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
+      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}${metadata.lockDuration === undefined ? '' : `, lockDuration: ${toLiteral(metadata.lockDuration)}`}${metadata.maxStalledCount === undefined ? '' : `, maxStalledCount: ${toLiteral(metadata.maxStalledCount)}`}${metadata.hasJobAbandonedHook ? `, onJobAbandoned: createLazyModuleWorkerAbandonHook(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)})` : ''}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
     )
   }
   return workers
@@ -2567,6 +2638,7 @@ function renderAstModuleRegistryFile(options: {
   imports: string[]
   moduleEntries: WriterFunction[]
   includeCreateElementImport?: boolean
+  includeAbandonHookImport?: boolean
 }): string {
   const sourceFile = createGeneratedSourceFile(options.fileName)
   addAutoGeneratedComment(sourceFile, options.generator)
@@ -2582,6 +2654,7 @@ function renderAstModuleRegistryFile(options: {
     namedImports: [
       { name: 'createLazyModuleSubscriber' },
       { name: 'createLazyModuleWorker' },
+      ...(options.includeAbandonHookImport ? [{ name: 'createLazyModuleWorkerAbandonHook' }] : []),
       { name: 'Module', isTypeOnly: true },
     ],
   })
@@ -2694,10 +2767,13 @@ function renderAstLegacyModuleRegistryOutput(options: {
   imports: GeneratedImportStatement[]
   moduleEntries: string[]
   includeCreateElementImport?: boolean
+  includeAbandonHookImport?: boolean
 }): string {
   const importSection = [
     ...(options.includeCreateElementImport ? ["import { createElement } from 'react'"] : []),
-    "import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'",
+    options.includeAbandonHookImport
+      ? "import { createLazyModuleSubscriber, createLazyModuleWorker, createLazyModuleWorkerAbandonHook, type Module } from '@open-mercato/shared/modules/registry'"
+      : "import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'",
     ...options.imports.map((entry) => serializeGeneratedImport(entry)),
   ].join('\n')
 
@@ -3011,6 +3087,15 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
         { name: 'concurrency', value: metadata.concurrency ?? 1 },
         ...(metadata.lockDuration === undefined ? [] : [{ name: 'lockDuration', value: metadata.lockDuration }]),
         ...(metadata.maxStalledCount === undefined ? [] : [{ name: 'maxStalledCount', value: metadata.maxStalledCount }]),
+        ...(metadata.hasJobAbandonedHook
+          ? [{
+            name: 'onJobAbandoned',
+            value: callExpression(identifier('createLazyModuleWorkerAbandonHook'), [
+              arrowFunction({ body: importExpression(importPath) }),
+              workerId,
+            ]),
+          }]
+          : []),
         {
           name: 'handler',
           value: callExpression(identifier('createLazyModuleWorker'), [
@@ -3384,6 +3469,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
+  let hasAbandonHookWorkers = false
 
   // UMES conflict detection: collect file paths during module processing
   const umesConflictSources: Array<{
@@ -3635,7 +3721,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     subscribers.push(...processSubscribers(await discovered.getSubscribers()))
 
     // 18. Workers
-    workers.push(...processWorkers(await discovered.getWorkers()))
+    const discoveredWorkersForModule = await discovered.getWorkers()
+    if (workersDeclareAbandonHook(discoveredWorkersForModule)) hasAbandonHookWorkers = true
+    workers.push(...processWorkers(discoveredWorkersForModule))
 
     // Build combined customFieldSets expression
     {
@@ -3801,6 +3889,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const runtimeOutput = renderAstLegacyModuleRegistryOutput({
     fileName: 'modules.runtime.generated.ts',
@@ -4010,6 +4099,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
+  let hasAbandonHookWorkers = false
   const seenBackendRoutePatterns = new Map<string, string>()
 
   for (const discovered of discovery.modules) {
@@ -4171,7 +4261,9 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
 
     subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
-    workers.push(...processWorkersAst(await discovered.getWorkers()))
+    const discoveredWorkersForModule = await discovered.getWorkers()
+    if (workersDeclareAbandonHook(discoveredWorkersForModule)) hasAbandonHookWorkers = true
+    workers.push(...processWorkersAst(discoveredWorkersForModule))
 
     {
       dashboardWidgetsValue = buildModuleDashboardWidgetsValue(discovered.dashboardWidgetEntries)
@@ -4295,6 +4387,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const bootstrapOutput = renderAstModuleRegistryFile({
     fileName: 'modules.bootstrap.generated.ts',
@@ -4397,6 +4490,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
  * Excludes: frontend routes, backend routes, API handlers, injection widgets
  */
 async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
+  let hasAbandonHookWorkers = false
   const { resolver, quiet = false } = options
   const { discovery } = options
   const result = createGeneratorResult()
@@ -4548,6 +4642,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     // Workers
     const discoveredWorkers = await discovered.getWorkers()
     const workerGenerationEntries = collectWorkerGenerationEntries(discoveredWorkers, modId)
+    if (workersDeclareAbandonHook(discoveredWorkers)) hasAbandonHookWorkers = true
     workers.push(...processWorkersAst(discoveredWorkers))
     devSupervisorWorkers.push(...workerGenerationEntries.map(({ importPath: _importPath, ...worker }) => worker))
 
@@ -4671,6 +4766,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     generator: 'registry (CLI version)',
     imports,
     moduleEntries: moduleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const legacyOutput = renderAstLegacyAliasFile({
     fileName: 'cli-modules.generated.ts',
