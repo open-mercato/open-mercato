@@ -16,6 +16,13 @@
  * Idempotency is a single check on the demo project codes: this is example data,
  * not reference data, so it is written once and afterwards left alone rather
  * than reconciled field by field.
+ *
+ * **Indexing.** Rows are written straight through the EntityManager rather than
+ * through the module's commands, so none of them reach the query index. Listing
+ * is unaffected — the engine reads base tables — but `$ilike` filters are
+ * answered from the token index, so search returns nothing for seeded data until
+ * `mercato query_index reindex` has run. The CLI command says so on success; a
+ * caller invoking this function directly has to know.
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'

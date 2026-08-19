@@ -77,6 +77,11 @@ const seedTimeTrackingExamplesCommand: ModuleCli = {
       })
       if (seeded) {
         console.log('⏱️  Time-tracking demo data seeded for organization', organizationId)
+        // The seed writes entities directly rather than through the commands, so
+        // nothing it creates reaches the query index. Listing still works — the
+        // engine reads base tables — but `$ilike` filters are answered from the
+        // token index, so search silently returns nothing for seeded rows.
+        console.log('   Run `mercato query_index reindex` to make this data searchable.')
       } else {
         console.log('Time-tracking demo data already present; skipping')
       }
