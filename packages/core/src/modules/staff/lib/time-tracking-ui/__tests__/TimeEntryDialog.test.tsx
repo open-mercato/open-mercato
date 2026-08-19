@@ -61,6 +61,45 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   }),
 }))
 
+/**
+ * The task picker is a `LookupSelect` — a search box over a fetched list, whose
+ * own behaviour is covered in `packages/ui`. These tests care about what the
+ * dialog does with a chosen task, so it is stood in for by a native select that
+ * exposes the same contract: options come from `fetchItems`, choosing one calls
+ * `onChange` with the id.
+ */
+jest.mock('@open-mercato/ui/backend/inputs/LookupSelect', () => {
+  const ReactModule = jest.requireActual('react') as typeof React
+  type Item = { id: string; title: string }
+  type Props = {
+    value: string | null
+    onChange: (id: string | null) => void
+    fetchItems: (query: string) => Promise<Item[]>
+    disabled?: boolean
+  }
+  const LookupSelect = ({ value, onChange, fetchItems, disabled }: Props) => {
+    const [items, setItems] = ReactModule.useState<Item[]>([])
+    ReactModule.useEffect(() => {
+      let cancelled = false
+      void fetchItems('').then((next) => { if (!cancelled) setItems(next) })
+      return () => { cancelled = true }
+    }, [fetchItems])
+    return ReactModule.createElement(
+      'select',
+      {
+        value: value ?? '',
+        disabled,
+        onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value || null),
+      },
+      [
+        ReactModule.createElement('option', { key: '__empty', value: '' }, ''),
+        ...items.map((item) => ReactModule.createElement('option', { key: item.id, value: item.id }, item.title)),
+      ],
+    )
+  }
+  return { LookupSelect, __esModule: true }
+})
+
 /** Radix' Select needs pointer geometry jsdom lacks; a native select keeps the contract. */
 jest.mock('@open-mercato/ui/primitives/select', () => {
   const ReactModule = jest.requireActual('react') as typeof React
@@ -220,8 +259,16 @@ function saveButton() {
   return screen.getByTestId('entry-dialog-save') as HTMLButtonElement
 }
 
+function taskSelect(): HTMLSelectElement {
+  const host = screen.getByTestId('entry-dialog-task')
+  return (host.tagName === 'SELECT' ? host : host.querySelector('select')) as HTMLSelectElement
+}
+
 async function pickTask(taskId: string = TASK_ID) {
-  const select = (await screen.findByTestId('entry-dialog-task')) as HTMLSelectElement
+  // The testid marks the picker's container, so the control is looked up inside
+  // it rather than assuming the container is the control.
+  const host = await screen.findByTestId('entry-dialog-task')
+  const select = (host.tagName === 'SELECT' ? host : host.querySelector('select')) as HTMLSelectElement
   // The option only exists once the task list answers; setting a value the select
   // does not carry yet would silently select nothing.
   await waitFor(() => expect(select.querySelector(`option[value="${taskId}"]`)).not.toBeNull())
@@ -445,7 +492,7 @@ describe('TimeEntryDialog — saving', () => {
     expect((screen.getByTestId('entry-dialog-description') as HTMLInputElement).value).toBe('')
     expect(endInput().value).toBe('')
     expect(durationInput().value).toBe('')
-    expect((screen.getByTestId('entry-dialog-task') as HTMLSelectElement).value).toBe(TASK_ID)
+    expect(taskSelect().value).toBe(TASK_ID)
   })
 
   it('sends the optimistic lock header when editing an existing entry', async () => {
@@ -565,7 +612,7 @@ describe('TimeEntryDialog — saving', () => {
     expect(await screen.findByTestId('entry-dialog-locked')).toBeInTheDocument()
     expect(screen.queryByTestId('entry-dialog-save')).not.toBeInTheDocument()
     expect(screen.queryByTestId('entry-dialog-save-again')).not.toBeInTheDocument()
-    expect(screen.getByTestId('entry-dialog-task')).toBeDisabled()
+    expect(taskSelect()).toBeDisabled()
     expect(screen.getByTestId('entry-dialog-description')).toBeDisabled()
 
     fireEvent.click(screen.getByTestId('entry-dialog-locked-report'))
@@ -620,7 +667,9 @@ describe('TimeEntryDialog — keyboard loop', () => {
     fireEvent.click(screen.getByTestId('entry-dialog-save-again'))
 
     await waitFor(() => expect(durationInput().value).toBe(''))
-    expect(document.activeElement).toBe(screen.getByTestId('entry-dialog-task'))
+    // The picker is a container holding a search input, so focus lands on the
+    // control inside it rather than on the container itself.
+    expect(screen.getByTestId('entry-dialog-task').contains(document.activeElement)).toBe(true)
   })
 
   it('advertises both save shortcuts and the cancel one', async () => {

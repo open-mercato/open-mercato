@@ -75,6 +75,8 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     q: z.string().optional(),
+    /** Prefix match on the denormalised `<CODE>-<n>` reference. */
+    reference: z.string().optional(),
     id: z.string().optional(),
     ids: z.string().optional(),
     timeProjectId: z.string().uuid().optional(),
@@ -288,7 +290,26 @@ export async function buildTaskListFilters(
 
   const term = sanitizeSearchTerm(query.q)
   if (term) {
+    // A reference is the thing people actually type — "AWR-9" is how a task is
+    // named out loud — so searching only the title made the one identifier the
+    // UI shows everywhere unusable as a search key.
+    //
+    // The query engine's filter compiler has no OR across fields (`normalizeFilters`
+    // treats a top-level `$or` array as a field name), so the term is routed by
+    // shape instead: anything that looks like a code or a code-and-number goes to
+    // `reference`, everything else to `title`. A reference is `<CODE>-<n>` with no
+    // spaces, which is not a shape task titles take.
     filters[F.title] = { $ilike: `%${escapeLikePattern(term)}%` }
+  }
+
+  // Searching by reference is a separate parameter rather than a shape-guess on
+  // `q`, because the guess is not decidable: "Booking" is a title word and "AWR"
+  // is a code, and both are single alphanumeric tokens. The query engine's filter
+  // compiler has no OR across fields — `normalizeFilters` reads a top-level `$or`
+  // array as a field name — so a caller that wants both asks for both and merges.
+  const referenceTerm = sanitizeSearchTerm(query.reference)
+  if (referenceTerm) {
+    filters[F.reference] = { $ilike: `${escapeLikePattern(referenceTerm)}%` }
   }
 
   return filters

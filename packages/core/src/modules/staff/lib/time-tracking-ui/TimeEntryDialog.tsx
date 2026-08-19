@@ -27,6 +27,7 @@ import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -204,7 +205,20 @@ export function TimeEntryDialog({
    * after "save and add another", where focus would otherwise be stranded on the
    * button and the next entry would start with a handful of Shift+Tabs.
    */
-  const taskTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const taskTriggerRef = React.useRef<HTMLDivElement | null>(null)
+  /**
+   * The picker is a search box inside a container, not a single focusable
+   * control, so the keyboard loop focuses the input within it. Without this,
+   * "save and add another" left focus stranded and the loop stopped being a loop.
+   */
+  const focusTaskPicker = React.useCallback(() => {
+    const host = taskTriggerRef.current
+    if (!host) return false
+    const focusable = host.querySelector('input, select, button') as HTMLElement | null
+    if (!focusable) return false
+    focusable.focus()
+    return true
+  }, [])
 
   const seedKeyRef = React.useRef<string | null>(null)
   const billableDefaultRef = React.useRef<string | null>(null)
@@ -606,7 +620,7 @@ export function TimeEntryDialog({
           setOverlaps([])
           onSaved?.({ id: savedId, keptOpen: true })
           // Back to the top of the loop: pick task → duration → save → next.
-          taskTriggerRef.current?.focus()
+          focusTaskPicker()
           return
         }
         onSaved?.({ id: savedId, keptOpen: false })
@@ -646,6 +660,57 @@ export function TimeEntryDialog({
       window.open(`${ENTRIES_LIST_PATH}?ids=${encodeURIComponent(overlap.id)}`, '_blank', 'noopener')
     },
     [onShowEntry],
+  )
+
+  const taskLabelById = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const task of tasks) {
+      map.set(task.id, describeTaskOption(task, task.timeProjectId ? projectById.get(task.timeProjectId) : null))
+    }
+    return map
+  }, [projectById, tasks])
+
+  /**
+   * Two requests, merged.
+   *
+   * A single term cannot be routed to one field by shape — "Booking" is a title
+   * word and "AWR" is a code, and both are one alphanumeric token — and the query
+   * engine has no OR across fields, so the picker asks both questions and unions
+   * the answers. An empty query returns the full list rather than nothing, since a
+   * picker that shows nothing until you type hides the thing you came to find.
+   */
+  const fetchTaskItems = React.useCallback(
+    async (query: string): Promise<LookupSelectItem[]> => {
+      const term = query.trim()
+      const params = new URLSearchParams({ page: '1', pageSize: '50', sortField: 'reference', sortDir: 'asc' })
+      const requests = term.length === 0
+        ? [`/api/staff/timesheets/tasks?${params.toString()}`]
+        : [
+            `/api/staff/timesheets/tasks?${params.toString()}&q=${encodeURIComponent(term)}`,
+            `/api/staff/timesheets/tasks?${params.toString()}&reference=${encodeURIComponent(term)}`,
+          ]
+
+      const responses = await Promise.all(
+        requests.map((url) => apiCall<Record<string, unknown>>(url).catch(() => null)),
+      )
+      const merged = new Map<string, TaskOption>()
+      for (const response of responses) {
+        if (!response?.ok) continue
+        for (const row of readRowItems(response.result)) {
+          const option = toTaskOption(row)
+          if (option && !merged.has(option.id)) merged.set(option.id, option)
+        }
+      }
+
+      return [...merged.values()].map((task) => ({
+        id: task.id,
+        title: task.reference ?? task.title,
+        subtitle: task.reference
+          ? describeTaskOption({ ...task, reference: null }, task.timeProjectId ? projectById.get(task.timeProjectId) : null)
+          : (task.timeProjectId ? projectById.get(task.timeProjectId)?.name ?? null : null),
+      }))
+    },
+    [projectById],
   )
 
   const overlap = overlaps[0] ?? null
@@ -711,22 +776,19 @@ export function TimeEntryDialog({
             {t('staff.time_tracking.entryDialog.task', 'Task')}
             <span aria-hidden="true"> *</span>
           </Label>
-          <Select
-            value={taskId ?? undefined}
-            disabled={locked}
-            onValueChange={(next) => setTaskId(next || null)}
-          >
-            <SelectTrigger id="entry-dialog-task" data-testid="entry-dialog-task" ref={taskTriggerRef}>
-              <SelectValue placeholder={t('staff.time_tracking.entryDialog.taskPlaceholder', 'Pick a task')} />
-            </SelectTrigger>
-            <SelectContent>
-              {tasks.map((task) => (
-                <SelectItem key={task.id} value={task.id}>
-                  {describeTaskOption(task, task.timeProjectId ? projectById.get(task.timeProjectId) : null)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div data-testid="entry-dialog-task" ref={taskTriggerRef}>
+            <LookupSelect
+              value={taskId}
+              onChange={(next) => setTaskId(next || null)}
+              fetchItems={fetchTaskItems}
+              disabled={locked}
+              minQuery={0}
+              defaultOpen={false}
+              searchPlaceholder={t('staff.time_tracking.entryDialog.taskPlaceholder', 'Pick a task')}
+              selectedHintLabel={(id) => taskLabelById.get(id) ?? id}
+              emptyLabel={t('staff.time_tracking.entryDialog.taskEmpty', 'No matching task')}
+            />
+          </div>
           <p className="text-xs text-muted-foreground">
             {t(
               'staff.time_tracking.entryDialog.taskHint',
@@ -1079,7 +1141,7 @@ export function TimeEntryDialog({
           // close button) is the right one there.
           if (locked || !taskTriggerRef.current) return
           event.preventDefault()
-          taskTriggerRef.current.focus()
+          focusTaskPicker()
         }}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
