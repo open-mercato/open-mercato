@@ -143,6 +143,34 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `getMapping(...)`
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
+
+### Honouring cancellation inside a batch
+
+`StreamImportInput` and `StreamExportInput` carry an optional `signal: AbortSignal`. The engine aborts
+it as soon as it observes a cancellation request — including while your generator is still working on a
+batch it has not yielded yet. Without it, Cancel is only observed between batches, so an adapter whose
+batch is a slow page of records makes the operator wait out the whole page while the run holds its
+advisory lock.
+
+```ts
+async function* streamImport({ cursor, signal }: StreamImportInput): AsyncIterable<ImportBatch> {
+  let page = cursor ?? null
+  while (page) {
+    const applied = await applyPage(page)
+    // The return MUST sit above the yield. The engine commits `batch.cursor` for every batch it
+    // receives, so yielding a half-applied page advances the cursor past records that were never
+    // applied — and no later run walks them again.
+    if (signal?.aborted) return
+    yield { items: applied.items, cursor: applied.nextPage, hasMore: true, batchIndex: applied.index }
+    page = applied.nextPage
+  }
+}
+```
+
+Release locks and connections in the generator's own `finally` — it runs when the engine closes the
+iterator on an early exit. The signal only reaches work running in the engine's own process: an adapter
+that hands part of a batch to other workers must give that work its own cancellation check. Adapters
+that ignore the signal keep the previous between-batches behavior.
 - optional `runParameters` — see below
 - optional `persistsSharedCursor(entityType)`
 

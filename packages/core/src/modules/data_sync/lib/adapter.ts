@@ -45,6 +45,27 @@ export interface StreamImportInput {
    * declares no parameters.
    */
   parameters?: Record<string, RunParameterValue>
+  /**
+   * Aborted when the run is cancelled, so an adapter can stop INSIDE a batch.
+   *
+   * The engine only gets to look at cancellation between batches — its check sits in the batch
+   * handler, which runs after the adapter has yielded. An adapter whose batch takes minutes (a
+   * whole-table walk over a slow link) therefore keeps working, keeps writing, and keeps its
+   * advisory lock for that whole time, however long ago the operator pressed Cancel.
+   *
+   * Honour it wherever the work is divisible — per page, per record, around a long flush — and just
+   * return: the generator's own `finally` runs, which is where a lock or a connection is released.
+   * Adapters that ignore it behave exactly as they do today.
+   *
+   * The `return` MUST sit ABOVE the `yield` for the page you abandoned, never below it. The engine
+   * commits `batch.cursor` for every batch it receives, so yielding a half-applied page advances the
+   * cursor past records that were never applied and no later run ever walks them again.
+   *
+   * The signal only reaches work running in THIS process. An adapter that hands part of a batch to
+   * other workers must give that work its own cancellation check against the same progress job —
+   * aborting here stops the generator, not anything already queued elsewhere.
+   */
+  signal?: AbortSignal
 }
 
 export interface ImportItem {
@@ -76,6 +97,8 @@ export interface StreamExportInput {
   runId?: string
   /** See {@link StreamImportInput.parameters}. */
   parameters?: Record<string, RunParameterValue>
+  /** Aborted when the run is cancelled — see {@link StreamImportInput.signal}. */
+  signal?: AbortSignal
 }
 
 export interface ExportItemResult {
