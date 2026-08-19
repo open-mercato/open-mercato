@@ -610,7 +610,7 @@ export default {
 ### SSE Endpoint
 - Implemented at `packages/events/src/modules/events/api/stream/route.ts`
 - Uses `ReadableStream` with SSE format (`text/event-stream`)
-- Heartbeat every 30s (`:heartbeat\n\n`)
+- Named heartbeat event every 30s (`event: heartbeat\ndata: {}\n\n`) so browser `EventSource` clients can reset their liveness watchdog
 - Global connection registry pattern: single `*` event bus handler broadcasts to all SSE connections
 - Connection context MUST include `tenantId`, `organizationId`, `userId`, and `roleIds`
 - Server-side audience filtering MUST enforce tenant + organization + recipient user/role checks before enqueueing event to stream
@@ -660,4 +660,5 @@ export default {
 
 ## Changelog
 
+- 2026-08-19: Made staff and portal SSE heartbeats observable as named events so their 45-second client watchdogs no longer reconnect healthy 30-second streams.
 - 2026-02-25: Added mandatory server-side audience filtering contract (tenant/org/user/role), added negative isolation integration coverage requirements (E11-E13), and aligned implementation notes with `/api/events/stream`.

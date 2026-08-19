@@ -104,6 +104,26 @@ describe('SSE event stream — abort listener hygiene', () => {
     try { await reader.cancel() } catch {}
   })
 
+  it('emits a named heartbeat event that browser EventSource clients can observe', async () => {
+    jest.useFakeTimers()
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+
+    try {
+      await reader.read()
+      const heartbeat = reader.read()
+      jest.advanceTimersByTime(30_000)
+
+      const { value, done } = await heartbeat
+      expect(done).toBe(false)
+      expect(new TextDecoder().decode(value)).toBe('event: heartbeat\ndata: {}\n\n')
+    } finally {
+      try { await reader.cancel() } catch {}
+      jest.useRealTimers()
+    }
+  })
+
   it('uses trusted organization scope when the payload omits it', async () => {
     const { req } = makeTrackedRequest()
     const res = await GET(req)

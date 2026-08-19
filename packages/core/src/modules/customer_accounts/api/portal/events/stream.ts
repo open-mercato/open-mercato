@@ -181,7 +181,7 @@ export async function GET(req: Request): Promise<Response> {
 
       heartbeatTimer = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(':heartbeat\n\n'))
+          controller.enqueue(encoder.encode('event: heartbeat\ndata: {}\n\n'))
         } catch {
           // Stream may have been closed
         }

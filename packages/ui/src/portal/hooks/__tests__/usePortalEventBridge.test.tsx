@@ -14,6 +14,7 @@ class EventSourceMock {
   onopen: ((event: Event) => void) | null = null
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: ((event: Event) => void) | null = null
+  addEventListener = jest.fn()
   close = jest.fn()
 
   constructor() {

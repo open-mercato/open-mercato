@@ -76,6 +76,7 @@ export function useEventBridge(): void {
       try {
         const source = new EventSource(SSE_ENDPOINT, { withCredentials: true })
         sourceRef.current = source
+        source.addEventListener('heartbeat', resetHeartbeatTimer)
 
         source.onopen = () => {
           const shouldEmitReconnect = hasEverConnected.current && reconnectPending.current

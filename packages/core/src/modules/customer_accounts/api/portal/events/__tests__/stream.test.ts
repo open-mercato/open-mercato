@@ -213,4 +213,23 @@ describe('Portal SSE event stream — abort listener hygiene', () => {
 
     try { await (res.body as ReadableStream).cancel() } catch {}
   })
+
+  it('emits a named heartbeat event that browser EventSource clients can observe', async () => {
+    jest.useFakeTimers()
+    const res = await GET(makeTrackedRequest().req)
+    const reader = res.body!.getReader()
+
+    try {
+      await drainConnectedComment(reader)
+      const heartbeat = reader.read()
+      jest.advanceTimersByTime(30_000)
+
+      const { value, done } = await heartbeat
+      expect(done).toBe(false)
+      expect(new TextDecoder().decode(value)).toBe('event: heartbeat\ndata: {}\n\n')
+    } finally {
+      await reader.cancel().catch(() => undefined)
+      jest.useRealTimers()
+    }
+  })
 })

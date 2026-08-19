@@ -76,6 +76,7 @@ export function usePortalEventBridge(): void {
       try {
         const source = new EventSource(PORTAL_SSE_ENDPOINT, { withCredentials: true })
         sourceRef.current = source
+        source.addEventListener('heartbeat', resetHeartbeatTimer)
 
         source.onopen = () => {
           const shouldEmitReconnect = hasEverConnected.current && reconnectPending.current
