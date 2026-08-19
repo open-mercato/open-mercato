@@ -24,6 +24,50 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Outbound system email now routes through the Communications Hub
+
+Transactional email (password reset, invitations, MFA email OTP, notifications, quotes,
+checkout, Messages) no longer talks to a provider SDK directly. It resolves a
+`communication_channels` row plus that tenant's integration credentials, and the concrete
+providers ship as pluggable packages (`@open-mercato/channel-resend`,
+`@open-mercato/channel-ses`).
+
+**No action is required for an existing instance.** If your tenants predate this change and
+you configure email the way `.env.example` documents — `RESEND_API_KEY` plus one of
+`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL` — email keeps sending. A tenant with
+no email channel of its own falls back to those instance-wide environment credentials, and
+logs a warning each time it does so.
+
+Credential resolution for a tenant-scoped send runs in this order:
+
+| Tenant state | Credentials used |
+|---|---|
+| Has credentials for the provider (seeded, or saved in the admin UI) | The tenant's own. The Hub channel row is created if missing. |
+| Has a configured channel but no credentials | **None — the send fails.** Never falls back to env. |
+| Has neither | Instance-wide env credentials, with a logged warning. |
+
+The middle row is deliberate: a tenant that configured its own provider must never silently
+send through the instance-wide account. Note also that a channel belonging to a *different
+organization* is never borrowed — organization is a scoping boundary, so that case reaches
+the environment fallback instead.
+
+**Recommended (not required):** move existing tenants onto the Hub so email is managed per
+tenant and visible in the admin UI. The seed hook is idempotent and safe to re-run — it
+iterates every organization of every tenant:
+
+```bash
+yarn mercato seed:defaults --module channel_resend
+```
+
+**For module authors:** `sendEmail(...)` from `@open-mercato/shared/lib/email/send` is
+unchanged, and remains the supported entry point. Pass `tenantId` and `organizationId`
+whenever you have them so the send resolves that tenant's provider rather than the
+instance-wide one. Code that calls a provider SDK directly should migrate to `sendEmail`.
+
+**One trap worth knowing:** the Resend env preset needs `RESEND_API_KEY` *and* a from-address.
+With the key but no from-address it previously seeded nothing in silence; it now logs a
+warning naming the missing variable.
+
 ### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
 
 `loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
