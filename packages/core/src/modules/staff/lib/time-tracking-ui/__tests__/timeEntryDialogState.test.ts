@@ -5,6 +5,7 @@ import {
   describeTaskOption,
   reduceIntervalState,
   shiftIsoDate,
+  toTaskOption,
   toTimeEntryRecord,
 } from '../timeEntryDialogState'
 
@@ -141,5 +142,32 @@ describe('time entry dialog helpers', () => {
     expect(record?.lockedReportId).toBe('r1')
     expect(record?.tagIds).toEqual(['tag-1'])
     expect(record?.description).toBe('Analiza')
+  })
+})
+
+describe('task option references', () => {
+  it('carries the reference through from the API row', () => {
+    const option = toTaskOption({ id: 't1', title: 'Booking flow rebuild', reference: 'APOLLO-14' })
+    expect(option?.reference).toBe('APOLLO-14')
+  })
+
+  it('leads the picker label with the reference', () => {
+    // "APOLLO-14" is what people say to each other and what a report quotes; two
+    // projects with a "Consulting / workshops" are indistinguishable without it.
+    const option = toTaskOption({ id: 't1', title: 'Consulting / workshops', reference: 'HBH-3' })!
+    const label = describeTaskOption(option, {
+      id: 'p1',
+      name: 'HBH',
+      customerName: 'HBH',
+      hourlyRate: null,
+      currencyCode: null,
+      billableByDefault: true,
+    })
+    expect(label).toBe('HBH-3 · Consulting / workshops — HBH — HBH')
+  })
+
+  it('falls back to the plain label when a task has no reference', () => {
+    const option = toTaskOption({ id: 't1', title: 'Untracked' })!
+    expect(describeTaskOption(option, null)).toBe('Untracked')
   })
 })

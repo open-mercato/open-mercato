@@ -300,6 +300,8 @@ export function toTimeEntryRecord(row: ApiRow): TimeEntryRecord | null {
 export type TaskOption = {
   id: string
   title: string
+  /** `<project code>-<n>` — frozen at creation, quoted in reports. */
+  reference: string | null
   timeProjectId: string | null
 }
 
@@ -316,7 +318,12 @@ export function toTaskOption(row: ApiRow): TaskOption | null {
   const id = readRowString(row, 'id')
   const title = readRowString(row, 'title')
   if (!id || !title) return null
-  return { id, title, timeProjectId: readRowString(row, 'time_project_id', 'timeProjectId') }
+  return {
+    id,
+    title,
+    reference: readRowString(row, 'reference'),
+    timeProjectId: readRowString(row, 'time_project_id', 'timeProjectId'),
+  }
 }
 
 export function toProjectOption(row: ApiRow): ProjectOption | null {
@@ -341,10 +348,17 @@ export function toProjectOption(row: ApiRow): ProjectOption | null {
 }
 
 /** `Migracja koszyka B2B — Nordvik — migracja B2B` (screen 8's task option). */
+/**
+ * The reference leads, because it is what people actually say to each other about
+ * a task ("I put two hours on APOLLO-14") and what a client-facing report quotes.
+ * A list keyed on the title alone makes the picker unusable the moment two
+ * projects both have a "Consulting / workshops".
+ */
 export function describeTaskOption(task: TaskOption, project: ProjectOption | null | undefined): string {
-  return [task.title, project?.customerName ?? null, project?.name ?? null]
+  const label = [task.title, project?.customerName ?? null, project?.name ?? null]
     .filter((part): part is string => !!part && part.trim().length > 0)
     .join(' — ')
+  return task.reference ? `${task.reference} · ${label}` : label
 }
 
 export type OverlapEntry = {
