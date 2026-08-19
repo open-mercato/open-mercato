@@ -4,8 +4,21 @@ export type ScheduleScopeActor = {
   isSuperAdmin?: boolean
 }
 
+export type ScheduleScopeType = 'system' | 'organization' | 'tenant'
+
+/**
+ * The scope columns of a loaded `ScheduledJob` row. Every field is optional because the
+ * entity declares them that way (`tenantId?: string | null`), so a required shape here
+ * could not accept the row the routes actually load.
+ *
+ * `undefined` is therefore normalized to `null` on read. That is fail-closed where it
+ * matters: an absent `tenantId` classifies the row as system-scoped, which restricts it to
+ * super admins rather than widening it. An absent `organizationId` reads as "not bound to an
+ * organization", the same as an explicit null, which is what the list endpoint's tenant
+ * branch already treats as tenant-wide.
+ */
 export type ScheduleScopeSubject = {
-  scopeType?: string | null
+  scopeType?: ScheduleScopeType | null
   tenantId?: string | null
   organizationId?: string | null
 }
@@ -16,13 +29,17 @@ export type ScheduleAccessDecision = 'allowed' | 'not_found' | 'forbidden'
  * Decides whether an actor may act on a single schedule that was loaded by id alone.
  *
  * Isolation belongs here, on the loaded row, and never in the `where` clause: a
- * system-scoped schedule has `tenantId === null` and `organizationId === null`, so folding
- * the actor's tenant/org into the lookup makes that row unmatchable and turns every
- * system-scope check below into dead code. `commands/jobs.ts` (update/delete) and
- * `api/jobs/buildFilters.ts` (list) already model visibility this way.
+ * system-scoped schedule carries a null `tenantId`, so folding the actor's tenant into the
+ * lookup makes that row unmatchable and turns every system-scope check below into dead code.
+ * `commands/jobs.ts` (update/delete) and `api/jobs/buildFilters.ts` (list) already model
+ * visibility this way.
  *
- * System scope is classified exactly as `ensureCanManageSystemScopedJob` classifies it, so
- * update, delete, trigger and executions cannot disagree about what a system-scoped row is.
+ * System scope is classified exactly as `ensureCanManageSystemScopedJob` classifies it —
+ * `scopeType === 'system' || tenantId == null` — so update, delete, trigger and executions
+ * cannot disagree about what a system-scoped row is. `organizationId` deliberately plays no
+ * part in that test: a row with a null tenant is system-scoped whether or not an
+ * organization is set, which is how the create validator's scope refinement and the two
+ * command guards already read it.
  *
  * `not_found` vs `forbidden` is deliberate. Another tenant's or another organization's
  * schedule answers `not_found`, because a 403 would confirm that the id exists. Only a

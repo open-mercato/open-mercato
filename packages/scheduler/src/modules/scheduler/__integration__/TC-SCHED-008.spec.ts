@@ -57,7 +57,8 @@ test.describe('TC-SCHED-008: system-scoped schedule access on trigger and execut
         expect(superBody?.ok).toBe(true)
         expect(typeof superBody?.jobId === 'string' && superBody.jobId.length > 0).toBe(true)
       } else {
-        // The strategy check runs after the scope check, so this is the 404 used to mask.
+        // The strategy check runs after the scope check, so this 400 is the response the
+        // 404 used to mask.
         expect(superResponse.status()).toBe(400)
         expect(superBody?.error ?? '').toMatch(/async/i)
       }

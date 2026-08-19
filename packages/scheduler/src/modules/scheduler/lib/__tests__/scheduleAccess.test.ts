@@ -9,11 +9,11 @@
  */
 
 import { describe, it, expect } from '@jest/globals'
-import { resolveScheduleAccess } from '../scheduleAccess'
+import { resolveScheduleAccess, type ScheduleScopeSubject } from '../scheduleAccess'
 
-const systemSchedule = { scopeType: 'system', tenantId: null, organizationId: null }
-const tenantSchedule = { scopeType: 'tenant', tenantId: 't1', organizationId: null }
-const orgSchedule = { scopeType: 'organization', tenantId: 't1', organizationId: 'o1' }
+const systemSchedule: ScheduleScopeSubject = { scopeType: 'system', tenantId: null, organizationId: null }
+const tenantSchedule: ScheduleScopeSubject = { scopeType: 'tenant', tenantId: 't1', organizationId: null }
+const orgSchedule: ScheduleScopeSubject = { scopeType: 'organization', tenantId: 't1', organizationId: 'o1' }
 
 describe('resolveScheduleAccess — system-scoped schedules', () => {
   it('allows a super admin whose session carries a tenant and an organization', () => {
