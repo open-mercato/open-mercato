@@ -994,6 +994,7 @@
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",
   "ui.inputs.comboboxInput.clear": "값 지우기",
   "ui.inputs.comboboxInput.loading": "추천 항목을 불러오는 중…",
+  "ui.inputs.comboboxInput.noMatches": "일치하는 항목 없음",
   "ui.inputs.comboboxInput.placeholder": "입력하여 검색...",
   "ui.inputs.emailInput.placeholder": "name@example.com",
   "ui.inputs.eventPatternInput.placeholder": "sales.orders.created",

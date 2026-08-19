@@ -233,6 +233,7 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
         tenantId: 'tenant-1',
         organizationId: 'org-1',
       }),
+      { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 

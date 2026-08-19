@@ -50,10 +50,10 @@ test('resolvePreset: empty returns 11-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 17-module list extending empty (includes currencies + communication_channels + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 19-module list extending empty (includes attachments + messages + currencies + communication_channels + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 17)
+  assert.equal(result.modules.length, 19)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -63,6 +63,8 @@ test('resolvePreset: crm returns 17-module list extending empty (includes curren
   assert.ok(ids.includes('api_docs'))
   assert.ok(ids.includes('audit_logs'))
   assert.ok(ids.includes('customers'))
+  assert.ok(ids.includes('attachments'))
+  assert.ok(ids.includes('messages'))
   assert.ok(ids.includes('dictionaries'))
   assert.ok(ids.includes('feature_toggles'))
   assert.ok(ids.includes('notifications'))
@@ -231,13 +233,15 @@ test('applyStarterPreset: empty writes 11-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 17-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 19-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
     const content = readFileSync(join(dir, 'src', 'modules.ts'), 'utf-8')
     assert.ok(content.includes("id: 'auth'"))
     assert.ok(content.includes("id: 'customers'"))
+    assert.ok(content.includes("id: 'attachments'"))
+    assert.ok(content.includes("id: 'messages'"))
     assert.ok(content.includes("id: 'dictionaries'"))
     assert.ok(content.includes("id: 'feature_toggles'"))
     assert.ok(content.includes("id: 'currencies'"))
