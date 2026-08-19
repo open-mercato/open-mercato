@@ -70,6 +70,17 @@ describe('resolveScheduleAccess — system-scope classification matches commands
     ).toBe('forbidden')
   })
 
+  // 403 here would tell an actor in t1 that the id exists in t2. Only a genuinely
+  // tenant-less row is allowed to answer `forbidden`.
+  it('does not disclose a tenant-bound "system" row across a tenant boundary', () => {
+    expect(
+      resolveScheduleAccess(
+        { scopeType: 'system', tenantId: 't2', organizationId: null },
+        { tenantId: 't1', orgId: 'o1', isSuperAdmin: false },
+      ),
+    ).toBe('not_found')
+  })
+
   it('still classifies by nullability when scopeType is absent', () => {
     expect(
       resolveScheduleAccess({ tenantId: null, organizationId: null }, { tenantId: 't1', isSuperAdmin: false }),
@@ -93,6 +104,17 @@ describe('resolveScheduleAccess — tenant isolation', () => {
   it('fails closed for a non-super-admin whose tenant could not be resolved', () => {
     expect(
       resolveScheduleAccess(orgSchedule, { tenantId: null, orgId: null, isSuperAdmin: false }),
+    ).toBe('not_found')
+  })
+
+  // The exact shape the replaced lookup leaked: with no tenant clause applied, the filter
+  // `{ id, deletedAt: null, organizationId: 'o1' }` matched org-bound rows in ANY tenant.
+  it('closes the cross-tenant leak for an actor with an org but no resolvable tenant', () => {
+    expect(
+      resolveScheduleAccess(
+        { scopeType: 'organization', tenantId: 't2', organizationId: 'o1' },
+        { tenantId: null, orgId: 'o1', isSuperAdmin: false },
+      ),
     ).toBe('not_found')
   })
 

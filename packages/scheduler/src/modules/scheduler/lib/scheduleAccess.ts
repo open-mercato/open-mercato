@@ -53,12 +53,20 @@ export type ScheduleAccessDecision = 'allowed' | 'not_found' | 'forbidden'
  * Super-admin status reads the immutable `isSuperAdmin` flag derived from RoleAcl/UserAcl at
  * session resolution. Never compare role names, which are tenant-mutable and spoofable.
  *
- * Organization isolation compares the actor's single `orgId`, which is what both routes did
- * before and is narrower than the list endpoint's resolved organization scope
- * (`filterIds`: the selected organization plus its descendants). The two therefore still
- * disagree for an actor whose scope spans several organizations. That divergence predates
- * this helper and is tracked separately; it is preserved here rather than widened, because
- * widening it silently would grant access the previous lookup did not.
+ * Organization isolation compares the actor's single `orgId`, where the list endpoint uses
+ * the resolved organization scope (`filterIds`: the selected organization plus its
+ * descendants). The two diverge in **both** directions, and the second is the permissive one:
+ *
+ * - Narrower: an actor whose scope spans several organizations sees those rows in the list
+ *   but is answered `not_found` here.
+ * - Wider: an actor carrying no `orgId` at all reaches any org-bound row inside its tenant,
+ *   because the organization comparison below short-circuits — while the list hides those
+ *   rows entirely, emitting its organization branch only when at least one id is known.
+ *
+ * Both directions are inherited from the lookup this helper replaces, which compared the same
+ * single id and omitted the clause entirely when it was absent. They are preserved rather
+ * than corrected here, because widening or narrowing silently would change access the
+ * previous lookup granted; reconciling the two paths is tracked separately.
  */
 export function resolveScheduleAccess(
   schedule: ScheduleScopeSubject,
@@ -67,14 +75,25 @@ export function resolveScheduleAccess(
   const isSuperAdmin = actor?.isSuperAdmin === true
   const scheduleTenantId = schedule.tenantId ?? null
 
+  const actorTenantId = actor?.tenantId ?? null
+
   if (schedule.scopeType === 'system' || scheduleTenantId === null) {
-    return isSuperAdmin ? 'allowed' : 'forbidden'
+    if (isSuperAdmin) return 'allowed'
+    // A row mislabelled `system` while still bound to a tenant must not confirm its
+    // existence across a tenant boundary — answering 403 there would tell an actor in one
+    // tenant that the id exists in another, which is the disclosure the `not_found`
+    // decisions below exist to prevent. Only a genuinely tenant-less row answers 403.
+    if (scheduleTenantId !== null && scheduleTenantId !== actorTenantId) return 'not_found'
+    return 'forbidden'
   }
 
-  const actorTenantId = actor?.tenantId ?? null
   if (actorTenantId === null) return 'not_found'
   if (scheduleTenantId !== actorTenantId) return 'not_found'
 
+  // Unlike the list endpoint's equivalent branch, which pins `scope_type = 'tenant'`
+  // (buildFilters.ts), an org-null row is reachable here whatever its `scopeType`. Same
+  // scope-inconsistent-row class as above and equally not producible by the create path;
+  // left loose deliberately rather than diverging from the pre-existing lookup.
   const scheduleOrganizationId = schedule.organizationId ?? null
   const actorOrganizationId = actor?.orgId ?? null
   if (scheduleOrganizationId !== null && actorOrganizationId !== null && scheduleOrganizationId !== actorOrganizationId) {
