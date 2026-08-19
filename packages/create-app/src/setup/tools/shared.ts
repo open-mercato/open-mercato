@@ -54,9 +54,9 @@ export function readEnabledModuleIds(modulesPath: string): string[] {
 // (R5 — degraded, never empty).
 export function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
   const available = existsSync(modulesSubdir)
-    ? readdirSync(modulesSubdir)
-        .filter((file) => file.endsWith('.md'))
-        .map((file) => file.replace(/\.md$/, ''))
+    ? readdirSync(modulesSubdir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(join(modulesSubdir, entry.name, 'index.md')))
+        .map((entry) => entry.name)
     : []
   if (available.length === 0) return []
   const parsed = tryReadEnabledModuleIds(join(targetDir, 'src', 'modules.ts'))
@@ -69,12 +69,29 @@ export function selectModuleFactSheets(targetDir: string, modulesSubdir: string)
 const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
 const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
 
-export function renderModuleGuidesBlock(selected: string[]): string {
+// The generated standalone root must stay well under Codex's 32 KiB
+// project_doc_max_bytes so a routed chain (root + guide + skill) still fits.
+export const STANDALONE_ROOT_TARGET_BYTES = 12 * 1024
+
+export type ModuleGuidesRenderOptions = {
+  // Emit the O(1) pointer form instead of enumerating every id. The inline index
+  // is the better prompt, so callers only ask for this when the enumerated one
+  // would push the root past its byte target.
+  compact?: boolean
+}
+
+export function renderModuleGuidesBlock(
+  selected: string[],
+  options: ModuleGuidesRenderOptions = {},
+): string {
   if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
+  const index = options.compact
+    ? `Enabled module facts: ${selected.length} sheets bundled, too many to index inline — list the module facts directory to see which modules have one.`
+    : `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`
   return [
-    `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`,
+    index,
     '',
-    'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all module facts.',
+    'Load `.ai/guides/modules/<id>/index.md` only for a targeted installed module/host; never preload all module facts.',
   ].join('\n')
 }
 
@@ -84,6 +101,7 @@ export function renderModuleGuidesBlock(selected: string[]): string {
 export function injectModuleGuides(
   agentsMdPath: string,
   selected: string[],
+  options: ModuleGuidesRenderOptions = {},
 ): void {
   if (!existsSync(agentsMdPath)) return
   const content = readFileSync(agentsMdPath, 'utf-8')
@@ -97,8 +115,23 @@ export function injectModuleGuides(
   }
   const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
   const after = content.slice(endIndex)
-  const next = `${before}\n${renderModuleGuidesBlock(selected)}\n${after}`
+  const next = `${before}\n${renderModuleGuidesBlock(selected, options)}\n${after}`
   if (next !== content) writeFileSync(agentsMdPath, next)
+}
+
+// Last step of harness generation: every tool generator has finished patching
+// AGENTS.md, so this is the only point where the final root size is known. The
+// enumerated module index is the one block that grows with the app, so it is
+// also the one that sheds bytes when the root would otherwise blow its target.
+export function enforceRootInstructionBudget(
+  agentsMdPath: string,
+  selected: string[],
+  maxBytes: number = STANDALONE_ROOT_TARGET_BYTES,
+): boolean {
+  if (!existsSync(agentsMdPath)) return false
+  if (Buffer.byteLength(readFileSync(agentsMdPath)) <= maxBytes) return false
+  injectModuleGuides(agentsMdPath, selected, { compact: true })
+  return true
 }
 
 function ensureDir(filePath: string): void {
@@ -193,25 +226,52 @@ export function finalizeHarnessManifest(config: AgenticConfig, selectedTools: st
   ])
 
   for (const file of readdirSync(GUIDES_DIR)) {
-    if (file.endsWith('.md') || file === 'module-facts.json') paths.add(join(targetDir, '.ai', 'guides', file))
+    if (
+      file.endsWith('.md')
+      || file === 'module-facts.json'
+      || file === 'module-facts.v2.json'
+      || file === 'reference-module-facts.json'
+    ) {
+      paths.add(join(targetDir, '.ai', 'guides', file))
+    }
   }
   for (const file of listFiles(join(GUIDES_DIR, 'upstream'))) {
     paths.add(join(targetDir, '.ai', 'guides', 'upstream', relative(join(GUIDES_DIR, 'upstream'), file)))
   }
-  for (const moduleId of selectedModules) paths.add(join(targetDir, '.ai', 'guides', 'modules', `${moduleId}.md`))
+  for (const file of listFiles(join(GUIDES_DIR, 'reference-modules'))) {
+    paths.add(join(targetDir, '.ai', 'guides', 'reference-modules', relative(join(GUIDES_DIR, 'reference-modules'), file)))
+  }
+  for (const moduleId of selectedModules) {
+    const sourceRoot = join(GUIDES_DIR, 'modules', moduleId)
+    const destinationRoot = join(targetDir, '.ai', 'guides', 'modules', moduleId)
+    for (const file of targetPathsForTree(sourceRoot, destinationRoot)) paths.add(file)
+  }
 
   if (selectedTools.includes('claude-code')) {
     paths.add(join(targetDir, 'CLAUDE.md'))
     paths.add(join(targetDir, '.claude', 'settings.json'))
     paths.add(join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.claude', 'hooks', 'gate-evidence.ts'))
+    }
     paths.add(join(targetDir, '.mcp.json.example'))
   }
-  if (selectedTools.includes('codex')) paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+  if (selectedTools.includes('codex')) {
+    paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.codex', 'hooks.json'))
+      paths.add(join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+    }
+  }
   if (selectedTools.includes('cursor')) {
-    for (const file of listFiles(join(AGENTIC_ROOT, 'cursor'))) {
-      const rel = relative(join(AGENTIC_ROOT, 'cursor'), file)
-      const mapped = rel === 'mcp.json.example' ? join(targetDir, '.cursor', 'mcp.json.example') : join(targetDir, '.cursor', rel)
-      paths.add(mapped)
+    paths.add(join(targetDir, '.cursor', 'hooks.json'))
+    paths.add(join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
+    paths.add(join(targetDir, '.cursor', 'mcp.json.example'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'open-mercato.mdc'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'entity-guard.mdc'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'generated-guard.mdc'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
     }
   }
 
@@ -259,8 +319,9 @@ export function generateShared(config: AgenticConfig): void {
   copyTree(join(AGENTIC_DIR, 'scripts'), join(targetDir, 'scripts'), config)
 
   // Package & conceptual guides are copied wholesale (framework-wide). Per-module
-  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
-  // module set; the combined module-facts.json sidecar is copied as-is.
+  // fact-sheets (.ai/guides/modules/<module>/) are filtered to the app's enabled
+  // module set. The combined v1/v2 facts and disabled local-reference projections
+  // are copied as-is so source-present reference modules remain readable without activation.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -278,15 +339,38 @@ export function generateShared(config: AgenticConfig): void {
       copyFileSync(moduleFactsPath, destPath)
     }
 
+    const moduleFactsV2Path = join(GUIDES_DIR, 'module-facts.v2.json')
+    if (existsSync(moduleFactsV2Path)) {
+      const destPath = join(guidesDestDir, 'module-facts.v2.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsV2Path, destPath)
+    }
+
+    const referenceFactsPath = join(GUIDES_DIR, 'reference-module-facts.json')
+    if (existsSync(referenceFactsPath)) {
+      const destPath = join(guidesDestDir, 'reference-module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(referenceFactsPath, destPath)
+    }
+
     copyTree(join(GUIDES_DIR, 'upstream'), join(guidesDestDir, 'upstream'), config)
+    copyTree(join(GUIDES_DIR, 'reference-modules'), join(guidesDestDir, 'reference-modules'), config)
 
     const modulesSubdir = join(GUIDES_DIR, 'modules')
     for (const moduleId of selectedModules) {
-      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
-      ensureDir(destPath)
-      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
+      copyTree(join(modulesSubdir, moduleId), join(guidesDestDir, 'modules', moduleId), config)
     }
   }
 
   injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules)
+}
+
+/** Run after every tool generator has patched AGENTS.md, before the manifest is hashed. */
+export function enforceGeneratedRootBudget(
+  config: AgenticConfig,
+  maxBytes: number = STANDALONE_ROOT_TARGET_BYTES,
+): boolean {
+  const { targetDir } = config
+  const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+  return enforceRootInstructionBudget(join(targetDir, 'AGENTS.md'), selectedModules, maxBytes)
 }

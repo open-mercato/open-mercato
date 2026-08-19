@@ -58,6 +58,18 @@ test('case-local writable timeout raises but never lowers the operator timeout f
   assert.equal(release.effectiveCaseTimeout(cases, 'OMH-185', 900_000), 900_000)
 })
 
+// RELEASE.md documents the duration budget an operator of this gate actually has, so the two
+// facts that note states — the flag's name and its default — are pinned here rather than left
+// to drift against the evaluator's own `--timeout`, which this command does not accept (#5057).
+test('the release gate owns --case-timeout and rejects the evaluator flag --timeout (#5057)', () => {
+  const help = spawnSync(process.execPath, [releaseScript, '--help'], { encoding: 'utf8' })
+  assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
+  assert.match(help.stdout, /--case-timeout <ms>\s+Per-model invocation timeout floor \(default: 120000/)
+  const rejected = spawnSync(process.execPath, [releaseScript, '--timeout', '600000'], { encoding: 'utf8' })
+  assert.equal(rejected.status, 2, `${rejected.stdout}\n${rejected.stderr}`)
+  assert.match(rejected.stderr, /unknown argument: --timeout/)
+})
+
 // The browser lane needs a launchable Chromium headless shell, which depends on host
 // libraries Playwright installs separately (`npx playwright install-deps`). Without them the
 // binary dies with a linker error that surfaces as an opaque "browser has been closed", so

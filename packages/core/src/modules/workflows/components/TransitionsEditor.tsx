@@ -14,6 +14,7 @@ import {
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { millisecondTimeoutInputValue, millisecondTimeoutPatch } from '../lib/activityTimeoutFields'
 
 interface Activity {
   activityId: string
@@ -31,6 +32,8 @@ interface Activity {
   // as an ISO 8601 string, so saving a timeout from this editor failed
   // validation outright (#4424).
   timeoutMs?: number
+  /** @deprecated Use `timeoutMs`. Written by the CrudForm activity editor as a duration or millisecond string. */
+  timeout?: string
   compensation?: Record<string, any>
 }
 
@@ -175,12 +178,16 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
     onChange(updated)
   }
 
-  const updateActivity = (transitionIndex: number, activityIndex: number, field: keyof Activity, fieldValue: any) => {
+  const patchActivity = (transitionIndex: number, activityIndex: number, patch: Partial<Activity>) => {
     const updated = [...value]
     const activities = [...(updated[transitionIndex].activities || [])]
-    activities[activityIndex] = { ...activities[activityIndex], [field]: fieldValue }
+    activities[activityIndex] = { ...activities[activityIndex], ...patch }
     updated[transitionIndex] = { ...updated[transitionIndex], activities }
     onChange(updated)
+  }
+
+  const updateActivity = (transitionIndex: number, activityIndex: number, field: keyof Activity, fieldValue: any) => {
+    patchActivity(transitionIndex, activityIndex, { [field]: fieldValue })
   }
 
   const updateRetryPolicy = (transitionIndex: number, activityIndex: number, field: string, fieldValue: any) => {
@@ -227,7 +234,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.transitions')}
           </p>
-          {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addTransition} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
@@ -300,7 +307,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                     onClick={() => removeTransition(index)}
                     title={t('common.delete')}
                   >
-                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               </div>
@@ -480,7 +487,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                               onClick={() => removeActivity(index, activityIndex)}
                               title={t('common.delete')}
                             >
-                              <Trash2 className="h-3 w-3 text-red-600" />
+                              <Trash2 className="h-3 w-3 text-destructive" />
                             </Button>
                           </div>
                         </div>
@@ -513,8 +520,8 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                             <Input
                               id={`activity-${index}-${activityIndex}-timeout`}
                               type="number"
-                              value={activity.timeoutMs || ''}
-                              onChange={(e) => updateActivity(index, activityIndex, 'timeoutMs', e.target.value ? parseInt(e.target.value) : undefined)}
+                              value={millisecondTimeoutInputValue(activity)}
+                              onChange={(e) => patchActivity(index, activityIndex, millisecondTimeoutPatch(e.target.value))}
                               placeholder="30000"
                               className="mt-1 text-xs h-8"
                             />

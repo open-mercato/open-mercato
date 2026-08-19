@@ -13,6 +13,19 @@ function resolveUrl(path: string): string {
 const tokenCache = new Map<string, { token: string; mintedAt: number }>();
 const TOKEN_TTL_MS = 45 * 60 * 1000; // 45 min; well under the default 2h session TTL.
 
+/**
+ * Drops cached tokens so the next getAuthToken() mints a fresh session.
+ *
+ * A cached token points at a `sessions` row. Anything that deletes those rows —
+ * deactivating the user, a password change, an explicit session purge — leaves the
+ * cached token resolving to 401 for the rest of the TTL, and `apiRequest` neither
+ * retries nor re-mints. A spec that revokes sessions for an account other specs also
+ * use MUST call this afterwards.
+ */
+export function clearAuthTokenCache(): void {
+  tokenCache.clear();
+}
+
 export async function getAuthToken(
   request: APIRequestContext,
   roleOrEmail: Role | string = 'admin',
@@ -82,23 +95,30 @@ export async function apiRequest(
   request: APIRequestContext,
   method: string,
   path: string,
-  options: { token: string; data?: unknown; timeout?: number; headers?: Record<string, string> },
+  options: {
+    token: string;
+    data?: unknown;
+    timeout?: number;
+    retryTransport?: boolean;
+    headers?: Record<string, string>;
+  },
 ) {
   const headers = {
     Authorization: `Bearer ${options.token}`,
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers ?? {}),
   };
   const timeout = options.timeout ?? 30_000;
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const maxAttempts = options.retryTransport === false ? 1 : 2;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       return await request.fetch(resolveUrl(path), { method, headers, data: options.data, timeout });
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : '';
       const retryable = /timeout|idle-session|socket|ECONNRESET|Target page, context or browser has been closed/i.test(message);
-      if (!retryable || attempt === 1) throw error;
+      if (!retryable || attempt === maxAttempts - 1) throw error;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }

@@ -47,11 +47,49 @@ export async function withScopedApiHeaders<T>(headers: Record<string, string>, r
   return scopedHeaders.withScopedHeaders(headers, run)
 }
 
+function readPathname(): string {
+  return typeof window !== 'undefined' ? window.location?.pathname ?? '' : ''
+}
+
+function isLoginPathname(pathname: string): boolean {
+  return pathname.startsWith('/login')
+}
+
+function isPortalPathname(pathname: string): boolean {
+  return /\/[^/]+\/portal(\/|$)/.test(pathname)
+}
+
 export class UnauthorizedError extends Error {
   readonly status = 401
   constructor(message = 'Unauthorized') {
     super(message)
     this.name = 'UnauthorizedError'
+  }
+}
+
+const SESSION_REFRESH_ATTEMPT_KEY_PREFIX = 'om:session-refresh-attempt:'
+const SESSION_REFRESH_COOLDOWN_MS = 10_000
+
+// A genuinely expired session redirects once per target, then goes quiet: the
+// refresh always succeeds (the session cookie is fine), bounces back to the
+// same URL, and re-triggers the same 401 for any non-session cause — without
+// this guard that bounce repeats forever (GH #5186).
+function recentlyAttemptedSessionRefresh(target: string): boolean {
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_REFRESH_ATTEMPT_KEY_PREFIX + target)
+    if (!raw) return false
+    const attemptedAt = Number(raw)
+    return Number.isFinite(attemptedAt) && Date.now() - attemptedAt < SESSION_REFRESH_COOLDOWN_MS
+  } catch {
+    return false
+  }
+}
+
+function recordSessionRefreshAttempt(target: string): void {
+  try {
+    window.sessionStorage.setItem(SESSION_REFRESH_ATTEMPT_KEY_PREFIX + target, String(Date.now()))
+  } catch {
+    // no-op
   }
 }
 
@@ -62,6 +100,8 @@ export function redirectToSessionRefresh() {
   if (window.location.pathname.startsWith('/api/auth')) return
   // Portal routes have their own customer auth — never redirect to staff login
   if (/\/[^/]+\/portal(\/|$)/.test(window.location.pathname)) return
+  if (recentlyAttemptedSessionRefresh(current)) return
+  recordSessionRefreshAttempt(current)
   try {
     flash('Session expired. Redirecting to sign in…', 'warning')
     setTimeout(() => {
@@ -166,10 +206,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const requestHeaders = new Headers(mergedInit?.headers)
   const disableUnauthorizedRedirect = readRedirectOverride(requestHeaders, 'x-om-unauthorized-redirect')
   const disableForbiddenRedirect = readRedirectOverride(requestHeaders, 'x-om-forbidden-redirect')
+  // Snapshot the pathname BEFORE the request is sent. A 401 for a request that
+  // started on the login page must stay silent even when the response lands after
+  // the post-login client-side navigation to /backend — otherwise the stale
+  // pre-auth 401 raises a bogus "Session expired" banner right after signing in.
+  const requestPathname = readPathname()
   const res = await baseFetch(input, mergedInit)
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
-  const onLoginPage = pathname.startsWith('/login')
-  const onPortalRoute = /\/[^/]+\/portal(\/|$)/.test(pathname)
+  const responsePathname = readPathname()
+  const onLoginPage = isLoginPathname(requestPathname) || isLoginPathname(responsePathname)
+  const onPortalRoute = isPortalPathname(requestPathname) || isPortalPathname(responsePathname)
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
     // Skip for staff login page and all portal routes (portal has its own auth)

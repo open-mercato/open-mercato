@@ -12,6 +12,17 @@ beforeEach(() => {
 // Mock modules with one entity extension
 const mockModules = [
   { id: 'auth', entityExtensions: [ { base: 'auth:user', extension: 'my_module:user_profile', join: { baseKey: 'id', extensionKey: 'user_id' } } ] },
+  {
+    id: 'example',
+    entityExtensions: [
+      // Declares `table` explicitly; the derived plural now agrees with it.
+      { base: 'customers:customer_entity', extension: 'example:example_customer_priority', join: { baseKey: 'id', extensionKey: 'customer_id' }, table: 'example_customer_priorities' },
+      // No `table`: exercises the derived-plural fallback.
+      { base: 'auth:role', extension: 'example:example_role_policy', join: { baseKey: 'id', extensionKey: 'role_id' } },
+      // `table` is not a bare identifier, so the engine must refuse it.
+      { base: 'auth:session', extension: 'example:example_session_note', join: { baseKey: 'id', extensionKey: 'session_id' }, table: 'notes"; drop table users --' },
+    ],
+  },
 ]
 
 // Register modules for the registration-based pattern
@@ -943,6 +954,92 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(baseCall._ops.offsets).toBe(10)
   })
 
+  // A tiebreak sort is only worth configuring if the engine actually emits it.
+  // `list.tiebreakSortField` (used by the sales line routes to keep lines with an
+  // equal `line_number` in a repeatable order) is the first caller to pass more
+  // than one sort element, so pin that every element reaches ORDER BY in order —
+  // dropping sort[1] would silently restore the non-determinism it exists to fix.
+  test('emits every sort element as an ORDER BY column, in order', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'b', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Asc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'asc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
+  })
+
+  test('keeps each sort element on its own direction', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 1 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Desc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'desc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
+  })
+
   describe('search_tokens coverage probe (#4723 parity)', () => {
     type ProbeDbLog = { _calls: Array<{ _ops: { table: string } }> }
 
@@ -984,5 +1081,56 @@ describe('BasicQueryEngine (Kysely)', () => {
 
       expect(countProbes(fakeDb)).toBeGreaterThan(0)
     })
+  })
+})
+
+describe('BasicQueryEngine entity-extension joins', () => {
+  function extensionJoins(fakeDb: any, baseTable: string): any[] {
+    const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === baseTable)
+    expect(baseCall).toBeTruthy()
+    return baseCall._ops.joins.filter((entry: any) => Object.keys(entry.aliasObj)[0].startsWith('ext_'))
+  }
+
+  async function joinFor(entity: string, baseTable: string): Promise<any> {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query(entity, {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      includeExtensions: true,
+    })
+    const joins = extensionJoins(fakeDb, baseTable)
+    expect(joins).toHaveLength(1)
+    return joins[0]
+  }
+
+  test('prefers a declared table over the derived plural', async () => {
+    const join = await joinFor('customers:customer_entity', 'customer_entities')
+    expect(join.aliasObj).toEqual({ ext_example_customer_priority: 'example_customer_priorities' })
+    expect(join.conditions).toEqual([
+      {
+        method: 'on',
+        args: ['ext_example_customer_priority.customer_id', '=', 'customer_entities.id'],
+      },
+    ])
+  })
+
+  test('falls back to the derived plural when no table is declared', async () => {
+    // `policy` ends in `y`, so the correct plural is `policies`. This previously asserted
+    // `policys`, pinning a separate inline `+s` pluralizer that the extension-join path used
+    // instead of the file's own `pluralizeBaseName` — the very bug that made
+    // `example_customer_priority` derive `example_customer_prioritys` and forced the
+    // `table` override into existence.
+    const join = await joinFor('auth:role', 'roles')
+    expect(join.aliasObj).toEqual({ ext_example_role_policy: 'example_role_policies' })
+    expect(join.conditions).toEqual([
+      { method: 'on', args: ['ext_example_role_policy.role_id', '=', 'roles.id'] },
+    ])
+  })
+
+  test('ignores a declared table that is not a bare identifier', async () => {
+    const join = await joinFor('auth:session', 'sessions')
+    expect(join.aliasObj).toEqual({ ext_example_session_note: 'example_session_notes' })
   })
 })

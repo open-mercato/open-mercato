@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooki",
   "webhooks.deliveries.actions.retry": "Ponów",
   "webhooks.deliveries.actions.viewDetails": "Zobacz szczegóły",
   "webhooks.deliveries.autoRefreshHint": "Log dostaw odświeża się automatycznie, dopóki ta strona jest otwarta.",

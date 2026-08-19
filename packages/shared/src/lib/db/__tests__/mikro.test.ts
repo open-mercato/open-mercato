@@ -24,6 +24,31 @@ describe('ORM entity registry', () => {
   })
 })
 
+describe('attachPoolErrorHandlers', () => {
+  it('swallows errors from idle pooled clients (pool-level emit)', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { attachPoolErrorHandlers } = await import('../mikro')
+    const pool = new EventEmitter()
+
+    attachPoolErrorHandlers(pool as any)
+
+    expect(() => pool.emit('error', new Error('terminating connection due to idle-in-transaction timeout'))).not.toThrow()
+  })
+
+  it('swallows errors from checked-out clients (client-level emit)', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { attachPoolErrorHandlers } = await import('../mikro')
+    const pool = new EventEmitter()
+    const client = new EventEmitter()
+
+    attachPoolErrorHandlers(pool as any)
+    pool.emit('connect', client)
+
+    expect(client.listenerCount('error')).toBe(1)
+    expect(() => client.emit('error', new Error('terminating connection due to idle-in-transaction timeout'))).not.toThrow()
+  })
+})
+
 describe('resolvePoolConfig', () => {
   const baseEnv = (extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv =>
     ({ ...extra }) as NodeJS.ProcessEnv

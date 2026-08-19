@@ -87,6 +87,11 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(parsed.to).toBeInstanceOf(Date)
   })
 
+  test('listSchema accepts the opt-in recurring-master filter', () => {
+    expect(listSchema.parse({ recurrenceMasters: 'true' }).recurrenceMasters).toBe('true')
+    expect(() => listSchema.parse({ recurrenceMasters: 'yes' })).toThrow()
+  })
+
   test('an unparseable from date yields a clean 400 instead of a 500', async () => {
     const res = await GET(new Request('https://example.test/api/customers/interactions?from=not-a-date'))
     expect(res.status).toBe(400)
@@ -121,5 +126,25 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(compiled).toBeDefined()
     const dateParams = compiled!.parameters.filter((value): value is Date => value instanceof Date)
     expect(dateParams.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('recurring-master reads use the effective date when scheduledAt is nullable', async () => {
+    const from = new Date('2026-02-01T00:00:00.000Z')
+    const to = new Date('2026-02-08T23:59:59.999Z')
+    const res = await GET(
+      new Request(
+        `https://example.test/api/customers/interactions?recurrenceMasters=true&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
+      ),
+    )
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled).toBeDefined()
+    const normalizedSql = compiled!.sql.toLowerCase()
+    expect(normalizedSql).toContain('"recurrence_rule" is not null')
+    expect(normalizedSql).toContain('recurrence_end is null or recurrence_end >=')
+    expect(normalizedSql).toContain('coalesce(occurred_at, scheduled_at, created_at) <=')
+    expect(normalizedSql).not.toContain('"scheduled_at" <=')
+    expect(normalizedSql).not.toContain('coalesce(occurred_at, scheduled_at, created_at) >=')
+    expect(compiled!.parameters).toEqual(expect.arrayContaining([from, to]))
   })
 })

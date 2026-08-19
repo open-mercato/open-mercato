@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -42,6 +42,13 @@ type ChannelRow = {
   /** Spec C — push delivery state (null when provider doesn't support push). */
   pushStatus: 'active' | 'inactive' | 'failed' | null
   lastPushError: { code: string | null; message: string | null; at: string | null } | null
+  /**
+   * `true` when the adapter declares real-time push, so the hub's poll worker
+   * skips this channel entirely — inbound arrives over the provider connection.
+   */
+  supportsRealtimePush: boolean
+  /** `true` when the adapter implements `registerPush` (Gmail-style subscriptions). */
+  supportsPushRegistration: boolean
   createdAt: string | null
 }
 
@@ -314,17 +321,38 @@ export default function ProfileCommunicationChannelsPage() {
       },
       {
         id: 'pushStatus',
-        header: t('communication_channels.push.status.active', 'Push'),
+        // Its own key: sharing `push.status.active` made the header render
+        // "Push active" over a column whose rows say "Polling only" (#4980).
+        header: t('communication_channels.profile.columns.push', 'Push'),
         cell: ({ row }) => {
-          const supportsPush = row.original.providerKey === 'gmail'
-          if (!supportsPush) {
+          const ps = row.original.pushStatus
+          const errorTitle = row.original.lastPushError?.message ?? undefined
+          // Derived from the adapter's declared capabilities, never from the
+          // provider name: `supportsPushRegistration` means push subscriptions
+          // can be (re-)registered from here, `supportsRealtimePush` means the
+          // hub's poll worker skips the channel because the provider connection
+          // delivers inbound itself (#4980).
+          if (!row.original.supportsPushRegistration) {
+            if (!row.original.supportsRealtimePush) {
+              return (
+                <span className="text-xs text-muted-foreground">
+                  {t('communication_channels.push.status.inactive', 'Polling only')}
+                </span>
+              )
+            }
+            if (ps === 'failed') {
+              return (
+                <Tag variant="error" dot title={errorTitle}>
+                  {t('communication_channels.push.status.pushDrivenFailed', 'Push connection failed')}
+                </Tag>
+              )
+            }
             return (
-              <span className="text-xs text-muted-foreground">
-                {t('communication_channels.push.status.inactive', 'Polling only')}
-              </span>
+              <Tag variant="success" dot>
+                {t('communication_channels.push.status.pushDriven', 'Push-driven')}
+              </Tag>
             )
           }
-          const ps = row.original.pushStatus
           if (ps === 'active') {
             return (
               <Tag variant="success" dot>
@@ -333,7 +361,6 @@ export default function ProfileCommunicationChannelsPage() {
             )
           }
           if (ps === 'failed') {
-            const errorMsg = row.original.lastPushError?.message ?? null
             return (
               <div className="flex items-center gap-2">
                 <Tag variant="error" dot>
@@ -345,18 +372,23 @@ export default function ProfileCommunicationChannelsPage() {
                   size="sm"
                   onClick={() => void onRegisterPush(row.original.id)}
                   aria-label={t('communication_channels.push.button.reregister', 'Re-register push')}
-                  title={errorMsg ?? undefined}
+                  title={errorTitle}
                 >
                   {t('communication_channels.push.button.reregister', 'Re-register push')}
                 </Button>
               </div>
             )
           }
-          // null or 'inactive' — provider supports push but not registered yet.
+          // null or 'inactive' — the provider can register push but has not yet.
+          // Only a hub-polled channel falls back to polling meanwhile; for a
+          // push-driven one nothing is delivering inbound at all, so claiming
+          // "Polling only" would repeat the defect this issue is about (#4980).
           return (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                {t('communication_channels.push.status.inactive', 'Polling only')}
+                {row.original.supportsRealtimePush
+                  ? t('communication_channels.push.status.notRegistered', 'Push not registered')
+                  : t('communication_channels.push.status.inactive', 'Polling only')}
               </span>
               <Button
                 type="button"
@@ -409,25 +441,38 @@ export default function ProfileCommunicationChannelsPage() {
           // Allowed from 'connected' AND 'error' — the latter lets the user
           // recover a stuck channel without disconnecting + reconnecting.
           // 'requires_reauth' and 'disconnected' are owned by other flows.
+          // A push-driven channel is never polled by the worker, so offering the
+          // action at all would promise a sync that cannot happen (#4980).
+          const pushDriven = row.original.supportsRealtimePush
           const pollable =
             row.original.isActive &&
+            !pushDriven &&
             (row.original.status === 'connected' || row.original.status === 'error')
           const label =
             row.original.status === 'error'
               ? t('communication_channels.profile.actions.retryPoll', 'Retry')
               : t('communication_channels.profile.actions.pollNow', 'Poll now')
-          return (
+          const disabledReason = pushDriven
+            ? t(
+                'communication_channels.profile.actions.pollNowPushDriven',
+                'This channel is push-driven — inbound messages arrive over the provider connection, so polling does not apply.',
+              )
+            : undefined
+          const button = (
             <Button
               type="button"
               variant={row.original.status === 'error' ? 'default' : 'outline'}
               size="sm"
               onClick={() => void onPollNow(row.original.id)}
               disabled={!pollable}
-              aria-label={label}
+              aria-label={disabledReason ? `${label} — ${disabledReason}` : label}
             >
               {label}
             </Button>
           )
+          // A disabled button does not receive hover events in every browser, so
+          // the explanation lives on a wrapper the pointer can still reach.
+          return disabledReason ? <span title={disabledReason}>{button}</span> : button
         },
       },
       {
@@ -463,7 +508,7 @@ export default function ProfileCommunicationChannelsPage() {
             <p className="text-sm text-muted-foreground">
               {t(
                 'communication_channels.profile.subtitle',
-                'Connect your personal mailbox so outbound messages come from your address and inbound emails land in your unified inbox.',
+                'Connect your communication channels so outbound messages come from your own account and inbound messages land in your unified inbox.',
               )}
             </p>
           </div>
@@ -477,7 +522,7 @@ export default function ProfileCommunicationChannelsPage() {
         </header>
 
         {reauthRows.length > 0 ? (
-          <Alert variant="warning" className="mb-4">
+          <Alert status="warning" className="mb-4">
             <AlertDescription>
               {t(
                 'communication_channels.profile.alerts.requiresReauth',
@@ -497,7 +542,7 @@ export default function ProfileCommunicationChannelsPage() {
           error={errorMessage}
           emptyState={t(
             'communication_channels.profile.empty',
-            'You have no connected channels yet. Use the "Connect channel" entry above to add Gmail or IMAP.',
+            'You have no connected channels yet. Use one of the Connect buttons above to add a channel.',
           )}
         />
         <ImportHistoryDialog
@@ -736,7 +781,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
           </div>
 
           {fieldErrors.channelId ? (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertDescription>{fieldErrors.channelId}</AlertDescription>
             </Alert>
           ) : null}
@@ -871,7 +916,7 @@ function DisconnectChannelDialog({
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {t('communication_channels.profile.disconnect.cancel', 'Cancel')}
           </Button>
-          <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={submitting}>
+          <Button type="button" variant="destructive-solid" onClick={() => void handleConfirm()} disabled={submitting}>
             {submitting
               ? t('communication_channels.profile.disconnect.submitting', 'Disconnecting…')
               : t('communication_channels.profile.disconnect.confirm', 'Disconnect')}

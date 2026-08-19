@@ -12,7 +12,8 @@ Decision tree — ask "what color do I need?":
 | Question | Answer | Token |
 |----------|--------|-------|
 | Is it a status indicator (error/success/warning/info/neutral)? | Yes → | `{property}-status-{status}-{role}` (e.g. `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`) |
-| Is it a destructive action button? | Yes → | `text-destructive`, `bg-destructive` |
+| Is it a destructive action (delete/remove/discard trigger or its icon)? | Yes → | `text-destructive`, `bg-destructive` — NOT for error copy, see the row above |
+| Is it the confirm button inside a confirmation dialog? | Yes → | `Button variant="destructive-solid"` (the only filled-red control) |
 | Is it primary text? | Yes → | `text-foreground` |
 | Is it secondary/placeholder text? | Yes → | `text-muted-foreground` |
 | Is it a primary action (button, link)? | Yes → | `bg-primary`, `text-primary-foreground` |
@@ -131,7 +132,7 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - Every list/data page MUST handle empty state via `<EmptyState>` or `emptyState` prop on DataTable
 - Every async page MUST show loading state via `<LoadingMessage>`, `<Spinner>`, or `<DataLoader>`
 - Alert API: `status="information|success|warning|error|feature"` × `style="light|lighter|stroke|filled"` × `size="xs|sm|default"` — see `.ai/ui-components.md` § Alert for the full matrix
-- The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — new code uses `status` + `style`
+- The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — in-repo migration complete (2026-07); the lint rule `om-ds/no-legacy-alert-variant` guards against regressions, the shim in `primitives/alert.tsx` stays for third-party code
 
 ## Spacing
 - NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)

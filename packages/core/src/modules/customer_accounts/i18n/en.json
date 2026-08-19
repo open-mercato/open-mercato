@@ -337,12 +337,15 @@
   "customer_accounts.widgets.accountStatus": "Account status",
   "customer_accounts.widgets.accountStatus.description": "Shows customer portal account status on CRM person detail",
   "customer_accounts.widgets.emailVerified": "Email verified",
+  "customer_accounts.widgets.invitationExpires": "Invitation expires",
+  "customer_accounts.widgets.invitationPending": "Invitation pending",
   "customer_accounts.widgets.invite.button": "Invite to Portal",
   "customer_accounts.widgets.invite.displayName": "Display Name",
   "customer_accounts.widgets.invite.error.emailRequired": "Email is required",
   "customer_accounts.widgets.invite.error.failed": "Failed to send invitation",
   "customer_accounts.widgets.invite.error.roleRequired": "At least one role must be selected",
   "customer_accounts.widgets.invite.noRoles": "No roles available",
+  "customer_accounts.widgets.invite.resend": "Resend invitation",
   "customer_accounts.widgets.invite.roles": "Roles",
   "customer_accounts.widgets.invite.submit": "Send Invitation",
   "customer_accounts.widgets.invite.success": "Invitation sent successfully",
@@ -350,5 +353,6 @@
   "customer_accounts.widgets.noAccount": "No account linked",
   "customer_accounts.widgets.noUsers": "No users linked",
   "customer_accounts.widgets.portalUsers": "Portal users",
-  "customer_accounts.widgets.viewAccount": "View account"
+  "customer_accounts.widgets.viewAccount": "View account",
+  "notifications.categories.customer_accounts": "Customer accounts"
 }

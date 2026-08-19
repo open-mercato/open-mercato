@@ -10,7 +10,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
@@ -547,15 +547,15 @@ export default function WebhookDetailPage() {
 
         <div className="mt-6 space-y-4">
           {!access.isLoading && !access.canManage && !access.canSecrets && !access.canTest ? (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>{t('webhooks.detail.readOnlyTip')}</AlertDescription>
             </Alert>
           ) : null}
           <div className="grid gap-3 lg:grid-cols-2">
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>{t('webhooks.detail.deliveryTip')}</AlertDescription>
             </Alert>
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>{t('webhooks.detail.signatureTip')}</AlertDescription>
             </Alert>
           </div>

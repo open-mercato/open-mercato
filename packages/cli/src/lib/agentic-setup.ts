@@ -43,11 +43,13 @@ interface AgenticSetupOptions {
   tool?: string
   force?: boolean
   updateHarness?: boolean
+  experimentalHooksValidator?: boolean
 }
 
 interface AgenticConfig {
   projectName: string
   targetDir: string
+  experimentalHooksValidator: boolean
 }
 
 interface HarnessManifestFile {
@@ -120,9 +122,9 @@ function readEnabledModuleIds(modulesPath: string): { parsed: boolean; ids: stri
 // (R5 — degraded, never empty).
 function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
   const available = existsSync(modulesSubdir)
-    ? readdirSync(modulesSubdir)
-        .filter((file) => file.endsWith('.md'))
-        .map((file) => file.replace(/\.md$/, ''))
+    ? readdirSync(modulesSubdir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(join(modulesSubdir, entry.name, 'index.md')))
+        .map((entry) => entry.name)
     : []
   if (available.length === 0) return []
   const parsed = readEnabledModuleIds(join(targetDir, 'src', 'modules.ts'))
@@ -135,12 +137,29 @@ function selectModuleFactSheets(targetDir: string, modulesSubdir: string): strin
 const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
 const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
 
-export function renderModuleGuidesBlock(selected: string[]): string {
+// The generated standalone root must stay well under Codex's 32 KiB
+// project_doc_max_bytes so a routed chain (root + guide + skill) still fits.
+export const STANDALONE_ROOT_TARGET_BYTES = 12 * 1024
+
+export type ModuleGuidesRenderOptions = {
+  // Emit the O(1) pointer form instead of enumerating every id. The inline index
+  // is the better prompt, so callers only ask for this when the enumerated one
+  // would push the root past its byte target.
+  compact?: boolean
+}
+
+export function renderModuleGuidesBlock(
+  selected: string[],
+  options: ModuleGuidesRenderOptions = {},
+): string {
   if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
+  const index = options.compact
+    ? `Enabled module facts: ${selected.length} sheets bundled, too many to index inline — list the module facts directory to see which modules have one.`
+    : `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`
   return [
-    `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`,
+    index,
     '',
-    'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all module facts.',
+    'Load `.ai/guides/modules/<id>/index.md` only for a targeted installed module/host; never preload all module facts.',
   ].join('\n')
 }
 
@@ -150,6 +169,7 @@ export function renderModuleGuidesBlock(selected: string[]): string {
 function injectModuleGuides(
   agentsMdPath: string,
   selected: string[],
+  options: ModuleGuidesRenderOptions = {},
 ): void {
   if (!existsSync(agentsMdPath)) return
   const content = readFileSync(agentsMdPath, 'utf-8')
@@ -163,8 +183,23 @@ function injectModuleGuides(
   }
   const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
   const after = content.slice(endIndex)
-  const next = `${before}\n${renderModuleGuidesBlock(selected)}\n${after}`
+  const next = `${before}\n${renderModuleGuidesBlock(selected, options)}\n${after}`
   if (next !== content) writeFileSync(agentsMdPath, next)
+}
+
+// Last step of harness generation: every tool generator has finished patching
+// AGENTS.md, so this is the only point where the final root size is known. The
+// enumerated module index is the one block that grows with the app, so it is
+// also the one that sheds bytes when the root would otherwise blow its target.
+export function enforceRootInstructionBudget(
+  agentsMdPath: string,
+  selected: string[],
+  maxBytes: number = STANDALONE_ROOT_TARGET_BYTES,
+): boolean {
+  if (!existsSync(agentsMdPath)) return false
+  if (Buffer.byteLength(readFileSync(agentsMdPath)) <= maxBytes) return false
+  injectModuleGuides(agentsMdPath, selected, { compact: true })
+  return true
 }
 
 const TEXT_EXTENSIONS = new Set(['.cjs', '.json', '.md', '.mdc', '.mjs', '.sh', '.ts', '.txt'])
@@ -183,6 +218,37 @@ function listFiles(root: string): string[] {
     else if (entry.isFile()) files.push(absolute)
   }
   return files
+}
+
+/**
+ * The Claude Code hook files a scaffold installs, read from the agentic source tree.
+ *
+ * Enumerating them by hand let `settings.json` register `gate-evidence.ts` while this
+ * generator kept copying only `entity-migration-check.ts`, so `mercato agentic:init` wrote a
+ * hook registration pointing at a file that was never created. Deriving the list from disk
+ * keeps this path and the create-app wizard in step whenever a hook is added.
+ */
+function claudeHookFiles(experimentalHooksValidator: boolean): string[] {
+  const hooksDir = join(AGENTIC_DIR, 'claude-code', 'hooks')
+  return listFiles(hooksDir)
+    .map((file) => relative(hooksDir, file).replaceAll('\\', '/'))
+    .filter((file) => experimentalHooksValidator || file !== 'gate-evidence.ts')
+}
+
+function resolveExperimentalHooksValidator(
+  explicitValue?: boolean,
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (explicitValue !== undefined) return explicitValue
+
+  const token = environment.OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR?.trim().toLowerCase()
+  if (!token) return false
+  if (['1', 'true', 'yes', 'on'].includes(token)) return true
+  if (['0', 'false', 'no', 'off'].includes(token)) return false
+
+  throw new Error(
+    'OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR must be one of: 1, true, yes, on, 0, false, no, off',
+  )
 }
 
 function copyTree(sourceRoot: string, destinationRoot: string, config: AgenticConfig): void {
@@ -406,23 +472,54 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
     ...targetPathsForTree(join(srcDir, 'scripts'), join(targetDir, 'scripts')),
   ])
   for (const file of readdirSync(GUIDES_DIR)) {
-    if (file.endsWith('.md') || file === 'module-facts.json') paths.add(join(targetDir, '.ai', 'guides', file))
+    if (
+      file.endsWith('.md')
+      || file === 'module-facts.json'
+      || file === 'module-facts.v2.json'
+      || file === 'reference-module-facts.json'
+    ) {
+      paths.add(join(targetDir, '.ai', 'guides', file))
+    }
   }
   for (const file of listFiles(join(GUIDES_DIR, 'upstream'))) {
     paths.add(join(targetDir, '.ai', 'guides', 'upstream', relative(join(GUIDES_DIR, 'upstream'), file)))
   }
-  for (const moduleId of selectedModules) paths.add(join(targetDir, '.ai', 'guides', 'modules', `${moduleId}.md`))
+  for (const moduleId of selectedModules) {
+    const sourceRoot = join(GUIDES_DIR, 'modules', moduleId)
+    const destinationRoot = join(targetDir, '.ai', 'guides', 'modules', moduleId)
+    for (const file of targetPathsForTree(sourceRoot, destinationRoot)) paths.add(file)
+  }
+  for (const file of listFiles(join(GUIDES_DIR, 'reference-modules'))) {
+    paths.add(join(targetDir, '.ai', 'guides', 'reference-modules', relative(join(GUIDES_DIR, 'reference-modules'), file)))
+  }
   if (selectedTools.includes('claude-code')) {
     paths.add(join(targetDir, 'CLAUDE.md'))
     paths.add(join(targetDir, '.claude', 'settings.json'))
-    paths.add(join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+    for (const hook of claudeHookFiles(config.experimentalHooksValidator)) {
+      paths.add(join(targetDir, '.claude', 'hooks', hook))
+    }
     paths.add(join(targetDir, '.mcp.json.example'))
   }
-  if (selectedTools.includes('codex')) paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+  if (selectedTools.includes('codex')) {
+    paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.codex', 'hooks.json'))
+      paths.add(join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+    }
+  }
   if (selectedTools.includes('cursor')) {
-    for (const file of listFiles(join(AGENTIC_DIR, 'cursor'))) {
-      const rel = relative(join(AGENTIC_DIR, 'cursor'), file)
-      paths.add(join(targetDir, '.cursor', rel))
+    for (const relativePath of [
+      'hooks.json',
+      'hooks/entity-migration-check.mjs',
+      'mcp.json.example',
+      'rules/open-mercato.mdc',
+      'rules/entity-guard.mdc',
+      'rules/generated-guard.mdc',
+    ]) {
+      paths.add(join(targetDir, '.cursor', relativePath))
+    }
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
     }
   }
   const manifestPath = join(targetDir, '.ai', 'harness', 'manifest.json')
@@ -542,6 +639,12 @@ export function applyHarnessUpdate(
     const destinationPath = resolveManifestPath(targetRoot, previousEntry.path)
     if (!destinationPath || !existsSync(destinationPath)) continue
     assertManagedPath(targetRoot, destinationPath, { leaf: 'file' })
+    const isRetiredFlatModuleFact = !previousEntry.userEditable
+      && /^\.ai\/guides\/(?:modules|reference-modules)\/[^/]+\.md$/.test(previousEntry.path)
+    if (isRetiredFlatModuleFact) {
+      rmSync(destinationPath, { force: true })
+      continue
+    }
     let unchanged = false
     try {
       unchanged = hashFile(destinationPath) === previousEntry.sha256
@@ -585,8 +688,8 @@ function generateShared(config: AgenticConfig): void {
   copyTree(join(srcDir, 'scripts'), join(targetDir, 'scripts'), config)
 
   // Routed conceptual guides are copied wholesale (framework-wide). Per-module
-  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
-  // module set; the combined module-facts.json sidecar is copied as-is.
+  // fact-sheets (.ai/guides/modules/<module>/) are filtered to the app's enabled
+  // module set; the combined v1 and corrected v2 module-facts sidecars are copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -604,14 +707,26 @@ function generateShared(config: AgenticConfig): void {
       copyFileSync(moduleFactsPath, destPath)
     }
 
+    const moduleFactsV2Path = join(GUIDES_DIR, 'module-facts.v2.json')
+    if (existsSync(moduleFactsV2Path)) {
+      const destPath = join(guidesDestDir, 'module-facts.v2.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsV2Path, destPath)
+    }
+
+    const referenceFactsPath = join(GUIDES_DIR, 'reference-module-facts.json')
+    if (existsSync(referenceFactsPath)) {
+      const destPath = join(guidesDestDir, 'reference-module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(referenceFactsPath, destPath)
+    }
 
     copyTree(join(GUIDES_DIR, 'upstream'), join(guidesDestDir, 'upstream'), config)
+    copyTree(join(GUIDES_DIR, 'reference-modules'), join(guidesDestDir, 'reference-modules'), config)
 
     const modulesSubdir = join(GUIDES_DIR, 'modules')
     for (const moduleId of selectedModules) {
-      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
-      ensureDir(destPath)
-      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
+      copyTree(join(modulesSubdir, moduleId), join(guidesDestDir, 'modules', moduleId), config)
     }
   }
 
@@ -623,8 +738,14 @@ function generateClaudeCode(config: AgenticConfig): void {
   const srcDir = join(AGENTIC_DIR, 'claude-code')
 
   writeTemplate(srcDir, 'CLAUDE.md.template', join(targetDir, 'CLAUDE.md'), config)
-  copyFile(srcDir, 'settings.json', join(targetDir, '.claude', 'settings.json'))
-  copyFile(srcDir, 'hooks/entity-migration-check.ts', join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+  copyFile(
+    srcDir,
+    config.experimentalHooksValidator ? 'settings.experimental-hooks-validator.json' : 'settings.json',
+    join(targetDir, '.claude', 'settings.json'),
+  )
+  for (const hook of claudeHookFiles(config.experimentalHooksValidator)) {
+    copyFile(srcDir, `hooks/${hook}`, join(targetDir, '.claude', 'hooks', hook))
+  }
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.mcp.json.example'))
 
   // The installer exclusively owns Claude's per-skill compatibility links.
@@ -658,6 +779,10 @@ function generateCodex(config: AgenticConfig): void {
     writeFileSync(agentsPath, agents)
   }
 
+  if (config.experimentalHooksValidator) {
+    copyFile(srcDir, 'hooks.json', join(targetDir, '.codex', 'hooks.json'))
+    copyFile(srcDir, 'hooks/gate-evidence.mjs', join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+  }
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.codex', 'mcp.json.example'))
 
   // No .codex/skills directory: Codex reads the canonical .agents/skills/,
@@ -671,8 +796,15 @@ function generateCursor(config: AgenticConfig): void {
   writeTemplate(srcDir, 'rules/open-mercato.mdc', join(targetDir, '.cursor', 'rules', 'open-mercato.mdc'), config)
   copyFile(srcDir, 'rules/entity-guard.mdc', join(targetDir, '.cursor', 'rules', 'entity-guard.mdc'))
   copyFile(srcDir, 'rules/generated-guard.mdc', join(targetDir, '.cursor', 'rules', 'generated-guard.mdc'))
-  copyFile(srcDir, 'hooks.json', join(targetDir, '.cursor', 'hooks.json'))
+  copyFile(
+    srcDir,
+    config.experimentalHooksValidator ? 'hooks.experimental-hooks-validator.json' : 'hooks.json',
+    join(targetDir, '.cursor', 'hooks.json'),
+  )
   copyFile(srcDir, 'hooks/entity-migration-check.mjs', join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
+  if (config.experimentalHooksValidator) {
+    copyFile(srcDir, 'hooks/gate-evidence.mjs', join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
+  }
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
 
   // No .cursor/skills directory: Cursor reads the canonical .agents/skills/,
@@ -782,6 +914,7 @@ export async function runAgenticSetup(
   const config: AgenticConfig = {
     projectName: basename(targetDir),
     targetDir,
+    experimentalHooksValidator: resolveExperimentalHooksValidator(options?.experimentalHooksValidator),
   }
 
   const stagingDir = mkdtempSync(join(tmpdir(), 'open-mercato-harness-'))
@@ -796,6 +929,7 @@ export async function runAgenticSetup(
     const stagingConfig: AgenticConfig = {
       projectName: config.projectName,
       targetDir: stagingDir,
+      experimentalHooksValidator: config.experimentalHooksValidator,
     }
     generateHarness(stagingConfig, selectedIds)
     const conflicts = applyHarnessUpdate(targetDir, stagingDir, {
@@ -828,6 +962,9 @@ export async function runAgenticSetup(
   if (selectedIds.includes('cursor')) {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
   }
+  if (config.experimentalHooksValidator) {
+    console.log('   ✓ Experimental gate-evidence/typecheck validator hooks')
+  }
   console.log('')
   console.log('   .ai/agentic.config.json ships preconfigured (GitHub tracker, labels off);')
   console.log('   run /om-setup-agent-pipeline in your agent CLI to tailor labels, QA gate,')
@@ -842,8 +979,20 @@ function generateHarness(config: AgenticConfig, selectedIds: string[]): void {
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
 
+  enforceGeneratedRootBudget(config)
+
   persistAgentSelection(config.targetDir, selectedIds)
   finalizeHarnessManifest(config, selectedIds)
+}
+
+/** Run after every tool generator has patched AGENTS.md, before the manifest is hashed. */
+function enforceGeneratedRootBudget(
+  config: AgenticConfig,
+  maxBytes: number = STANDALONE_ROOT_TARGET_BYTES,
+): boolean {
+  const { targetDir } = config
+  const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+  return enforceRootInstructionBudget(join(targetDir, 'AGENTS.md'), selectedModules, maxBytes)
 }
 
 /**
@@ -869,7 +1018,11 @@ function installSkills(targetDir: string): void {
   if (!existsSync(installScript)) return
   console.log('')
   console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
-  const result = spawnSync(process.execPath, [installScript], { cwd: targetDir, stdio: 'inherit' })
+  const result = spawnSync(process.execPath, [installScript], {
+    cwd: targetDir,
+    stdio: 'inherit',
+    env: { ...process.env, OM_SKILLS_OUTPUT_INDENT: '3' },
+  })
   if (result.error || result.status !== 0) {
     console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
   }

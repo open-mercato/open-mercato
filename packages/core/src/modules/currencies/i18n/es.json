@@ -73,6 +73,7 @@
   "currencies.list.columns.symbol": "Símbolo",
   "currencies.list.columns.updatedAt": "Fecha de actualización",
   "currencies.list.confirmDelete": "¿Eliminar moneda {{code}}? Esto también eliminará todos los tipos de cambio para esta moneda.",
+  "currencies.list.description": "Los tipos de cambio se actualizan cada noche.",
   "currencies.list.error.load": "Error al cargar monedas",
   "currencies.list.filters.active": "Activa",
   "currencies.list.filters.all": "Todas",

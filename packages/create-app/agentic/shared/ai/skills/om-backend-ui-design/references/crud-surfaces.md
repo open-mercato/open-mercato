@@ -14,3 +14,18 @@ Unless the brief explicitly excludes an operation, a new editable entity include
 - Bulk actions: guarded mutations/commands, progress/cancellation, partial-result reporting; no silent client mutation loops.
 
 Test list/detail/create/update/delete, validation, current/stale version, clearing, denied/wildcard ACL, and the exact response-to-form mapping.
+
+## Canonical example source
+
+One compiling use of each surface above, from the source-present, runtime-disabled `example` module. It shows *one way*; this reference stays the rule owner.
+
+| Surface | Exact file |
+|---|---|
+| `DataTable` client island: translated columns, custom-field column visibility, `fetchCrudList`, view + full export, `RowActions` with confirm dialog, row delete sending `buildOptimisticLockHeader` | [`components/TodosTable.tsx`](../../../../src/modules/example/components/TodosTable.tsx) |
+| Perspectives, filter definitions, apply/clear wiring, `useOrganizationScopeVersion` cache keying | [`components/TodosTable.tsx`](../../../../src/modules/example/components/TodosTable.tsx) |
+| `CrudForm` create: server page root delegating to a client leaf, memoized translated fields, `customFields` group, `createCrud`, flash-carrying redirect | [`backend/todos/create/page.tsx`](../../../../src/modules/example/backend/todos/create/page.tsx), [`components/TodoForm.tsx`](../../../../src/modules/example/components/TodoForm.tsx) |
+| `CrudForm` edit/delete: scoped detail load, `extractCustomFieldEntries`, `initialValues.updatedAt` deriving the lock header for update **and** delete, `surfaceRecordConflict` on 409, `updateCrud`/`deleteCrud` | [`backend/todos/[id]/edit/page.tsx`](../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx) |
+| Rendered injected widget leaf: `readApiResultOrThrow`, `useGuardedMutation`, DS primitives, semantic tokens, translated states | [`widgets/injection/customer-priority-detail/widget.client.tsx`](../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx) |
+| Bulk action over selected rows returning `{ ok, affectedCount }` (synchronous; no `progressJobId` yet) | [`widgets/injection/customer-priority-bulk-actions/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts) |
+
+Read only the row you are building, then rename every `example` identifier — see [`README.md`](../../../../src/modules/example/README.md). [`widgets/components.ts`](../../../../src/modules/example/widgets/components.ts) is marked `qa-only`; do not copy it.
