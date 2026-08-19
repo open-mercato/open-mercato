@@ -58,6 +58,7 @@ export async function POST(request: Request): Promise<Response> {
       resourceId: 'new',
       operation: 'create',
       mutationPayload: input,
+      mutationPayloadSchema: documentTemplateInstantiateSchema,
     })
     const commandInput: InstantiateDocumentCommandInput = {
       ...input,

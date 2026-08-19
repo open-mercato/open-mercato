@@ -355,7 +355,6 @@ test('template baseline installs every enabled Documents package', () => {
     scripts?: Record<string, string>
   }
   const environmentTemplate = readFileSync(join(templateRoot, '.env.example'), 'utf-8')
-  const htmlToDocxTypes = readFileSync(join(templateRoot, 'types', 'html-to-docx', 'index.d.ts'), 'utf-8')
   const dockerfile = readFileSync(join(templateRoot, 'Dockerfile'), 'utf-8')
   const fullAppCompose = readFileSync(join(templateRoot, 'docker-compose.fullapp.yml'), 'utf-8')
 
@@ -366,11 +365,10 @@ test('template baseline installs every enabled Documents package', () => {
     'node ./node_modules/@open-mercato/documents/dist/server/documents-collab-server.js',
   )
   assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'puppeteer-core'/)
-  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'html-to-docx'/)
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'jszip'/)
   assert.match(environmentTemplate, /^NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=/m)
   assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_JWT_SECRET_V2=$/m)
   assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_ALLOWED_ORIGINS=/m)
-  assert.match(htmlToDocxTypes, /declare module 'html-to-docx'/)
   assert.match(dockerfile, /^ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL$/m)
   assert.doesNotMatch(dockerfile, /RUN node -e '[^']*NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/)
   assert.doesNotMatch(dockerfile, /ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws:\/\/localhost:4101/)

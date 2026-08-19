@@ -134,6 +134,7 @@ export async function POST(request: Request): Promise<Response> {
       resourceId: 'new',
       operation: 'create',
       mutationPayload: input,
+      mutationPayloadSchema: documentFolderCreateSchema,
     })
     const commandInput: FolderCreateCommandInput = {
       ...input,
@@ -173,6 +174,7 @@ export async function PUT(request: Request): Promise<Response> {
       resourceId: input.id,
       operation: 'update',
       mutationPayload: input,
+      mutationPayloadSchema: documentFolderUpdateSchema,
     })
     const commandInput: FolderUpdateCommandInput = {
       ...input,

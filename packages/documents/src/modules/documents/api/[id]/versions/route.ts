@@ -139,6 +139,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       resourceId: documentId,
       operation: 'create',
       mutationPayload: input,
+      mutationPayloadSchema: versionCreateSchema,
     })
     const commandInput: CreateVersionCommandInput = {
       ...input,

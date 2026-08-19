@@ -1671,6 +1671,95 @@ describe('documents collaboration v2 server contract', () => {
     }
   })
 
+  // `@open-mercato/search` is an optional package: Documents declares only auth,
+  // directory and attachments as hard requirements. An app without Search has no
+  // `searchIndexer` in its container, and an unguarded `container.resolve` there
+  // used to abort every collaborative store.
+  it('stores collaborative content when the container has no searchIndexer', async () => {
+    const context = {
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId: DOCUMENT_ID,
+      tier: 'editor' as const,
+      readOnly: false,
+      exp: null,
+    }
+    const persistContent = jest.fn().mockResolvedValue({
+      updatedAt: '2026-07-10T10:00:02.000Z',
+      collaborationGeneration: 1,
+    })
+    const resolved: string[] = []
+    let runtime!: Hocuspocus<typeof context>
+    const hooks = createCollabHooks({
+      verifyToken: () => null,
+      authorizeContext: async () => true,
+      resolveContainer: async () => ({
+        resolve: (name: string) => {
+          resolved.push(name)
+          if (name === 'em') return {}
+          // Awilix throws AwilixResolutionError for an unregistered name.
+          throw new Error(`Could not resolve '${name}'.`)
+        },
+      }),
+      loadContent: async () => ({
+        yjsState: null,
+        contentHtml: null,
+        updatedAt: '2026-07-10T10:00:00.000Z',
+        collaborationGeneration: 1,
+      }),
+      initializeYjsState: async () => null,
+      persistContent,
+      resolveRoomDocument: (name) => runtime.documents.get(name),
+    })
+    runtime = new Hocuspocus<typeof context>({
+      quiet: true,
+      debounce: 0,
+      maxDebounce: 0,
+      unloadImmediately: true,
+      onLoadDocument: (data) => hooks.onLoadDocument({
+        documentName: data.documentName,
+        context: data.context,
+        document: data.document,
+      }),
+      onStoreDocument: (data) => hooks.onStoreDocument({
+        documentName: data.documentName,
+        context: data.lastContext,
+        document: data.document,
+      }),
+    })
+
+    try {
+      const document = await runtime.createDocument(
+        DOCUMENT_ID,
+        new Request('http://127.0.0.1/collaboration'),
+        'no-search-socket',
+        { readOnly: false, isAuthenticated: true },
+        context,
+      )
+      document.transact(() => {
+        document.getText('no-search').insert(0, 'A')
+      }, { source: 'local', skipStoreHooks: true, context })
+
+      await runtime.storeDocumentHooks(document, {
+        instance: runtime,
+        clientsCount: 1,
+        document,
+        documentName: DOCUMENT_ID,
+        lastContext: context,
+        lastTransactionOrigin: { source: 'local', context },
+      }, true)
+
+      expect(resolved).toContain('searchIndexer')
+      expect(persistContent).toHaveBeenCalledTimes(1)
+      expect(persistContent.mock.calls[0]?.[4]).toMatchObject({ searchIndexer: null })
+    } finally {
+      for (const document of runtime.documents.values()) {
+        await runtime.unloadDocument(document)
+      }
+    }
+  })
+
   it('finishes a final-drain CAS merge without scheduling a contextless Hocuspocus store', async () => {
     const context = {
       userId: USER_ID,

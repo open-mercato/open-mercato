@@ -231,11 +231,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       resourceKind: DOCUMENTS_ENTITY_IDS.documentEntityLink,
       resourceId: 'new',
       operation: 'create',
-      mutationPayload: {
-        entityType: input.entityType,
-        entityId: input.entityId,
-        source: input.source,
-      },
+      mutationPayload: input,
+      mutationPayloadSchema: documentEntityLinkCreateSchema,
     })
     const commandInput: LinkCreateCommandInput = {
       tenantId: ctx.tenantId,

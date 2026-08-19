@@ -40,7 +40,16 @@ export type ScopedAttachmentUploadErrorCode =
   | 'storage_failed'
   | 'persistence_failed'
 
+// Use Symbol.for so the marker survives module duplication across bundle
+// boundaries. The production build emits this module into several server
+// chunks, so a consumer's `instanceof` compares against a different copy of the
+// class than the DI-resolved service threw from: the check silently fails, the
+// error escapes the caller's catch, and a deliberate 400/413 surfaces as a 500.
+const SCOPED_ATTACHMENT_UPLOAD_ERROR_MARKER = Symbol.for('@open-mercato/ScopedAttachmentUploadError')
+
 export class ScopedAttachmentUploadError extends Error {
+  readonly [SCOPED_ATTACHMENT_UPLOAD_ERROR_MARKER] = true
+
   constructor(
     public readonly code: ScopedAttachmentUploadErrorCode,
     public readonly status: number,
@@ -48,6 +57,17 @@ export class ScopedAttachmentUploadError extends Error {
     super(code)
     this.name = 'ScopedAttachmentUploadError'
   }
+}
+
+/**
+ * Bundle-safe check for `ScopedAttachmentUploadError`. Prefer this over
+ * `instanceof` at every call site — the class is duplicated across server
+ * chunks, so `instanceof` is only reliable inside this module.
+ */
+export function isScopedAttachmentUploadError(error: unknown): error is ScopedAttachmentUploadError {
+  return Boolean(error)
+    && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[SCOPED_ATTACHMENT_UPLOAD_ERROR_MARKER] === true
 }
 
 export type ScopedAttachmentUploadInput = {
@@ -62,6 +82,19 @@ export type ScopedAttachmentUploadInput = {
   assignments?: AttachmentAssignment[]
   partitionCode?: string | null
   maxBytes?: number
+  /**
+   * Reject a partition that is public or not scoped to this tenant/organization.
+   * Module-owned uploads (documents, warranty claims) must never land in a
+   * partition another tenant — or an anonymous reader — can reach.
+   */
+  requirePrivatePartition?: boolean
+  /**
+   * Persists a module-owned link row inside the same transaction as the
+   * Attachment, so a link failure cannot leave a committed orphan attachment.
+   * The callback receives only the generated id, never the entity or the
+   * storage implementation.
+   */
+  persistLink?: (tx: EntityManager, attachmentId: string) => Promise<void> | void
 }
 
 type QuotaRecoveryScheduler = (
@@ -102,6 +135,9 @@ export class ScopedAttachmentUploadService {
       ],
     })
     if (!partition) throw new ScopedAttachmentUploadError('partition_unavailable', 400)
+    if (input.requirePrivatePartition && partition.isPublic) {
+      throw new ScopedAttachmentUploadError('partition_unavailable', 403)
+    }
 
     const driver = await storageDriverFactory.resolveForPartition(partition.code, {
       tenantId: input.tenantId,
@@ -210,6 +246,7 @@ export class ScopedAttachmentUploadService {
         })
         assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
         await tx.persist(attachment).flush()
+        await input.persistLink?.(tx, attachmentId)
         await attachmentQuotaService.completeAttachment(reservation.id, reservation.leaseToken, tx)
       })
     } catch (error) {

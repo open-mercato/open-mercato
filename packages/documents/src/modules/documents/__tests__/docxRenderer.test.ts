@@ -7,6 +7,7 @@ import {
   DocxRenderTimeoutError,
   type DocxWorker,
 } from '../lib/docxRenderer'
+import JSZip from 'jszip'
 
 class FakeWorker implements DocxWorker {
   private readonly listeners = {
@@ -64,7 +65,7 @@ describe('process-local DOCX renderer', () => {
   it('assembles only the worker-declared bounded chunks', async () => {
     const workers: FakeWorker[] = []
     const renderer = createDocxRenderer({}, {
-      modulePath: '/mock/html-to-docx',
+      modulePath: '/mock/jszip',
       workerFactory: () => {
         const worker = new FakeWorker()
         workers.push(worker)
@@ -89,7 +90,7 @@ describe('process-local DOCX renderer', () => {
       maxQueue: 0,
       renderTimeoutMs: 1_000,
     }, {
-      modulePath: '/mock/html-to-docx',
+      modulePath: '/mock/jszip',
       workerFactory: () => {
         const worker = new FakeWorker()
         workers.push(worker)
@@ -110,7 +111,7 @@ describe('process-local DOCX renderer', () => {
   it('terminates a CPU-bound worker at the response deadline', async () => {
     const workers: FakeWorker[] = []
     const renderer = createDocxRenderer({ maxConcurrency: 1, maxQueue: 0, renderTimeoutMs: 10 }, {
-      modulePath: '/mock/html-to-docx',
+      modulePath: '/mock/jszip',
       workerFactory: () => {
         const worker = new FakeWorker()
         workers.push(worker)
@@ -139,7 +140,7 @@ describe('process-local DOCX renderer', () => {
     const workers: FakeWorker[] = []
     const allocateOutput = jest.fn((length: number) => new Uint8Array(length))
     const renderer = createDocxRenderer({ maxOutputBytes: 4 }, {
-      modulePath: '/mock/html-to-docx',
+      modulePath: '/mock/jszip',
       allocateOutput,
       workerFactory: () => {
         const worker = new FakeWorker()
@@ -159,7 +160,7 @@ describe('process-local DOCX renderer', () => {
   it.each(['error', 'exit'] as const)('fails closed when the worker emits %s', async (event) => {
     const workers: FakeWorker[] = []
     const renderer = createDocxRenderer({}, {
-      modulePath: '/mock/html-to-docx',
+      modulePath: '/mock/jszip',
       workerFactory: () => {
         const worker = new FakeWorker()
         workers.push(worker)
@@ -175,12 +176,17 @@ describe('process-local DOCX renderer', () => {
     expect(worker.terminate).toHaveBeenCalledTimes(1)
   })
 
-  it('resolves html-to-docx inside a real worker and returns a valid archive', async () => {
+  it('builds an OpenXML archive in a real worker without image metadata dependencies', async () => {
     const renderer = createDocxRenderer({ renderTimeoutMs: 5_000 })
 
-    const result = await renderer.render('<p>Worker smoke test</p>')
+    const result = await renderer.render('<h1>Worker smoke test</h1><p><strong>Safe body</strong></p>')
 
     expect(Buffer.from(result).subarray(0, 2).toString('ascii')).toBe('PK')
+    const archive = await JSZip.loadAsync(result)
+    const documentXml = await archive.file('word/document.xml')?.async('string')
+    expect(documentXml).toContain('Worker smoke test')
+    expect(documentXml).toContain('Safe body')
+    expect(documentXml).toContain('<w:b/>')
   })
 
   it('resolves the traced dependency at worker runtime when a bundler replaces its path', async () => {

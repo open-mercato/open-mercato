@@ -80,7 +80,7 @@ describe('document DOCX export resource policy', () => {
     )
   })
 
-  it('removes every URL-backed authored image before html-to-docx can fetch it', () => {
+  it('removes every URL-backed authored image before DOCX rendering', () => {
     const html = sanitizeDocxExportContent([
       '<p>Keep this text</p>',
       '<img src="https://attacker.example/tracker.png" alt="remote">',

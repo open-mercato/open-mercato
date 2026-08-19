@@ -1,6 +1,4 @@
-import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sql } from 'kysely'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -9,30 +7,42 @@ import { Attachment, AttachmentPartition } from '../data/entities'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
 import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
+import {
+  isScopedAttachmentUploadError,
+  type ScopedAttachmentUploadErrorCode,
+  type ScopedAttachmentUploadService,
+} from './scoped-upload-service'
 import { readAttachmentMetadata, type AttachmentAssignment } from './metadata'
 import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
-  detectAttachmentMimeType,
   hasDangerousExecutableExtension,
-  isActiveContentAttachment,
-  sanitizeUploadedFileName,
 } from './security'
 import {
   isMultipartRequestWithinUploadLimit,
   resolveAttachmentMaxBytes,
   resolveAttachmentMultipartMaxBytes,
-  willExceedAttachmentTenantQuota,
 } from './upload-limits'
 
 const logger = createLogger('attachments').child({ component: 'attachment-service' })
 
-type AttachmentDatabase = {
-  attachments: {
-    file_size: number
-    tenant_id: string | null
-  }
+/**
+ * The scoped upload service reports failures as machine codes; module-facing
+ * callers get the same translation keys the public attachment route returns.
+ */
+const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, string> = {
+  dangerous_executable: 'Executable file types are not allowed as attachments.',
+  max_upload_size: 'Attachment exceeds the maximum upload size.',
+  active_content: 'Active content uploads are not allowed.',
+  partition_unavailable: 'Attachment partition is not accessible for this scope',
+  quota_exceeded: 'attachments.errors.quotaExceeded',
+  quota_target_exists: 'attachments.errors.storagePathExists',
+  quota_unavailable: 'attachments.errors.quotaUnavailable',
+  quota_recovery_unsupported: 'attachments.errors.quotaRecoveryUnsupported',
+  storage_failed: 'Failed to persist attachment.',
+  persistence_failed: 'Failed to persist attachment.',
 }
+
 
 export type AttachmentOwner = {
   entityId: string
@@ -135,21 +145,6 @@ async function readRequestBodyWithinLimit(request: Request, maxBytes: number): P
   return body
 }
 
-async function readTenantUsageBytes(em: EntityManager, tenantId: string): Promise<number> {
-  const db = em.getKysely<AttachmentDatabase>()
-  const row = await db
-    .selectFrom('attachments')
-    .select(sql<string | number | null>`sum(file_size)`.as('total_size'))
-    .where('tenant_id', '=', tenantId)
-    .executeTakeFirst() as { total_size: string | number | null } | undefined
-  const total = row?.total_size
-  if (typeof total === 'number') return Number.isFinite(total) ? total : 0
-  if (typeof total === 'string') {
-    const parsed = Number(total)
-    return Number.isFinite(parsed) ? parsed : 0
-  }
-  return 0
-}
 
 function assignmentMatches(candidate: AttachmentAssignment, expected: AttachmentAssignment): boolean {
   return candidate.type === expected.type && candidate.id === expected.id
@@ -168,9 +163,18 @@ function partitionMatchesScope(
 }
 
 export class DefaultAttachmentService implements AttachmentService {
+  /**
+   * The scoped upload service is supplied as a *resolver*, not an instance:
+   * resolving it eagerly would drag its own dependencies (notably `dataEngine`)
+   * into every container that merely constructs an `attachmentService`, even
+   * one that never uploads. `createScoped` requires it — module uploads must
+   * share the one reservation ledger rather than run a parallel quota
+   * mechanism — so its absence surfaces there, at the call that needs it.
+   */
   constructor(
     private readonly em: EntityManager,
     private readonly storageDriverFactory: StorageDriverFactory,
+    private readonly resolveScopedUploadService?: (() => ScopedAttachmentUploadService | null) | null,
   ) {}
 
   validateUpload(input: {
@@ -208,99 +212,54 @@ export class DefaultAttachmentService implements AttachmentService {
     assertAttachmentScopeInvariant(input)
     this.validateUpload({ fileName: input.fileName, fileSize: input.buffer.length })
 
-    const safeName = sanitizeUploadedFileName(input.fileName)
-    const mimeType = detectAttachmentMimeType(input.buffer, safeName, input.declaredMimeType ?? undefined)
-    if (isActiveContentAttachment(input.buffer, safeName, mimeType)) {
-      throw new CrudHttpError(400, { error: 'Active content uploads are not allowed.' })
-    }
-
-    const partition = await findOneWithDecryption(
-      this.em,
-      AttachmentPartition,
-      { code: input.partitionCode },
-      undefined,
-      { tenantId: input.tenantId, organizationId: input.organizationId },
-    )
-    if (!partition) {
-      throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
-    }
-    // Partition definitions are unencrypted configuration records keyed by a
-    // globally unique code. A definition is usable only when global or scoped
-    // to the same tenant and organization as the attachment.
-    if (!partitionMatchesScope(partition, input.tenantId, input.organizationId)) {
-      throw new CrudHttpError(403, { error: 'Attachment partition is not accessible for this scope' })
-    }
-    if (partition.isPublic) {
-      throw new CrudHttpError(403, { error: 'Public attachment partitions cannot store scoped module files' })
-    }
-
-    const driver = await this.storageDriverFactory.resolveForPartition(partition.code, {
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
-    const attachmentId = randomUUID()
-    let storedPath: string | null = null
-
+    // Delegate to the platform's scoped upload service rather than repeating its
+    // work. It owns the fenced quota lease (reserve → storing → stored →
+    // complete) that the recovery worker reconciles, writes to the provider
+    // outside the database transaction, and emits the attachment CRUD side
+    // effects. The previous implementation here ran a *second*, independent
+    // quota mechanism on a different advisory-lock key that counted only
+    // committed rows, so it could not see an in-flight reservation from the
+    // public attachment route and the two paths could jointly exceed a tenant's
+    // quota — and it wrote to storage inside the transaction, so a crash before
+    // commit left bytes nothing accounted for.
+    let uploadService: ScopedAttachmentUploadService | null = null
     try {
-      await this.em.transactional(async (tx) => {
-        const db = tx.getKysely<AttachmentDatabase>()
-        const quotaLockKey = `attachments:tenant-quota:${input.tenantId}`
-        // Serialize quota check + row creation for a tenant. This is a real
-        // reservation: concurrent uploads cannot all observe the same usage.
-        await sql`select pg_advisory_xact_lock(hashtext(${quotaLockKey}))`.execute(db)
-        const tenantUsageBytes = await readTenantUsageBytes(tx, input.tenantId)
-        if (willExceedAttachmentTenantQuota(tenantUsageBytes, input.buffer.length)) {
-          throw new CrudHttpError(413, { error: 'Attachment storage quota exceeded for this tenant.' })
-        }
+      uploadService = this.resolveScopedUploadService?.() ?? null
+    } catch (error) {
+      logger.error('Scoped attachment upload service could not be resolved', { err: error })
+    }
+    if (!uploadService) {
+      throw new CrudHttpError(500, { error: 'attachments.errors.quotaUnavailable' })
+    }
 
-        const stored = await driver.store({
-          partitionCode: partition.code,
-          orgId: input.organizationId,
-          tenantId: input.tenantId,
-          fileName: safeName,
-          buffer: input.buffer,
-        })
-        storedPath = stored.storagePath
-
-        const attachment = tx.create(Attachment, {
-          id: attachmentId,
-          entityId: input.entityId,
-          recordId: input.recordId,
-          organizationId: input.organizationId,
-          tenantId: input.tenantId,
-          partitionCode: partition.code,
-          fileName: safeName,
-          mimeType,
-          fileSize: input.buffer.length,
-          storageDriver: partition.storageDriver || 'local',
-          storagePath: stored.storagePath,
-          storageMetadata: { assignments: input.assignments ?? [] },
-          url: buildAttachmentFileUrl(attachmentId),
-          content: null,
-        })
-        tx.persist(attachment)
-        await input.persistLink?.(tx, attachmentId)
-        await tx.flush()
+    let attachment: Attachment
+    try {
+      attachment = await uploadService.upload({
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        entityId: input.entityId,
+        recordId: input.recordId,
+        fileName: input.fileName,
+        buffer: input.buffer,
+        declaredMimeType: input.declaredMimeType ?? null,
+        assignments: input.assignments,
+        partitionCode: input.partitionCode,
+        requirePrivatePartition: true,
+        persistLink: input.persistLink,
       })
     } catch (error) {
-      if (storedPath) {
-        await driver.delete(partition.code, storedPath).catch((cleanupError) => {
-          logger.error('Failed to clean up stored attachment after transaction failure', {
-            err: cleanupError,
-            attachmentId,
-            partitionCode: partition.code,
-          })
-        })
+      if (isScopedAttachmentUploadError(error)) {
+        throw new CrudHttpError(error.status, { error: SCOPED_UPLOAD_ERROR_MESSAGES[error.code] ?? 'attachments.errors.uploadFailed' })
       }
       throw error
     }
 
     return {
-      id: attachmentId,
-      url: buildAttachmentFileUrl(attachmentId),
-      fileName: safeName,
-      mimeType,
-      fileSize: input.buffer.length,
+      id: attachment.id,
+      url: attachment.url ?? buildAttachmentFileUrl(attachment.id),
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType ?? '',
+      fileSize: attachment.fileSize,
     }
   }
 

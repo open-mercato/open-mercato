@@ -151,6 +151,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
       resourceId: id,
       operation: 'update',
       mutationPayload: input,
+      mutationPayloadSchema: documentUpdateSchema,
     })
 
     const commandInput: DocumentUpdateCommandInput = {

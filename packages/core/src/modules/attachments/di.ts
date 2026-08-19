@@ -47,13 +47,22 @@ export function register(container: AppContainer) {
     )
       .singleton()
       .proxy(),
-    attachmentService: asFunction(({
-      em,
-      storageDriverFactory,
-    }: {
+    // The scoped upload service is injected so module-owned uploads share the
+    // public attachment route's single fenced reservation ledger instead of
+    // running a second, racing quota mechanism.
+    // The scoped upload service is handed over as a lazy resolver so module
+    // uploads share the public attachment route's single fenced reservation
+    // ledger, without dragging that service's own dependencies into every
+    // container that merely constructs an `attachmentService`.
+    attachmentService: asFunction((cradle: {
       em: ConstructorParameters<typeof DefaultAttachmentService>[0]
       storageDriverFactory: ConstructorParameters<typeof DefaultAttachmentService>[1]
-    }) => new DefaultAttachmentService(em, storageDriverFactory))
+      attachmentScopedUploadService: ScopedAttachmentUploadService
+    }) => new DefaultAttachmentService(
+      cradle.em,
+      cradle.storageDriverFactory,
+      () => cradle.attachmentScopedUploadService ?? null,
+    ))
       .scoped()
       .proxy(),
   })

@@ -201,6 +201,7 @@ export async function POST(request: Request): Promise<Response> {
       resourceId: 'new',
       operation: 'create',
       mutationPayload: input,
+      mutationPayloadSchema: documentTemplateCreateSchema,
     })
 
     const commandInput: TemplateCreateCommandInput = {
@@ -249,6 +250,7 @@ export async function PUT(request: Request): Promise<Response> {
       resourceId: template.id,
       operation: 'update',
       mutationPayload: input,
+      mutationPayloadSchema: documentTemplateUpdateSchema,
     })
 
     const commandInput: TemplateUpdateCommandInput = {

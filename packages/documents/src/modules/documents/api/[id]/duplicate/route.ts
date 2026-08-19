@@ -47,6 +47,13 @@ const duplicateBodySchema = z.object({
   title: documentTitleSchema.optional(),
 })
 
+// The guard sees the same shape the command consumes, so a registry guard can
+// rewrite the title and have that rewrite survive re-validation.
+const duplicateGuardPayloadSchema = duplicateBodySchema.extend({
+  action: z.literal('duplicate'),
+  sourceDocumentId: z.string().uuid(),
+})
+
 const duplicateResponseSchema = z.object({
   id: z.string().uuid(),
   updatedAt: z.string(),
@@ -141,11 +148,17 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     }
 
     const body = duplicateBodySchema.parse(await readBody(request))
+    const guardPayload = duplicateGuardPayloadSchema.parse({
+      ...body,
+      action: 'duplicate',
+      sourceDocumentId,
+    })
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.document,
       resourceId: 'new',
       operation: 'create',
-      mutationPayload: { action: 'duplicate', sourceDocumentId },
+      mutationPayload: guardPayload,
+      mutationPayloadSchema: duplicateGuardPayloadSchema,
     })
 
     const newDocumentId = randomUUID()
@@ -162,7 +175,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       newDocumentId,
       newContentId: randomUUID(),
       actorUserId: resolveActorUserId(ctx.auth),
-      title: body.title,
+      title: guardPayload.title,
       localizedCopyTitle: translate('documents.duplicate.copyTitle', '{title} (copy)'),
       verifiedLinks,
     }

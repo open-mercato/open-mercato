@@ -89,6 +89,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
       resourceId: id,
       operation: 'update',
       mutationPayload: input,
+      mutationPayloadSchema: documentContentPutSchema,
     })
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     const currentContent = await loadDocumentContent(ctx.em, id, scope)

@@ -11,10 +11,9 @@ import {
 } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-  type CrudMutationGuardValidationSuccess,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+  runRouteMutationGuards,
+  type RouteMutationGuardPassed,
+} from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -71,7 +70,7 @@ type RbacServiceLike = {
   }>
 }
 
-export type MutationGuardResult = CrudMutationGuardValidationSuccess | null
+export type MutationGuardResult = RouteMutationGuardPassed
 
 export type DocumentCapabilityProjection = {
   relationshipTier: DocumentTier | null
@@ -88,6 +87,11 @@ export const routeErrorSchema = z.object({ error: z.string(), code: z.string().o
 
 export const ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION =
   `Organization scope could not be resolved (\`code: ${ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE}\`)`
+
+export const ORGANIZATION_SELECTION_INVALID_ERROR_CODE = 'organization_selection_invalid'
+
+export const ORGANIZATION_SELECTION_INVALID_DESCRIPTION =
+  `The selected organization no longer resolves (\`code: ${ORGANIZATION_SELECTION_INVALID_ERROR_CODE}\`)`
 
 /**
  * `resolveDocumentsContext` answers 400 with the
@@ -106,25 +110,28 @@ export function withDocumentsContextErrors(doc: OpenApiRouteDoc): OpenApiRouteDo
   for (const method of Object.keys(doc.methods) as OpenApiHttpMethod[]) {
     const methodDoc = doc.methods[method]
     if (!methodDoc) continue
-    const declared = methodDoc.errors ?? []
-    const errors = declared.some((error) => error.status === 400)
-      ? declared.map((error) => (error.status === 400
-        ? {
-            ...error,
-            description: error.description
-              ? `${error.description}, or ${ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION}`
-              : ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION,
-            schema: error.schema ?? routeErrorSchema,
-          }
-        : error))
-      : [
-          ...declared,
-          {
-            status: 400,
-            description: ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION,
-            schema: routeErrorSchema,
-          },
-        ]
+    const merge = (
+      errors: NonNullable<typeof methodDoc.errors>,
+      status: number,
+      description: string,
+    ): NonNullable<typeof methodDoc.errors> => (
+      errors.some((error) => error.status === status)
+        ? errors.map((error) => (error.status === status
+          ? {
+              ...error,
+              description: error.description
+                ? `${error.description}, or ${description}`
+                : description,
+              schema: error.schema ?? routeErrorSchema,
+            }
+          : error))
+        : [...errors, { status, description, schema: routeErrorSchema }]
+    )
+    // `resolveDocumentsContext` answers 400 `organization_scope_required` and
+    // 422 `organization_selection_invalid` from the same call, so both ride on
+    // every route that resolves a documents context.
+    let errors = merge(methodDoc.errors ?? [], 400, ORGANIZATION_SCOPE_REQUIRED_DESCRIPTION)
+    errors = merge(errors, 422, ORGANIZATION_SELECTION_INVALID_DESCRIPTION)
     methods[method] = { ...methodDoc, errors }
   }
   return { ...doc, methods }
@@ -386,7 +393,7 @@ export async function resolveDocumentsContext(
   if (scope?.selectionRejected) {
     throw new CrudHttpError(422, {
       error: 'documents.errors.organizationSelectionInvalid',
-      code: 'organization_selection_invalid',
+      code: ORGANIZATION_SELECTION_INVALID_ERROR_CODE,
     })
   }
   const tenantId = scope?.tenantId ?? auth.tenantId
@@ -604,44 +611,59 @@ export async function validateMutationGuard(
     resourceId: string
     operation: 'create' | 'update' | 'delete' | 'custom'
     mutationPayload?: Record<string, unknown> | null
+    /**
+     * Re-parses a guard's `modifiedPayload` before it reaches the command. A
+     * registry guard may rewrite the payload, and the route's own schema is the
+     * only thing that still guarantees the command receives a shape it can trust.
+     */
+    mutationPayloadSchema?: { parse: (value: unknown) => Record<string, unknown> }
   },
 ): Promise<MutationGuardResult> {
-  const guardResult = await validateCrudMutationGuard(ctx.container, {
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    userId: resolveActorUserId(ctx.auth),
-    resourceKind: input.resourceKind,
-    resourceId: input.resourceId,
-    operation: input.operation,
-    requestMethod: ctx.request.method,
-    requestHeaders: ctx.request.headers,
-    mutationPayload: input.mutationPayload ?? null,
+  // `runRouteMutationGuards` runs EVERY registered guard plus the bridged legacy
+  // DI service. The deprecated `validateCrudMutationGuard` /
+  // `runCrudMutationGuardAfterSuccess` pair used here before resolved only the
+  // single DI-registered guard service, so every guard a module contributed
+  // through the registry — along with its payload transformation and its
+  // after-success callback — was silently skipped on Documents writes.
+  const guardResult = await runRouteMutationGuards({
+    container: ctx.container,
+    req: ctx.request,
+    auth: {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: resolveActorUserId(ctx.auth),
+      userFeatures: ctx.auth.features,
+    },
+    input: {
+      resourceKind: input.resourceKind,
+      resourceId: input.resourceId,
+      operation: input.operation,
+      mutationPayload: input.mutationPayload ?? null,
+    },
   })
-  if (guardResult && !guardResult.ok) {
-    throw new CrudHttpError(guardResult.status, guardResult.body)
+  if (!guardResult.ok) {
+    throw new CrudHttpError(guardResult.errorStatus, guardResult.errorBody)
+  }
+  if (guardResult.modifiedPayload && input.mutationPayload) {
+    const transformed = input.mutationPayloadSchema
+      ? input.mutationPayloadSchema.parse(guardResult.modifiedPayload)
+      : guardResult.modifiedPayload
+    // Routes read the object they handed in, so the transformation has to land
+    // there rather than only on the guard result.
+    for (const key of Object.keys(input.mutationPayload)) delete input.mutationPayload[key]
+    Object.assign(input.mutationPayload, transformed)
   }
   return guardResult
 }
 
 export async function runMutationGuardAfterSuccess(
-  ctx: DocumentsRouteContext,
+  _ctx: DocumentsRouteContext,
   guardResult: MutationGuardResult,
-  input: {
+  _input: {
     resourceKind: string
     resourceId: string
     operation: 'create' | 'update' | 'delete' | 'custom'
   },
 ): Promise<void> {
-  if (!guardResult?.shouldRunAfterSuccess) return
-  await runCrudMutationGuardAfterSuccess(ctx.container, {
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    userId: resolveActorUserId(ctx.auth),
-    resourceKind: input.resourceKind,
-    resourceId: input.resourceId,
-    operation: input.operation,
-    requestMethod: ctx.request.method,
-    requestHeaders: ctx.request.headers,
-    metadata: guardResult.metadata ?? null,
-  })
+  await guardResult.runAfterSuccess()
 }

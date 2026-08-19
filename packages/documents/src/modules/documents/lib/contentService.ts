@@ -28,7 +28,7 @@ export type DocumentContentSearchIndexer = {
 }
 
 export type PersistDocumentContentDeps = {
-  searchIndexer: DocumentContentSearchIndexer
+  searchIndexer?: DocumentContentSearchIndexer | null
   /**
    * Content version observed by the writer before it prepared this mutation.
    * When present, the comparison happens while holding the content-row lock.
@@ -232,10 +232,6 @@ export async function persistDocumentContent(
   input: { yjsState?: Buffer | null; contentHtml?: string | null; contentText?: string | null },
   deps: PersistDocumentContentDeps,
 ): Promise<PersistedDocumentContent> {
-  if (!deps.searchIndexer || typeof deps.searchIndexer.indexRecordById !== 'function') {
-    throw new Error('[internal] documents content persistence requires searchIndexer')
-  }
-
   // Collaboration stores must not reuse a request identity map: every attempt
   // gets a fresh EM, transaction, and row lock before checking both CAS axes.
   const persisted = await em.fork().transactional(async (transactionalEm) => {
@@ -323,7 +319,7 @@ export async function persistDocumentContent(
   })
 
   try {
-    await deps.searchIndexer.indexRecordById({
+    await deps.searchIndexer?.indexRecordById({
       entityId: DOCUMENTS_ENTITY_IDS.document,
       recordId: documentId,
       tenantId: scope.tenantId,

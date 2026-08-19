@@ -14,8 +14,8 @@ const TEMPLATE_ID = '44444444-4444-4444-8444-444444444444'
 const mockCreateRequestContainer = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScopeForRequest = jest.fn()
-const mockValidateCrudMutationGuard = jest.fn()
-const mockRunCrudMutationGuardAfterSuccess = jest.fn()
+const mockRunRouteMutationGuards = jest.fn()
+const mockRunMutationGuardAfterSuccess = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -33,9 +33,8 @@ jest.mock('../lib/platformServices', () => ({
   }),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
-  validateCrudMutationGuard: (...args: unknown[]) => mockValidateCrudMutationGuard(...args),
-  runCrudMutationGuardAfterSuccess: (...args: unknown[]) => mockRunCrudMutationGuardAfterSuccess(...args),
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: (...args: unknown[]) => mockRunRouteMutationGuards(...args),
 }))
 
 type MockEntityManager = {
@@ -164,8 +163,11 @@ beforeEach(() => {
     selectedId: ORGANIZATION_ID,
     tenantId: TENANT_ID,
   })
-  mockValidateCrudMutationGuard.mockResolvedValue(null)
-  mockRunCrudMutationGuardAfterSuccess.mockResolvedValue(undefined)
+  mockRunMutationGuardAfterSuccess.mockResolvedValue(undefined)
+  mockRunRouteMutationGuards.mockResolvedValue({
+    ok: true,
+    runAfterSuccess: mockRunMutationGuardAfterSuccess,
+  })
   mockCommandExecute.mockResolvedValue({
     result: { id: TEMPLATE_ID, updatedAt: '2026-07-09T09:00:00.000Z' },
     logEntry: null,
@@ -539,6 +541,62 @@ describe('documents templates route', () => {
         template: payload,
       }) }),
     )
+  })
+
+  it('applies registry guard payload transformations and runs after-success callbacks', async () => {
+    mockAcl(['documents.templates.manage'])
+    const payload = {
+      name: 'Requested name',
+      bodyHtml: '<p>Body</p>',
+      isActive: true,
+    }
+    mockRunRouteMutationGuards.mockResolvedValueOnce({
+      ok: true,
+      modifiedPayload: { ...payload, name: 'Guarded name' },
+      runAfterSuccess: mockRunMutationGuardAfterSuccess,
+    })
+
+    const response = await POST(makeRequest('POST', payload))
+
+    expect(response.status).toBe(201)
+    expect(mockRunRouteMutationGuards).toHaveBeenCalledWith(expect.objectContaining({
+      auth: expect.objectContaining({
+        userId: USER_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        userFeatures: ['documents.templates.manage'],
+      }),
+      input: expect.objectContaining({
+        resourceKind: 'documents:document_template',
+        operation: 'create',
+      }),
+    }))
+    expect(mockCommandExecute).toHaveBeenCalledWith(
+      'documents.template.create',
+      expect.objectContaining({ input: expect.objectContaining({
+        template: expect.objectContaining({ name: 'Guarded name' }),
+      }) }),
+    )
+    expect(mockRunMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not dispatch when a registry mutation guard blocks creation', async () => {
+    mockAcl(['documents.templates.manage'])
+    mockRunRouteMutationGuards.mockResolvedValueOnce({
+      ok: false,
+      errorStatus: 422,
+      errorBody: { error: 'documents.errors.guardBlocked' },
+      response: Response.json({ error: 'documents.errors.guardBlocked' }, { status: 422 }),
+    })
+
+    const response = await POST(makeRequest('POST', {
+      name: 'Blocked',
+      bodyHtml: '<p>Body</p>',
+    }))
+
+    expect(response.status).toBe(422)
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(mockRunMutationGuardAfterSuccess).not.toHaveBeenCalled()
   })
 
   it('rejects duplicate template slot names before persistence', async () => {

@@ -101,7 +101,7 @@
     "@tiptap/starter-kit": "^3",
     "@tiptap/suggestion": "^3",
     "@tiptap/y-tiptap": "^3.0.6",
-    "html-to-docx": "^1.8.0",
+    "jszip": "^3.10.1",
     "prosemirror-model": "^1.25.9",
     "prosemirror-state": "^1.4.4",
     "prosemirror-view": "^1.41.9",

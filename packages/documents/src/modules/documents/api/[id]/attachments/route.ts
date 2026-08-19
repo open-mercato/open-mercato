@@ -34,6 +34,15 @@ const attachmentUploadBodySchema = z.object({
   file: z.string().min(1).describe('Binary file payload supplied as multipart form-data'),
 })
 
+// The guard sees exactly the fields the command consumes. `fileSize` is pinned
+// to the real byte length: a guard may rename or retype a file, but it must not
+// be able to talk the route past the upload-size validation below.
+const attachmentGuardPayloadSchema = z.object({
+  fileName: z.string().trim().min(1),
+  fileType: z.string(),
+  fileSize: z.number().int().nonnegative(),
+})
+
 const attachmentUploadResponseSchema = z.object({
   id: z.string().uuid(),
   attachmentId: z.string().uuid(),
@@ -77,15 +86,25 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const form = await readAttachmentUploadForm(attachmentService, request)
     const file = readUploadFile(form)
     attachmentService.validateUpload({ fileName: file.name, fileSize: file.size })
+    const guardPayload = attachmentGuardPayloadSchema.parse({
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    })
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentAttachment,
       resourceId: documentId,
       operation: 'create',
-      mutationPayload: {
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-      },
+      mutationPayload: guardPayload,
+      mutationPayloadSchema: attachmentGuardPayloadSchema.refine(
+        (payload) => payload.fileSize === file.size,
+        { path: ['fileSize'], message: '[internal] mutation guard changed the file size' },
+      ),
+    })
+    // Re-validate against the possibly rewritten name before the bytes are read.
+    attachmentService.validateUpload({
+      fileName: guardPayload.fileName,
+      fileSize: guardPayload.fileSize,
     })
 
     const buffer = Buffer.from(await file.arrayBuffer())
@@ -93,9 +112,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       documentId,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      fileName: file.name,
-      fileType: file.type || null,
-      fileSize: file.size,
+      fileName: guardPayload.fileName,
+      fileType: guardPayload.fileType || null,
+      fileSize: guardPayload.fileSize,
     }
     const commandContext = {
       ...buildDocumentsCommandRuntimeContext(ctx),

@@ -56,7 +56,7 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
     'puppeteer-core',
-    'html-to-docx',
+    'jszip',
     'yjs',
     // Telemetry: the OTEL SDK + instrumentations must run as real Node modules,
     // not be bundled — the auto-instrumentations (pg/undici) monkey-patch the

@@ -72,6 +72,7 @@ function makeEntityManager(content: DocumentContent, options: { resetVersionOnFl
 describe('document content persistence concurrency', () => {
   afterEach(() => {
     jest.useRealTimers()
+    mockLoggerError.mockClear()
   })
 
   it('loads a room from a fresh transaction under a scoped pessimistic read lock', async () => {
@@ -268,5 +269,29 @@ describe('document content persistence concurrency', () => {
         err: indexingError,
       }),
     )
+  })
+
+  it('persists content when the optional search package is not installed', async () => {
+    const content = contentRow()
+    const { em } = makeEntityManager(content)
+
+    await expect(persistDocumentContent(
+      em as never,
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      { contentHtml: '<p>Without search</p>', contentText: 'Without search' },
+      {
+        expectedUpdatedAt: CURRENT_VERSION,
+        expectedCollaborationGeneration: 1,
+        requireExpectedVersion: true,
+      },
+    )).resolves.toEqual({
+      id: CONTENT_ID,
+      updatedAt: expect.any(Date),
+      collaborationGeneration: 1,
+    })
+
+    expect(content.contentText).toBe('Without search')
+    expect(mockLoggerError).not.toHaveBeenCalled()
   })
 })

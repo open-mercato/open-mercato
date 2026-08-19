@@ -188,6 +188,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       resourceId: guardResourceId,
       operation: 'create',
       mutationPayload: input,
+      mutationPayloadSchema: documentShareCreateSchema,
     })
 
     const existing = await findOneWithDecryption(
@@ -250,6 +251,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
       resourceId: share.id,
       operation: 'update',
       mutationPayload: input,
+      mutationPayloadSchema: documentShareUpdateSchema,
     })
 
     const commandInput: ShareUpdateCommandInput = {

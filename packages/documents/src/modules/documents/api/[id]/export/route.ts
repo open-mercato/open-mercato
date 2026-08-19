@@ -257,11 +257,12 @@ function readSafeEmbeddedImageBytes(source: string, maxDecodedBytes: number): nu
 }
 
 /**
- * html-to-docx dereferences URL-backed images with node-fetch. Replace only
- * small embedded raster images with sanitizer-safe placeholders, sanitize the
- * full rich text, then restore those in-memory payloads. Every URL, relative
- * path, blob source, malformed data URI, SVG, duplicate src attribute, and
- * aggregate payload beyond the bound is removed before conversion.
+ * Keep only bounded embedded PNG/JPEG payloads for the in-process OpenXML
+ * renderer. Replace those small raster images with sanitizer-safe placeholders,
+ * sanitize the full rich text, then restore the in-memory payloads. Every URL,
+ * relative path, blob source, malformed data URI, SVG, duplicate src attribute,
+ * and aggregate payload beyond the bound is removed before conversion, so no
+ * exporter ever dereferences a remote image.
  */
 function sanitizeEmbeddedRasterExportContent(
   contentHtml: string,

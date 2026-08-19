@@ -70,6 +70,10 @@ function createHarness(options: {
    * lookup, so the authorization layer can be exercised on its own.
    */
   unscopedAttachmentLookup?: boolean
+  /** Error the delegated scoped upload service raises. */
+  uploadError?: unknown
+  /** Simulates a container without the scoped upload service registered. */
+  withoutScopedUpload?: boolean
 } = {}) {
   const selectedPartition = options.partition ?? partition()
   const selectedAttachment = options.attachment === undefined ? attachment() : options.attachment
@@ -115,7 +119,18 @@ function createHarness(options: {
   }
   em.transactional = jest.fn(async (callback: (tx: typeof em) => unknown) => callback(em))
   const factory: any = { resolveForPartition: jest.fn(async () => driver) }
-  return { service: new DefaultAttachmentService(em, factory), em, driver, factory }
+  // `createScoped` delegates the whole upload to the platform's scoped upload
+  // service; the double records what it was handed and can fail with any of the
+  // service's machine codes.
+  const scopedUpload: any = {
+    upload: jest.fn(async (uploadInput: Record<string, unknown>) => {
+      if (options.uploadError) throw options.uploadError
+      await (uploadInput.persistLink as ((tx: unknown, id: string) => Promise<void>) | undefined)?.(em, 'attachment-1')
+      return attachment({ fileName: 'stored.txt', mimeType: 'text/plain', fileSize: 4 })
+    }),
+  }
+  const service = new DefaultAttachmentService(em, factory, () => (options.withoutScopedUpload ? null : scopedUpload))
+  return { service, em, driver, factory, scopedUpload }
 }
 
 function createInput(overrides: Record<string, unknown> = {}) {
@@ -143,31 +158,75 @@ describe('DefaultAttachmentService', () => {
     delete process.env.OM_ATTACHMENT_TENANT_QUOTA_MB
   })
 
-  it('rejects quota exhaustion before writing to the provider', async () => {
-    process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '1'
-    const { service, driver } = createHarness({ usage: 1024 * 1024 })
+  // `createScoped` used to run its own quota check on a different advisory-lock
+  // key that counted only committed rows, so it could not see an in-flight
+  // reservation from the public attachment route and the two paths could
+  // jointly exceed a tenant's quota. It now delegates to the one service that
+  // owns the fenced reservation lease.
+  it('delegates the upload to the shared scoped upload service', async () => {
+    const { service, scopedUpload, driver } = createHarness()
 
-    await expectStatus(service.createScoped(createInput()), 413)
+    await expect(service.createScoped(createInput())).resolves.toMatchObject({
+      id: 'attachment-1',
+      fileName: 'stored.txt',
+      mimeType: 'text/plain',
+      fileSize: 4,
+    })
 
+    expect(scopedUpload.upload).toHaveBeenCalledTimes(1)
+    // No second quota mechanism and no direct provider write from this service.
     expect(driver.store).not.toHaveBeenCalled()
   })
 
-  it('propagates provider failures without attempting cleanup for an unstored blob', async () => {
-    const { service, driver } = createHarness({ storeError: new Error('provider unavailable') })
+  it('requires a private partition and forwards the module link callback', async () => {
+    const { service, scopedUpload } = createHarness()
+    const persistLink = jest.fn(async () => undefined)
 
-    await expect(service.createScoped(createInput())).rejects.toThrow('provider unavailable')
+    await service.createScoped(createInput({ persistLink }))
 
-    expect(driver.delete).not.toHaveBeenCalled()
+    expect(scopedUpload.upload).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      entityId: 'documents:document',
+      recordId: 'document-1',
+      partitionCode: 'privateAttachments',
+      requirePrivatePartition: true,
+      persistLink,
+    }))
+    // The link must be written inside the delegate's transaction.
+    expect(persistLink).toHaveBeenCalledTimes(1)
   })
 
-  it('deletes a stored blob when the module link transaction fails', async () => {
-    const { service, driver } = createHarness()
+  it.each([
+    ['quota_exceeded', 413],
+    ['quota_target_exists', 409],
+    ['dangerous_executable', 400],
+    ['active_content', 400],
+    ['storage_failed', 500],
+    ['persistence_failed', 500],
+  ] as const)('maps the delegated %s failure to %i', async (code, status) => {
+    const uploadError = Object.assign(new Error(code), {
+      code,
+      status,
+      [Symbol.for('@open-mercato/ScopedAttachmentUploadError')]: true,
+    })
+    const { service } = createHarness({ uploadError })
 
-    await expect(service.createScoped(createInput({
-      persistLink: async () => { throw new Error('link insert failed') },
-    }))).rejects.toThrow('link insert failed')
+    await expectStatus(service.createScoped(createInput()), status)
+  })
 
-    expect(driver.delete).toHaveBeenCalledWith('privateAttachments', 'tenant-1/org-1/stored.txt')
+  it('rethrows a non-upload error unchanged', async () => {
+    const { service } = createHarness({ uploadError: new Error('database unavailable') })
+
+    await expect(service.createScoped(createInput())).rejects.toThrow('database unavailable')
+  })
+
+  it('refuses to upload when the scoped upload service is not registered', async () => {
+    const { service, driver } = createHarness({ withoutScopedUpload: true })
+
+    await expectStatus(service.createScoped(createInput()), 500)
+
+    expect(driver.store).not.toHaveBeenCalled()
   })
 
   it('scopes the attachment lookup to the caller tenant and organization', async () => {

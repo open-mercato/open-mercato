@@ -302,6 +302,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       resourceId: documentId,
       operation: 'create',
       mutationPayload: input,
+      mutationPayloadSchema: documentCommentCreateSchema,
     })
 
     const commandInput: CommentCreateCommandInput = {
@@ -360,6 +361,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       resourceId: comment.id,
       operation: 'update',
       mutationPayload: input,
+      mutationPayloadSchema: commentResolveSchema,
     })
 
     const commandInput: CommentResolveCommandInput = {

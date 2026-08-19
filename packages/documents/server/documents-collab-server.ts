@@ -2781,11 +2781,15 @@ export function createCollabHooks(deps: CollabHooksDeps) {
         throw error
       }
       let em: unknown
-      let searchIndexer: unknown
+      let searchIndexer: unknown = null
       try {
         const container = await deps.resolveContainer()
         em = container.resolve('em')
-        searchIndexer = container.resolve('searchIndexer')
+        try {
+          searchIndexer = container.resolve('searchIndexer')
+        } catch {
+          searchIndexer = null
+        }
       } catch (error) {
         if (retireFailedStore(data)) return
         throw error
