@@ -24,6 +24,19 @@ jest.mock('../conversation-store', () => {
   }
 })
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   listAiServerConversations,
   createAiServerConversation,
@@ -31,6 +44,8 @@ import {
 
 const listMock = listAiServerConversations as jest.MockedFunction<typeof listAiServerConversations>
 const createMock = createAiServerConversation as jest.MockedFunction<typeof createAiServerConversation>
+const loggerError = createLogger('ui').error as jest.Mock
+const loggerWarn = createLogger('ui').warn as jest.Mock
 
 const KEY_PREFIX = 'om-ai-chat-sessions-v1'
 
@@ -69,6 +84,8 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
     listMock.mockResolvedValue(null)
     createMock.mockReset()
     createMock.mockResolvedValue(null)
+    loggerError.mockClear()
+    loggerWarn.mockClear()
     // Reset scope to a known starting point. The module-level state in
     // organizationEvents persists across tests in the same file.
     act(() => {
@@ -210,6 +227,51 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
     await waitFor(() => {
       expect(listMock).toHaveBeenCalledTimes(2)
     })
+  })
+
+  it('warns when the server conversation list is unavailable', async () => {
+    listMock.mockReset()
+    listMock.mockResolvedValue(null)
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(loggerWarn).toHaveBeenCalledWith(
+        'Could not load server conversations; keeping the locally persisted sessions',
+      )
+    })
+  })
+
+  it('logs and keeps the locally persisted sessions when the server list rejects', async () => {
+    const failure = new Error('[internal] conversations endpoint unreachable')
+    listMock.mockReset()
+    listMock.mockRejectedValue(failure)
+    window.localStorage.setItem(
+      scopedKey('T1', 'O1'),
+      JSON.stringify({
+        sessions: [
+          {
+            id: 'local-session',
+            agentId: 'assistant',
+            conversationId: 'local-conv',
+            createdAt: 1,
+            lastUsedAt: 1,
+            status: 'open',
+          },
+        ],
+        activeByAgent: { assistant: 'local-session' },
+      }),
+    )
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(loggerError).toHaveBeenCalledWith('Failed to load server conversations', {
+        err: failure,
+      })
+    })
+
+    expect(screen.getByTestId('session-count').textContent).toBe('1')
   })
 
   it('falls back to the no-tenant/no-org bucket when scope is unresolved', async () => {

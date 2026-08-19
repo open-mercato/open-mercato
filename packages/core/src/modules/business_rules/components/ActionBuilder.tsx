@@ -3,11 +3,13 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Plus, Code } from 'lucide-react'
-import { ActionRow } from './ActionRow'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ActionRow, type OpenMercatoCallOptionsState } from './ActionRow'
 import type { Action } from './utils/actionValidation'
 import { validateActions } from './utils/actionValidation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import type { OpenMercatoCallOptionsResponse } from '../lib/openmercato-call-options-types'
 
 export type ActionBuilderProps = {
   value: Action[] | null | undefined
@@ -29,7 +31,52 @@ export function ActionBuilder({
   const t = useT()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [showDebug, setShowDebug] = React.useState(false)
-  const actions = value || []
+  const [openMercatoOptions, setOpenMercatoOptions] = React.useState<OpenMercatoCallOptionsState>({
+    endpoints: [],
+    apiKeys: [],
+    loading: true,
+    error: null,
+  })
+  const actions = React.useMemo(() => value || [], [value])
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    async function loadOpenMercatoOptions() {
+      setOpenMercatoOptions((current) => ({ ...current, loading: true, error: null }))
+      try {
+        const response = await apiCall<OpenMercatoCallOptionsResponse>('/api/business_rules/openmercato-call-options')
+        if (!response.ok || !response.result) {
+          const error = response.result && 'error' in response.result
+            ? String((response.result as any).error)
+            : t('business_rules.components.actionRow.openMercato.options.fetchFailed', { status: response.status })
+          throw new Error(error)
+        }
+        if (!cancelled) {
+          setOpenMercatoOptions({
+            endpoints: Array.isArray(response.result.endpoints) ? response.result.endpoints : [],
+            apiKeys: Array.isArray(response.result.apiKeys) ? response.result.apiKeys : [],
+            loading: false,
+            error: null,
+          })
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOpenMercatoOptions({
+            endpoints: [],
+            apiKeys: [],
+            loading: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+
+    void loadOpenMercatoOptions()
+    return () => {
+      cancelled = true
+    }
+  }, [t])
 
   const handleAddAction = () => {
     const newAction: Action = {
@@ -101,10 +148,11 @@ export function ActionBuilder({
         {/* Controls */}
         <div className="flex items-center gap-2">
           {showJsonPreview && actions.length > 0 && (
-            <button
+            <Button
               type="button"
               onClick={() => setShowDebug(!showDebug)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              variant="muted"
+              size="2xs"
               title={t('business_rules.components.actionBuilder.jsonPreview.toggle')}
             >
               <Code className="w-3 h-3" />
@@ -112,7 +160,7 @@ export function ActionBuilder({
                 ? t('business_rules.components.actionBuilder.jsonPreview.hide')
                 : t('business_rules.components.actionBuilder.jsonPreview.show')
               }
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -143,6 +191,7 @@ export function ActionBuilder({
                 onMoveDown={index < actions.length - 1 ? handleMoveDown : undefined}
                 canMoveUp={index > 0}
                 canMoveDown={index < actions.length - 1}
+                openMercatoOptions={openMercatoOptions}
               />
             ))}
           </div>

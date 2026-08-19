@@ -81,6 +81,68 @@ flowchart TD
 2. Hook uses map + tenant DEK to decrypt mapped fields.
 3. API/CRUD receives hydrated plaintext while the DB keeps ciphertext.
 
+### Querying encrypted columns
+
+Decryption happens on **load**, not on **filter**. A `where` clause is passed to the database as
+written, so a plaintext predicate against an encrypted column is compared to ciphertext:
+
+- **It matches nothing, and it does not raise.** `{ title: 'Renewal' }`, `{ title: { $in: [...] } }`
+  and `em.count()` with such a filter return empty/zero rather than an error. Guard clauses and
+  idempotency checks built this way silently no-op once encryption is enabled — and keep working in
+  local dev with `TENANT_DATA_ENCRYPTION=no`, which is how the mistake survives review.
+- **For exact lookups, declare a hash column.** Add `hashField` to the field's rule in the module's
+  encryption map and filter on the hash (this is how `users.email_hash` supports login).
+- **Otherwise read, then compare in memory.** `findWithDecryption` / `findOneWithDecryption` /
+  `findAndCountWithDecryption` (`@open-mercato/shared/lib/encryption/find`) hydrate plaintext, so the
+  comparison happens on decrypted values. Scope the query by tenant/organization first so the set
+  stays bounded.
+- Sorting has the same limitation — see the encrypted-sort helpers in the `customers` module for the
+  established pattern.
+
+#### Text search: `$ilike` never matches an encrypted column
+
+This is the same failure as above, but it is worth calling out on its own because it is the one
+teams keep rediscovering (issue #5051). A hand-written substring search:
+
+```ts
+// Returns an empty page the moment `title` is added to an encryption map.
+const rows = await findWithDecryption(em, MailMessage, { title: { $ilike: `%${term}%` } })
+```
+
+compares a plaintext pattern against ciphertext. There is no error and no partial result — just an
+empty page that looks exactly like "nothing matched", so the feature ships green and the regression
+surfaces months later in production.
+
+**Use the token index instead.** `search_tokens` stores hashes of the *plaintext*, so it keeps
+matching after encryption is enabled:
+
+```ts
+import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
+
+const match = await findEntityIdsBySearchTokens({
+  db: em.getKysely<any>(),
+  entityType: E.customers.customer_entity,
+  query: term,
+  fields: ['display_name', 'primary_email'],
+  scope: { tenantId, organizationId },
+})
+if (match.matched && match.ids.length) filters.$or.push({ id: { $in: match.ids } })
+```
+
+`matched: false` means the index was **not consulted** (blank query, `OM_SEARCH_ENABLED=off`, or a
+term too short to tokenize) — not "nothing matched". Keep the caller's own predicate in that case.
+
+Queries that go through the **query engine** get this routing automatically. Raw `em.find` and
+Kysely list routes must wire it themselves; where that is not yet done, #2990 tracks the migration.
+
+**Both paths now warn instead of failing silently.** Outside production, a `$like` / `$ilike` /
+`$re` filter passed to the `…WithDecryption` helpers that targets a property registered in an
+encryption map logs a warning naming the entity, the column and the remedy. The query engines log
+the equivalent warning when their own `ILIKE` fallback would run against an encrypted column. The
+check is limited to non-production because resolving the encryption map costs an uncached read;
+it is a development aid, not a runtime guard, so a search that only breaks under a
+production-only encryption map still needs a test.
+
 ### Failure modes
 
 - **KMS unreachable** – encryption layer logs a warning and (per requirements) continues without encryption; maps are still evaluated so we can re-enable later.

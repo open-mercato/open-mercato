@@ -135,6 +135,26 @@ async function resolvePageContext(input) {
 }
 ```
 
+The callback receives `{ entityType, recordId, container, tenantId, organizationId, userId }`.
+`entityType` and `recordId` come from the browser and are untrusted; `tenantId`, `organizationId`
+and `userId` come from the server-side auth context and identify the caller.
+
+Hydrating an org-shared record (a person, a company, a deal) only needs the tenant/organization
+scope the loader already enforces. Hydrating a **user-scoped** record — a mail thread, a personal
+task list, anything filtered by an owner column — MUST additionally check that owner against
+`input.userId`, otherwise anyone in the organization could read a colleague's records by passing
+their `recordId`. Fail closed when `userId` is `null` or `undefined` (no verified caller):
+
+```ts
+async function resolvePageContext(input) {
+  if (input.entityType !== 'messages:thread') return null
+  if (!input.userId) return null
+  const thread = await loadThread(input.container, input.recordId, input.tenantId)
+  if (!thread || thread.ownerUserId !== input.userId) return null
+  return renderThreadSummary(thread)
+}
+```
+
 ### Object-mode agents
 
 Set `executionMode: 'object'` and declare a Zod `output.schema` for one-shot extraction:

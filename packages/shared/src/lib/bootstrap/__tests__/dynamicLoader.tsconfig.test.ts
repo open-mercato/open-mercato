@@ -81,7 +81,11 @@ function loadBootstrapDataInNode(appRoot: string): {
   return JSON.parse(execFileSync(
     process.execPath,
     ['--import', 'tsx', '--input-type=module', '-e', script, appRoot],
-    { cwd: process.cwd(), encoding: 'utf8' },
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: { ...process.env, OM_LOG_DESTINATION: 'stderr' },
+    },
   ))
 }
 
@@ -210,6 +214,22 @@ describe('dynamic loader app tsconfig and content-addressed cache', () => {
     const after = readCacheMetadata(appRoot, 'entities')
 
     expect(after.inputHash).not.toBe(before.inputHash)
+  })
+
+  it('excludes client-only virtual inputs from cache dependencies', async () => {
+    const appRoot = createAppRoot()
+    const generatedDir = path.join(appRoot, '.mercato', 'generated')
+    fs.writeFileSync(path.join(generatedDir, 'modules.cli.generated.ts'), `
+      export const modules = [{ widget: () => import('./widget.client') }]
+    `)
+
+    loadBootstrapDataInNode(appRoot)
+
+    const metadata = readCacheMetadata(appRoot, 'modules.cli')
+    expect(Object.keys(metadata.dependencies)).not.toContain('om-client-only-stub:./widget.client')
+    expect(
+      fs.readFileSync(path.join(generatedDir, 'modules.cli.generated.mjs'), 'utf8'),
+    ).toContain('clientOnlyModuleUnavailable')
   })
 
   it('invalidates compiled output when only a bundled local dependency changes', async () => {

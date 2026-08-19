@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooks",
   "webhooks.deliveries.actions.retry": "Retry",
   "webhooks.deliveries.actions.viewDetails": "Details anzeigen",
   "webhooks.deliveries.autoRefreshHint": "The delivery log refreshes automatically while this page is open.",
@@ -80,7 +81,7 @@
   "webhooks.form.name": "Name",
   "webhooks.form.namePlaceholder": "My Webhook",
   "webhooks.form.rateLimitPerMinute": "Rate Limit Per Minute",
-  "webhooks.form.rateLimitPerMinuteHint": "Maximum deliveries per minute for this endpoint (0 means unlimited).",
+  "webhooks.form.rateLimitPerMinuteHint": "Maximale Anzahl von Zustellungen pro Minute für diesen Endpunkt (0 bedeutet unbegrenzt). Der Wert wird gespeichert, aber vom Zustellungs-Worker noch nicht durchgesetzt.",
   "webhooks.form.secret": "Signing Secret",
   "webhooks.form.secretCopied": "Secret copied to clipboard.",
   "webhooks.form.secretCopy": "Copy Secret",

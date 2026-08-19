@@ -116,7 +116,7 @@ export async function seedExampleTodos(
     cache = null
   }
 
-  await installCustomEntitiesFromModules(em as any, cache, {
+  await installCustomEntitiesFromModules(em, cache, {
     tenantIds: [tenantId],
     includeGlobal: false,
     dryRun: false,

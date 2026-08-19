@@ -8,11 +8,28 @@ import type { SearchService } from '@open-mercato/search'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 import type { EmbeddingService } from '../../../../vector'
 import { resolveEmbeddingConfig } from '../../lib/embedding-config'
-import { searchError } from '../../../../lib/debug'
+import {
+  filterSearchResultsByEntityAccess,
+  resolveReadableEntityTypes,
+  type SearchEntityConfigLookup,
+} from '../../lib/entity-access'
+import { searchDebug, searchError } from '../../../../lib/debug'
 import { searchOpenApi } from '../openapi'
 
+/**
+ * `search.view` — the search-administration feature behind the Vector Search
+ * playground. It authorizes using this diagnostic surface, not reading every
+ * indexed record, so the per-entity `aclFeatures` gate below still applies.
+ */
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
+}
+
+type RbacLike = {
+  loadAcl: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations: string[] | null }>
 }
 
 function parseLimit(value: string | null): number {
@@ -67,6 +84,21 @@ export async function GET(req: Request) {
       )
     }
 
+    // Fail closed: without the RBAC service or the entity registry there is no way
+    // to tell which entity types this caller may read, so refuse rather than search.
+    if (!container.hasRegistration('rbacService') || !container.hasRegistration('searchIndexer')) {
+      searchError('search.api.search', 'entity-acl-unavailable', {
+        rbacService: container.hasRegistration('rbacService'),
+        searchIndexer: container.hasRegistration('searchIndexer'),
+      })
+      return NextResponse.json(
+        { error: t('search.api.errors.serviceUnavailable', 'Search service unavailable') },
+        { status: 503 }
+      )
+    }
+    const rbac = container.resolve('rbacService') as RbacLike
+    const searchIndexer = container.resolve('searchIndexer') as SearchEntityConfigLookup
+
     // Load embedding config for vector strategy (same as Vector Search playground)
     try {
       const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
@@ -94,16 +126,44 @@ export async function GET(req: Request) {
     const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
     const organizationId =
       typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
+
+    // `search.view` authorizes the playground, not reading every indexed record.
+    // Narrow the query to the entity types this caller may read so the result
+    // budget is not spent on records that would only be filtered out.
+    const acl = await rbac.loadAcl(auth.sub, {
+      tenantId: scope.tenantId ?? auth.tenantId ?? null,
+      organizationId: organizationId ?? null,
+    })
+    const subject = { grantedFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin }
+    const readableEntityTypes = resolveReadableEntityTypes(searchIndexer, subject, entityTypes)
+    if (readableEntityTypes && readableEntityTypes.length === 0) {
+      return NextResponse.json({
+        results: [],
+        strategiesUsed: [],
+        timing: Date.now() - startTime,
+        query,
+        limit,
+      })
+    }
+
     const searchOptions = {
       tenantId: auth.tenantId,
       organizationId,
       organizationIds: scopeFilter.organizationIds,
       limit,
       strategies,
-      entityTypes,
+      entityTypes: readableEntityTypes,
     }
 
-    const results = await searchService.search(query, searchOptions)
+    const rawResults = await searchService.search(query, searchOptions)
+
+    // Defense in depth: a strategy that ignores `entityTypes` must still not leak
+    // a presenter title, subtitle or deep link past the per-entity gate.
+    const results = filterSearchResultsByEntityAccess(rawResults, searchIndexer, subject, {
+      onDeny: (deniedEntityId, reason) => {
+        searchDebug('search.api.search', 'entity-filtered', { entityId: deniedEntityId, reason })
+      },
+    })
 
     const timing = Date.now() - startTime
 

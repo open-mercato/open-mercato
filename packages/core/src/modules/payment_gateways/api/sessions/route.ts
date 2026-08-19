@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createSessionSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
@@ -98,9 +99,10 @@ export async function POST(req: Request) {
       paymentId: transaction.paymentId,
     }, { status: 201 })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to create payment session'
-    const status = message.includes('No gateway adapter') ? 422 : 502
-    return NextResponse.json({ error: message }, { status })
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    return NextResponse.json({ error: 'Failed to create payment session' }, { status: 502 })
   }
 }
 
@@ -113,6 +115,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 201, description: 'Payment session created' },
+        { status: 409, description: 'Amount or currency does not match the referenced order' },
         { status: 422, description: 'Invalid payload or unknown provider' },
         { status: 502, description: 'Gateway provider error' },
       ],

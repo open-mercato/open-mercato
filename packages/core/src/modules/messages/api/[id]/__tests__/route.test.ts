@@ -469,6 +469,158 @@ describe('messages /api/messages/[id] PATCH', () => {
   })
 })
 
+describe('messages /api/messages/[id] DELETE authorization', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    hasOrganizationAccessMock.mockReturnValue(true)
+  })
+
+  it('rejects a same-organization non-participant before command dispatch', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const senderUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const message = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId,
+      deletedAt: null,
+      updatedAt: new Date('2026-02-24T10:00:00.000Z'),
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => (entity === Message ? message : null)),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Access denied' })
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      em,
+      MessageRecipient,
+      {
+        messageId,
+        recipientUserId: actorUserId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId, organizationId },
+    )
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('lets the sender delete without looking up a recipient row', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const message = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId: actorUserId,
+      deletedAt: null,
+      updatedAt: new Date('2026-02-24T10:00:00.000Z'),
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => (entity === Message ? message : null)),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    // The sender never needs the recipient row, so the decryption-aware lookup is skipped.
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
+  it('lets an active recipient delete the message', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const senderUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const message = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId,
+      deletedAt: null,
+      updatedAt: new Date('2026-02-24T10:00:00.000Z'),
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => (entity === Message ? message : null)),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: '33333333-3333-4333-8333-333333333333',
+      messageId,
+      recipientUserId: actorUserId,
+      deletedAt: null,
+    })
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('messages /api/messages/[id] optimistic locking', () => {
   const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
   const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'

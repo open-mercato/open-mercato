@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -429,7 +430,7 @@ export default function WorkflowDefinitionsListPage() {
           onFiltersClear={handleFiltersClear}
           onRowClick={(row) => router.push(`/backend/definitions/visual-editor?id=${row.id}`)}
           perspective={{
-            tableId: 'workflows.definitions.list',
+            tableId: extensionPoints.hosts.definitionsTable.tableId,
           }}
           emptyState={(
             <ListEmptyState
@@ -452,7 +453,7 @@ export default function WorkflowDefinitionsListPage() {
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="destructive" onClick={confirmDelete}>
+              <Button variant="destructive-solid" onClick={confirmDelete}>
                 <Trash2/>
                 {t('common.delete')}
               </Button>

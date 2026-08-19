@@ -8,6 +8,7 @@ const dealId = '55555555-5555-4555-8555-555555555555'
 
 const executeMock = jest.fn()
 const getRatesMock = jest.fn()
+const resolveBaseCurrencyMock = jest.fn()
 const findMatchingEntityIdsBySearchTokensAcrossSourcesMock = jest.fn()
 const fetchStuckDealIdsMock = jest.fn()
 
@@ -19,6 +20,7 @@ const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'exchangeRateService') return { getRates: getRatesMock }
+    if (name === 'baseCurrencyService') return { resolveBaseCurrency: resolveBaseCurrencyMock }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -50,9 +52,8 @@ import { GET } from '../route'
 describe('customers deals aggregate route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    executeMock
-      .mockResolvedValueOnce([{ code: 'USD' }])
-      .mockResolvedValueOnce([])
+    executeMock.mockResolvedValueOnce([])
+    resolveBaseCurrencyMock.mockResolvedValue({ status: 'resolved', code: 'USD' })
     getRatesMock.mockResolvedValue(new Map())
     findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
     fetchStuckDealIdsMock.mockResolvedValue([])
@@ -68,7 +69,7 @@ describe('customers deals aggregate route', () => {
     expect(response.status).toBe(200)
     expect(fetchStuckDealIdsMock).not.toHaveBeenCalled()
 
-    const aggregateCall = executeMock.mock.calls[1]
+    const aggregateCall = executeMock.mock.calls[0]
     const sql = String(aggregateCall[0])
     const values = aggregateCall[1] as string[]
 
@@ -92,7 +93,7 @@ describe('customers deals aggregate route', () => {
 
     expect(response.status).toBe(200)
 
-    const aggregateCall = executeMock.mock.calls[1]
+    const aggregateCall = executeMock.mock.calls[0]
     const sql = String(aggregateCall[0])
     const values = aggregateCall[1] as string[]
 
@@ -113,7 +114,7 @@ describe('customers deals aggregate route', () => {
 
       expect(response.status).toBe(200)
 
-      const aggregateCall = executeMock.mock.calls[1]
+      const aggregateCall = executeMock.mock.calls[0]
       const sql = String(aggregateCall[0])
       const values = aggregateCall[1] as string[]
 
