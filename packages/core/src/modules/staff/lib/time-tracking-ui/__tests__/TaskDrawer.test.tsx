@@ -8,6 +8,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { TaskDrawer } from '../TaskDrawer'
+import { buildEntryClocks } from '../taskDrawerData'
 import { todayIsoDate } from '../taskDrawerData'
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
@@ -558,5 +559,34 @@ describe('TaskDrawer', () => {
       timeProjectId: PROJECT_ID,
       title: 'Testy wydajnościowe',
     })
+  })
+})
+
+describe('buildEntryClocks', () => {
+  it('derives the end from a lone start so the entry is not a running timer', () => {
+    // `started_at IS NOT NULL AND ended_at IS NULL` is how the list identifies a
+    // running timer, and no segment exists to stop one created this way.
+    expect(buildEntryClocks({ date: '2026-08-10', startClock: '12:00', endClock: null, minutes: 120 }))
+      .toEqual({ startedAt: '2026-08-10T12:00', endedAt: '2026-08-10T14:00' })
+  })
+
+  it('derives the start from a lone end', () => {
+    expect(buildEntryClocks({ date: '2026-08-10', startClock: null, endClock: '17:30', minutes: 90 }))
+      .toEqual({ startedAt: '2026-08-10T16:00', endedAt: '2026-08-10T17:30' })
+  })
+
+  it('leaves a duration-only entry alone', () => {
+    expect(buildEntryClocks({ date: '2026-08-10', startClock: null, endClock: null, minutes: 30 })).toEqual({})
+  })
+
+  it('keeps both clocks when both are given, even if they disagree with the duration', () => {
+    // The user typed them; the form does not silently overrule what they entered.
+    expect(buildEntryClocks({ date: '2026-08-10', startClock: '09:00', endClock: '10:00', minutes: 240 }))
+      .toEqual({ startedAt: '2026-08-10T09:00', endedAt: '2026-08-10T10:00' })
+  })
+
+  it('wraps a derived end past midnight rather than producing an invalid clock', () => {
+    expect(buildEntryClocks({ date: '2026-08-10', startClock: '23:30', endClock: null, minutes: 60 }))
+      .toEqual({ startedAt: '2026-08-10T23:30', endedAt: '2026-08-10T00:30' })
   })
 })

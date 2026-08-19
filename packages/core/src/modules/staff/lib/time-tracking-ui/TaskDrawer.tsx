@@ -64,6 +64,7 @@ import {
   toDrawerComment,
   toDrawerEntry,
   todayIsoDate,
+  buildEntryClocks,
   type DrawerComment,
   type DrawerEntry,
 } from './taskDrawerData'
@@ -457,11 +458,17 @@ export function TaskDrawer({
                   timeProjectId: projectId,
                   isBillable,
                   description,
-                  // Sent only when given: `undefined` leaves the clocks unset, so a
-                  // duration-only entry stays duration-only rather than being
-                  // pinned to a time nobody chose.
-                  startedAt: startClock ? `${date}T${startClock}` : undefined,
-                  endedAt: endClock ? `${date}T${endClock}` : undefined,
+                  // The clocks are sent as a pair or not at all. A lone
+                  // `started_at` is indistinguishable from a running timer —
+                  // `started_at IS NOT NULL AND ended_at IS NULL` is exactly how
+                  // the list identifies one — so an entry with a start and no end
+                  // shows up as a timer running since that moment, and stopping it
+                  // fails because no timer segment was ever opened for it.
+                  //
+                  // The duration is authoritative here, so the missing half is
+                  // derived from it rather than left blank: the same 2-of-3
+                  // arithmetic the full entry form does.
+                  ...buildEntryClocks({ date, startClock, endClock, minutes }),
                   source: 'manual',
                 }),
               },

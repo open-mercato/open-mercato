@@ -144,3 +144,51 @@ export function todayIsoDate(now: Date = new Date()): string {
   const day = String(now.getDate()).padStart(2, '0')
   return `${now.getFullYear()}-${month}-${day}`
 }
+
+export type EntryClockInput = {
+  date: string
+  startClock: string | null
+  endClock: string | null
+  minutes: number
+}
+
+export type EntryClocks = { startedAt?: string; endedAt?: string }
+
+function clockToMinutes(clock: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(clock.trim())
+  if (!match) return null
+  const hours = Number(match[1])
+  const mins = Number(match[2])
+  if (!Number.isFinite(hours) || !Number.isFinite(mins) || hours > 23 || mins > 59) return null
+  return hours * 60 + mins
+}
+
+function minutesToClock(total: number): string {
+  const wrapped = ((total % 1440) + 1440) % 1440
+  return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`
+}
+
+/**
+ * Resolves the quick log's optional clocks into a pair, or nothing at all.
+ *
+ * A lone `started_at` is not a partial record — it is a *running timer*, because
+ * `started_at IS NOT NULL AND ended_at IS NULL` is exactly how the entries list
+ * identifies one. An entry saved that way reads as a timer running since that
+ * moment and cannot be stopped, since no timer segment was ever opened for it.
+ *
+ * So the missing half is derived from the duration, which is authoritative in the
+ * quick log. Both blank means a duration-only entry, which is a legitimate shape.
+ */
+export function buildEntryClocks({ date, startClock, endClock, minutes }: EntryClockInput): EntryClocks {
+  const start = startClock ? clockToMinutes(startClock) : null
+  const end = endClock ? clockToMinutes(endClock) : null
+  if (start === null && end === null) return {}
+
+  const resolvedStart = start !== null ? start : (end as number) - minutes
+  const resolvedEnd = end !== null ? end : (start as number) + minutes
+
+  return {
+    startedAt: `${date}T${minutesToClock(resolvedStart)}`,
+    endedAt: `${date}T${minutesToClock(resolvedEnd)}`,
+  }
+}

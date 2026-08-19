@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, X } from 'lucide-react'
 import {
   Dialog,
@@ -28,6 +28,8 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs/LookupSelect'
+import { TagPicker, tagChipStyle } from './TagPicker'
+import { slugifyProjectName } from '../time-tracking/projectCode'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -59,6 +61,7 @@ import {
   toTimeEntryRecord,
   type OverlapEntry,
   type ProjectOption,
+  type TagOption,
   type TaskOption,
   type TimeEntryRecord,
   type TimeIntervalState,
@@ -291,7 +294,7 @@ export function TimeEntryDialog({
     },
   })
 
-  const tagsQuery = useQuery<{ id: string; label: string }[]>({
+  const tagsQuery = useQuery<TagOption[]>({
     queryKey: [...DIALOG_QUERY_ROOT, 'tags', `scope:${scopeVersion}`],
     enabled: open,
     staleTime: 300_000,
@@ -303,9 +306,13 @@ export function TimeEntryDialog({
       return readRowItems(call.result)
         .map((row) => {
           const id = readRowString(row, 'id')
-          return id ? { id, label: readRowString(row, 'label') ?? id } : null
+          // The colour has always been stored and never rendered — the chips were
+          // monochrome while `staff_time_tags.color` held a DS palette key.
+          return id
+            ? { id, label: readRowString(row, 'label') ?? id, color: readRowString(row, 'color') }
+            : null
         })
-        .filter((tag): tag is { id: string; label: string } => tag !== null)
+        .filter((tag): tag is TagOption => tag !== null)
     },
   })
 
@@ -713,14 +720,45 @@ export function TimeEntryDialog({
     [projectById],
   )
 
+  const queryClient = useQueryClient()
+  /**
+   * Creates the tag, then hands the id back so the caller can assign it. The
+   * cache is invalidated rather than patched so the new tag arrives with whatever
+   * the server decided — including the colour, which the create route assigns.
+   */
+  const createTag = React.useCallback(
+    async (label: string): Promise<TagOption | null> => {
+      try {
+        const created = await apiCallOrThrow<Record<string, unknown>>(
+          '/api/staff/timesheets/tags',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ label, slug: slugifyProjectName(label).toLowerCase() }),
+          },
+          { errorMessage: t('staff.time_tracking.entryDialog.errors.createTag', 'Could not create the tag.') },
+        )
+        const id = typeof created?.result?.id === 'string' ? created.result.id : null
+        if (!id) return null
+        await queryClient.invalidateQueries({ queryKey: [...DIALOG_QUERY_ROOT, 'tags'] })
+        return { id, label, color: null }
+      } catch (error) {
+        logger.warn('staff.time_tracking.entryDialog tag create failed', { err: error })
+        flash(t('staff.time_tracking.entryDialog.errors.createTag', 'Could not create the tag.'), 'error')
+        return null
+      }
+    },
+    [queryClient, t],
+  )
+
   const overlap = overlaps[0] ?? null
   const availableTags = React.useMemo(
     () => tagOptions.filter((tag) => !tagIds.includes(tag.id)),
     [tagIds, tagOptions],
   )
   const assignedTags = React.useMemo(() => {
-    const labels = new Map(tagOptions.map((tag) => [tag.id, tag.label]))
-    return tagIds.map((id) => ({ id, label: labels.get(id) ?? id }))
+    const byId = new Map(tagOptions.map((tag) => [tag.id, tag]))
+    return tagIds.map((id) => byId.get(id) ?? { id, label: id, color: null })
   }, [tagIds, tagOptions])
 
   const rateLabel = rate !== null ? formatCurrency(rate, currencyCode) ?? String(rate) : null
@@ -1073,7 +1111,12 @@ export function TimeEntryDialog({
           </span>
           <div className="flex flex-wrap items-center gap-2">
             {assignedTags.map((tag) => (
-              <Badge key={tag.id} variant="neutral" className="gap-1">
+              <Badge
+                key={tag.id}
+                variant="neutral"
+                className="gap-1"
+                style={tagChipStyle(tag)}
+              >
                 {tag.label}
                 {locked ? null : (
                   <button
@@ -1088,27 +1131,18 @@ export function TimeEntryDialog({
                 )}
               </Badge>
             ))}
-            {!locked && availableTags.length > 0 ? (
-              <Select
-                key={tagIds.join(',')}
-                onValueChange={(value) => setTagIds((current) => [...current, value])}
-              >
-                <SelectTrigger
-                  size="sm"
-                  className="w-40"
-                  aria-label={t('staff.time_tracking.entryDialog.addTag', 'Add tag')}
-                  data-testid="entry-dialog-tag-select"
-                >
-                  <SelectValue placeholder={t('staff.time_tracking.entryDialog.addTag', 'Add tag')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableTags.map((tag) => (
-                    <SelectItem key={tag.id} value={tag.id}>
-                      {tag.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {!locked ? (
+              <TagPicker
+                available={availableTags}
+                onAssign={(id) => setTagIds((current) => (current.includes(id) ? current : [...current, id]))}
+                onCreate={createTag}
+                labels={{
+                  add: t('staff.time_tracking.entryDialog.addTag', 'Add tag'),
+                  create: (name) =>
+                    t('staff.time_tracking.entryDialog.createTag', 'Create "{name}"', { name }),
+                  empty: t('staff.time_tracking.entryDialog.noTags', 'No matching tag'),
+                }}
+              />
             ) : null}
           </div>
         </div>

@@ -305,6 +305,13 @@ export type TaskOption = {
   timeProjectId: string | null
 }
 
+export type TagOption = {
+  id: string
+  label: string
+  /** A `PROJECT_COLOR_KEYS` key, resolved to a hex at render time. */
+  color: string | null
+}
+
 export type ProjectOption = {
   id: string
   name: string
