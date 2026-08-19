@@ -303,6 +303,10 @@ export type TaskOption = {
   /** `<project code>-<n>` — frozen at creation, quoted in reports. */
   reference: string | null
   timeProjectId: string | null
+  /** Drives the picker's status dot. */
+  taskStatusId: string | null
+  /** Inclusive rollup from the tasks enricher; shown as context, never edited. */
+  loggedMinutes: number | null
 }
 
 export type TagOption = {
@@ -325,11 +329,14 @@ export function toTaskOption(row: ApiRow): TaskOption | null {
   const id = readRowString(row, 'id')
   const title = readRowString(row, 'title')
   if (!id || !title) return null
+  const logged = row.loggedMinutes ?? row.logged_minutes
   return {
     id,
     title,
     reference: readRowString(row, 'reference'),
     timeProjectId: readRowString(row, 'time_project_id', 'timeProjectId'),
+    taskStatusId: readRowString(row, 'task_status_id', 'taskStatusId'),
+    loggedMinutes: typeof logged === 'number' ? logged : null,
   }
 }
 

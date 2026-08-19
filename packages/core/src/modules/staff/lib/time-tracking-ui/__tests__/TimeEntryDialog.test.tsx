@@ -68,23 +68,23 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
  * exposes the same contract: options come from `fetchItems`, choosing one calls
  * `onChange` with the id.
  */
-jest.mock('@open-mercato/ui/backend/inputs/LookupSelect', () => {
+/**
+ * The task picker is a grouped, keyboard-driven list with its own tests. These
+ * tests care about what the dialog does with a chosen task, so it is stood in for
+ * by a native select exposing the same contract: options are the items it was
+ * given, choosing one calls `onChange` with the id.
+ */
+jest.mock('../TaskPicker', () => {
   const ReactModule = jest.requireActual('react') as typeof React
   type Item = { id: string; title: string }
   type Props = {
     value: string | null
     onChange: (id: string | null) => void
-    fetchItems: (query: string) => Promise<Item[]>
+    items: Item[]
     disabled?: boolean
   }
-  const LookupSelect = ({ value, onChange, fetchItems, disabled }: Props) => {
-    const [items, setItems] = ReactModule.useState<Item[]>([])
-    ReactModule.useEffect(() => {
-      let cancelled = false
-      void fetchItems('').then((next) => { if (!cancelled) setItems(next) })
-      return () => { cancelled = true }
-    }, [fetchItems])
-    return ReactModule.createElement(
+  const TaskPicker = ({ value, onChange, items, disabled }: Props) =>
+    ReactModule.createElement(
       'select',
       {
         value: value ?? '',
@@ -96,8 +96,7 @@ jest.mock('@open-mercato/ui/backend/inputs/LookupSelect', () => {
         ...items.map((item) => ReactModule.createElement('option', { key: item.id, value: item.id }, item.title)),
       ],
     )
-  }
-  return { LookupSelect, __esModule: true }
+  return { TaskPicker, __esModule: true }
 })
 
 /** Radix' Select needs pointer geometry jsdom lacks; a native select keeps the contract. */

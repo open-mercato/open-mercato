@@ -29,6 +29,7 @@ import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { TagPicker, tagChipStyle } from './TagPicker'
+import { TaskPicker, type TaskPickerItem, type TaskPickerStatus } from './TaskPicker'
 import { slugifyProjectName } from '../time-tracking/projectCode'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -291,6 +292,58 @@ export function TimeEntryDialog({
       return readRowItems(call.result)
         .map(toProjectOption)
         .filter((project): project is ProjectOption => project !== null)
+    },
+  })
+
+  const staffMemberId = selfQuery.data?.id ?? null
+
+  const statusesQuery = useQuery<Record<string, TaskPickerStatus>>({
+    queryKey: [...DIALOG_QUERY_ROOT, 'task-statuses', `scope:${scopeVersion}`],
+    enabled: open,
+    staleTime: 300_000,
+    queryFn: async () => {
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/staff/timesheets/task-statuses?page=1&pageSize=${DIRECTORY_PAGE_SIZE}`,
+      )
+      if (!call.ok) return {}
+      const map: Record<string, TaskPickerStatus> = {}
+      for (const row of readRowItems(call.result)) {
+        const id = readRowString(row, 'id')
+        if (!id) continue
+        map[id] = {
+          id,
+          name: readRowString(row, 'name') ?? '',
+          color: readRowString(row, 'color'),
+          isDone: row.is_done === true || row.isDone === true,
+        }
+      }
+      return map
+    },
+  })
+
+  /**
+   * The tasks this person logged to recently. Repetition is the norm in time
+   * logging, so opening the picker on these turns the common case into one
+   * keystroke. No new endpoint — it is the entries list asked a narrower question.
+   */
+  const recentQuery = useQuery<string[]>({
+    queryKey: [...DIALOG_QUERY_ROOT, 'recent-tasks', `scope:${scopeVersion}`, staffMemberId ?? 'none'],
+    enabled: open && !!staffMemberId,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const since = shiftIsoDate(todayIsoDate(), -21)
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/staff/timesheets/time-entries?page=1&pageSize=100&sortField=date&sortDir=desc`
+          + `&staffMemberId=${encodeURIComponent(staffMemberId as string)}&from=${since}`,
+      )
+      if (!call.ok) return []
+      const seen: string[] = []
+      for (const row of readRowItems(call.result)) {
+        const taskId = readRowString(row, 'task_id', 'taskId')
+        if (taskId && !seen.includes(taskId)) seen.push(taskId)
+        if (seen.length >= 6) break
+      }
+      return seen
     },
   })
 
@@ -568,7 +621,6 @@ export function TimeEntryDialog({
   const submit = React.useCallback(
     async (mode: 'close' | 'again') => {
       if (!canSave) return
-      const staffMemberId = selfQuery.data?.id ?? null
       if (!isEdit && !staffMemberId) {
         flash(
           t(
@@ -667,6 +719,31 @@ export function TimeEntryDialog({
       window.open(`${ENTRIES_LIST_PATH}?ids=${encodeURIComponent(overlap.id)}`, '_blank', 'noopener')
     },
     [onShowEntry],
+  )
+
+  /**
+   * The picker needs the project and its customer per row so it can group by
+   * them; both already arrive with the projects query the dialog runs for the
+   * rate, so this is a join in memory rather than another request.
+   */
+  const pickerItems = React.useMemo<TaskPickerItem[]>(
+    () =>
+      tasks.map((task) => {
+        const project = task.timeProjectId ? projectById.get(task.timeProjectId) : undefined
+        return {
+          id: task.id,
+          reference: task.reference,
+          title: task.title,
+          projectId: task.timeProjectId,
+          projectName: project?.name ?? null,
+          customerName: project?.customerName ?? null,
+          statusId: task.taskStatusId ?? null,
+          assigneeInitials: null,
+          assigneeName: null,
+          loggedMinutes: task.loggedMinutes ?? null,
+        }
+      }),
+    [projectById, tasks],
   )
 
   const taskLabelById = React.useMemo(() => {
@@ -815,16 +892,14 @@ export function TimeEntryDialog({
             <span aria-hidden="true"> *</span>
           </Label>
           <div data-testid="entry-dialog-task" ref={taskTriggerRef}>
-            <LookupSelect
+            <TaskPicker
               value={taskId}
               onChange={(next) => setTaskId(next || null)}
-              fetchItems={fetchTaskItems}
+              items={pickerItems}
+              recentTaskIds={recentQuery.data ?? []}
+              statuses={statusesQuery.data ?? {}}
+              loading={tasksQuery.isLoading}
               disabled={locked}
-              minQuery={0}
-              defaultOpen={false}
-              searchPlaceholder={t('staff.time_tracking.entryDialog.taskPlaceholder', 'Pick a task')}
-              selectedHintLabel={(id) => taskLabelById.get(id) ?? id}
-              emptyLabel={t('staff.time_tracking.entryDialog.taskEmpty', 'No matching task')}
             />
           </div>
           <p className="text-xs text-muted-foreground">
