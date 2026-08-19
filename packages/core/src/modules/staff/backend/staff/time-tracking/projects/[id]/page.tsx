@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
+import { KpiCard, Sparkline } from '@open-mercato/ui/backend/charts'
 import { ProjectTeamDrawer } from '../../../../../lib/time-tracking-ui/ProjectTeamDrawer'
 import { NoProjectAccess } from '../../../../../lib/time-tracking-ui/NoProjectAccess'
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
@@ -89,6 +90,31 @@ type StaffMemberRecord = {
 
 type StaffMembersResponse = {
   items?: StaffMemberRecord[]
+}
+
+/**
+ * A group heading inside the reference rail. The rail replaces three full-width
+ * cards, so the groups carry the separation those card borders used to.
+ */
+function RailGroup({ label, first }: { label: string; first?: boolean }) {
+  return (
+    <div
+      className={`border-b pb-1.5 text-overline font-semibold uppercase tracking-widest text-muted-foreground ${
+        first ? '' : 'pt-4'
+      }`}
+    >
+      {label}
+    </div>
+  )
+}
+
+function RailFact({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b py-2 text-sm last:border-b-0">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="text-right font-medium tabular-nums">{value}</dd>
+    </div>
+  )
 }
 
 export default function TimesheetProjectDetailPage({ params }: { params?: { id?: string } }) {
@@ -457,10 +483,17 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const createdAt = readString('createdAt', 'created_at')
   const updatedAt = readString('updatedAt', 'updated_at')
   const entryCount = readNumber('entryCount')
+  const currencyLocked = readBool('currencyLocked') ?? false
   const lockedEntryCount = readNumber('lockedEntryCount')
   const totalMinutes = readEnriched('totalMinutes') ?? 0
   const billableMinutes = readEnriched('billableMinutes')
   const cost = readEnriched('cost')
+  const nonBillableMinutes = billableMinutes === null ? null : Math.max(0, totalMinutes - billableMinutes)
+  const billablePercent =
+    billableMinutes === null || totalMinutes <= 0 ? null : Math.round((billableMinutes / totalMinutes) * 100)
+  const hoursTrend = Array.isArray(enrichment.hoursTrend)
+    ? (enrichment.hoursTrend as unknown[]).filter((value): value is number => typeof value === 'number')
+    : []
 
   const budgetKind = readString('budgetKind', 'budget_kind')
   const budgetValue = readNumber('budgetValue', 'budget_value')
@@ -484,9 +517,13 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     // The query engine returns `2026-05-24 00:00:00+00` — a space separator and a
     // two-digit offset, neither of which `Date` accepts, so both need widening
     // before parsing or every timestamp renders raw.
+    //
+    // The offset is only widened when a clock precedes it: anchoring on the
+    // trailing `-24` alone also matches the day of a date-only `2026-05-24`,
+    // which turns a valid date into `2026-05-24:00` and renders it raw.
     const normalized = value
       .replace(' ', 'T')
-      .replace(/([+-]\d{2})$/, '$1:00')
+      .replace(/(T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)([+-]\d{2})$/, '$1$2:00')
     const parsed = new Date(normalized)
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
   }
@@ -506,17 +543,69 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     <Page>
       <PageBody>
         <div className="space-y-6">
-          {/* Header: Back arrow, title, subtitle, Edit button */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          {/*
+            * Identity first: colour, name, and the two states worth knowing before
+            * anything else — is it running, and is the budget in trouble. The code,
+            * customer, type and start date sit under it as one meta line rather than
+            * four labelled rows, because none of them is a decision on its own.
+            */}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
               <Button variant="ghost" size="icon" asChild>
                 <Link href={BACK_HREF}>
                   <ArrowLeft className="h-4 w-4" aria-hidden />
                 </Link>
               </Button>
-              <div>
-                <h1 className="text-xl font-semibold">{project.name}</h1>
-                <p className="text-sm text-muted-foreground">{t('staff.timesheets.projects.detail.subtitle', 'Project Settings')}</p>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className="size-3 shrink-0 rounded-sm border border-border"
+                    style={{ backgroundColor: resolveProjectColorHex(projectColor, project.name) }}
+                    aria-hidden
+                  />
+                  <h1 className="text-xl font-semibold">{project.name}</h1>
+                  <Badge
+                    variant={projectStatus === 'active' ? 'success' : projectStatus === 'on_hold' ? 'warning' : 'neutral'}
+                    className="capitalize"
+                  >
+                    {projectStatus}
+                  </Badge>
+                  {canSeeMoney && budgetBurn && budgetBurn.tone !== 'accent' ? (
+                    <Badge variant={budgetBurn.tone === 'destructive' ? 'destructive' : 'warning'}>
+                      {t('staff.timesheets.projects.detail.budgetBadge', 'Budget {percent}%', {
+                        percent: budgetBurn.percent,
+                      })}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                    {projectCode}
+                  </span>
+                  {customerName ? (
+                    <>
+                      <span aria-hidden>·</span>
+                      {customerId ? (
+                        <Link className="underline underline-offset-2" href={`/backend/customers/companies/${customerId}`}>
+                          {customerName}
+                        </Link>
+                      ) : (
+                        <span>{customerName}</span>
+                      )}
+                    </>
+                  ) : null}
+                  {projectType ? (<><span aria-hidden>·</span><span>{projectType}</span></>) : null}
+                  {projectStartDate ? (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>
+                        {t('staff.timesheets.projects.detail.startedOn', 'Started {date}', {
+                          date: formatDateTime(projectStartDate),
+                        })}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
               </div>
             </div>
             {canManageProjects && (
@@ -535,179 +624,123 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
             )}
           </div>
 
-          {/* Project Information (read-only) */}
-          {(
-            <div className="max-w-2xl rounded-lg border p-4">
-              <dl className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.code', 'Code')}</dt>
-                  <dd className="font-mono">{projectCode}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.status', 'Status')}</dt>
-                  <dd>
+          {/*
+            * Summary before detail. Four figures across the full width, in the order
+            * somebody asks them: how much time, how much of it billable, what it
+            * cost, how close the budget is. The three stacked label/value cards this
+            * replaces gave all fourteen fields identical weight.
+            */}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <KpiCard
+              title={t('staff.timesheets.projects.detail.loggedHours', 'Logged hours')}
+              value={totalMinutes / 60}
+              formatValue={() => formatHours(totalMinutes)}
+              footer={
+                hoursTrend.length > 0 ? (
+                  <Sparkline
+                    values={hoursTrend}
+                    ariaLabel={t('staff.timesheets.projects.detail.trendAria', 'Hours per week, last 7 weeks')}
+                  />
+                ) : undefined
+              }
+              headerAction={
+                entryCount !== null ? (
+                  <span className="text-xs text-muted-foreground">
+                    {entryCount === 1
+                      ? t('staff.timesheets.projects.detail.entryCountOne', '1 entry')
+                      : t('staff.timesheets.projects.detail.entryCountShort', '{count} entries', { count: entryCount })}
+                  </span>
+                ) : undefined
+              }
+            />
+            <KpiCard
+              title={t('staff.timesheets.projects.detail.billableHours', 'Billable hours')}
+              value={(billableMinutes ?? 0) / 60}
+              formatValue={() => formatHours(billableMinutes)}
+              headerAction={
+                billablePercent !== null ? (
+                  <Badge variant={billablePercent >= 80 ? 'success' : 'neutral'}>{`${billablePercent}%`}</Badge>
+                ) : undefined
+              }
+              footer={
+                nonBillableMinutes !== null ? (
+                  <span className="text-xs text-muted-foreground">
+                    {t('staff.timesheets.projects.detail.nonBillable', '{hours} non-billable', {
+                      hours: formatHours(nonBillableMinutes),
+                    })}
+                  </span>
+                ) : undefined
+              }
+            />
+            {canSeeMoney ? (
+              <KpiCard
+                title={t('staff.timesheets.projects.detail.cost', 'Cost to date')}
+                value={cost}
+                formatValue={(value) => formatCurrency(value, currencyCode ?? undefined) ?? String(value)}
+                footer={
+                  hourlyRate !== null ? (
+                    <span className="text-xs text-muted-foreground">
+                      {t('staff.timesheets.projects.detail.costBasis', '{hours} × {rate}', {
+                        hours: formatHours(billableMinutes),
+                        rate: `${formatCurrency(hourlyRate, currencyCode ?? undefined) ?? hourlyRate}/h`,
+                      })}
+                    </span>
+                  ) : undefined
+                }
+              />
+            ) : null}
+            {canSeeMoney ? (
+              <div className="rounded-lg border bg-card p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-muted-foreground">
+                    {t('staff.timesheets.projects.form.budget', 'Budget')}
+                  </span>
+                  {budgetBurn ? (
                     <Badge
-                      variant={projectStatus === 'active' ? 'success' : projectStatus === 'on_hold' ? 'warning' : 'neutral'}
-                      className="capitalize"
+                      variant={
+                        budgetBurn.tone === 'destructive'
+                          ? 'destructive'
+                          : budgetBurn.tone === 'warning'
+                            ? 'warning'
+                            : 'neutral'
+                      }
                     >
-                      {projectStatus}
+                      {`${budgetBurn.percent}%`}
                     </Badge>
-                  </dd>
+                  ) : (
+                    <Badge variant="neutral">{t('staff.timesheets.projects.detail.noBudget', 'No budget')}</Badge>
+                  )}
                 </div>
-                {projectType ? (
-                  <div>
-                    <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.projectType', 'Project type')}</dt>
-                    <dd>{projectType}</dd>
-                  </div>
-                ) : null}
-                {projectStartDate ? (
-                  <div>
-                    <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.startDate', 'Start date')}</dt>
-                    <dd>{projectStartDate}</dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.customer', 'Customer')}</dt>
-                  <dd>
-                    {customerName && customerId ? (
-                      <Link className="underline underline-offset-2" href={`/backend/customers/companies/${customerId}`}>
-                        {customerName}
-                      </Link>
-                    ) : customerName ?? '—'}
-                  </dd>
+                <div className="mt-2 space-y-2">
+                  <p className="text-2xl font-semibold tabular-nums">
+                    {budgetBurn ? `${budgetBurn.percent}%` : '—'}
+                  </p>
+                  <ProjectBudgetCell
+                    burn={budgetBurn}
+                    usageLabel={budgetUsageLabel}
+                    noBudgetLabel={t('staff.timesheets.projects.detail.budgetHint', 'Set one to track burn')}
+                    ariaLabel={t('staff.timesheets.projects.detail.budgetUsage', 'Budget usage')}
+                  />
                 </div>
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.color', 'Project color')}</dt>
-                  <dd className="flex items-center gap-2">
-                    <span
-                      className="inline-block size-3 rounded-full border border-border"
-                      style={{ backgroundColor: resolveProjectColorHex(projectColor, project.name) }}
-                      aria-hidden
-                    />
-                    <span className="capitalize">{projectColor ?? t('staff.timesheets.projects.detail.autoColor', 'Auto')}</span>
-                  </dd>
-                </div>
-                {project.description ? (
-                  <div className="col-span-2">
-                    <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.description', 'Description')}</dt>
-                    <dd className="whitespace-pre-wrap">{project.description}</dd>
-                  </div>
-                ) : null}
-              </dl>
-            </div>
-          )}
-
-          {/* Delivery — hours already logged, from the same payload the portfolio reads. */}
-          <div className="max-w-2xl rounded-lg border p-4" data-testid="project-detail-delivery">
-            <h2 className="mb-3 text-sm font-semibold">
-              {t('staff.timesheets.projects.detail.delivery', 'Delivery')}
-            </h2>
-            <dl className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.loggedHours', 'Logged hours')}</dt>
-                <dd className="font-mono tabular-nums">{formatHours(totalMinutes)}</dd>
               </div>
-              <div>
-                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.billableHours', 'Billable hours')}</dt>
-                <dd className="font-mono tabular-nums">{formatHours(billableMinutes)}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.entryCount', 'Time entries')}</dt>
-                <dd>{entryCount ?? '—'}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.lockedEntries', 'Locked in reports')}</dt>
-                <dd>{lockedEntryCount ?? '—'}</dd>
-              </div>
-            </dl>
+            ) : null}
           </div>
 
-          {/* Commercials — gated on the same feature the portfolio gates money on. */}
-          {canSeeMoney ? (
-            <div className="max-w-2xl rounded-lg border p-4" data-testid="project-detail-commercials">
-              <h2 className="mb-3 text-sm font-semibold">
-                {t('staff.timesheets.projects.detail.commercials', 'Billing')}
-              </h2>
-              <dl className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.hourlyRate', 'Hourly rate')}</dt>
-                  <dd>
-                    {hourlyRate === null
-                      ? '—'
-                      : `${formatCurrency(hourlyRate, currencyCode ?? undefined) ?? hourlyRate} / h`}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.currency', 'Currency')}</dt>
-                  <dd>{currencyCode ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.billableByDefault', 'Billable by default')}</dt>
-                  <dd>
-                    {billableByDefault === null
-                      ? '—'
-                      : billableByDefault
-                        ? t('staff.timesheets.projects.detail.yes', 'Yes')
-                        : t('staff.timesheets.projects.detail.no', 'No')}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.cost', 'Cost to date')}</dt>
-                  <dd>{cost === null ? '—' : formatCurrency(cost, currencyCode ?? undefined) ?? String(cost)}</dd>
-                </div>
-                <div className="col-span-2">
-                  <dt className="mb-1 font-medium text-muted-foreground">{t('staff.timesheets.projects.form.budget', 'Budget')}</dt>
-                  <dd>
-                    <ProjectBudgetCell
-                      burn={budgetBurn}
-                      usageLabel={budgetUsageLabel}
-                      noBudgetLabel={t('staff.timesheets.projects.detail.noBudget', 'No budget')}
-                      ariaLabel={t('staff.timesheets.projects.detail.budgetUsage', 'Budget usage')}
-                    />
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          ) : null}
-
-          {/* Administration */}
-          <div className="max-w-2xl rounded-lg border p-4" data-testid="project-detail-admin">
-            <h2 className="mb-3 text-sm font-semibold">
-              {t('staff.timesheets.projects.detail.administration', 'Administration')}
-            </h2>
-            <dl className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.costCenter', 'Cost center')}</dt>
-                <dd>{costCenter ?? '—'}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.createdAt', 'Created')}</dt>
-                <dd>{formatDateTime(createdAt)}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.updatedAt', 'Last updated')}</dt>
-                <dd>{formatDateTime(updatedAt)}</dd>
-              </div>
-            </dl>
-          </div>
-
-          {/* Summary Cards: Active / Inactive employees */}
-          <div className="grid grid-cols-2 gap-4 max-w-md">
-            <div className="rounded-lg border p-4 text-center">
-              <p className="text-2xl font-bold">{activeCount}</p>
-              <p className="text-xs text-muted-foreground">{t('staff.timesheets.projects.active_employees', 'Active Employees')}</p>
-            </div>
-            <div className="rounded-lg border p-4 text-center">
-              <p className="text-2xl font-bold">{inactiveCount}</p>
-              <p className="text-xs text-muted-foreground">{t('staff.timesheets.projects.inactive_employees', 'Inactive Employees')}</p>
-            </div>
-          </div>
-
+          {/*
+            * Working content left, reference right. Everything static — rate,
+            * currency, cost centre, timestamps — collapses into one rail instead of
+            * three full-width cards, which is what left the right half of a wide
+            * screen carrying nothing.
+            */}
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           {/* Assigned Employees — collapsible cards */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">
+              <h2 className="flex items-center gap-2 text-base font-semibold">
                 {t('staff.timesheets.projects.employees.title', 'Assigned Employees')}
+                <span className="rounded-full bg-muted px-2 text-xs font-medium tabular-nums text-muted-foreground">
+                  {activeCount}
+                </span>
               </h2>
               {canManageProjects && (
                 <Button size="sm" onClick={openAddDialog}>
@@ -828,6 +861,117 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                 })}
               </div>
             )}
+          </div>
+
+          {/* Reference rail — one card, grouped, no longer three stacked sections. */}
+          <div className="rounded-lg border bg-card">
+            <div className="border-b px-4 py-3">
+              <h2 className="text-sm font-semibold">
+                {t('staff.timesheets.projects.detail.details', 'Details')}
+              </h2>
+            </div>
+            <div className="px-4 py-3">
+              {canSeeMoney ? (
+                <>
+                  <RailGroup label={t('staff.timesheets.projects.detail.commercials', 'Billing')} first />
+                  <dl>
+                    <RailFact
+                      label={t('staff.timesheets.projects.form.hourlyRate', 'Hourly rate')}
+                      value={
+                        hourlyRate === null
+                          ? '—'
+                          : `${formatCurrency(hourlyRate, currencyCode ?? undefined) ?? hourlyRate} / h`
+                      }
+                    />
+                    <RailFact
+                      label={t('staff.timesheets.projects.form.currency', 'Currency')}
+                      value={
+                        <span className="inline-flex items-center gap-1.5">
+                          {currencyCode ?? '—'}
+                          {currencyLocked ? (
+                            <Badge
+                              variant="neutral"
+                              title={t(
+                                'staff.timesheets.projects.detail.currencyLockedHint',
+                                'Locked because hours are already logged against this project.',
+                              )}
+                            >
+                              {t('staff.timesheets.projects.detail.locked', 'locked')}
+                            </Badge>
+                          ) : null}
+                        </span>
+                      }
+                    />
+                    <RailFact
+                      label={t('staff.timesheets.projects.form.billableByDefault', 'Billable by default')}
+                      value={
+                        billableByDefault === null ? (
+                          '—'
+                        ) : (
+                          <Badge variant={billableByDefault ? 'success' : 'neutral'}>
+                            {billableByDefault
+                              ? t('staff.timesheets.projects.detail.yes', 'Yes')
+                              : t('staff.timesheets.projects.detail.no', 'No')}
+                          </Badge>
+                        )
+                      }
+                    />
+                  </dl>
+                </>
+              ) : null}
+
+              <RailGroup
+                label={t('staff.timesheets.projects.detail.delivery', 'Delivery')}
+                first={!canSeeMoney}
+              />
+              <dl>
+                <RailFact
+                  label={t('staff.timesheets.projects.detail.entryCount', 'Time entries')}
+                  value={entryCount ?? '—'}
+                />
+                <RailFact
+                  label={t('staff.timesheets.projects.detail.lockedEntries', 'Locked in reports')}
+                  value={lockedEntryCount ?? '—'}
+                />
+              </dl>
+
+              <RailGroup label={t('staff.timesheets.projects.detail.administration', 'Administration')} />
+              <dl>
+                <RailFact
+                  label={t('staff.timesheets.projects.form.costCenter', 'Cost center')}
+                  value={costCenter ?? '—'}
+                />
+                <RailFact
+                  label={t('staff.timesheets.projects.form.color', 'Project color')}
+                  value={
+                    <span className="inline-flex items-center gap-1.5 capitalize">
+                      <span
+                        className="size-2.5 rounded-full border border-border"
+                        style={{ backgroundColor: resolveProjectColorHex(projectColor, project.name) }}
+                        aria-hidden
+                      />
+                      {projectColor ?? t('staff.timesheets.projects.detail.autoColor', 'Auto')}
+                    </span>
+                  }
+                />
+                <RailFact
+                  label={t('staff.timesheets.projects.detail.createdAt', 'Created')}
+                  value={formatDateTime(createdAt)}
+                />
+                <RailFact
+                  label={t('staff.timesheets.projects.detail.updatedAt', 'Last updated')}
+                  value={formatDateTime(updatedAt)}
+                />
+              </dl>
+
+              {project.description ? (
+                <>
+                  <RailGroup label={t('staff.timesheets.projects.form.description', 'Description')} />
+                  <p className="whitespace-pre-wrap pt-2 text-sm text-muted-foreground">{project.description}</p>
+                </>
+              ) : null}
+            </div>
+          </div>
           </div>
         </div>
 
