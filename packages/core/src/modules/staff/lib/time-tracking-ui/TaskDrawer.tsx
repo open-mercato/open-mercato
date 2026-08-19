@@ -40,7 +40,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { TaskCommentThread } from './TaskCommentThread'
-import { TaskQuickLog } from './TaskQuickLog'
+import { TaskQuickLog, type QuickLogSubmission } from './TaskQuickLog'
 import {
   computeSubtaskProgress,
   formatBoardMinutes,
@@ -432,7 +432,7 @@ export function TaskDrawer({
   )
 
   const handleQuickLog = React.useCallback(
-    async (minutes: number): Promise<boolean> => {
+    async ({ minutes, description, date, isBillable, startClock, endClock }: QuickLogSubmission): Promise<boolean> => {
       if (!selfStaffMemberId || !projectId) {
         flash(t('staff.time_tracking.taskDrawer.quickLog.error', 'Could not save the time entry.'), 'error')
         return false
@@ -447,13 +447,21 @@ export function TaskDrawer({
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
-                  // US-C5 defaults: today, me, billable. Nothing else is asked for.
+                  // US-C5 defaults — today, me, billable — unless the Details block
+                  // overrode them. The person is never overridable here: logging
+                  // for somebody else is a different act with different permissions.
                   staffMemberId: selfStaffMemberId,
-                  date: todayIsoDate(),
+                  date,
                   durationMinutes: minutes,
                   taskId,
                   timeProjectId: projectId,
-                  isBillable: true,
+                  isBillable,
+                  description,
+                  // Sent only when given: `undefined` leaves the clocks unset, so a
+                  // duration-only entry stays duration-only rather than being
+                  // pinned to a time nobody chose.
+                  startedAt: startClock ? `${date}T${startClock}` : undefined,
+                  endedAt: endClock ? `${date}T${endClock}` : undefined,
                   source: 'manual',
                 }),
               },
@@ -943,6 +951,7 @@ export function TaskDrawer({
           onStopTimer={() => { void handleStopTimer() }}
           autoFocus={focusPanel === 'time'}
           disabled={!canManage}
+          today={todayIsoDate()}
         />
 
         <section className="flex flex-col gap-2" data-testid="task-drawer-logged">

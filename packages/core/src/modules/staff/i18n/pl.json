@@ -1580,6 +1580,8 @@
   "staff.time_tracking.taskDrawer.properties.title": "Właściwości",
   "staff.time_tracking.taskDrawer.properties.unassigned": "Nieprzypisane",
   "staff.time_tracking.taskDrawer.quickLog.cta": "Zaloguj",
+  "staff.time_tracking.taskDrawer.quickLog.descriptionPlaceholder": "Na co poszedł ten czas?",
+  "staff.time_tracking.taskDrawer.quickLog.details": "Szczegóły",
   "staff.time_tracking.taskDrawer.quickLog.error": "Nie udało się zapisać wpisu czasu.",
   "staff.time_tracking.taskDrawer.quickLog.label": "Czas do zalogowania",
   "staff.time_tracking.taskDrawer.quickLog.placeholder": "1h 40m",

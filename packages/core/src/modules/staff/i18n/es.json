@@ -1580,6 +1580,8 @@
   "staff.time_tracking.taskDrawer.properties.title": "Propiedades",
   "staff.time_tracking.taskDrawer.properties.unassigned": "Sin asignar",
   "staff.time_tracking.taskDrawer.quickLog.cta": "Registrar",
+  "staff.time_tracking.taskDrawer.quickLog.descriptionPlaceholder": "¿En qué se empleó el tiempo?",
+  "staff.time_tracking.taskDrawer.quickLog.details": "Detalles",
   "staff.time_tracking.taskDrawer.quickLog.error": "No se pudo guardar el registro de tiempo.",
   "staff.time_tracking.taskDrawer.quickLog.label": "Tiempo a registrar",
   "staff.time_tracking.taskDrawer.quickLog.placeholder": "1h 40m",

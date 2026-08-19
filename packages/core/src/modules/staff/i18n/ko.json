@@ -1580,6 +1580,8 @@
   "staff.time_tracking.taskDrawer.properties.title": "속성",
   "staff.time_tracking.taskDrawer.properties.unassigned": "미지정",
   "staff.time_tracking.taskDrawer.quickLog.cta": "기록",
+  "staff.time_tracking.taskDrawer.quickLog.descriptionPlaceholder": "어떤 작업에 시간을 사용했나요?",
+  "staff.time_tracking.taskDrawer.quickLog.details": "세부 정보",
   "staff.time_tracking.taskDrawer.quickLog.error": "시간 항목을 저장하지 못했습니다.",
   "staff.time_tracking.taskDrawer.quickLog.label": "기록할 시간",
   "staff.time_tracking.taskDrawer.quickLog.placeholder": "1h 40m",

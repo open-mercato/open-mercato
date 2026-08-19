@@ -302,6 +302,75 @@ describe('TaskDrawer', () => {
     expect(body.date).toBe(todayIsoDate())
   })
 
+  it('logs a described, back-dated, non-billable hour from the Details block', async () => {
+    // US-C5's defaults are right for the common case and wrong often enough to
+    // matter: yesterday's forgotten hour and any non-billable hour could not be
+    // logged from the drawer at all before this.
+    renderDrawer()
+    const field = await screen.findByLabelText('Time to log')
+    fireEvent.change(field, { target: { value: '45m' } })
+
+    fireEvent.click(screen.getByTestId('task-drawer-quick-log-toggle'))
+    fireEvent.change(screen.getByTestId('task-drawer-quick-log-description'), {
+      target: { value: 'Refinement with the client' },
+    })
+    fireEvent.change(screen.getByTestId('task-drawer-quick-log-date'), {
+      target: { value: '2026-07-14' },
+    })
+    fireEvent.click(screen.getByTestId('task-drawer-quick-log-billable'))
+
+    fireEvent.click(screen.getByTestId('task-drawer-quick-log-submit'))
+
+    await waitFor(() => expect(writeCalls('/time-entries').length).toBe(1))
+    const body = JSON.parse(String(writeCalls('/time-entries')[0][1]?.body))
+    expect(body.durationMinutes).toBe(45)
+    expect(body.description).toBe('Refinement with the client')
+    expect(body.date).toBe('2026-07-14')
+    expect(body.isBillable).toBe(false)
+    // The person is never overridable here — that is a different act with
+    // different permissions and belongs to the full entry form.
+    expect(body.staffMemberId).toBe(SELF_ID)
+  })
+
+  it('sends the clocks when the Details block supplies them', async () => {
+    renderDrawer()
+    const field = await screen.findByLabelText('Time to log')
+    fireEvent.change(field, { target: { value: '2h' } })
+
+    fireEvent.click(screen.getByTestId('task-drawer-quick-log-toggle'))
+    fireEvent.change(screen.getByTestId('task-drawer-quick-log-date'), { target: { value: '2026-07-14' } })
+    fireEvent.change(screen.getByTestId('task-drawer-quick-log-start'), { target: { value: '09:30' } })
+    fireEvent.change(screen.getByTestId('task-drawer-quick-log-end'), { target: { value: '11:30' } })
+    fireEvent.click(screen.getByTestId('task-drawer-quick-log-submit'))
+
+    await waitFor(() => expect(writeCalls('/time-entries').length).toBe(1))
+    const body = JSON.parse(String(writeCalls('/time-entries')[0][1]?.body))
+    expect(body.startedAt).toBe('2026-07-14T09:30')
+    expect(body.endedAt).toBe('2026-07-14T11:30')
+    expect(body.durationMinutes).toBe(120)
+  })
+
+  it('leaves the clocks unset when they are not filled in', async () => {
+    // A duration-only entry must stay duration-only rather than being pinned to
+    // a time nobody chose.
+    renderDrawer()
+    const field = await screen.findByLabelText('Time to log')
+    fireEvent.change(field, { target: { value: '30m' } })
+    fireEvent.click(screen.getByTestId('task-drawer-quick-log-submit'))
+
+    await waitFor(() => expect(writeCalls('/time-entries').length).toBe(1))
+    const body = JSON.parse(String(writeCalls('/time-entries')[0][1]?.body))
+    expect(body.startedAt).toBeUndefined()
+    expect(body.endedAt).toBeUndefined()
+  })
+
+  it('keeps the collapsed quick log to one field so the common path stays fast', async () => {
+    renderDrawer()
+    await screen.findByLabelText('Time to log')
+    expect(screen.queryByTestId('task-drawer-quick-log-description')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-quick-log-date')).not.toBeInTheDocument()
+  })
+
   it('keeps unparseable duration text in place and refuses to log it', async () => {
     renderDrawer()
     const field = await screen.findByLabelText('Time to log')

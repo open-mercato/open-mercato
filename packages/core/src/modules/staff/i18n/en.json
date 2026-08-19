@@ -1580,6 +1580,8 @@
   "staff.time_tracking.taskDrawer.properties.title": "Properties",
   "staff.time_tracking.taskDrawer.properties.unassigned": "Unassigned",
   "staff.time_tracking.taskDrawer.quickLog.cta": "Log",
+  "staff.time_tracking.taskDrawer.quickLog.descriptionPlaceholder": "What did the time go on?",
+  "staff.time_tracking.taskDrawer.quickLog.details": "Details",
   "staff.time_tracking.taskDrawer.quickLog.error": "Could not save the time entry.",
   "staff.time_tracking.taskDrawer.quickLog.label": "Time to log",
   "staff.time_tracking.taskDrawer.quickLog.placeholder": "1h 40m",
