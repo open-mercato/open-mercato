@@ -1986,7 +1986,6 @@ function buildReusableEnvironment(
     EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
     NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
     ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
-    SELF_SERVICE_ONBOARDING_ENABLED: 'true',
     // Register the test-only `push_stub` channel adapter in the reused Playwright
     // process (and any drain/worker child it spawns) so push integration specs can
     // drive real delivery. Production-safe + inert unless a delivery row carries
