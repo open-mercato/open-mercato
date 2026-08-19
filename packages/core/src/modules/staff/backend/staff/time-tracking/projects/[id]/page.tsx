@@ -19,8 +19,12 @@ import { ArrowLeft, Plus, Pencil, ChevronDown, Trash2, User, Users } from 'lucid
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { ProjectTeamDrawer } from '../../../../../lib/time-tracking-ui/ProjectTeamDrawer'
 import { NoProjectAccess } from '../../../../../lib/time-tracking-ui/NoProjectAccess'
+import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
+import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
+import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
 
 const logger = createLogger('staff')
 
@@ -108,6 +112,9 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [reloadToken, setReloadToken] = React.useState(0)
 
   const [canManageProjects, setCanManageProjects] = React.useState(false)
+  // Money is gated on the same feature the portfolio gates it on; a rate hidden
+  // in the list must not be readable one click deeper.
+  const [canSeeMoney, setCanSeeMoney] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -116,13 +123,17 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         const res = await apiCall<{ ok: boolean; granted: string[] }>('/api/auth/feature-check', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: ['staff.timesheets.projects.manage'] }),
+          body: JSON.stringify({
+            features: ['staff.timesheets.projects.manage', 'staff.timesheets.rates.view'],
+          }),
         })
         if (!cancelled) {
-          setCanManageProjects(new Set(res.result?.granted ?? []).has('staff.timesheets.projects.manage'))
+          const granted = new Set(res.result?.granted ?? [])
+          setCanManageProjects(granted.has('staff.timesheets.projects.manage'))
+          setCanSeeMoney(granted.has('staff.timesheets.rates.view'))
         }
       } catch {
-        // default: no manage access
+        // default: no manage access, no money
       }
     })()
     return () => { cancelled = true }
@@ -399,6 +410,98 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const projectStartDate = project.startDate ?? project.start_date ?? null
   const projectCode = project.code
 
+  // Everything below already arrives in the list projection this page reads with
+  // `?ids=`; the card used to render five of the ~22 columns and drop the rest,
+  // so rate, budget, customer and cost centre were only visible by opening Edit.
+  const readString = (...keys: string[]): string | null => {
+    for (const key of keys) {
+      const raw = (project as Record<string, unknown>)[key]
+      if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim()
+      if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw)
+    }
+    return null
+  }
+  const readNumber = (...keys: string[]): number | null => {
+    for (const key of keys) {
+      const raw = (project as Record<string, unknown>)[key]
+      const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN
+      if (Number.isFinite(parsed)) return parsed
+    }
+    return null
+  }
+  const readBool = (...keys: string[]): boolean | null => {
+    for (const key of keys) {
+      const raw = (project as Record<string, unknown>)[key]
+      if (typeof raw === 'boolean') return raw
+    }
+    return null
+  }
+
+  const enrichment = ((project as Record<string, unknown>)._staff ?? {}) as Record<string, unknown>
+  const readEnriched = (key: string): number | null => {
+    const raw = enrichment[key]
+    return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
+  }
+
+  const customerSnapshot = ((project as Record<string, unknown>).customerSnapshot
+    ?? (project as Record<string, unknown>).customer_snapshot) as Record<string, unknown> | null | undefined
+  const customerName =
+    (typeof customerSnapshot?.name === 'string' ? customerSnapshot.name : null)
+    ?? (typeof enrichment.customerName === 'string' ? enrichment.customerName : null)
+  const customerId = readString('customerId', 'customer_id')
+  const projectColor = readString('color')
+  const costCenter = readString('costCenter', 'cost_center')
+  const currencyCode = readString('currencyCode', 'currency_code')
+  const hourlyRate = readNumber('hourlyRate', 'hourly_rate')
+  const billableByDefault = readBool('billableByDefault', 'billable_by_default')
+  const createdAt = readString('createdAt', 'created_at')
+  const updatedAt = readString('updatedAt', 'updated_at')
+  const entryCount = readNumber('entryCount')
+  const lockedEntryCount = readNumber('lockedEntryCount')
+  const totalMinutes = readEnriched('totalMinutes') ?? 0
+  const billableMinutes = readEnriched('billableMinutes')
+  const cost = readEnriched('cost')
+
+  const budgetKind = readString('budgetKind', 'budget_kind')
+  const budgetValue = readNumber('budgetValue', 'budget_value')
+  const budgetWarnAt = readNumber('budgetWarnAtPercent', 'budget_warn_at_percent')
+  const budgetBurn = computeBudgetBurn({
+    kind: budgetKind as 'none' | 'hours' | 'amount' | null,
+    budgetValue,
+    warnAtPercent: budgetWarnAt,
+    totalMinutes,
+    cost,
+  })
+
+  const formatHours = (minutes: number | null): string => {
+    if (minutes === null) return '—'
+    const sign = minutes < 0 ? '-' : ''
+    const abs = Math.abs(minutes)
+    return `${sign}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`
+  }
+  const formatDateTime = (value: string | null): string => {
+    if (!value) return '—'
+    // The query engine returns `2026-05-24 00:00:00+00` — a space separator and a
+    // two-digit offset, neither of which `Date` accepts, so both need widening
+    // before parsing or every timestamp renders raw.
+    const normalized = value
+      .replace(' ', 'T')
+      .replace(/([+-]\d{2})$/, '$1:00')
+    const parsed = new Date(normalized)
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
+  }
+  const budgetUsageLabel = budgetBurn
+    ? budgetBurn.kind === 'hours'
+      ? t('staff.timesheets.projects.detail.budgetHours', '{percent}% of {value} h', {
+          percent: budgetBurn.percent,
+          value: budgetBurn.budgetValue,
+        })
+      : t('staff.timesheets.projects.detail.budgetAmount', '{percent}% of {value}', {
+          percent: budgetBurn.percent,
+          value: formatCurrency(budgetBurn.budgetValue, currencyCode ?? undefined) ?? String(budgetBurn.budgetValue),
+        })
+    : null
+
   return (
     <Page>
       <PageBody>
@@ -463,6 +566,27 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                     <dd>{projectStartDate}</dd>
                   </div>
                 ) : null}
+                <div>
+                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.customer', 'Customer')}</dt>
+                  <dd>
+                    {customerName && customerId ? (
+                      <Link className="underline underline-offset-2" href={`/backend/customers/companies/${customerId}`}>
+                        {customerName}
+                      </Link>
+                    ) : customerName ?? '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.color', 'Project color')}</dt>
+                  <dd className="flex items-center gap-2">
+                    <span
+                      className="inline-block size-3 rounded-full border border-border"
+                      style={{ backgroundColor: resolveProjectColorHex(projectColor, project.name) }}
+                      aria-hidden
+                    />
+                    <span className="capitalize">{projectColor ?? t('staff.timesheets.projects.detail.autoColor', 'Auto')}</span>
+                  </dd>
+                </div>
                 {project.description ? (
                   <div className="col-span-2">
                     <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.description', 'Description')}</dt>
@@ -472,6 +596,100 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
               </dl>
             </div>
           )}
+
+          {/* Delivery — hours already logged, from the same payload the portfolio reads. */}
+          <div className="max-w-2xl rounded-lg border p-4" data-testid="project-detail-delivery">
+            <h2 className="mb-3 text-sm font-semibold">
+              {t('staff.timesheets.projects.detail.delivery', 'Delivery')}
+            </h2>
+            <dl className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.loggedHours', 'Logged hours')}</dt>
+                <dd className="font-mono tabular-nums">{formatHours(totalMinutes)}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.billableHours', 'Billable hours')}</dt>
+                <dd className="font-mono tabular-nums">{formatHours(billableMinutes)}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.entryCount', 'Time entries')}</dt>
+                <dd>{entryCount ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.lockedEntries', 'Locked in reports')}</dt>
+                <dd>{lockedEntryCount ?? '—'}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* Commercials — gated on the same feature the portfolio gates money on. */}
+          {canSeeMoney ? (
+            <div className="max-w-2xl rounded-lg border p-4" data-testid="project-detail-commercials">
+              <h2 className="mb-3 text-sm font-semibold">
+                {t('staff.timesheets.projects.detail.commercials', 'Billing')}
+              </h2>
+              <dl className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.hourlyRate', 'Hourly rate')}</dt>
+                  <dd>
+                    {hourlyRate === null
+                      ? '—'
+                      : `${formatCurrency(hourlyRate, currencyCode ?? undefined) ?? hourlyRate} / h`}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.currency', 'Currency')}</dt>
+                  <dd>{currencyCode ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.billableByDefault', 'Billable by default')}</dt>
+                  <dd>
+                    {billableByDefault === null
+                      ? '—'
+                      : billableByDefault
+                        ? t('staff.timesheets.projects.detail.yes', 'Yes')
+                        : t('staff.timesheets.projects.detail.no', 'No')}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.cost', 'Cost to date')}</dt>
+                  <dd>{cost === null ? '—' : formatCurrency(cost, currencyCode ?? undefined) ?? String(cost)}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="mb-1 font-medium text-muted-foreground">{t('staff.timesheets.projects.form.budget', 'Budget')}</dt>
+                  <dd>
+                    <ProjectBudgetCell
+                      burn={budgetBurn}
+                      usageLabel={budgetUsageLabel}
+                      noBudgetLabel={t('staff.timesheets.projects.detail.noBudget', 'No budget')}
+                      ariaLabel={t('staff.timesheets.projects.detail.budgetUsage', 'Budget usage')}
+                    />
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          ) : null}
+
+          {/* Administration */}
+          <div className="max-w-2xl rounded-lg border p-4" data-testid="project-detail-admin">
+            <h2 className="mb-3 text-sm font-semibold">
+              {t('staff.timesheets.projects.detail.administration', 'Administration')}
+            </h2>
+            <dl className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.form.costCenter', 'Cost center')}</dt>
+                <dd>{costCenter ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.createdAt', 'Created')}</dt>
+                <dd>{formatDateTime(createdAt)}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-muted-foreground">{t('staff.timesheets.projects.detail.updatedAt', 'Last updated')}</dt>
+                <dd>{formatDateTime(updatedAt)}</dd>
+              </div>
+            </dl>
+          </div>
 
           {/* Summary Cards: Active / Inactive employees */}
           <div className="grid grid-cols-2 gap-4 max-w-md">
