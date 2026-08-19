@@ -28,6 +28,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { buildSqlInClause } from './sqlInClause'
 import type { ProgressService, ProgressServiceContext } from '../../../progress/lib/progressService'
 import {
   staffTimeEntryCommandIds,
@@ -109,7 +110,8 @@ function buildCommandContext(
 
 function organizationClause(organizationIds: string[] | null): { sql: string; params: unknown[] } {
   if (!organizationIds) return { sql: '', params: [] }
-  return { sql: ' AND organization_id = ANY(?)', params: [organizationIds] }
+  const clause = buildSqlInClause('organization_id', organizationIds)
+  return { sql: ` AND ${clause.sql}`, params: clause.params }
 }
 
 export async function countReapplyRoundingCandidates(

@@ -16,6 +16,7 @@ import { StaffTimeProject, StaffTimeProjectMember, StaffTeamMember } from '../..
 import { staffTimeProjectCreateSchema, staffTimeProjectUpdateSchema } from '../../../data/validators'
 import { resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
+import { buildSqlInClause } from '../../../lib/time-tracking/sqlInClause'
 import { sanitizeSearchTerm, parseBooleanFlag } from '../../helpers'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
@@ -258,6 +259,7 @@ export async function decorateProjectCurrencyLock(
   )
   if (ids.length === 0) return
 
+  const projectIn = buildSqlInClause('time_project_id', ids)
   const rows = (await em.getConnection().execute(
     `
       SELECT time_project_id,
@@ -267,10 +269,10 @@ export async function decorateProjectCurrencyLock(
       WHERE tenant_id = ?
         AND organization_id = ?
         AND deleted_at IS NULL
-        AND time_project_id = ANY(?)
+        AND ${projectIn.sql}
       GROUP BY time_project_id
     `,
-    [scope.tenantId, scope.organizationId, ids],
+    [scope.tenantId, scope.organizationId, ...projectIn.params],
   )) as ProjectEntryCountRow[]
 
   const counts = new Map(rows.map((row) => [row.time_project_id, row]))

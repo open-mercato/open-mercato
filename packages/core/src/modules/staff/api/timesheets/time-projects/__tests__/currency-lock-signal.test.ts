@@ -52,11 +52,18 @@ describe('time project currency lock read signal', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].params[0]).toBe(TENANT_ID)
     expect(calls[0].params[1]).toBe(ORG_ID)
-    expect(calls[0].params[2]).toEqual([
+    // One placeholder per id, never the id list bound as a single array
+    // parameter: MikroORM interpolates parameters itself, so an array reaches
+    // PostgreSQL as a bare comma-separated list and the query fails with
+    // `malformed array literal`.
+    expect(calls[0].sql).toContain('time_project_id IN (?, ?, ?)')
+    expect(calls[0].sql).not.toContain('ANY')
+    expect(calls[0].params.slice(2)).toEqual([
       PROJECT_WITH_ENTRIES,
       PROJECT_WITH_LOCKED_ENTRIES,
       PROJECT_WITHOUT_ENTRIES,
     ])
+    expect(calls[0].params.some((param) => Array.isArray(param))).toBe(false)
   })
 
   it('issues no query for an empty page', async () => {

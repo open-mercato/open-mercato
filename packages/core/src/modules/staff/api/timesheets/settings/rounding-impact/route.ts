@@ -34,6 +34,7 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
 import type { RoundingDirection, RoundingSettings, RoundingUnitMinutes } from '../../../../lib/time-tracking/rounding'
 import { projectRoundingImpact, type DurationBucket } from '../../../../lib/time-tracking/roundingImpact'
+import { buildSqlInClause } from '../../../../lib/time-tracking/sqlInClause'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/settings/rounding-impact' })
 
@@ -138,8 +139,9 @@ export async function GET(req: Request) {
     // filter list means "every organization of this tenant", which is what a
     // tenant-global setting is asking about.
     const organizationIds = scope?.filterIds ?? null
-    const orgClause = organizationIds ? ' AND organization_id = ANY(?)' : ''
-    const orgParams = organizationIds ? [organizationIds] : []
+    const orgIn = organizationIds ? buildSqlInClause('organization_id', organizationIds) : null
+    const orgClause = orgIn ? ` AND ${orgIn.sql}` : ''
+    const orgParams = orgIn ? orgIn.params : []
 
     const em = container.resolve('em') as EntityManager
     const connection = em.getConnection()

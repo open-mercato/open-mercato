@@ -161,9 +161,9 @@ describe('rounding impact route', () => {
 
     for (const [sql, params] of execute.mock.calls) {
       expect(String(sql)).toContain('tenant_id = ?')
-      expect(String(sql)).toContain('organization_id = ANY(?)')
+      expect(String(sql)).toContain('organization_id IN (?)')
       expect(params[0]).toBe(tenantId)
-      expect(params).toContainEqual([organizationId])
+      expect(params).toContain(organizationId)
     }
   })
 
@@ -173,7 +173,7 @@ describe('rounding impact route', () => {
     await GET(request())
 
     for (const [sql] of execute.mock.calls) {
-      expect(String(sql)).not.toContain('organization_id = ANY(?)')
+      expect(String(sql)).not.toContain('organization_id IN (')
     }
   })
 

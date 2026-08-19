@@ -82,7 +82,7 @@ describe('countReapplyRoundingCandidates', () => {
     expect(String(sql)).toContain('locked_report_id IS NULL')
     expect(String(sql)).toContain('deleted_at IS NULL')
     expect(String(sql)).toContain('tenant_id = ?')
-    expect(String(sql)).toContain('organization_id = ANY(?)')
+    expect(String(sql)).toContain('organization_id IN (?)')
     expect(params[0]).toBe(TENANT_ID)
   })
 
@@ -92,7 +92,7 @@ describe('countReapplyRoundingCandidates', () => {
 
     await countReapplyRoundingCandidates(em as never, { ...scope, organizationIds: null })
 
-    expect(String(execute.mock.calls[0][0])).not.toContain('organization_id = ANY(?)')
+    expect(String(execute.mock.calls[0][0])).not.toContain('organization_id IN (')
   })
 })
 
