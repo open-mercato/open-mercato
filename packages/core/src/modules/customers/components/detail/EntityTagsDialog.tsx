@@ -397,6 +397,11 @@ export function EntityTagsDialog({
   // without.
   const [activeCategoryHasMore, setActiveCategoryHasMore] = React.useState(false)
   const [activeCategoryLoading, setActiveCategoryLoading] = React.useState(false)
+  // A transport failure is not an end-of-list signal: it leaves the affordance
+  // in place and turns the next click into a retry of the page that failed,
+  // rather than advancing past it.
+  const [activeCategoryLoadFailed, setActiveCategoryLoadFailed] = React.useState(false)
+  const [activeCategoryReloadToken, setActiveCategoryReloadToken] = React.useState(0)
   const creationInFlightRef = React.useRef<string | null>(null)
   const mutationContextId = React.useMemo(
     () => `customer-tags:${entityType}:${entityId}`,
@@ -721,12 +726,14 @@ export function EntityTagsDialog({
     if (!open) return
     setActiveCategoryPage(1)
     setActiveCategoryHasMore(false)
+    setActiveCategoryLoadFailed(false)
   }, [activeCategoryKind, open, searchValue])
 
   React.useEffect(() => {
     if (!open || !activeCategoryKindValue || (activeCategorySource !== 'tags' && activeCategorySource !== 'labels')) {
       setActiveCategoryLoading(false)
       setActiveCategoryHasMore(false)
+      setActiveCategoryLoadFailed(false)
       return
     }
 
@@ -760,21 +767,36 @@ export function EntityTagsDialog({
       }))
 
     setActiveCategoryLoading(true)
-    void apiCall<{ items?: Array<DictEntry | LabelItem> }>(endpoint, {
+    void apiCall<{ items?: Array<DictEntry | LabelItem>; page?: number }>(endpoint, {
       cache: 'no-store',
       headers: { 'x-om-unauthorized-redirect': '0' },
     })
       .then((response) => {
         if (cancelled) return
         if (!response.ok) {
-          setActiveCategoryHasMore(false)
+          setActiveCategoryLoadFailed(true)
           return
         }
+        setActiveCategoryLoadFailed(false)
         const servedEntries = Array.isArray(response.result?.items) ? response.result.items : []
         const fetchedEntries = mapEntries(servedEntries)
+        // The two sources paginate differently. `/api/customers/tags` is a
+        // query-engine list, so a page past the end comes back empty and the
+        // served count alone terminates the sequence. `/api/customers/labels`
+        // clamps the requested page to the last one and re-serves it in full
+        // forever, so short-page termination needs the second half of the
+        // helper's obligation 2: take an echoed page below the one asked for as
+        // the end of the list. Same guard as `AttachmentsSection`, whose
+        // endpoint clamps the same way.
+        const returnedPage =
+          typeof response.result?.page === 'number' ? response.result.page : activeCategoryPage
+        const servedRequestedPage = returnedPage >= activeCategoryPage
         // Measured on what the endpoint served, before `mergeOptions` folds the
         // page into the entries already on screen.
-        setActiveCategoryHasMore(hasMoreFromPage(servedEntries.length, REMOTE_CATEGORY_PAGE_SIZE))
+        setActiveCategoryHasMore(
+          servedRequestedPage && hasMoreFromPage(servedEntries.length, REMOTE_CATEGORY_PAGE_SIZE),
+        )
+        if (!servedRequestedPage) return
         updateCategoryEntries(activeCategoryKindValue, (currentEntries) =>
           activeCategoryPage <= 1
             ? mergeOptions(seedEntries, fetchedEntries)
@@ -783,8 +805,10 @@ export function EntityTagsDialog({
       })
       .catch(() => {
         if (cancelled) return
-        setActiveCategoryHasMore(false)
-        updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
+        setActiveCategoryLoadFailed(true)
+        if (activeCategoryPage <= 1) {
+          updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -798,6 +822,7 @@ export function EntityTagsDialog({
   }, [
     activeCategoryKindValue,
     activeCategoryPage,
+    activeCategoryReloadToken,
     activeCategorySource,
     entityId,
     entityOrganizationId,
@@ -1269,9 +1294,17 @@ export function EntityTagsDialog({
                               variant="outline"
                               size="sm"
                               className="rounded-lg px-3 text-xs"
-                              onClick={() => setActiveCategoryPage((current) => current + 1)}
+                              onClick={() => {
+                                if (activeCategoryLoadFailed) {
+                                  setActiveCategoryReloadToken((current) => current + 1)
+                                  return
+                                }
+                                setActiveCategoryPage((current) => current + 1)
+                              }}
                             >
-                              {t('customers.activities.loadMore', 'Load more')}
+                              {activeCategoryLoadFailed
+                                ? t('customers.personTags.retry', 'Retry')
+                                : t('customers.activities.loadMore', 'Load more')}
                             </Button>
                           ) : null}
                         </div>

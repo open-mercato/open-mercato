@@ -194,7 +194,10 @@ export function usePersonTasks({
       // Short-page termination instead of `page < totalPages` — see
       // `hasMoreFromPage`. `mapRowToSummary` is a 1:1 map and the `mergeUnique`
       // dedupe happens after this, so `mapped.length` is what the server served.
-      hasMore: hasMoreFromPage(mapped.length, pageSize),
+      // Measured against the page size the server echoed rather than the one
+      // requested, so a page size the endpoint narrows server-side cannot make a
+      // full page read as short and silently end the sequence.
+      hasMore: hasMoreFromPage(mapped.length, payload.pageSize ?? pageSize),
       total: payload.total ?? mapped.length,
     })
     setError(null)

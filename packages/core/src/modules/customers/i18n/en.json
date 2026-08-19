@@ -2409,6 +2409,7 @@
   "customers.personTags.newLabel": "New label",
   "customers.personTags.newLabelPlaceholder": "Label name...",
   "customers.personTags.newTag": "New tag",
+  "customers.personTags.retry": "Retry",
   "customers.personTags.save": "Save",
   "customers.personTags.saveError": "Failed to save tags",
   "customers.personTags.saveSuccess": "Tags updated.",

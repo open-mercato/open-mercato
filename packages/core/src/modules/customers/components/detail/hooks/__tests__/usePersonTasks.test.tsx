@@ -73,6 +73,41 @@ describe('usePersonTasks load-more termination', () => {
     expect(result.current.hasMore).toBe(true)
   })
 
+  // `totalPages` was dropped from the hook's response type, `total` deliberately
+  // kept: it feeds the section's count badge, where an under-report is cosmetic
+  // rather than a way to strand rows. This pins that split explicitly.
+  it('still reports the server total for the count badge', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: makeRows(PAGE_SIZE),
+      total: 42,
+      page: 1,
+      pageSize: PAGE_SIZE,
+      totalPages: 1,
+    })
+
+    const { result } = await renderTasks()
+
+    expect(result.current.totalCount).toBe(42)
+    expect(result.current.hasMore).toBe(true)
+  })
+
+  // The served page size wins over the requested one, so an endpoint that
+  // narrows the page server-side cannot make a full page read as short and
+  // silently end the sequence.
+  it('measures the page against the size the server echoed', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: makeRows(PAGE_SIZE - 1),
+      total: 99,
+      page: 1,
+      pageSize: PAGE_SIZE - 1,
+      totalPages: 99,
+    })
+
+    const { result } = await renderTasks()
+
+    expect(result.current.hasMore).toBe(true)
+  })
+
   it('stops on a short page however many pages the payload promises', async () => {
     readApiResultOrThrowMock.mockResolvedValue({
       items: makeRows(PAGE_SIZE - 1),

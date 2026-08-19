@@ -2409,6 +2409,7 @@
   "customers.personTags.newLabel": "Nowa etykieta",
   "customers.personTags.newLabelPlaceholder": "Nazwa etykiety...",
   "customers.personTags.newTag": "Nowy tag",
+  "customers.personTags.retry": "Ponów próbę",
   "customers.personTags.save": "Zapisz",
   "customers.personTags.saveError": "Nie udało się zapisać tagów",
   "customers.personTags.saveSuccess": "Tagi zostały zaktualizowane.",
