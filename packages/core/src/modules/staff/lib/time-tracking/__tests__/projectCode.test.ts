@@ -1,4 +1,10 @@
-import { PROJECT_CODE_FALLBACK, PROJECT_CODE_MAX_LENGTH, deriveProjectCode } from '../projectCode'
+import {
+  PROJECT_CODE_FALLBACK,
+  PROJECT_CODE_MAX_LENGTH,
+  PROJECT_CODE_TARGET_LENGTH,
+  deriveProjectCode,
+  deriveProjectCodeBase,
+} from '../projectCode'
 
 const PROJECT_CODE_PATTERN = /^[a-zA-Z0-9-]+$/
 
@@ -6,71 +12,81 @@ function expectValidCode(code: string): void {
   expect(code).toMatch(PROJECT_CODE_PATTERN)
   expect(code.length).toBeGreaterThan(0)
   expect(code.length).toBeLessThanOrEqual(PROJECT_CODE_MAX_LENGTH)
-  expect(code.length).toBeLessThanOrEqual(50)
 }
 
+describe('deriveProjectCodeBase', () => {
+  it('reduces a multi-word name to its initials', () => {
+    // `EHK` is recognisable as Ergo Hestia Korpo in a way `ERG` is not.
+    expect(deriveProjectCodeBase('Ergo Hestia Korpo')).toBe('EHK')
+    expect(deriveProjectCodeBase('Nordvik — portal serwisowy')).toBe('NPS')
+    expect(deriveProjectCodeBase('Apollo — Website Redesign')).toBe('AWR')
+  })
+
+  it('takes the first letters of a one or two word name', () => {
+    expect(deriveProjectCodeBase('Apollo')).toBe('APO')
+    expect(deriveProjectCodeBase('Data Platform')).toBe('DAT')
+  })
+
+  it('leaves a name already at or under three characters alone', () => {
+    expect(deriveProjectCodeBase('HBH')).toBe('HBH')
+    expect(deriveProjectCodeBase('Ax')).toBe('AX')
+  })
+
+  it('transliterates before reducing', () => {
+    expect(deriveProjectCodeBase('Łódź')).toBe('LOD')
+    expect(deriveProjectCodeBase('Żółw wodny miejski')).toBe('ZWM')
+  })
+
+  it('falls back when the name slugifies to nothing', () => {
+    expect(deriveProjectCodeBase('!!!')).toBe(PROJECT_CODE_FALLBACK)
+    expect(deriveProjectCodeBase('')).toBe(PROJECT_CODE_FALLBACK)
+    expect(deriveProjectCodeBase('   ')).toBe(PROJECT_CODE_FALLBACK)
+  })
+})
+
 describe('deriveProjectCode', () => {
-  it('transliterates Polish diacritics', () => {
-    expect(deriveProjectCode('Łódź', new Set())).toBe('LODZ')
-    expect(deriveProjectCode('Żółw', new Set())).toBe('ZOLW')
-    expect(deriveProjectCode('ąćęłńóśźż', new Set())).toBe('ACELNOSZZ')
+  it('returns the three-letter base when nothing has claimed it', () => {
+    expect(deriveProjectCode('Apollo', new Set())).toBe('APO')
+    expect(deriveProjectCode('Ergo Hestia Korpo', new Set())).toBe('EHK')
+    expect(deriveProjectCode('Audit')).toBe('AUD')
   })
 
-  it('uppercases and collapses non-alphanumerics into single dashes', () => {
-    expect(deriveProjectCode('acme // web', new Set())).toBe('ACME-WEB')
-    expect(deriveProjectCode('  --acme--  ', new Set())).toBe('ACME')
-    expect(deriveProjectCode('B2B 2026', new Set())).toBe('B2B-2026')
+  it('extends rather than substitutes on a collision', () => {
+    // Three letters collide constantly, so the rule has to be predictable.
+    // `APO2` is still readable; `APQ` would look like a different project.
+    expect(deriveProjectCode('Apollo', new Set(['APO']))).toBe('APO2')
+    expect(deriveProjectCode('Apollo', new Set(['APO', 'APO2']))).toBe('APO3')
   })
 
-  it('truncates at a word boundary within the 20-character cap', () => {
-    expect(deriveProjectCode('Nordvik — portal serwisowy', new Set())).toBe('NORDVIK-PORTAL')
-    expect(deriveProjectCode('Nordvik — migracja B2B', new Set())).toBe('NORDVIK-MIGRACJA')
+  it('dedupes case-insensitively', () => {
+    expect(deriveProjectCode('Audit', new Set(['aud']))).toBe('AUD2')
   })
 
-  it('hard-truncates a single word longer than the cap', () => {
-    const code = deriveProjectCode('Supercalifragilisticexpialidocious', new Set())
-    expectValidCode(code)
-    expect(code.startsWith('SUPERCALIFRAGILIST')).toBe(true)
-  })
-
-  it('leaves a short name untouched', () => {
-    expect(deriveProjectCode('Audit', new Set())).toBe('AUDIT')
-  })
-
-  it('dedupes with a numeric suffix', () => {
-    expect(deriveProjectCode('Nordvik portal', new Set(['NORDVIK-PORTAL']))).toBe('NORDVIK-PORTAL-2')
-    expect(deriveProjectCode('Nordvik portal', new Set(['NORDVIK-PORTAL', 'NORDVIK-PORTAL-2']))).toBe(
-      'NORDVIK-PORTAL-3',
-    )
-  })
-
-  it('keeps the dedupe suffix inside the 20-character cap', () => {
+  it('keeps every derived code inside the cap under sustained collision', () => {
     const taken = new Set<string>()
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 30; index += 1) {
       const code = deriveProjectCode('Migracja danych klienta', taken)
       expectValidCode(code)
       expect(taken.has(code)).toBe(false)
       taken.add(code)
     }
-    expect(taken.size).toBe(12)
+    expect(taken.size).toBe(30)
   })
 
-  it('dedupes case-insensitively against taken codes', () => {
-    expect(deriveProjectCode('Audit', new Set(['audit']))).toBe('AUDIT-2')
+  it('stays at the target length until it has to grow', () => {
+    expect(deriveProjectCode('Apollo', new Set())).toHaveLength(PROJECT_CODE_TARGET_LENGTH)
   })
 
-  it('falls back to a stable valid code when the name slugifies to empty', () => {
-    expect(deriveProjectCode('!!!', new Set())).toBe(PROJECT_CODE_FALLBACK)
-    expect(deriveProjectCode('', new Set())).toBe(PROJECT_CODE_FALLBACK)
-    expect(deriveProjectCode('   ', new Set())).toBe(PROJECT_CODE_FALLBACK)
-    expect(deriveProjectCode('!!!', new Set([PROJECT_CODE_FALLBACK]))).toBe(`${PROJECT_CODE_FALLBACK}-2`)
+  it('falls back to the long form rather than failing when short codes run out', () => {
+    // A save that refuses to happen is worse than a long code.
+    const taken = new Set<string>(['APO'])
+    for (let counter = 2; counter < 10000; counter += 1) taken.add(`APO${counter}`)
+    const code = deriveProjectCode('Apollo Programme', taken)
+    expectValidCode(code)
+    expect(taken.has(code)).toBe(false)
   })
 
-  it('defaults the taken set so a caller may omit it', () => {
-    expect(deriveProjectCode('Audit')).toBe('AUDIT')
-  })
-
-  it('always produces a code accepted by projectCodeSchema', () => {
+  it('always produces a code the schema accepts', () => {
     const names = [
       'Łódź',
       'Nordvik — portal serwisowy',
@@ -80,9 +96,6 @@ describe('deriveProjectCode', () => {
       '2026',
       'a',
     ]
-    for (const name of names) {
-      expectValidCode(deriveProjectCode(name, new Set()))
-      expectValidCode(deriveProjectCode(name, new Set([deriveProjectCode(name, new Set())])))
-    }
+    for (const name of names) expectValidCode(deriveProjectCode(name, new Set()))
   })
 })
