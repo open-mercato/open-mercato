@@ -7,6 +7,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { LookupSelect } from '@open-mercato/ui/backend/inputs/LookupSelect'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -92,6 +93,25 @@ type StaffMembersResponse = {
   items?: StaffMemberRecord[]
 }
 
+type ProjectEntryRow = {
+  id: string
+  date: string
+  description: string | null
+  durationMinutes: number
+  isBillable: boolean
+  taskId: string | null
+  staffMemberId: string | null
+}
+
+type ProjectTaskRow = {
+  id: string
+  reference: string | null
+  title: string
+  statusId: string | null
+  assigneeStaffMemberId: string | null
+  loggedMinutes: number | null
+}
+
 /**
  * A group heading inside the reference rail. The rail replaces three full-width
  * cards, so the groups carry the separation those card borders used to.
@@ -137,6 +157,15 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [expandedCards, setExpandedCards] = React.useState<Set<string>>(new Set())
   const [reloadToken, setReloadToken] = React.useState(0)
 
+  // Tabs govern the working column only — the details rail stays visible on every
+  // tab, because reference facts are what you check *while* reading the tab you
+  // are on, not a destination of their own.
+  const [activeTab, setActiveTab] = React.useState<'team' | 'time' | 'tasks'>('team')
+  const [recentEntries, setRecentEntries] = React.useState<ProjectEntryRow[]>([])
+  const [recentEntriesLoading, setRecentEntriesLoading] = React.useState(false)
+  const [projectTasks, setProjectTasks] = React.useState<ProjectTaskRow[]>([])
+  const [projectTasksLoading, setProjectTasksLoading] = React.useState(false)
+
   const [canManageProjects, setCanManageProjects] = React.useState(false)
   // Money is gated on the same feature the portfolio gates it on; a rate hidden
   // in the list must not be readable one click deeper.
@@ -171,6 +200,104 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [addStartDate, setAddStartDate] = React.useState('')
   const [addSaving, setAddSaving] = React.useState(false)
 
+  // Fetched per tab rather than up front: a project page opened to check a rate
+  // should not pay for two lists nobody looked at.
+  React.useEffect(() => {
+    if (!projectId || activeTab !== 'time') return
+    let cancelled = false
+    void (async () => {
+      setRecentEntriesLoading(true)
+      try {
+        const res = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/staff/timesheets/time-entries?projectId=${encodeURIComponent(projectId)}&page=1&pageSize=25&sortField=date&sortDir=desc`,
+        )
+        if (cancelled || !res.ok) return
+        const items = Array.isArray(res.result?.items) ? res.result.items : []
+        setRecentEntries(
+          items
+            .map((row): ProjectEntryRow | null => {
+              const id = typeof row.id === 'string' ? row.id : null
+              if (!id) return null
+              const raw = row as Record<string, unknown>
+              const minutes = raw.duration_minutes ?? raw.durationMinutes
+              return {
+                id,
+                date: typeof raw.date === 'string' ? raw.date.slice(0, 10) : '',
+                description:
+                  typeof raw.description === 'string'
+                    ? raw.description
+                    : typeof raw.notes === 'string'
+                      ? raw.notes
+                      : null,
+                durationMinutes: typeof minutes === 'number' ? minutes : Number(minutes ?? 0) || 0,
+                isBillable: raw.is_billable === true || raw.isBillable === true,
+                taskId: typeof (raw.task_id ?? raw.taskId) === 'string' ? String(raw.task_id ?? raw.taskId) : null,
+                staffMemberId:
+                  typeof (raw.staff_member_id ?? raw.staffMemberId) === 'string'
+                    ? String(raw.staff_member_id ?? raw.staffMemberId)
+                    : null,
+              }
+            })
+            .filter((row): row is ProjectEntryRow => row !== null),
+        )
+      } catch (err) {
+        logger.warn('staff.timesheets.projects.detail recent entries failed', { err })
+      } finally {
+        if (!cancelled) setRecentEntriesLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [projectId, activeTab, reloadToken])
+
+  React.useEffect(() => {
+    if (!projectId || activeTab !== 'tasks') return
+    let cancelled = false
+    void (async () => {
+      setProjectTasksLoading(true)
+      try {
+        const res = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/staff/timesheets/tasks?projectId=${encodeURIComponent(projectId)}&page=1&pageSize=50&sortField=reference&sortDir=asc`,
+        )
+        if (cancelled || !res.ok) return
+        const items = Array.isArray(res.result?.items) ? res.result.items : []
+        setProjectTasks(
+          items
+            .map((row): ProjectTaskRow | null => {
+              const id = typeof row.id === 'string' ? row.id : null
+              const title = typeof row.title === 'string' ? row.title : null
+              if (!id || !title) return null
+              const raw = row as Record<string, unknown>
+              const logged = raw.loggedMinutes ?? raw.logged_minutes
+              return {
+                id,
+                reference: typeof raw.reference === 'string' ? raw.reference : null,
+                title,
+                statusId:
+                  typeof (raw.task_status_id ?? raw.taskStatusId) === 'string'
+                    ? String(raw.task_status_id ?? raw.taskStatusId)
+                    : null,
+                assigneeStaffMemberId:
+                  typeof (raw.assignee_staff_member_id ?? raw.assigneeStaffMemberId) === 'string'
+                    ? String(raw.assignee_staff_member_id ?? raw.assigneeStaffMemberId)
+                    : null,
+                loggedMinutes: typeof logged === 'number' ? logged : null,
+              }
+            })
+            .filter((row): row is ProjectTaskRow => row !== null),
+        )
+      } catch (err) {
+        logger.warn('staff.timesheets.projects.detail tasks failed', { err })
+      } finally {
+        if (!cancelled) setProjectTasksLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [projectId, activeTab, reloadToken])
+
+  const employeeNameById = React.useMemo(
+    () => new Map(employees.map((emp) => [emp.staffMemberId, emp.displayName ?? ''])),
+    [employees],
+  )
   const activeCount = employees.filter((emp) => emp.status === 'active').length
   const inactiveCount = employees.length - activeCount
 
@@ -733,15 +860,32 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
             * screen carrying nothing.
             */}
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as 'team' | 'time' | 'tasks')}
+            variant="underline"
+            className="min-w-0"
+          >
+            <TabsList aria-label={t('staff.timesheets.projects.detail.tabs', 'Project sections')}>
+              <TabsTrigger value="team" count={activeCount}>
+                {t('staff.timesheets.projects.detail.tabTeam', 'Team')}
+              </TabsTrigger>
+              <TabsTrigger value="time" count={entryCount ?? undefined}>
+                {t('staff.timesheets.projects.detail.tabTime', 'Time')}
+              </TabsTrigger>
+              <TabsTrigger value="tasks">
+                {t('staff.timesheets.projects.detail.tabTasks', 'Tasks')}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="team">
           {/* Assigned Employees — collapsible cards */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-base font-semibold">
+              <h2 className="sr-only">
                 {t('staff.timesheets.projects.employees.title', 'Assigned Employees')}
-                <span className="rounded-full bg-muted px-2 text-xs font-medium tabular-nums text-muted-foreground">
-                  {activeCount}
-                </span>
               </h2>
+              <span />
               {canManageProjects && (
                 <Button size="sm" onClick={openAddDialog}>
                   <Plus className="mr-2 h-4 w-4" aria-hidden />
@@ -862,6 +1006,100 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
               </div>
             )}
           </div>
+            </TabsContent>
+
+            <TabsContent value="time">
+              {recentEntriesLoading ? (
+                <LoadingMessage label={t('staff.timesheets.projects.detail.loadingTime', 'Loading time entries…')} />
+              ) : recentEntries.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-8 text-center">
+                  <p className="text-sm font-medium">
+                    {t('staff.timesheets.projects.detail.noTime', 'No time logged yet')}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('staff.timesheets.projects.detail.noTimeHint', 'Hours logged against this project appear here.')}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-left">
+                        <th className="px-3 py-2 font-medium text-muted-foreground">
+                          {t('staff.timesheets.projects.detail.colDate', 'Date')}
+                        </th>
+                        <th className="px-3 py-2 font-medium text-muted-foreground">
+                          {t('staff.timesheets.projects.detail.colWho', 'Person')}
+                        </th>
+                        <th className="px-3 py-2 font-medium text-muted-foreground">
+                          {t('staff.timesheets.projects.detail.colDescription', 'Description')}
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                          {t('staff.timesheets.projects.detail.colHours', 'Hours')}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentEntries.map((entry) => (
+                        <tr key={entry.id} className="border-b last:border-b-0">
+                          <td className="whitespace-nowrap px-3 py-2">{entry.date}</td>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            {employeeNameById.get(entry.staffMemberId ?? '') ?? '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="flex items-center gap-2">
+                              <span className="truncate">{entry.description ?? '—'}</span>
+                              {entry.isBillable ? null : (
+                                <Badge variant="neutral">
+                                  {t('staff.timesheets.projects.detail.nonBillableTag', 'non-billable')}
+                                </Badge>
+                              )}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
+                            {formatHours(entry.durationMinutes)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="tasks">
+              {projectTasksLoading ? (
+                <LoadingMessage label={t('staff.timesheets.projects.detail.loadingTasks', 'Loading tasks…')} />
+              ) : projectTasks.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-8 text-center">
+                  <p className="text-sm font-medium">
+                    {t('staff.timesheets.projects.detail.noTasks', 'No tasks yet')}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y rounded-lg border">
+                  {projectTasks.map((task) => (
+                    <div key={task.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      {task.reference ? (
+                        <span className="shrink-0 rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">
+                          {task.reference}
+                        </span>
+                      ) : null}
+                      <span className="min-w-0 flex-1 truncate">{task.title}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {employeeNameById.get(task.assigneeStaffMemberId ?? '') ?? ''}
+                      </span>
+                      {task.loggedMinutes !== null ? (
+                        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                          {formatHours(task.loggedMinutes)}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           {/* Reference rail — one card, grouped, no longer three stacked sections. */}
           <div className="rounded-lg border bg-card">

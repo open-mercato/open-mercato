@@ -95,7 +95,10 @@ const migrateProjectCodesCommand: ModuleCli = {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
-    const dryRun = args.apply === undefined
+    // `parseArgs` only records `--key value` and `--key=value` pairs, so a bare
+    // trailing flag never lands in it — read the argv directly rather than
+    // silently running a dry run when the caller asked to apply.
+    const dryRun = !rest.includes('--apply') && args.apply !== 'true' && args.apply !== '1'
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato staff migrate-project-codes --tenant <tenantId> --org <organizationId> [--apply]')
       console.error('Shortens project codes to the 3-letter form and re-derives every task reference.')
