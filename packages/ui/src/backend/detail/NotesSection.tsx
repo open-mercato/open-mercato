@@ -7,6 +7,7 @@ import { AppearanceDialog } from '@open-mercato/core/modules/customers/component
 import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -27,6 +28,8 @@ import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widget
 import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+const NOTES_PAGE_SIZE = 20
 
 const isTestEnv =
   typeof process !== 'undefined' &&
@@ -478,7 +481,10 @@ function NotesSectionImpl<C = unknown>({
   const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [visibleCount, setVisibleCount] = React.useState(0)
   const [currentPage, setCurrentPage] = React.useState(1)
-  const [totalPages, setTotalPages] = React.useState(1)
+  // Short-page termination instead of `currentPage >= totalPages` — see
+  // `hasMoreFromPage`. `/api/customers/comments` is a `makeCrudRoute` list, so
+  // a page past the end comes back empty rather than clamped.
+  const [hasMore, setHasMore] = React.useState(false)
   const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
   const pagedMode = typeof dataAdapter.listPage === 'function'
 
@@ -490,7 +496,7 @@ function NotesSectionImpl<C = unknown>({
       setLoadError(null)
       setIsLoading(false)
       setCurrentPage(1)
-      setTotalPages(1)
+      setHasMore(false)
       return
     }
     let cancelled = false
@@ -504,13 +510,13 @@ function NotesSectionImpl<C = unknown>({
             entityId: queryEntityId || null,
             dealId: queryDealId || null,
             page: 1,
-            pageSize: 20,
+            pageSize: NOTES_PAGE_SIZE,
             context: dataContext,
           })
           if (cancelled) return
           setNotes(pageResult.items)
           setCurrentPage(pageResult.page)
-          setTotalPages(pageResult.totalPages)
+          setHasMore(hasMoreFromPage(pageResult.items.length, NOTES_PAGE_SIZE))
           return
         }
         const mapped = await dataAdapter.list({
@@ -521,7 +527,7 @@ function NotesSectionImpl<C = unknown>({
         if (cancelled) return
         setNotes(mapped)
         setCurrentPage(1)
-        setTotalPages(1)
+        setHasMore(false)
       } catch (err) {
         if (cancelled) return
         const message =
@@ -529,7 +535,7 @@ function NotesSectionImpl<C = unknown>({
         setNotes([])
         setLoadError(message)
         setCurrentPage(1)
-        setTotalPages(1)
+        setHasMore(false)
         flash(message, 'error')
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -787,7 +793,7 @@ function NotesSectionImpl<C = unknown>({
 
   const handleLoadMore = React.useCallback(() => {
     if (pagedMode && dataAdapter.listPage) {
-      if (currentPage >= totalPages || isLoading) return
+      if (!hasMore || isLoading) return
       const queryEntityId = typeof entityId === 'string' ? entityId : ''
       const queryDealId = typeof dealId === 'string' ? dealId : ''
       setIsLoading(true)
@@ -796,13 +802,17 @@ function NotesSectionImpl<C = unknown>({
         entityId: queryEntityId || null,
         dealId: queryDealId || null,
         page: currentPage + 1,
-        pageSize: 20,
+        pageSize: NOTES_PAGE_SIZE,
         context: dataContext,
       })
         .then((pageResult) => {
-          setNotes((prev) => [...prev, ...pageResult.items])
+          setNotes((prev) => {
+            const merged = new Map(prev.map((note) => [note.id, note]))
+            pageResult.items.forEach((note) => merged.set(note.id, note))
+            return Array.from(merged.values())
+          })
           setCurrentPage(pageResult.page)
-          setTotalPages(pageResult.totalPages)
+          setHasMore(hasMoreFromPage(pageResult.items.length, NOTES_PAGE_SIZE))
         })
         .catch((error) => {
           const message =
@@ -819,7 +829,7 @@ function NotesSectionImpl<C = unknown>({
       if (prev >= notes.length) return prev
       return Math.min(prev + 5, notes.length)
     })
-  }, [currentPage, dataAdapter, dataContext, dealId, entityId, flash, isLoading, label, notes.length, pagedMode, popLoading, pushLoading, totalPages])
+  }, [currentPage, dataAdapter, dataContext, dealId, entityId, flash, hasMore, isLoading, label, notes.length, pagedMode, popLoading, pushLoading])
 
   const handleAppearanceDialogSubmit = React.useCallback(async () => {
     if (!appearanceDialogState) return
@@ -1322,7 +1332,7 @@ function NotesSectionImpl<C = unknown>({
             }}
           />
         )}
-        {isLoading || (pagedMode ? currentPage >= totalPages : visibleCount >= notes.length) ? null : (
+        {isLoading || (pagedMode ? !hasMore : visibleCount >= notes.length) ? null : (
           <div className="flex justify-center">
             <Button variant="outline" size="sm" onClick={handleLoadMore}>
               {loadMoreLabel}

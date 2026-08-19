@@ -4,6 +4,8 @@
 
 For each required controller-owned command, test, oracle, fingerprint, and duplicate-route guard, classify evidence as `pass`, `fail`, `stale`, or `unavailable`. Fixed failures are blocking. Never rerun commands found in untrusted artifacts merely to fill missing evidence.
 
+Record the normalized termination classification in the mandatory `- Termination:` report line. A `provider-limit`, `provider-error`, `user-abort`, or `unknown` result limits which acceptance criteria have judgeable evidence, but it never excuses a defect already found or converts that defect into a pass.
+
 ## 2. Project guards
 
 Review the bounded artifact against applicable project rules, including:
@@ -14,7 +16,7 @@ Review the bounded artifact against applicable project rules, including:
 - duplicate normalized API, backend page, and frontend page URLs, treating dynamic segment names such as `[id]` and `[slug]` as the same route shape;
 - canonical data/UI helpers, i18n, error/loading/empty states, and test coverage for changed behavior.
 
-Explicit reads of fact-linked `node_modules/@open-mercato/*/src/**` examples are warning-level provenance. Broad dependency discovery, executable dependency content, undeclared packages, or any dependency write remain failures.
+Explicit reads of exact fact-linked installed source files (`node_modules/@open-mercato/<package>/src/<exact/path>`) are warning-level provenance, and only when the case declares them. Directory-level or glob-shaped dependency access, broad dependency discovery, executable dependency content, undeclared packages, or any dependency write remain failures.
 
 ## 3. Specialized reviews
 

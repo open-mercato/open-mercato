@@ -25,6 +25,7 @@ export type CliEnvironment = {
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  devSupervisorRequiresFullBootstrap?: boolean
 }
 
 export type PackageInfo = {
@@ -89,18 +90,45 @@ function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
 function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): ModuleEntry | null {
   let id: string | null = null
   let from: string | null = null
+  let devSupervisorRequiresFullBootstrap = false
   for (const property of node.properties) {
-    if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) continue
-    const key = property.name.text
+    if (!ts.isPropertyAssignment(property)) continue
+    const key = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
+      ? property.name.text
+      : null
     if (key === 'id' && ts.isStringLiteralLike(property.initializer)) {
       id = property.initializer.text
     }
     if (key === 'from' && ts.isStringLiteralLike(property.initializer)) {
       from = property.initializer.text
     }
+    if (key === 'overrides') {
+      if (!ts.isObjectLiteralExpression(property.initializer)) {
+        devSupervisorRequiresFullBootstrap = true
+        continue
+      }
+      for (const overrideProperty of property.initializer.properties) {
+        if (ts.isSpreadAssignment(overrideProperty)) {
+          devSupervisorRequiresFullBootstrap = true
+          break
+        }
+        if (!ts.isPropertyAssignment(overrideProperty)) continue
+        const overrideKey = ts.isIdentifier(overrideProperty.name) || ts.isStringLiteralLike(overrideProperty.name)
+          ? overrideProperty.name.text
+          : null
+        if (overrideKey === 'workers' || overrideKey === 'cli') {
+          devSupervisorRequiresFullBootstrap = true
+          break
+        }
+      }
+    }
   }
   if (!id) return null
-  return { id, from: from ?? '@open-mercato/core' }
+  return {
+    id,
+    from: from ?? '@open-mercato/core',
+    ...(devSupervisorRequiresFullBootstrap ? { devSupervisorRequiresFullBootstrap: true } : {}),
+  }
 }
 
 function parseProcessEnvAccess(
@@ -306,7 +334,7 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
   return modules
 }
 
-function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
+export function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
   const source = fs.readFileSync(cfgPath, 'utf8')
   return parseModulesFromSource(source)
 }
@@ -460,6 +488,11 @@ function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; m
   }
 
   const corePkgPath = path.join(nodeModulesRoot, 'node_modules', '@open-mercato', 'core')
+
+  const workspaceCoreModules = path.join(nodeModulesRoot, 'packages', 'core', 'src', 'modules')
+  if (fs.existsSync(workspaceCoreModules)) {
+    return { isMonorepo: true, monorepoRoot: nodeModulesRoot, nodeModulesRoot }
+  }
 
   try {
     const stat = fs.lstatSync(corePkgPath)

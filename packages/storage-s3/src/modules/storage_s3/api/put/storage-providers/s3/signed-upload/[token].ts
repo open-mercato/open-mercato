@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   detectAttachmentMimeType,
   hasDangerousExecutableExtension,
@@ -33,7 +34,7 @@ async function readBoundedBody(req: Request, maxBytes: number): Promise<Buffer> 
       totalBytes += value.byteLength
       if (totalBytes > maxBytes) {
         await reader.cancel()
-        throw new UploadBodyTooLargeError('Attachment exceeds the reserved upload size.')
+        throw new UploadBodyTooLargeError('[internal] Attachment exceeds the reserved upload size.')
       }
       chunks.push(Buffer.from(value))
     }
@@ -44,9 +45,10 @@ async function readBoundedBody(req: Request, maxBytes: number): Promise<Buffer> 
 }
 
 export async function PUT(req: Request, ctx: RouteContext) {
+  const { t } = await resolveTranslations()
   const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
   const token = params?.token?.trim()
-  if (!token) return NextResponse.json({ error: 'Upload token is required.' }, { status: 400 })
+  if (!token) return NextResponse.json({ error: t('storage_s3.errors.uploadTokenRequired', 'Upload token is required.') }, { status: 400 })
 
   const { resolve } = await createRequestContainer()
   let quotaService: AttachmentQuotaService | null = null
@@ -55,19 +57,19 @@ export async function PUT(req: Request, ctx: RouteContext) {
   } catch {
     // Fail closed below when the attachments quota service is not registered.
   }
-  if (!quotaService) return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
+  if (!quotaService) return NextResponse.json({ error: t('storage_s3.errors.quotaUnavailable', 'Storage quota accounting is unavailable.') }, { status: 500 })
 
   const tokenHash = createHash('sha256').update(token).digest('hex')
   const reservation = await quotaService.claimPendingByUploadTokenHash(tokenHash)
   if (!reservation || reservation.source !== 'storage_s3_signed') {
-    return NextResponse.json({ error: 'Upload token is invalid or expired.' }, { status: 410 })
+    return NextResponse.json({ error: t('storage_s3.errors.uploadTokenInvalid', 'Upload token is invalid or expired.') }, { status: 410 })
   }
 
   const declaredLengthHeader = req.headers.get('content-length')
   const declaredLength = declaredLengthHeader == null ? null : Number(declaredLengthHeader)
   if (declaredLength !== null && Number.isFinite(declaredLength) && declaredLength > reservation.reservedBytes) {
     await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
-    return NextResponse.json({ error: 'Attachment exceeds the reserved upload size.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.reservedSizeExceeded', 'Attachment exceeds the reserved upload size.') }, { status: 413 })
   }
   let buffer: Buffer
   try {
@@ -75,23 +77,23 @@ export async function PUT(req: Request, ctx: RouteContext) {
   } catch (error) {
     await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
     if (error instanceof UploadBodyTooLargeError) {
-      return NextResponse.json({ error: error.message }, { status: 413 })
+      return NextResponse.json({ error: t('storage_s3.errors.reservedSizeExceeded', 'Attachment exceeds the reserved upload size.') }, { status: 413 })
     }
-    return NextResponse.json({ error: 'Failed to read attachment.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.readFailed', 'Failed to read attachment.') }, { status: 400 })
   }
   if (buffer.length > reservation.reservedBytes) {
     await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
-    return NextResponse.json({ error: 'Attachment exceeds the reserved upload size.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.reservedSizeExceeded', 'Attachment exceeds the reserved upload size.') }, { status: 413 })
   }
   const fileName = path.posix.basename(reservation.storagePath)
   if (hasDangerousExecutableExtension(fileName)) {
     await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
-    return NextResponse.json({ error: 'Executable file types are not allowed as attachments.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.') }, { status: 400 })
   }
   const contentType = detectAttachmentMimeType(buffer, fileName, req.headers.get('content-type'))
   if (isActiveContentAttachment(buffer, fileName, contentType)) {
     await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
-    return NextResponse.json({ error: 'Active content uploads are not allowed.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
   }
 
   const credentialsService = resolve('integrationCredentialsService') as {
@@ -103,7 +105,7 @@ export async function PUT(req: Request, ctx: RouteContext) {
   })
   if (!credentials) {
     await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
-    return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
   const driver = new S3StorageDriver({
@@ -127,7 +129,7 @@ export async function PUT(req: Request, ctx: RouteContext) {
         // Retain the reservation when object absence cannot be proven.
       }
     }
-    return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
+    return NextResponse.json({ error: t('storage_s3.errors.persistFailed', 'Failed to persist attachment.') }, { status: 500 })
   }
 }
 

@@ -145,6 +145,7 @@ describe('getQueuePendingProbe — async strategy', () => {
         db: 3,
         tls: {},
         family: 6,
+        protocol: 2,
       },
     })
   })

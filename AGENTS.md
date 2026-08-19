@@ -19,7 +19,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
 - Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
 - Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
-- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Enforced by `optimistic-lock-editable-entities.test.ts` and `optimistic-lock-ui-coverage.test.ts`. Details: the Task Router row.
+- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Details: the Task Router row.
 
 ## Ask First
 
@@ -27,6 +27,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Ask before changing branch/PR automation, pipeline labels, QA flow, release behavior, or external official-module submodule pointers.
 - Ask before applying database migrations locally with `yarn db:migrate`; normal PRs should include migration files and snapshots.
 - Ask before introducing provider-specific preconfiguration outside the provider package.
+- Ask before an automated PR touches design-system governance files (see [pr-workflow](.ai/docs/pr-workflow.md)).
 
 ## Never
 
@@ -91,9 +92,9 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | AI agents/tools (`ai-agents.ts`, `ai-tools.ts`, tool packs, mutation approval via `prepareMutation`, attachments, provider/model selection) | `.ai/skills/om-create-ai-agent/SKILL.md` + `ai-assistant` + `apps/docs/docs/framework/ai-assistant/*.mdx` |
 | AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, `entry.overrides`) | `ai-assistant` → Loop controls + How to Override; in `.ai/specs/implemented/`: `2026-04-28-ai-agents-agentic-loop-controls`, `2026-04-30-ai-overrides-and-module-disable`, `2026-05-04-modules-ts-unified-overrides` |
 | **Specific Modules** | |
-| Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
+| Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress, warranty_claims / RMA) | `packages/core/src/modules/<module>/AGENTS.md` |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
-| New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
+| New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` + `channel-*` |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |
 | Structured logging / replacing raw `console.*` with the facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `shared` |
@@ -110,7 +111,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | Onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `onboarding` |
 | Static content pages (privacy policies, terms, legal pages) | `content` |
 | Standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `create-app` |
-| Editing `apps/mercato/src/app/**` or env vars in `apps/mercato/.env.example` — MUST mirror into the create-app template in the same task | `create-app` → Template Sync Checklist |
+| Editing `apps/mercato/src/app/**`, `apps/mercato/src/i18n/**`, or env vars in `apps/mercato/.env.example` — MUST mirror into the create-app template in the same task (`yarn template:sync:fix`) | `create-app` → Template Sync Checklist |
 | Deploying a scaffolded app to Railway with `mercato deploy railway` | [`.ai/specs/2026-05-12-railway-one-command-deploy.md`](.ai/specs/2026-05-12-railway-one-command-deploy.md) + [`apps/docs/docs/deployment/railway.mdx`](apps/docs/docs/deployment/railway.mdx) + `cli` |
 | **Performance** | |
 | Profiling dev-mode memory (`yarn dev:profile`), ranking memory hogs, watcher / Vite-vs-Turbopack tradeoffs | `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` + `scripts/profile-dev-rss.mjs` |
@@ -122,6 +123,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | **Spec & PR Automation** | |
 | Spec lifecycle (pre-implement → implement → write/update), code review, DS review | `.agents/skills/{om-spec-writing,om-code-review}/SKILL.md` + `.ai/skills/{om-pre-implement-spec,om-implement-spec,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
 | PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | `.agents/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-auto-qa-pr,om-merge-buddy,om-review-prs,om-close-fixed-issues,om-auto-update-changelog,om-prepare-issue}/SKILL.md` |
+| Cutting a release (version bump PR, tag, npm publish, release notes) | [`CONTRIBUTING.md`](CONTRIBUTING.md) → Releasing |
 | **Agent harness itself** | |
 | Editing this file or a package `AGENTS.md`; the instruction budget and boundary labels | [`.ai/docs/agent-instructions.md`](.ai/docs/agent-instructions.md) + `scripts/check-agents-md-budget.mjs` (`yarn agents:check-budget`) |
 

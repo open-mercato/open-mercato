@@ -12,9 +12,21 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 const mockResolveCredentials = jest.fn()
+const mockReserve = jest.fn()
+const mockReconcileStandaloneObjects = jest.fn()
+const mockRelease = jest.fn()
+let quotaServiceRegistered = false
 const mockCreateRequestContainer = jest.fn(async () => ({
   resolve: (key: string) => {
     if (key === 'integrationCredentialsService') return { resolve: mockResolveCredentials }
+    if (quotaServiceRegistered && key === 'attachmentQuotaService') {
+      return {
+        reserve: (...args: unknown[]) => mockReserve(...args),
+        reconcileStandaloneObjects: (...args: unknown[]) => mockReconcileStandaloneObjects(...args),
+        release: (...args: unknown[]) => mockRelease(...args),
+      }
+    }
+    if (quotaServiceRegistered && key === 'storageS3QuotaRecoveryScheduler') return jest.fn()
     throw new Error(`Unexpected dependency: ${key}`)
   },
 }))
@@ -43,6 +55,8 @@ describe('storage_s3 direct upload route', () => {
     mockResolveCredentials.mockResolvedValue({ bucket: 'test-bucket', region: 'eu-central-1' })
     mockListObjects.mockResolvedValue({ files: [], truncated: false })
     mockPutObject.mockResolvedValue(undefined)
+    mockReconcileStandaloneObjects.mockResolvedValue(undefined)
+    quotaServiceRegistered = false
     delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
   })
 
@@ -89,5 +103,64 @@ describe('storage_s3 direct upload route', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({ bucket: 'test-bucket', size: 4 })
     expect(mockPutObject).toHaveBeenCalledTimes(1)
+  })
+
+  // Regression guards for the quota-admission responses #4076 shipped unlocalized
+  // (#4926, #4995, #5000). The suite mocks `resolveTranslations`, so a localized
+  // body reads `translated:<key>` while a hardcoded English string does not.
+  describe('quota-admission error responses', () => {
+    function uploadRequest(): Request {
+      const form = new FormData()
+      form.set('file', new File([new TextEncoder().encode('safe')], 'safe.txt', { type: 'text/plain' }))
+      return new Request('http://example.test/api/storage-providers/s3/upload', { method: 'POST', body: form })
+    }
+
+    it('localizes the persist failure response', async () => {
+      mockPutObject.mockRejectedValueOnce(new Error('s3 unreachable'))
+
+      const response = await POST(uploadRequest())
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        error: 'translated:storage_s3.errors.persistFailed',
+      })
+    })
+
+    it('localizes the exceeded tenant quota response', async () => {
+      quotaServiceRegistered = true
+      mockReserve.mockRejectedValueOnce(Object.assign(new Error('quota'), { code: 'quota_exceeded' }))
+
+      const response = await POST(uploadRequest())
+
+      expect(response.status).toBe(413)
+      await expect(response.json()).resolves.toEqual({
+        error: 'translated:storage_s3.errors.quotaExceeded',
+      })
+      expect(mockPutObject).not.toHaveBeenCalled()
+    })
+
+    it('localizes the existing target key response', async () => {
+      quotaServiceRegistered = true
+      mockReserve.mockRejectedValueOnce(Object.assign(new Error('exists'), { code: 'quota_target_exists' }))
+
+      const response = await POST(uploadRequest())
+
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toEqual({
+        error: 'translated:storage_s3.errors.quotaTargetExists',
+      })
+    })
+
+    it('localizes the reservation failure response', async () => {
+      quotaServiceRegistered = true
+      mockReserve.mockRejectedValueOnce(new Error('reservation backend down'))
+
+      const response = await POST(uploadRequest())
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({
+        error: 'translated:storage_s3.errors.quotaUnavailable',
+      })
+    })
   })
 })

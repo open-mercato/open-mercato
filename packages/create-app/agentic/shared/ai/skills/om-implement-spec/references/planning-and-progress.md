@@ -35,6 +35,18 @@ Source doc: .ai/specs/{spec}.md
 - [ ] {remaining slice}: {acceptance IDs and oracle}
 ```
 
-After every slice, record changed areas, acceptance evidence, the exact focused command/result, and remaining work. Mark a phase `verified` only after `phases-and-gates.md` permits it. A partial or blocked phase stays `in_progress`, and later phases stay `pending`.
+The ledger write is part of the slice, not follow-up bookkeeping. A slice is complete only after its `- [x]` line names the changed files or real call sites, acceptance evidence, and exact focused command/result. Write that line before starting another slice. Use this exact evidence shape:
+
+```markdown
+- [x] {slice}: {files/real call sites and acceptance evidence} — `{exact focused command}` passed
+```
+
+When work stops before that evidence is complete, immediately preserve the partial tree as:
+
+```markdown
+- [ ] IN FLIGHT: {slice} — files: {paths touched so far}; last command: `{command or not run}`; remaining: {known gap}
+```
+
+This bounds stale progress to one slice and gives a resuming run an explicit reconciliation target. Mark a phase `verified` only after `phases-and-gates.md` permits it. A partial or blocked phase stays `in_progress`, and later phases stay `pending`.
 
 Before moving to the next selected phase, show the completed phase evidence and ask to continue unless the user approved the whole selected sequence when confirming the plan. Do not create a separate autonomous run plan, branch, commit, or PR unless the user explicitly invokes the corresponding delivery workflow.

@@ -1,5 +1,9 @@
+import { join } from 'node:path'
 import { Project, SyntaxKind } from 'ts-morph'
 import { buildVersionSource } from '../../../scripts/versionSource.cjs'
+import jestConfig from '../../../jest.config.cjs'
+
+const packageDir = join(__dirname, '..', '..', '..')
 
 function parse(source: string) {
   const project = new Project({ useInMemoryFileSystem: true })
@@ -42,5 +46,19 @@ describe('buildVersionSource', () => {
 
   it('keeps the build-time banner comment', () => {
     expect(buildVersionSource('1.2.3').startsWith('// Build-time generated version\n')).toBe(true)
+  })
+})
+
+describe('jest transform scope', () => {
+  const transformPatterns = Object.keys(jestConfig.transform).map((key) => new RegExp(key))
+
+  it('transforms the build-time emitter under scripts/', () => {
+    const emitterPath = join(packageDir, 'scripts', 'versionSource.cjs')
+    expect(transformPatterns.some((pattern) => pattern.test(emitterPath))).toBe(true)
+  })
+
+  it('leaves .cjs files inside node_modules untransformed', () => {
+    const vendorPath = join(packageDir, 'node_modules', '@mikro-orm', 'core', 'dist', 'index.cjs')
+    expect(transformPatterns.some((pattern) => pattern.test(vendorPath))).toBe(false)
   })
 })
