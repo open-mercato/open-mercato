@@ -508,9 +508,14 @@ export class HybridQueryEngine implements QueryEngine {
         ? await this.searchAvailability().anySourceHasTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
-      if (searchRuntime.enabled) {
+      if (searchRuntime.enabled && sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))) {
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
+        // `organizationId: null` is deliberate, not an omission: the service then unions in every
+        // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays
+        // on the token path -- a wider set fails safe. Passing the request's org instead would
+        // silently break encrypted-column search for orgs without their own map. That union is an
+        // UNCACHED `encryption_maps` read, one extra round-trip per searched list request.
         try {
           const encryptionService = this.getEncryptionService()
           if (encryptionService?.getEncryptedFieldNames) {
@@ -525,7 +530,13 @@ export class HybridQueryEngine implements QueryEngine {
             // No encryption service, or one without the map reader: nothing is encrypted at rest.
             searchRuntime.encryptedFields = new Set()
           }
-        } catch {
+        } catch (err) {
+          // The fallback is safe (the old rewrite-everything behavior), but taking it silently
+          // would hide that the gate has stopped working.
+          logger.warn('search: encrypted-field map unavailable; keeping the token rewrite for all columns', {
+            entity: String(entity),
+            error: err instanceof Error ? err.message : String(err),
+          })
           searchRuntime.encryptedFields = null
         }
       }
@@ -1806,10 +1817,11 @@ export class HybridQueryEngine implements QueryEngine {
           )
         }
       }
-      // Tokenizer produced no hashes (e.g. value too short). Match the regular-base-filter
-      // path's behavior of skipping the predicate (no filter), which is preferable to
-      // silently turning into a plain `ilike` against an encrypted column.
-      return sql<boolean>`true`
+      // Tokenizer produced no hashes (e.g. value too short). This leaf sits inside an OR
+      // group, so `true` here would widen the whole disjunction to match everything. `false`
+      // is the honest answer for a search the token index cannot express: an encrypted column
+      // (the only kind that still reaches this branch) has no other way to match the term.
+      return sql<boolean>`false`
     }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }
@@ -2454,6 +2466,11 @@ export class HybridQueryEngine implements QueryEngine {
         this.logSearchDebug('search:skip-empty-hashes', {
           entity: search.entity, field: search.field, value: filter.value,
         })
+        // Only encrypted columns reach this branch, and the token index is their only way to
+        // match. Dropping the predicate would return every row for a term that is merely too
+        // short to tokenize -- the full list, dressed as a search result. Matching nothing is
+        // the honest answer.
+        return q.where(sql<boolean>`false`)
       }
       return q
     }

@@ -351,7 +351,12 @@ export class BasicQueryEngine implements QueryEngine {
     // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to
     // the tokens {202, 2026} and matches every record from that year instead of the one document.
     // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while the
-    // KMS is down -- so an outage keeps encrypted columns on the token path (#4622). `null` means
+    // KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
+    // `organizationId: null` is deliberate, not an omission: the service then unions in every
+    // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays on
+    // the token path -- a wider set fails safe. Passing the request's org instead would silently
+    // break encrypted-column search for orgs without their own map. That union is an UNCACHED
+    // `encryption_maps` read, one extra round-trip per searched list request. `null` means
     // the encryption service could not answer at all; keep the pre-existing rewrite-everything
     // behavior then, because guessing "plaintext" would turn encrypted-column search into an
     // ILIKE-on-ciphertext that matches nothing.
@@ -371,7 +376,13 @@ export class BasicQueryEngine implements QueryEngine {
           // No encryption service, or one without the map reader: nothing is encrypted at rest.
           encryptedLikeFields = new Set()
         }
-      } catch {
+      } catch (err) {
+        // The fallback is safe (the old rewrite-everything behavior), but taking it silently
+        // would hide that the gate has stopped working.
+        logger.warn('search: encrypted-field map unavailable; keeping the token rewrite for all columns', {
+          entity: String(entity),
+          error: err instanceof Error ? err.message : String(err),
+        })
         encryptedLikeFields = null
       }
     }
