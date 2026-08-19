@@ -21,7 +21,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -34,7 +33,6 @@ import { resolveReportRequestContext, reportSheetLabels, MAX_SHEET_ROWS } from '
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/sheet' })
 
-const RATES_FEATURE = 'staff.timesheets.rates.view'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.reports.view'] },
@@ -54,8 +52,9 @@ function readGrouping(url: string | undefined): ReportGrouping | undefined {
 export async function GET(req: Request) {
   try {
     const context = await resolveReportRequestContext(req, { segment: 'sheet' })
-    const { container, tenantId, organizationId, reportId, translate, grantedFeatures } = context
-    const canSeeMoney = grantedFeatures === null || authorizeFeatures([RATES_FEATURE], { grantedFeatures })
+    // See the note in the export route: this decision is made once, fail-closed,
+    // in `buildReportRequestContext`.
+    const { container, tenantId, organizationId, reportId, translate, canSeeMoney } = context
 
     const em = (container.resolve('em') as EntityManager).fork()
     const report = await em.findOne(StaffTimeReport, {

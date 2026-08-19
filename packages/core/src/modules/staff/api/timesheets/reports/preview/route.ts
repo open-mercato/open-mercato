@@ -24,6 +24,7 @@
  *    total that nobody could explain.
  */
 
+import { resolveMoneyVisibility } from '../../../../lib/time-tracking/moneyVisibility'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -31,7 +32,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -52,7 +52,6 @@ import {
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/preview' })
 
 const VIEW_FEATURE = 'staff.timesheets.reports.view'
-const RATES_FEATURE = 'staff.timesheets.rates.view'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: [VIEW_FEATURE] },
@@ -177,8 +176,14 @@ export async function POST(req: Request) {
     }
 
     const grantedFeatures = await resolveGrantedFeatures(container, auth.sub ?? '', tenantId, organizationId)
-    const canSeeMoney =
-      grantedFeatures === null || authorizeFeatures([RATES_FEATURE], { grantedFeatures })
+    // Fail-closed, and asked of the RBAC service rather than matched against the
+    // grant array: the previous `grantedFeatures === null || …` handed rates and
+    // costs to any report viewer whenever that array could not be read, and this
+    // route requires only `reports.view`.
+    const canSeeMoney = await resolveMoneyVisibility(container, auth.sub ?? null, {
+      tenantId,
+      organizationId,
+    })
 
     const body = await req.json().catch(() => ({}))
     const parsed = staffTimeReportPreviewSchema.parse(body)

@@ -8,6 +8,7 @@
  * impossible rather than unlikely.
  */
 
+import { resolveMoneyVisibility } from '../../../lib/time-tracking/moneyVisibility'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -43,6 +44,8 @@ export type ReportRequestContext = {
   translate: Translate
   /** `null` when RBAC could not be consulted; the declarative guard still applies. */
   grantedFeatures: string[] | null
+  /** Fail-closed `staff.timesheets.rates.view` decision — never re-derive it. */
+  canSeeMoney: boolean
 }
 
 export function extractReportIdFromUrl(url: string | undefined, segment: string): string | null {
@@ -93,6 +96,14 @@ export async function resolveReportRequestContext(
     grantedFeatures = null
   }
 
+  // Decided here, once, so no route re-derives it and none can pick the other
+  // failure direction. `grantedFeatures` stays for the callers that genuinely
+  // need a list (project-access plumbing), but it must not be used to gate money.
+  const canSeeMoney = await resolveMoneyVisibility(container, auth.sub ?? null, {
+    tenantId,
+    organizationId,
+  })
+
   return {
     container,
     auth,
@@ -102,5 +113,6 @@ export async function resolveReportRequestContext(
     reportId,
     translate,
     grantedFeatures,
+    canSeeMoney,
   }
 }

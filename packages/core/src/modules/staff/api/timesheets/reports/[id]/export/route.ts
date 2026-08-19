@@ -19,7 +19,6 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -37,7 +36,6 @@ import { resolveReportRequestContext, reportSheetLabels, type Translate } from '
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/export' })
 
-const RATES_FEATURE = 'staff.timesheets.rates.view'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.reports.view'] },
@@ -113,8 +111,11 @@ function readCustomerName(snapshot: Record<string, unknown> | null | undefined, 
 export async function GET(req: Request) {
   try {
     const context = await resolveReportRequestContext(req, { segment: 'export' })
-    const { container, auth, tenantId, organizationId, reportId, translate, grantedFeatures } = context
-    const canSeeMoney = grantedFeatures === null || authorizeFeatures([RATES_FEATURE], { grantedFeatures })
+    // `canSeeMoney` comes from the shared context and is never re-derived here:
+    // the previous `grantedFeatures === null || authorize(...)` opened the money
+    // fields whenever the grant read failed, and this route requires only
+    // `reports.view`, so nothing else stood in the way.
+    const { container, auth, tenantId, organizationId, reportId, translate, canSeeMoney } = context
 
     const { format: rawFormat, grouping } = readQuery(req.url)
     const format = normalizeReportExportFormat(rawFormat)
