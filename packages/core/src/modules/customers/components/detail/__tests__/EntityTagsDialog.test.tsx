@@ -23,6 +23,20 @@ jest.mock('../ManageTagsDialog', () => ({
   ManageTagsDialog: ({ open }: { open: boolean }) => (open ? <div>manage-tags-dialog</div> : null),
 }))
 
+// Mirrors `REMOTE_CATEGORY_PAGE_SIZE` in the dialog. A page that comes back
+// with this many entries is the only "there may be more" signal the load-more
+// affordance reads.
+const REMOTE_CATEGORY_PAGE_SIZE = 50
+
+function makeTagEntries(count: number, prefix = 'filler'): Array<{ id: string; value: string; label: string; color: string | null }> {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${prefix}-${index + 1}`,
+    value: `${prefix}-${index + 1}`,
+    label: `${prefix === 'filler' ? 'Filler' : prefix} ${index + 1}`,
+    color: null,
+  }))
+}
+
 describe('EntityTagsDialog', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
@@ -41,12 +55,17 @@ describe('EntityTagsDialog', () => {
             },
           })
         }
+        // Page 1 comes back full, page 2 short — the shape a query-engine list
+        // actually emits, and what the dialog now terminates on.
         return Promise.resolve({
           ok: true,
           result: {
             items: page === '2'
               ? [{ id: 'tag-2', value: 'tag-2', label: 'VIP', color: '#f59e0b' }]
-              : [{ id: 'tag-1', value: 'tag-1', label: 'Prospect', color: '#60a5fa' }],
+              : [
+                  { id: 'tag-1', value: 'tag-1', label: 'Prospect', color: '#60a5fa' },
+                  ...makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE - 1),
+                ],
             totalPages: 2,
           },
         })
@@ -203,6 +222,8 @@ describe('EntityTagsDialog', () => {
     await waitFor(() => {
       expect(screen.getByText('VIP')).toBeInTheDocument()
     })
+    // Page 2 was short, so the sequence is over even though `totalPages` said 2.
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
 
     fireEvent.change(screen.getByPlaceholderText('Search tags...'), {
       target: { value: 'priority' },
@@ -219,6 +240,92 @@ describe('EntityTagsDialog', () => {
       expect(screen.getByText('Priority')).toBeInTheDocument()
     })
     expect(screen.queryByText('Prospect')).not.toBeInTheDocument()
+  })
+
+  // The affordance used to be gated on `activeCategoryPage < activeCategoryTotalPages`.
+  // When the reported total under-reports the result set — tags created between
+  // two requests, or a capped list count — the button vanished and every tag
+  // past the reported end became unreachable. Termination now follows the page
+  // coming back short.
+  describe('load-more termination', () => {
+    const respondToTagsWith = (respond: (page: string) => { items: unknown[]; totalPages: number }) => {
+      const fallback = apiCallMock.getMockImplementation()!
+      apiCallMock.mockImplementation((url: string, ...rest: unknown[]) => {
+        if (url.startsWith('/api/customers/tags?')) {
+          const page = new URL(url, 'http://localhost').searchParams.get('page') ?? '1'
+          return Promise.resolve({ ok: true, result: respond(page) })
+        }
+        return fallback(url, ...rest)
+      })
+    }
+
+    const renderDialog = async () => {
+      await act(async () => {
+        renderWithProviders(
+          <EntityTagsDialog
+            open
+            onClose={jest.fn()}
+            entityId="person-1"
+            entityType="person"
+            entityOrganizationId="org-1"
+            entityData={{}}
+          />,
+        )
+      })
+    }
+
+    it('offers Load more on a full page even when totalPages reports a single page', async () => {
+      respondToTagsWith(() => ({ items: makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE), totalPages: 1 }))
+
+      await renderDialog()
+
+      expect(await screen.findByRole('button', { name: 'Load more' })).toBeInTheDocument()
+    })
+
+    it('hides Load more once a page comes back short, whatever totalPages promises', async () => {
+      respondToTagsWith(() => ({ items: makeTagEntries(3), totalPages: 99 }))
+
+      await renderDialog()
+
+      expect(await screen.findByText('Filler 1')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+    })
+
+    // `/api/customers/tags` is query-engine backed and computes an unclamped
+    // offset, so the page past the end comes back empty rather than re-serving
+    // the last one. That empty page is what ends the sequence.
+    it('stops on the empty page past the end', async () => {
+      respondToTagsWith((page) =>
+        page === '1'
+          ? { items: makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE), totalPages: 1 }
+          : { items: [], totalPages: 1 })
+
+      await renderDialog()
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+      expect(screen.getByText('Filler 50')).toBeInTheDocument()
+    })
+
+    // The flag belongs to the active category exactly as the page number does:
+    // switching to a category whose first page is short must not inherit the
+    // previous category's affordance.
+    it('keeps the affordance keyed to the active category', async () => {
+      respondToTagsWith(() => ({ items: makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE), totalPages: 1 }))
+
+      await renderDialog()
+
+      expect(await screen.findByRole('button', { name: 'Load more' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /^Labels\b/ }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+    })
   })
 
   it('includes tenant-defined custom categories from kind settings', async () => {

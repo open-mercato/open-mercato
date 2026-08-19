@@ -6,6 +6,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn, slugifyTagLabel } from '@open-mercato/shared/lib/utils'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -388,7 +389,13 @@ export function EntityTagsDialog({
   const [creatingKind, setCreatingKind] = React.useState<string | null>(null)
   const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
   const [activeCategoryPage, setActiveCategoryPage] = React.useState(1)
-  const [activeCategoryTotalPages, setActiveCategoryTotalPages] = React.useState(1)
+  // Short-page termination instead of `page < totalPages` — see
+  // `hasMoreFromPage`. Like the page number it belongs to whichever category is
+  // active: the fetch effect below rewrites it on every category, search and
+  // page change, and the reset effect clears it alongside the page so a
+  // category with more entries never leaves the affordance behind on one
+  // without.
+  const [activeCategoryHasMore, setActiveCategoryHasMore] = React.useState(false)
   const [activeCategoryLoading, setActiveCategoryLoading] = React.useState(false)
   const creationInFlightRef = React.useRef<string | null>(null)
   const mutationContextId = React.useMemo(
@@ -713,12 +720,13 @@ export function EntityTagsDialog({
   React.useEffect(() => {
     if (!open) return
     setActiveCategoryPage(1)
+    setActiveCategoryHasMore(false)
   }, [activeCategoryKind, open, searchValue])
 
   React.useEffect(() => {
     if (!open || !activeCategoryKindValue || (activeCategorySource !== 'tags' && activeCategorySource !== 'labels')) {
       setActiveCategoryLoading(false)
-      setActiveCategoryTotalPages(1)
+      setActiveCategoryHasMore(false)
       return
     }
 
@@ -752,16 +760,21 @@ export function EntityTagsDialog({
       }))
 
     setActiveCategoryLoading(true)
-    void apiCall<{ items?: Array<DictEntry | LabelItem>; totalPages?: number }>(endpoint, {
+    void apiCall<{ items?: Array<DictEntry | LabelItem> }>(endpoint, {
       cache: 'no-store',
       headers: { 'x-om-unauthorized-redirect': '0' },
     })
       .then((response) => {
-        if (!response.ok || cancelled) return
-        const fetchedEntries = mapEntries(Array.isArray(response.result?.items) ? response.result.items : [])
-        setActiveCategoryTotalPages(
-          typeof response.result?.totalPages === 'number' ? response.result.totalPages : 1,
-        )
+        if (cancelled) return
+        if (!response.ok) {
+          setActiveCategoryHasMore(false)
+          return
+        }
+        const servedEntries = Array.isArray(response.result?.items) ? response.result.items : []
+        const fetchedEntries = mapEntries(servedEntries)
+        // Measured on what the endpoint served, before `mergeOptions` folds the
+        // page into the entries already on screen.
+        setActiveCategoryHasMore(hasMoreFromPage(servedEntries.length, REMOTE_CATEGORY_PAGE_SIZE))
         updateCategoryEntries(activeCategoryKindValue, (currentEntries) =>
           activeCategoryPage <= 1
             ? mergeOptions(seedEntries, fetchedEntries)
@@ -770,7 +783,7 @@ export function EntityTagsDialog({
       })
       .catch(() => {
         if (cancelled) return
-        setActiveCategoryTotalPages(1)
+        setActiveCategoryHasMore(false)
         updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
       })
       .finally(() => {
@@ -1250,7 +1263,7 @@ export function EntityTagsDialog({
                               {t('customers.personTags.loading', 'Loading...')}
                             </div>
                           ) : null}
-                          {(activeCategory.source === 'tags' || activeCategory.source === 'labels') && activeCategoryPage < activeCategoryTotalPages ? (
+                          {(activeCategory.source === 'tags' || activeCategory.source === 'labels') && activeCategoryHasMore ? (
                             <Button
                               type="button"
                               variant="outline"
