@@ -20,6 +20,8 @@ import {
   type ResolvedJoin,
 } from '@open-mercato/shared/lib/query/join-utils'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
+import { isEncryptedLikeField, resolveEncryptedLikeFieldSet } from '@open-mercato/shared/lib/query/engine'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import {
   createSearchTokenAvailability,
   isSearchFilterOp,
@@ -522,16 +524,25 @@ export class HybridQueryEngine implements QueryEngine {
         // UNCACHED `encryption_maps` read, one extra round-trip per searched list request.
         try {
           const encryptionService = this.getEncryptionService()
-          if (encryptionService?.getEncryptedFieldNames) {
-            const names = await encryptionService.getEncryptedFieldNames(
-              entity as EntityId,
+          const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)
+          if (readEncryptedFieldNames) {
+            searchRuntime.encryptedFields = await resolveEncryptedLikeFieldSet(
+              () => readEncryptedFieldNames(
+                entity as EntityId,
+                opts.tenantId ?? null,
+                null,
+                { ignoreRuntimeHealth: true },
+              ),
+              String(entity),
               opts.tenantId ?? null,
-              null,
-              { ignoreRuntimeHealth: true },
             )
-            searchRuntime.encryptedFields = new Set((names ?? []).map((name) => String(name)))
+          } else if (isTenantDataEncryptionEnabled()) {
+            // Encryption is on but the service is unreachable (a swallowed DI failure looks
+            // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
+            // rather than guessing "plaintext" and running ILIKE against ciphertext.
+            searchRuntime.encryptedFields = null
           } else {
-            // No encryption service, or one without the map reader: nothing is encrypted at rest.
+            // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
             searchRuntime.encryptedFields = new Set()
           }
         } catch (err) {
@@ -1797,7 +1808,7 @@ export class HybridQueryEngine implements QueryEngine {
       (filter.op === 'like' || filter.op === 'ilike') &&
       searchRuntime?.enabled &&
       typeof filter.value === 'string' &&
-      (searchRuntime.encryptedFields == null || searchRuntime.encryptedFields.has(fieldName))
+      (searchRuntime.encryptedFields == null || isEncryptedLikeField(searchRuntime.encryptedFields, fieldName))
     ) {
       const tokens = tokenizeText(String(filter.value), searchRuntime.config)
       if (tokens.hashes.length) {
@@ -1821,11 +1832,14 @@ export class HybridQueryEngine implements QueryEngine {
           )
         }
       }
-      // Tokenizer produced no hashes (e.g. value too short). With the ILIKE gate active
-      // (`encryptedFields` resolved), only encrypted columns reach this branch and `false` is
-      // the honest answer for an OR leaf -- `true` would widen the whole disjunction to match
-      // everything. Without the gate (default), keep the legacy predicate-skipping `true`.
-      return searchRuntime?.encryptedFields != null ? sql<boolean>`false` : sql<boolean>`true`
+      // Tokenizer produced no hashes (e.g. value too short) or no source is usable. For a
+      // column KNOWN to be encrypted, `false` is the honest answer for an OR leaf -- `true`
+      // would widen the whole disjunction to match everything, on exactly the columns ILIKE
+      // cannot serve. Every other case (gate off, custom-entity runtime, resolution failure)
+      // keeps the legacy predicate-skipping `true`.
+      return searchRuntime?.encryptedFields != null && isEncryptedLikeField(searchRuntime.encryptedFields, fieldName)
+        ? sql<boolean>`false`
+        : sql<boolean>`true`
     }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }
@@ -1904,6 +1918,9 @@ export class HybridQueryEngine implements QueryEngine {
     const hasSearchTokens = searchEnabled && hasSearchFilter(normalizedFilters)
       ? await this.searchAvailability().hasTokens(entity, opts.tenantId ?? null, orgScope)
       : false
+    // `encryptedFields` is deliberately NOT resolved here: custom-entity rows live in the
+    // `entity_indexes` doc store, whose fields the base-column encryption map does not describe,
+    // so the ILIKE gate stays inert on this path and like/ilike keeps its previous semantics.
     const searchRuntime: SearchRuntime = {
       enabled: searchEnabled && hasSearchTokens,
       config: searchConfig,
@@ -2437,7 +2454,9 @@ export class HybridQueryEngine implements QueryEngine {
       search?.enabled &&
       typeof filter.value === 'string' &&
       // Plaintext base columns keep exact SQL ILIKE -- see SearchRuntime.encryptedFields.
-      (search.encryptedFields == null || search.encryptedFields.has(search.field))
+      // Membership runs across name-shape candidates: maps may declare `displayName` while the
+      // filter carries the column name `display_name`.
+      (search.encryptedFields == null || isEncryptedLikeField(search.encryptedFields, search.field))
     ) {
       const tokens = tokenizeText(String(filter.value), search.config)
       const hashes = tokens.hashes
@@ -2466,15 +2485,23 @@ export class HybridQueryEngine implements QueryEngine {
           })
           return q
         }
+        // Hashes exist but no usable search source: same reasoning as the no-hash branch below --
+        // a KNOWN-encrypted column must fail closed rather than drop the predicate (which would
+        // return the full list on exactly the columns ILIKE cannot serve).
+        if (search.encryptedFields != null && isEncryptedLikeField(search.encryptedFields, search.field)) {
+          return q.where(sql<boolean>`false`)
+        }
       } else {
         this.logSearchDebug('search:skip-empty-hashes', {
           entity: search.entity, field: search.field, value: filter.value,
         })
-        // With the ILIKE gate active (`encryptedFields` resolved), only encrypted columns reach
-        // this branch and the token index is their only way to match: dropping the predicate
-        // would return every row for a term merely too short to tokenize. Without the gate
-        // (default), keep the legacy behavior of skipping the predicate.
-        if (search.encryptedFields != null) return q.where(sql<boolean>`false`)
+        // A column KNOWN to be encrypted has no way to match the term except the token index:
+        // dropping the predicate would return every row for a term merely too short to tokenize.
+        // Every other case (gate off, custom-entity runtime, resolution failure) keeps the
+        // legacy behavior of skipping the predicate.
+        if (search.encryptedFields != null && isEncryptedLikeField(search.encryptedFields, search.field)) {
+          return q.where(sql<boolean>`false`)
+        }
       }
       return q
     }

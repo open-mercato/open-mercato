@@ -2,11 +2,13 @@ import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
 import { clearSearchTokenPresenceCache } from '../../search/availability'
+import { clearEncryptedLikeFieldsCache } from '../engine'
 
 // The token-presence answer is cached process-wide (TTL); without clearing it,
 // probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
+  clearEncryptedLikeFieldsCache()
 })
 
 // Mock modules with one entity extension
@@ -1204,11 +1206,35 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
     expect(applySearchTokensSpy).toHaveBeenCalled()
   })
 
-  test('without an encryption service every base column is plaintext, so ILIKE stays exact', async () => {
-    // No service means nothing could have encrypted the stored data -- the rewrite would
-    // change results without buying anything.
-    const fakeDb = fakeDbWithTokens()
-    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+  test('no service + encryption disabled: nothing is ciphertext, ILIKE stays exact', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    try {
+      const fakeDb = fakeDbWithTokens()
+      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+      const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+      await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        filters: { display_name: { $ilike: '%avision%' } },
+        page: { page: 1, pageSize: 10 },
+      })
+
+      expect(applySearchTokensSpy).not.toHaveBeenCalled()
+      const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+      const ilikeWhere = baseCall._ops.wheres.some(
+        (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%avision%',
+      )
+      expect(ilikeWhere).toBe(true)
+    } finally {
+      delete process.env.TENANT_DATA_ENCRYPTION
+    }
+  })
+
+  test('no service + encryption enabled: the map is unknown, the token rewrite is kept', async () => {
+    // A swallowed DI failure looks exactly like "no service". Guessing "plaintext" here would
+    // run ILIKE against ciphertext (zero rows, silently) -- so the gate stays inert instead.
+    const engine = new BasicQueryEngine({} as any, () => fakeDbWithTokens() as any)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('customers:customer_entity', {
@@ -1218,12 +1244,29 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(applySearchTokensSpy).not.toHaveBeenCalled()
-    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
-    const ilikeWhere = baseCall._ops.wheres.some(
-      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%avision%',
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('a camelCase encryption-map entry still routes its column through tokens', async () => {
+    // Encryption maps may declare `displayName` while the filter carries the column name
+    // `display_name` (TenantDataEncryptionService resolves both). A raw name comparison would
+    // misread that ciphertext column as plaintext and run ILIKE against ciphertext -- zero rows,
+    // silently. The gate must match across name shapes.
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDbWithTokens() as any,
+      () => ({ getEncryptedFieldNames: async () => ['displayName'] }) as any,
     )
-    expect(ilikeWhere).toBe(true)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
   })
 
   test('with the flag off (default) the token rewrite is kept even for plaintext columns', () => {

@@ -20,6 +20,8 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
+import { fieldNameCandidates } from './encrypted-sort'
+import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
   buildCustomFieldDefinitionIndexFromRows,
@@ -46,6 +48,45 @@ type EncryptionResolver = () => {
   getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null, options?: { ignoreRuntimeHealth?: boolean }) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
+
+/**
+ * Membership across name shapes: encryption maps may declare a field as `displayName` or
+ * `display_name` (TenantDataEncryptionService resolves both), while query filters carry real
+ * column names. Both sides expand through `fieldNameCandidates` at set-build and lookup time.
+ */
+export function isEncryptedLikeField(encrypted: ReadonlySet<string>, field: string): boolean {
+  return fieldNameCandidates(field).some((candidate) => encrypted.has(candidate))
+}
+
+// The all-orgs union behind `getEncryptedFieldNames(..., organizationId: null)` is an UNCACHED
+// `encryption_maps` read. Encryption maps change on deploys, not per request, so a short TTL
+// removes the per-search round-trip without meaningfully delaying a map rollout.
+const ENCRYPTED_LIKE_FIELDS_TTL_MS = 60_000
+const ENCRYPTED_LIKE_FIELDS_CACHE_CAP = 500
+const encryptedLikeFieldsCache = new Map<string, { at: number; fields: Set<string> }>()
+
+export async function resolveEncryptedLikeFieldSet(
+  read: () => Promise<readonly string[]>,
+  entity: string,
+  tenantId: string | null,
+): Promise<Set<string>> {
+  const key = `${entity}|${tenantId ?? ''}`
+  const hit = encryptedLikeFieldsCache.get(key)
+  if (hit && Date.now() - hit.at < ENCRYPTED_LIKE_FIELDS_TTL_MS) return hit.fields
+  const names = await read()
+  const fields = new Set<string>()
+  for (const name of names ?? []) {
+    for (const candidate of fieldNameCandidates(String(name))) fields.add(candidate)
+  }
+  if (encryptedLikeFieldsCache.size >= ENCRYPTED_LIKE_FIELDS_CACHE_CAP) encryptedLikeFieldsCache.clear()
+  encryptedLikeFieldsCache.set(key, { at: Date.now(), fields })
+  return fields
+}
+
+/** Test-only: the TTL memo would otherwise leak state across specs. */
+export function clearEncryptedLikeFieldsCache(): void {
+  encryptedLikeFieldsCache.clear()
+}
 
 type ResolvedCustomFieldSource = {
   entityId: EntityId
@@ -370,16 +411,25 @@ export class BasicQueryEngine implements QueryEngine {
     ) {
       try {
         const service = this.getEncryptionService()
-        if (service?.getEncryptedFieldNames) {
-          const names = await service.getEncryptedFieldNames(
+        const readEncryptedFieldNames = service?.getEncryptedFieldNames?.bind(service)
+        if (readEncryptedFieldNames) {
+          encryptedLikeFields = await resolveEncryptedLikeFieldSet(
+            () => readEncryptedFieldNames(
+              String(entity),
+              opts.tenantId ?? null,
+              null,
+              { ignoreRuntimeHealth: true },
+            ),
             String(entity),
             opts.tenantId ?? null,
-            null,
-            { ignoreRuntimeHealth: true },
           )
-          encryptedLikeFields = new Set((names ?? []).map((name: unknown) => String(name)))
+        } else if (isTenantDataEncryptionEnabled()) {
+          // Encryption is on but the service is unreachable (a swallowed DI failure looks
+          // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
+          // rather than guessing "plaintext" and running ILIKE against ciphertext.
+          encryptedLikeFields = null
         } else {
-          // No encryption service, or one without the map reader: nothing is encrypted at rest.
+          // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
           encryptedLikeFields = new Set()
         }
       } catch (err) {
@@ -472,8 +522,10 @@ export class BasicQueryEngine implements QueryEngine {
         typeof column === 'string' &&
         // Plaintext columns keep exact SQL ILIKE -- see the encryptedLikeFields note above. cf:*
         // filters never reach this path (they are applied by the custom-field branches), so this
-        // gate only decides base columns.
-        (encryptedLikeFields === null || encryptedLikeFields.has(fieldName))
+        // gate only decides base columns. Membership is tested across name-shape candidates --
+        // encryption maps may declare `displayName` while the filter carries the column name
+        // `display_name`, and a raw comparison would misread that ciphertext column as plaintext.
+        (encryptedLikeFields === null || isEncryptedLikeField(encryptedLikeFields, fieldName))
       ) {
         const tokens = tokenizeText(String(value), searchConfig)
         const hashes = tokens.hashes
