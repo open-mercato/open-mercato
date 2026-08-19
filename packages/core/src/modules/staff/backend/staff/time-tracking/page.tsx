@@ -46,7 +46,7 @@ import {
 import { KpiCard } from '@open-mercato/ui/backend/charts'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -56,6 +56,14 @@ import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DurationInput } from '../../../lib/time-tracking-ui/DurationInput'
+import {
+  EntryDetailsFields,
+  emptyEntryDetails,
+  type EntryDetailsValue,
+} from '../../../lib/time-tracking-ui/EntryDetailsFields'
+import { buildEntryClocks } from '../../../lib/time-tracking-ui/taskDrawerData'
+import { slugifyProjectName } from '../../../lib/time-tracking/projectCode'
+import type { TagOption } from '../../../lib/time-tracking-ui/timeEntryDialogState'
 import { TimeEntryDialog } from '../../../lib/time-tracking-ui/TimeEntryDialog'
 import { NoTimeProjectAssignments } from '../../../lib/time-tracking-ui/NoProjectAccess'
 import { formatDuration } from '../../../lib/time-tracking/duration'
@@ -185,6 +193,63 @@ export default function TimeTrackingMyWorkPage() {
   const [quickTargetKey, setQuickTargetKey] = React.useState('')
   const [quickMinutes, setQuickMinutes] = React.useState<number | null>(null)
   const [quickEpoch, setQuickEpoch] = React.useState(0)
+  const [quickDetails, setQuickDetails] = React.useState<EntryDetailsValue>(() => emptyEntryDetails(''))
+  const [tagOptions, setTagOptions] = React.useState<TagOption[]>([])
+
+  // The date defaults to the day the page is showing, once that is known.
+  React.useEffect(() => {
+    if (!data.today) return
+    setQuickDetails((current) => (current.date ? current : { ...current, date: data.today }))
+  }, [data.today])
+
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await Promise.resolve(
+          apiCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/timesheets/tags?page=1&pageSize=100'),
+        )
+        if (cancelled || !res?.ok) return
+        const items = Array.isArray(res.result?.items) ? res.result.items : []
+        setTagOptions(
+          items
+            .map((row: Record<string, unknown>) => {
+              const id = typeof row.id === 'string' ? row.id : null
+              const label = typeof row.label === 'string' ? row.label : null
+              return id && label
+                ? { id, label, color: typeof row.color === 'string' ? row.color : null }
+                : null
+            })
+            .filter((tag): tag is TagOption => tag !== null),
+        )
+      } catch {
+        // A missing tag vocabulary leaves the picker empty rather than the page broken.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const createTag = React.useCallback(
+    async (label: string): Promise<TagOption | null> => {
+      try {
+        const created = await createCrud('/api/staff/timesheets/tags', {
+          label,
+          slug: slugifyProjectName(label).toLowerCase(),
+        }, { errorMessage: t('staff.time_tracking.entryDialog.errors.createTag', 'Could not create the tag.') })
+        const payload = created as unknown as Record<string, unknown> | null
+        const raw = payload?.id ?? (payload?.result as Record<string, unknown> | undefined)?.id
+        const id = typeof raw === 'string' ? raw : null
+        if (!id) return null
+        const tag: TagOption = { id, label, color: null }
+        setTagOptions((current) => [...current, tag])
+        return tag
+      } catch (error) {
+        logger.warn('staff.time_tracking.my-work tag create failed', { err: error })
+        return null
+      }
+    },
+    [t],
+  )
   const [quickSaving, setQuickSaving] = React.useState(false)
 
   const loadError = t('staff.time_tracking.myWork.errors.load', 'Failed to load your work summary.')
@@ -256,10 +321,21 @@ export default function TimeTrackingMyWorkPage() {
     const target = parseTargetKey(quickTargetKey)
     const body = {
       staffMemberId: data.staffMember?.id,
-      date: data.today,
+      date: quickDetails.date || data.today,
       timeProjectId: target.timeProjectId,
       taskId: target.taskId,
       durationMinutes: quickMinutes,
+      description: quickDetails.description.trim() || null,
+      isBillable: quickDetails.isBillable,
+      tagIds: quickDetails.tagIds.length > 0 ? quickDetails.tagIds : undefined,
+      // Paired or omitted — a lone start is how the list identifies a running
+      // timer, and a manual entry has no segment to stop.
+      ...buildEntryClocks({
+        date: quickDetails.date || data.today,
+        startClock: quickDetails.startClock || null,
+        endClock: quickDetails.endClock || null,
+        minutes: quickMinutes,
+      }),
       source: 'manual',
     }
     setQuickSaving(true)
@@ -274,6 +350,11 @@ export default function TimeTrackingMyWorkPage() {
       })
       setQuickMinutes(null)
       setQuickEpoch((epoch) => epoch + 1)
+      // The date and the billable flag survive; the rest clears. Logging three
+      // lines against yesterday should not mean re-picking yesterday each time.
+      setQuickDetails((current) => ({
+        ...emptyEntryDetails(current.date, current.isBillable),
+      }))
       await load()
     } catch (error) {
       logger.error('staff.time_tracking.my-work quick entry failed', { err: error })
@@ -281,7 +362,7 @@ export default function TimeTrackingMyWorkPage() {
     } finally {
       setQuickSaving(false)
     }
-  }, [data.staffMember?.id, data.today, load, mutationContext, quickMinutes, quickSaving, quickTargetKey, runMutation, t])
+  }, [data.staffMember?.id, data.today, load, mutationContext, quickDetails, quickMinutes, quickSaving, quickTargetKey, runMutation, t])
 
   const copyYesterday = React.useCallback(async () => {
     const today = new Date(`${data.today}T00:00:00.000Z`)
@@ -542,6 +623,22 @@ export default function TimeTrackingMyWorkPage() {
                               <span className="self-center text-xs text-muted-foreground">
                                 {t('staff.time_tracking.entryDialog.shortcutSave', '⌘↵ to save')}
                               </span>
+                              {/*
+                                * The same block the task drawer offers, from the same
+                                * component: a row that can log an hour but not say what
+                                * it was for, or when, sends people to the full dialog
+                                * for the one field they were missing.
+                                */}
+                              <div className="w-full">
+                                <EntryDetailsFields
+                                  idPrefix="my-work-quick"
+                                  value={quickDetails}
+                                  onChange={setQuickDetails}
+                                  tagOptions={tagOptions}
+                                  onCreateTag={createTag}
+                                  disabled={quickSaving}
+                                />
+                              </div>
                             </div>
                           </td>
                         </tr>
