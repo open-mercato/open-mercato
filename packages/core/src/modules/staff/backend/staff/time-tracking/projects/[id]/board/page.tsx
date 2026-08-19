@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
@@ -18,9 +17,10 @@ import { readItems, readString } from '../../../../../../lib/time-tracking-ui/ka
 const PROJECTS_HREF = '/backend/staff/time-tracking/projects'
 
 /** The project board of screen 6 — the same screen, with the project already known. */
-export default function ProjectBoardPage() {
+export default function ProjectBoardPage({ params }: { params?: { id?: string | string[] } }) {
   const t = useT()
-  const params = useParams<{ id?: string | string[] }>()
+  // From the prop, not `useParams()`: backend pages render under the
+  // `/backend/[[...slug]]` catch-all, whose params carry `slug`, never `id`.
   const scopeVersion = useOrganizationScopeVersion()
   const rawId = params?.id
   const projectId = Array.isArray(rawId) ? rawId[0] ?? null : rawId ?? null

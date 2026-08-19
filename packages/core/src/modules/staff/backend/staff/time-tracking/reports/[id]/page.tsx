@@ -22,7 +22,6 @@
  */
 
 import * as React from 'react'
-import { useParams } from 'next/navigation'
 import { Download, Lock, LockOpen } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
@@ -84,9 +83,18 @@ function readErrorMessage(payload: unknown, fallback: string): string {
   return fallback
 }
 
-export default function TimeTrackingReportDetailPage() {
+/**
+ * `params` arrives as a prop, not from `useParams()`.
+ *
+ * Backend pages render under the `/backend/[[...slug]]` catch-all, so
+ * `useParams()` answers `{ slug: [...] }` — there is no `id` key in it, and
+ * reading one yields `undefined`. The effect then short-circuits on the empty id
+ * and the page sits on its loading state forever, having issued no request at
+ * all. The catch-all passes the resolved segment as a prop; that is the contract
+ * every other detail page in the module already uses.
+ */
+export default function TimeTrackingReportDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const params = useParams<{ id: string }>()
   const reportId = typeof params?.id === 'string' ? params.id : ''
   const { payload: chrome } = useBackendChrome()
   const canClose = hasFeature(chrome?.grantedFeatures, LOCK_FEATURE)
