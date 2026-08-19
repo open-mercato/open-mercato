@@ -61,7 +61,7 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 | 5 | P1.3a Catalog quantity normalization | Readiness analysis of existing specification | Design complete |
 | 6 | P1.3b WMS quantity precision | Data audit plus readiness analysis of existing specification | Design complete; final precision envelope open until audit |
 | 7 | P1.3c WMS quantity evidence and reversal | Readiness analysis of existing specification | Design complete; depends on P1.3b |
-| 8 | P1.4 multi-level BOM drafts | New specification | Missing |
+| 8 | P1.4 multi-level BOM drafts | New specification | Skeleton authored; owner decisions resolved; research/full spec pending |
 | 9 | P1.6 Work Center boundary | New specification | Missing |
 | 10 | P1.5 routing and operation drafts | New specification | Missing; finalization depends on P1.6 |
 | 11 | P1.7 released definitions and immutable definition snapshots | New specification | Missing |
