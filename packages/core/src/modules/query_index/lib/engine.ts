@@ -508,7 +508,11 @@ export class HybridQueryEngine implements QueryEngine {
         ? await this.searchAvailability().anySourceHasTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
-      if (searchRuntime.enabled && sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))) {
+      if (
+        searchRuntime.enabled &&
+        searchConfig.useIlikeForNonEncryptedFields === true &&
+        sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
+      ) {
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every
@@ -1817,11 +1821,11 @@ export class HybridQueryEngine implements QueryEngine {
           )
         }
       }
-      // Tokenizer produced no hashes (e.g. value too short). This leaf sits inside an OR
-      // group, so `true` here would widen the whole disjunction to match everything. `false`
-      // is the honest answer for a search the token index cannot express: an encrypted column
-      // (the only kind that still reaches this branch) has no other way to match the term.
-      return sql<boolean>`false`
+      // Tokenizer produced no hashes (e.g. value too short). With the ILIKE gate active
+      // (`encryptedFields` resolved), only encrypted columns reach this branch and `false` is
+      // the honest answer for an OR leaf -- `true` would widen the whole disjunction to match
+      // everything. Without the gate (default), keep the legacy predicate-skipping `true`.
+      return searchRuntime?.encryptedFields != null ? sql<boolean>`false` : sql<boolean>`true`
     }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }
@@ -2466,11 +2470,11 @@ export class HybridQueryEngine implements QueryEngine {
         this.logSearchDebug('search:skip-empty-hashes', {
           entity: search.entity, field: search.field, value: filter.value,
         })
-        // Only encrypted columns reach this branch, and the token index is their only way to
-        // match. Dropping the predicate would return every row for a term that is merely too
-        // short to tokenize -- the full list, dressed as a search result. Matching nothing is
-        // the honest answer.
-        return q.where(sql<boolean>`false`)
+        // With the ILIKE gate active (`encryptedFields` resolved), only encrypted columns reach
+        // this branch and the token index is their only way to match: dropping the predicate
+        // would return every row for a term merely too short to tokenize. Without the gate
+        // (default), keep the legacy behavior of skipping the predicate.
+        if (search.encryptedFields != null) return q.where(sql<boolean>`false`)
       }
       return q
     }

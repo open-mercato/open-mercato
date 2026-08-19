@@ -1136,6 +1136,16 @@ describe('BasicQueryEngine entity-extension joins', () => {
 })
 
 describe('BasicQueryEngine like/ilike routing by column encryption', () => {
+  // The gate is opt-in: OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS defaults to false and the
+  // legacy rewrite-everything behavior stays. These cases flip it on; the last one pins the
+  // default off.
+  beforeEach(() => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
+  })
+  afterEach(() => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  })
+
   // The token rewrite exists because ILIKE against ciphertext cannot match. On a plaintext
   // column SQL ILIKE is exact, and the rewrite silently changes the result set: tokenization
   // splits on non-alphanumerics and drops tokens shorter than minTokenLength, so a
@@ -1214,5 +1224,27 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
       (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%avision%',
     )
     expect(ilikeWhere).toBe(true)
+  })
+
+  test('with the flag off (default) the token rewrite is kept even for plaintext columns', () => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    return engine
+      .query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        filters: { display_name: { $ilike: '%avision%' } },
+        page: { page: 1, pageSize: 10 },
+      })
+      .then(() => {
+        expect(applySearchTokensSpy).toHaveBeenCalled()
+      })
   })
 })
