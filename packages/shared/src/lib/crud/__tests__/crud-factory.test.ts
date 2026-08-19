@@ -1280,6 +1280,63 @@ describe('CRUD Factory', () => {
     expect(db['id-1']).not.toHaveProperty('__omWidgetPayload')
   })
 
+  it('POST command route exposes CrudForm widget payload to interceptors but never forwards it to mapInput', async () => {
+    let beforeBody: Record<string, unknown> | undefined
+    let afterBody: Record<string, unknown> | undefined
+    let mapInputRaw: Record<string, unknown> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.capture-command-widget-payload',
+          targetRoute: 'example/todos/command',
+          methods: ['POST'],
+          async before(request) {
+            beforeBody = request.body
+            return { ok: true }
+          },
+          async after(request) {
+            afterBody = request.body
+            return {}
+          },
+        }],
+      },
+    ])
+    commandBus.execute.mockResolvedValue({ result: { id: 'cmd-created-1' }, logEntry: { id: 'log-1' } })
+    const commandRoute = makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          // A non-passthrough schema: proves the widget payload survives even when
+          // the action's own schema would otherwise strip an unrecognized key.
+          schema: createSchema,
+          mapInput: ({ raw }) => {
+            mapInputRaw = raw
+            return raw
+          },
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const res = await commandRoute.POST(new Request('http://x/api/example/todos/command', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Widget-backed command item',
+        __omWidgetPayload: { relations: { relatedPersonId: 'person-1' } },
+      }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(beforeBody?.__omWidgetPayload).toEqual({ relations: { relatedPersonId: 'person-1' } })
+    expect(afterBody?.__omWidgetPayload).toEqual(beforeBody?.__omWidgetPayload)
+    expect(mapInputRaw).not.toHaveProperty('__omWidgetPayload')
+  })
+
   it('GET response is augmented by interceptor after hook', async () => {
     registerApiInterceptors([
       {

@@ -2198,17 +2198,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.create!
+        const createCmdWidgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
         const parsed = action.schema ? action.schema.parse(body) : body
         const beforeInterceptors = await applyInterceptorsBefore({
           ctx,
           request,
           method: 'POST',
-          body: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined,
+          body: parsed && typeof parsed === 'object'
+            ? addCrudWidgetPayload(parsed as Record<string, unknown>, createCmdWidgetPayload)
+            : undefined,
         })
         if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
         interceptorRequestPayload = beforeInterceptors.requestPayload
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
-        const interceptedBody = interceptorRequestPayload.body ?? {}
+        const interceptedBody = stripCrudWidgetPayload(interceptorRequestPayload.body ?? {})
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
         let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
@@ -2517,17 +2520,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.update!
+        const updateCmdWidgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
         const parsed = action.schema ? action.schema.parse(body) : body
         const beforeInterceptors = await applyInterceptorsBefore({
           ctx,
           request,
           method: 'PUT',
-          body: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined,
+          body: parsed && typeof parsed === 'object'
+            ? addCrudWidgetPayload(parsed as Record<string, unknown>, updateCmdWidgetPayload)
+            : undefined,
         })
         if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
         interceptorRequestPayload = beforeInterceptors.requestPayload
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
-        const interceptedBody = interceptorRequestPayload.body ?? {}
+        const interceptedBody = stripCrudWidgetPayload(interceptorRequestPayload.body ?? {})
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
         let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
