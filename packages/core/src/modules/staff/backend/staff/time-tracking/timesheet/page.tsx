@@ -378,12 +378,15 @@ export default function TimesheetPage() {
   }, [autoExpanded, expandedTouched])
 
   const gridProjects = React.useMemo(() => {
+    const referenced = new Set(data.entries.map((entry) => entry.timeProjectId ?? ''))
     if (!viewingSelf) {
-      const referenced = new Set(data.entries.map((entry) => entry.timeProjectId ?? ''))
       return data.projects.filter((project) => referenced.has(project.id))
     }
     const visible = new Set(data.visibleProjectIds)
-    return data.projects.filter((project) => visible.has(project.id))
+    // A project with time in this period always gets a row, pinned or not. The
+    // footer counts those hours, so a grid that shows only pinned rows tells the
+    // reader two different things at once — "no rows" above "Period: 11:00".
+    return data.projects.filter((project) => visible.has(project.id) || referenced.has(project.id))
   }, [data.entries, data.projects, data.visibleProjectIds, viewingSelf])
 
   const assignedProjects = React.useMemo(() => {

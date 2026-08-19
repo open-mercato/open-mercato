@@ -256,7 +256,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       setProjectTasksLoading(true)
       try {
         const res = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/tasks?projectId=${encodeURIComponent(projectId)}&page=1&pageSize=50&sortField=reference&sortDir=asc`,
+          // `timeProjectId`, not `projectId`: the tasks list schema declares the
+          // former and is `.passthrough()`, so the wrong name is accepted, never
+          // read, and the tab silently lists every task in the tenant.
+          `/api/staff/timesheets/tasks?timeProjectId=${encodeURIComponent(projectId)}&page=1&pageSize=50&sortField=reference&sortDir=asc`,
         )
         if (cancelled || !res.ok) return
         const items = Array.isArray(res.result?.items) ? res.result.items : []
