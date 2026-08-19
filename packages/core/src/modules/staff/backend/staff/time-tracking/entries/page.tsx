@@ -46,6 +46,13 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import {
+  EntryFilterChips,
+  EntryFilterPresets,
+  matchActivePreset,
+  type AppliedFilterChip,
+  type EntryFilterPreset,
+} from '../../../../lib/time-tracking-ui/EntryFilterBar'
+import {
   apiCall,
   apiCallOrThrow,
   readApiResultOrThrow,
@@ -246,6 +253,14 @@ export default function TimeTrackingEntriesPage() {
         lockedYes: t('staff.time_tracking.entries.filters.lockedYes', 'Locked in a report'),
         lockedNo: t('staff.time_tracking.entries.filters.lockedNo', 'Not yet reported'),
         text: t('staff.time_tracking.entries.filters.text', 'Description contains'),
+        clearAll: t('staff.time_tracking.entries.filters.clearAll', 'Clear all'),
+        remove: t('staff.time_tracking.entries.filters.remove', 'Remove filter {name}'),
+      },
+      presets: {
+        mineWeek: t('staff.time_tracking.entries.presets.mineWeek', 'Mine, this week'),
+        unbilled: t('staff.time_tracking.entries.presets.unbilled', 'Unbilled'),
+        nonBillable: t('staff.time_tracking.entries.presets.nonBillable', 'Non-billable'),
+        thisMonth: t('staff.time_tracking.entries.presets.thisMonth', 'This month'),
       },
       errors: {
         load: t('staff.time_tracking.entries.errors.load', 'Could not load the time entries.'),
@@ -361,6 +376,62 @@ export default function TimeTrackingEntriesPage() {
     })()
     return () => { cancelled = true }
   }, [scopeVersion])
+
+  const presets = React.useMemo<EntryFilterPreset[]>(
+    () => [
+      {
+        id: 'mine-week',
+        label: labels.presets.mineWeek,
+        build: ({ staffMemberId }) => ({
+          period: { from: defaultRange.from, to: defaultRange.to },
+          ...(staffMemberId ? { staffMemberId } : {}),
+        }),
+      },
+      {
+        id: 'unbilled',
+        label: labels.presets.unbilled,
+        build: () => ({ locked: 'false', billable: 'true' }),
+      },
+      { id: 'non-billable', label: labels.presets.nonBillable, build: () => ({ billable: 'false' }) },
+      {
+        id: 'this-month',
+        label: labels.presets.thisMonth,
+        build: ({ today }) => {
+          const start = `${today.slice(0, 7)}-01`
+          return { period: { from: start, to: today } }
+        },
+      },
+    ],
+    [defaultRange.from, defaultRange.to, labels.presets],
+  )
+
+  const presetContext = React.useMemo(
+    () => ({ staffMemberId: selfStaffMemberId, today: new Date().toISOString().slice(0, 10) }),
+    [selfStaffMemberId],
+  )
+  const activePresetId = React.useMemo(
+    () => matchActivePreset(filterValues, presets, presetContext),
+    [filterValues, presetContext, presets],
+  )
+
+  const applyPreset = React.useCallback(
+    (preset: EntryFilterPreset) => {
+      // A preset is a starting point, not a mode: it replaces what it sets and
+      // leaves the rest, so narrowing further does not mean rebuilding it.
+      setFilterValues((current) => ({ ...current, ...preset.build(presetContext) }))
+      setPage(1)
+    },
+    [presetContext],
+  )
+
+  const removeChip = React.useCallback((id: string) => {
+    setFilterValues((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+    setPage(1)
+  }, [])
 
   const loadEntries = React.useCallback(async () => {
     if (hasLoadedOnceRef.current) setIsRefreshing(true)
@@ -701,6 +772,29 @@ export default function TimeTrackingEntriesPage() {
     [labels.filters, canManage, projectOptions, customerOptions, peopleOptions, tagOptions],
   )
 
+  /** Applied filters, as the reader would say them out loud. */
+  const appliedChips = React.useMemo<AppliedFilterChip[]>(() => {
+    const label = (id: string) => filters.find((filter) => filter.id === id)?.label ?? id
+    const optionLabel = (id: string, value: string) => {
+      const def = filters.find((filter) => filter.id === id)
+      const options = (def as { options?: { value: string; label: string }[] } | undefined)?.options
+      return options?.find((option) => option.value === value)?.label ?? value
+    }
+    const chips: AppliedFilterChip[] = []
+    for (const [id, raw] of Object.entries(filterValues)) {
+      if (raw === undefined || raw === null || raw === '') continue
+      if (id === 'period') {
+        const range = raw as { from?: string; to?: string }
+        if (!range?.from && !range?.to) continue
+        chips.push({ id, label: label(id), value: `${range.from ?? '…'} → ${range.to ?? '…'}` })
+        continue
+      }
+      if (typeof raw !== 'string') continue
+      chips.push({ id, label: label(id), value: optionLabel(id, raw) })
+    }
+    return chips
+  }, [filterValues, filters])
+
   const columns = React.useMemo<ColumnDef<TimeEntryListRow>[]>(() => {
     const rightHeader = (label: string) => () => <span className="block text-right">{label}</span>
     const defs: ColumnDef<TimeEntryListRow>[] = []
@@ -893,6 +987,32 @@ export default function TimeTrackingEntriesPage() {
           onFiltersClear={() => {
             setFilterValues({})
             setPage(1)
+          }}
+          activeFilterChips={
+            <div className="flex flex-col gap-2">
+              <EntryFilterPresets
+                presets={presets}
+                activePresetId={activePresetId}
+                onApplyPreset={applyPreset}
+              />
+              <EntryFilterChips
+                chips={appliedChips}
+                onRemove={removeChip}
+                onClearAll={() => { setFilterValues({}); setPage(1) }}
+                clearAllLabel={labels.filters.clearAll}
+                removeLabel={(name) => labels.filters.remove.replace('{name}', name)}
+              />
+            </div>
+          }
+          filterAwareEmptyState={{
+            active: appliedChips.length > 0,
+            entityNamePlural: labels.title,
+            canRemoveLast: appliedChips.length > 0,
+            onClearAll: () => { setFilterValues({}); setPage(1) },
+            onRemoveLast: () => {
+              const last = appliedChips[appliedChips.length - 1]
+              if (last) removeChip(last.id)
+            },
           }}
           emptyState={<div className="py-12 text-center text-sm text-muted-foreground">{labels.empty}</div>}
           actions={
