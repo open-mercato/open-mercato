@@ -46,6 +46,7 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import {
+  apiCall,
   apiCallOrThrow,
   readApiResultOrThrow,
   withScopedApiRequestHeaders,
@@ -184,6 +185,14 @@ export default function TimeTrackingEntriesPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>(() => ({
     period: { from: defaultRange.from, to: defaultRange.to },
   }))
+  // The list opens on your own timesheet. Someone holding `manage_all` sees every
+  // entry in the organization otherwise, which is a page about other people.
+  const [selfStaffMemberId, setSelfStaffMemberId] = React.useState<string | null>(null)
+  const [projectOptions, setProjectOptions] = React.useState<{ value: string; label: string }[]>([])
+  const [customerOptions, setCustomerOptions] = React.useState<{ value: string; label: string }[]>([])
+  const [tagOptions, setTagOptions] = React.useState<{ value: string; label: string }[]>([])
+  const [peopleOptions, setPeopleOptions] = React.useState<{ value: string; label: string }[]>([])
+  const personSeededRef = React.useRef(false)
   const [page, setPage] = React.useState(1)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'date', desc: true }])
   const [rows, setRows] = React.useState<TimeEntryListRow[]>([])
@@ -227,6 +236,16 @@ export default function TimeTrackingEntriesPage() {
       filters: {
         period: t('staff.time_tracking.entries.filters.period', 'Period'),
         project: t('staff.time_tracking.entries.filters.project', 'Project'),
+        customer: t('staff.time_tracking.entries.filters.customer', 'Customer'),
+        person: t('staff.time_tracking.entries.filters.person', 'Person'),
+        tag: t('staff.time_tracking.entries.filters.tag', 'Tag'),
+        billable: t('staff.time_tracking.entries.filters.billable', 'Billable'),
+        billableYes: t('staff.time_tracking.entries.filters.billableYes', 'Billable only'),
+        billableNo: t('staff.time_tracking.entries.filters.billableNo', 'Non-billable only'),
+        locked: t('staff.time_tracking.entries.filters.locked', 'Report status'),
+        lockedYes: t('staff.time_tracking.entries.filters.lockedYes', 'Locked in a report'),
+        lockedNo: t('staff.time_tracking.entries.filters.lockedNo', 'Not yet reported'),
+        text: t('staff.time_tracking.entries.filters.text', 'Description contains'),
       },
       errors: {
         load: t('staff.time_tracking.entries.errors.load', 'Could not load the time entries.'),
@@ -263,6 +282,86 @@ export default function TimeTrackingEntriesPage() {
   const period = (filterValues.period ?? {}) as { from?: string; to?: string }
   const projectFilter = typeof filterValues.projectId === 'string' ? filterValues.projectId : ''
 
+  // Filter vocabularies come from the API, not from the rows on screen: options
+  // built from the loaded page can only narrow to what you can already see, which
+  // makes the filter useless for finding anything that is not in front of you.
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      // `Promise.resolve` rather than `.catch` directly: a filter vocabulary that
+      // fails to load must leave the page usable with a shorter list, and the
+      // wrapper also tolerates a stub that returns nothing.
+      const safeCall = async <T,>(url: string) => {
+        try {
+          return (await Promise.resolve(apiCall<T>(url))) ?? null
+        } catch {
+          return null
+        }
+      }
+      const [selfRes, projectsRes, tagsRes, peopleRes] = await Promise.all([
+        safeCall<{ member?: { id?: string } | null }>('/api/staff/team-members/self'),
+        safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/timesheets/time-projects?page=1&pageSize=100'),
+        safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/timesheets/tags?page=1&pageSize=100'),
+        safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/team-members?page=1&pageSize=100'),
+      ])
+      if (cancelled) return
+
+      const selfId = selfRes?.ok ? (selfRes.result?.member?.id ?? null) : null
+      if (selfId) {
+        setSelfStaffMemberId(selfId)
+        if (!personSeededRef.current) {
+          personSeededRef.current = true
+          setFilterValues((prev) => ({ ...prev, staffMemberId: selfId }))
+        }
+      }
+
+      const projects = projectsRes?.ok && Array.isArray(projectsRes.result?.items) ? projectsRes.result.items : []
+      const customers = new Map<string, string>()
+      setProjectOptions(
+        projects
+          .map((row: Record<string, unknown>) => {
+            const id = typeof row.id === 'string' ? row.id : null
+            if (!id) return null
+            const name = typeof row.name === 'string' ? row.name : id
+            const code = typeof row.code === 'string' ? row.code : null
+            const customerId = typeof row.customer_id === 'string' ? row.customer_id : null
+            const snapshot = row.customer_snapshot as { name?: unknown } | null | undefined
+            if (customerId && typeof snapshot?.name === 'string') customers.set(customerId, snapshot.name)
+            return { value: id, label: code ? `${code} · ${name}` : name }
+          })
+          .filter((option): option is { value: string; label: string } => option !== null),
+      )
+      setCustomerOptions([...customers].map(([value, label]) => ({ value, label })))
+
+      const tags = tagsRes?.ok && Array.isArray(tagsRes.result?.items) ? tagsRes.result.items : []
+      setTagOptions(
+        tags
+          .map((row: Record<string, unknown>) => {
+            const id = typeof row.id === 'string' ? row.id : null
+            const label = typeof row.label === 'string' ? row.label : null
+            return id && label ? { value: id, label } : null
+          })
+          .filter((option): option is { value: string; label: string } => option !== null),
+      )
+
+      const people = peopleRes?.ok && Array.isArray(peopleRes.result?.items) ? peopleRes.result.items : []
+      setPeopleOptions(
+        people
+          .map((row: Record<string, unknown>) => {
+            const id = typeof row.id === 'string' ? row.id : null
+            const label = typeof row.display_name === 'string'
+              ? row.display_name
+              : typeof row.displayName === 'string'
+                ? row.displayName
+                : null
+            return id && label ? { value: id, label } : null
+          })
+          .filter((option): option is { value: string; label: string } => option !== null),
+      )
+    })()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
   const loadEntries = React.useCallback(async () => {
     if (hasLoadedOnceRef.current) setIsRefreshing(true)
     else setIsLoading(true)
@@ -274,6 +373,20 @@ export default function TimeTrackingEntriesPage() {
       if (period.from) params.set('from', period.from)
       if (period.to) params.set('to', period.to)
       if (projectFilter) params.set('projectId', projectFilter)
+      const readFilter = (key: string): string =>
+        typeof filterValues[key] === 'string' ? (filterValues[key] as string) : ''
+      const person = readFilter('staffMemberId')
+      if (person) params.set('staffMemberId', person)
+      const billable = readFilter('billable')
+      if (billable) params.set('billable', billable)
+      const lockedFilter = readFilter('locked')
+      if (lockedFilter) params.set('locked', lockedFilter)
+      const customer = readFilter('customerId')
+      if (customer) params.set('customerId', customer)
+      const tag = readFilter('tagIds')
+      if (tag) params.set('tagIds', tag)
+      const text = readFilter('q')
+      if (text.trim()) params.set('q', text.trim())
 
       const listPayload = await readApiResultOrThrow<EntriesResponse>(
         `${ENTRIES_API}?${params.toString()}`,
@@ -310,7 +423,7 @@ export default function TimeTrackingEntriesPage() {
       setIsRefreshing(false)
       hasLoadedOnceRef.current = true
     }
-  }, [labels.errors.load, page, period.from, period.to, projectFilter, sorting])
+  }, [labels.errors.load, page, period.from, period.to, projectFilter, sorting, filterValues])
 
   React.useEffect(() => {
     void loadEntries()
@@ -556,20 +669,36 @@ export default function TimeTrackingEntriesPage() {
   const filters = React.useMemo<FilterDef[]>(
     () => [
       { id: 'period', label: labels.filters.period, type: 'dateRange' },
+      { id: 'projectId', label: labels.filters.project, type: 'select', options: projectOptions },
+      { id: 'customerId', label: labels.filters.customer, type: 'select', options: customerOptions },
+      // Only offered when the caller can actually see somebody else's time; for
+      // everyone else the route already scopes to their own entries and the
+      // control would be a lever attached to nothing.
+      ...(canManage && peopleOptions.length > 1
+        ? [{ id: 'staffMemberId', label: labels.filters.person, type: 'select' as const, options: peopleOptions }]
+        : []),
+      { id: 'tagIds', label: labels.filters.tag, type: 'select', options: tagOptions },
       {
-        id: 'projectId',
-        label: labels.filters.project,
+        id: 'billable',
+        label: labels.filters.billable,
         type: 'select',
-        options: Array.from(
-          new Map(
-            rows
-              .filter((row) => row.timeProjectId)
-              .map((row) => [row.timeProjectId as string, row.projectLabel ?? (row.timeProjectId as string)]),
-          ).entries(),
-        ).map(([value, label]) => ({ value, label })),
+        options: [
+          { value: 'true', label: labels.filters.billableYes },
+          { value: 'false', label: labels.filters.billableNo },
+        ],
       },
+      {
+        id: 'locked',
+        label: labels.filters.locked,
+        type: 'select',
+        options: [
+          { value: 'true', label: labels.filters.lockedYes },
+          { value: 'false', label: labels.filters.lockedNo },
+        ],
+      },
+      { id: 'q', label: labels.filters.text, type: 'text' },
     ],
-    [labels.filters.period, labels.filters.project, rows],
+    [labels.filters, canManage, projectOptions, customerOptions, peopleOptions, tagOptions],
   )
 
   const columns = React.useMemo<ColumnDef<TimeEntryListRow>[]>(() => {

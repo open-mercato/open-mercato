@@ -29,6 +29,8 @@ import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/facto
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { sanitizeSearchTerm } from '../../helpers'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } from '../../../data/entities'
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
@@ -103,12 +105,36 @@ const listSchema = z
     taskId: z.string().optional(),
     ids: z.string().optional(),
     running: z.string().optional(),
+    /** `true` / `false` — omitted means "either". */
+    billable: z.string().optional(),
+    /** `true` = frozen into a closed report, `false` = still editable. */
+    locked: z.string().optional(),
+    /** Free text over the entry note. */
+    q: z.string().optional(),
+    /** Customer id — narrows to that customer's projects. */
+    customerId: z.string().uuid().optional(),
+    /** One tag id, or a comma-separated list; an entry matching any of them. */
+    tagIds: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
 
 type EntryListQuery = z.infer<typeof listSchema>
+
+/**
+ * Three-state flag: `true`, `false`, or "the caller did not ask". A missing
+ * filter must widen to everything rather than collapse to `false`, which is what
+ * a plain boolean parse would do.
+ */
+function parseBooleanFlagOrNull(value: unknown): boolean | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (normalized.length === 0) return null
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return null
+}
 
 /** Non-UUID sentinel used as the "match nothing" filter, mirroring the tasks route. */
 const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
@@ -240,6 +266,51 @@ export async function buildScopedTimeEntryListFilters(
   const taskIds = splitTaskIdList(query.taskId)
   if (taskIds !== null) {
     filters[F.task_id] = { $in: taskIds.length > 0 ? taskIds : [IMPOSSIBLE_ID] }
+  }
+
+  // --- Optional narrowing the grid's filter overlay drives ---------------
+
+  const billable = parseBooleanFlagOrNull(query.billable)
+  if (billable !== null) filters[F.is_billable] = { $eq: billable }
+
+  const locked = parseBooleanFlagOrNull(query.locked)
+  if (locked !== null) {
+    // "Locked" is the presence of the report that froze the entry, so it is asked
+    // as a nullness question rather than a boolean column that does not exist.
+    filters[F.locked_report_id] = locked ? { $ne: null } : { $eq: null }
+  }
+
+  const term = sanitizeSearchTerm(query.q)
+  if (term) filters[F.notes] = { $ilike: `%${escapeLikePattern(term)}%` }
+
+  // A customer is a property of the project, not of the entry — `customer_id` on
+  // the entry is a denormalised convenience that older rows may not carry — so
+  // the question is answered by resolving the customer's projects first.
+  if (typeof query.customerId === 'string' && query.customerId.trim().length > 0) {
+    const em = ctx.container.resolve('em') as EntityManager
+    const { tenantId, organizationId } = resolveCtxScope(ctx)
+    const projects = await em.fork().find(
+      StaffTimeProject,
+      { customerId: query.customerId.trim(), tenantId, organizationId, deletedAt: null },
+      { fields: ['id'] },
+    )
+    const ids = projects.map((project) => project.id)
+    filters[F.time_project_id] = { $in: ids.length > 0 ? ids : [IMPOSSIBLE_ID] }
+  }
+
+  const tagIds = splitTaskIdList(query.tagIds)
+  if (tagIds !== null) {
+    const em = ctx.container.resolve('em') as EntityManager
+    const { tenantId, organizationId } = resolveCtxScope(ctx)
+    const assignments = tagIds.length === 0
+      ? []
+      : await em.fork().find(
+          StaffTimeEntryTag,
+          { tagId: { $in: tagIds }, tenantId, organizationId },
+          { fields: ['timeEntryId'] },
+        )
+    const entryIds = Array.from(new Set(assignments.map((row) => row.timeEntryId)))
+    filters[F.id] = { $in: entryIds.length > 0 ? entryIds : [IMPOSSIBLE_ID] }
   }
 
   const access = await resolveListProjectAccess(ctx)
