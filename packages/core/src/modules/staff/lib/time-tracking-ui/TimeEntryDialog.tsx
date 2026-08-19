@@ -300,12 +300,24 @@ export function TimeEntryDialog({
     enabled: open && isEdit,
     staleTime: 0,
     queryFn: async () => {
+      // `ids`, not `id`: the list schema declares the plural and is `.passthrough()`,
+      // so `?id=` was accepted, never read, and the filter silently disappeared —
+      // leaving `pageSize=1` to return the first entry of the whole table.
       const call = await apiCall<Record<string, unknown>>(
-        `/api/staff/timesheets/time-entries?id=${encodeURIComponent(entryId as string)}&pageSize=1`,
+        `/api/staff/timesheets/time-entries?ids=${encodeURIComponent(entryId as string)}&pageSize=1`,
       )
       if (!call.ok) throw new Error('[internal] time entry request failed')
       const row = readRowItems(call.result)[0]
-      return row ? toTimeEntryRecord(row) : null
+      if (!row) return null
+      const record = toTimeEntryRecord(row)
+      if (!record) return null
+      // A dialog that edits a record other than the one it was asked for writes
+      // one entry's values onto another, so a mismatch fails loudly rather than
+      // populating the form. Nothing but a dropped filter can produce it.
+      if (record.id !== entryId) {
+        throw new Error('[internal] time entry response did not match the requested id')
+      }
+      return record
     },
   })
 
@@ -1094,7 +1106,14 @@ export function TimeEntryDialog({
         {body}
 
         <DialogFooter>
-          <span className="mr-auto flex items-center gap-1 text-xs text-muted-foreground">
+          {/*
+            * The labels are flex items, so without `whitespace-nowrap` "save and
+            * add another" shrinks into a four-line column rather than staying on
+            * the line. Hidden below `sm` as well: on a narrow dialog the hint
+            * competes with the buttons for room it does not deserve, and a
+            * keyboard hint is useless on a touch device anyway.
+            */}
+          <span className="mr-auto hidden items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
             <Kbd>⌘</Kbd>
             <Kbd>↵</Kbd>
             {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}
