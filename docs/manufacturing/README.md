@@ -31,10 +31,11 @@ The opt-in `manufacturing` module owns production intent, semantic commands, der
 | P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete; [readiness task #5390](https://github.com/open-mercato/open-mercato/issues/5390) open | Readiness audit now; implementation after baseline acceptance and pass | Current Catalog UoM contract | Audit the resolver and compatibility surface before Manufacturing quantity contracts freeze |
 | P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | Design complete; [audit task #5391](https://github.com/open-mercato/open-mercato/issues/5391) open | Data audit/spec refinement now; implementation after P1.3a readiness | P1.3a | Measure representative/schema-supported data, choose the precision envelope, then plan an additive migration before stock execution |
 | P1.3c | Add immutable WMS quantity evidence and correlated reversal | Design complete; [readiness task #5392](https://github.com/open-mercato/open-mercato/issues/5392) open | Audit preparation after P1.3b | P1.3a–P1.3b | Audit quantity snapshots and exact correlated reversal before stock execution |
-| P1.4 | Author draft multi-level BOMs | [Skeleton authored](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md); [spec task #5393](https://github.com/open-mercato/open-mercato/issues/5393) open | Owner decisions resolved; research/full specification next | P1.0a, Catalog references; P1.3a before stable quantity contracts | Audit repository patterns and benchmark BOM revision behavior, then complete data/API/UI/risk contracts; release remains gated |
+| P1.4a | Author direct-level BOM drafts and enforce aggregate integrity | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md); [spec task #5393](https://github.com/open-mercato/open-mercato/issues/5393) | Implementation-ready design; fresh-context review **PASS** | P1.0 acceptance, P1.0a, P1.3a | Accept upstream gates, then implement versioned families/revisions/occurrences, exact quantities, optimistic locking, commands/undo and cycle-safe CRUD/API/UI |
+| P1.4b | Preview bounded multi-level BOM drafts | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-draft-preview.md); [spec task #5405](https://github.com/open-mercato/open-mercato/issues/5405) | Implementation-ready read-only design; fresh-context review **PASS** | P1.0 acceptance, P1.0a, P1.3a, P1.4a | Accept upstream gates, then implement the occurrence tree, exact fixed/variable/yield explosion, repeatable-read snapshot and hard depth/node bounds |
 | P1.5 | Author draft routings and operations | [Spec task #5395](https://github.com/open-mercato/open-mercato/issues/5395) open | Preparation after P1.6 questions are known | P1.0a, P1.6 | Author the specification for an optional single-sequence routing draft without scheduling semantics |
 | P1.6 | Establish the work-centre extension boundary | [Spec task #5394](https://github.com/open-mercato/open-mercato/issues/5394) open | Skeleton/current-state audit now | P1.0a | Resolve resource cardinality, snapshot and planner-absent behavior |
-| P1.7 | Define the released-definition lifecycle and immutable definition snapshots | [Spec task #5396](https://github.com/open-mercato/open-mercato/issues/5396) open | Preparation only until upstream shapes stabilize | P1.2, P1.3a, P1.4, P1.5, P1.6 | Freeze child revisions and occurrence-preserving definition snapshots; stop before order release |
+| P1.7 | Define the released-definition lifecycle and immutable definition snapshots | [Spec task #5396](https://github.com/open-mercato/open-mercato/issues/5396) open | Preparation only until upstream shapes stabilize | P1.2, P1.3a, P1.4a, P1.5, P1.6 | Freeze child revisions and occurrence-preserving definition snapshots; stop before order release; P1.4b preview is not a release prerequisite |
 | P1.8a | Define generic atomic WMS posting groups | [Spec task #5397](https://github.com/open-mercato/open-mercato/issues/5397) open; critical stock gate | WMS audit/benchmark and skeleton work | P1.2, P1.3a–P1.3c | Specify consumer-neutral atomic physical lines, opaque references, reversal and reconciliation without Manufacturing vocabulary |
 | P1.8b | Define the Manufacturing inventory posting adapter | [Spec task #5398](https://github.com/open-mercato/open-mercato/issues/5398) open | Semantic preparation only | P1.8a, P1.9, P1.10 | Translate issue, return, backflush, output, scrap and reversal intent into the generic WMS contract |
 | P1.9 | Define the minimum Manufacturing fact ledger | [Spec task #5399](https://github.com/open-mercato/open-mercato/issues/5399) open | Skeleton/spike pending baseline acceptance | P1.0a | Define append-only model-neutral facts, correction/idempotency primitives and opaque evidence references; no discrete confirmation UI |
@@ -51,10 +52,11 @@ Parallel foundation work
   P1.1 WMS–Sales decoupling (parallel packaging work; not a first-MVP gate)
   P1.2 WMS Site
   P1.3a Catalog/Sales quantity normalisation → P1.3b precision → P1.3c evidence/reversal
-  P1.4 real draft BOM CRUD with occurrence identity, P1.5 optional sequential routing drafts, P1.6 work-centre boundary
+  P1.4a direct BOM draft authoring/integrity → P1.4b bounded multi-level preview
+  P1.5 optional sequential routing drafts, P1.6 work-centre boundary
 
 Foundation contracts
-  P1.2 + P1.3a + P1.4 + P1.5 + P1.6 → P1.7 released definitions
+  P1.2 + P1.3a + P1.4a + P1.5 + P1.6 → P1.7 released definitions
   P1.0a → P1.9 Manufacturing fact ledger
   P1.2 + P1.3a + P1.3b + P1.3c → P1.8a generic WMS posting groups
 
@@ -123,7 +125,7 @@ If an official source is unavailable or a product does not document the relevant
 | [#5260 — decouple WMS from Sales](https://github.com/open-mercato/open-mercato/issues/5260) | Issue | Open | Tracker for P1.1 |
 | [#5386 — Wave 0 specification readiness backlog](https://github.com/open-mercato/open-mercato/issues/5386) | Issue | Open | Parent tracker for specification and readiness work |
 
-Child trackers are [#5387–#5401](https://github.com/open-mercato/open-mercato/issues/5386), linked as a task list from the parent Issue and from the relevant workstream rows. P1.12 has no separate tracker because its evidence matrix applies to every child. P1.13 remains deferred and has no Wave 0 MVP tracker.
+Child trackers [#5387–#5401](https://github.com/open-mercato/open-mercato/issues/5386) plus the split-out P1.4b tracker [#5405](https://github.com/open-mercato/open-mercato/issues/5405) are linked from the parent Issue and the relevant workstream rows. P1.12 has no separate tracker because its evidence matrix applies to every child. P1.13 remains deferred and has no Wave 0 MVP tracker.
 
 ## Source documents
 
@@ -137,6 +139,8 @@ Child trackers are [#5387–#5401](https://github.com/open-mercato/open-mercato/
 | [`2026-08-13-catalog-quantity-normalization.md`](../../.ai/specs/2026-08-13-catalog-quantity-normalization.md) | P1.3a capability specification |
 | [`2026-08-13-wms-quantity-precision-alignment.md`](../../.ai/specs/2026-08-13-wms-quantity-precision-alignment.md) | P1.3b capability specification |
 | [`2026-08-13-wms-quantity-evidence-reversal.md`](../../.ai/specs/2026-08-13-wms-quantity-evidence-reversal.md) | P1.3c capability specification |
+| [`2026-08-19-manufacturing-bom-drafts.md`](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md) | P1.4a direct-level BOM draft authoring/integrity specification |
+| [`2026-08-19-manufacturing-bom-draft-preview.md`](../../.ai/specs/2026-08-19-manufacturing-bom-draft-preview.md) | P1.4b bounded read-only multi-level preview specification |
 | [`wms-roadmap-and-estimates-en.md`](../wms/wms-roadmap-and-estimates-en.md) | Broader WMS context; not the authoritative Manufacturing delivery plan |
 
 ## Maintenance rules

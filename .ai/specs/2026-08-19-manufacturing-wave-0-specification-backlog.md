@@ -61,7 +61,8 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 | 5 | P1.3a Catalog quantity normalization | Readiness analysis of existing specification | Design complete |
 | 6 | P1.3b WMS quantity precision | Data audit plus readiness analysis of existing specification | Design complete; final precision envelope open until audit |
 | 7 | P1.3c WMS quantity evidence and reversal | Readiness analysis of existing specification | Design complete; depends on P1.3b |
-| 8 | P1.4 multi-level BOM drafts | New specification | Skeleton authored; owner decisions resolved; research/full spec pending |
+| 8a | P1.4a BOM draft authoring and integrity | Full specification | Implementation-ready design; fresh-context review **PASS**; upstream gates remain |
+| 8b | P1.4b bounded multi-level BOM draft preview | Full specification | Implementation-ready read-only design; fresh-context review **PASS**; upstream gates remain |
 | 9 | P1.6 Work Center boundary | New specification | Missing |
 | 10 | P1.5 routing and operation drafts | New specification | Missing; finalization depends on P1.6 |
 | 11 | P1.7 released definitions and immutable definition snapshots | New specification | Missing |
@@ -80,6 +81,7 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 - P1.7 owns definition release and immutable definition snapshots only. P1.10 owns top-level definition selection and the execution snapshot created when a discrete order is released.
 - P1.9 owns the model-neutral append-only fact ledger, acceptance/correction primitives and opaque evidence-reference envelope only. P1.10 owns order/operation-aware basic confirmations and their UI/API orchestration.
 - P1.8a and P1.8b are separate because generic WMS posting groups are independently deployable and usable without Manufacturing.
+- P1.4a and P1.4b are separate because direct-level BOM authoring/integrity remains useful without recursive preview, while bounded explosion is an independently deployable read capability over that aggregate.
 - P1.12 is evidence attached to every capability; it does not own product data or a lifecycle.
 - P1.13, MRP, APS, full MES/QMS, costing, advanced genealogy, automatic numbering, and enterprise packaging do not block the first production flow.
 - Existing P1.2 and P1.3a-c documents require formal pre-implementation readiness reports before they may be marked ready.
@@ -105,11 +107,12 @@ The final P1.1 topology remains deliberately outside this decision. If #5260 acc
 P1.0 roadmap acceptance
   +--> P1.0a package/module bootstrap
 
-P1.0a --> P1.4 BOM drafts
+P1.0a + P1.3a --> P1.4a BOM draft authoring/integrity
+P1.4a --> P1.4b bounded draft preview
 P1.0a --> P1.6 Work Centers --> P1.5 routing drafts
 P1.0a --> P1.9 fact ledger
 
-P1.2 + P1.3a + P1.4 + P1.5 + P1.6 --> P1.7 definition release
+P1.2 + P1.3a + P1.4a + P1.5 + P1.6 --> P1.7 definition release
 P1.3a --> P1.3b data audit/readiness --> P1.3c readiness
 P1.2 + P1.3a + P1.3b + P1.3c --> P1.8a WMS posting groups
 P1.2 + P1.3a + P1.7 + P1.9 --> P1.10 order lifecycle + execution snapshot + basic confirmations
@@ -134,10 +137,11 @@ The lanes describe contract-finalization order, not a ban on earlier skeletons o
 | P1.3a | `analysis/ANALYSIS-2026-08-19-catalog-quantity-normalization.md` | Catalog | Readiness audit now | P1.0 accepted and all critical findings remediated |
 | P1.3b | `analysis/ANALYSIS-2026-08-19-wms-quantity-precision-alignment.md` | WMS | Real-data audit now | P1.3a ready; precision envelope selected from evidence; critical findings remediated |
 | P1.3c | `analysis/ANALYSIS-2026-08-19-wms-quantity-evidence-reversal.md` | WMS | Audit preparation now | P1.3b ready and storage/arithmetic envelope frozen |
-| P1.4 | `2026-08-19-manufacturing-bom-drafts.md` | `manufacturing` | Skeleton/research now | P1.0a package contract and P1.3a quantity contract ready |
+| P1.4a | `2026-08-19-manufacturing-bom-drafts.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a package contract and P1.3a quantity contract ready |
+| P1.4b | `2026-08-19-manufacturing-bom-draft-preview.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a, P1.3a and P1.4a ready |
 | P1.6 | `2026-08-19-manufacturing-work-centres.md` | `manufacturing` with optional `resources` input | Skeleton/code audit now | Ownership, resource cardinality, snapshot and planner-absent behavior resolved |
 | P1.5 | `2026-08-19-manufacturing-routing-drafts.md` | `manufacturing` | Skeleton after P1.6 questions are known | P1.6 Work Center contract ready |
-| P1.7 | `2026-08-19-manufacturing-released-definitions.md` | `manufacturing` | Skeleton after P1.4/P1.5 release inputs and P1.6 ownership shapes are known | P1.2, P1.3a, P1.4, P1.5 and P1.6 ready; scope stops before order release |
+| P1.7 | `2026-08-19-manufacturing-released-definitions.md` | `manufacturing` | Skeleton after P1.4a/P1.5 release inputs and P1.6 ownership shapes are known | P1.2, P1.3a, P1.4a, P1.5 and P1.6 ready; scope stops before order release; P1.4b is not a release prerequisite |
 | P1.8a | `2026-08-19-wms-atomic-posting-groups.md` | WMS | Current-state audit, benchmark and skeleton now | P1.2 and P1.3a-c ready; reference/reason registry and BC strategy resolved |
 | P1.8b | `2026-08-19-manufacturing-inventory-posting-adapter.md` | `manufacturing` | Semantic-command research now | P1.8a provider contract, P1.9 fact-writer contract and P1.10 execution-snapshot/confirmation contract ready |
 | P1.9 | `2026-08-19-manufacturing-fact-ledger.md` | `manufacturing` | Skeleton/research now | P1.0a ready; neutral fact, correction, idempotency and opaque evidence-reference contracts resolved without WMS vocabulary |
@@ -219,7 +223,8 @@ Every capability specification and implementation epic must record the applicabl
 | P1.3a | All Catalog/Sales normalization call sites and exact-decimal helpers; public input compatibility |
 | P1.3b | Real WMS integer magnitude/fractional scale distribution, every `numeric(16,4)` quantity column, JavaScript-number arithmetic and reconciliation/import paths |
 | P1.3c | Movement/reservation evidence, reversal commands, legacy rows, idempotency and existing movement API contracts |
-| P1.4 | Catalog product/variant/UoM contracts, revision-like entities, recursive query patterns, CRUD extension hosts and import/export conventions |
+| P1.4a | Catalog product/variant/UoM contracts, revision-like entities, commands/undo, locking, CRUD/API/UI extension hosts, ACL/events and disabled-module conventions |
+| P1.4b | Recursive/batched read patterns, exact-decimal explosion, transaction isolation, custom action routes/OpenAPI, bounded tree UI, cache/event and performance conventions |
 | P1.6/P1.5 | `resources` and `planner` ownership, capacity/calendar data, module requirements, resource references and existing scheduling/UI extension points |
 | P1.8a | WMS balance/movement/reservation commands, transaction boundaries, location/lot/serial selection, movement enums, references, reversal and reconciliation surfaces |
 | P1.9 | Event envelope, append-only evidence, correction/idempotency patterns, audit-vs-domain-fact boundaries and generic opaque evidence references |
@@ -230,8 +235,8 @@ Every capability specification and implementation epic must record the applicabl
 | Phase | Outcome | Exit condition |
 |---|---|---|
 | 0. Backlog approval | Owners accept this decomposition and the documented parent-document alignment | This document is approved; P1.0 remains subject to PR #5256 |
-| 1. Foundations | First authoring batch produces bootstrap/base skeletons and prerequisite readiness evidence | P1.0a, P1.2, P1.3a-b, P1.4, P1.6, P1.8a and P1.9 have the evidence required for their next state |
-| 2. Gate A specifications | Draft-definition capabilities become implementation-ready | P1.2, P1.3a, P1.4, P1.5 and P1.6 pass their individual compliance reviews |
+| 1. Foundations | First authoring batch produces bootstrap/base skeletons and prerequisite readiness evidence | P1.0a, P1.2, P1.3a-b, P1.4a-b, P1.6, P1.8a and P1.9 have the evidence required for their next state |
+| 2. Gate A specifications | Draft-definition capabilities become implementation-ready | P1.2, P1.3a, P1.4a, P1.4b, P1.5 and P1.6 pass their individual compliance reviews |
 | 3. Gate B specifications | Released definitions, fact ledger, order lifecycle and basic stock-free confirmations become implementation-ready | P1.7, P1.9 and P1.10 pass their individual compliance reviews |
 | 4. Gate C specifications | Generic WMS posting groups, Manufacturing adapter and stock-affecting execution become implementation-ready | P1.3b-c, P1.8a-b and P1.11 pass their individual compliance reviews and validation gates |
 | 5. Implementation planning | Approved specs are decomposed into concrete implementation Issues/tasks | Each task links one implementation-ready specification and its required P1.12 evidence |
@@ -246,7 +251,7 @@ The first batch starts only artifacts that can make independent progress without
 2. **P1.2 readiness analysis** — formal pre-implementation report for the existing Site specification.
 3. **P1.3a readiness analysis** — formal report for the Catalog normalization contract.
 4. **P1.3b data-audit task** — measure real and schema-supported quantity envelopes before selecting precision.
-5. **P1.4 skeleton** — multi-level occurrence-preserving BOM drafts; no release or stock behavior.
+5. **P1.4a/P1.4b full specifications** — occurrence-preserving direct-level BOM authoring/integrity and its independently bounded read-only multi-level preview; no release or stock behavior.
 6. **P1.6 skeleton** — Work Center ownership over `resources`; no scheduling semantics.
 7. **P1.8a skeleton and WMS audit** — generic atomic posting group only; no Manufacturing vocabulary.
 8. **P1.9 skeleton** — model-neutral append-only fact ledger, correction/idempotency and opaque evidence references; no discrete confirmation UI or order orchestration.
@@ -276,7 +281,8 @@ Tracking was created on 2026-08-19. [Issue #5386](https://github.com/open-mercat
 | P1.3a | [#5390](https://github.com/open-mercato/open-mercato/issues/5390) |
 | P1.3b | [#5391](https://github.com/open-mercato/open-mercato/issues/5391) |
 | P1.3c | [#5392](https://github.com/open-mercato/open-mercato/issues/5392) |
-| P1.4 | [#5393](https://github.com/open-mercato/open-mercato/issues/5393) |
+| P1.4a | [#5393](https://github.com/open-mercato/open-mercato/issues/5393) |
+| P1.4b | [#5405](https://github.com/open-mercato/open-mercato/issues/5405) |
 | P1.6 | [#5394](https://github.com/open-mercato/open-mercato/issues/5394) |
 | P1.5 | [#5395](https://github.com/open-mercato/open-mercato/issues/5395) |
 | P1.7 | [#5396](https://github.com/open-mercato/open-mercato/issues/5396) |
@@ -359,7 +365,7 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 
 | Check | Status | Notes |
 |---|---|---|
-| Work-item boundaries match the roadmap outcome | Pass with documented alignment change | P1.0a is additive planning work; P1.8 is split; P1.7/P1.9 are narrowed and their discrete behavior moves to P1.10 without changing Gate B outcomes. |
+| Work-item boundaries match the roadmap outcome | Pass with documented alignment change | P1.0a is additive planning work; P1.4 and P1.8 are split; P1.7/P1.9 are narrowed and their discrete behavior moves to P1.10 without changing Gate B outcomes. |
 | Dependency graph matches finalization gates | Pass | Gate A/B/C prerequisites are preserved. |
 | Existing specs are not treated as implementation-ready | Pass | Each requires a formal readiness analysis. |
 | Q2 absence behavior is explicit | Pass | It gates P1.1/standalone packaging only. |
@@ -377,5 +383,7 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 - 2026-08-19: Kept P1.1 placement open under Issue #5260; the issue recommends Option B but has no accepted decision or comments.
 - 2026-08-19: Added dependency lanes, planned filenames, readiness definitions, the P1.12 evidence matrix, current-state audits, first authoring batch, tracking structure, risks and compliance review.
 - 2026-08-19: Scope-cohesion review narrowed P1.7 to definition release and P1.9 to the model-neutral fact ledger; moved order-release execution snapshots and basic discrete confirmations into P1.10 and recorded the required parent-document alignment.
-- 2026-08-19: Final self-review made P1.4/P1.5 explicit prerequisites of P1.7 and added the formal overview, problem, solution, applicability and delivery-phase sections.
+- 2026-08-19: Final self-review made P1.4a/P1.5 explicit prerequisites of P1.7 and added the formal overview, problem, solution, applicability and delivery-phase sections.
 - 2026-08-19: Owner approved the backlog; created parent tracker #5386 and child specification/readiness trackers #5387–#5401, then aligned their artifact paths and governance state.
+- 2026-08-19: Fresh-context review split P1.4 into P1.4a direct-level BOM draft authoring/integrity (#5393) and P1.4b bounded read-only multi-level preview (#5405); the roadmap owner accepted the boundary.
+- 2026-08-19: Completed both split specifications, fresh-context reviews (**PASS**), P1.12 mappings and final compliance gates; implementation remains blocked by their named P1.0/P1.0a/P1.3a/P1.4a prerequisites.

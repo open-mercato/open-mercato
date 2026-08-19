@@ -108,7 +108,7 @@ The following candidate decisions resolve thirteen contract-shaping questions an
 
 | # | Decision | Candidate rule |
 |---|---|---|
-| C1 | One initial runtime module with guarded internal boundaries | The standalone `@open-mercato/manufacturing` package ships one opt-in runtime module, `manufacturing`. Wave 0 capabilities P1.4–P1.11 live inside it. Model-neutral seams remain internally separate from discrete aggregates; a future public subpath or specialist module requires an independently validated consumer and must not depend on discrete internals. |
+| C1 | One initial runtime module with guarded internal boundaries | The standalone `@open-mercato/manufacturing` package ships one opt-in runtime module, `manufacturing`. Wave 0 capabilities P1.4a/P1.4b and P1.5–P1.11 live inside it. Model-neutral seams remain internally separate from discrete aggregates; a future public subpath or specialist module requires an independently validated consumer and must not depend on discrete internals. |
 | C2 | WMS owns the availability projection | WMS computes and serves basic status/expiry-aware availability. No other module recomputes it. A future optional disposition provider may refine the result; present-but-unreachable fails closed, while absence preserves the basic WMS result. |
 | C3 | Basic identity first; advanced number ranges later | UUID is canonical identity. `manufacturing` provides a simple concurrency-safe site-scoped order display number. Lot/serial values may be supplied explicitly and WMS validates uniqueness. P1.13 later adds configurable order/batch/lot/serial formats, resets, generated values, block reservation, and offline allocation without blocking the MVP. |
 | H1 | Backflush is a first-class Manufacturing mode over generic WMS postings | Manufacturing derives cumulative issue lines from the immutable released-definition snapshot at a defined operation/order backflush point. It submits those concrete lines, together with any output receipt, through the generic atomic WMS posting-group contract. WMS never reads Manufacturing definitions or calculates backflush quantities; symmetric reversal and precision cases use the persisted posting evidence. |
@@ -293,7 +293,7 @@ Every detailed capability spec must use these meanings:
 
 | Capability | Owned data | Hard runtime requirements | Soft integrations/providers | Snapshot/fallback when absent | Placement/licensing |
 |---|---|---|---|---|---|
-| `manufacturing` discrete Wave 0 capabilities | Discrete `ProductionDefinition`, BOM/routing releases, `ProductionOrder`, operation intent and manufacturing transactions | Internal model-neutral contracts; compatible generic WMS posting contract only for stock-affecting execution | Resources/planner, documents, workflows, quality, execution, costing | Drafts and non-stock lifecycle remain separable; manual confirmations work without MES/QMS/APS | Lives in the single OSS `manufacturing` module; P1.4–P1.11 remain separate specs |
+| `manufacturing` discrete Wave 0 capabilities | Discrete `ProductionDefinition`, BOM/routing releases, `ProductionOrder`, operation intent and manufacturing transactions | Internal model-neutral contracts; compatible generic WMS posting contract only for stock-affecting execution | Resources/planner, documents, workflows, quality, execution, costing | Drafts and non-stock lifecycle remain separable; manual confirmations work without MES/QMS/APS | Lives in the single OSS `manufacturing` module; P1.4a/P1.4b and P1.5–P1.11 remain separate specs |
 | `manufacturing_engineering` | ECR/ECO over manufacturing definitions, impact analysis, effectivity and release decisions | Catalog and released-definition contract | Workflows, cross-cutting document control, external PLM | Deterministic internal release lifecycle when workflows are absent | Candidate module ID; dedicated spec decides placement |
 | Document control capability | Controlled packages, checksums, revisions and release links across business domains | Attachments and the consuming domain's release contract | Manufacturing engineering, signatures/compliance | Manufacturing snapshots package identity/hash; generic attachment alone is not controlled release | Cross-cutting capability; no module ID or placement reserved here |
 | `manufacturing_traceability` | Manufacturing genealogy graph/read models, recall and investigation | Minimum Manufacturing facts and WMS movement facts | Execution, quality, serialization/labeling | Base lot/serial correlations remain in core facts; no advanced graph UI | Candidate module ID; dedicated spec decides placement |
@@ -376,7 +376,7 @@ organization/auth + catalog + WMS sites + simple manufacturing order number
        v
 manufacturing (one opt-in runtime module)
        |-- internal model-neutral contracts, facts, and provider seams
-       |-- Wave 0 discrete capabilities (P1.4–P1.11)
+       |-- Wave 0 discrete capabilities (P1.4a/P1.4b and P1.5–P1.11)
        |-- future specialist capability may consume an approved neutral seam,
        |   but never discrete-specific internals
                   |
@@ -419,7 +419,7 @@ Readiness is evaluated per delivered slice. A later capability is not an implici
 
 ### Gate A: draft definition authoring
 
-After this roadmap is accepted and a dedicated P1.4/P1.5 implementation specification passes readiness review, draft multi-level BOM and optional sequential-routing CRUD/API/UI may be implemented before stock execution. Before quantity-bearing public contracts freeze, P1.3a must provide one Catalog-owned exact-decimal/UoM policy. Before released routing references freeze, P1.6 must confirm the minimal work-centre extension over `resources`. Drafts may omit `siteId`; they have no stock effects and cannot create executable work.
+After this roadmap is accepted and the dedicated P1.4a/P1.4b/P1.5 implementation specifications pass their readiness reviews, direct-level BOM authoring, bounded multi-level draft preview, and optional sequential-routing CRUD/API/UI may be implemented before stock execution. P1.4a is independently useful without P1.4b, and P1.4b depends on P1.4a. Before quantity-bearing public contracts freeze, P1.3a must provide one Catalog-owned exact-decimal/UoM policy. Before released routing references freeze, P1.6 must confirm the minimal work-centre extension over `resources`. Drafts may omit `siteId`; they have no stock effects and cannot create executable work.
 
 ### Gate B: released definitions and production-order lifecycle
 
@@ -427,7 +427,7 @@ Before P1.10 releases an executable order:
 
 1. P1.2 provides inactive-by-default WMS Sites, required raw-material/finished-goods defaults, one-active-site-per-warehouse semantics, scoping, and immutable consumer snapshots.
 2. P1.3a is accepted for exact definition/order quantities.
-3. P1.4/P1.5 provide the accepted BOM/routing definition contracts, and P1.6 defines minimal work centres; calendars and finite scheduling remain optional.
+3. P1.4a/P1.5 provide the accepted BOM/routing definition contracts, and P1.6 defines minimal work centres; P1.4b preview is not a release prerequisite, while calendars and finite scheduling remain optional.
 4. P1.7 defines atomic definition release, child-revision selection, occurrence-preserving immutable definition snapshots, cycle rejection and optional sequential routing.
 5. P1.9 defines the Manufacturing-model-neutral append-only fact ledger, acceptance/correction/idempotency primitives and opaque evidence references.
 6. P1.10 defines normal discrete order/operation entities, selects the top-level definition by `plannedStartDate`, persists the execution and warehouse-role snapshots, provides UUID identity plus a simple concurrency-safe site-scoped display number, and owns the basic stock-free confirmation/correction lifecycle.
@@ -780,7 +780,8 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - 2026-08-19: Froze yield as `(0,1]` with nominal/yield grossing, fixed consumption per order/occurrence, cumulative `good + scrap` variable backflush, exact persisted reversal, the basic order lifecycle, and `complete_short`; moved demand signals, full number ranges, direct issue, advanced MES/QMS, costing valuation, and bitemporal analytics to later capabilities.
 - 2026-08-19: Initially explored a `manufacturing_*` family, then accepted one durable runtime ID, `manufacturing`. Applied the prefix test to later optional capabilities; the illustrative catalogue does not reserve module IDs without an independently validated boundary.
 - 2026-08-19: Made the internal model-neutral guardrail executable: contracts, lifecycle primitives, facts, and provider interfaces only; no UI, orchestration, direct WMS calls, model-specific aggregates, speculative seam implementations, or P1.0a domain exports.
-- 2026-08-19: Consolidated the proposed base/discrete runtime split into one opt-in `manufacturing` module. The module hard-requires `catalog`; WMS, Resources, and Planner remain optional. P1.4–P1.11 remain separate capability specifications inside the module, and future specialist models may consume only separately approved neutral contracts.
+- 2026-08-19: Consolidated the proposed base/discrete runtime split into one opt-in `manufacturing` module. The module hard-requires `catalog`; WMS, Resources, and Planner remain optional. P1.4a/P1.4b and P1.5–P1.11 remain separate capability specifications inside the module, and future specialist models may consume only separately approved neutral contracts.
+- 2026-08-19: Split P1.4 after fresh-context review and roadmap-owner approval: P1.4a owns direct-level BOM authoring/integrity, while P1.4b owns bounded read-only recursive preview. Only P1.4a is required by P1.7 release work.
 - 2026-08-19: Replaced production-specific WMS operations/enums with a generic atomic posting-group contract. Manufacturing now derives issue/backflush/output/scrap lines and owns semantic facts; WMS validates and records physical effects plus opaque source/reason references and durable display fallback. Added the five-product official-source benchmark for this boundary.
 - 2026-08-19: Corrected governance wording from self-approved/binding to a proposed roadmap under maintainer and community review; implementation still requires accepted specs and readiness evidence.
 - 2026-08-19: Selected candidate P1.1 Option B for review: Sales-specific WMS glue moves to optional `wms_sales`, which requires both domains and preserves existing behavior through a compatibility bridge.

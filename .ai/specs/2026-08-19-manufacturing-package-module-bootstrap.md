@@ -18,7 +18,7 @@ packages/manufacturing/                 @open-mercato/manufacturing
   src/modules/manufacturing/index.ts    module metadata and discovery entrypoint
 ```
 
-The first product flow is discrete manufacturing, but `manufacturing` is the durable module ID. P1.4–P1.11 are separate capability and specification boundaries inside that module, not sibling runtime modules. Model-neutral seams stay separated from discrete aggregates in the internal source layout. A future capability may add an explicit package subpath only when a real second consumer proves the contract; P1.0a does not publish such a seam pre-emptively.
+The first product flow is discrete manufacturing, but `manufacturing` is the durable module ID. P1.4a/P1.4b and P1.5–P1.11 are separate capability and specification boundaries inside that module, not sibling runtime modules. Model-neutral seams stay separated from discrete aggregates in the internal source layout. A future capability may add an explicit package subpath only when a real second consumer proves the contract; P1.0a does not publish such a seam pre-emptively.
 
 > **Market reference:** N/A. This slice is repository-native package and discovery plumbing rather than a business capability. Existing Open Mercato package, generator, template, and compatibility contracts are the authoritative benchmark.
 
@@ -59,7 +59,7 @@ The module metadata declares `name: 'manufacturing'` and `requires: ['catalog']`
 
 - **Module developer** wants to enable `manufacturing` explicitly so that later Manufacturing capabilities have a stable package and discovery home.
 - **Application maintainer** wants the package installed but disabled by default so that upgrading or generating an app does not change runtime behavior.
-- **Capability author** wants a single internal module boundary so that P1.4–P1.11 can be specified independently without inventing sibling runtime modules.
+- **Capability author** wants a single internal module boundary so that P1.4a/P1.4b and P1.5–P1.11 can be specified independently without inventing sibling runtime modules.
 
 ## Architecture
 
@@ -304,6 +304,7 @@ None.
 - 2026-08-19: Created the P1.0a skeleton and recorded activation, dependency, and export questions.
 - 2026-08-19: Resolved the design as one opt-in `manufacturing` module with hard `catalog` dependency, optional WMS/Resources/Planner peers, and entrypoint-only exports.
 - 2026-08-19: Expanded the skeleton into an implementation-ready package/discovery specification with compatibility, testing, risks, and compliance review.
+- 2026-08-19: Aligned capability numbering after the accepted P1.4a authoring/P1.4b preview split; package, module, dependency, and export contracts are unchanged.
 
 ### Review — 2026-08-19
 
