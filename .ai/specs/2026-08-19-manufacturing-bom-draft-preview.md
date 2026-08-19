@@ -192,7 +192,7 @@ Rules:
 - only final `gross` is rounded once with that component line snapshot's mode/scale;
 - stored normalized values are evidence and are not re-normalized through current Catalog policy;
 - overflow, zero/invalid base output, invalid yield, or malformed snapshot fails the entire evaluation as `bom.quantity_invalid`;
-- a resolved child receives `R = gross` only when the parent line snapshot `baseUnitCode` exactly equals the child revision base-output snapshot `baseUnitCode` for the same component target;
+- a resolved child receives `R = gross` only when the parent line `normalizedUnitCode` exactly equals the child revision `baseOutputNormalizedUnitCode` for the same component target; both scalars must also match their immutable snapshots;
 - a historical base-unit mismatch fails closed as `bom.uom_invalid`; P1.4b never invents a cross-base conversion or consults current Catalog policy to reinterpret stored evidence;
 - no quantity is summed across occurrences.
 
@@ -633,6 +633,7 @@ Implementation remains gated by P1.0, P1.0a, P1.3a, and P1.4a. No product code i
 - 2026-08-19: Created P1.4b after the combined P1.4 fresh-context review returned **SPLIT** and the roadmap owner accepted the authoring/preview boundary.
 - 2026-08-19: Defined draft-only resolution, occurrence identity, exact variable/fixed/yield calculation, repeatable-read consistency, all-or-error limits, API/UI, and evidence gates.
 - 2026-08-19: Fresh-context review returned **PASS** after exact single-round arithmetic, historical base-unit failure, transaction ordering, bounded sentinel traversal and deterministic limit precedence were made explicit.
+- 2026-08-19: Aligned base-unit compatibility checks with P1.4a's explicit `normalizedUnitCode` and `baseOutputNormalizedUnitCode` scalars while retaining snapshot consistency validation.
 
 ### Review — 2026-08-19
 

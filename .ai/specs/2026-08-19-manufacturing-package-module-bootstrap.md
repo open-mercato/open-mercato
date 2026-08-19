@@ -132,12 +132,12 @@ The line is documentation for opt-in consumers and is not added to the standard 
 
 The package and module are additive. Existing applications remain unchanged because their enabled-module registry does not include `manufacturing`. There is no database migration or backfill. `@open-mercato/shared` is a package peer dependency and development dependency because the entrypoint types its metadata with the canonical `ModuleInfo`; `catalog` remains a runtime module requirement expressed in metadata, not a direct package dependency on `@open-mercato/core`.
 
-Once released, the package name, module ID, and module import subpath become compatibility surfaces under `BACKWARD_COMPATIBILITY.md`. The explicit export map includes only:
+Once released, the package name, module ID, and module import subpath become compatibility surfaces under `BACKWARD_COMPATIBILITY.md`. Supported consumer-facing entrypoints include only:
 
 - `.` mapped to `src/index.ts` / `dist/index.js`;
 - `./modules/manufacturing/index` mapped to the source/dist module entrypoint.
 
-No wildcard or domain export is required by this slice. The normative export shape is:
+The package must additionally expose the same depth-aware source/dist convention-file patterns used by standalone module packages, including JSON locale resources. These wildcard mappings are generator/discovery plumbing, not a supported domain API: P1.0a exports no BOM type, service, command constant, or model-neutral contract. The normative export shape follows the current standalone package map:
 
 ```json
 {
@@ -148,7 +148,21 @@ No wildcard or domain export is required by this slice. The normative export sha
   "./modules/manufacturing/index": {
     "types": "./src/modules/manufacturing/index.ts",
     "default": "./dist/modules/manufacturing/index.js"
-  }
+  },
+  "./*.ts": { "types": "./src/*.ts", "default": "./dist/*.js" },
+  "./*.tsx": { "types": "./src/*.tsx", "default": "./dist/*.js" },
+  "./*.json": "./src/*.json",
+  "./*": { "types": ["./src/*.ts", "./src/*.tsx"], "default": "./dist/*.js" },
+  "./*/*.json": "./src/*/*.json",
+  "./*/*": { "types": ["./src/*/*.ts", "./src/*/*.tsx"], "default": "./dist/*/*.js" },
+  "./*/*/*.json": "./src/*/*/*.json",
+  "./*/*/*": { "types": ["./src/*/*/*.ts", "./src/*/*/*.tsx"], "default": "./dist/*/*/*.js" },
+  "./*/*/*/*.json": "./src/*/*/*/*.json",
+  "./*/*/*/*": { "types": ["./src/*/*/*/*.ts", "./src/*/*/*/*.tsx"], "default": "./dist/*/*/*/*.js" },
+  "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+  "./*/*/*/*/*": { "types": ["./src/*/*/*/*/*.ts", "./src/*/*/*/*/*.tsx"], "default": "./dist/*/*/*/*/*.js" },
+  "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json",
+  "./*/*/*/*/*/*": { "types": ["./src/*/*/*/*/*/*.ts", "./src/*/*/*/*/*/*.tsx"], "default": "./dist/*/*/*/*/*/*.js" }
 }
 ```
 
@@ -160,7 +174,7 @@ Source and dist shapes must both support repository discovery. The package depen
 
 1. Create `packages/manufacturing/package.json`, `tsconfig.json`, `jest.config.cjs`, `build.mjs`, and `watch.mjs` following a current standalone OSS module package.
 2. Create an intentionally empty `src/index.ts` and the single `src/modules/manufacturing/index.ts` metadata entrypoint.
-3. Use explicit source/dist export mappings for the package root and module entrypoint.
+3. Use explicit public root/module-entry mappings plus depth-aware source/dist convention-file and JSON mappings copied from a current standalone package.
 4. Add the package to the standard app and create-app template dependencies without modifying default enabled-module registries.
 5. Add the strict design-system ESLint override for the new module path so later UI starts compliant.
 
@@ -170,7 +184,7 @@ Source and dist shapes must both support repository discovery. The package depen
 2. Extend package/template parity coverage for dependency installation and disabled-by-default activation.
 3. Exercise generator discovery after explicit fixture activation from source and built package output.
 4. Extend module-decoupling/static checks to reject the retired IDs and hard requirements on WMS, `resources`, or `planner`.
-5. Verify no generated file is manually committed as source and no domain contract is exported.
+5. Verify no generated file is manually committed as source and no domain contract is exported through root, named, or wildcard paths.
 
 ### Phase 3: Validation
 
@@ -203,7 +217,7 @@ Source and dist shapes must both support repository discovery. The package depen
 - Activate the module in a test fixture and assert generated imports resolve from `@open-mercato/manufacturing/modules/manufacturing/index` in source and standalone dist modes.
 - Assert no `manufacturing_base` or `manufacturing_discrete` module metadata/entrypoint remains.
 - Assert no hard requirement or direct package import is introduced for WMS, `resources`, or `planner`.
-- Assert only root and module entrypoint exports exist and no domain constants/types are public.
+- Assert root/module entrypoints plus the depth-aware convention mappings exist, source/dist/JSON discovery resolves, and no domain constants/types/contracts are public.
 - Run `yarn workspace @open-mercato/manufacturing build`, `typecheck`, `test`, and package packing validation.
 - Run `yarn test:create-app`, focused CLI generator tests, `yarn generate`, and the package build-order sequence.
 
@@ -225,10 +239,10 @@ N/A. There are no mutations, routes, event subscribers, pages, or user input. Ca
 - **Residual risk**: A downstream application owner can opt in intentionally, which is the supported behavior.
 
 #### Premature compatibility surface
-- **Scenario**: Wildcard exports or placeholder domain types become public and later constrain BOM, fact, or order designs.
+- **Scenario**: Convention-file wildcard plumbing is mistaken for a supported domain API, or placeholder domain types constrain BOM, fact, or order designs.
 - **Severity**: High
 - **Affected area**: Package consumers and later capability specs
-- **Mitigation**: Explicit two-entry export map and tests that reject domain exports in P1.0a.
+- **Mitigation**: Document root/module index as the only supported consumer entrypoints; copy only generator-compatible depth-aware patterns; tests reject domain symbols/contract files in P1.0a.
 - **Residual risk**: The package/module IDs and module entrypoint intentionally become stable after release.
 
 #### Optional peer becomes a hidden hard dependency
@@ -273,7 +287,7 @@ N/A. There are no mutations, routes, event subscribers, pages, or user input. Ca
 | Core AGENTS | Test disabled-module behavior and module decoupling | Compliant | Negative registry and dependency tests are required. |
 | CLI AGENTS | Support monorepo source and standalone dist discovery with correct build order | Compliant | Both fixture modes and build/generate/build are acceptance checks. |
 | create-app AGENTS | Keep template package shape synchronized and tested | Compliant | Dependency is added to both manifests; neither default registry enables the module. |
-| Shared AGENTS | Public module/package types must be deliberate compatibility surfaces | Compliant | Only root and discovery entrypoints are exported. |
+| Shared AGENTS | Public module/package types must be deliberate compatibility surfaces | Compliant | Root and module index are the only supported consumer entrypoints; wildcard convention mappings expose no domain contract. |
 | BACKWARD_COMPATIBILITY | Auto-discovery, import paths, and generated-file contracts are stable | Compliant | The design is additive and validates source/dist resolution without editing generated artifacts. |
 | Design System rules | New module paths use strict DS linting | Compliant | ESLint override is included before any UI exists. |
 | Data/API/UI/security rules | Define tenancy, commands, APIs, UI, encryption, and caching | N/A | This metadata-only bootstrap introduces none of these surfaces. |
@@ -302,9 +316,10 @@ None.
 ## Changelog
 
 - 2026-08-19: Created the P1.0a skeleton and recorded activation, dependency, and export questions.
-- 2026-08-19: Resolved the design as one opt-in `manufacturing` module with hard `catalog` dependency, optional WMS/Resources/Planner peers, and entrypoint-only exports.
+- 2026-08-19: Resolved the design as one opt-in `manufacturing` module with hard `catalog` dependency, optional WMS/Resources/Planner peers, and root/module consumer entrypoints.
 - 2026-08-19: Expanded the skeleton into an implementation-ready package/discovery specification with compatibility, testing, risks, and compliance review.
-- 2026-08-19: Aligned capability numbering after the accepted P1.4a authoring/P1.4b preview split; package, module, dependency, and export contracts are unchanged.
+- 2026-08-19: Aligned capability numbering after the accepted P1.4a authoring/P1.4b preview split; package, module, and dependency contracts are unchanged.
+- 2026-08-19: Clarified the distinction between supported consumer entrypoints and depth-aware generator/discovery export plumbing required by later convention files.
 
 ### Review — 2026-08-19
 

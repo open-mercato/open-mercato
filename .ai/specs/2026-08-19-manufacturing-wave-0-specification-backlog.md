@@ -82,6 +82,7 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 - P1.9 owns the model-neutral append-only fact ledger, acceptance/correction primitives and opaque evidence-reference envelope only. P1.10 owns order/operation-aware basic confirmations and their UI/API orchestration.
 - P1.8a and P1.8b are separate because generic WMS posting groups are independently deployable and usable without Manufacturing.
 - P1.4a and P1.4b are separate because direct-level BOM authoring/integrity remains useful without recursive preview, while bounded explosion is an independently deployable read capability over that aggregate.
+- P1.4a is reusable definition master data and therefore carries no customer, sales-order, required-date, or planned-date fields. P1.7 owns definition effectivity/Site applicability; P1.10 owns demand source and scheduling dates; a future ETO/order-specific BOM requires a separate snapshot/overlay specification.
 - P1.12 is evidence attached to every capability; it does not own product data or a lifecycle.
 - P1.13, MRP, APS, full MES/QMS, costing, advanced genealogy, automatic numbering, and enterprise packaging do not block the first production flow.
 - Existing P1.2 and P1.3a-c documents require formal pre-implementation readiness reports before they may be marked ready.
@@ -387,3 +388,4 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 - 2026-08-19: Owner approved the backlog; created parent tracker #5386 and child specification/readiness trackers #5387–#5401, then aligned their artifact paths and governance state.
 - 2026-08-19: Fresh-context review split P1.4 into P1.4a direct-level BOM draft authoring/integrity (#5393) and P1.4b bounded read-only multi-level preview (#5405); the roadmap owner accepted the boundary.
 - 2026-08-19: Completed both split specifications, fresh-context reviews (**PASS**), P1.12 mappings and final compliance gates; implementation remains blocked by their named P1.0/P1.0a/P1.3a/P1.4a prerequisites.
+- 2026-08-19: Re-ran the P1.4a pre-implementation audit, remediated framework/data/API/UI/export findings, and recorded that reusable BOMs exclude customer/order/due-date context owned by P1.10.
