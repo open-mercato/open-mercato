@@ -22,6 +22,21 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.7.0 → 0.7.1 (unreleased)
+
+### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+
+The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+
+- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
+- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+
+**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
+
+---
+
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
 ### Passkey MFA verification requires a real WebAuthn assertion (#3852)
@@ -159,6 +174,23 @@ Two changes ship together on `GET /api/search/search/global`, the endpoint the C
 `create-mercato-app --preset crm` and `--preset empty` produced apps with no Cmd+K palette at all, not even for a superadmin: the app shell renders the palette on `search.global`, and `filterGrantsByEnabledModules` strips every feature whose owning module is absent from the enabled-modules registry, so the grant never survived. Only the `classic` preset — which keeps the template's own `src/modules.ts` — had it.
 
 **Action:** none for existing apps. This changes only what *new* scaffolds generate. An app already scaffolded from `crm` or `empty` can add `{ id: 'search', from: '@open-mercato/search' }` to its `src/modules.ts`; the package is already pinned in the generated `package.json`, and the token strategy runs on the `search_tokens` table `query_index` maintains, so no Meilisearch and no embedding provider are needed.
+
+### Data sync batches now emit their own traces instead of nesting under the trigger
+
+Only relevant if you run telemetry (`TELEMETRY_BACKEND` set to an enabled backend). Trace context propagates from the request that starts a sync, through the queue, into the worker — and `ParentBasedSampler` only decides sampling at a trace's **root**. A run lasting hours therefore inherited one decision taken on a request from long before it: below `TELEMETRY_SAMPLING_RATIO=1.0` an entire run could emit nothing at all, and at `1.0` a single backfill produced one unrenderable million-span trace.
+
+The `data_sync` engine now wraps each batch in a **root** span (`data_sync.import.batch` / `data_sync.export.batch`) linked back to the run's trace, so every batch samples independently and each trace stays renderable.
+
+Sampling stays probabilistic — at ratio `p` a run of `n` batches still emits nothing with probability `(1 - p)^n` (75% for one batch at `p = 0.25`, 0.3% for twenty) — but a long run is no longer one coin flip, and at `1.0` each trace is now bounded instead of unrenderable.
+
+**Action for operators:** none required, but expect the new shape in your tracing backend. Sync work no longer appears inside the triggering request's trace; look for `data_sync.*.batch` root traces instead, and follow the span **link** to get back to the trigger. Saved views or dashboards that assumed the old nesting need repointing. Batch spans carry `data_sync.run_id`, `data_sync.integration_id`, `data_sync.entity_type`, `data_sync.batch_index`, `om.tenant_id` and `om.organization_id` for filtering. The read that finds the stream drained is traced separately as `data_sync.import.drain` / `data_sync.export.drain`, so a panel counting or averaging `*.batch` sees batches only.
+
+**Action for adapter authors:** none — `streamImport`/`streamExport` are unchanged, and generator `finally` blocks still run on cancellation and failure. If your adapter hand-rolls its own per-batch span, you can delete it: the engine's span now covers the same work, and an adapter-created span could never actually root itself. Any inner spans you create nest under the engine's batch span as before.
+
+One contract detail is now enforced where it previously was not: the engine drives your iterator directly instead of using `for await`, so the returned value must be a genuine `AsyncIterable` (an `async function*`, or an object with `[Symbol.asyncIterator]`) — which is what `streamImport`/`streamExport` have always been typed as. `for await` also happened to accept a *synchronous* iterable of promises; that was never part of the declared contract, and an untyped adapter relying on it now fails immediately with a `TypeError` on the first batch rather than silently. TypeScript adapters are unaffected.
+
+**For module authors:** the underlying mechanism is two new optional `SpanOptions` fields in `@open-mercato/telemetry` — `root?: boolean` (start a new trace, taking a fresh sampling decision) and `links?: TraceCarrier[]` (causal links as W3C carriers). Both are additive; a call that sets neither behaves exactly as before. Packages that cannot depend on `@open-mercato/telemetry` reach the same primitives through `withTelemetrySpan` / `captureTelemetryTrace` in `@open-mercato/shared/lib/telemetry/runtime`.
+
 ### TanStack Table upgraded to v9 — `ColumnDef` imports must move to the legacy entry point
 
 The platform now depends on `@tanstack/react-table@^9.0.0`. v9 is an API rewrite: `useReactTable` and the `get*RowModel` factories moved out of the package root, and `ColumnDef` gained a leading `TFeatures` generic (`ColumnDef<TFeatures, TData, TValue>` instead of `ColumnDef<TData, TValue>`). Because module code imports these types **directly from `@tanstack/react-table`** rather than through `@open-mercato/ui`, no bridge inside the platform can shield you from it — a module that declares `ColumnDef<MyRow>[]` stops compiling after the upgrade.
@@ -529,6 +561,25 @@ export const bootstrap = createBootstrap(
 
 Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
 
+### `ComboboxInput` shows a "no matches" row for a non-empty query
+
+When the user has typed and the filtered suggestion list is empty, the popover now stays open and renders `ui.inputs.comboboxInput.noMatches` instead of closing silently. The loading affordance is unchanged: while a fetch is in flight the popover still shows `ui.inputs.comboboxInput.loading`, including when a stale suggestion list is present. The new key ships in every bundled locale.
+
+### `customers/components/detail/assignableStaff` moved to `customers/lib/assignableStaff`
+
+The implementation moved so non-component callers (API routes, commands) can import it without reaching into a `components/` path. The old path re-exports every public symbol and is marked `@deprecated`; it keeps working through 0.6.x and will be removed in 0.7.0. Update imports:
+
+```diff
+- import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
++ import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/lib/assignableStaff'
+```
+
+### Credit memo creation now persists validated order and invoice links
+
+`sales.credit_memos.create` now persists its validated `orderId` and `invoiceId` as the credit memo's `order` and `invoice` relations. `SalesCreditMemo` exposes both only as relations (`@ManyToOne` on `order_id` / `invoice_id`) and has never had scalar `orderId` / `invoiceId` properties, so earlier releases validated each reference and then silently dropped it — reads returned a null `order_id` and `invoice_id`. The delete snapshot and its undo path read and restore both links through the relation as well.
+
+`TC-SALES-031` asserts the persisted order link, and `credit-memo-document-links.test.ts` covers both relations on create and on delete-snapshot. No caller changes are required.
+
 ### Opt-in per-entity ACL for custom-entity records (#3857)
 
 Follow-up to the #2612 records-API hardening, which deliberately left custom/EAV entities on the coarse `entities.records.view` / `entities.records.manage` path. Those two features were **entity-agnostic**: any holder could read/modify/delete records of *every* custom entity in their tenant, so sensitive custom entities (salaries, board minutes) could not be compartmentalized from ordinary ones (intra-tenant horizontal privilege; cross-tenant was already blocked).
@@ -592,6 +643,66 @@ Vector/fulltext search settings (Cmd+K strategies, embedding provider/model, aut
 4. **Provider availability is now verified (behavior fix).** `isProviderConfigured('ollama')` previously returned `true` unconditionally. A new cached, fail-closed `embeddingProviderProbe` (additive DI key) actively checks Ollama via `GET {OLLAMA_BASE_URL}/api/tags` (key-presence for the other providers). The embeddings settings `GET` returns per-provider `available`/`reason`, and the embeddings `POST` rejects selecting an unreachable provider with `409 { error, reason }`. *Action for downstream:* environments that relied on Ollama always reporting "available" must ensure Ollama is actually reachable at `OLLAMA_BASE_URL` (which was already required for embedding to function).
 
 All changes are additive at the contract surface. No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands changed. The vector index (shared pgvector table) remains instance-level; per-tenant scoping covers settings selection, not stored vectors. See [`.ai/specs/2026-06-15-tenant-scoped-search-settings.md`](.ai/specs/2026-06-15-tenant-scoped-search-settings.md) (tracking issue #3092).
+
+### Notification channels unified on the delivery-strategy seam (Phase 7)
+
+All notification channels now flow through one seam and one gate. This is additive and backward-compatible, with one **intentional corrective behavior change** and one **deprecation** relevant to module authors.
+
+**Behavior change (corrective).** Per-channel opt-out and the `nonOptOut`/`silent` type flags are now enforced on **every** channel, not just push. Previously, disabling `in_app` or `email` for a notification type in a user's preferences was silently ignored — those channels always delivered. After upgrading, an `in_app` opt-out hides the notification from the bell/inbox/unread-count (the row is still written as a durable record), and an `email` opt-out suppresses the email. A user who has **never changed their preferences sees no difference** (preferences default to on). No action required unless you relied on opt-outs being ignored.
+
+**`Notification.channels` is now authoritative.** The new nullable `channels` JSONB column stores the resolved delivery-channel set. A create call with no `channels` still fans out to every registered channel (unchanged); pass `channels: ['push']` (etc.) to a `notificationService.create(...)` call to target specific channels. Legacy rows (`channels = NULL`) are treated as "all channels / visible".
+
+**Deprecation — `NotificationDeliveryContext` email fields.** For authors of custom `NotificationDeliveryStrategy` implementations: the context is now split into a channel-agnostic core (`NotificationDeliveryContextCore`) and `EmailDeliveryExtras` (`panelUrl`, `panelLink`, `actionLinks` — and `recipient.email` is email-specific). The flat shape is unchanged (all fields still present) so existing strategies compile and run as-is, but the email-shaped fields are now `@deprecated`: a non-email strategy MUST NOT depend on them and should derive whatever it needs from `notification`. They will move behind an email-scoped accessor in a future major.
+
+**New capability hooks.** `NotificationDeliveryStrategy` gained optional `isConfigured(ctx)` and `supports(notification)`; the dispatcher skips a channel when either returns `false`. Use `isConfigured` for tenant-config/technical deliverability (not per-user opt-out, which the create-time gate already handles).
+
+**Behavior change — built-in notification types no longer deliver push.** Every built-in notification type (auth, sales, messages, catalog, workflows, customers, customer accounts, staff, inbox ops, business rules, communication channels — 28 types) now declares the channel eligibility `channels: ['in_app', 'email']`: push is completely off for these types — it never delivers and users cannot enable it from their preferences (the push cell renders locked). Connecting FCM/APNs/Expo therefore no longer floods devices with **these built-in core types**; `nonOptOut` types (security alerts) are governed by the same eligibility, while the admin custom-send types stay unrestricted. **Caveat — this does not yet hold platform-wide.** Any notification type that *omits* `channels` still resolves to **every** registered channel, push included, the moment a push channel is connected. Types that ship without `channels` today — `enterprise/security`, `enterprise/record_locks`, `checkout`, both `example` modules, `webhooks`, `ai_assistant`, and every module scaffolded from the CLI generator template — are push-eligible by default. Whether the platform-wide default for a `channels`-less type should stay **opt-out-per-type** or become **push-opt-in** (a type must list `push` explicitly) is an open maintainer policy decision — see the spec's § Deferred Follow-ups. Module authors: declare `channels` on your own `NotificationTypeDefinition`s to choose the shipped channel set; **omitting it keeps the every-channel, push-eligible default** — set `channels: ['in_app', 'email']` to keep push off.
+
+**New capability — operators edit a type's channels without a code change, per tenant.** The new `notification_type_overrides` table (apply the notifications module migration; unique per `(tenant_id, notification_type_id)`) stores a tenant-scoped override of the code-declared eligibility: a stored array replaces the code set, an absent row inherits it, and one tenant's edit never changes delivery for another tenant. Edit it from the type-catalogue table on the **Notification Delivery** settings page or via `PATCH /api/notifications/types` with `{ "id": "<type>", "channels": ["in_app","email","push"] }` (pass `channels: null` to clear the override) — e.g. flip push back on for `messages.new` in a tenant that wants it. A channel outside the effective set is rejected by the delivery gate before both user preferences and the `nonOptOut` bypass, `setPreferences` drops writes for it server-side, and both preference UIs render the cell locked off. `GET /api/notifications/types` now returns `channels` (effective set for the caller's tenant, `null` = every channel), `storedChannels`/`storedNonOptOut` (the raw override), and `updatedAt` (the override row's optimistic-lock version — the PATCH honors the standard `x-om-ext-optimistic-lock-expected-updated-at` header and 409s a stale write, since the full `channels` array replaces). The same PATCH also accepts `nonOptOut: true | false | null` on the same row: `true` forces a type on for the tenant's users, `false` makes a code-required type user-editable, `null` inherits the code flag (`notification_types.non_opt_out` remains a pure code mirror). The catalogue re-sync never touches the overrides table, so operator edits survive upgrades; clearing both fields deletes the row.
+
+### Device `push_token` is encrypted at rest — existing tenants get a backfilled encryption map
+
+The devices module registers a new encrypted entity: `push_token` on `devices:user_device` is encrypted at rest via the standard tenant-data-encryption seam. Encryption is driven by an `encryption_maps` row that declares which fields to encrypt, and those rows are normally seeded **once at tenant creation** (`entities seed-encryption`). A pre-existing tenant therefore has **no map for the new device entity**, and `encryptEntityPayload` no-ops when no map resolves — so a device registered after the upgrade would have its `push_token` written as **plaintext**, silently.
+
+**This heals automatically on `yarn db:migrate`.** A forward-only, idempotent data migration (`entities` module, `Migration20260722120000`) inserts the `devices:user_device` map for every `(tenant, organization)` scope that already has active encryption maps — mirroring what `seed-encryption` does, and correctly skipping tenants that run with encryption disabled (they have no maps at all). New tenants continue to get the map from `seed-encryption` at creation. **No operator action is required** for the standard migrate-then-deploy flow, and there is no plaintext window because the map exists before the new code serves traffic.
+
+Two additional heal paths are available if you need them:
+
+- **Upgrade Action** (`devices.seed-push-token-encryption-map`, version `0.6.6`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). Use it if you skip migrations or want to re-assert the map from the admin banner.
+- **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including the device one.
+
+Note: only push tokens **written after** the map exists are encrypted. If a tenant already ran a build that wrote plaintext tokens before the map was present, those rows stay plaintext until the device re-registers (or you run `entities rotate-encryption` / `decrypt-database` tooling). The map is a declaration only — the tenant DEK drives the actual crypto, so seeding it is safe even when encryption is currently disabled; it simply activates once encryption is enabled.
+
+### Run `yarn mercato auth sync-role-acls` after upgrading — new devices/push ACL features
+
+This release adds new ACL feature IDs across the devices/push stack: `devices.*` (`view`/`manage`/`admin`), `push_notifications.view_deliveries` / `push_notifications.send_custom`, the tenant push-channel grants `communication_channels.connect_tenant_channel` / `communication_channels.channel.push.manage`, `notifications.manage_preferences` / `notifications.manage_user_preferences`, and the per-provider `channel_{fcm,apns,expo}.{view,configure}` features.
+
+New tenants receive these through each module's `setup.ts` `defaultRoleFeatures` at creation. **Existing tenants do not** — their role ACLs were written before these features existed, so until you sync them an admin gets `403`/blank UI on the new **Devices** page, the **Push Delivery Log**, the notification-preferences grid, and the push-channel connect flow. Run the idempotent sync once per upgrade:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It only *adds* the newly declared default grants to existing roles and never removes an operator's customizations. Target one tenant with `--tenant <tenantId>` if you prefer a staged rollout.
+
+### Advanced-filter conditions whose field names a Where combinator are now ignored
+
+`deserializeAdvancedFilter` (flat, v1) and `deserializeTree` (v2) — the shared parsers behind the `filter[...]` query params on every CRUD list route — now drop a condition whose `field` starts with `$`, i.e. names a Where combinator such as `$and`, `$or` or `$not`. A filter built only from such conditions deserializes to `null` and the route lists as if no filter were supplied.
+
+Condition field names are never validated against a route's field allowlist, so a combinator-named field previously compiled into a Where key sharing the namespace with real column names — reaching the query engine either as a filter on a non-existent column (matching every indexed row) or colliding with a key the route itself emitted. Dropping it matches how an unrecognized operator is already handled.
+
+**Action for module authors:** none expected — there is no legitimate `$`-prefixed column, so no real caller can be relying on this. It is documented because these two functions are shared surface used by every list route: if you are debugging a saved view or a hand-built filter that used to reach the engine and now appears to be ignored, check whether one of its conditions names a combinator. Route-level defence is independent of the parser — a route that consumes the filter itself via `consumeAdvancedFilterState` + `mergeAdvancedFilterTree` (customers/people, companies, deals, devices) already AND-combines it under its own filters, so no client key can overwrite a server-enforced scope. See [`.ai/specs/2026-04-28-push-notifications-and-devices.md`](.ai/specs/2026-04-28-push-notifications-and-devices.md) § Changelog.
+
+### New root `resolutions` entry: `node-forge@1.4.0`
+
+The new `@open-mercato/channel-apns` package depends on `@parse/node-apn@6.5.0`, which declares `node-forge` as an **exact** version (`node-forge: "npm:1.3.1"`) rather than a range — so no install can ever pick up a patched `node-forge`, including a security patch. The root `package.json` now pins `node-forge` to `1.4.0` in `resolutions`, alongside the other security-hygiene pins there.
+
+This applies monorepo-wide, so it also lifts `node-forge` for any other workspace that resolves it transitively. It is safe to leave in place; do not remove it while `channel-apns` is present, or the graph silently reverts to the exact 1.3.1 the SDK hard-codes. See `packages/channel-apns/AGENTS.md`.
+
+### New root `resolutions` entry: `websocket-driver@0.7.5`
+
+GHSA-xv26-6w52-cph6 (critical, published 2026-07-15) affects `websocket-driver < 0.7.5`, which the graph resolves transitively via two chains: `@docusaurus/core → webpack-dev-server → sockjs → faye-websocket` (already present on `develop`) and `@firebase/database → faye-websocket` (new with `channel-fcm`). Both declare ranges that satisfy `0.7.5`, so a plain re-resolve would eventually pick it up — the pin makes the floor explicit and keeps `yarn npm audit` (the CI `audit` job) green deterministically. Safe to remove once every chain's own minimum moves past 0.7.5.
+
 
 ### Versioned browser-storage envelopes for shared UI preference slots (#3457)
 
