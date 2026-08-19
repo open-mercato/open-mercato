@@ -6,15 +6,14 @@ This document turns the Manufacturing roadmap into an execution-oriented Phase 1
 
 The plan deliberately allows early implementation of **manufacturing-definition drafts**: BOMs, optional sequential routings, operations, and work-centre applicability. Draft CRUD/API/UI does not alter physical stock. A draft cannot become an executable released order until the smaller release gate passes, and it cannot post material movements until exact WMS precision/evidence and the atomic posting contract pass.
 
-The target composition remains:
+The target composition is:
 
 ```text
-manufacturing_base (shared kernel module)
-  └─ manufacturing_discrete (first discrete model)
-       └─ compatible WMS provider for all stock-affecting execution
+manufacturing (single opt-in Wave 0 module; hard-requires catalog)
+  └─ compatible WMS provider for all stock-affecting execution
 ```
 
-`manufacturing_discrete` may not silently complete a stock-affecting operation without WMS. Projects, time tracking, and service operations are separate business domains and must not be modelled as a WMS-free variant of Manufacturing.
+`manufacturing` may not silently complete a stock-affecting operation without WMS. WMS, `resources`, and `planner` are optional peers rather than hard module requirements. Projects, time tracking, and service operations are separate business domains and must not be modelled as a WMS-free variant of Manufacturing.
 
 ## Overview and Status
 
@@ -53,7 +52,7 @@ Platform and inventory readiness
   WMS sites → exact UoM/precision/evidence → generic atomic WMS posting groups
   WMS–Sales decoupling proceeds in parallel as a standalone-packaging gate
 
-Definition authoring and shared kernel
+Definition authoring in `manufacturing`
   draft BOMs → draft routings → work-center extension → release/snapshot semantics
 
 Execution readiness
@@ -67,21 +66,21 @@ The first two workstreams can begin in parallel. The third can define contracts 
 | ID | Large task | Primary owner/module | Modules and contracts touched | Can start now? | Depends on | Unblocks |
 |---|---|---|---|---|---|---|
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Manufacturing planning / specs | `wms`, `catalog`, `resources`, `planner`, `events`, `queue` | Yes, as review/refinement only | Parent roadmap | Accepted implementation baseline; no accidental hard dependency or duplicated ownership |
-| P1.0a | Bootstrap the Manufacturing workspace package and sibling modules | `@open-mercato/manufacturing` | Workspace manifest, module discovery, exports, build/test and app enablement conventions | Specification skeleton now; implementation only after P1.0 acceptance and a ready spec | P1.0 | Stable package home for `manufacturing_base` and `manufacturing_discrete` without domain behavior |
+| P1.0a | Bootstrap the Manufacturing workspace package and single opt-in module | `@open-mercato/manufacturing` / `manufacturing` | Workspace manifest, module discovery, entrypoint exports, build/test and opt-in app conventions | Full specification ready for review; implementation only after P1.0 acceptance | P1.0 | Stable package/module home without domain behavior; hard `catalog`, optional WMS/Resources/Planner |
 | P1.1 | Decouple WMS from Sales through candidate `wms_sales` | Optional integration module requiring `wms` and `sales` | `feature_toggles`, commands, events, API routes, widgets, module metadata | Yes as specification work; not first-standard-composition blocker | Backward-compatibility plan | Standalone WMS/Manufacturing packaging while preserving current Sales behavior through a compatibility bridge |
 | P1.2 | Establish minimal WMS site and current warehouse-role model | `wms` | auth/organization scope, custom-field framework, CrudForm/DataTable extension hosts, and WMS warehouse topology | Readiness review after baseline acceptance; implementation only after pass | Tenant/organization invariants | Inactive-by-default Site; raw-material/finished-goods activation defaults; one warehouse in one active Site; immutable consumer snapshots |
 | P1.3a | Establish exact Catalog/Sales quantity normalization | `catalog` | Existing Catalog/Sales UoM contract and exact decimal utilities | Readiness review after baseline acceptance; implementation only after pass | None; begins with current-state audit | One Catalog-owned resolver and deterministic quantity snapshots |
 | P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | `wms` | Inventory profiles, balances, movements, reservations, import/reconciliation | Data audit/spec refinement now; implementation after baseline acceptance and P1.3a | P1.3a | WMS no longer narrows accepted normalized quantities or drifts under fractional arithmetic |
 | P1.3c | Add WMS immutable quantity evidence and correlated reversal | `wms` | Reservations, movements, idempotency, reconciliation | Spec refinement after P1.3b; implementation after baseline acceptance/readiness | P1.3a–b | Historical UoM evidence and exact full/partial reversal; mandatory for P1.8a/P1.11 |
-| P1.4 | Author draft multi-level BOMs | Discrete definition capability in future `manufacturing_discrete` | `catalog` | Yes, including CRUD/API/UI after roadmap acceptance and spec readiness | Product/variant references; P1.3a before quantity contracts freeze | Editable multi-level drafts with occurrence identity, base output, fixed/variable basis, and yield; `siteId` may remain absent until release |
-| P1.5 | Author draft routings and operations | Discrete definition capability in future `manufacturing_discrete` | `resources` | Yes, including CRUD/API/UI after roadmap acceptance and spec readiness | Existing resource references; P1.6 before release contract freezes | Optional single-sequence routing drafts with work centre, setup/run time, and instructions; no scheduling semantics |
-| P1.6 | Establish work-center extension boundary | `manufacturing_base` / definition capability | `resources`; `planner`, assets, tools, and existing workforce owners as later inputs | Yes as specification work | P1.0 | Minimal work centres without duplicate resource/calendar masters |
-| P1.7 | Define released-definition lifecycle and immutable definition snapshots | `manufacturing_base` + future `manufacturing_discrete` | WMS `Site`, `catalog`, attachments, P1.3a, accepted BOM/routing contracts | Specification preparation after upstream shapes are known; implementation follows Gate B prerequisites | P1.2, P1.3a, P1.4, P1.5, P1.6 | Child revisions and occurrence-preserving multi-level definition snapshots frozen atomically at definition release; no order release |
+| P1.4 | Author draft multi-level BOMs | `manufacturing` discrete definition capability | `catalog` | Yes, including CRUD/API/UI after roadmap acceptance and spec readiness | Product/variant references; P1.3a before quantity contracts freeze | Editable multi-level drafts with occurrence identity, base output, fixed/variable basis, and yield; `siteId` may remain absent until release |
+| P1.5 | Author draft routings and operations | `manufacturing` discrete definition capability | optional `resources` | Yes, including CRUD/API/UI after roadmap acceptance and spec readiness | P1.6 before release contract freezes | Optional single-sequence routing drafts with work centre, setup/run time, and instructions; no scheduling semantics |
+| P1.6 | Establish work-center extension boundary | `manufacturing` | optional `resources`; `planner`, assets, tools, and existing workforce owners as later inputs | Yes as specification work | P1.0 | Minimal work centres without duplicate resource/calendar masters |
+| P1.7 | Define released-definition lifecycle and immutable definition snapshots | `manufacturing` | WMS `Site`, `catalog`, attachments, P1.3a, accepted BOM/routing contracts | Specification preparation after upstream shapes are known; implementation follows Gate B prerequisites | P1.2, P1.3a, P1.4, P1.5, P1.6 | Child revisions and occurrence-preserving multi-level definition snapshots frozen atomically at definition release; no order release |
 | P1.8a | Define generic atomic WMS posting groups | `wms` | WMS Site, balances, movements, reservations, quantity evidence, commands and reconciliation | Specification/benchmark work only pending baseline acceptance | P1.2, P1.3a–c | Consumer-neutral atomic physical lines with opaque source/reason references, exact reversal and reconciliation |
-| P1.8b | Define the Manufacturing inventory posting adapter | `manufacturing_discrete` | P1.8a provider, P1.9 fact writer, P1.10 execution/confirmation contracts | Semantic-command preparation only | P1.8a, P1.9, P1.10 | Manufacturing-derived issue, return, cumulative backflush, output, scrap and reversal orchestration without WMS learning Manufacturing vocabulary |
-| P1.9 | Define the minimum Manufacturing fact ledger | `manufacturing_base` | `events`, opaque external evidence references, optional future MES/edge provider | Specification or explicitly non-shippable ledger spike only pending baseline acceptance | P1.0a | Model-neutral append-only fact table with acceptance, correction and persistent idempotency primitives; no discrete UI/orchestration |
-| P1.10 | Add the first discrete production-order lifecycle, execution snapshot and basic confirmations | `manufacturing_discrete` | `manufacturing_base`, WMS `Site`, released definitions | No as a shippable feature until Gate B passes | P1.2, P1.3a, P1.7, P1.9 | `draft → released → in_progress → completed/cancelled`, top-level definition selection, immutable execution snapshot, simple order number, `complete_short`, stock-free partial/final/scrap confirmations and corrections |
-| P1.11 | Add stock-affecting production execution | `manufacturing_discrete` | `wms`, `manufacturing_base`, WMS `Site`, P1.3 | No | P1.3b–c, P1.8a–b, P1.9–P1.10 | Manufacturing-derived issue/return/backflush/output/scrap groups, exact reversal, explicit lot/serial, and on-demand reconciliation |
+| P1.8b | Define the Manufacturing inventory posting adapter | `manufacturing` | P1.8a provider, P1.9 fact writer, P1.10 execution/confirmation contracts | Semantic-command preparation only | P1.8a, P1.9, P1.10 | Manufacturing-derived issue, return, cumulative backflush, output, scrap and reversal orchestration without WMS learning Manufacturing vocabulary |
+| P1.9 | Define the minimum Manufacturing fact ledger | `manufacturing` model-neutral internal boundary | `events`, opaque external evidence references, optional future MES/edge provider | Specification or explicitly non-shippable ledger spike only pending baseline acceptance | P1.0a | Model-neutral append-only fact table with acceptance, correction and persistent idempotency primitives; no discrete UI/orchestration |
+| P1.10 | Add the first discrete production-order lifecycle, execution snapshot and basic confirmations | `manufacturing` | WMS `Site`, released definitions | No as a shippable feature until Gate B passes | P1.2, P1.3a, P1.7, P1.9 | `draft → released → in_progress → completed/cancelled`, top-level definition selection, immutable execution snapshot, simple order number, `complete_short`, stock-free partial/final/scrap confirmations and corrections |
+| P1.11 | Add stock-affecting production execution | `manufacturing` | optional `wms`, WMS `Site`, P1.3 | No | P1.3b–c, P1.8a–b, P1.9–P1.10 | Manufacturing-derived issue/return/backflush/output/scrap groups, exact reversal, explicit lot/serial, and on-demand reconciliation |
 | P1.12 | Cross-cutting readiness and integration coverage | Each owning module | `shared`, `events`, `queue`, UI, module-discovery and compatibility contracts | Starts with each accepted implementation epic | Respective implementation | Tenant/org/site isolation, disabled-module, conflict, reversal, partial-failure, and compatibility evidence |
 | P1.13 | Add advanced production number ranges | Dedicated later capability | order/batch/lot/serial formats, reset, block reservation, and offline allocation | Later; not an MVP gate | Proven basic identities and real numbering demand | Configurable generated identifiers without changing UUID identity or explicit-input compatibility |
 
@@ -93,7 +92,7 @@ The first two workstreams can begin in parallel. The third can define contracts 
 |---|---|---|
 | Multi-level BOM draft CRUD/API/UI | Future discrete definition capability | It persists real editable drafts without inventory effects. Each line is a distinct occurrence. `siteId` may be absent in draft; P1.3a must pass before quantity contracts freeze; incomplete or ambiguous drafts cannot release. |
 | Optional sequential routing draft CRUD | Future discrete definition capability | It stores operation order, basic setup/run time, instructions, work-centre/resource references, and no calendar/scheduling semantics |
-| Work-center applicability | `manufacturing_base` extension over `resources` | It links manufacturing constraints by scalar IDs and does not replace resource/calendar ownership |
+| Work-center applicability | `manufacturing` with an optional `resources` seam | It links manufacturing constraints by scalar IDs and does not replace resource/calendar ownership |
 | Draft versioning and validation | Future discrete definition capability | It can reject incomplete definitions without making any WMS claim |
 | UX research, mocks, and acceptance scenarios | Planning/UI work | It informs later implementation without creating an executable workflow |
 
@@ -117,7 +116,7 @@ The first two workstreams can begin in parallel. The third can define contracts 
 | Shared resource identity and base capacity | `resources` | Add manufacturing work-center extensions by IDs | Duplicate resource master data |
 | Basic stock availability | `wms` | Consume the status/expiry-aware projection | Recompute eligibility or require QMS for MVP |
 | Calendars | `planner` | Consume later when scheduling needs them | Become calendar master or block manual MVP release |
-| Definition, order, operation intent and facts | `manufacturing_base` / `manufacturing_discrete` | Own lifecycle, confirmation, history, authorization, backflush calculation and reconciliation | Turn WMS generic manual adjustments into normal production semantics or move Manufacturing calculation into WMS |
+| Definition, order, operation intent and facts | `manufacturing` | Own lifecycle, confirmation, history, authorization, backflush calculation and reconciliation while preserving internal capability boundaries | Turn WMS generic manual adjustments into normal production semantics or move Manufacturing calculation into WMS |
 | Sales-order reservation automation | Candidate optional `wms_sales` integration | Consume WMS reservation services and own Sales-specific subscribers/routes/widgets | Keep `sales` as a hard WMS requirement or leave Sales workflow in core WMS |
 
 ## Suggested Sequencing
@@ -138,7 +137,7 @@ The first two workstreams can begin in parallel. The third can define contracts 
 - advanced order/batch/lot/serial ranges, direct-issue child hand-off, shared warehouses across active sites, and automatic child-order generation;
 - Manufacturing list/read cache, bulk/saved-view/advanced-analytics UI, approval/segregation-of-duties workflows, BOM/order custom fields, scheduled reconciliation/alerts, and queued migration/progress UX;
 - a WMS-free production mode for projects, time reporting, consulting, or service delivery;
-- replacing project management, field service, service operations, or time tracking with `manufacturing_discrete`.
+- replacing project management, field service, service operations, or time tracking with `manufacturing`.
 
 ## Architecture, Data Models, and API Contracts
 
@@ -153,7 +152,7 @@ The following future boundaries are candidate rules from the parent roadmap and 
 - operational current state remains in ordinary entities; the append-only `manufacturing_facts` table is the evidence ledger, not a full event-sourcing model;
 - released definitions use date-only `validFrom`/`validTo`; operational facts persist `recordedAt` in UTC and `occurredAt`, with source timestamp/timezone only when supplied;
 - WMS owns physical stock and physical commitment; Manufacturing owns production intent and orchestration;
-- `manufacturing_discrete` translates each semantic production command into one generic atomic WMS posting group of concrete physical lines; a future external provider may use a durable saga while preserving the same public result contract;
+- `manufacturing` translates each semantic production command into one generic atomic WMS posting group of concrete physical lines; a future external provider may use a durable saga while preserving the same public result contract;
 - production cannot report a stock-affecting operation as completed without a WMS success result or, for a future external provider, a persisted durable saga state.
 
 ## Risks and Mitigations
@@ -164,7 +163,7 @@ The following future boundaries are candidate rules from the parent roadmap and 
 | Repeated BOM components are merged or a cycle enters the released structure | High | Persist BOM lines as distinct occurrences keyed by line identity/position, preserve their paths in snapshots, derive aggregates only for planning views, and reject direct/indirect cycles before release and order creation | Incorrect material issue, traceability loss, or unbounded explosion is prevented before execution |
 | WMS–Sales decoupling breaks existing Sales reservation behaviour | High | Preserve public contracts with a compatibility bridge; test WMS+Sales and WMS-only compositions | Migration and auto-discovery details require a dedicated implementation spec |
 | WMS and Manufacturing both calculate stock commitment | High | WMS remains the only owner of reservations/allocations; planning pegs are proposals | Provider integration must enforce the rule |
-| Premature data schemas freeze unsuitable process-manufacturing semantics | High | Keep shared lifecycle in `manufacturing_base`; discrete aggregates remain siblings | Some future hybrid flows may need additive orchestration |
+| Premature data schemas freeze unsuitable process-manufacturing semantics | High | Keep model-neutral contracts internally isolated from discrete aggregates and publish reusable seams only when a real second consumer requires them | A future model may require additive extraction or orchestration |
 | WMS learns Manufacturing definitions or production-specific movement enums | High | P1.8b derives concrete lines; P1.8a accepts generic atomic groups with opaque namespaced references and durable display fallback | P1.8a must still define registration/disabled-module display/provider compatibility, and P1.8b must preserve semantic ownership |
 | UoM/rounding mismatch creates inventory drift | High | Reference cases for fractional use, conversion, partial completion and reversal before WMS production postings freeze | Physical measurement variance remains policy-specific |
 | Optional peer modules become accidental hard dependencies | Medium | Classify each dependency as runtime requirement, prerequisite or soft provider; add disabled-module tests | Deployment policy may intentionally require optional modules |
@@ -194,7 +193,7 @@ Readiness is staged. Evidence is required only for the capability being enabled.
 
 1. P1.3b–c prove non-narrowing WMS storage, immutable quantity/UoM evidence, and exact reversal before production postings are enabled.
 2. P1.8a makes the built-in WMS provider accept a generic atomic idempotent posting group of concrete issue/receipt/transfer/write-off/reversal lines with opaque namespaced source/reason references; it returns posting ID, quantity, UoM, and `postedAt`. `valuationContextRef` remains optional until costing defines it.
-3. P1.8b makes `manufacturing_discrete` derive the group from the P1.10 execution snapshot/confirmation and correlate the response through P1.9. Explicit issue uses the actual requested quantity. Variable backflush contributes only the delta between cumulative accepted `good + scrap` demand and net quantity already posted. Fixed consumption applies once per order and BOM occurrence; partial issue is allowed, the first qualifying backflush contributes the remainder, and exact reversal reopens it from persisted evidence. WMS never reads the BOM/execution snapshot or calculates these amounts.
+3. P1.8b makes `manufacturing` derive the group from the P1.10 execution snapshot/confirmation and correlate the response through P1.9. Explicit issue uses the actual requested quantity. Variable backflush contributes only the delta between cumulative accepted `good + scrap` demand and net quantity already posted. Fixed consumption applies once per order and BOM occurrence; partial issue is allowed, the first qualifying backflush contributes the remainder, and exact reversal reopens it from persisted evidence. WMS never reads the BOM/execution snapshot or calculates these amounts.
 4. The P1.10 confirmation extension supplies order/operation/backflush point, partial/final good quantity, scrap and `occurredAt`; P1.9 supplies correlation/idempotency and compensating facts. Offline sequencing, arbitrary out-of-order replay, devices, and retention-window policy are not MVP requirements.
 5. WMS status/expiry-aware availability excludes ineligible stock without requiring a QMS provider. Physical reservations remain WMS-owned; release creates no automatic reservation, and issue/backflush rechecks availability.
 6. Corrections create compensating facts/postings, and on-demand reconciliation can compare P1.9 facts with WMS evidence. Scheduled reconciliation, alerting, and a full event-sourcing model remain later work.
@@ -216,7 +215,7 @@ The WMS–Sales work is especially contract-sensitive: current sales-order event
 - 2026-08-13: Split P1.3 into Catalog/Sales exact normalization and two WMS-owned work items. P1.3a blocks quantity-schema freeze; P1.3b–c document the existing WMS mismatch as non-critical backlog for current/early work but remain mandatory before stock-affecting production.
 - 2026-08-19: Updated P1.4/P1.7 scope from a generic multi-level BOM direction to a deterministic, occurrence-preserving BOM contract: base-output and component consumption semantics, fixed/variable basis, yield, site/date applicability, and fail-closed revision selection. Alternatives, substitutions, phantom behaviour, and unit/serial effectivity remain dedicated later work.
 - 2026-08-19: Replaced the all-or-nothing readiness list with staged draft, release, and stock-execution gates; recorded the proposed bounded MVP lifecycle, facts, timing, numbering, availability, routing, reservation, confirmation, completion, and reversal contracts; moved advanced numbering and integrations to future capabilities without making public delivery or licensing commitments.
-- 2026-08-19: Aligned module candidates to `manufacturing_base` and `manufacturing_discrete`, applied the cross-cutting capability naming rule, and replaced production-specific WMS commands with a generic atomic posting group plus Manufacturing-owned semantic adapter and backflush calculation.
+- 2026-08-19: Initially proposed `manufacturing_base` and `manufacturing_discrete`; later consolidated them into one opt-in `manufacturing` module while retaining internal model-neutral/discrete capability boundaries. Replaced production-specific WMS commands with a generic atomic posting group plus Manufacturing-owned semantic adapter and backflush calculation.
 - 2026-08-19: Marked this plan and its parent roadmap as proposals pending maintainer/community acceptance; implementation still requires a dedicated ready specification.
 - 2026-08-19: Selected candidate P1.1 Option B for review: optional `wms_sales` owns Sales-specific integration glue and the compatibility bridge while core WMS becomes consumer-neutral.
 - 2026-08-19: Added P1.0a package bootstrap and aligned cohesive ownership: P1.7 definition release, P1.9 neutral facts, P1.10 order release/execution snapshot/basic confirmations, P1.8a generic WMS postings and P1.8b Manufacturing stock orchestration.

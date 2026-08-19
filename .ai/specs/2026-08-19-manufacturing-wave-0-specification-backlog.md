@@ -18,11 +18,11 @@ The intended readers are the roadmap owner, maintainers, specification authors a
 
 The roadmap identifies the required Wave 0 outcomes, but it is not yet executable as a specification programme. Four prerequisite specifications exist but have not passed formal pre-implementation readiness review; the remaining capability specifications are missing; package bootstrap work has no owner; generic WMS atomicity and Manufacturing-specific stock orchestration are bundled under one work-item label; and there is no shared evidence contract for promoting work from design to implementation.
 
-Without a decomposition and readiness model, authors can freeze downstream contracts before their prerequisites, duplicate responsibility across `manufacturing_base`, `manufacturing_discrete` and WMS, or create implementation Issues whose designs are still unresolved.
+Without a decomposition and readiness model, authors can freeze downstream contracts before their prerequisites, mix model-neutral and discrete responsibilities inside `manufacturing`, duplicate WMS ownership, or create implementation Issues whose designs are still unresolved.
 
 ## Proposed Solution
 
-Use this document as the umbrella backlog for specification work. Create one artifact per independently deployable capability, add P1.0a for package/module bootstrap, split P1.8 into a generic WMS capability and its Manufacturing adapter, narrow P1.7/P1.9 to cohesive base responsibilities, and put discrete order release and confirmation orchestration in P1.10. Apply the P1.12 evidence matrix to every capability instead of treating it as a product feature.
+Use this document as the umbrella backlog for specification work. Create one artifact per independently deployable capability, add P1.0a for package/module bootstrap, split P1.8 into a generic WMS capability and its Manufacturing adapter, narrow P1.7/P1.9 to cohesive responsibilities, and put discrete order release and confirmation orchestration in P1.10. Apply the P1.12 evidence matrix to every capability instead of treating it as a product feature.
 
 Progress is controlled through three separate states: skeleton-ready, full-spec-ready and implementation-ready. GitHub tracking begins after this backlog is accepted; implementation tracking remains blocked until the corresponding capability specification passes its readiness and compliance gates.
 
@@ -30,7 +30,7 @@ Progress is controlled through three separate states: skeleton-ready, full-spec-
 
 | Decision | Status | Result / gate |
 |---|---|---|
-| Q1 — Manufacturing workspace package | Accepted by the roadmap owner on 2026-08-19 | Create one OSS workspace package at `packages/manufacturing`, published as `@open-mercato/manufacturing`, containing sibling modules `manufacturing_base` and `manufacturing_discrete`. |
+| Q1 — Manufacturing workspace package/module | Accepted by the roadmap owner on 2026-08-19 | Create one OSS workspace package at `packages/manufacturing`, published as `@open-mercato/manufacturing`, containing one opt-in runtime module `manufacturing`; hard-require `catalog`, keep WMS/Resources/Planner optional, and expose entrypoints only. |
 | Q2 — Sales-specific WMS integration | Open in [Issue #5260](https://github.com/open-mercato/open-mercato/issues/5260) | The Issue recommends Option B, an optional `wms_sales` module, but has no comments or accepted decision and does not settle module-vs-package placement. P1.1 may be researched and skeletonized, but its full specification cannot freeze placement or migration until #5260 is decided. |
 
 Q2 does not block Gate A, Gate B, or the first standard composition containing Sales. It blocks only the claim that WMS/Manufacturing can be packaged without Sales and the finalization of the P1.1 implementation specification.
@@ -41,7 +41,7 @@ This backlog covers specification authoring and readiness work for P1.0 through 
 
 The backlog will define:
 
-- one missing bootstrap specification for the Manufacturing package and initial modules;
+- one bootstrap specification for the Manufacturing package and single initial module;
 - readiness reviews for the four existing P1.2/P1.3 specifications;
 - one specification per independently deployable capability;
 - the order in which skeletons, full specifications, readiness audits, and implementation tasks may be produced;
@@ -55,7 +55,7 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 | Order | Work item | Artifact | Current state |
 |---|---|---|---|
 | 1 | P1.0 roadmap acceptance | Repository review evidence | Review pending in PR #5256 |
-| 2 | P1.0a Manufacturing package and module bootstrap | New specification | Skeleton authored; Q1–Q3 open in #5387 |
+| 2 | P1.0a Manufacturing package and module bootstrap | Full specification | Design resolved; scope-cohesion review **KEEP**; implementation gated by P1.0 acceptance |
 | 3 | P1.1 optional `wms_sales` integration | New specification | Issue #5260 exists; specification missing |
 | 4 | P1.2 WMS Sites and warehouse roles | Readiness analysis of existing specification | Design complete |
 | 5 | P1.3a Catalog quantity normalization | Readiness analysis of existing specification | Design complete |
@@ -66,10 +66,10 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 | 10 | P1.5 routing and operation drafts | New specification | Missing; finalization depends on P1.6 |
 | 11 | P1.7 released definitions and immutable definition snapshots | New specification | Missing |
 | 12 | P1.8a generic atomic WMS posting groups | New WMS specification | Missing |
-| 13 | P1.8b Manufacturing inventory posting adapter | New `manufacturing_discrete` specification | Missing; depends on P1.8a |
-| 14 | P1.9 minimum Manufacturing fact ledger | New `manufacturing_base` specification | Missing |
-| 15 | P1.10 discrete production-order lifecycle, execution snapshot and basic confirmations | New `manufacturing_discrete` specification | Missing |
-| 16 | P1.11 stock-affecting discrete execution | New `manufacturing_discrete` specification | Missing; final stock gate |
+| 13 | P1.8b Manufacturing inventory posting adapter | New `manufacturing` specification | Missing; depends on P1.8a |
+| 14 | P1.9 minimum Manufacturing fact ledger | New `manufacturing` specification | Missing |
+| 15 | P1.10 discrete production-order lifecycle, execution snapshot and basic confirmations | New `manufacturing` specification | Missing |
+| 16 | P1.11 stock-affecting discrete execution | New `manufacturing` specification | Missing; final stock gate |
 | 17 | P1.12 cross-cutting readiness and integration evidence | Shared checklist applied to every spec and implementation epic | No standalone capability spec |
 | 18 | P1.13 advanced number ranges | Deferred capability | Outside first MVP backlog |
 
@@ -90,11 +90,12 @@ Wave 0 uses one new workspace package:
 
 ```text
 packages/manufacturing/                    @open-mercato/manufacturing
-  src/modules/manufacturing_base/          shared contracts, facts, lifecycle primitives, provider interfaces
-  src/modules/manufacturing_discrete/      BOM/routing/order aggregates, UI, orchestration, WMS adapter
+  src/modules/manufacturing/               one opt-in runtime module
+    internal model-neutral boundaries      facts, lifecycle primitives, provider seams
+    discrete capability boundaries         BOM/routing/order aggregates, UI, orchestration, WMS adapter
 ```
 
-The package bootstrap specification must define the workspace manifest, build/test exports, auto-discovery participation, module metadata, public import paths, initial dependency declarations, package-level test configuration, strict Design System lint escalation, and module-decoupling coverage. It must not introduce domain entities, UI, WMS calls, or placeholder implementations of reserved kernel seams.
+The package bootstrap specification defines the workspace manifest, build/test exports, auto-discovery participation, single module metadata, entrypoint-only public imports, hard `catalog` dependency, opt-in activation, package-level test configuration, strict Design System lint escalation, and module-decoupling coverage. It introduces no domain entities, UI, WMS calls, or placeholder implementations of reserved seams.
 
 The final P1.1 topology remains deliberately outside this decision. If #5260 accepts Option B, its specification must still decide whether `wms_sales` is a module in `packages/core` or a separate workspace package. That choice must follow actual release, ownership, and independent-distribution needs rather than naming symmetry.
 
@@ -127,21 +128,21 @@ The lanes describe contract-finalization order, not a ban on earlier skeletons o
 | Work item | Planned artifact | Owner | May start | Cannot finalize until |
 |---|---|---|---|---|
 | P1.0 | Existing roadmap and repository review evidence | Maintainers/community | In progress | PR #5256 is accepted or revised |
-| P1.0a | `2026-08-19-manufacturing-package-module-bootstrap.md` | `@open-mercato/manufacturing` | Now | P1.0 namespace/package decision is accepted through repository review |
+| P1.0a | `2026-08-19-manufacturing-package-module-bootstrap.md` | `@open-mercato/manufacturing` / `manufacturing` | Full spec complete | P1.0 package/module decision is accepted through repository review |
 | P1.1 | `2026-08-19-wms-sales-optional-integration.md` | Owner selected by #5260 | Code audit and skeleton now | #5260 selects Option A/B and, for B, module/package placement |
 | P1.2 | `analysis/ANALYSIS-2026-08-19-wms-sites-and-warehouse-roles.md` | WMS | Readiness audit now | P1.0 accepted and all critical findings remediated |
 | P1.3a | `analysis/ANALYSIS-2026-08-19-catalog-quantity-normalization.md` | Catalog | Readiness audit now | P1.0 accepted and all critical findings remediated |
 | P1.3b | `analysis/ANALYSIS-2026-08-19-wms-quantity-precision-alignment.md` | WMS | Real-data audit now | P1.3a ready; precision envelope selected from evidence; critical findings remediated |
 | P1.3c | `analysis/ANALYSIS-2026-08-19-wms-quantity-evidence-reversal.md` | WMS | Audit preparation now | P1.3b ready and storage/arithmetic envelope frozen |
-| P1.4 | `2026-08-19-manufacturing-discrete-bom-drafts.md` | `manufacturing_discrete` | Skeleton/research now | P1.0a package contract and P1.3a quantity contract ready |
-| P1.6 | `2026-08-19-manufacturing-work-centres.md` | `manufacturing_base` with `resources` input | Skeleton/code audit now | Ownership, resource cardinality, snapshot and planner-absent behavior resolved |
-| P1.5 | `2026-08-19-manufacturing-discrete-routing-drafts.md` | `manufacturing_discrete` | Skeleton after P1.6 questions are known | P1.6 Work Center contract ready |
-| P1.7 | `2026-08-19-manufacturing-released-definitions.md` | `manufacturing_base` + model-specific definition implementation | Skeleton after P1.4/P1.5 release inputs and P1.6 ownership shapes are known | P1.2, P1.3a, P1.4, P1.5 and P1.6 ready; scope stops before order release |
+| P1.4 | `2026-08-19-manufacturing-bom-drafts.md` | `manufacturing` | Skeleton/research now | P1.0a package contract and P1.3a quantity contract ready |
+| P1.6 | `2026-08-19-manufacturing-work-centres.md` | `manufacturing` with optional `resources` input | Skeleton/code audit now | Ownership, resource cardinality, snapshot and planner-absent behavior resolved |
+| P1.5 | `2026-08-19-manufacturing-routing-drafts.md` | `manufacturing` | Skeleton after P1.6 questions are known | P1.6 Work Center contract ready |
+| P1.7 | `2026-08-19-manufacturing-released-definitions.md` | `manufacturing` | Skeleton after P1.4/P1.5 release inputs and P1.6 ownership shapes are known | P1.2, P1.3a, P1.4, P1.5 and P1.6 ready; scope stops before order release |
 | P1.8a | `2026-08-19-wms-atomic-posting-groups.md` | WMS | Current-state audit, benchmark and skeleton now | P1.2 and P1.3a-c ready; reference/reason registry and BC strategy resolved |
-| P1.8b | `2026-08-19-manufacturing-inventory-posting-adapter.md` | `manufacturing_discrete` | Semantic-command research now | P1.8a provider contract, P1.9 fact-writer contract and P1.10 execution-snapshot/confirmation contract ready |
-| P1.9 | `2026-08-19-manufacturing-fact-ledger.md` | `manufacturing_base` | Skeleton/research now | P1.0a ready; neutral fact, correction, idempotency and opaque evidence-reference contracts resolved without WMS vocabulary |
-| P1.10 | `2026-08-19-manufacturing-discrete-orders-and-confirmations.md` | `manufacturing_discrete` | Use-case preparation after P1.7/P1.9 skeletons | P1.2, P1.3a, P1.7 and P1.9 ready |
-| P1.11 | `2026-08-19-manufacturing-discrete-stock-execution.md` | `manufacturing_discrete` | Acceptance-scenario preparation only | P1.3b-c, P1.8a-b, P1.9 and P1.10 ready; validation spike accepted |
+| P1.8b | `2026-08-19-manufacturing-inventory-posting-adapter.md` | `manufacturing` | Semantic-command research now | P1.8a provider contract, P1.9 fact-writer contract and P1.10 execution-snapshot/confirmation contract ready |
+| P1.9 | `2026-08-19-manufacturing-fact-ledger.md` | `manufacturing` | Skeleton/research now | P1.0a ready; neutral fact, correction, idempotency and opaque evidence-reference contracts resolved without WMS vocabulary |
+| P1.10 | `2026-08-19-manufacturing-orders-and-confirmations.md` | `manufacturing` | Use-case preparation after P1.7/P1.9 skeletons | P1.2, P1.3a, P1.7 and P1.9 ready |
+| P1.11 | `2026-08-19-manufacturing-stock-execution.md` | `manufacturing` | Acceptance-scenario preparation only | P1.3b-c, P1.8a-b, P1.9 and P1.10 ready; validation spike accepted |
 | P1.12 | No standalone spec; evidence matrix below | Every owner | With each artifact | The related epic cannot be ready without its evidence |
 | P1.13 | No Wave 0 MVP artifact | Future owner | Deferred | Selected as a later capability |
 
@@ -151,7 +152,7 @@ Planned filenames may take their actual authoring date if created after 2026-08-
 
 This planning specification introduces no product entities, database schema, APIs, events, UI routes or runtime behavior, so detailed data-model, API, UI and migration designs are not applicable here. Each capability specification must define those contracts where applicable and must inventory its backward-compatibility surface before implementation readiness.
 
-The only repository-level structural decision recorded here is the accepted Manufacturing workspace package and its two sibling modules. P1.0a must define how that additive package participates in builds, discovery, generated outputs and tests without changing existing application behavior when neither module is enabled.
+The only repository-level structural decision recorded here is the accepted Manufacturing workspace package and its single opt-in `manufacturing` module. P1.0a defines how that additive package participates in builds, discovery, generated outputs and tests without changing existing application behavior while the module is disabled.
 
 ## Definition of Ready
 
@@ -258,9 +259,9 @@ P1.5, P1.7, P1.8b, P1.10 and P1.11 remain preparation-only until the named upstr
 After this backlog is approved, the roadmap, execution plan, README and readiness dashboard must be aligned in one documentation change:
 
 1. P1.7 must stop at child-revision selection, effectivity, definition release and immutable definition snapshots.
-2. P1.9 must stop at the `manufacturing_base` fact ledger, fact acceptance/correction/idempotency primitives and opaque evidence references.
+2. P1.9 must stop at the model-neutral fact ledger inside `manufacturing`, including fact acceptance/correction/idempotency primitives and opaque evidence references.
 3. P1.10 must own discrete order release, top-level definition selection by `plannedStartDate`, creation of the execution snapshot, and the basic stock-free confirmation/correction flow.
-4. P1.8b must consume the P1.10 execution/confirmation contract and the P1.9 fact writer; it must not move discrete orchestration into `manufacturing_base`.
+4. P1.8b must consume the P1.10 execution/confirmation contract and the P1.9 fact writer while preserving internal separation between model-neutral facts and discrete orchestration.
 5. Gate B still requires all three outcomes — released definitions, minimum facts and a basic confirmable order lifecycle — but their ownership becomes internally cohesive.
 
 ## GitHub Tracking Structure
@@ -299,17 +300,17 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 
 ### Bootstrap scope absorbs domain behavior
 
-- **Scenario:** P1.0a becomes a hidden implementation of BOM, order, facts or WMS orchestration and turns `manufacturing_base` into a monolith.
+- **Scenario:** P1.0a becomes a hidden implementation of BOM, order, facts or WMS orchestration and prematurely turns the `manufacturing` module into a monolith.
 - **Severity:** High
 - **Affected area:** `@open-mercato/manufacturing` public contracts
-- **Mitigation:** Limit P1.0a to package/module mechanics, exported neutral interfaces and isolation tests; forbid entities, UI, WMS calls and speculative seams.
-- **Residual risk:** Later specs may expose a missing neutral primitive and require an additive base export.
+- **Mitigation:** Limit P1.0a to package/module mechanics, discovery entrypoints and isolation tests; forbid entities, UI, WMS calls, domain exports and speculative seams.
+- **Residual risk:** A later real consumer may require an additive model-neutral package subpath.
 
 ### P1.8 recombines independent domains
 
 - **Scenario:** One specification lets WMS learn Manufacturing vocabulary or forces the Manufacturing adapter into the WMS lifecycle.
 - **Severity:** High
-- **Affected area:** WMS, `manufacturing_discrete`, future inventory consumers
+- **Affected area:** WMS, `manufacturing`, future inventory consumers
 - **Mitigation:** Keep P1.8a and P1.8b separate, with a provider-neutral contract and independent disabled-module tests.
 - **Residual risk:** Cross-domain reporting still needs opaque reference registration and durable fallback design.
 
@@ -372,7 +373,7 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 ## Changelog
 
 - 2026-08-19: Created the Wave 0 specification backlog skeleton with P1.0a, the P1.8a/P1.8b split, readiness artifacts, and deferred P1.13.
-- 2026-08-19: Accepted one `packages/manufacturing` workspace package containing `manufacturing_base` and `manufacturing_discrete`.
+- 2026-08-19: Accepted one `packages/manufacturing` workspace package containing one opt-in `manufacturing` runtime module; hard dependency `catalog`, optional WMS/Resources/Planner, and entrypoint-only exports.
 - 2026-08-19: Kept P1.1 placement open under Issue #5260; the issue recommends Option B but has no accepted decision or comments.
 - 2026-08-19: Added dependency lanes, planned filenames, readiness definitions, the P1.12 evidence matrix, current-state audits, first authoring batch, tracking structure, risks and compliance review.
 - 2026-08-19: Scope-cohesion review narrowed P1.7 to definition release and P1.9 to the model-neutral fact ledger; moved order-release execution snapshots and basic discrete confirmations into P1.10 and recorded the required parent-document alignment.

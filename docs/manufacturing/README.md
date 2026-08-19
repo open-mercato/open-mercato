@@ -18,14 +18,14 @@
 
 First establish safe foundations: plant identity, warehouse-role rules, exact quantity and unit handling, versioned manufacturing definitions, and a WMS posting contract. Only then build an executable production-order lifecycle.
 
-Manufacturing owns production intent, semantic commands, derived posting lines, and production history. WMS remains the owner of physical stock, reservations, lots, serials, and inventory movements through a generic atomic posting-group contract. `manufacturing_discrete` must not create a competing inventory ledger, and WMS must not interpret Manufacturing definitions or calculate backflush.
+The opt-in `manufacturing` module owns production intent, semantic commands, derived posting lines, and production history. WMS remains the owner of physical stock, reservations, lots, serials, and inventory movements through a generic atomic posting-group contract. Manufacturing must not create a competing inventory ledger, and WMS must not interpret Manufacturing definitions or calculate backflush.
 
 ## Current work overview
 
 | ID | Workstream | Status | Can start now? | Dependencies | Next step |
 |---|---|---|---|---|---|
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Proposed architectural baseline; review pending | Specification/refinement only | Parent roadmap | Obtain maintainer/community acceptance and keep downstream specifications aligned with the accepted roadmap laws |
-| P1.0a | Bootstrap `@open-mercato/manufacturing` with `manufacturing_base` and `manufacturing_discrete` | [Skeleton authored; task #5387](https://github.com/open-mercato/open-mercato/issues/5387) | Yes, as specification work | Q1–Q3 and P1.0 acceptance before implementation | Resolve the skeleton's activation, dependency and export questions, then author the full bootstrap specification |
+| P1.0a | Bootstrap `@open-mercato/manufacturing` with one opt-in `manufacturing` module | [Full specification authored; task #5387](https://github.com/open-mercato/open-mercato/issues/5387) | Yes, as specification work | P1.0 acceptance before implementation | Review and accept the bootstrap specification: hard `catalog`, optional WMS/Resources/Planner, entrypoint-only exports |
 | P1.1 | Decouple WMS from Sales through candidate `wms_sales` | Option B proposed; [spec task #5388](https://github.com/open-mercato/open-mercato/issues/5388) blocked on [decision #5260](https://github.com/open-mercato/open-mercato/issues/5260) | Yes, as audit/skeleton work; packaging gate, not first-MVP blocker | Backward-compatibility plan and #5260 | Author the optional integration, compatibility bridge and disabled-module contract after placement is decided; preserve current Sales behavior |
 | P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete; [readiness task #5389](https://github.com/open-mercato/open-mercato/issues/5389) open | Readiness audit now; implementation after baseline acceptance and pass | Tenant and organisation scope invariants | Run the formal readiness audit, then remediate critical findings before implementation |
 | P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete; [readiness task #5390](https://github.com/open-mercato/open-mercato/issues/5390) open | Readiness audit now; implementation after baseline acceptance and pass | Current Catalog UoM contract | Audit the resolver and compatibility surface before Manufacturing quantity contracts freeze |
@@ -87,7 +87,7 @@ The first safe increment after roadmap acceptance is parallel specification/read
 ## First-core simplifications
 
 - Routing is optional and, when present, is one sequential path with basic setup/run time and work-centre/resource references. Calendars, parallel/alternate routings, overlap, setup matrices, and finite scheduling are later capabilities.
-- The first WMS implementation uses a generic atomic posting-group command. `manufacturing_discrete` calculates the concrete physical lines, including cumulative backflush; WMS validates and records them without Manufacturing-specific enums. Durable saga support is reserved for external WMS providers.
+- The first WMS implementation uses a generic atomic posting-group command. `manufacturing` calculates the concrete physical lines, including cumulative backflush; WMS validates and records them without Manufacturing-specific enums. Durable saga support is reserved for external WMS providers.
 - Production orders use UUID identity plus a simple concurrency-safe site-scoped display number. Lot/serial values may be supplied explicitly and are validated by WMS. Advanced number ranges remain P1.13.
 - Basic WMS status/expiry rules own availability; full QMS and an external disposition provider are not required.
 - Order release creates no automatic stock reservation. An explicit optional WMS reservation may be requested; issue and backflush still recheck availability.
