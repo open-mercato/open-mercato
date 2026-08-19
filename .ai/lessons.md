@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 135 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 136 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -180,3 +180,7 @@ This catalog indexes 135 focused lessons. Route the task first, then read only r
 - [Docker entrypoints must verify required binaries, not just non-empty node_modules](lessons/docker-entrypoints-must-verify-required-binaries-not.md) — area:framework-context,module-data,architecture; module:cli,create_app; topic:build-output,command-pattern,package-runtime
 - [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
 - [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files
+
+### spec-pr
+
+- [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
