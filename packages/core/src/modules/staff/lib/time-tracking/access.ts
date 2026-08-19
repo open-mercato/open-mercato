@@ -13,6 +13,11 @@ export type ProjectAccessContext = {
   organizationId?: string | null
   userFeatures?: readonly string[]
   /**
+   * `true` when the caller is a super-admin, resolved by the route from the RBAC
+   * service. A grant array cannot express it — see the note in `resolveProjectAccess`.
+   */
+  unrestricted?: boolean
+  /**
    * Resolved `access.assignmentGraceDays` setting. Passed in rather than read
    * here so the resolver stays independent of `ModuleConfigService`; callers
    * that already read the tenant settings avoid a second lookup.
@@ -85,10 +90,21 @@ export async function resolveProjectAccess(ctx: ProjectAccessContext): Promise<P
   const userId = ctx.userId ?? null
   const grantedFeatures = ctx.userFeatures ?? []
 
-  const canManageAll = authorizeFeatures([MANAGE_PROJECTS_FEATURE], {
-    grantedFeatures,
-    scopeAllowed: Boolean(tenantId) && Boolean(organizationId),
-  })
+  // `unrestricted` is the super-admin escape hatch and has to be threaded through
+  // explicitly: `RbacService.userHasAllFeatures` passes `acl.isSuperAdmin` into
+  // `authorizeFeatures`, but a caller that fetched a grant *array* with
+  // `getGrantedFeatures` and matched it locally has already lost that flag. The
+  // two paths then disagree about the same person — which is exactly what
+  // happened here: the KPI endpoint (asking the service) reported the manager
+  // shape while this resolver (matching an array) fell back to memberships, so a
+  // super-admin with no staff record saw a portfolio of seven projects summarised
+  // above a list of zero.
+  const canManageAll =
+    ctx.unrestricted === true ||
+    authorizeFeatures([MANAGE_PROJECTS_FEATURE], {
+      grantedFeatures,
+      scopeAllowed: Boolean(tenantId) && Boolean(organizationId),
+    })
 
   if (!tenantId || !organizationId || !userId) {
     return canManageAll ? { ...DENIED, canManageAll } : { ...DENIED }

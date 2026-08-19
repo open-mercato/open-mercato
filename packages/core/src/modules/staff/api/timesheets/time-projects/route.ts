@@ -14,7 +14,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeProject, StaffTimeProjectMember, StaffTeamMember } from '../../../data/entities'
 import { staffTimeProjectCreateSchema, staffTimeProjectUpdateSchema } from '../../../data/validators'
-import { resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
+import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { buildSqlInClause } from '../../../lib/time-tracking/sqlInClause'
 import { sanitizeSearchTerm, parseBooleanFlag } from '../../helpers'
@@ -103,6 +103,11 @@ type RbacServiceLike = {
     userId: string,
     options: { tenantId: string | null; organizationId: string | null },
   ) => Promise<string[]>
+  userHasAllFeatures?: (
+    userId: string,
+    required: string[],
+    options: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<boolean>
 }
 
 type ContainerLike = { resolve: (name: string) => unknown }
@@ -132,6 +137,21 @@ async function resolveGrantedFeatures(
   }
 }
 
+async function resolveUnrestricted(
+  container: ContainerLike,
+  userId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<boolean> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.userHasAllFeatures) return false
+    return (await rbac.userHasAllFeatures(userId, [MANAGE_PROJECTS_FEATURE], scope)) === true
+  } catch {
+    // Fail closed, exactly as the grant lookup does.
+    return false
+  }
+}
+
 async function resolveAssignmentGraceDays(
   container: ContainerLike,
   tenantId: string,
@@ -156,12 +176,17 @@ async function loadProjectAccess(
   const scope = { tenantId, organizationId }
   try {
     const grantedFeatures = userId ? await resolveGrantedFeatures(container, userId, scope) : []
+    // Asked of the service, not inferred from the array: `getGrantedFeatures`
+    // cannot express super-admin, so matching its output locally silently demotes
+    // one to a non-member.
+    const unrestricted = userId ? await resolveUnrestricted(container, userId, scope) : false
     const em = container.resolve('em') as EntityManager
     return await resolveProjectAccess({
       em: em.fork(),
       userId,
       tenantId,
       organizationId,
+      unrestricted,
       userFeatures: grantedFeatures,
       assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
     })

@@ -407,3 +407,36 @@ describe('assertProjectAccess', () => {
     expect(assertProjectAccess(membershipAccess, undefined)).toBe(false)
   })
 })
+
+describe('resolveProjectAccess — super-admin', () => {
+  it('treats an unrestricted caller as managing everything', async () => {
+    // `getGrantedFeatures` cannot express super-admin, so a caller that matched
+    // its output locally demoted one to a non-member: the KPI endpoint (asking
+    // the RBAC service) reported the manager shape while the list fell back to
+    // memberships, and the same person saw a portfolio summarised above a list
+    // that did not contain it.
+    const access = await resolveProjectAccess({
+      // The staff lookup still runs — a super-admin may also be a team member —
+      // so the fake answers it rather than pretending it does not happen.
+      em: { findOne: async () => null, find: async () => [] } as never,
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userFeatures: [],
+      unrestricted: true,
+    })
+    expect(access.canManageAll).toBe(true)
+  })
+
+  it('still fails closed without a scope', async () => {
+    const access = await resolveProjectAccess({
+      em: { findOne: async () => null, find: async () => [] } as never,
+      userId: 'user-1',
+      tenantId: null,
+      organizationId: null,
+      userFeatures: [],
+      unrestricted: true,
+    })
+    expect(access.projectIds).toEqual([])
+  })
+})
