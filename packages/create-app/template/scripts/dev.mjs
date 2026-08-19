@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import { parseEnv } from 'node:util'
 import spawn from 'cross-spawn'
 import {
   attachLoggedProcessStreams,
@@ -36,6 +37,12 @@ import {
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
+import {
+  DEFAULT_MEMORY_TRACE_OUT_DIR,
+  createMemoryTraceSession,
+  isEnabledEnvFlag as isEnabledMemoryTraceFlag,
+  resolveMemoryTraceIntervalMs,
+} from './dev-memory-sampler.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -205,11 +212,29 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
+const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
+const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')
+const monorepoAppDevScript = path.join(monorepoAppDir, 'scripts', 'dev.mjs')
 const warmupReadyFilePath = path.join(
   process.cwd(),
   isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
 )
 const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false'
+const memoryTraceEnabled = isEnabledMemoryTraceFlag(process.env.OM_DEV_MEMORY_TRACE)
+const memoryTrace = memoryTraceEnabled
+  ? createMemoryTraceSession({
+      rootPid: process.pid,
+      intervalMs: resolveMemoryTraceIntervalMs(process.env),
+      outDir: process.env.OM_DEV_MEMORY_TRACE_DIR?.trim() || DEFAULT_MEMORY_TRACE_OUT_DIR,
+      label: `live-dev-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+      onSample: (sample, summary) => {
+        updateSplashState({
+          memoryCurrentBytes: sample.totalRssBytes,
+          memoryPeakBytes: Math.round((summary.peakTotalMb ?? 0) * 1024 * 1024),
+        })
+      },
+    })
+  : null
 
 let devLogSessionInstance = null
 let devRunnerLogInstance = null
@@ -244,6 +269,17 @@ function closeDevLogSession() {
   if (devLogSessionInstance) {
     devLogSessionInstance.closeAll?.()
   }
+}
+
+async function finalizeDevProcess(exitCode) {
+  try {
+    await memoryTrace?.stop()
+  } catch (error) {
+    console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  closeSplashServer()
+  closeDevLogSession()
+  process.exit(exitCode)
 }
 
 const children = new Set()
@@ -553,9 +589,49 @@ function buildSplashChildEnv(options = {}) {
   }
 }
 
+const localDevEnvFileNames = [
+  '.env',
+  '.env.development',
+  '.env.local',
+  '.env.development.local',
+]
+
+function resolveLocalDevEnvFileValue(appDir, key) {
+  let resolvedValue
+
+  for (const fileName of localDevEnvFileNames) {
+    try {
+      const fileValue = parseEnv(fs.readFileSync(path.join(appDir, fileName), 'utf8'))[key]
+      if (fileValue !== undefined) {
+        resolvedValue = fileValue
+      }
+    } catch {}
+  }
+
+  return resolvedValue
+}
+
+function resolveLocalDevModuleResourceUsageDir() {
+  const appDir = isMonorepo
+    ? path.join(process.cwd(), 'apps', 'mercato')
+    : process.cwd()
+  const shellValue = process.env.OM_MODULE_RESOURCE_USAGE_DIR
+  if (typeof shellValue === 'string' && shellValue.trim() !== '') {
+    return shellValue
+  }
+
+  const envFileValue = resolveLocalDevEnvFileValue(appDir, 'OM_MODULE_RESOURCE_USAGE_DIR')
+  if (typeof envFileValue === 'string' && envFileValue.trim() !== '') {
+    return envFileValue
+  }
+
+  return path.join(appDir, '.mercato', 'next', 'module-resource-usage')
+}
+
 function applyLocalDevBackgroundServiceDefaults(childEnv) {
   const env = {
     ...(childEnv ?? {}),
+    OM_MODULE_RESOURCE_USAGE_DIR: resolveLocalDevModuleResourceUsageDir(),
     OM_DEV_WARMUP_READY_FILE: (childEnv && 'OM_DEV_WARMUP_READY_FILE' in childEnv)
       ? childEnv.OM_DEV_WARMUP_READY_FILE
       : warmupReadyFilePath,
@@ -587,11 +663,29 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
   ) {
     env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
   }
+  if (
+    typeof process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER !== 'string'
+    || process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER.trim() === ''
+  ) {
+    env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER = 'true'
+  }
   return env
 }
 
 function buildAppDevEnv(options = {}) {
-  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv(options) ?? {})
+  const env = applyLocalDevBackgroundServiceDefaults({
+    ...(buildSplashChildEnv(options) ?? {}),
+    ...(memoryTraceEnabled ? { OM_DEV_MEMORY_TRACE_OWNER: 'parent' } : {}),
+  })
+  if (isMonorepo) {
+    // `yarn workspace ... dev` used to inject the workspace binaries into PATH.
+    // Preserve that contract for the direct Node child so nested `mercato`
+    // generator/server spawns still resolve without retaining a Yarn process.
+    env.PATH = [path.join(process.cwd(), 'node_modules', '.bin'), process.env.PATH]
+      .filter(Boolean)
+      .join(path.delimiter)
+  }
+  return env
 }
 
 function launchStandaloneDev(options = {}) {
@@ -790,6 +884,8 @@ function updateSplashState(patch) {
   if (typeof patch.ready === 'boolean') splashState.ready = patch.ready
   if (typeof patch.readyUrl === 'string' || patch.readyUrl === null) splashState.readyUrl = patch.readyUrl
   if (typeof patch.loginUrl === 'string' || patch.loginUrl === null) splashState.loginUrl = patch.loginUrl
+  if (typeof patch.memoryCurrentBytes === 'number' || patch.memoryCurrentBytes === null) splashState.memoryCurrentBytes = patch.memoryCurrentBytes
+  if (typeof patch.memoryPeakBytes === 'number' || patch.memoryPeakBytes === null) splashState.memoryPeakBytes = patch.memoryPeakBytes
   if (typeof patch.progressCurrent === 'number') splashState.progressCurrent = patch.progressCurrent
   if (typeof patch.progressTotal === 'number') splashState.progressTotal = patch.progressTotal
   if (typeof patch.progressLabel === 'string') splashState.progressLabel = patch.progressLabel
@@ -806,6 +902,10 @@ function updateSplashState(patch) {
     )
   }
   if (typeof patch.activity === 'string') pushSplashActivity(patch.activity)
+}
+
+function markMemoryTrace(type, label, details = {}) {
+  memoryTrace?.mark(type, label, details)
 }
 
 function normalizeCapturedLine(line) {
@@ -1092,9 +1192,7 @@ function shutdown(exitCode = 0) {
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
-    closeSplashServer()
-    closeDevLogSession()
-    process.exit(exitCode)
+    void finalizeDevProcess(exitCode)
     return
   }
 
@@ -1108,9 +1206,7 @@ function shutdown(exitCode = 0) {
         killProcessTree(child, 'SIGKILL')
       }
     }
-    closeSplashServer()
-    closeDevLogSession()
-    process.exit(exitCode)
+    void finalizeDevProcess(exitCode)
   }, 3000)
 }
 
@@ -1305,6 +1401,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     return false
   }
 
+  markMemoryTrace('package-build:start', label, { command: commandArgs.join(' '), totalPackages: buildPlan.totalPackages })
   const initialPercent = resolveNestedStagePercent(stageCurrent, stageTotal, 0, buildPlan.totalPackages)
   progressReporter.update(`${formatPackageBuildProgressLine(label, stageCurrent, stageTotal, 0, buildPlan.totalPackages, initialPercent)}...`)
   updateSplashState({
@@ -1370,6 +1467,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
   const exitCode = resolveChildExitCode(result)
   if (exitCode !== 0) {
     progressReporter.clear()
+    markMemoryTrace('package-build:failure', label, { command: commandArgs.join(' '), exitCode })
     await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
@@ -1396,8 +1494,23 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     buildPlan.totalPackages,
     finalPercent,
   )} in ${formatDuration(Date.now() - startedAt)}`)
+  markMemoryTrace('package-build:end', label, {
+    command: commandArgs.join(' '),
+    totalPackages: buildPlan.totalPackages,
+    completedPackages: completedCount,
+    durationMs: Date.now() - startedAt,
+  })
 
   return true
+}
+
+function classifyStageMarker(commandArgs) {
+  const command = Array.isArray(commandArgs) ? commandArgs.join(' ') : ''
+  if (commandArgs?.[0] === 'generate') return 'generate'
+  if (commandArgs?.[0] === 'build:packages' || command.includes('turbo run build')) return 'package-build'
+  if (commandArgs?.[0] === 'db:migrate') return 'database-migrate'
+  if (commandArgs?.[0] === 'initialize') return 'initialize'
+  return 'stage'
 }
 
 async function runStage(label, commandArgs, options = {}) {
@@ -1417,6 +1530,8 @@ async function runStage(label, commandArgs, options = {}) {
   }
 
   console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
+  const markerType = classifyStageMarker(commandArgs)
+  markMemoryTrace(`${markerType}:start`, label, { command: commandArgs.join(' ') })
   updateSplashState({
     phase: label,
     detail: 'In progress',
@@ -1440,8 +1555,10 @@ async function runStage(label, commandArgs, options = {}) {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
       shutdown(exitCode)
     }
+    markMemoryTrace(`${markerType}:end`, label, { command: commandArgs.join(' '), durationMs: Date.now() - startedAt })
     return
   }
 
@@ -1467,6 +1584,7 @@ async function runStage(label, commandArgs, options = {}) {
 
   const exitCode = resolveChildExitCode(result)
   if (exitCode !== 0) {
+    markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
     await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
@@ -1484,6 +1602,7 @@ async function runStage(label, commandArgs, options = {}) {
     activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
   })
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
+  markMemoryTrace(`${markerType}:end`, label, { command: commandArgs.join(' '), durationMs: Date.now() - startedAt })
 }
 
 async function runPassthroughStage(label, commandArgs, options = {}) {
@@ -1497,6 +1616,8 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     ?? stageOrder[commandArgs[0]]
     ?? (commandArgs[0] === 'build:packages' && splashState.progressCurrent >= 2 ? 3 : splashState.progressCurrent)
   const stageTotal = options.stageTotal ?? 5
+  const markerType = classifyStageMarker(commandArgs)
+  markMemoryTrace(`${markerType}:start`, label, { command: commandArgs.join(' ') })
   console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
   updateSplashState({
     phase: label,
@@ -1524,6 +1645,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
       shutdown(exitCode)
     }
   } else {
@@ -1549,6 +1671,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 
     const exitCode = resolveChildExitCode(result)
     if (exitCode !== 0) {
+      markMemoryTrace(`${markerType}:failure`, label, { command: commandArgs.join(' '), exitCode })
       await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
         stageCurrent,
         stageTotal,
@@ -1567,6 +1690,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
   })
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
+  markMemoryTrace(`${markerType}:end`, label, { command: commandArgs.join(' '), durationMs: Date.now() - startedAt })
 }
 
 function resolveWatchPackagesScript() {
@@ -1592,11 +1716,15 @@ function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
 
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
+  const watchCommand = watchScript === 'watch:packages'
+    ? { command: process.execPath, args: [monorepoPackageWatchScript] }
+    : { command: yarnCommand, args: [watchScript] }
   const watchScopeEnv = buildWatchScopeEnv()
   const activeScope = resolveActiveWatchScope(watchScopeEnv)
+  markMemoryTrace('package-watch:start', 'Watching workspace packages', { script: watchScript, scope: activeScope })
 
   if (classic) {
-    const child = spawnCommand(yarnCommand, [watchScript], {
+    const child = spawnCommand(watchCommand.command, watchCommand.args, {
       label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
@@ -1639,7 +1767,7 @@ function startPackageWatch() {
     activity: 'Workspace package watch started',
   })
 
-  const child = spawnCommand(yarnCommand, [watchScript], {
+  const child = spawnCommand(watchCommand.command, watchCommand.args, {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
@@ -1695,14 +1823,14 @@ function startPackageWatch() {
 }
 
 function launchMonorepoAppDev() {
-  const appArgs = ['workspace', '@open-mercato/app', classic ? 'dev:classic' : 'dev']
-  if (!classic && verbose) {
-    appArgs.push('--verbose')
-  }
+  const appArgs = [monorepoAppDevScript]
+  if (classic) appArgs.push('--classic')
+  else if (verbose) appArgs.push('--verbose')
 
   const stageCurrent = greenfield ? 5 : 3
   const stageTotal = greenfield ? 5 : 3
   console.log(`🚀 ${formatProgressLine('Starting app runtime', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  markMemoryTrace('app-runtime:start', 'Starting app runtime', { command: [process.execPath, ...appArgs].join(' ') })
   updateSplashState({
     phase: 'Preparing app runtime',
     detail: 'Launching app runtime, queue workers, and scheduler',
@@ -1712,7 +1840,8 @@ function launchMonorepoAppDev() {
     progressLabel: 'Launching app runtime',
     activity: 'App runtime is starting',
   })
-  const app = spawnCommand(yarnCommand, appArgs, {
+  const app = spawnCommand(process.execPath, appArgs, {
+    cwd: monorepoAppDir,
     stdio: 'inherit',
     env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
@@ -1887,4 +2016,12 @@ async function main() {
   await runStandardDev()
 }
 
+memoryTrace?.start()
+markMemoryTrace('dev:start', 'Dev runner started', {
+  mode: splashMode,
+  runtimeMode,
+  appOnly,
+  greenfield,
+  classic,
+})
 await main()

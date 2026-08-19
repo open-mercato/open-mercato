@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/sales/extension-points";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
@@ -22,7 +23,11 @@ import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
 import type { SalesLineRecord } from "./lineItemTypes";
-import { formatMoney, normalizeNumber } from "./lineItemUtils";
+import {
+  formatMoney,
+  normalizeNumber,
+  resolveLineDiscountDisplay,
+} from "./lineItemUtils";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
@@ -165,7 +170,7 @@ export function SalesDocumentItemsSection({
   );
 
   const { widgets: allColumnWidgets } = useInjectionDataWidgets(
-    "data-table:sales.order.items:columns",
+    extensionPoints.hosts.orderItemColumns.spotId,
   );
   const columnWidgets = kind === "order" ? allColumnWidgets : [];
   const injectedColumns = React.useMemo<InjectionColumnDefinition[]>(() => {
@@ -238,6 +243,10 @@ export function SalesDocumentItemsSection({
                     typeof (item.catalog_snapshot as Record<string, unknown>).name === "string"
                   ? (item.catalog_snapshot as Record<string, unknown>).name as string
                   : null;
+            const description =
+              typeof item.description === "string" && item.description.trim()
+                ? item.description
+                : null;
             const quantity = normalizeNumber(item.quantity, 0);
             const uomFields = getUomFields(item);
             const quantityUnit = canonicalizeUnitCode(uomFields.quantityUnit);
@@ -302,6 +311,7 @@ export function SalesDocumentItemsSection({
             const record: SalesLineRecord = {
               id,
               name,
+              description,
               productId:
                 typeof item.product_id === "string" ? item.product_id : null,
               productVariantId:
@@ -320,6 +330,14 @@ export function SalesDocumentItemsSection({
                     : null,
               unitPriceNet,
               unitPriceGross,
+              discountAmount: normalizeNumber(
+                item.discount_amount ?? item.discountAmount,
+                0,
+              ),
+              discountPercent: normalizeNumber(
+                item.discount_percent ?? item.discountPercent,
+                0,
+              ),
               taxRate,
               totalNet,
               totalGross,
@@ -559,6 +577,11 @@ export function SalesDocumentItemsSection({
     [lineStatusMap, t],
   );
 
+  const showDiscountColumn = React.useMemo(
+    () => items.some((item) => resolveLineDiscountDisplay(item) !== null),
+    [items],
+  );
+
   const renderImage = (record: SalesLineRecord) => {
     const meta =
       (record.metadata as Record<string, unknown> | null | undefined) ?? {};
@@ -645,6 +668,11 @@ export function SalesDocumentItemsSection({
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.unit", "Unit price")}
                 </th>
+                {showDiscountColumn ? (
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    {t("sales.documents.items.table.discount", "Discount")}
+                  </th>
+                ) : null}
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.total", "Total")}
                 </th>
@@ -698,6 +726,7 @@ export function SalesDocumentItemsSection({
                 const unitPriceReference = resolveUnitPriceReference(
                   item.uomSnapshot,
                 );
+                const discount = resolveLineDiscountDisplay(item);
 
                 return (
                   <tr
@@ -722,6 +751,14 @@ export function SalesDocumentItemsSection({
                           {showProductSku ? (
                             <div className="text-xs text-muted-foreground truncate">
                               {showProductSku}
+                            </div>
+                          ) : null}
+                          {item.description ? (
+                            <div
+                              className="text-xs text-muted-foreground line-clamp-2"
+                              title={item.description}
+                            >
+                              {item.description}
                             </div>
                           ) : null}
                         </div>
@@ -791,6 +828,45 @@ export function SalesDocumentItemsSection({
                         ) : null}
                       </div>
                     </td>
+                    {showDiscountColumn ? (
+                      <td className="px-3 py-3">
+                        {discount ? (
+                          <div className="flex flex-col gap-0.5">
+                            {discount.amount !== null ? (
+                              <span className="font-mono text-sm">
+                                {t(
+                                  "sales.documents.items.table.discountAmount",
+                                  "−{{value}}",
+                                  {
+                                    value: formatMoney(
+                                      discount.amount,
+                                      item.currencyCode ??
+                                        currencyCode ??
+                                        undefined,
+                                    ),
+                                  },
+                                )}
+                              </span>
+                            ) : null}
+                            {discount.percent !== null ? (
+                              <span
+                                className={
+                                  discount.amount !== null
+                                    ? "font-mono text-xs text-muted-foreground"
+                                    : "font-mono text-sm"
+                                }
+                              >
+                                {t(
+                                  "sales.documents.items.table.discountPercent",
+                                  "{{value}}%",
+                                  { value: discount.percent },
+                                )}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-3 font-semibold">
                       <div className="flex flex-col gap-0.5">
                         <span>
@@ -833,6 +909,7 @@ export function SalesDocumentItemsSection({
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
+                          aria-label={t('ui.actions.edit', 'Edit')}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleEdit(item);
@@ -840,17 +917,25 @@ export function SalesDocumentItemsSection({
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDelete(item);
-                          }}
+                        <span
+                          title={kind === 'order' && items.length === 1
+                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                            : undefined}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            aria-label={t('ui.actions.delete', 'Delete')}
+                            disabled={kind === 'order' && items.length === 1}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDelete(item);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </span>
                       </div>
                     </td>
                   </tr>

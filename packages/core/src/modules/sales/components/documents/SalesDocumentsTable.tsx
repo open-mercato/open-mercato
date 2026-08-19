@@ -1,9 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -738,7 +740,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
               ]}
             />
           )}
-          perspective={{ tableId: kind === 'order' ? 'sales.orders' : 'sales.quotes' }}
+          perspective={{
+            tableId: kind === 'order'
+              ? extensionPoints.hosts.ordersTable.tableId
+              : extensionPoints.hosts.quotesTable.tableId,
+          }}
           onRowClick={handleRowClick}
           emptyState={
             <div className="py-10 text-center text-sm text-muted-foreground">
