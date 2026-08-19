@@ -767,19 +767,29 @@ export type CapturedOutputProcess = ChildProcess & {
   readCapturedOutput?: () => string
 }
 
-export const CAPTURED_OUTPUT_MAX_BYTES = 64 * 1024
+export const CAPTURED_OUTPUT_MAX_LENGTH = 64 * 1024
 
 export function createBoundedOutputBuffer(): { append: (chunk: Buffer | string) => void; read: () => string } {
   let buffered = ''
   return {
     append: (chunk: Buffer | string) => {
       buffered += chunk.toString()
-      if (buffered.length > CAPTURED_OUTPUT_MAX_BYTES) {
-        buffered = `…(truncated)…${buffered.slice(-CAPTURED_OUTPUT_MAX_BYTES)}`
+      if (buffered.length > CAPTURED_OUTPUT_MAX_LENGTH) {
+        buffered = `…(truncated)…${buffered.slice(-CAPTURED_OUTPUT_MAX_LENGTH)}`
       }
     },
     read: () => buffered,
   }
+}
+
+// Both streams are returned when both carry output: a single stderr deprecation notice must not
+// hide the stdout tail that usually holds the real startup failure. The 20-line tail in
+// `exitError()` does the trimming.
+export function formatCapturedOutput(stderrText: string, stdoutText: string): string {
+  if (stderrText && stdoutText) {
+    return `--- stderr ---\n${stderrText}\n--- stdout ---\n${stdoutText}`
+  }
+  return stderrText || stdoutText
 }
 
 function startYarnRawCommand(
@@ -801,7 +811,8 @@ function startYarnRawCommand(
     const stderrBuffer = createBoundedOutputBuffer()
     processHandle.stdout?.on('data', (chunk: Buffer | string) => stdoutBuffer.append(chunk))
     processHandle.stderr?.on('data', (chunk: Buffer | string) => stderrBuffer.append(chunk))
-    processHandle.readCapturedOutput = () => stderrBuffer.read().trim() || stdoutBuffer.read().trim()
+    processHandle.readCapturedOutput = () =>
+      formatCapturedOutput(stderrBuffer.read().trim(), stdoutBuffer.read().trim())
   }
   return processHandle
 }
@@ -1794,15 +1805,18 @@ function isProcessRunning(processId: number): boolean {
 export type ProcessTreeKillDependencies = {
   platform?: NodeJS.Platform
   killPosixProcessGroup?: (pid: number, signal: NodeJS.Signals) => void
-  killWindowsProcessTree?: (pid: number) => void
+  killWindowsProcessTree?: (pid: number, options: { forced: boolean }) => void
+  gracePeriodMs?: number
 }
 
 function defaultKillPosixProcessGroup(pid: number, signal: NodeJS.Signals): void {
   process.kill(-pid, signal)
 }
 
-function defaultKillWindowsProcessTree(pid: number): void {
-  spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'])
+// `/f` is added only on escalation so the Windows path mirrors the POSIX SIGTERM → grace → SIGKILL
+// sequence: the first attempt lets the tree shut down cleanly, the second forces it.
+function defaultKillWindowsProcessTree(pid: number, options: { forced: boolean }): void {
+  spawnSync('taskkill', ['/pid', String(pid), '/t', ...(options.forced ? ['/f'] : [])])
 }
 
 export function killProcessTree(
@@ -1813,7 +1827,7 @@ export function killProcessTree(
   const platform = dependencies.platform ?? process.platform
   if (platform === 'win32') {
     const killWindowsProcessTree = dependencies.killWindowsProcessTree ?? defaultKillWindowsProcessTree
-    killWindowsProcessTree(pid)
+    killWindowsProcessTree(pid, { forced: signal === 'SIGKILL' })
     return
   }
   const killPosixProcessGroup = dependencies.killPosixProcessGroup ?? defaultKillPosixProcessGroup
@@ -1836,23 +1850,109 @@ function killProcessTreeIfRunning(
   }
 }
 
+// `getProcessExitPromise` only observes *future* events, so a process that already exited would
+// never settle it and the caller would stall for the whole grace period. This waiter detaches both
+// listeners and clears the timer whichever way it settles, so nothing is left pending and a late
+// `'error'` cannot surface as an unhandled rejection.
+function waitForProcessExitWithin(childProcess: ChildProcess, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const settle = (exited: boolean) => {
+      clearTimeout(gracePeriodTimer)
+      childProcess.off('exit', onExit)
+      childProcess.off('error', onError)
+      resolve(exited)
+    }
+    const onExit = () => settle(true)
+    const onError = () => settle(false)
+    const gracePeriodTimer = setTimeout(() => settle(false), timeoutMs)
+    childProcess.on('exit', onExit)
+    childProcess.on('error', onError)
+  })
+}
+
+// A `ChildProcess` reports `null` on both fields while it is alive, so a non-null value means the
+// exit has already happened and its `'exit'` event will never fire again.
+function hasProcessAlreadyExited(childProcess: ChildProcess): boolean {
+  return (childProcess.exitCode ?? null) !== null || (childProcess.signalCode ?? null) !== null
+}
+
 export async function terminateProcessTree(
   childProcess: CapturedOutputProcess,
   dependencies: ProcessTreeKillDependencies = {},
 ): Promise<void> {
   const pid = childProcess.pid
   if (!pid) return
+  // Without this the crash path — where the app died on its own but `killed` is still false — would
+  // stall the whole teardown for the grace period waiting for an event that already fired.
+  if (hasProcessAlreadyExited(childProcess)) return
 
   killProcessTreeIfRunning(pid, 'SIGTERM', dependencies)
 
-  const exitedBeforeGracePeriod = await Promise.race([
-    getProcessExitPromise(childProcess).then(() => true),
-    delay(PROCESS_TREE_KILL_GRACE_PERIOD_MS).then(() => false),
-  ])
+  const gracePeriodMs = dependencies.gracePeriodMs ?? PROCESS_TREE_KILL_GRACE_PERIOD_MS
+  const exitedBeforeGracePeriod = await waitForProcessExitWithin(childProcess, gracePeriodMs)
 
   if (!exitedBeforeGracePeriod && isProcessRunning(pid)) {
     killProcessTreeIfRunning(pid, 'SIGKILL', dependencies)
   }
+}
+
+const EPHEMERAL_SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+
+export type ShutdownProcessRef = Pick<NodeJS.Process, 'once' | 'off' | 'removeAllListeners' | 'kill' | 'pid'>
+
+export type EphemeralShutdownHandlers = { dispose: () => void }
+
+// The application is spawned `detached: true`, which puts its whole tree in a new session. A
+// terminal Ctrl+C only reaches the foreground process group of the controlling terminal, so the
+// tree never sees the signal and would outlive the run holding `server-start.lock` — exactly the
+// orphan this harness exists to prevent. Node also skips `'exit'` listeners when it dies from a
+// signal, so the crash sweep cannot cover this path either. The runner therefore forwards the
+// interrupt itself: stop the environment, then re-raise the signal so the process still exits with
+// the conventional 130/143 instead of a synthetic success.
+export function registerEphemeralShutdownHandlers(options: {
+  stop: () => Promise<void>
+  killApplicationTree: () => void
+  onSignal?: (signal: NodeJS.Signals) => void
+  processRef?: ShutdownProcessRef
+}): EphemeralShutdownHandlers {
+  const processRef = options.processRef ?? process
+  const onProcessExit = () => options.killApplicationTree()
+  const signalHandlers = new Map<NodeJS.Signals, () => void>()
+
+  // Registered per `startEphemeralEnvironment()` call, and the environment is restarted on retry,
+  // so the handlers must come back off in `stop()` or a retried run stacks dead closures until it
+  // trips MaxListenersExceededWarning.
+  const dispose = () => {
+    processRef.off('exit', onProcessExit)
+    for (const [signal, handler] of signalHandlers) {
+      processRef.off(signal, handler)
+    }
+    signalHandlers.clear()
+  }
+
+  for (const signal of EPHEMERAL_SHUTDOWN_SIGNALS) {
+    const handler = () => {
+      void (async () => {
+        options.onSignal?.(signal)
+        try {
+          await options.stop()
+        } catch (error) {
+          // A teardown failure must not become an unhandled rejection, and must not swallow the
+          // signal: report it and still re-raise so the runner exits the way the shell expects.
+          console.error(`Failed to stop the ephemeral environment on ${signal}:`, error)
+        } finally {
+          dispose()
+          processRef.removeAllListeners(signal)
+          processRef.kill(processRef.pid as number, signal)
+        }
+      })()
+    }
+    signalHandlers.set(signal, handler)
+    processRef.once(signal, handler)
+  }
+
+  processRef.once('exit', onProcessExit)
+  return { dispose }
 }
 
 async function getPathAgeMilliseconds(targetPath: string): Promise<number | null> {
@@ -3516,14 +3616,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const runtimeLock = await acquireEphemeralRuntimeLock(options.logPrefix)
     let applicationProcess: CapturedOutputProcess | null = null
     let isStopped = false
-    process.once('exit', () => {
-      if (isStopped) return
-      const pid = applicationProcess?.pid
-      if (!pid) return
-      try {
-        killProcessTree(pid, 'SIGKILL')
-      } catch {}
-    })
+    let shutdownHandlers: EphemeralShutdownHandlers | null = null
     const stop = async (): Promise<void> => {
       if (isStopped) return
       isStopped = true
@@ -3535,8 +3628,22 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         await clearEphemeralEnvironmentState()
       } finally {
         await runtimeLock.release()
+        shutdownHandlers?.dispose()
       }
     }
+    shutdownHandlers = registerEphemeralShutdownHandlers({
+      stop,
+      onSignal: (signal) =>
+        console.log(`[${options.logPrefix}] Received ${signal}, stopping ephemeral environment...`),
+      killApplicationTree: () => {
+        if (isStopped) return
+        const pid = applicationProcess?.pid
+        if (!pid) return
+        try {
+          killProcessTree(pid, 'SIGKILL')
+        } catch {}
+      },
+    })
 
     try {
       const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
@@ -3662,15 +3769,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
   }
 }
 
-async function keepEnvironmentRunningForever(options: { logPrefix: string; stop: () => Promise<void> }): Promise<void> {
-  const onSignal = async (signal: string): Promise<void> => {
-    console.log(`[${options.logPrefix}] Received ${signal}, stopping ephemeral environment...`)
-    await options.stop()
-    process.exit(0)
-  }
-
-  process.once('SIGINT', () => void onSignal('SIGINT'))
-  process.once('SIGTERM', () => void onSignal('SIGTERM'))
+// Interrupt handling belongs to `startEphemeralEnvironment`, which owns the detached tree and now
+// registers SIGINT/SIGTERM handlers for every run — not just the `--keep` ones. Registering a
+// second pair here would race them: both fire on the same signal, and this one's `process.exit()`
+// would cut the environment's teardown short mid-await.
+async function keepEnvironmentRunningForever(): Promise<void> {
   await new Promise<void>(() => {})
 }
 
@@ -3720,10 +3823,7 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
 
     if (options.keep) {
       console.log('[integration] --keep enabled: leaving app and database running. Press Ctrl+C to stop.')
-      await keepEnvironmentRunningForever({
-        logPrefix: 'integration',
-        stop: environment.stop,
-      })
+      await keepEnvironmentRunningForever()
     }
   } finally {
     if (!options.keep) {
@@ -3751,10 +3851,7 @@ export async function runEphemeralAppForQa(rawArgs: string[]): Promise<void> {
     console.log('[ephemeral] Reused existing environment. Press Ctrl+C to exit without stopping the shared runtime.')
   }
 
-  await keepEnvironmentRunningForever({
-    logPrefix: 'ephemeral',
-    stop: environment.stop,
-  })
+  await keepEnvironmentRunningForever()
 }
 
 export async function runInteractiveIntegrationInEphemeralEnvironment(rawArgs: string[]): Promise<void> {

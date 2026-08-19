@@ -39,3 +39,26 @@ describe('resolveSpawnCommand', () => {
     )
   })
 })
+
+describe('resolveSpawnCommand detached passthrough', () => {
+  // The whole process-group teardown in the ephemeral harness rests on this flag reaching `spawn`:
+  // without it the app tree stays in the runner's group and the negated-pid kill has nothing of its
+  // own to signal.
+  it('passes detached through on the POSIX branch', () => {
+    const result = resolveSpawnCommand('yarn', ['start'], { platform: 'linux', detached: true })
+
+    expect(result.spawnOptions).toEqual({ detached: true })
+  })
+
+  it('passes detached through on the Windows cmd branch', () => {
+    const result = resolveSpawnCommand('yarn.cmd', ['start'], { platform: 'win32', detached: true })
+
+    expect(result.spawnOptions).toEqual({ detached: true })
+  })
+
+  it('omits detached entirely when the caller does not ask for it', () => {
+    expect(resolveSpawnCommand('yarn', ['start'], { platform: 'linux' }).spawnOptions).toEqual({})
+    expect(resolveSpawnCommand('yarn', ['start']).spawnOptions).not.toHaveProperty('detached')
+    expect(resolveSpawnCommand('yarn', ['start'], { platform: 'linux', detached: false }).spawnOptions).toEqual({})
+  })
+})

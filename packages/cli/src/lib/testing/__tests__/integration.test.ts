@@ -21,12 +21,16 @@ import {
   acquireEphemeralRuntimeLock,
   waitForApplicationReadiness,
   createBoundedOutputBuffer,
-  CAPTURED_OUTPUT_MAX_BYTES,
+  formatCapturedOutput,
+  CAPTURED_OUTPUT_MAX_LENGTH,
   killProcessTree,
   terminateProcessTree,
+  registerEphemeralShutdownHandlers,
 } from '../integration'
-import type { CapturedOutputProcess } from '../integration'
+import type { CapturedOutputProcess, ShutdownProcessRef } from '../integration'
+import { resolveSpawnCommand } from '../../spawn'
 import { EventEmitter } from 'node:events'
+import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
@@ -965,7 +969,7 @@ describe('createBoundedOutputBuffer', () => {
     expect(result).toContain('…(truncated)…')
     expect(result).toContain(`line-${lineCount - 1}:`)
     expect(result).not.toContain('line-0:')
-    expect(result.length).toBeLessThanOrEqual(CAPTURED_OUTPUT_MAX_BYTES + '…(truncated)…'.length)
+    expect(result.length).toBeLessThanOrEqual(CAPTURED_OUTPUT_MAX_LENGTH + '…(truncated)…'.length)
   })
 
   it('returns the raw output untouched when it stays under the cap', () => {
@@ -988,15 +992,26 @@ describe('killProcessTree', () => {
     expect(calls).toEqual([[4242, 'SIGTERM']])
   })
 
-  it('shells out to a Windows process-tree kill with /t /f', () => {
-    const calls: number[] = []
+  it('asks Windows for a graceful process-tree kill on SIGTERM', () => {
+    const calls: Array<[number, { forced: boolean }]> = []
     killProcessTree(4242, 'SIGTERM', {
       platform: 'win32',
-      killWindowsProcessTree: (pid) => {
-        calls.push(pid)
+      killWindowsProcessTree: (pid, options) => {
+        calls.push([pid, options])
       },
     })
-    expect(calls).toEqual([4242])
+    expect(calls).toEqual([[4242, { forced: false }]])
+  })
+
+  it('escalates to a forced Windows process-tree kill on SIGKILL', () => {
+    const calls: Array<[number, { forced: boolean }]> = []
+    killProcessTree(4242, 'SIGKILL', {
+      platform: 'win32',
+      killWindowsProcessTree: (pid, options) => {
+        calls.push([pid, options])
+      },
+    })
+    expect(calls).toEqual([[4242, { forced: true }]])
   })
 
   it('negates the pid when falling back to the default POSIX killer', () => {
@@ -1024,11 +1039,66 @@ describe('terminateProcessTree', () => {
     await expect(
       terminateProcessTree(fakeProcess, {
         platform: 'linux',
+        gracePeriodMs: 10,
         killPosixProcessGroup: () => {
           throw esrchError
         },
       }),
     ).resolves.toBeUndefined()
+  })
+
+  it('returns immediately without signalling a process that already reported its exit', async () => {
+    const fakeProcess = makeFakeProcessWithPid(4242)
+    fakeProcess.exitCode = 1
+    const calls: NodeJS.Signals[] = []
+
+    const startedAt = Date.now()
+    await terminateProcessTree(fakeProcess, {
+      platform: 'linux',
+      gracePeriodMs: 5_000,
+      killPosixProcessGroup: (_pid, signal) => {
+        calls.push(signal)
+      },
+    })
+
+    expect(calls).toEqual([])
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+  })
+
+  it('resolves as soon as the process exits, without burning the rest of the grace period', async () => {
+    const fakeProcess = makeFakeProcessWithPid(4242)
+    const calls: NodeJS.Signals[] = []
+
+    const startedAt = Date.now()
+    const termination = terminateProcessTree(fakeProcess, {
+      platform: 'linux',
+      gracePeriodMs: 5_000,
+      killPosixProcessGroup: (_pid, signal) => {
+        calls.push(signal)
+      },
+    })
+    setTimeout(() => fakeProcess.emit('exit', 0), 10)
+    await termination
+
+    expect(calls).toEqual(['SIGTERM'])
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+  })
+
+  it('escalates to SIGKILL when the tree outlives the grace period', async () => {
+    // A live pid the escalation's `isProcessRunning` guard will confirm, without signalling anything
+    // real — the injected killer records instead of killing.
+    const fakeProcess = makeFakeProcessWithPid(process.pid)
+    const calls: NodeJS.Signals[] = []
+
+    await terminateProcessTree(fakeProcess, {
+      platform: 'linux',
+      gracePeriodMs: 10,
+      killPosixProcessGroup: (_pid, signal) => {
+        calls.push(signal)
+      },
+    })
+
+    expect(calls).toEqual(['SIGTERM', 'SIGKILL'])
   })
 
   it('propagates a non-ESRCH failure from the killer', async () => {
@@ -1044,4 +1114,194 @@ describe('terminateProcessTree', () => {
       }),
     ).rejects.toThrow(/EPERM/)
   })
+})
+
+describe('formatCapturedOutput', () => {
+  it('keeps the stdout tail visible when stderr also captured output', () => {
+    expect(formatCapturedOutput('a deprecation warning', 'the real failure')).toBe(
+      '--- stderr ---\na deprecation warning\n--- stdout ---\nthe real failure',
+    )
+  })
+
+  it('returns the single populated stream unlabelled', () => {
+    expect(formatCapturedOutput('only stderr', '')).toBe('only stderr')
+    expect(formatCapturedOutput('', 'only stdout')).toBe('only stdout')
+    expect(formatCapturedOutput('', '')).toBe('')
+  })
+})
+
+describe('registerEphemeralShutdownHandlers', () => {
+  const makeProcessRef = () => {
+    const listeners = new Map<string, Array<() => void>>()
+    const raised: Array<[number, NodeJS.Signals]> = []
+    const processRef: ShutdownProcessRef = {
+      pid: 9999,
+      once: ((event: string, handler: () => void) => {
+        listeners.set(event, [...(listeners.get(event) ?? []), handler])
+        return processRef
+      }) as ShutdownProcessRef['once'],
+      off: ((event: string, handler: () => void) => {
+        listeners.set(event, (listeners.get(event) ?? []).filter((entry) => entry !== handler))
+        return processRef
+      }) as ShutdownProcessRef['off'],
+      removeAllListeners: ((event: string) => {
+        listeners.delete(event)
+        return processRef
+      }) as ShutdownProcessRef['removeAllListeners'],
+      kill: ((pid: number, signal: NodeJS.Signals) => {
+        raised.push([pid, signal])
+        return true
+      }) as ShutdownProcessRef['kill'],
+    }
+    const emit = (event: string) => {
+      for (const handler of [...(listeners.get(event) ?? [])]) handler()
+    }
+    const listenerCount = (event: string) => (listeners.get(event) ?? []).length
+    return { processRef, emit, raised, listenerCount }
+  }
+
+  // The regression guard for the interrupt path: `detached: true` puts the app tree in its own
+  // session, so unless the runner tears it down on SIGINT the tree survives Ctrl+C holding
+  // `server-start.lock` — the exact orphan this harness exists to prevent.
+  it.each<NodeJS.Signals>(['SIGINT', 'SIGTERM'])(
+    'stops the environment and re-raises %s so the runner still exits on the signal',
+    async (signal) => {
+      const { processRef, emit, raised } = makeProcessRef()
+      let stopCallCount = 0
+      registerEphemeralShutdownHandlers({
+        stop: async () => {
+          stopCallCount += 1
+        },
+        killApplicationTree: () => {},
+        processRef,
+      })
+
+      emit(signal)
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(stopCallCount).toBe(1)
+      expect(raised).toEqual([[9999, signal]])
+    },
+  )
+
+  it('re-raises the signal even when stopping the environment fails', async () => {
+    const { processRef, emit, raised } = makeProcessRef()
+    registerEphemeralShutdownHandlers({
+      stop: async () => {
+        throw new Error('teardown blew up')
+      },
+      killApplicationTree: () => {},
+      processRef,
+    })
+
+    emit('SIGINT')
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(raised).toEqual([[9999, 'SIGINT']])
+  })
+
+  it('kills the application tree on the hard-exit sweep', () => {
+    const { processRef, emit } = makeProcessRef()
+    let killCallCount = 0
+    registerEphemeralShutdownHandlers({
+      stop: async () => {},
+      killApplicationTree: () => {
+        killCallCount += 1
+      },
+      processRef,
+    })
+
+    emit('exit')
+    expect(killCallCount).toBe(1)
+  })
+
+  // The environment is restarted on retry, so handlers that are never removed stack one dead
+  // closure per attempt until Node warns about a listener leak.
+  it('removes every listener on dispose so repeated environment starts do not stack them', () => {
+    const { processRef, listenerCount } = makeProcessRef()
+    const first = registerEphemeralShutdownHandlers({
+      stop: async () => {},
+      killApplicationTree: () => {},
+      processRef,
+    })
+    expect(listenerCount('exit')).toBe(1)
+    expect(listenerCount('SIGINT')).toBe(1)
+
+    first.dispose()
+    expect(listenerCount('exit')).toBe(0)
+    expect(listenerCount('SIGINT')).toBe(0)
+    expect(listenerCount('SIGTERM')).toBe(0)
+
+    registerEphemeralShutdownHandlers({
+      stop: async () => {},
+      killApplicationTree: () => {},
+      processRef,
+    }).dispose()
+    expect(listenerCount('exit')).toBe(0)
+  })
+})
+
+// Every other process-lifecycle test here drives injected fakes, so nothing pins down the part
+// that can only fail against the real OS: whether `detached: true` plus a negated-pid signal
+// actually reaps the grandchildren the wrapper spawned. `sh` stands in for the `yarn start`
+// wrapper and `sleep` for the `mercato start`/Next tree it would leave behind.
+const describeOnPosix = process.platform === 'win32' ? describe.skip : describe
+
+describeOnPosix('terminateProcessTree against a real detached process tree', () => {
+  const isProcessAlive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+    }
+  }
+
+  const waitUntilGone = async (pid: number, timeoutMs = 5_000): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (!isProcessAlive(pid)) return true
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    return !isProcessAlive(pid)
+  }
+
+  it('kills the grandchild the wrapper spawned, not just the wrapper itself', async () => {
+    const resolvedSpawn = resolveSpawnCommand('/bin/sh', ['-c', 'sleep 30 & echo $!; wait'], {
+      detached: true,
+    })
+    const wrapperProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      ...resolvedSpawn.spawnOptions,
+    }) as CapturedOutputProcess
+
+    let grandchildPid = 0
+    try {
+      grandchildPid = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timed out waiting for the grandchild pid')), 5_000)
+        wrapperProcess.stdout?.once('data', (chunk: Buffer) => {
+          clearTimeout(timer)
+          resolve(Number.parseInt(chunk.toString().trim(), 10))
+        })
+      })
+
+      expect(Number.isInteger(grandchildPid)).toBe(true)
+      // The detached spawn puts the wrapper in its own process group, so the group id is its pid.
+      expect(grandchildPid).not.toBe(wrapperProcess.pid)
+      expect(isProcessAlive(grandchildPid)).toBe(true)
+
+      await terminateProcessTree(wrapperProcess, { gracePeriodMs: 1_000 })
+
+      await expect(waitUntilGone(grandchildPid)).resolves.toBe(true)
+      await expect(waitUntilGone(wrapperProcess.pid as number)).resolves.toBe(true)
+    } finally {
+      for (const pid of [grandchildPid, wrapperProcess.pid ?? 0]) {
+        if (pid && isProcessAlive(pid)) {
+          try {
+            process.kill(pid, 'SIGKILL')
+          } catch {}
+        }
+      }
+    }
+  }, 20_000)
 })
