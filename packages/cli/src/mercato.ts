@@ -1680,7 +1680,16 @@ export async function run(argv = process.argv) {
               const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
               // One queue, one report. Handlers on the same queue share its abandoned-job reporting,
               // so the first declared hook wins rather than each handler reporting the same job.
-              const onJobAbandoned = queueWorkers.find((w) => w.onJobAbandoned)?.onJobAbandoned
+              // Two callbacks cannot be merged the way the numeric options above can, so a second
+              // one is a wiring mistake worth saying out loud rather than dropping silently.
+              const abandonHookWorkers = queueWorkers.filter((w) => w.onJobAbandoned)
+              if (abandonHookWorkers.length > 1) {
+                console.warn(
+                  `[worker] Queue "${queue}" has ${abandonHookWorkers.length} workers declaring onJobAbandoned `
+                  + `(${abandonHookWorkers.map((w) => w.id).join(', ')}); using the first and ignoring the rest.`,
+                )
+              }
+              const onJobAbandoned = abandonHookWorkers[0]?.onJobAbandoned
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1739,7 +1748,16 @@ export async function run(argv = process.argv) {
               const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
               // One queue, one report. Handlers on the same queue share its abandoned-job reporting,
               // so the first declared hook wins rather than each handler reporting the same job.
-              const onJobAbandoned = queueWorkers.find((w) => w.onJobAbandoned)?.onJobAbandoned
+              // Two callbacks cannot be merged the way the numeric options above can, so a second
+              // one is a wiring mistake worth saying out loud rather than dropping silently.
+              const abandonHookWorkers = queueWorkers.filter((w) => w.onJobAbandoned)
+              if (abandonHookWorkers.length > 1) {
+                console.warn(
+                  `[worker] Queue "${queueName}" has ${abandonHookWorkers.length} workers declaring onJobAbandoned `
+                  + `(${abandonHookWorkers.map((w) => w.id).join(', ')}); using the first and ignoring the rest.`,
+                )
+              }
+              const onJobAbandoned = abandonHookWorkers[0]?.onJobAbandoned
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
