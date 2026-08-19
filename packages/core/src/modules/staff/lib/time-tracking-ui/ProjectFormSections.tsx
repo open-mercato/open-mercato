@@ -136,6 +136,7 @@ type TeamMemberRow = {
   first_name?: unknown
   last_name?: unknown
   displayName?: unknown
+  display_name?: unknown
   email?: unknown
 }
 
@@ -143,13 +144,24 @@ function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+/**
+ * `/api/staff/team-members` answers in snake_case, so `display_name` is the key
+ * that actually arrives — reading only `displayName` fell through every branch
+ * and rendered the raw staff-member UUID as the chip label.
+ *
+ * `StaffTeamMember` carries no first/last/email columns; those branches describe a
+ * shape this endpoint never returns and are kept only for callers that pass a
+ * different row in. An unnamed row yields an empty string rather than an id: the
+ * caller filters empties out, so a missing name shows nothing instead of leaking
+ * an internal identifier into the UI.
+ */
 function memberLabel(row: TeamMemberRow): string {
-  const display = readString(row.displayName)
+  const display = readString(row.displayName) ?? readString(row.display_name)
   if (display) return display
   const first = readString(row.firstName) ?? readString(row.first_name)
   const last = readString(row.lastName) ?? readString(row.last_name)
   const joined = [first, last].filter(Boolean).join(' ')
-  return joined || readString(row.email) || readString(row.id) || ''
+  return joined || readString(row.email) || ''
 }
 
 export type ProjectTeamSectionProps = {
@@ -306,3 +318,6 @@ export function ProjectRoundingNotice() {
     </Alert>
   )
 }
+
+/** Exported for unit tests only. */
+export const __testing = { memberLabel }
