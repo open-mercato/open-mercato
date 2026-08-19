@@ -1,6 +1,7 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { seedStaffAddressTypes, seedStaffTeamExamples } from './lib/seeds'
+import { seedStaffTimeTrackingExamples } from './lib/timeTrackingSeeds'
 
 const TIMESHEETS_DASHBOARD_WIDGET_IDS = [
   'staff.timesheets.timeReporting',
@@ -22,6 +23,9 @@ export const setup: ModuleSetupConfig = {
   seedExamples: async (ctx) => {
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     await seedStaffTeamExamples(ctx.em, scope)
+    // Runs after the team examples because every project it staffs, every task it
+    // assigns and every hour it logs points at a staff member those seeds create.
+    await seedStaffTimeTrackingExamples(ctx.em, scope)
   },
 
   defaultRoleFeatures: {

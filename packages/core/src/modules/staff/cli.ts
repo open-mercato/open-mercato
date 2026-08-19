@@ -2,6 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedStaffActivityTypes, seedStaffAddressTypes, seedStaffTeamExamples, type StaffSeedScope } from './lib/seeds'
+import { seedStaffTimeTrackingExamples } from './lib/timeTrackingSeeds'
 import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 
 const TIMESHEETS_DASHBOARD_WIDGET_IDS = [
@@ -44,6 +45,40 @@ const seedExamplesCommand: ModuleCli = {
         await seedStaffTeamExamples(tem, scope)
       })
       console.log('🧩 Staff team examples seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+const seedTimeTrackingExamplesCommand: ModuleCli = {
+  command: 'seed-time-tracking-examples',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato staff seed-time-tracking-examples --tenant <tenantId> --org <organizationId>')
+      console.error('Seeds demo projects, tasks, logged hours and reports for the time-tracking suite.')
+      process.exit(1)
+      return
+    }
+    const container = await createRequestContainer()
+    const scope: StaffSeedScope = { tenantId, organizationId }
+    try {
+      const em = container.resolve<EntityManager>('em')
+      const seeded = await em.transactional(async (tem) => {
+        await seedStaffTeamExamples(tem, scope)
+        return seedStaffTimeTrackingExamples(tem, scope)
+      })
+      if (seeded) {
+        console.log('⏱️  Time-tracking demo data seeded for organization', organizationId)
+      } else {
+        console.log('Time-tracking demo data already present; skipping')
+      }
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -140,4 +175,10 @@ const seedTimesheetsWidgetsCommand: ModuleCli = {
   },
 }
 
-export default [seedActivityTypesCommand, seedAddressTypesCommand, seedExamplesCommand, seedTimesheetsWidgetsCommand]
+export default [
+  seedActivityTypesCommand,
+  seedAddressTypesCommand,
+  seedExamplesCommand,
+  seedTimeTrackingExamplesCommand,
+  seedTimesheetsWidgetsCommand,
+]
