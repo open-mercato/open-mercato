@@ -1,4 +1,4 @@
-import { apiCall, withScopedApiRequestHeaders } from '../apiCall'
+import { apiCall, withScopedApiRequestBody, withScopedApiRequestHeaders } from '../apiCall'
 
 describe('withScopedApiRequestHeaders', () => {
   const originalFetch = (globalThis as { fetch?: typeof fetch }).fetch
@@ -54,5 +54,52 @@ describe('withScopedApiRequestHeaders', () => {
     const headers = new Headers((call?.[1] as RequestInit | undefined)?.headers)
     expect(headers.get('x-first-scope')).toBeNull()
     expect(headers.get('x-second-scope')).toBe('second')
+  })
+})
+
+describe('withScopedApiRequestBody', () => {
+  const originalFetch = (globalThis as { fetch?: typeof fetch }).fetch
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    ;(globalThis as { fetch?: jest.Mock }).fetch = jest.fn(async () => new Response('{}', { status: 200 }))
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    ;(globalThis as { fetch?: typeof fetch }).fetch = originalFetch
+  })
+
+  test('merges the scoped payload into JSON requests and restores nested scopes', async () => {
+    await withScopedApiRequestBody({ relations: { relatedPersonId: 'person-1' } }, async () => {
+      await withScopedApiRequestBody({ relations: { relationType: 'father' } }, async () => {
+        await apiCall('/api/test', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'Alex' }),
+        })
+      })
+      await apiCall('/api/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Jordan' }),
+      })
+    })
+    await apiCall('/api/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Taylor' }),
+    })
+
+    const calls = ((globalThis as { fetch?: jest.Mock }).fetch as jest.Mock).mock.calls
+    expect(JSON.parse(calls[0][1].body)).toMatchObject({
+      name: 'Alex',
+      __omWidgetPayload: { relations: { relatedPersonId: 'person-1', relationType: 'father' } },
+    })
+    expect(JSON.parse(calls[1][1].body)).toMatchObject({
+      name: 'Jordan',
+      __omWidgetPayload: { relations: { relatedPersonId: 'person-1' } },
+    })
+    expect(JSON.parse(calls[2][1].body)).toEqual({ name: 'Taylor' })
   })
 })

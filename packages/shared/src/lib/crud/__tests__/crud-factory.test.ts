@@ -1240,6 +1240,46 @@ describe('CRUD Factory', () => {
     })
   })
 
+  it('POST exposes CrudForm widget payload to interceptors but never persists it', async () => {
+    let beforeBody: Record<string, unknown> | undefined
+    let afterBody: Record<string, unknown> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.capture-widget-payload',
+          targetRoute: 'example/todos',
+          methods: ['POST'],
+          async before(request) {
+            beforeBody = request.body
+            return { ok: true }
+          },
+          async after(request) {
+            afterBody = request.body
+            return {}
+          },
+        }],
+      },
+    ])
+
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Widget-backed item',
+        __omWidgetPayload: { relations: { relatedPersonId: 'person-1', relationType: 'father' } },
+      }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(beforeBody?.__omWidgetPayload).toEqual({
+      relations: { relatedPersonId: 'person-1', relationType: 'father' },
+    })
+    expect(afterBody?.__omWidgetPayload).toEqual(beforeBody?.__omWidgetPayload)
+    expect(db['id-1']).toEqual(expect.objectContaining({ title: 'Widget-backed item' }))
+    expect(db['id-1']).not.toHaveProperty('__omWidgetPayload')
+  })
+
   it('GET response is augmented by interceptor after hook', async () => {
     registerApiInterceptors([
       {

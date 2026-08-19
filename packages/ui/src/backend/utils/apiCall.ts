@@ -3,6 +3,11 @@
 import { apiFetch } from './api'
 import { raiseCrudError, readJsonSafe } from './serverErrors'
 import { createScopedHeaderStack } from './scopedHeaderStack'
+import {
+  CRUD_WIDGET_PAYLOAD_KEY,
+  mergeCrudWidgetPayload,
+  type CrudWidgetPayload,
+} from '@open-mercato/shared/lib/crud/widget-payload'
 
 export type ApiCallOptions<TReturn> = {
   parse?: (res: Response) => Promise<TReturn | null>
@@ -18,6 +23,36 @@ export type ApiCallResult<TReturn> = {
 }
 
 const scopedRequestHeaders = createScopedHeaderStack()
+const scopedRequestBodies: CrudWidgetPayload[] = []
+
+function resolveScopedApiRequestBody(): CrudWidgetPayload | undefined {
+  if (!scopedRequestBodies.length) return undefined
+  let result: CrudWidgetPayload | undefined
+  for (const body of scopedRequestBodies) {
+    result = mergeCrudWidgetPayload(result, body)
+  }
+  return result
+}
+
+function withScopedWidgetPayload(init: RequestInit | undefined): RequestInit | undefined {
+  const scopedPayload = resolveScopedApiRequestBody()
+  if (!scopedPayload || typeof init?.body !== 'string') return init
+  let body: unknown
+  try {
+    body = JSON.parse(init.body)
+  } catch {
+    return init
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return init
+  const mergedBody = {
+    ...(body as Record<string, unknown>),
+    [CRUD_WIDGET_PAYLOAD_KEY]: mergeCrudWidgetPayload(
+      (body as Record<string, unknown>)[CRUD_WIDGET_PAYLOAD_KEY],
+      scopedPayload,
+    ),
+  }
+  return { ...init, body: JSON.stringify(mergedBody) }
+}
 
 function isAbortError(error: unknown): boolean {
   return typeof error === 'object'
@@ -60,6 +95,19 @@ export async function withScopedApiRequestHeaders<T>(
   return scopedRequestHeaders.withScopedHeaders(headers, run)
 }
 
+export async function withScopedApiRequestBody<T>(
+  widgetPayload: CrudWidgetPayload,
+  run: () => Promise<T>,
+): Promise<T> {
+  scopedRequestBodies.push(widgetPayload)
+  try {
+    return await run()
+  } finally {
+    const index = scopedRequestBodies.lastIndexOf(widgetPayload)
+    if (index >= 0) scopedRequestBodies.splice(index, 1)
+  }
+}
+
 export async function apiCall<TReturn = Record<string, unknown>>(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -69,7 +117,7 @@ export async function apiCall<TReturn = Record<string, unknown>>(
   const requestInit = Object.keys(scopedHeaders).length > 0
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scopedHeaders) }
     : init
-  const response = await apiFetch(input, requestInit)
+  const response = await apiFetch(input, withScopedWidgetPayload(requestInit))
   const parser = options?.parse
   const fallback = options?.fallback ?? null
   let result: TReturn | null = null

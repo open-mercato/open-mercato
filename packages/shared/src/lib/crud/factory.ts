@@ -75,6 +75,12 @@ import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
 import { isTransientDbError } from '../db/pg-errors'
+import {
+  addCrudWidgetPayload,
+  isRecord,
+  stripCrudWidgetPayload,
+  CRUD_WIDGET_PAYLOAD_KEY,
+} from './widget-payload'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -2319,18 +2325,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const createConfig = opts.create
       if (!createConfig) throw new Error('Create configuration missing')
 
-      let input = createConfig.schema.parse(body)
+      const parsedBody = createConfig.schema.parse(body)
+      const widgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
+      let input = parsedBody
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
         method: 'POST',
-        body: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+        body: input && typeof input === 'object'
+          ? addCrudWidgetPayload(input as Record<string, unknown>, widgetPayload)
+          : undefined,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload
       interceptorMetadata = beforeInterceptors.metadataByInterceptor
       if (interceptorRequestPayload.body) {
-        input = createConfig.schema.parse(interceptorRequestPayload.body)
+        input = createConfig.schema.parse(stripCrudWidgetPayload(interceptorRequestPayload.body))
       }
 
       // Sync before-event (*.creating)
@@ -2641,18 +2651,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const updateConfig = opts.update
       if (!updateConfig) throw new Error('Update configuration missing')
 
-      let input = updateConfig.schema.parse(body)
+      const parsedBody = updateConfig.schema.parse(body)
+      const widgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
+      let input = parsedBody
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
         method: 'PUT',
-        body: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+        body: input && typeof input === 'object'
+          ? addCrudWidgetPayload(input as Record<string, unknown>, widgetPayload)
+          : undefined,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload
       interceptorMetadata = beforeInterceptors.metadataByInterceptor
       if (interceptorRequestPayload.body) {
-        input = updateConfig.schema.parse(interceptorRequestPayload.body)
+        input = updateConfig.schema.parse(stripCrudWidgetPayload(interceptorRequestPayload.body))
       }
 
       // Sync before-event (*.updating)
