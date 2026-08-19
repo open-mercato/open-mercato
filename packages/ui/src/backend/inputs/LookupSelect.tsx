@@ -353,6 +353,33 @@ export function LookupSelect({
             </Button>
           ) : null}
         </div>
+      ) : value ? (
+        /*
+         * The visible input is the *search box*, not a value display: once the
+         * list closes it shows its placeholder again, so a selection made and
+         * then collapsed left the control looking empty even though the form
+         * held the id. `selectedHintLabel` existed for exactly this and was
+         * never rendered.
+         */
+        <div
+          className="flex items-center justify-between gap-3 rounded-lg border border-input bg-muted/40 px-3 py-2"
+          data-testid="lookup-select-selected"
+        >
+          <span className="truncate text-sm font-medium text-foreground">
+            {selectedHintLabel ? selectedHintLabel(value) : value}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1 text-sm font-normal"
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          >
+            <X className="h-4 w-4" />
+            {resolvedClearLabel}
+          </Button>
+        </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">
           {resolvedMinQueryHintLabel}

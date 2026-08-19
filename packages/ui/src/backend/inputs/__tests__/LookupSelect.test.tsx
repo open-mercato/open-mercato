@@ -163,3 +163,46 @@ describe('LookupSelect keyboard accessibility', () => {
     expect(escapeSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('LookupSelect selected value display', () => {
+  it('shows the selected item once the list is collapsed', () => {
+    // The visible input is the search box and reverts to its placeholder, so
+    // without this the control looked empty after a selection even though the
+    // form held the id — the user could not tell what they had picked.
+    render(
+      <LookupSelect
+        value="cust-1"
+        onChange={() => {}}
+        fetchItems={async () => []}
+        selectedHintLabel={(id) => (id === 'cust-1' ? 'ExcelMed' : id)}
+      />,
+    )
+
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
+  })
+
+  it('falls back to the raw id when no label resolver is given', () => {
+    render(<LookupSelect value="cust-1" onChange={() => {}} fetchItems={async () => []} />)
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('cust-1')
+  })
+
+  it('clears the selection from the collapsed summary', () => {
+    const onChange = jest.fn()
+    render(
+      <LookupSelect
+        value="cust-1"
+        onChange={onChange}
+        fetchItems={async () => []}
+        selectedHintLabel={() => 'ExcelMed'}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /clear/i }))
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('renders nothing selected when there is no value', () => {
+    render(<LookupSelect value={null} onChange={() => {}} fetchItems={async () => []} />)
+    expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+  })
+})
