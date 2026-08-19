@@ -25,19 +25,21 @@ Manufacturing owns production intent, semantic commands, derived posting lines, 
 | ID | Workstream | Status | Can start now? | Dependencies | Next step |
 |---|---|---|---|---|---|
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Proposed architectural baseline; review pending | Specification/refinement only | Parent roadmap | Obtain maintainer/community acceptance and keep downstream specifications aligned with the accepted roadmap laws |
-| P1.1 | Decouple WMS from Sales through candidate `wms_sales` | Option B proposed; specification not authored | Yes, as specification work; packaging gate, not first-MVP blocker | Backward-compatibility plan | Author the optional integration, compatibility bridge and disabled-module contract; preserve current Sales behavior |
-| P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete — baseline acceptance and readiness review pending | Readiness review after baseline acceptance; implementation after pass | Tenant and organisation scope invariants | Accept the baseline, run readiness review, then implement inactive-by-default Sites and safe warehouse-role activation rules |
-| P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete — baseline acceptance and readiness review pending | Readiness review after baseline acceptance; implementation after pass | Current Catalog UoM contract | Accept the baseline, finalise the resolver contract and compatibility coverage before quantity-bearing Manufacturing contracts freeze |
-| P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | Design complete — baseline acceptance and readiness review pending; non-critical WMS backlog | Data audit/spec refinement now; implementation after P1.3a readiness | P1.3a | Measure production data shape, choose the precision envelope, and ship an additive migration before stock execution |
-| P1.3c | Add immutable WMS quantity evidence and correlated reversal | Design complete — baseline acceptance and readiness review pending | Spec refinement after P1.3b; implementation after readiness | P1.3a–P1.3b | Implement quantity snapshots and exact, correlated reversal before stock execution |
-| P1.4 | Author draft multi-level BOMs | Planned | After roadmap acceptance and a dedicated ready spec | Catalog references; P1.3a before stable quantity contracts | Author the implementation-level data/API/UI specification for editable recursive drafts with distinct occurrences; release remains gated |
-| P1.5 | Author draft routings and operations | Planned | After roadmap acceptance and a dedicated ready spec | Existing resource references; P1.6 before the stable release contract | Author the implementation-level specification for an optional single-sequence routing draft without scheduling semantics |
-| P1.6 | Establish the work-centre extension boundary | Planned | Specification work pending baseline acceptance | P1.0 | Finalise resource and calendar ownership |
-| P1.7 | Define the released-definition lifecycle and immutable snapshots | Planned | Specification work pending baseline acceptance | P1.2, P1.3a, P1.6 | Freeze multi-level child revisions at definition release and create the execution snapshot at order release |
-| P1.8 | Define the generic WMS posting group and Manufacturing adapter | Planned; critical stock gate | Specification/benchmark work pending baseline acceptance | P1.2, P1.3a–P1.3c | Specify generic atomic physical lines and opaque source/reason references; `manufacturing_discrete` derives issue, return, backflush, output, scrap, and reversal semantics |
-| P1.9 | Define minimum Manufacturing facts and confirmations | Planned; spike possible | Specification or explicitly non-shippable spike pending baseline acceptance | P1.0; stock correlation needs P1.8 | Define an append-only fact table and a basic idempotent UI/API confirmation command |
-| P1.10 | Add the first discrete production-order lifecycle | Blocked as a shippable feature | No | P1.2, P1.3a, P1.7, P1.9 | Ship draft → released → in-progress → completed/cancelled without depending on advanced numbering or planning |
-| P1.11 | Add stock-affecting production execution | Blocked | No | P1.3b–P1.3c, P1.8–P1.10 | Do not begin implementation before exact WMS posting/reversal is proven safe |
+| P1.0a | Bootstrap `@open-mercato/manufacturing` with `manufacturing_base` and `manufacturing_discrete` | [Skeleton authored; task #5387](https://github.com/open-mercato/open-mercato/issues/5387) | Yes, as specification work | Q1–Q3 and P1.0 acceptance before implementation | Resolve the skeleton's activation, dependency and export questions, then author the full bootstrap specification |
+| P1.1 | Decouple WMS from Sales through candidate `wms_sales` | Option B proposed; [spec task #5388](https://github.com/open-mercato/open-mercato/issues/5388) blocked on [decision #5260](https://github.com/open-mercato/open-mercato/issues/5260) | Yes, as audit/skeleton work; packaging gate, not first-MVP blocker | Backward-compatibility plan and #5260 | Author the optional integration, compatibility bridge and disabled-module contract after placement is decided; preserve current Sales behavior |
+| P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete; [readiness task #5389](https://github.com/open-mercato/open-mercato/issues/5389) open | Readiness audit now; implementation after baseline acceptance and pass | Tenant and organisation scope invariants | Run the formal readiness audit, then remediate critical findings before implementation |
+| P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete; [readiness task #5390](https://github.com/open-mercato/open-mercato/issues/5390) open | Readiness audit now; implementation after baseline acceptance and pass | Current Catalog UoM contract | Audit the resolver and compatibility surface before Manufacturing quantity contracts freeze |
+| P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | Design complete; [audit task #5391](https://github.com/open-mercato/open-mercato/issues/5391) open | Data audit/spec refinement now; implementation after P1.3a readiness | P1.3a | Measure representative/schema-supported data, choose the precision envelope, then plan an additive migration before stock execution |
+| P1.3c | Add immutable WMS quantity evidence and correlated reversal | Design complete; [readiness task #5392](https://github.com/open-mercato/open-mercato/issues/5392) open | Audit preparation after P1.3b | P1.3a–P1.3b | Audit quantity snapshots and exact correlated reversal before stock execution |
+| P1.4 | Author draft multi-level BOMs | [Spec task #5393](https://github.com/open-mercato/open-mercato/issues/5393) open | Skeleton/research now; implementation after roadmap acceptance and a ready spec | P1.0a, Catalog references; P1.3a before stable quantity contracts | Author the data/API/UI specification for editable recursive drafts with distinct occurrences; release remains gated |
+| P1.5 | Author draft routings and operations | [Spec task #5395](https://github.com/open-mercato/open-mercato/issues/5395) open | Preparation after P1.6 questions are known | P1.0a, P1.6 | Author the specification for an optional single-sequence routing draft without scheduling semantics |
+| P1.6 | Establish the work-centre extension boundary | [Spec task #5394](https://github.com/open-mercato/open-mercato/issues/5394) open | Skeleton/current-state audit now | P1.0a | Resolve resource cardinality, snapshot and planner-absent behavior |
+| P1.7 | Define the released-definition lifecycle and immutable definition snapshots | [Spec task #5396](https://github.com/open-mercato/open-mercato/issues/5396) open | Preparation only until upstream shapes stabilize | P1.2, P1.3a, P1.4, P1.5, P1.6 | Freeze child revisions and occurrence-preserving definition snapshots; stop before order release |
+| P1.8a | Define generic atomic WMS posting groups | [Spec task #5397](https://github.com/open-mercato/open-mercato/issues/5397) open; critical stock gate | WMS audit/benchmark and skeleton work | P1.2, P1.3a–P1.3c | Specify consumer-neutral atomic physical lines, opaque references, reversal and reconciliation without Manufacturing vocabulary |
+| P1.8b | Define the Manufacturing inventory posting adapter | [Spec task #5398](https://github.com/open-mercato/open-mercato/issues/5398) open | Semantic preparation only | P1.8a, P1.9, P1.10 | Translate issue, return, backflush, output, scrap and reversal intent into the generic WMS contract |
+| P1.9 | Define the minimum Manufacturing fact ledger | [Spec task #5399](https://github.com/open-mercato/open-mercato/issues/5399) open | Skeleton/spike pending baseline acceptance | P1.0a | Define append-only model-neutral facts, correction/idempotency primitives and opaque evidence references; no discrete confirmation UI |
+| P1.10 | Add the first discrete production-order lifecycle, execution snapshot and basic confirmations | [Spec task #5400](https://github.com/open-mercato/open-mercato/issues/5400) open; blocked as a shippable feature | Use-case preparation only | P1.2, P1.3a, P1.7, P1.9 | Specify top-level definition selection, immutable execution snapshot, lifecycle and stock-free confirmation/correction flow |
+| P1.11 | Add stock-affecting production execution | [Spec task #5401](https://github.com/open-mercato/open-mercato/issues/5401) open; blocked | Acceptance-scenario preparation only | P1.3b–P1.3c, P1.8a–P1.8b, P1.9–P1.10 | Do not begin implementation before exact WMS posting/reversal and adapter contracts are proven safe |
 | P1.12 | Cross-cutting readiness and integration coverage | Ongoing with each epic | Yes | Respective implementation | Add isolation, conflict, reversal, partial-failure, compatibility, and disabled-module coverage |
 | P1.13 | Add advanced production number ranges | Not authored; future necessary capability | Later; not an MVP gate | Basic production identities plus site/type requirements | Specify configurable order/batch/lot/serial formats, resets, block reservation, and offline allocation |
 
@@ -45,19 +47,21 @@ Manufacturing owns production intent, semantic commands, derived posting lines, 
 
 ```text
 Parallel foundation work
+  P1.0a Manufacturing package/module bootstrap
   P1.1 WMS–Sales decoupling (parallel packaging work; not a first-MVP gate)
   P1.2 WMS Site
   P1.3a Catalog/Sales quantity normalisation → P1.3b precision → P1.3c evidence/reversal
   P1.4 real draft BOM CRUD with occurrence identity, P1.5 optional sequential routing drafts, P1.6 work-centre boundary
 
 Foundation contracts
-  P1.2 + P1.3a + P1.6 → P1.7 released definitions and snapshots
-  P1.2 + P1.3a + P1.3b + P1.3c → P1.8 generic WMS posting group + Manufacturing adapter
-  P1.0 → P1.9 Manufacturing facts / ERP–MES confirmations; P1.8 supplies stock correlation before Gate C
+  P1.2 + P1.3a + P1.4 + P1.5 + P1.6 → P1.7 released definitions
+  P1.0a → P1.9 Manufacturing fact ledger
+  P1.2 + P1.3a + P1.3b + P1.3c → P1.8a generic WMS posting groups
 
 First shippable production flow
-  P1.2 + P1.3a + P1.7 + P1.9 → P1.10 production-order lifecycle
-  P1.3b + P1.3c + P1.8 + P1.10 → P1.11 stock-affecting execution
+  P1.2 + P1.3a + P1.7 + P1.9 → P1.10 lifecycle + execution snapshot + basic confirmations
+  P1.8a + P1.9 + P1.10 → P1.8b Manufacturing inventory adapter
+  P1.3b + P1.3c + P1.8b + P1.10 → P1.11 stock-affecting execution
 
 Later capability
   P1.13 configurable order/batch/lot/serial number ranges and offline allocation
@@ -117,14 +121,16 @@ If an official source is unavailable or a product does not document the relevant
 | [#5255 — Manufacturing domain and module architecture](https://github.com/open-mercato/open-mercato/issues/5255) | Issue | Open | Product and architecture discussion |
 | [#5256 — docs(manufacturing): add product roadmap](https://github.com/open-mercato/open-mercato/pull/5256) | Pull Request | Open | PR containing the Manufacturing roadmap documentation |
 | [#5260 — decouple WMS from Sales](https://github.com/open-mercato/open-mercato/issues/5260) | Issue | Open | Tracker for P1.1 |
+| [#5386 — Wave 0 specification readiness backlog](https://github.com/open-mercato/open-mercato/issues/5386) | Issue | Open | Parent tracker for specification and readiness work |
 
-The reviewed Manufacturing specifications do not currently link dedicated Issues or PRs for P1.2, P1.3a–P1.3c, P1.7–P1.9, or P1.13. Until a tracker exists, use the relevant specification as the source of detail; do not invent or hard-code tracker numbers.
+Child trackers are [#5387–#5401](https://github.com/open-mercato/open-mercato/issues/5386), linked as a task list from the parent Issue and from the relevant workstream rows. P1.12 has no separate tracker because its evidence matrix applies to every child. P1.13 remains deferred and has no Wave 0 MVP tracker.
 
 ## Source documents
 
 | Document | Role |
 |---|---|
 | [`2026-08-13-manufacturing-product-roadmap.md`](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md) | Proposed normative product roadmap, ownership model, architecture laws, and readiness gates; governing after repository acceptance |
+| [`2026-08-19-manufacturing-wave-0-specification-backlog.md`](../../.ai/specs/2026-08-19-manufacturing-wave-0-specification-backlog.md) | Owner-approved specification decomposition, readiness definitions, artifact plan and GitHub tracker structure |
 | [`waves-and-readiness.md`](waves-and-readiness.md) | Business capability waves and the evidence-linked Wave 0 specification-readiness dashboard |
 | [`2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`](../../.ai/specs/2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Workstream order and dependencies |
 | [`2026-08-13-wms-sites-and-warehouse-roles.md`](../../.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md) | P1.2 capability specification |

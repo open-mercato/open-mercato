@@ -55,7 +55,7 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 | Order | Work item | Artifact | Current state |
 |---|---|---|---|
 | 1 | P1.0 roadmap acceptance | Repository review evidence | Review pending in PR #5256 |
-| 2 | P1.0a Manufacturing package and module bootstrap | New specification | Missing |
+| 2 | P1.0a Manufacturing package and module bootstrap | New specification | Skeleton authored; Q1–Q3 open in #5387 |
 | 3 | P1.1 optional `wms_sales` integration | New specification | Issue #5260 exists; specification missing |
 | 4 | P1.2 WMS Sites and warehouse roles | Readiness analysis of existing specification | Design complete |
 | 5 | P1.3a Catalog quantity normalization | Readiness analysis of existing specification | Design complete |
@@ -129,10 +129,10 @@ The lanes describe contract-finalization order, not a ban on earlier skeletons o
 | P1.0 | Existing roadmap and repository review evidence | Maintainers/community | In progress | PR #5256 is accepted or revised |
 | P1.0a | `2026-08-19-manufacturing-package-module-bootstrap.md` | `@open-mercato/manufacturing` | Now | P1.0 namespace/package decision is accepted through repository review |
 | P1.1 | `2026-08-19-wms-sales-optional-integration.md` | Owner selected by #5260 | Code audit and skeleton now | #5260 selects Option A/B and, for B, module/package placement |
-| P1.2 | `analysis/ANALYSIS-2026-08-13-wms-sites-and-warehouse-roles.md` | WMS | Readiness audit now | P1.0 accepted and all critical findings remediated |
-| P1.3a | `analysis/ANALYSIS-2026-08-13-catalog-quantity-normalization.md` | Catalog | Readiness audit now | P1.0 accepted and all critical findings remediated |
-| P1.3b | `analysis/ANALYSIS-2026-08-13-wms-quantity-precision-alignment.md` | WMS | Real-data audit now | P1.3a ready; precision envelope selected from evidence; critical findings remediated |
-| P1.3c | `analysis/ANALYSIS-2026-08-13-wms-quantity-evidence-reversal.md` | WMS | Audit preparation now | P1.3b ready and storage/arithmetic envelope frozen |
+| P1.2 | `analysis/ANALYSIS-2026-08-19-wms-sites-and-warehouse-roles.md` | WMS | Readiness audit now | P1.0 accepted and all critical findings remediated |
+| P1.3a | `analysis/ANALYSIS-2026-08-19-catalog-quantity-normalization.md` | Catalog | Readiness audit now | P1.0 accepted and all critical findings remediated |
+| P1.3b | `analysis/ANALYSIS-2026-08-19-wms-quantity-precision-alignment.md` | WMS | Real-data audit now | P1.3a ready; precision envelope selected from evidence; critical findings remediated |
+| P1.3c | `analysis/ANALYSIS-2026-08-19-wms-quantity-evidence-reversal.md` | WMS | Audit preparation now | P1.3b ready and storage/arithmetic envelope frozen |
 | P1.4 | `2026-08-19-manufacturing-discrete-bom-drafts.md` | `manufacturing_discrete` | Skeleton/research now | P1.0a package contract and P1.3a quantity contract ready |
 | P1.6 | `2026-08-19-manufacturing-work-centres.md` | `manufacturing_base` with `resources` input | Skeleton/code audit now | Ownership, resource cardinality, snapshot and planner-absent behavior resolved |
 | P1.5 | `2026-08-19-manufacturing-discrete-routing-drafts.md` | `manufacturing_discrete` | Skeleton after P1.6 questions are known | P1.6 Work Center contract ready |
@@ -265,15 +265,27 @@ After this backlog is approved, the roadmap, execution plan, README and readines
 
 ## GitHub Tracking Structure
 
-After this backlog is approved:
+Tracking was created on 2026-08-19. [Issue #5386](https://github.com/open-mercato/open-mercato/issues/5386) is the parent specification-readiness tracker; #5255/#5256 remain the architecture discussion/review evidence and #5260 remains the unresolved P1.1 decision tracker.
 
-1. create one parent Issue for Manufacturing Wave 0 specification readiness;
-2. retain #5255/#5256 as the architecture decision and review evidence;
-3. retain #5260 as the P1.1 decision tracker and update its stale roadmap filename/namespace only in a separately authorized Issue edit;
-4. create one child Issue per new specification and one per existing-spec readiness report;
-5. make every child link its work-item ID, owner, planned artifact, upstream dependencies, start/finalization gates and P1.12 evidence categories;
-6. do not create an implementation Issue until its specification is implementation-ready, or keep implementation tasks explicitly blocked beneath the spec Issue;
-7. update `docs/manufacturing/README.md` and `waves-and-readiness.md` whenever an Issue, specification, readiness verdict or implementation state changes.
+| Work item | Tracker |
+|---|---|
+| P1.0a | [#5387](https://github.com/open-mercato/open-mercato/issues/5387) |
+| P1.1 | [#5388](https://github.com/open-mercato/open-mercato/issues/5388), gated by [#5260](https://github.com/open-mercato/open-mercato/issues/5260) |
+| P1.2 | [#5389](https://github.com/open-mercato/open-mercato/issues/5389) |
+| P1.3a | [#5390](https://github.com/open-mercato/open-mercato/issues/5390) |
+| P1.3b | [#5391](https://github.com/open-mercato/open-mercato/issues/5391) |
+| P1.3c | [#5392](https://github.com/open-mercato/open-mercato/issues/5392) |
+| P1.4 | [#5393](https://github.com/open-mercato/open-mercato/issues/5393) |
+| P1.6 | [#5394](https://github.com/open-mercato/open-mercato/issues/5394) |
+| P1.5 | [#5395](https://github.com/open-mercato/open-mercato/issues/5395) |
+| P1.7 | [#5396](https://github.com/open-mercato/open-mercato/issues/5396) |
+| P1.8a | [#5397](https://github.com/open-mercato/open-mercato/issues/5397) |
+| P1.8b | [#5398](https://github.com/open-mercato/open-mercato/issues/5398) |
+| P1.9 | [#5399](https://github.com/open-mercato/open-mercato/issues/5399) |
+| P1.10 | [#5400](https://github.com/open-mercato/open-mercato/issues/5400) |
+| P1.11 | [#5401](https://github.com/open-mercato/open-mercato/issues/5401) |
+
+Every child records its work-item ID, owner, planned artifact, upstream dependencies, start/finalization gates and P1.12 evidence obligation. Do not create an implementation Issue until its specification is implementation-ready, or keep implementation tasks explicitly blocked beneath the spec Issue. Update `docs/manufacturing/README.md` and `waves-and-readiness.md` whenever a specification, readiness verdict or implementation state changes.
 
 ## Risks and Impact Review
 
@@ -365,3 +377,4 @@ After this backlog is approved:
 - 2026-08-19: Added dependency lanes, planned filenames, readiness definitions, the P1.12 evidence matrix, current-state audits, first authoring batch, tracking structure, risks and compliance review.
 - 2026-08-19: Scope-cohesion review narrowed P1.7 to definition release and P1.9 to the model-neutral fact ledger; moved order-release execution snapshots and basic discrete confirmations into P1.10 and recorded the required parent-document alignment.
 - 2026-08-19: Final self-review made P1.4/P1.5 explicit prerequisites of P1.7 and added the formal overview, problem, solution, applicability and delivery-phase sections.
+- 2026-08-19: Owner approved the backlog; created parent tracker #5386 and child specification/readiness trackers #5387–#5401, then aligned their artifact paths and governance state.

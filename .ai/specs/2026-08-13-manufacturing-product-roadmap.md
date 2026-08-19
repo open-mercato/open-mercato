@@ -38,6 +38,7 @@ The roadmap is intentionally self-contained. Supporting documents refine deliver
 |---|---|---|
 | This roadmap | Product boundaries, architecture laws, capability landscape, and Wave 0 gates | Proposed normative source; becomes governing after repository acceptance |
 | [`2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`](2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Delivery-oriented grouping and dependency order for Wave 0 work | Execution companion |
+| [`2026-08-19-manufacturing-wave-0-specification-backlog.md`](2026-08-19-manufacturing-wave-0-specification-backlog.md) | Specification decomposition, authoring order, readiness evidence and GitHub tracking | Owner-approved planning companion; product implementation remains gated by this roadmap's repository review |
 | [`2026-08-13-wms-sites-and-warehouse-roles.md`](2026-08-13-wms-sites-and-warehouse-roles.md) | P1.2 WMS-owned site identity and warehouse-role assignments | Capability specification |
 | [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) | P1.3a Catalog quantity normalization | Capability specification |
 | [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) | P1.3b WMS precision and profile alignment | Capability specification |
@@ -197,7 +198,7 @@ The built-in WMS provider commits all movements in one posting group or none. A 
 
 Backflush is a first-class Manufacturing mode, not a WMS movement type. On operation/order completion, Manufacturing calculates cumulative-delta component issues from accepted `good + scrap`, fixed-consumption state, prior net postings, and the immutable occurrence snapshot. It submits those concrete issue lines and the output receipt as one generic WMS posting group and reverses the exact persisted lines symmetrically. No production-specific issue/return/scrap/output/backflush values are hard-coded into WMS enums; `manual` and `adjust` must never stand in for a normal domain posting.
 
-P1.8 must define the opaque reference/reason registration and historical-display fallback before implementation. An optional consumer may register translated labels for its reference and reason codes, but WMS must retain a durable fallback snapshot or raw namespaced code so historical movements remain intelligible when that consumer is disabled or uninstalled. Registration improves presentation and validation at write time; it does not give WMS ownership of consumer semantics.
+P1.8a must define the opaque reference/reason registration and historical-display fallback before implementation. An optional consumer may register translated labels for its reference and reason codes, but WMS must retain a durable fallback snapshot or raw namespaced code so historical movements remain intelligible when that consumer is disabled or uninstalled. Registration improves presentation and validation at write time; it does not give WMS ownership of consumer semantics.
 
 In the MVP an output lot/serial value is supplied explicitly by the user or integration before receipt, and WMS records and validates uniqueness. Automatic generation, configurable formats/resets, pre-assigned offline pools, and block allocation belong to later P1.13.
 
@@ -209,7 +210,7 @@ The existing `wms` hard requirement on `sales` does not block the first MVP in t
 
 ### 5. UoM precision and immutable conversions
 
-Catalog remains the UoM master. P1.3 is delivered through three specifications: [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) freezes variant policy and exact normalization; the WMS-owned [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) aligns WMS storage, arithmetic, and profile identity; and the WMS-owned [`2026-08-13-wms-quantity-evidence-reversal.md`](2026-08-13-wms-quantity-evidence-reversal.md) adds provider-neutral immutable evidence and correlated exact reversal. The latter two record an existing WMS inconsistency and are non-critical backlog for current Catalog/Sales/WMS operation: they do not block Site, draft BOM/routing, kernel, or non-stock order work. They remain mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production. The detailed core spec consumes the accepted contracts rather than redefining them. The first discrete core owns its bounded `yieldFactor` rule; broader process loss, potency, tolerance, and variance policies remain with their specialist manufacturing capabilities.
+Catalog remains the UoM master. P1.3 is delivered through three specifications: [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) freezes variant policy and exact normalization; the WMS-owned [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) aligns WMS storage, arithmetic, and profile identity; and the WMS-owned [`2026-08-13-wms-quantity-evidence-reversal.md`](2026-08-13-wms-quantity-evidence-reversal.md) adds provider-neutral immutable evidence and correlated exact reversal. The latter two record an existing WMS inconsistency and are non-critical backlog for current Catalog/Sales/WMS operation: they do not block Site, draft BOM/routing, kernel, or non-stock order work. They remain mandatory before P1.8a freezes stock-posting payloads or P1.11 enables stock-affecting production. The detailed core spec consumes the accepted contracts rather than redefining them. The first discrete core owns its bounded `yieldFactor` rule; broader process loss, potency, tolerance, and variance policies remain with their specialist manufacturing capabilities.
 
 The current Catalog precision and WMS `numeric(16,4)` storage already differ. P1.3a must freeze canonical normalization before a BOM or order quantity schema freezes. P1.3b–c track the existing WMS inconsistency as non-critical WMS backlog for current and non-stock work, but they must align storage/evidence before production posts inventory so the new module does not amplify that debt.
 
@@ -424,10 +425,10 @@ Before P1.10 releases an executable order:
 
 1. P1.2 provides inactive-by-default WMS Sites, required raw-material/finished-goods defaults, one-active-site-per-warehouse semantics, scoping, and immutable consumer snapshots.
 2. P1.3a is accepted for exact definition/order quantities.
-3. P1.6 defines minimal work centres; calendars and finite scheduling remain optional.
-4. P1.7 defines atomic definition release, child-revision selection, occurrence-preserving multi-level snapshots, cycle rejection, optional sequential routing, and order release by `plannedStartDate`.
-5. P1.9 defines normal order/operation entities plus the append-only fact table and the basic idempotent confirmation/correction lifecycle.
-6. `manufacturing_discrete` provides UUID identity and a simple concurrency-safe site-scoped order display number.
+3. P1.4/P1.5 provide the accepted BOM/routing definition contracts, and P1.6 defines minimal work centres; calendars and finite scheduling remain optional.
+4. P1.7 defines atomic definition release, child-revision selection, occurrence-preserving immutable definition snapshots, cycle rejection and optional sequential routing.
+5. P1.9 defines the Manufacturing-model-neutral append-only fact ledger, acceptance/correction/idempotency primitives and opaque evidence references.
+6. P1.10 defines normal discrete order/operation entities, selects the top-level definition by `plannedStartDate`, persists the execution and warehouse-role snapshots, provides UUID identity plus a simple concurrency-safe site-scoped display number, and owns the basic stock-free confirmation/correction lifecycle.
 7. Cross-scope, optimistic-lock, audit, backward-compatibility, and self-contained API/UI integration tests pass.
 
 P1.1 WMS–Sales decoupling is not a blocker for the first standard composition that includes Sales. It remains a gate before claiming or packaging standalone WMS/Manufacturing operation without Sales.
@@ -438,9 +439,10 @@ Before P1.11 issues, backflushes, returns, scraps, receives output, or reverses 
 
 1. P1.3b proves non-narrowing WMS precision and exact authoritative arithmetic.
 2. P1.3c proves immutable quantity evidence plus exact, correlated full/partial reversal.
-3. P1.8 provides the built-in atomic WMS posting group, stable posting IDs, persistent idempotency, exact reversal, and on-demand reconciliation.
-4. WMS basic status/expiry availability excludes ineligible stock; no external QMS provider is required.
-5. Reference tests cover fractional conversion, cumulative partial completion, fixed consumption, yield, `good + scrap`, duplicate requests, rollback, reversal, and scope isolation.
+3. P1.8a provides the built-in generic atomic WMS posting group, stable posting IDs, persistent idempotency, exact reversal, on-demand reconciliation and opaque consumer references without Manufacturing vocabulary.
+4. P1.8b translates P1.10 discrete execution/confirmation intent into P1.8a physical lines and correlates the result through the P1.9 fact writer.
+5. WMS basic status/expiry availability excludes ineligible stock; no external QMS provider is required.
+6. Reference tests cover fractional conversion, cumulative partial completion, fixed consumption, yield, `good + scrap`, duplicate requests, rollback, reversal, and scope isolation.
 
 ### Deferred readiness gates
 
@@ -460,10 +462,12 @@ The following do not block the first production flow and receive dedicated speci
 | Draft quantities | Catalog | Exact normalization and immutable snapshot contract | P1.3a design complete — readiness review pending |
 | WMS Site | WMS | Scope, activation roles, one-active-site-per-warehouse, snapshots, migration, setup UI | P1.2 design complete — readiness review pending |
 | Work centres | `resources`, `planner`, Manufacturing | Minimal work-centre/resource boundary and optional sequential routing | Not authored |
-| Released definitions | `manufacturing_base` and `manufacturing_discrete` | Lifecycle, child selection, occurrence snapshots, cycle validation, fixed/variable/yield semantics | Not authored |
-| Minimum facts/confirmations | `manufacturing_base` | Append-only fact table, basic partial/final/scrap/idempotency/correction contract | Not authored |
+| Released definitions | `manufacturing_base` and `manufacturing_discrete` | Lifecycle, child selection, immutable definition snapshots, cycle validation, fixed/variable/yield semantics; order release is excluded | Not authored; tracked by #5396 |
+| Minimum fact ledger | `manufacturing_base` | Append-only model-neutral facts, acceptance/correction/idempotency primitives and opaque evidence references | Not authored; tracked by #5399 |
+| Discrete order lifecycle and confirmations | `manufacturing_discrete` | Order/operation state, top-level definition selection, execution snapshot, simple display number and basic stock-free confirmations/corrections | Not authored; tracked by #5400 |
 | Exact WMS execution | Catalog and WMS | P1.3b precision plus P1.3c evidence/reversal | P1.3b–c design complete — readiness reviews pending |
-| Generic WMS posting group plus Manufacturing adapter | WMS and `manufacturing_discrete` | Generic atomic physical lines, opaque source/reason references, Manufacturing-derived issue/return/backflush/output/scrap semantics, exact reversal and reconciliation | Not authored |
+| Generic WMS posting groups | WMS | Atomic physical lines, opaque source/reason references, exact reversal and reconciliation without Manufacturing vocabulary | Not authored; P1.8a tracked by #5397 |
+| Manufacturing inventory adapter | `manufacturing_discrete` | Manufacturing-derived issue/return/backflush/output/scrap semantics over the generic WMS provider and fact writer | Not authored; P1.8b tracked by #5398 |
 | Standalone packaging | WMS and candidate `wms_sales` integration | P1.1 optional integration module with compatibility bridge | Direction proposed; implementation spec not authored; not first-MVP blocker |
 
 One explicitly non-shippable validation spike (single site, single discrete order, explicit issue, cumulative backflush, output receipt, minimum facts, and reversal through one atomic WMS posting group) MAY validate the hardest stock contracts before they freeze. It is throwaway and never becomes a de-facto contract.
@@ -777,6 +781,7 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - 2026-08-19: Replaced production-specific WMS operations/enums with a generic atomic posting-group contract. Manufacturing now derives issue/backflush/output/scrap lines and owns semantic facts; WMS validates and records physical effects plus opaque source/reason references and durable display fallback. Added the five-product official-source benchmark for this boundary.
 - 2026-08-19: Corrected governance wording from self-approved/binding to a proposed roadmap under maintainer and community review; implementation still requires accepted specs and readiness evidence.
 - 2026-08-19: Selected candidate P1.1 Option B for review: Sales-specific WMS glue moves to optional `wms_sales`, which requires both domains and preserves existing behavior through a compatibility bridge.
+- 2026-08-19: Aligned Wave 0 work-item cohesion with the approved specification backlog: P1.7 owns definition release, P1.9 owns the model-neutral fact ledger, P1.10 owns discrete order release/execution snapshots/basic confirmations, and P1.8 is tracked as generic WMS P1.8a plus Manufacturing adapter P1.8b.
 
 ### Review - 2026-08-13
 
