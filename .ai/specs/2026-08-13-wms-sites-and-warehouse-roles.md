@@ -10,11 +10,11 @@ The release provides command-backed CRUD APIs, backend management UI, ACL, event
 
 ## Overview
 
-**Status:** Design complete — readiness review pending for P1.2 implementation.
+**Status:** Design complete — parent-roadmap acceptance and readiness review pending for P1.2 implementation.
 
 **Parent documents:**
 
-- `2026-08-13-production-module-architecture-roadmap.md`, Wave 0 gate #1;
+- `2026-08-13-manufacturing-product-roadmap.md`, Wave 0 gate #1;
 - `2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`, P1.2.
 
 ## Problem Statement
@@ -84,10 +84,10 @@ Assignments describe current configuration only. Changing a default does not mov
 | Tenant and organization hierarchy | `directory` | Existing isolation and RBAC scope |
 | Site identity and current site-to-warehouse roles | `wms` | Stable factory context backed by current inventory topology |
 | Warehouse, location, stock, lots, serials, reservations, movements | `wms` | Existing physical inventory authority |
-| Future definition/order references | `manufacturing` / `production` | Scalar `siteId` plus immutable site/warehouse-role snapshots; no cross-module ORM relation |
+| Future definition/order references | `manufacturing_base` / `manufacturing_discrete` | Scalar `siteId` plus immutable site/warehouse-role snapshots; no cross-module ORM relation |
 | Future scheduled assignments | Dedicated follow-up specification | Additive temporal layer; must not reinterpret stored production snapshots |
 | Future timezone and calendars | `planner` plus a dedicated site/calendar contract | Added before a site is used by timezone-sensitive execution |
-| Basic production identity | Future `production` capability | UUID remains canonical; a simple concurrency-safe Site-scoped order display number is sufficient for MVP |
+| Basic production identity | Future `manufacturing_discrete` capability | UUID remains canonical; a simple concurrency-safe Site-scoped order display number is sufficient for MVP |
 | Advanced number ranges | Dedicated later capability | Formats, resets, generated lot/serial values, block reservation, and offline allocation are necessary future work, not a P1.2 or MVP gate |
 
 WMS must not import, require, or resolve Manufacturing to provide this capability. The optional consumer owns future integration glue and must degrade safely when absent.
@@ -435,7 +435,7 @@ The following are separate capabilities, not unfinished work inside P1.2:
 1. **Scheduled/effective-dated assignments:** allow an administrator to plan a default warehouse change for a future site-local date and query historical configuration as-of a date. The future design must define timezone, correction semantics, overlap constraints, migration from current assignments, and snapshot compatibility.
 2. **Site timezone and production calendars:** add timezone only when calendar, shift, MES timestamp, or execution semantics require it. Existing sites must be migrated/configured before timezone-sensitive execution is enabled.
 3. **Advanced production number ranges:** a later necessary capability defines configurable formats, resets, generated lot/serial identifiers, block reservation, and offline allocation. MVP may use UUID identity, a simple concurrency-safe Site-scoped order display number, and explicit lot/serial values validated by WMS.
-4. **Shared warehouses across active Sites:** a future `production_network` capability may define allocation, ownership, contention, and reporting semantics. MVP fails closed instead of guessing them.
+4. **Shared warehouses across active Sites:** a future `manufacturing_network` capability may define allocation, ownership, contention, and reporting semantics. MVP fails closed instead of guessing them.
 5. **Warehouse selection policy:** item-, operation-, capacity-, or routing-aware selection may extend explicit assignments later. Phase 1 provides only a deterministic default and explicit warehouse choice.
 
 ## Risks and Impact Review
@@ -449,7 +449,7 @@ The following are separate capabilities, not unfinished work inside P1.2:
 | One warehouse is activated under two Sites | High | Activation/mapping concurrency tests and stable conflict telemetry | Scoped transactional checks and locks; one active Site per warehouse while allowing multiple roles in that Site | Shared-site operation requires the later production-network contract |
 | Site identity is accidentally deleted through undo | High | Command regression tests and audit review | No DELETE command; create undo deactivates rather than deletes | Erroneous inactive records remain visible to administrators |
 | Parent optimistic-lock version is reused for a mapping | Medium | UI conflict tests | Mapping forms carry their own `updatedAt` | Custom future UI must preserve the rule |
-| Advanced numbering assumptions leak into P1.2 | Medium | Specification and API review | Keep UUID/basic order display numbering in `production`; defer formats, resets, generated lot/serial values, blocks, and offline allocation | Later capability must remain additive |
+| Advanced numbering assumptions leak into P1.2 | Medium | Specification and API review | Keep UUID/basic order display numbering in `manufacturing_discrete`; defer formats, resets, generated lot/serial values, blocks, and offline allocation | Later capability must remain additive |
 | Assignment enrichment becomes N+1 | Medium | Query-count integration test | One scoped batch warehouse lookup; no optional summary on site list | Very large assignment lists still require normal pagination |
 
 ## Final Compliance Report — 2026-08-13
@@ -504,7 +504,8 @@ The following are separate capabilities, not unfinished work inside P1.2:
 - 2026-08-13: Created the implementation specification for the minimal WMS-owned `Site` and warehouse-role model, replacing a premature standalone `sites` module proposal.
 - 2026-08-13: Review revision removed effective dating and timezone from Phase 1, made site identity non-deletable, allowed multiple warehouses per fixed role with one atomic default, normalized site codes, restricted assignments to active warehouses, removed business/API use of metadata, separated advanced number ranges into a follow-up capability, and completed API, transaction, undo, UI, testing, risk, and compliance contracts.
 - 2026-08-13: Added the proportional native UI baseline: complete canonical custom fields and CrudForm field injection for `Site`; closed assignments without custom fields; minimalist paginated DataTables with stable extension hosts but without search/filter/view/export/selection/bulk controls.
-- 2026-08-19: Made Sites inactive by default; required eligible `raw_material` and `finished_goods` defaults for activation; allowed one warehouse to serve multiple roles in one Site while limiting it to one active Site; moved shared active-Site warehouses to future `production_network`; and made advanced number ranges non-blocking for the bounded MVP.
+- 2026-08-19: Made Sites inactive by default; required eligible `raw_material` and `finished_goods` defaults for activation; allowed one warehouse to serve multiple roles in one Site while limiting it to one active Site; moved shared active-Site warehouses to future `manufacturing_network`; and made advanced number ranges non-blocking for the bounded MVP.
+- 2026-08-19: Aligned future module references with `manufacturing_base` and `manufacturing_discrete`; the design remains pending parent-roadmap acceptance and its own readiness review.
 
 ### Review — 2026-08-13
 
@@ -514,4 +515,4 @@ The following are separate capabilities, not unfinished work inside P1.2:
 - **Cache**: Passed; Phase 1 explicitly disables list caching.
 - **Commands**: Passed; all mutations, transaction boundaries, optimistic locking, default invariants, and undo outcomes are defined.
 - **Risks**: Passed; current-only history, stable identity, warehouse eligibility, concurrency, N+1, and deferred numbering are covered.
-- **Verdict**: Approved design pending pre-implementation evidence.
+- **Verdict**: Design complete, pending parent-roadmap acceptance and pre-implementation readiness evidence.

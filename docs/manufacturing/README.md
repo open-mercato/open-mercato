@@ -3,7 +3,7 @@
 > A single operational view of the Manufacturing programme. It links the product roadmap, delivery workstreams, capability specifications, and the relevant GitHub Issues and Pull Requests.
 
 **Last reviewed:** 2026-08-19
-**Programme status:** The product roadmap is approved. Draft BOM/routing authoring may proceed, but released orders and stock-affecting execution remain gated by their minimum safety contracts.
+**Programme status:** The product roadmap is an internally coherent proposal under maintainer and community review. It does not approve implementation. After acceptance, each slice may proceed only through a dedicated ready specification and its named safety gates.
 
 ## How to use this document
 
@@ -18,24 +18,24 @@
 
 First establish safe foundations: plant identity, warehouse-role rules, exact quantity and unit handling, versioned manufacturing definitions, and a WMS posting contract. Only then build an executable production-order lifecycle.
 
-Manufacturing owns production intent and production history. WMS remains the owner of physical stock, reservations, lots, serials, and inventory movements. The `production` module must not create a competing inventory ledger.
+Manufacturing owns production intent, semantic commands, derived posting lines, and production history. WMS remains the owner of physical stock, reservations, lots, serials, and inventory movements through a generic atomic posting-group contract. `manufacturing_discrete` must not create a competing inventory ledger, and WMS must not interpret Manufacturing definitions or calculate backflush.
 
 ## Current work overview
 
 | ID | Workstream | Status | Can start now? | Dependencies | Next step |
 |---|---|---|---|---|---|
-| P1.0 | Freeze Phase 1 boundaries and dependency semantics | Approved architectural baseline | Yes | Parent roadmap | Keep all downstream specifications aligned with the roadmap laws |
-| P1.1 | Decouple WMS from Sales | Specification not authored | Yes, as specification work; packaging gate, not first-MVP blocker | Backward-compatibility plan | Author the compatibility and disabled-module contract; preserve current Sales behavior through optional glue |
-| P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete — readiness review pending | Yes, after readiness review | Tenant and organisation scope invariants | Implement inactive-by-default Sites and safe warehouse-role activation rules |
-| P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete — readiness review pending | Yes | Current Catalog UoM contract | Finalise the resolver contract and compatibility coverage before quantity-bearing Manufacturing contracts freeze |
-| P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | Design complete — readiness review pending; non-critical WMS backlog | After P1.3a | P1.3a | Measure production data shape, choose the precision envelope, and ship an additive migration before stock execution |
-| P1.3c | Add immutable WMS quantity evidence and correlated reversal | Design complete — readiness review pending | After P1.3b | P1.3a–P1.3b | Implement quantity snapshots and exact, correlated reversal before stock execution |
-| P1.4 | Author draft multi-level BOMs | Planned | Yes, including draft CRUD/API/UI | Catalog references; P1.3a before stable quantity contracts | Implement editable recursive drafts with distinct occurrences; release remains gated |
-| P1.5 | Author draft routings and operations | Planned | Yes, including draft CRUD/API/UI | Existing resource references; P1.6 before the stable release contract | Implement an optional single-sequence routing draft without scheduling semantics |
-| P1.6 | Establish the work-centre extension boundary | Planned | Yes | P1.0 | Finalise resource and calendar ownership |
-| P1.7 | Define the released-definition lifecycle and immutable snapshots | Planned | Yes, as contract work | P1.2, P1.3a, P1.6 | Freeze multi-level child revisions at definition release and create the execution snapshot at order release |
-| P1.8 | Add the production-capable WMS posting contract | Planned; critical stock gate | Yes, as contract work | P1.2, P1.3a–P1.3c | Specify one built-in atomic batch for issue, return, backflush, output, scrap, and reversal |
-| P1.9 | Define minimum Manufacturing facts and confirmations | Planned; spike possible | Yes, as contract or spike work | P1.0; stock correlation needs P1.8 | Define an append-only fact table and a basic idempotent UI/API confirmation command |
+| P1.0 | Freeze Phase 1 boundaries and dependency semantics | Proposed architectural baseline; review pending | Specification/refinement only | Parent roadmap | Obtain maintainer/community acceptance and keep downstream specifications aligned with the accepted roadmap laws |
+| P1.1 | Decouple WMS from Sales through candidate `wms_sales` | Option B proposed; specification not authored | Yes, as specification work; packaging gate, not first-MVP blocker | Backward-compatibility plan | Author the optional integration, compatibility bridge and disabled-module contract; preserve current Sales behavior |
+| P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete — baseline acceptance and readiness review pending | Readiness review after baseline acceptance; implementation after pass | Tenant and organisation scope invariants | Accept the baseline, run readiness review, then implement inactive-by-default Sites and safe warehouse-role activation rules |
+| P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete — baseline acceptance and readiness review pending | Readiness review after baseline acceptance; implementation after pass | Current Catalog UoM contract | Accept the baseline, finalise the resolver contract and compatibility coverage before quantity-bearing Manufacturing contracts freeze |
+| P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | Design complete — baseline acceptance and readiness review pending; non-critical WMS backlog | Data audit/spec refinement now; implementation after P1.3a readiness | P1.3a | Measure production data shape, choose the precision envelope, and ship an additive migration before stock execution |
+| P1.3c | Add immutable WMS quantity evidence and correlated reversal | Design complete — baseline acceptance and readiness review pending | Spec refinement after P1.3b; implementation after readiness | P1.3a–P1.3b | Implement quantity snapshots and exact, correlated reversal before stock execution |
+| P1.4 | Author draft multi-level BOMs | Planned | After roadmap acceptance and a dedicated ready spec | Catalog references; P1.3a before stable quantity contracts | Author the implementation-level data/API/UI specification for editable recursive drafts with distinct occurrences; release remains gated |
+| P1.5 | Author draft routings and operations | Planned | After roadmap acceptance and a dedicated ready spec | Existing resource references; P1.6 before the stable release contract | Author the implementation-level specification for an optional single-sequence routing draft without scheduling semantics |
+| P1.6 | Establish the work-centre extension boundary | Planned | Specification work pending baseline acceptance | P1.0 | Finalise resource and calendar ownership |
+| P1.7 | Define the released-definition lifecycle and immutable snapshots | Planned | Specification work pending baseline acceptance | P1.2, P1.3a, P1.6 | Freeze multi-level child revisions at definition release and create the execution snapshot at order release |
+| P1.8 | Define the generic WMS posting group and Manufacturing adapter | Planned; critical stock gate | Specification/benchmark work pending baseline acceptance | P1.2, P1.3a–P1.3c | Specify generic atomic physical lines and opaque source/reason references; `manufacturing_discrete` derives issue, return, backflush, output, scrap, and reversal semantics |
+| P1.9 | Define minimum Manufacturing facts and confirmations | Planned; spike possible | Specification or explicitly non-shippable spike pending baseline acceptance | P1.0; stock correlation needs P1.8 | Define an append-only fact table and a basic idempotent UI/API confirmation command |
 | P1.10 | Add the first discrete production-order lifecycle | Blocked as a shippable feature | No | P1.2, P1.3a, P1.7, P1.9 | Ship draft → released → in-progress → completed/cancelled without depending on advanced numbering or planning |
 | P1.11 | Add stock-affecting production execution | Blocked | No | P1.3b–P1.3c, P1.8–P1.10 | Do not begin implementation before exact WMS posting/reversal is proven safe |
 | P1.12 | Cross-cutting readiness and integration coverage | Ongoing with each epic | Yes | Respective implementation | Add isolation, conflict, reversal, partial-failure, compatibility, and disabled-module coverage |
@@ -52,7 +52,7 @@ Parallel foundation work
 
 Foundation contracts
   P1.2 + P1.3a + P1.6 → P1.7 released definitions and snapshots
-  P1.2 + P1.3a + P1.3b + P1.3c → P1.8 production-capable WMS postings
+  P1.2 + P1.3a + P1.3b + P1.3c → P1.8 generic WMS posting group + Manufacturing adapter
   P1.0 → P1.9 Manufacturing facts / ERP–MES confirmations; P1.8 supplies stock correlation before Gate C
 
 First shippable production flow
@@ -63,7 +63,7 @@ Later capability
   P1.13 configurable order/batch/lot/serial number ranges and offline allocation
 ```
 
-The first safe increment is parallel work on P1.1, P1.2, P1.3a, real draft multi-level BOM/routing authoring, and the work-centre boundary. P1.10 and P1.11 are not implementation work to start now.
+The first safe increment after roadmap acceptance is parallel specification/readiness work on P1.1, P1.2, P1.3a, draft multi-level BOM/routing authoring, and the work-centre boundary. P1.10 and P1.11 are not implementation work to start now.
 
 ## Mandatory BOM rules
 
@@ -83,7 +83,7 @@ The first safe increment is parallel work on P1.1, P1.2, P1.3a, real draft multi
 ## First-core simplifications
 
 - Routing is optional and, when present, is one sequential path with basic setup/run time and work-centre/resource references. Calendars, parallel/alternate routings, overlap, setup matrices, and finite scheduling are later capabilities.
-- The first WMS implementation uses an atomic batch command. Durable saga support is reserved for external WMS providers.
+- The first WMS implementation uses a generic atomic posting-group command. `manufacturing_discrete` calculates the concrete physical lines, including cumulative backflush; WMS validates and records them without Manufacturing-specific enums. Durable saga support is reserved for external WMS providers.
 - Production orders use UUID identity plus a simple concurrency-safe site-scoped display number. Lot/serial values may be supplied explicitly and are validated by WMS. Advanced number ranges remain P1.13.
 - Basic WMS status/expiry rules own availability; full QMS and an external disposition provider are not required.
 - Order release creates no automatic stock reservation. An explicit optional WMS reservation may be requested; issue and backflush still recheck availability.
@@ -124,10 +124,10 @@ The reviewed Manufacturing specifications do not currently link dedicated Issues
 
 | Document | Role |
 |---|---|
-| [`2026-08-13-production-module-architecture-roadmap.md`](../../.ai/specs/2026-08-13-production-module-architecture-roadmap.md) | Normative product roadmap, ownership model, architecture laws, and readiness gates |
+| [`2026-08-13-manufacturing-product-roadmap.md`](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md) | Proposed normative product roadmap, ownership model, architecture laws, and readiness gates; governing after repository acceptance |
 | [`waves-and-readiness.md`](waves-and-readiness.md) | Business capability waves and the evidence-linked Wave 0 specification-readiness dashboard |
 | [`2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`](../../.ai/specs/2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Workstream order and dependencies |
-| [`2026-08-13-wms-production-sites.md`](../../.ai/specs/2026-08-13-wms-production-sites.md) | P1.2 capability specification |
+| [`2026-08-13-wms-sites-and-warehouse-roles.md`](../../.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md) | P1.2 capability specification |
 | [`2026-08-13-catalog-quantity-normalization.md`](../../.ai/specs/2026-08-13-catalog-quantity-normalization.md) | P1.3a capability specification |
 | [`2026-08-13-wms-quantity-precision-alignment.md`](../../.ai/specs/2026-08-13-wms-quantity-precision-alignment.md) | P1.3b capability specification |
 | [`2026-08-13-wms-quantity-evidence-reversal.md`](../../.ai/specs/2026-08-13-wms-quantity-evidence-reversal.md) | P1.3c capability specification |

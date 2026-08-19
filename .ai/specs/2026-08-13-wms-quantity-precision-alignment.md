@@ -8,11 +8,11 @@ It is independently deployable: WMS becomes safer for all inventory consumers ev
 
 ## Overview and Status
 
-**Status:** Design complete — readiness review pending.
+**Status:** Design complete — parent-roadmap acceptance and readiness review pending.
 
 **Roadmap classification:** P1.3b, WMS-owned backlog. It resolves an existing inconsistency and is non-critical for current WMS operation, Site, draft BOM/routing, kernel, and non-stock order work. It is mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production.
 
-**Dependency:** Accepted P1.3a exact decimal and Catalog resolver contract in `2026-08-13-catalog-quantity-normalization.md`.
+**Dependency:** The design-complete P1.3a exact decimal and Catalog resolver contract in `2026-08-13-catalog-quantity-normalization.md`; P1.3a must be accepted and ready before P1.3b implementation.
 
 **Successor:** `2026-08-13-wms-quantity-evidence-reversal.md`.
 
@@ -37,8 +37,8 @@ Consequences include silent database rounding, cumulative fractional drift, unst
 ### Out of scope
 
 - Quantity/UoM snapshots on individual reservations or movements.
-- `reversalOfMovementId`, remaining-reversible accounting, or production movement semantics.
-- New movement/reference enums for issue, output, scrap, or backflush.
+- `reversalOfMovementId`, remaining-reversible accounting, or Manufacturing semantic commands.
+- Generic posting groups, opaque source/reason registration, or any production-specific movement/reference enums.
 - Catalog/Sales normalization behavior, owned by P1.3a.
 - Site, BOM, production order, or MES behavior.
 
@@ -137,7 +137,7 @@ OpenAPI documents exact string additions and legacy numeric compatibility. Exist
 | Task | Deliverable | Evidence |
 |---|---|---|
 | B1 | Machine-readable WMS quantity surface/data inventory | All columns, routes, commands, imports, reports classified |
-| B2 | Final precision decision | Approved envelope with real-data magnitude/scale report |
+| B2 | Final precision decision | Accepted envelope with real-data magnitude/scale report |
 | B3 | ORM and additive widening migration | Reviewed SQL, snapshot update, before/after proof |
 | B4 | Exact input adapters and validators | Boundary, scale, malformed, and legacy-number tests |
 | B5 | Exact ledger arithmetic | Balance/reserve/allocate/release/receive/move/adjust/count tests |
@@ -200,6 +200,7 @@ Documentation validation uses `git diff --check` and `yarn agents:check-budget`.
 ## Changelog
 
 - 2026-08-13: Created P1.3b from the audited WMS precision/profile portion of the original quantity proposal.
+- 2026-08-19: Clarified that P1.3b remains generic WMS precision work and does not add posting groups, consumer registrations, or production-specific enums; aligned governance with pending parent-roadmap acceptance.
 
 ### Review — 2026-08-13
 
@@ -209,4 +210,4 @@ Documentation validation uses `git diff --check` and `yarn agents:check-budget`.
 - **Cache:** Passed.
 - **Commands:** Passed.
 - **Risks:** Passed.
-- **Verdict:** Approved as design; implementation remains gated.
+- **Verdict:** Design complete, pending parent-roadmap acceptance and readiness review; implementation remains gated.

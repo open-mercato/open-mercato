@@ -4,11 +4,11 @@
 
 P1.3c adds immutable UoM evidence to UoM-aware WMS reservations and movements and makes reversal explicitly reference the original movement. A reversal copies the historical quantity evidence and negates the persisted normalized quantity; it never recalculates from current Catalog configuration.
 
-This capability is independently deployable after P1.3a and P1.3b. It does not introduce production-specific movement names, backflush groups, or Manufacturing orchestration; P1.8 consumes this generic evidence and reversal foundation.
+This capability is independently deployable after P1.3a and P1.3b. It does not introduce production-specific movement names, generic posting groups, opaque reference/reason registration, backflush calculation, or Manufacturing orchestration; P1.8 consumes this generic evidence and reversal foundation.
 
 ## Overview and Status
 
-**Status:** Design complete — readiness review pending.
+**Status:** Design complete — parent-roadmap acceptance and readiness review pending.
 
 **Roadmap classification:** P1.3c, WMS-owned backlog. It resolves missing historical evidence in the existing ledger and is non-critical for current WMS operation and non-stock Manufacturing work. It is mandatory before P1.8/P1.11 stock-affecting production.
 
@@ -17,7 +17,7 @@ This capability is independently deployable after P1.3a and P1.3b. It does not i
 - `2026-08-13-catalog-quantity-normalization.md` for `QuantityNormalizationSnapshotV1`.
 - `2026-08-13-wms-quantity-precision-alignment.md` for exact WMS storage and arithmetic.
 
-**Consumer:** P1.8 production-capable WMS posting contract, including exact compensation of explicit issues and cumulative/fixed backflush postings from their persisted evidence.
+**Consumer:** P1.8 generic WMS posting-group contract and Manufacturing adapter, including exact compensation of explicit issues and cumulative/fixed backflush lines from their persisted evidence.
 
 ## Problem Statement
 
@@ -25,7 +25,7 @@ WMS currently stores a normalized-looking quantity without recording how the cal
 
 Current guidance prefers counter-actions over generic command undo, but the movement model has no `reversalOfMovementId`, no remaining-reversible quantity, and no rule requiring reversal to use the original persisted value. A caller can simulate a reversal with a new adjustment, but that loses causation and may produce a different amount.
 
-P1.8 cannot safely add production issue, output, scrap, or backflush semantics until this generic historical contract exists.
+P1.8 cannot safely translate Manufacturing issue, output, scrap, or backflush semantics into generic physical posting groups until this historical contract exists.
 
 ## Scope
 
@@ -42,7 +42,7 @@ P1.8 cannot safely add production issue, output, scrap, or backflush semantics u
 
 - Precision widening or base ledger arithmetic, owned by P1.3b.
 - Catalog normalization implementation, owned by P1.3a.
-- Production movement/reference types, posting groups, backflush, authorization, or saga orchestration, owned by P1.8.
+- Generic posting groups, opaque source/reason registration and display fallback, Manufacturing backflush calculation/authorization, or saga orchestration, owned by P1.8.
 - Sales returns/RMA business flow redesign.
 - Reconstructing fabricated snapshots for legacy movements.
 - A generic undo button for physical stock history.
@@ -114,7 +114,7 @@ Required indexes support scoped lookup by original movement and idempotency/corr
 - The same idempotency key returns the existing reversal; concurrent distinct requests cannot over-reverse.
 - Physical movements are never deleted. Reversal is an append-only compensating fact.
 
-P1.8 later defines how a production posting group invokes these primitives atomically.
+P1.8 later defines how a generic posting group invokes these primitives atomically and how a Manufacturing-owned adapter derives its concrete lines.
 
 ## Commands, API, and Errors
 
@@ -163,7 +163,7 @@ Any custom HTTP write route:
 | C5 | Partial reversal accounting | Locked remainder and concurrent over-reversal tests |
 | C6 | Legacy policy | Readability plus allowed/blocked legacy reversal scenarios |
 | C7 | Reconciliation projection | Original, reversed, and remaining quantities are explainable |
-| C8 | P1.8 consumer contract | Contract tests prove production types can be added without changing P1.3c semantics |
+| C8 | P1.8 consumer contract | Contract tests prove generic posting groups and optional namespaced source/reason registrations can be added without changing P1.3c semantics or hard-coding Manufacturing vocabulary in WMS |
 
 ## Integration Coverage and Exit Criteria
 
@@ -214,7 +214,7 @@ P1.3c passes when immutable evidence survives master-data changes, correlated fu
 Documentation validation uses `git diff --check` and `yarn agents:check-budget`. Implementation uses generation, migration generation/review, relevant shared/core tests, core build, and focused self-contained WMS integration tests. `yarn db:migrate` requires approval.
 
 - One capability: immutable WMS quantity evidence plus its correlated compensation lifecycle.
-- Production-specific posting semantics remain P1.8.
+- Generic posting-group and Manufacturing-specific adapter semantics remain P1.8.
 - Commands are append-only, transactionally locked, auditable, idempotent, and scoped.
 - API/schema changes are additive and legacy records remain readable.
 - No cross-module ORM relationship is introduced.
@@ -225,6 +225,7 @@ Documentation validation uses `git diff --check` and `yarn agents:check-budget`.
 ## Changelog
 
 - 2026-08-13: Created P1.3c from the audited WMS evidence/reversal portion of the original quantity proposal.
+- 2026-08-19: Aligned P1.3c with the generic WMS posting-group boundary: Manufacturing semantics and line derivation remain in the future P1.8 adapter; aligned governance with pending parent-roadmap acceptance.
 
 ### Review — 2026-08-13
 
@@ -234,4 +235,4 @@ Documentation validation uses `git diff --check` and `yarn agents:check-budget`.
 - **Cache:** Passed; database remains authoritative for remainder.
 - **Commands:** Passed; append-only reversal is fully specified.
 - **Risks:** Passed.
-- **Verdict:** Approved as design; implementation remains gated.
+- **Verdict:** Design complete, pending parent-roadmap acceptance and readiness review; implementation remains gated.

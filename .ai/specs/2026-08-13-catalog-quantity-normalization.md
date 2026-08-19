@@ -8,13 +8,13 @@ This capability does not change WMS storage or add inventory evidence. It is ind
 
 ## Overview and Status
 
-**Status:** Design complete — readiness review pending.
+**Status:** Design complete — parent-roadmap acceptance and readiness review pending.
 
 **Wave 0 capability:** P1.3a, first part of the quantity/UoM/precision gate.
 
 **Predecessor:** `implemented/SPEC-034-2026-02-18-units-of-measure-conversions.md`.
 
-**Consumers:** P1.3b WMS precision alignment, P1.3c WMS quantity evidence/reversal, P1.4 BOM authoring, P1.7 released definitions, P1.8 production postings, and P1.10 production orders.
+**Consumers:** P1.3b WMS precision alignment, P1.3c WMS quantity evidence/reversal, P1.4 BOM authoring, P1.7 released definitions, the P1.8 generic WMS posting group and Manufacturing adapter, and P1.10 production orders.
 
 ## Problem Statement
 
@@ -225,6 +225,7 @@ Implementation validation includes `yarn generate`, relevant shared/core unit te
 - 2026-08-13: Created P1.3a from the audited Catalog/Sales portion of the original quantity/UoM/precision proposal.
 - 2026-08-19: Clarified P1.3a as the exact-quantity source for BOM base-output and component-line snapshots, including fixed/variable consumption and yield calculations owned by the Manufacturing definition contract.
 - 2026-08-19: Added bounded exact division so Manufacturing can apply `gross = nominal / yieldFactor` with one final policy rounding step while keeping yield semantics outside Catalog/shared.
+- 2026-08-19: Aligned governance with the proposed parent roadmap: design is complete but awaits roadmap acceptance and its own readiness review.
 
 ### Review — 2026-08-13
 
@@ -234,4 +235,4 @@ Implementation validation includes `yarn generate`, relevant shared/core unit te
 - **Cache:** Passed.
 - **Commands:** Passed; existing Sales writes remain command-driven.
 - **Risks:** Passed.
-- **Verdict:** Approved as design; implementation remains gated.
+- **Verdict:** Design complete, pending parent-roadmap acceptance and readiness review; implementation remains gated.
