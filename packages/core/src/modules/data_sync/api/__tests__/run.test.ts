@@ -215,6 +215,63 @@ describe('data_sync run route', () => {
     }))
   })
 
+  it('normalizes declared run parameters and forwards them to the run', async () => {
+    mockGetDataSyncAdapter.mockReturnValueOnce({
+      providerKey: 'excel',
+      runMode: 'generic',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      runParameters: [
+        { key: 'dryRun', label: 'Dry run', type: 'boolean', defaultValue: false },
+        { key: 'startId', label: 'Start id', type: 'number', min: 0 },
+      ],
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+        parameters: { dryRun: 'true', startId: '42' },
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        parameters: { dryRun: true, startId: 42 },
+      }),
+    }))
+  })
+
+  it('rejects invalid run parameters with a 422', async () => {
+    mockGetDataSyncAdapter.mockReturnValueOnce({
+      providerKey: 'excel',
+      runMode: 'generic',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      runParameters: [
+        { key: 'startId', label: 'Start id', type: 'number', min: 0 },
+      ],
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+        parameters: { startId: '-5' },
+      }),
+    }))
+
+    expect(response.status).toBe(422)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid run parameters')
+    expect(mockStartDataSyncRun).not.toHaveBeenCalled()
+  })
+
   it('short-circuits the run when the mutation guard blocks it', async () => {
     mockCrudMutationGuardService.validateMutation.mockResolvedValueOnce({
       ok: false,
