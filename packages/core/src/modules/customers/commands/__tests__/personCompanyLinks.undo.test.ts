@@ -349,6 +349,49 @@ describe('customers.personCompanyLinks.delete — profile-only assignment (#5114
     )
   })
 
+  // The link-backed branch broadcasts `customers.person_company_link.deleted` through
+  // `emitCrudSideEffects`, which is the only event the company People tab and the person
+  // Companies tab subscribe to. A profile-only detach has no link row to emit that for, so
+  // without this sibling broadcast every OTHER open viewer keeps listing a detached person.
+  it('broadcasts the profile-only detach so other viewers live-refresh', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const eventBus = { emitEvent: jest.fn(async () => {}) }
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    await handler.execute(profileOnlyInput(COMPANY_A_ID), makeCtx(fixtures.em, eventBus))
+
+    expect(eventBus.emitEvent).toHaveBeenCalledWith(
+      'customers.person.company_assignment.detached',
+      {
+        linkId: null,
+        personEntityId: PERSON_ID,
+        companyEntityId: COMPANY_A_ID,
+        // The event bus only forwards a broadcast event cross-process when the payload
+        // itself carries a tenant scope, so these two keys are load-bearing, not decoration.
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+      },
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+  })
+
+  it('still completes the detach when the refresh broadcast fails', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const eventBus = {
+      emitEvent: jest.fn(async (event: string) => {
+        if (event === 'customers.person.company_assignment.detached') {
+          throw new Error('bus unavailable')
+        }
+      }),
+    }
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    const result = await handler.execute(profileOnlyInput(COMPANY_A_ID), makeCtx(fixtures.em, eventBus))
+
+    expect(result).toEqual({ linkId: null, personEntityId: PERSON_ID, companyEntityId: COMPANY_A_ID })
+    expect(fixtures.profileRow.companyId).toBeNull()
+  })
+
   it('promotes a remaining primary link instead of leaving the person company-less', async () => {
     const fixtures = makeFixtures(
       [{ id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: true, deletedAt: null }],

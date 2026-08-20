@@ -33,9 +33,18 @@ import {
   extractUndoPayload,
   type QueryIndexEventEntry,
 } from './shared'
+import type { CustomersEventId } from '../events'
 import { E } from '#generated/entities.ids.generated'
+import type { EventBus } from '@open-mercato/events'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers').child({ component: 'personCompanyLinks' })
+
+// Typed against the module's declared event ids so removing or renaming the declaration in
+// `events.ts` fails the build here rather than emitting an undeclared event at runtime.
+const PROFILE_ONLY_DETACHED_EVENT: CustomersEventId = 'customers.person.company_assignment.detached'
 
 type PersonCompanyLinkSnapshot = {
   id: string
@@ -667,8 +676,45 @@ async function detachProfileOnlyCompany(
   // There is no link entity to hand to `emitCrudSideEffects`; what changed is the
   // person's own company assignment, so reindex the person and its profile instead.
   await emitQueryIndexUpsertEvents(ctx, personQueryIndexEntries(person, profile))
+  await emitProfileOnlyDetachedEvent(ctx, person, target.companyEntityId)
 
   return { linkId: null, personEntityId: person.id, companyEntityId: target.companyEntityId }
+}
+
+/**
+ * Live-refresh signal for the company People tab and the person Companies tab, which the
+ * link-backed branch gets from `customers.person_company_link.deleted` via `emitCrudSideEffects`.
+ * The profile-only branch has no link row to emit that for, so it publishes the sibling
+ * `clientBroadcast` event instead (#5114). `tenantId` must travel in the payload: the event bus
+ * only forwards a broadcast event cross-process when the payload carries a tenant scope. The
+ * write is already committed, so a failed refresh signal must never fail the detach.
+ */
+async function emitProfileOnlyDetachedEvent(
+  ctx: CommandRuntimeContext,
+  person: CustomerEntity,
+  companyEntityId: string,
+): Promise<void> {
+  try {
+    const bus = ctx.container.resolve<EventBus>('eventBus')
+    await bus.emitEvent(
+      PROFILE_ONLY_DETACHED_EVENT,
+      {
+        linkId: null,
+        personEntityId: person.id,
+        companyEntityId,
+        tenantId: person.tenantId,
+        organizationId: person.organizationId,
+      },
+      { tenantId: person.tenantId, organizationId: person.organizationId },
+    )
+  } catch (err) {
+    logger.warn('Profile-only company detach broadcast failed', {
+      command: 'customers.personCompanyLinks.delete',
+      personEntityId: person.id,
+      companyEntityId,
+      err,
+    })
+  }
 }
 
 /**
