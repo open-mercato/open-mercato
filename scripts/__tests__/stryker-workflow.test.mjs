@@ -202,6 +202,17 @@ test('passes covered and uncovered files through to the report so a needs-tests 
   assert.match(reportStep.run, /--uncovered "\$\{UNCOVERED_FILES\}"/)
 })
 
+test('the enforcement step reads the same partition outputs as the report, so the two cannot drift apart', () => {
+  const enforceStep = workflow.jobs.mutate.steps.find(
+    (step) => step.name === 'Enforce the mutation threshold',
+  )
+
+  assert.equal(enforceStep.env.COVERED_FILES, '${{ steps.partition.outputs.covered }}')
+  assert.equal(enforceStep.env.UNCOVERED_FILES, '${{ steps.partition.outputs.uncovered }}')
+  assert.match(enforceStep.run, /--covered "\$\{COVERED_FILES\}"/)
+  assert.match(enforceStep.run, /--uncovered "\$\{UNCOVERED_FILES\}"/)
+})
+
 test('exposes a workflow_dispatch trigger so the mutate job can be proven on demand', () => {
   const dispatch = (workflow.on ?? workflow[true]).workflow_dispatch
 

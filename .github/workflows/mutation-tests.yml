@@ -208,14 +208,23 @@ jobs:
       # Owns the pass/fail decision instead of Stryker's own thresholds.break, so
       # the minimum-mutant floor can veto it. While MUTATION_ENFORCE is not 'true'
       # this only prints its reasoning and always exits 0.
+      #
+      # The partition outputs matter here for the same reason they do in the report
+      # step: a missing mutation.json means a crash when Stryker ran, but merely a
+      # skip when nothing was covered. Without them an enforced gate would fail on
+      # the skip and re-create the very red check issue #5281 removed.
       - name: Enforce the mutation threshold
         if: always()
         env:
           MUTATION_ENFORCE: ${{ vars.MUTATION_ENFORCE || 'false' }}
           MUTATE_PACKAGE: ${{ matrix.package }}
+          COVERED_FILES: ${{ steps.partition.outputs.covered }}
+          UNCOVERED_FILES: ${{ steps.partition.outputs.uncovered }}
         run: |
           node scripts/stryker/enforce.mjs \
-            "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json"
+            "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json" \
+            --covered "${COVERED_FILES}" \
+            --uncovered "${UNCOVERED_FILES}"
 
       - name: Upload the mutation report
         if: always()

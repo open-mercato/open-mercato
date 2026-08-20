@@ -24,7 +24,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_BASE_REF, computeScope, parseArgs, readChangedFiles } from './scope.mjs'
-import { partitionByRelatedTests } from './relatedTests.mjs'
+import { partitionByRelatedTests, splitMutateList } from './relatedTests.mjs'
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -83,7 +83,7 @@ export function runMutationChanged(dependencies = {}) {
   let exitCode = 0
 
   for (const entry of matrix.include) {
-    const { covered, uncovered } = partitionRelatedTests(entry.mutate.split(','), entry.package)
+    const { covered, uncovered } = partitionRelatedTests(splitMutateList(entry.mutate), entry.package)
 
     if (uncovered.length > 0) {
       write(`[stryker] ${entry.package}: no related tests, not mutated: ${uncovered.join(', ')}`)

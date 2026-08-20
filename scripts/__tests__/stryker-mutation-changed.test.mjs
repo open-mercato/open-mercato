@@ -25,7 +25,9 @@ function createHarness({ status = '', diff = '', strykerStatus = 0, uncoveredByF
 
   // Every file is covered unless the test opts a specific one out — keeps the
   // existing Stryker-call assertions below unaffected by the coverage filter.
-  const partitionRelatedTests = (files) => {
+  const partitionCalls = []
+  const partitionRelatedTests = (files, packageName) => {
+    partitionCalls.push({ package: packageName, files })
     const uncovered = files.filter((file) => uncoveredByFile[file])
     const covered = files.filter((file) => !uncoveredByFile[file])
     return { covered, uncovered }
@@ -37,6 +39,7 @@ function createHarness({ status = '', diff = '', strykerStatus = 0, uncoveredByF
     partitionRelatedTests,
     write: (message) => written.push(message),
     strykerCalls,
+    partitionCalls,
     written,
   }
 }
@@ -150,6 +153,19 @@ test('skips Stryker entirely for a package where every file has no related tests
   assert.deepEqual(harness.strykerCalls, [])
   assert.deepEqual(result.ranPackages, [])
   assert.match(harness.written.join('\n'), /nothing left to mutate after filtering for related tests/)
+})
+
+test('hands the partition a parsed file list, the same way the CI entrypoint does', () => {
+  const harness = createHarness({
+    status: '',
+    diff: 'packages/shared/src/lib/boolean.ts\npackages/shared/src/lib/untested.ts\n',
+  })
+
+  runMutationChanged(harness)
+
+  assert.deepEqual(harness.partitionCalls, [
+    { package: 'shared', files: ['src/lib/boolean.ts', 'src/lib/untested.ts'] },
+  ])
 })
 
 test('Stryker output is gitignored, so a run never self-blocks the next one', () => {

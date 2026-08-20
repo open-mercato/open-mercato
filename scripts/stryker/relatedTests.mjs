@@ -22,18 +22,38 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 /**
+ * A Jest check that throws is treated as uncovered rather than propagated. The
+ * everyday paths all exit 0 — `--listTests` short-circuits before the "no tests
+ * found" check, and the allowlisted packages set `passWithNoTests` — but a package
+ * whose config does not, a corrupted haste cache, or an OOM-killed Jest would
+ * otherwise turn this step itself red, which is the class of outcome this whole
+ * module exists to remove. Skipping the file loses at most some mutation coverage
+ * and says so in the log.
+ *
  * @param {string[]} files package-relative paths (e.g. 'src/lib/boolean.ts')
- * @param {{ packageDir: string, runJest?: (file: string, packageDir: string) => string }} options
+ * @param {{ packageDir: string, runJest?: (file: string, packageDir: string) => string, write?: (message: string) => void }} options
  * @returns {{ covered: string[], uncovered: string[] }}
  */
 export function partitionByRelatedTests(files, options = {}) {
-  const { packageDir, runJest = defaultRunJest } = options
+  const {
+    packageDir,
+    runJest = defaultRunJest,
+    write = (message) => process.stderr.write(`${message}\n`),
+  } = options
   const covered = []
   const uncovered = []
 
   for (const file of files) {
-    const output = runJest(file, packageDir)
-    if (output.trim() === '') uncovered.push(file)
+    let output
+    try {
+      output = runJest(file, packageDir)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      write(`[stryker:related-tests] jest check failed for ${file}, treating as uncovered: ${message}`)
+      output = ''
+    }
+
+    if (String(output ?? '').trim() === '') uncovered.push(file)
     else covered.push(file)
   }
 

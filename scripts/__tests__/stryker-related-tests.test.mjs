@@ -43,6 +43,27 @@ test('returns an empty partition for an empty file list', () => {
   assert.deepEqual(calls, [])
 })
 
+test('a Jest check that throws is treated as uncovered instead of failing the step', () => {
+  const written = []
+  const { covered, uncovered } = partitionByRelatedTests(
+    ['src/lib/tested.ts', 'src/lib/exploding.ts'],
+    {
+      packageDir: '/repo/packages/shared',
+      runJest: (file) => {
+        if (file === 'src/lib/exploding.ts') throw new Error('jest exited with 134')
+        return '/repo/src/lib/__tests__/tested.test.ts\n'
+      },
+      write: (message) => written.push(message),
+    },
+  )
+
+  assert.deepEqual(covered, ['src/lib/tested.ts'])
+  assert.deepEqual(uncovered, ['src/lib/exploding.ts'])
+  assert.equal(written.length, 1)
+  assert.match(written[0], /jest check failed for src\/lib\/exploding\.ts/)
+  assert.match(written[0], /jest exited with 134/)
+})
+
 test('parses the --mutate flag', () => {
   assert.deepEqual(parsePartitionArgs(['--mutate', 'src/lib/a.ts,src/lib/b.ts']), {
     mutate: 'src/lib/a.ts,src/lib/b.ts',
