@@ -52,25 +52,76 @@ P1.4b reads this aggregate to render a bounded tree. P1.7 later owns release, ef
 | Detect conflicting or unsafe concurrent work | Revision token, graph lock and cycle validator; stable `version_conflict`/`cycle_detected`; conflict banner. |
 | Recover an accidental authoring action | Soft deletion and before/after command evidence; command undo/redo; operation metadata exposed to platform UX. |
 
-### Story map for prototype review
+### Integrated story map for prototype review
 
-This story map turns the authoring contract into reviewable user journeys. It is
-also the requirements source for the local clickable prototype. The prototype
-uses fictional Catalog data and illustrates the intended flow; it does not
-claim to execute commands or persist a real BOM.
+This story map is the requirements source for the local clickable prototype. It
+covers the end-to-end UX around the P1.4 BOM lane without expanding P1.4a's
+implementation scope: each row explicitly identifies its owner. P1.4a/P1.4b
+are current authored contracts; P1.4c-h and P1.7 are future, separately
+tracked capabilities illustrated as clearly labelled proposals. The prototype
+uses fictional Catalog data and illustrates flows only; it does not execute
+commands, persist a BOM, or release a definition.
 
-| Epic | Story | Acceptance criteria |
-|---|---|---|
-| Find and start a draft | **US-BOM-01** — As a Manufacturing manager, I can find BOM drafts by output product and optionally variant, so that I can resume the right product structure. | The list shows target, active draft revision, direct-line count, unresolved `produce` count, and last update. Product/variant filters reset cursor navigation. An empty list offers Create only to a manager. A viewer sees the list but no write affordance. |
-| Find and start a draft | **US-BOM-02** — As a Manufacturing manager, I can create the first draft for an output product or variant, so that I have an editable revision 1. | The create form requires a product, offers only its variants, defaults base output to `1` in the base unit, and permits an optional revision label. A duplicate exact target is rejected without creating a second family. |
-| Define the output | **US-BOM-03** — As a Manufacturing manager, I can revise the target, label, and base output while the definition is still a draft, so that the BOM represents the intended manufactured output. | The editor shows the active draft revision and its current version. Product/variant/base-output edits retain a valid pair and show a field-level error when Catalog validation fails. Missing read enrichment remains readable by UUID with a warning. |
-| Compose direct components | **US-BOM-04** — As a Manufacturing manager, I can add a direct component occurrence, so that I can describe every material or subassembly needed for the output. | The Add component dialog defaults quantity to `1`, basis to `variable`, yield to `1`, and supply to `stock`. It supports an optional component variant and quantity/UoM. Adding the same component twice creates two distinct rows. Cmd/Ctrl+Enter saves and Escape cancels. |
-| Compose direct components | **US-BOM-05** — As a Manufacturing manager, I can edit or remove a component occurrence, so that I can correct the draft without affecting another identical occurrence. | Each row has its own Edit and Delete actions. Quantity/UoM validation is explicit. Undo/redo feedback is illustrated as a recoverable operation, while an actual prototype never claims to alter persisted data. |
-| Shape the draft | **US-BOM-06** — As a Manufacturing manager, I can move an occurrence up or down, so that the direct-component sequence expresses the intended authoring order. | Up/down actions are keyboard accessible, disabled at the first/last position, and preserve occurrence identity. No drag-and-drop is offered. |
-| Resolve production dependencies safely | **US-BOM-07** — As a Manufacturing manager, I can mark a component as `produce` and understand whether it resolves to a child BOM, so that I can author top-down without hiding structural risk. | A resolved variant or product-fallback child is visibly identified. An unresolved `produce` line remains saveable but shows a warning. A cycle attempt is rejected with a clear error and leaves the existing draft unchanged. `stock` is visibly a leaf. |
-| Review the multi-level structure | **US-BOM-08** — As a viewer or manager, I can open a read-only multi-level preview, so that I can inspect the draft's expanded dependency structure before release work exists. | The tab loads on demand; it shows output, returned depth/node totals, applied limits, separate repeated occurrences, basis/yield/supply/resolution, and expand/collapse controls. It never exposes editing controls in the tree. |
-| Review exceptions | **US-BOM-09** — As a viewer or manager, I can find unresolved occurrences and understand preview limits or stale data, so that I can decide what to fix next. | A warning summary focuses the relevant tree occurrence. Limit errors explain the cap and offer only bounded retry choices. A change marks the loaded tree stale and asks for explicit Refresh; no partial tree is silently displayed after an error. |
-| Work safely together | **US-BOM-10** — As a Manufacturing manager, I receive clear conflict, loading, empty, permission, and error states, so that I do not overwrite another author's changes or mistake an incomplete view for a saved result. | Existing mutations show an optimistic-lock conflict banner with a retry/reload path. Loading, empty, access-denied, Catalog-missing, and server-error states are distinct. The prototype includes these as review states using Open Mercato patterns. |
+| Epic | Story | Owner | Acceptance criteria |
+|---|---|---|---|
+| Find and orient | **US-BOM-01** — As a Manufacturing viewer, I can open the BOM list and immediately understand its current scope, so that I know what definitions I am reviewing. | P1.4a | The list shows output product/variant, revision, status, direct-line count, unresolved `produce` count and last update; loading, empty and failed states are distinct. |
+| Find and orient | **US-BOM-02** — As a manager, I can search by product code/name and revision label, so that I can find a known BOM quickly. | P1.4c proposal | Search is debounced/explicitly applied, visible in the active-query summary, preserves organization scope and has an empty-result state with Clear search. |
+| Find and orient | **US-BOM-03** — As a manager, I can filter by output product, variant, unresolved production dependency, direct-line count and modification date, so that I can narrow a large list safely. | P1.4c proposal | Filters are composable, visible as removable chips, reset cursor navigation when applied/cleared and never offer Sales-only customer/payment/amount filters. |
+| Find and orient | **US-BOM-04** — As a manager, I can sort the supported list columns, so that I can review the most relevant definitions first. | P1.4c proposal | Only server-supported sort fields are offered; the active field/direction are visible and keyset pagination remains deterministic. |
+| Find and orient | **US-BOM-05** — As a manager, I can choose, order and size my table columns and save a personal view, so that repeated review work matches my role. | P1.4c proposal | The `perspective` saves only the user's visible columns/order/width, filters, sort, search and page size; Reset returns to the module default. |
+| Find and orient | **US-BOM-06** — As a keyboard user, I can move focus through rows, open the focused BOM and return to the same list context, so that navigation does not depend on a mouse. | P1.4a + P1.4c proposal | Arrow/Tab focus is visible; Enter opens the focused row; Back preserves query/filter/sort/cursor context. |
+| Find and orient | **US-BOM-07** — As a viewer, I can distinguish no BOMs from no matching BOMs, so that I do not mistake a search result for missing setup. | P1.4a + P1.4c proposal | Empty scope offers Create only to a manager; no-result scope offers Clear filters; a viewer sees neither write CTA nor hidden write control. |
+| Inspect a BOM | **US-BOM-08** — As a viewer, I can see the output, revision number/label, status, version token and last update, so that I know whether I am looking at an editable draft or a frozen definition. | P1.4a + P1.7 proposal | Header badges state `Draft` or `Released`; the detail clearly identifies the selected revision and never implies an unsaved change was persisted. |
+| Inspect a BOM | **US-BOM-09** — As a viewer, I can browse direct component occurrences, so that repeated components remain visibly distinct. | P1.4a | The table exposes occurrence position, component/variant, entered and normalized quantity/UoM, basis, yield, supply and child-resolution status; pagination preserves position order. |
+| Inspect a BOM | **US-BOM-10** — As a viewer, I can inspect unresolved `produce` lines and missing Catalog enrichment, so that I know what needs attention without losing access to existing evidence. | P1.4a | Unresolved lines are warning states, missing Catalog records remain readable by ID, and neither state silently changes the stored line. |
+| Inspect a BOM | **US-BOM-11** — As a viewer, I can open a bounded multi-level tree, so that I can review the expanded occurrence structure before later release work. | P1.4b | The tree is explicitly read-only, loads on demand, preserves repeated occurrences, shows basis/yield/supply/resolution and exposes returned depth/node bounds. |
+| Inspect a BOM | **US-BOM-12** — As a viewer, I can see that a previously loaded tree is stale after a change and refresh it explicitly, so that I never reason from a partial or outdated expansion. | P1.4b | Mutation marks the tree stale; Refresh is explicit; a limit/error response never replaces a complete tree with partial data. |
+| Inspect a BOM | **US-BOM-13** — As a manager, I can view action history and team comments, so that I understand why the definition changed. | P1.4e proposal | History distinguishes action, status and comment entries; related line changes stay attached to the aggregate; comments are clearly separate from release approval. |
+| Inspect a BOM | **US-BOM-14** — As a manager, I can compare two revisions and inspect where a component/BOM is used, so that I can assess impact before a change or release. | P1.4f proposal | Diff handles changed, added, removed, moved and repeated occurrences; where-used is bounded and labels draft/released/execution scope instead of blending them. |
+| Create a draft | **US-BOM-15** — As a manager, I can create the first draft for a product or variant, so that I have an editable revision 1. | P1.4a | Product is required, variants are product-scoped, base output defaults to `1` in a valid base unit and revision label is optional. |
+| Create a draft | **US-BOM-16** — As a manager, I receive a clear duplicate-target and quantity/UoM validation result before creation, so that I do not create ambiguous master data. | P1.4a | Exact live product/variant family duplication is rejected; invalid/missing Catalog pair or quantity evidence stays field-scoped and no partial BOM is created. |
+| Edit a draft header | **US-BOM-17** — As a manager, I can edit a draft's label, output target and base output, so that the definition represents the intended manufactured output. | P1.4a | Product/variant remain a valid pair, target/quantity changes re-normalize evidence, and unrelated edits preserve it. |
+| Edit a draft header | **US-BOM-18** — As a manager, I can see unsaved form changes and cancel or discard them deliberately, so that navigation never loses work silently. | P1.4a UX proposal | Dirty state is visible; Cancel asks before discard; successful Save replaces the displayed revision token. |
+| Edit a draft header | **US-BOM-19** — As a manager, I receive the shared record-changed state if someone saved first, so that I do not overwrite their draft. | P1.4a | A stale expected-version token returns the standard conflict state; Refresh reloads the aggregate and Reapply remains an explicit user choice, with no merge UI. |
+| Edit component occurrences | **US-BOM-20** — As a manager, I can add a direct component occurrence, so that every material or subassembly has an explicit line. | P1.4a | Add defaults quantity to `1`, basis to `variable`, yield to `1` and supply to `stock`; Cmd/Ctrl+Enter saves and Escape cancels. |
+| Edit component occurrences | **US-BOM-21** — As a manager, I can add the same component more than once, so that separate physical/operational occurrences are not merged. | P1.4a | Each save creates a separate occurrence ID and position even for identical component, variant, quantity and UoM. |
+| Edit component occurrences | **US-BOM-22** — As a manager, I can edit exactly one occurrence, so that I correct the intended line without changing its duplicate. | P1.4a | The dialog identifies the occurrence/position; component and quantity validation is explicit; failed validation retains the draft form values. |
+| Edit component occurrences | **US-BOM-23** — As a manager, I can delete one occurrence with confirmation and recover the immediately preceding action, so that corrections are deliberate and recoverable. | P1.4a | Delete names the affected occurrence, requires confirmation, shows undo feedback only after success, and never restores over a later conflicting change. |
+| Edit component occurrences | **US-BOM-24** — As a manager, I can move an occurrence up or down, so that the direct sequence communicates authoring order. | P1.4a | Controls are keyboard accessible, disabled at boundaries, preserve line identity and update the table without drag-and-drop. |
+| Edit component occurrences | **US-BOM-25** — As a manager, I can choose `stock` or `produce` and see child resolution, so that I can author top-down without hiding structural risk. | P1.4a | `stock` is a leaf; resolved variant/product fallback is visible; unresolved `produce` remains saveable with a warning. |
+| Edit component occurrences | **US-BOM-26** — As a manager, a cycle attempt is rejected before save, so that the existing draft remains valid. | P1.4a | Direct and indirect cycle errors identify the attempted relationship at a safe level, keep form input visible and leave stored lines unchanged. |
+| Work with non-drafts | **US-BOM-27** — As a viewer or manager, I can inspect a released/non-draft revision without edit affordances, so that frozen engineering evidence cannot be mistaken for a draft. | P1.7 proposal | Header and rows are visibly read-only; Add/Edit/Delete/Reorder/Save are absent or disabled with a release explanation; preview, history and comparison remain available. |
+| Work with non-drafts | **US-BOM-28** — As a manager, I can see the next permitted action for a non-draft, so that I do not attempt to modify frozen data. | P1.7 + P1.4g proposals | The UI distinguishes later clone-after-release from copy-to-new-target; neither action is presented as implemented in this prototype. |
+| Reuse and enrich | **US-BOM-29** — As a manager, I can copy an eligible BOM into a new target, so that I can start from similar structure without bypassing validation. | P1.4g proposal | Source/target/revalidation summary is visible; new IDs and full Catalog/quantity/scope/graph validation are stated; import/export is not implied. |
+| Reuse and enrich | **US-BOM-30** — As a manager, I can find custom fields, tags and controlled document links in their correct context, so that engineering metadata is not mixed with structure accidentally. | P1.4h proposal | UI labels whether data belongs to family, revision or line; document references are not claimed to be generic file attachments or release approval. |
+| Roles and recovery | **US-BOM-31** — As a viewer, I can review all permitted information while write actions remain unavailable, so that UI permissions match API authorization. | P1.4a | View/manage separation is explicit; no write action becomes available solely through client navigation. |
+| Roles and recovery | **US-BOM-32** — As any authorized user, I can distinguish loading, access denied, unavailable Catalog, server error and stale-data states, so that I know whether to wait, correct data, refresh or ask for access. | P1.4a/b | Each state has a specific explanation and safe next action; no state claims a failed mutation was saved. |
+
+Cross-cutting prototype rules: all records are fictional; screen labels show the owning work item; mutation-like actions are illustrative only; comments are local review feedback, not live collaboration; and the UI never adds Sales customer, payment, shipment, price, tax or fulfillment behavior to reusable BOM master data.
+
+### UX prototype review record — 2026-08-20
+
+The reviewable prototype lives at
+`.ai/prototypes/manufacturing-bom-ux-review/`. It supersedes the earlier,
+uncommented `manufacturing-bom-drafts` prototype and is a documentation/review
+artifact only; it does not implement the Manufacturing backend.
+
+- The shell, DataTable, empty states, single-line dialog, row actions, and
+  optimistic-lock conflict banner were checked against the existing Sales UI
+  patterns and shared backend primitives.
+- P1.4a screens now visibly represent the full header quantity contract:
+  product, optional product-scoped variant, optional `revisionLabel`, and
+  `baseOutput` entered quantity/UoM with normalized-value preview.
+- Direct-line screens visibly represent component/variant, entered and
+  normalized quantity/UoM, `variable|fixed` basis, `yieldFactor` in `(0,1]`,
+  `stock|produce`, child resolution, system-owned position and explicit
+  keyboard-accessible up/down ordering controls. Position is not user-entered.
+- Family and line lists use previous/next keyset-cursor language; the prototype
+  does not imply an offset total unavailable in the P1.4a API contract.
+- Every screen includes a local expandable field/action guide describing the
+  meaning of the displayed data, expected input, and its effect on the BOM.
+- P1.4b, P1.4c-h, and P1.7 screens remain visibly labelled as their own future
+  work items; they are not claimed to exist in the P1.4a backend.
 
 ## Problem Statement
 
@@ -834,6 +885,8 @@ Implementation remains gated by P1.0 acceptance, P1.0a, and ready P1.3a. No prod
 - 2026-08-19: Remediated the pre-implementation audit: froze explicit entered/normalized unit fields and purposes, effective-state normalization, strict interactive locking versus semantic undo/redo, one-handler atomic create, generator export plumbing, guard/event/UI/setup contracts, and the reusable-BOM versus order-demand boundary.
 - 2026-08-19: Aligned BOM draft conflict handling with the platform/Sales optimistic-lock pattern: the UI supplies the revision token and receives the shared `409 optimistic_lock_conflict` state when stale; BOM no longer introduces a mandatory `428` header contract or bespoke merge behavior. Rich collaborative drafting is deferred in the Wave 0 backlog.
 - 2026-08-19: Linked the owner-approved post-Wave 0 BOM capability lane: P1.4c list workspace, P1.4d business identity, P1.4e history/comments, P1.4f revision comparison/where-used, P1.4g copy, and P1.4h extensibility/document control. These remain explicitly out of P1.4a scope.
+- 2026-08-20: Rebuilt the local BOM UX prototype with the integrated story map, 23 review screens, local field/action guides, and explicit labels for post-P1.4a proposals.
+- 2026-08-20: Reviewed the prototype against Sales and the P1.4a data/API contract; corrected base-output and revision-label fields, entered/normalized quantity evidence, system-owned line position, up/down ordering controls, yield-factor input, and keyset-cursor wording.
 
 ### Review — 2026-08-19
 
