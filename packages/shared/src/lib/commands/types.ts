@@ -61,6 +61,13 @@ export type CommandRuntimeContext = {
 
 export type CommandLogMetadata = {
   skipLog?: boolean
+  /**
+   * Marks this execution as carrying a raw credential or secret. The command bus
+   * still records safe action metadata, but it never stores the redo input and
+   * never issues an undo token for this execution. The central key detector can
+   * also force this behavior and cannot be overridden with `false`.
+   */
+  sensitiveInput?: boolean
   tenantId?: string | null
   organizationId?: string | null
   actorUserId?: string | null

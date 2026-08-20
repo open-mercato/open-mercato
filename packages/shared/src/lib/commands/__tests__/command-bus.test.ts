@@ -298,6 +298,140 @@ describe('CommandBus', () => {
     )
   })
 
+  it('never persists secret-bearing redo input and disables undo for that execution', async () => {
+    const logMock = jest.fn(async (payload: Record<string, unknown>) => payload)
+    registerCommand({
+      id: 'test.credential.update',
+      execute: jest.fn(async () => ({ id: 'credential-1' })),
+      buildLog: jest.fn(() => ({
+        actionLabel: 'Update credential',
+        resourceKind: 'test.credential',
+        resourceId: 'credential-1',
+        payload: {
+          undo: { before: { passwordHash: 'stored-verifier' } },
+        },
+        snapshotBefore: { password: 'snapshot-secret', passwordHash: 'stored-verifier' },
+        context: { accessToken: 'context-secret', source: 'test' },
+      })),
+      undo: jest.fn(async () => {}),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ log: logMock }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    await bus.execute('test.credential.update', {
+      input: { currentPassword: 'CurrentPass1!', newPassword: 'NewPass2!' },
+      ctx,
+    })
+
+    const persisted = logMock.mock.calls[0][0]
+    expect(persisted.undoToken).toBeUndefined()
+    expect(persisted.commandPayload).toEqual({
+      undo: { before: { passwordHash: 'stored-verifier' } },
+      __redoUnavailable: 'sensitive-data-redacted',
+    })
+    expect(persisted.snapshotBefore).toEqual({
+      password: '[REDACTED]',
+      passwordHash: 'stored-verifier',
+    })
+    expect(persisted.context).toEqual({ accessToken: '[REDACTED]', source: 'test' })
+    expect(JSON.stringify(persisted)).not.toContain('CurrentPass1!')
+    expect(JSON.stringify(persisted)).not.toContain('NewPass2!')
+    expect(JSON.stringify(persisted)).not.toContain('snapshot-secret')
+    expect(JSON.stringify(persisted)).not.toContain('context-secret')
+  })
+
+  it('retains undo and redo input for a non-sensitive command', async () => {
+    const logMock = jest.fn(async (payload: Record<string, unknown>) => payload)
+    registerCommand({
+      id: 'test.profile.update',
+      execute: jest.fn(async () => ({ id: 'profile-1' })),
+      buildLog: jest.fn(() => ({
+        actionLabel: 'Update profile',
+        resourceKind: 'test.profile',
+        resourceId: 'profile-1',
+      })),
+      undo: jest.fn(async () => {}),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ log: logMock }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    await bus.execute('test.profile.update', {
+      input: { id: 'profile-1', displayName: 'Updated' },
+      ctx,
+    })
+
+    const persisted = logMock.mock.calls[0][0]
+    expect(persisted.undoToken).toEqual(expect.any(String))
+    expect(persisted.commandPayload).toEqual({
+      __redoInput: { id: 'profile-1', displayName: 'Updated' },
+      value: null,
+    })
+  })
+
+  it('honors an explicit sensitiveInput signal for opaque credential fields', async () => {
+    const logMock = jest.fn(async (payload: Record<string, unknown>) => payload)
+    registerCommand({
+      id: 'test.opaque-secret.rotate',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({
+        sensitiveInput: true,
+        actionLabel: 'Rotate opaque secret',
+        resourceKind: 'test.credential',
+      })),
+      undo: jest.fn(async () => {}),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ log: logMock }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    await bus.execute('test.opaque-secret.rotate', {
+      input: { value: 'opaque-secret-value' },
+      ctx,
+    })
+
+    const persisted = logMock.mock.calls[0][0]
+    expect(persisted.undoToken).toBeUndefined()
+    expect(persisted.commandPayload).toEqual({
+      __redoUnavailable: 'sensitive-data-redacted',
+    })
+    expect(JSON.stringify(persisted)).not.toContain('opaque-secret-value')
+  })
+
   describe('interceptor rejections', () => {
     const blockingInterceptor = (result: Record<string, unknown>): CommandInterceptor => ({
       id: 'test.block',

@@ -43,3 +43,16 @@ Access log retention is automatic and environment-configurable:
 - **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
 
 Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.
+
+## Removing credentials from older action logs
+
+New action logs filter passwords, tokens, API keys, private keys, recovery codes and similar credential fields before they reach the database. The database migration removes these values from plaintext historical JSON fields.
+
+If tenant data encryption has been used, run the application-level cleanup after deploying the migration. It decrypts each affected field with the configured KMS or Vault key, replaces credentials with `[REDACTED]`, and encrypts the sanitized value again:
+
+```bash
+yarn mercato audit_logs sensitive-data:redact --dry-run --batch 250
+yarn mercato audit_logs sensitive-data:redact --batch 250
+```
+
+Use `--tenant <uuid>` and `--org <uuid>` to limit the scan. The command uses bounded, keyset-ordered batches and can be repeated safely. It prints row identifiers and counts only, never stored payloads. If an encrypted row cannot be decrypted or encrypted again, that row is left unchanged and the command exits with an error. Restore access to the configured KMS or Vault keys before retrying.
