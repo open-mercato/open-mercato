@@ -38,6 +38,7 @@
     "typecheck": "turbo run typecheck",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=1024 turbo run test --concurrency=2",
     "start": "turbo run start --filter=@open-mercato/app",
+    "documents:collab": "node ./packages/documents/dist/server/documents-collab-server.js",
     "generate": "turbo run generate --filter=@open-mercato/app",
     "reinstall": "turbo run reinstall --filter=@open-mercato/app",
     "db:generate": "yarn workspace @open-mercato/app db:generate",
@@ -119,6 +120,7 @@
     "check:time-bombs": "node scripts/time-bomb-scanner.mjs",
     "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail",
     "agents:check-budget": "node scripts/check-agents-md-budget.mjs",
+    "documents:check-bundles": "node scripts/check-documents-bundle-budgets.mjs",
     "lessons:check": "node packages/create-app/agentic/shared/scripts/check-lessons.mjs --root .",
     "mutation:changed": "node scripts/stryker/mutation-changed.mjs"
   },

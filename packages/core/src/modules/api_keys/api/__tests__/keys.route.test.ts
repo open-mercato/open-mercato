@@ -241,6 +241,44 @@ describe('API Keys route', () => {
     expect(mockRbac.invalidateUserCache).toHaveBeenCalledWith('api_key:key-1')
   })
 
+  it('preserves an explicit null organization for a tenant-scoped API key', async () => {
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: null, allowedIds: null })
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Tenant key',
+          organizationId: null,
+          roles: ['manager'],
+        }),
+      }),
+    )
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ organizationId: null })
+    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: null,
+        createdBy: 'user-1',
+      }),
+    }))
+  })
+
+  it('rejects a tenant-scoped API key when the actor has an organization allowlist', async () => {
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Over-broad tenant key', organizationId: null }),
+      }),
+    )
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual({ error: 'Organization out of scope' })
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
   it('rejects role-backed API keys when the requested role grants features outside the actor ACL', async () => {
     mockRbac.loadAcl.mockResolvedValueOnce({
       isSuperAdmin: false,

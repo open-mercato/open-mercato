@@ -3193,7 +3193,10 @@ export function DataTable<T extends RowData>({
   const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
   const containerClassName = embedded ? '' : 'rounded-lg border bg-card mx-1 sm:mx-2'
   const headerWrapperClassName = embedded ? 'pb-3' : 'px-4 py-3 border-b'
-  const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'
+  // The header row wraps once the actions no longer fit beside the title (the
+  // title keeps a 12rem floor); before, the title collapsed to a sliver and
+  // the wrapped action buttons rendered over it on narrow layouts.
+  const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
   const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
 
@@ -3249,11 +3252,11 @@ export function DataTable<T extends RowData>({
         <div className={headerWrapperClassName}>
           {(hasTitle || shouldRenderActionsWrapper || renderToolbarInline) && (
             <div className={headerContentClassName}>
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 sm:basis-48">
                 {renderToolbarInline ? builtToolbar : titleContent}
               </div>
               {shouldRenderActionsWrapper ? (
-                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem]">
+                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem] sm:ml-auto sm:justify-end">
                   {refreshButtonConfig ? (
                     <Button
                       type="button"
