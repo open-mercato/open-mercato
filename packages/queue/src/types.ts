@@ -99,6 +99,43 @@ export type AsyncQueueOptions = {
   lockDuration?: number
   /** Number of stalled-job recoveries BullMQ permits before failing a job. Defaults to 1. */
   maxStalledCount?: number
+  /**
+   * Called when the queue permanently gives up on a job WITHOUT its handler having run.
+   *
+   * Why this cannot be left to the handler: a queue may destroy a job before ever calling the
+   * processor — the usual cause is a job redelivered once too often, past `maxStalledCount`. The
+   * handler then never runs, never throws and never learns, and any state it created on enqueue (a
+   * run row, a progress record) is orphaned in whatever "in progress" state it was left in, with
+   * nothing to correct it.
+   *
+   * Contract:
+   * - Fires **only** for a job the queue abandoned before its handler ran. It is deliberately not a
+   *   general "job failed" hook: a handler that ran and threw owns its own outcome and has already
+   *   had the chance to record it. Reporting both would double-report and would hide the difference
+   *   between "the work failed" and "the work never started".
+   * - **At-least-once, where the backend allows it.** The strategy reports as soon as it observes
+   *   the abandonment, and also sweeps the backend's dead-job records — on worker start, then
+   *   periodically — for reports that were never acknowledged. A report is acknowledged only after
+   *   this callback returns, so a callback that threw or a process that died mid-report is retried
+   *   by a later sweep. The callback MUST therefore be idempotent, and MUST tolerate a payload it
+   *   does not recognise. Residual loss is still possible when the backend evicts its dead-job
+   *   records before any sweep sees them; state that absolutely must never be stranded should also
+   *   have a staleness check of its own at the domain level.
+   * - Not every strategy can implement it — the local strategy runs handlers in-process, so no queue
+   *   outlives a handler to abandon its job.
+   *
+   * Backend specifics (which failures count as abandonment, and how they are detected) belong to the
+   * strategy; see `strategies/async.ts`.
+   */
+  onJobAbandoned?: (payload: unknown, info: AbandonedJobInfo) => void | Promise<void>
+}
+
+/** What the queue can say about a job it gave up on. */
+export type AbandonedJobInfo = {
+  /** The queue driver's own job id, or null when it did not supply one. */
+  jobId: string | null
+  /** The failure the queue recorded, e.g. 'job stalled more than allowable limit'. */
+  reason: string
 }
 
 /**
@@ -262,6 +299,14 @@ export type WorkerMeta = {
   lockDuration?: number
   /** Number of stalled-job recoveries BullMQ permits before failing a job. */
   maxStalledCount?: number
+  /**
+   * Called when the queue abandons one of this worker's jobs without running the handler.
+   *
+   * Declared here rather than on the producing queue because the worker is the side that must hear
+   * it: the event being reported is a worker restart, and the process that restarts never
+   * constructs the enqueueing queue. See `AsyncQueueOptions.onJobAbandoned` for the contract.
+   */
+  onJobAbandoned?: AsyncQueueOptions['onJobAbandoned']
 }
 
 /**
@@ -281,4 +326,6 @@ export type WorkerDescriptor<T = unknown> = {
   lockDuration?: number
   /** Number of stalled-job recoveries BullMQ permits before failing a job. */
   maxStalledCount?: number
+  /** Called when the queue abandons one of this worker's jobs without running the handler. */
+  onJobAbandoned?: AsyncQueueOptions['onJobAbandoned']
 }
