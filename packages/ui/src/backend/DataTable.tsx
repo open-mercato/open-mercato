@@ -301,7 +301,7 @@ export type DataTableProps<T extends RowData> = {
   emptyState?: React.ReactNode
   error?: React.ReactNode | string | null
   rowActions?: (row: T) => React.ReactNode
-  onRowClick?: (row: T) => void
+  onRowClick?: (row: T, event: React.MouseEvent<HTMLTableRowElement>) => void
   rowClickActionIds?: string[]
   disableRowClick?: boolean
   bulkActions?: BulkAction<T>[]
@@ -3467,7 +3467,7 @@ export function DataTable<T extends RowData>({
                       }
                       
                       if (onRowClick) {
-                        onRowClick(row.original as T)
+                        onRowClick(row.original as T, e)
                       } else if (defaultRowAction) {
                         if (defaultRowAction.href) {
                           router.push(defaultRowAction.href)
