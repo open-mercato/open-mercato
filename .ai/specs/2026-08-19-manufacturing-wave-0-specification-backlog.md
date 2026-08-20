@@ -2,15 +2,15 @@
 
 ## TLDR
 
-This planning specification turns the proposed direction of the Manufacturing roadmap into a spec-first backlog. It does not approve implementation. It defines which Wave 0 capabilities require a new specification, which existing specifications require readiness review, which work may proceed in parallel, and which dependency gates prevent a specification from being finalized or implemented.
+This planning specification turns the accepted Manufacturing roadmap into a spec-first backlog. It does not approve every implementation slice by itself. It defines which Wave 0 capabilities require a new specification, which existing specifications require readiness review, which work may proceed in parallel, and which dependency gates prevent a specification from being finalized or implemented.
 
 The backlog adds the missing package/module bootstrap work item as P1.0a, narrows P1.7 to definition release, narrows P1.9 to the model-neutral fact ledger, places order-release snapshots and discrete confirmations in P1.10, splits P1.8 into independently deployable WMS and Manufacturing specifications, treats P1.12 as a shared evidence policy rather than a standalone product specification, and keeps P1.13 deferred outside the first MVP flow.
 
-No capability specification may freeze a public contract until the parent roadmap is accepted through repository review. Skeleton authoring, code audits, benchmark research, and readiness analysis may proceed before that acceptance when they do not create an implementation commitment.
+Every capability specification must follow the accepted parent roadmap before it freezes a public contract. Skeleton authoring, code audits, benchmark research, and readiness analysis remain valid only when they preserve the named dependency gates.
 
 ## Overview
 
-This document is the planning and governance specification for turning Manufacturing Wave 0 into independently reviewable capability specifications and readiness reports. Its status is **proposed and ready for owner review**. The [parent architecture](2026-08-13-manufacturing-product-roadmap.md) remains under repository review in [PR #5256](https://github.com/open-mercato/open-mercato/pull/5256), while the Sales-specific WMS extraction remains an explicit external decision in [Issue #5260](https://github.com/open-mercato/open-mercato/issues/5260).
+This document is the planning and governance specification for turning Manufacturing Wave 0 into independently reviewable capability specifications and readiness reports. Its status is **accepted as the Wave 0 specification backlog**. The [parent architecture](2026-08-13-manufacturing-product-roadmap.md) is the accepted staged-delivery baseline; the Sales-specific WMS extraction remains an explicit external decision in [Issue #5260](https://github.com/open-mercato/open-mercato/issues/5260).
 
 The intended readers are the roadmap owner, maintainers, specification authors and implementers. The output is an ordered specification backlog with stable ownership boundaries, start and finalization gates, shared evidence requirements and a GitHub tracking model.
 
@@ -54,8 +54,8 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 
 | Order | Work item | Artifact | Current state |
 |---|---|---|---|
-| 1 | P1.0 roadmap acceptance | Repository review evidence | Review pending in PR #5256 |
-| 2 | P1.0a Manufacturing package and module bootstrap | Full specification | Design resolved; scope-cohesion review **KEEP**; implementation gated by P1.0 acceptance |
+| 1 | P1.0 roadmap acceptance | Repository decision record | Accepted as the staged-delivery baseline on 2026-08-20 |
+| 2 | P1.0a Manufacturing package and module bootstrap | Full specification | Design resolved; scope-cohesion review **KEEP**; accepted for staged implementation |
 | 3 | P1.1 optional `wms_sales` integration | New specification | Issue #5260 exists; specification missing |
 | 4 | P1.2 WMS Sites and warehouse roles | Readiness analysis of existing specification | Design complete |
 | 5 | P1.3a Catalog quantity normalization | Readiness analysis of existing specification | Design complete |
@@ -452,3 +452,4 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 - 2026-08-19: Added deferred future consideration for collaborative BOM drafting. P1.4a remains aligned with the standard Sales/platform optimistic-lock pattern; presence, ownership, comparison, merge, and recovery stay outside Wave 0 pending real collaboration evidence.
 - 2026-08-19: Added a post-Wave 0 BOM decision queue for list perspectives/filtering, business identity, history/comments, revision impact analysis, reuse/import/export, extensibility/document control, and alternatives. Each remains an independent candidate rather than an unapproved expansion of P1.4a.
 - 2026-08-19: Owner assigned the approved post-Wave 0 BOM decision queue to P1.4c-h and created trackers #5408-#5413: list workspace, business identity, history/comments, revision comparison/where-used, copy only, and extensibility/document control. Import/export and alternatives remain unassigned future work.
+- 2026-08-20: Accepted the parent roadmap as the staged Wave 0 delivery baseline. P1.0a is authorized for implementation; all other capability slices continue to require their dedicated readiness evidence and dependency gates.

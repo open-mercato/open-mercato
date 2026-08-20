@@ -17,7 +17,7 @@ manufacturing (single opt-in Wave 0 module; hard-requires catalog)
 
 ## Overview and Status
 
-**Status:** Proposed planning baseline aligned with the roadmap under maintainer/community review. No implementation scope is approved by this document.
+**Status:** Accepted execution baseline for staged Wave 0 delivery (2026-08-20). Each workstream remains subject to its dedicated specification, readiness evidence, and named safety gates.
 
 **Parent roadmap:** `2026-08-13-manufacturing-product-roadmap.md`.
 
@@ -65,8 +65,8 @@ The first two workstreams can begin in parallel. The third can define contracts 
 
 | ID | Large task | Primary owner/module | Modules and contracts touched | Can start now? | Depends on | Unblocks |
 |---|---|---|---|---|---|---|
-| P1.0 | Freeze Phase 1 boundaries and dependency semantics | Manufacturing planning / specs | `wms`, `catalog`, `resources`, `planner`, `events`, `queue` | Yes, as review/refinement only | Parent roadmap | Accepted implementation baseline; no accidental hard dependency or duplicated ownership |
-| P1.0a | Bootstrap the Manufacturing workspace package and single opt-in module | `@open-mercato/manufacturing` / `manufacturing` | Workspace manifest, module discovery, entrypoint exports, build/test and opt-in app conventions | Full specification ready for review; implementation only after P1.0 acceptance | P1.0 | Stable package/module home without domain behavior; hard `catalog`, optional WMS/Resources/Planner |
+| P1.0 | Freeze Phase 1 boundaries and dependency semantics | Manufacturing planning / specs | `wms`, `catalog`, `resources`, `planner`, `events`, `queue` | Accepted; maintain the baseline and gate evidence | Parent roadmap | Accepted implementation baseline; no accidental hard dependency or duplicated ownership |
+| P1.0a | Bootstrap the Manufacturing workspace package and single opt-in module | `@open-mercato/manufacturing` / `manufacturing` | Workspace manifest, module discovery, entrypoint exports, build/test and opt-in app conventions | Full specification accepted for staged implementation | P1.0 | Stable package/module home without domain behavior; hard `catalog`, optional WMS/Resources/Planner |
 | P1.1 | Decouple WMS from Sales through candidate `wms_sales` | Optional integration module requiring `wms` and `sales` | `feature_toggles`, commands, events, API routes, widgets, module metadata | Yes as specification work; not first-standard-composition blocker | Backward-compatibility plan | Standalone WMS/Manufacturing packaging while preserving current Sales behavior through a compatibility bridge |
 | P1.2 | Establish minimal WMS site and current warehouse-role model | `wms` | auth/organization scope, custom-field framework, CrudForm/DataTable extension hosts, and WMS warehouse topology | Readiness review after baseline acceptance; implementation only after pass | Tenant/organization invariants | Inactive-by-default Site; raw-material/finished-goods activation defaults; one warehouse in one active Site; immutable consumer snapshots |
 | P1.3a | Establish exact Catalog/Sales quantity normalization | `catalog` | Existing Catalog/Sales UoM contract and exact decimal utilities | Readiness review after baseline acceptance; implementation only after pass | None; begins with current-state audit | One Catalog-owned resolver and deterministic quantity snapshots |
@@ -230,3 +230,4 @@ The WMS–Sales work is especially contract-sensitive: current sales-order event
 - 2026-08-19: Split P1.4 after fresh-context review and owner approval: P1.4a owns direct-level BOM draft authoring/integrity, while P1.4b owns the independently deployable bounded read-only multi-level preview. Only P1.4a is a P1.7 release prerequisite.
 - 2026-08-19: Assigned provider-neutral demand references and required/planned dates explicitly to P1.10 rather than the reusable P1.4a BOM aggregate.
 - 2026-08-19: Added the owner-approved post-Wave 0 P1.4c-h lane with specification trackers #5408-#5413: list workspace, business identity, history/comments, revision comparison/where-used, copy, and extensibility/document control. These candidates do not gate Wave 0 delivery.
+- 2026-08-20: Accepted the plan as the staged Wave 0 execution baseline. P1.0a is authorized for implementation; the immediate capability lane prioritizes P1.4a, P1.6, and then P1.5 while preserving their prerequisite gates.

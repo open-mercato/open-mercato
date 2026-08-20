@@ -2,15 +2,15 @@
 
 > A business-readable map of Manufacturing capabilities and a navigation dashboard for Wave 0 specification readiness.
 
-**Last verified:** 2026-08-19
+**Last verified:** 2026-08-20
 **Status:** Operational documentation dashboard. It is not a release schedule, implementation approval, delivery promise, or licensing commitment.
 
 ## How to read this document
 
 - **MVP is the outcome of Wave 0**, not a separate wave.
-- Wave 0 is governed by the architecture gates and P1 workstreams once the proposed roadmap is accepted through repository review.
+- Wave 0 is governed by the accepted architecture baseline, its gates, and the P1 workstreams.
 - Waves 1–4 are a proposed business grouping of later capabilities already present in the product roadmap. The grouping is not yet a normative delivery order.
-- The proposed normative architecture source is the [Manufacturing product roadmap](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md); it becomes governing after repository acceptance. Detailed requirements belong to capability specifications, not this dashboard.
+- The normative architecture source is the accepted [Manufacturing product roadmap](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md). Detailed requirements belong to capability specifications, not this dashboard.
 - Placement and licensing are decided separately for each capability. A row in this OSS repository does not promise that capability under any particular license.
 
 ## Business capability waves
@@ -42,13 +42,13 @@
 
 | ID | Capability | Dedicated specification | Decision status | Consistency status | Implementation ready | Missing evidence / next action |
 |---|---|---|---|---|---|---|
-| **P1.0** | Phase 1 boundaries, single `manufacturing` module, namespace and dependency semantics | [Architecture roadmap](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md) and [execution plan](../../.ai/specs/2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Proposed | Proposed baseline; maintainer/community review pending; cross-document alignment checked | N/A — governance baseline | Accept or revise C1–C3, H1–H6, M1–M4, naming policy, generic WMS boundary and staged gates through repository review |
-| **P1.0a** | `@open-mercato/manufacturing` package and one opt-in `manufacturing` module | [Full specification](../../.ai/specs/2026-08-19-manufacturing-package-module-bootstrap.md); [task #5387](https://github.com/open-mercato/open-mercato/issues/5387) | Package/module topology accepted by roadmap owner | Full metadata-only boundary specified; scope review **KEEP**; hard `catalog`, optional WMS/Resources/Planner, entrypoint-only exports | **No — baseline acceptance pending** | Accept the specification after the parent architecture baseline, then implement the bootstrap |
+| **P1.0** | Phase 1 boundaries, single `manufacturing` module, namespace and dependency semantics | [Architecture roadmap](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md), [execution plan](../../.ai/specs/2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md), and [acceptance record](https://github.com/open-mercato/open-mercato/issues/5255#issuecomment-5357855521) | Accepted | Accepted baseline for staged Wave 0 delivery; cross-document alignment checked | N/A — governance baseline | Maintain C1–C3, H1–H6, M1–M4, naming policy, generic WMS boundary and staged gates as implementation evidence is added |
+| **P1.0a** | `@open-mercato/manufacturing` package and one opt-in `manufacturing` module | [Full specification](../../.ai/specs/2026-08-19-manufacturing-package-module-bootstrap.md); [task #5387](https://github.com/open-mercato/open-mercato/issues/5387); [acceptance record](https://github.com/open-mercato/open-mercato/issues/5255#issuecomment-5357855521) | Package/module topology accepted by roadmap owner | Full metadata-only boundary specified; scope review **KEEP**; hard `catalog`, optional WMS/Resources/Planner, entrypoint-only exports | **Ready for staged implementation** | Implement the bootstrap, then link validation evidence |
 | **P1.1** | Decouple WMS from Sales through candidate `wms_sales` | [Spec task #5388](https://github.com/open-mercato/open-mercato/issues/5388) | Option B proposed; placement open in [#5260](https://github.com/open-mercato/open-mercato/issues/5260) | Optional integration ownership is coherent; implementation contract is absent | **No** | Decide #5260, then author compatibility, module metadata, events/subscribers, migration and disabled-module test specification; not a standard-composition MVP blocker |
-| **P1.2** | WMS Site and current warehouse-role assignments | [WMS Sites and Warehouse Roles](../../.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md); [readiness #5389](https://github.com/open-mercato/open-mercato/issues/5389) | Design proposed | Design complete and aligned with roadmap | **No — baseline acceptance and readiness review pending** | Run readiness audit; confirm activation concurrency, migration, API/UI and integration evidence before implementation |
-| **P1.3a** | Exact Catalog/Sales quantity normalization | [Catalog Quantity Normalization](../../.ai/specs/2026-08-13-catalog-quantity-normalization.md); [readiness #5390](https://github.com/open-mercato/open-mercato/issues/5390) | Design proposed | Design complete and aligned with BOM/yield arithmetic | **No — baseline acceptance and readiness review pending** | Run readiness audit and freeze the exact-decimal/UoM resolver before quantity-bearing Manufacturing contracts |
-| **P1.3b** | WMS quantity precision, arithmetic and profile alignment | [WMS Quantity Precision and Profile Alignment](../../.ai/specs/2026-08-13-wms-quantity-precision-alignment.md); [audit #5391](https://github.com/open-mercato/open-mercato/issues/5391) | Design proposed | Design complete; stock-gate dependency is explicit | **No — baseline acceptance and readiness review pending** | Audit representative/schema-supported WMS data distribution and migration envelope; required before stock-affecting production |
-| **P1.3c** | Immutable WMS quantity evidence and correlated reversal | [WMS Quantity Evidence and Correlated Reversal](../../.ai/specs/2026-08-13-wms-quantity-evidence-reversal.md); [readiness #5392](https://github.com/open-mercato/open-mercato/issues/5392) | Design proposed | Design complete; exact reversal direction is aligned | **No — baseline acceptance and readiness review pending** | Complete readiness audit after P1.3b; required before stock-affecting production |
+| **P1.2** | WMS Site and current warehouse-role assignments | [WMS Sites and Warehouse Roles](../../.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md); [readiness #5389](https://github.com/open-mercato/open-mercato/issues/5389) | Design proposed | Design complete and aligned with roadmap | **No — readiness review pending** | Run readiness audit; confirm activation concurrency, migration, API/UI and integration evidence before implementation |
+| **P1.3a** | Exact Catalog/Sales quantity normalization | [Catalog Quantity Normalization](../../.ai/specs/2026-08-13-catalog-quantity-normalization.md); [readiness #5390](https://github.com/open-mercato/open-mercato/issues/5390) | Design proposed | Design complete and aligned with BOM/yield arithmetic | **No — readiness review pending** | Run readiness audit and freeze the exact-decimal/UoM resolver before quantity-bearing Manufacturing contracts |
+| **P1.3b** | WMS quantity precision, arithmetic and profile alignment | [WMS Quantity Precision and Profile Alignment](../../.ai/specs/2026-08-13-wms-quantity-precision-alignment.md); [audit #5391](https://github.com/open-mercato/open-mercato/issues/5391) | Design proposed | Design complete; stock-gate dependency is explicit | **No — readiness review pending** | Audit representative/schema-supported WMS data distribution and migration envelope; required before stock-affecting production |
+| **P1.3c** | Immutable WMS quantity evidence and correlated reversal | [WMS Quantity Evidence and Correlated Reversal](../../.ai/specs/2026-08-13-wms-quantity-evidence-reversal.md); [readiness #5392](https://github.com/open-mercato/open-mercato/issues/5392) | Design proposed | Design complete; exact reversal direction is aligned | **No — readiness review pending** | Complete readiness audit after P1.3b; required before stock-affecting production |
 | **P1.4a** | Direct-level reusable BOM draft authoring and integrity | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md); [spec task #5393](https://github.com/open-mercato/open-mercato/issues/5393) | P1.4 split and authoring boundary accepted by roadmap owner | Full aggregate/data/CRUD/API/UI/command/undo/concurrency design; customer/order/dates remain in P1.10; fresh-context review **PASS** | **No — baseline and P1.0a/P1.3a readiness pending** | Accept upstream gates, then implement the reviewed direct-level authoring/integrity contract |
 | **P1.4b** | Bounded read-only multi-level BOM draft preview | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-draft-preview.md); [spec task #5405](https://github.com/open-mercato/open-mercato/issues/5405) | P1.4 split and preview boundary accepted by roadmap owner | Full explosion/API/UI/isolation/limit design; fresh-context review **PASS** | **No — baseline and P1.0a/P1.3a/P1.4a readiness pending** | Accept upstream gates, then implement the reviewed occurrence-tree and bounded exact read contract |
 | **P1.4c** | BOM list workspace | [Spec task #5408](https://github.com/open-mercato/open-mercato/issues/5408) | Post-Wave 0 decision accepted | Search, BOM filters/sorting and personal list perspectives are bounded; no bulk mutation | **No — specification missing** | Resolve search/index/sort/perspective decisions after P1.4a without changing its keyset contract |
@@ -72,9 +72,9 @@
 
 | Group | Current result |
 |---|---|
-| Architecture baseline | **Proposed — maintainer/community review pending** |
+| Architecture baseline | **Accepted for staged Wave 0 delivery — 2026-08-20** |
 | Dedicated specs with completed design | **P1.2, P1.3a–c, P1.4a and P1.4b** |
-| Dedicated specs fully ready for implementation | **None recorded yet — readiness reviews remain pending** |
+| Dedicated specs fully ready for implementation | **P1.0a — package/module bootstrap; other readiness reviews remain pending** |
 | Architecture direction proposed but dedicated full spec missing | **P1.1, P1.4c–P1.4h and P1.5–P1.11; all have trackers** |
 | Evidence maintained per epic | **P1.12** |
 | Deliberately deferred, non-blocking capability | **P1.13** |
@@ -96,7 +96,7 @@ Every status promotion must link its evidence. Do not mark a capability `Ready f
 
 ## Source priority
 
-1. [Manufacturing product roadmap](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md) — proposed normative architecture and readiness gates; governing after repository acceptance.
+1. [Manufacturing product roadmap](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md) — accepted normative architecture and readiness gates.
 2. [Wave 0 specification backlog](../../.ai/specs/2026-08-19-manufacturing-wave-0-specification-backlog.md) — owner-approved work-item decomposition, readiness definitions and tracker map.
 3. Dedicated capability specification — implementation contract for that capability.
 4. [Wave 0 execution plan](../../.ai/specs/2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) — dependency-aware delivery grouping.

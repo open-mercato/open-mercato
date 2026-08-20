@@ -2,8 +2,8 @@
 
 > A single operational view of the Manufacturing programme. It links the product roadmap, delivery workstreams, capability specifications, and the relevant GitHub Issues and Pull Requests.
 
-**Last reviewed:** 2026-08-19
-**Programme status:** The product roadmap is an internally coherent proposal under maintainer and community review. It does not approve implementation. After acceptance, each slice may proceed only through a dedicated ready specification and its named safety gates.
+**Last reviewed:** 2026-08-20
+**Programme status:** The product roadmap is the accepted baseline for staged Wave 0 delivery. Each slice proceeds only through a dedicated ready specification and its named safety gates.
 
 ## How to use this document
 
@@ -24,11 +24,11 @@ The opt-in `manufacturing` module owns production intent, semantic commands, der
 
 | ID | Workstream | Status | Can start now? | Dependencies | Next step |
 |---|---|---|---|---|---|
-| P1.0 | Freeze Phase 1 boundaries and dependency semantics | Proposed architectural baseline; review pending | Specification/refinement only | Parent roadmap | Obtain maintainer/community acceptance and keep downstream specifications aligned with the accepted roadmap laws |
-| P1.0a | Bootstrap `@open-mercato/manufacturing` with one opt-in `manufacturing` module | [Full specification authored; task #5387](https://github.com/open-mercato/open-mercato/issues/5387) | Yes, as specification work | P1.0 acceptance before implementation | Review and accept the bootstrap specification: hard `catalog`, optional WMS/Resources/Planner, entrypoint-only exports |
+| P1.0 | Freeze Phase 1 boundaries and dependency semantics | Accepted architectural baseline | Yes, as staged-delivery governance | Parent roadmap | Maintain the accepted roadmap laws and evidence as implementation proceeds |
+| P1.0a | Bootstrap `@open-mercato/manufacturing` with one opt-in `manufacturing` module | [Full specification accepted; task #5387](https://github.com/open-mercato/open-mercato/issues/5387) | Yes, implementation may begin | P1.0 accepted | Implement the metadata-only bootstrap: hard `catalog`, optional WMS/Resources/Planner, entrypoint-only exports |
 | P1.1 | Decouple WMS from Sales through candidate `wms_sales` | Option B proposed; [spec task #5388](https://github.com/open-mercato/open-mercato/issues/5388) blocked on [decision #5260](https://github.com/open-mercato/open-mercato/issues/5260) | Yes, as audit/skeleton work; packaging gate, not first-MVP blocker | Backward-compatibility plan and #5260 | Author the optional integration, compatibility bridge and disabled-module contract after placement is decided; preserve current Sales behavior |
-| P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete; [readiness task #5389](https://github.com/open-mercato/open-mercato/issues/5389) open | Readiness audit now; implementation after baseline acceptance and pass | Tenant and organisation scope invariants | Run the formal readiness audit, then remediate critical findings before implementation |
-| P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete; [readiness task #5390](https://github.com/open-mercato/open-mercato/issues/5390) open | Readiness audit now; implementation after baseline acceptance and pass | Current Catalog UoM contract | Audit the resolver and compatibility surface before Manufacturing quantity contracts freeze |
+| P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete; [readiness task #5389](https://github.com/open-mercato/open-mercato/issues/5389) open | Readiness audit now; implementation after pass | Tenant and organisation scope invariants | Run the formal readiness audit, then remediate critical findings before implementation |
+| P1.3a | Establish exact Catalog/Sales quantity normalisation | Design complete; [readiness task #5390](https://github.com/open-mercato/open-mercato/issues/5390) open | Readiness audit now; implementation after pass | Current Catalog UoM contract | Audit the resolver and compatibility surface before Manufacturing quantity contracts freeze |
 | P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | Design complete; [audit task #5391](https://github.com/open-mercato/open-mercato/issues/5391) open | Data audit/spec refinement now; implementation after P1.3a readiness | P1.3a | Measure representative/schema-supported data, choose the precision envelope, then plan an additive migration before stock execution |
 | P1.3c | Add immutable WMS quantity evidence and correlated reversal | Design complete; [readiness task #5392](https://github.com/open-mercato/open-mercato/issues/5392) open | Audit preparation after P1.3b | P1.3a–P1.3b | Audit quantity snapshots and exact correlated reversal before stock execution |
 | P1.4a | Author direct-level BOM drafts and enforce aggregate integrity | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md); [spec task #5393](https://github.com/open-mercato/open-mercato/issues/5393) | Implementation-ready design; fresh-context review **PASS** | P1.0 acceptance, P1.0a, P1.3a | Accept upstream gates, then implement versioned families/revisions/occurrences, exact quantities, optimistic locking, commands/undo and cycle-safe CRUD/API/UI |
@@ -77,7 +77,7 @@ Later capability
   P1.13 configurable order/batch/lot/serial number ranges and offline allocation
 ```
 
-The first safe increment after roadmap acceptance is parallel specification/readiness work on P1.1, P1.2, P1.3a, draft multi-level BOM/routing authoring, and the work-centre boundary. P1.10 and P1.11 are not implementation work to start now.
+The first staged increment is the P1.0a package/module bootstrap, alongside readiness and specification work on P1.1, P1.2, P1.3a, the P1.4a BOM lane, the P1.6 Work Center boundary, and then P1.5 routing/operation drafts. P1.4a begins only after P1.0a and P1.3a are ready; P1.5 follows P1.6. P1.10 and P1.11 are not implementation work to start now.
 
 ## Mandatory BOM rules
 
@@ -140,7 +140,7 @@ Child trackers [#5387–#5401](https://github.com/open-mercato/open-mercato/issu
 
 | Document | Role |
 |---|---|
-| [`2026-08-13-manufacturing-product-roadmap.md`](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md) | Proposed normative product roadmap, ownership model, architecture laws, and readiness gates; governing after repository acceptance |
+| [`2026-08-13-manufacturing-product-roadmap.md`](../../.ai/specs/2026-08-13-manufacturing-product-roadmap.md) | Accepted normative product roadmap, ownership model, architecture laws, and readiness gates |
 | [`2026-08-19-manufacturing-wave-0-specification-backlog.md`](../../.ai/specs/2026-08-19-manufacturing-wave-0-specification-backlog.md) | Owner-approved specification decomposition, readiness definitions, artifact plan and GitHub tracker structure |
 | [`waves-and-readiness.md`](waves-and-readiness.md) | Business capability waves and the evidence-linked Wave 0 specification-readiness dashboard |
 | [`2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`](../../.ai/specs/2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Workstream order and dependencies |
