@@ -5,7 +5,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ComboboxInput } from '../ComboboxInput'
 
 type HarnessProps = Partial<React.ComponentProps<typeof ComboboxInput>> & {
@@ -395,5 +395,25 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Label-a'))
     rerender(<ComboboxInput value="b" onChange={() => {}} resolveLabel={resolveLabel} />)
     await waitFor(() => expect(getInput(container).value).toBe('Label-b'))
+  })
+})
+
+describe('ComboboxInput accessibility', () => {
+  it('exposes status text separately and reserves listbox for options', () => {
+    render(<Harness />)
+    const input = screen.getByRole('combobox')
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'missing' } })
+
+    expect(screen.getByText(/no matches/i)).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input).not.toHaveAttribute('aria-controls')
+
+    fireEvent.change(input, { target: { value: 're' } })
+
+    const listbox = screen.getByRole('listbox')
+    expect(within(listbox).getAllByRole('option')).toHaveLength(2)
+    expect(input).toHaveAttribute('aria-controls', listbox.id)
   })
 })

@@ -54,7 +54,7 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 3. **Contact details are per-address, not per-customer.** One customer has a home address, an office address and a warehouse, each with a different person to call. Holding one phone on the customer answers the wrong question.
 4. **A bare tax identifier is ambiguous.** `1234567890` may be a Polish NIP, an EU VAT number missing its country prefix, or a local tax number of a business that is not VAT-registered at all. Stripe treats these as *distinct types* (`pl_nip` vs `eu_vat`, examples `1234567890` vs `PL1234567890`) precisely because display, tax calculation and validation all diverge on the answer.
 5. **Locked documents render an editable editor.** `AddressEditor` does accept a `disabled` prop (`customers/components/AddressEditor.tsx:82`, and its `ui` twin at `:97`), but neither snapshot call site passes it (`AddressesSection.tsx:1070`, `:1137`) — while every sibling control in that component is already locked (`:1057`, `:1082`, `:1113`, `:1132`) and a `lockedReason` banner renders above them at `:1018-1026`. A deployment that locks document addresses (`order_address_editable_statuses = []`) therefore presents a fully editable form over data the API will refuse to change.
-6. **Unknown snapshot keys do not survive a save.** `normalizeAddressDraft` (`AddressesSection.tsx:78-99`) rebuilds the snapshot from the twelve fields the editor models, destroying every other key on the first manual save — silent data loss for exactly the keys this feature depends on. A second copy of the helper exists on `SalesDocumentForm.tsx:438-459`, but that component is mounted only by `backend/sales/documents/create/page.tsx` and submits through `createCrud`: on a document that does not exist yet there is no prior snapshot to preserve, so the defect is not reachable there. The duplication is worth collapsing on its own merits; it is not a second instance of this bug. *(Outstanding in this repository — Phase 0.)*
+6. **Unknown snapshot keys do not survive a save.** `normalizeAddressDraft` (`AddressesSection.tsx:78-99`) rebuilds the snapshot from the twelve fields the editor models, destroying every other key on the first manual save — silent data loss for exactly the keys this feature depends on. A second copy of the helper exists on `SalesDocumentForm.tsx:438-459`, but that component is mounted only by `backend/sales/documents/create/page.tsx` and submits through `createCrud`: on a document that does not exist yet there is no prior snapshot to preserve, so the defect is not reachable there. The duplication is worth collapsing on its own merits; it is not a second instance of this bug. *(Fixed — see Phase 0.)*
 
 ## Proposed Solution
 
@@ -112,7 +112,7 @@ Every question raised while this spec was drafted is settled. They are recorded 
 ## Architecture
 
 Data flow (read): `writer → *_address_snapshot (jsonb, encrypted at rest per sales/encryption.ts) → document detail UI → AddressView contact block`.
-Data flow (write/edit), **after Phase 0**: `AddressEditor draft → normalizeAddressDraft(draft, previousSnapshot) → snapshot` — keys the editor does not own are merged back rather than dropped. Today the helper takes the draft alone and drops them, on both the document detail and the document form paths.
+Data flow (write/edit): `AddressEditor draft → normalizeAddressDraft(draft, previousSnapshot) → snapshot` — keys the editor does not own are merged back rather than dropped, and a draft with no editor-owned content normalizes to `null` so clearing an address cannot strand them. The document *create* form keeps its own single-argument copy of the helper, which needs none of this because no prior snapshot exists there.
 
 No new commands, events, routes, or DI registrations. The snapshot rides the existing order/quote update payload. Cross-module surface: `customers` owns the util, `sales` consumes it, `ui` holds the near-identical twin (edited in parallel here; collapsing the two into one module is deferred).
 
@@ -155,11 +155,14 @@ Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, 
 
 ## Implementation Plan
 
-### Phase 0 — snapshot key preservation *(outstanding; first implementable step)*
-1. `normalizeAddressDraft` in `AddressesSection.tsx:78-99` takes the previous snapshot and merges back keys outside the twelve it owns; a cleared address still normalizes to `null`.
-2. A round-trip test on that save path, asserting an unowned key survives.
+### Phase 0 — snapshot key preservation *(done)*
+1. `normalizeAddressDraft` takes the previous snapshot and merges back keys outside the ones the editor owns; a draft with no editor-owned content normalizes to `null`, so clearing an address cannot leave the unowned keys behind.
+2. The editable-key set is derived from `emptyDraft` rather than restated, because a key the editor writes but the set omits is overwritten by the previous snapshot on every save.
+3. Round-trip tests on that save path: an unowned key survives, a full clear yields `null`, and a single cleared field stays cleared while unowned keys survive.
 
-The `SalesDocumentForm.tsx:438-459` copy is deliberately left alone: it runs only on document creation, where no prior snapshot exists, so a merge-back there would be permanently inert. Collapsing the two copies is separate work with its own justification.
+**Phase 1 must extend `emptyDraft` when it adds `phone` or `taxId` to the editor.** A field the editor writes without being part of that draft shape reverts to its previous value on save.
+
+The `SalesDocumentForm.tsx` copy is deliberately left alone: it runs only on document creation, where no prior snapshot exists, so a merge-back there would be permanently inert. Collapsing the two copies is separate work with its own justification.
 
 ### Phase 1 — contact fields and render
 1. `AddressValue` + `formatAddressContactPairs` + `AddressView` contact block, with postal-purity and self-hiding tests.
@@ -269,6 +272,9 @@ The justification above stands on the market comparison, not on any single deplo
 Two observations that shaped decisions above: the order-level tax-id rate exceeds the customer-level rate because business buyers reorder more often — an input to keeping the customer as master while the document freezes what it was issued under — and `buildingNumber` was populated on ~1% of addresses because house numbers are conventionally written into the street line, which is why this spec adds no further logic there.
 
 ## Changelog
+
+### 2026-08-13
+- Phase 0 implemented and marked done. The editable-key set is derived from `emptyDraft` rather than restated, and emptiness is decided over editor-owned string content so a cleared address normalizes to `null` instead of stranding unowned keys behind an always-assigned `isPrimary`. Phase 1 now carries an explicit warning that adding `phone`/`taxId` to the editor means extending `emptyDraft`.
 
 ### 2026-08-12
 - Corrected the scope of Problem 6. The second `normalizeAddressDraft`, on `SalesDocumentForm.tsx`, is not a second instance of the data loss: that component is mounted only by the document *create* page and submits through `createCrud`, so no prior snapshot exists for it to drop. Phase 0 covers the document detail path alone; the duplication is recorded as work that needs its own justification.

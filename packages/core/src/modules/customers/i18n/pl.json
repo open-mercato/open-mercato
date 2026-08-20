@@ -2409,6 +2409,7 @@
   "customers.personTags.newLabel": "Nowa etykieta",
   "customers.personTags.newLabelPlaceholder": "Nazwa etykiety...",
   "customers.personTags.newTag": "Nowy tag",
+  "customers.personTags.retry": "Ponów próbę",
   "customers.personTags.save": "Zapisz",
   "customers.personTags.saveError": "Nie udało się zapisać tagów",
   "customers.personTags.saveSuccess": "Tagi zostały zaktualizowane.",
@@ -2851,5 +2852,6 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Zadania odświeżone",
   "customers.workPlan.customerTodos.table.state.empty": "Brak zadań klientów.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Brak zadań spełniających filtry.",
-  "customers.workPlan.customerTodos.table.title": "Zadania związane z klientami"
+  "customers.workPlan.customerTodos.table.title": "Zadania związane z klientami",
+  "notifications.categories.customers": "Klienci"
 }
