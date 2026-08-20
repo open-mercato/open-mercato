@@ -393,9 +393,7 @@ describe('wms inventory allocate command', () => {
     const reservation = makeReservation({
       status: 'released',
       metadata: {
-        allocatedBuckets: [
-          { balanceId: BALANCE_ID, locationId: LOCATION_A, lotId: null, serialNumber: null, quantity: 5 },
-        ],
+        allocatedBuckets: [],
         allocationState: 'reserved',
         releasedAt: '2024-01-01T00:00:00.000Z',
       },
