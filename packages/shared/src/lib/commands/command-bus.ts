@@ -33,6 +33,11 @@ import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
+import {
+  containsSensitiveAuditData,
+  markAuditRedoUnavailable,
+  redactSensitiveAuditData,
+} from './audit-redaction'
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
@@ -267,11 +272,15 @@ export class CommandBus {
     const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
     const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)
     let mergedMeta = this.mergeMetadata(effectiveOptions.metadata, logMeta)
-    const undoable = this.isUndoable(handler)
+    const sensitiveInput = mergedMeta?.sensitiveInput === true
+      || containsSensitiveAuditData(effectiveOptions.input)
+    const undoable = this.isUndoable(handler) && !sensitiveInput
     if (undoable) {
       mergedMeta = mergedMeta ?? {}
       if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
       if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = effectiveOptions.ctx.auth?.sub ?? null
+    } else if (sensitiveInput && mergedMeta?.undoToken) {
+      mergedMeta.undoToken = null
     }
     if (afterSnapshot !== undefined && afterSnapshot !== null) {
       if (!mergedMeta) {
@@ -516,6 +525,7 @@ export class CommandBus {
     if (!primary && !secondary) return null
     return {
       skipLog: secondary?.skipLog ?? primary?.skipLog ?? false,
+      sensitiveInput: secondary?.sensitiveInput === true || primary?.sensitiveInput === true,
       tenantId: secondary?.tenantId ?? primary?.tenantId ?? null,
       organizationId: secondary?.organizationId ?? primary?.organizationId ?? null,
       actorUserId: secondary?.actorUserId ?? primary?.actorUserId ?? null,
@@ -597,8 +607,32 @@ export class CommandBus {
       payload.context = { ...baseContext, source: runAs.source }
     }
 
-    const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)
-    payload.commandPayload = redoEnvelope
+    const sensitiveInput = metadata.sensitiveInput === true || containsSensitiveAuditData(options.input)
+    const existingCommandPayload = 'commandPayload' in payload
+      ? payload.commandPayload
+      : undefined
+    payload.commandPayload = sensitiveInput
+      ? markAuditRedoUnavailable(existingCommandPayload)
+      : wrapRedoPayload(existingCommandPayload, options.input)
+
+    const auditFields = [
+      'commandPayload',
+      'snapshotBefore',
+      'snapshotAfter',
+      'changes',
+      'context',
+    ] as const
+    let redacted = sensitiveInput
+    for (const field of auditFields) {
+      if (!(field in payload)) continue
+      const result = redactSensitiveAuditData(payload[field])
+      payload[field] = result.value
+      redacted = redacted || result.redacted
+    }
+    if (redacted) {
+      payload.undoToken = undefined
+      payload.commandPayload = markAuditRedoUnavailable(payload.commandPayload)
+    }
 
     return await service.log(payload as ActionLogCreateInput)
   }

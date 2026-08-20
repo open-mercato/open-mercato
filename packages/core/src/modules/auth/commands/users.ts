@@ -297,7 +297,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     )
     return serializeUser(user, roles, custom)
   },
-  buildLog: async ({ result: { user }, ctx }) => {
+  buildLog: async ({ input, result: { user }, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(user.id))
@@ -309,6 +309,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     )
     const snapshot = captureUserSnapshots(user, roles, undefined, custom)
     return {
+      sensitiveInput: typeof input.password === 'string' && input.password.length > 0,
       actionLabel: translate('auth.audit.users.create', 'Create user'),
       resourceKind: 'auth.user',
       resourceId: String(user.id),
@@ -658,7 +659,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     )
     return serializeUser(result, roles, custom)
   },
-  buildLog: async ({ result, snapshots, ctx }) => {
+  buildLog: async ({ input, result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
     const beforeSnapshots = snapshots.before as UserSnapshots | undefined
     const before = beforeSnapshots?.view
@@ -682,6 +683,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       changes[`cf_${key}`] = diff
     }
     return {
+      sensitiveInput: typeof input.password === 'string' && input.password.length > 0,
       actionLabel: translate('auth.audit.users.update', 'Update user'),
       resourceKind: 'auth.user',
       resourceId: String(result.id),

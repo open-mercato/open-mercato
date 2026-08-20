@@ -76,4 +76,58 @@ const projectionsBackfill: ModuleCli = {
   },
 }
 
-export default [projectionsBackfill]
+const sensitiveDataRedact: ModuleCli = {
+  command: 'sensitive-data:redact',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = typeof args.tenantId === 'string' ? args.tenantId : typeof args.tenant === 'string' ? args.tenant : null
+    const organizationId = typeof args.organizationId === 'string'
+      ? args.organizationId
+      : typeof args.orgId === 'string'
+        ? args.orgId
+        : typeof args.org === 'string'
+          ? args.org
+          : null
+    const batchSize = parsePositiveInt(args.batchSize ?? args.batch, 250)
+    const dryRun = parseBooleanToken(
+      typeof args.dryRun === 'boolean'
+        ? 'true'
+        : typeof args.dryRun === 'string'
+          ? args.dryRun
+          : typeof args['dry-run'] === 'boolean'
+            ? 'true'
+            : typeof args['dry-run'] === 'string'
+              ? args['dry-run']
+              : null,
+    ) === true
+
+    const container = await createRequestContainer()
+    const actionLogService = container.resolve('actionLogService') as ActionLogService
+
+    console.log(
+      `[sensitive-data:redact] Starting audit log cleanup (tenant=${tenantId ?? 'all'}, org=${organizationId ?? 'all'}, batch=${batchSize}, dryRun=${dryRun})`,
+    )
+
+    const result = await actionLogService.redactSensitiveHistory({
+      batchSize,
+      dryRun,
+      logger: (message) => console.log(message),
+      organizationId,
+      tenantId,
+    })
+
+    console.log('[sensitive-data:redact] Complete.')
+    console.log(`  Scanned: ${result.scanned}`)
+    console.log(`  Updated: ${result.updated}`)
+    console.log(`  Would update: ${result.wouldUpdate}`)
+    console.log(`  Skipped: ${result.skipped}`)
+    console.log(`  Errors: ${result.errors}`)
+    if (result.errors > 0) {
+      throw new Error(`[internal] Audit log cleanup failed for ${result.errors} row(s)`)
+    }
+  },
+}
+
+const cliCommands = [projectionsBackfill, sensitiveDataRedact]
+
+export default cliCommands

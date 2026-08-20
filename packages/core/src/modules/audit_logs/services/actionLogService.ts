@@ -21,6 +21,10 @@ import {
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  markAuditRedoUnavailable,
+  redactSensitiveAuditData,
+} from '@open-mercato/shared/lib/commands/audit-redaction'
 
 const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
 
@@ -43,11 +47,27 @@ type ActionLogProjectionBackfillOptions = {
   tenantId?: string | null
 }
 
+export type ActionLogSensitiveRedactionOptions = {
+  batchSize?: number
+  dryRun?: boolean
+  logger?: (message: string) => void
+  organizationId?: string | null
+  tenantId?: string | null
+}
+
 export type ActionLogProjectionBackfillResult = {
   errors: number
   scanned: number
   skipped: number
   updated: number
+}
+
+export type ActionLogSensitiveRedactionResult = {
+  errors: number
+  scanned: number
+  skipped: number
+  updated: number
+  wouldUpdate: number
 }
 
 type BackfillRow = {
@@ -66,6 +86,27 @@ type BackfillRow = {
   source_key: string | null
   tenant_id: string | null
 }
+
+type SensitiveRedactionRow = {
+  changes_json: unknown | null
+  command_payload: unknown | null
+  context_json: unknown | null
+  created_at: Date
+  id: string
+  organization_id: string | null
+  snapshot_after: unknown | null
+  snapshot_before: unknown | null
+  tenant_id: string | null
+  undo_token: string | null
+}
+
+const SENSITIVE_AUDIT_STORAGE_FIELDS = [
+  'command_payload',
+  'snapshot_before',
+  'snapshot_after',
+  'changes_json',
+  'context_json',
+] as const
 
 function readString(record: Record<string, unknown>, ...keys: string[]): string | null {
   for (const key of keys) {
@@ -109,6 +150,87 @@ function stringArraysEqual(left: string[] | null, right: string[]): boolean {
   if (left.length !== right.length) return false
 
   return left.every((value, index) => value === right[index])
+}
+
+function isEncryptedAuditValue(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const parts = value.split(':')
+  return parts.length === 4 && parts[3] === 'v1'
+}
+
+function containsEncryptedAuditValue(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (isEncryptedAuditValue(value)) return true
+  if (!value || typeof value !== 'object' || value instanceof Date) return false
+  if (seen.has(value)) return false
+  seen.add(value)
+  if (Array.isArray(value)) {
+    return value.some((item) => containsEncryptedAuditValue(item, seen))
+  }
+  return Object.values(value as Record<string, unknown>)
+    .some((item) => containsEncryptedAuditValue(item, seen))
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function sanitizeStoredAuditFields(row: SensitiveRedactionRow): {
+  changesJson: unknown
+  commandPayload: unknown
+  contextJson: unknown
+  redacted: boolean
+  snapshotAfter: unknown
+  snapshotBefore: unknown
+} {
+  const commandPayload = redactSensitiveAuditData(row.command_payload)
+  const snapshotBefore = redactSensitiveAuditData(row.snapshot_before)
+  const snapshotAfter = redactSensitiveAuditData(row.snapshot_after)
+  const changesJson = redactSensitiveAuditData(row.changes_json)
+  const contextJson = redactSensitiveAuditData(row.context_json)
+  const redacted = commandPayload.redacted
+    || snapshotBefore.redacted
+    || snapshotAfter.redacted
+    || changesJson.redacted
+    || contextJson.redacted
+
+  return {
+    changesJson: changesJson.value,
+    commandPayload: redacted
+      ? markAuditRedoUnavailable(commandPayload.value)
+      : commandPayload.value,
+    contextJson: contextJson.value,
+    redacted,
+    snapshotAfter: snapshotAfter.value,
+    snapshotBefore: snapshotBefore.value,
+  }
+}
+
+function sanitizeActionLogInput(data: ActionLogCreateInput): ActionLogCreateInput {
+  const commandPayload = redactSensitiveAuditData(data.commandPayload)
+  const snapshotBefore = redactSensitiveAuditData(data.snapshotBefore)
+  const snapshotAfter = redactSensitiveAuditData(data.snapshotAfter)
+  const changes = redactSensitiveAuditData(data.changes)
+  const context = redactSensitiveAuditData(data.context)
+  const redacted = commandPayload.redacted
+    || snapshotBefore.redacted
+    || snapshotAfter.redacted
+    || changes.redacted
+    || context.redacted
+  const sanitized: ActionLogCreateInput = {
+    ...data,
+    changes: changes.value,
+    commandPayload: commandPayload.value,
+    context: context.value,
+    snapshotAfter: snapshotAfter.value,
+    snapshotBefore: snapshotBefore.value,
+  }
+
+  if (redacted) {
+    sanitized.undoToken = undefined
+    sanitized.commandPayload = markAuditRedoUnavailable(sanitized.commandPayload)
+  }
+
+  return sanitized
 }
 
 export class ActionLogService {
@@ -193,7 +315,7 @@ export class ActionLogService {
   }
 
   async log(input: ActionLogCreateInput): Promise<ActionLog | null> {
-    const data = this.parseCreateInput(input)
+    const data = sanitizeActionLogInput(this.parseCreateInput(input))
     const fork = this.em.fork()
     const log = this.createLogEntity(fork, data)
     await fork.persist(log).flush()
@@ -728,6 +850,155 @@ export class ActionLogService {
         `[backfill] Processed ${result.scanned} action logs (updated: ${result.updated}, skipped: ${result.skipped}, errors: ${result.errors})`,
       )
 
+      if (rows.length < batchSize) break
+    }
+
+    return result
+  }
+
+  async redactSensitiveHistory(
+    options: ActionLogSensitiveRedactionOptions = {},
+  ): Promise<ActionLogSensitiveRedactionResult> {
+    const batchSize = Math.min(Math.max(Math.trunc(options.batchSize ?? 250), 1), 1000)
+    const report = options.logger ?? (() => {})
+    const result: ActionLogSensitiveRedactionResult = {
+      errors: 0,
+      scanned: 0,
+      skipped: 0,
+      updated: 0,
+      wouldUpdate: 0,
+    }
+    const connection = this.em.getConnection()
+    let cursorCreatedAt: Date | null = null
+    let cursorId: string | null = null
+
+    while (true) {
+      const conditions = ['deleted_at is null']
+      const params: unknown[] = []
+      if (options.tenantId) {
+        conditions.push('tenant_id = ?')
+        params.push(options.tenantId)
+      }
+      if (options.organizationId) {
+        conditions.push('organization_id = ?')
+        params.push(options.organizationId)
+      }
+      if (cursorCreatedAt && cursorId) {
+        conditions.push('(created_at > ? or (created_at = ? and id > ?))')
+        params.push(cursorCreatedAt, cursorCreatedAt, cursorId)
+      }
+      params.push(batchSize)
+
+      const rows = await connection.execute<SensitiveRedactionRow[]>(
+        `select id, tenant_id, organization_id, undo_token, command_payload,
+                snapshot_before, snapshot_after, changes_json, context_json, created_at
+           from action_logs
+          where ${conditions.join(' and ')}
+          order by created_at asc, id asc
+          limit ?`,
+        params,
+      )
+      if (rows.length === 0) break
+
+      for (const row of rows) {
+        result.scanned += 1
+        try {
+          const encryptedFields = new Set(
+            await this.tenantEncryptionService?.getEncryptedFieldNames(
+              'audit_logs:action_log',
+              row.tenant_id,
+              row.organization_id,
+              { ignoreRuntimeHealth: true },
+            ) ?? [],
+          )
+          const hasMappedEncryptedFields = SENSITIVE_AUDIT_STORAGE_FIELDS
+            .some((field) => encryptedFields.has(field))
+          if (hasMappedEncryptedFields && !this.tenantEncryptionService?.isEnabled()) {
+            throw new Error('tenant encryption is required but unavailable')
+          }
+
+          const decrypted = await this.decryptEntryPayload(row as unknown as Record<string, unknown>)
+          const decryptedRow: SensitiveRedactionRow = {
+            ...row,
+            changes_json: readValue(decrypted, 'changesJson', 'changes_json') ?? null,
+            command_payload: readValue(decrypted, 'commandPayload', 'command_payload') ?? null,
+            context_json: readValue(decrypted, 'contextJson', 'context_json') ?? null,
+            snapshot_after: readValue(decrypted, 'snapshotAfter', 'snapshot_after') ?? null,
+            snapshot_before: readValue(decrypted, 'snapshotBefore', 'snapshot_before') ?? null,
+          }
+          if (SENSITIVE_AUDIT_STORAGE_FIELDS.some((field) => containsEncryptedAuditValue(decryptedRow[field]))) {
+            throw new Error('an encrypted audit field could not be decrypted')
+          }
+
+          const sanitized = sanitizeStoredAuditFields(decryptedRow)
+          const changed = sanitized.redacted
+            || !jsonValuesEqual(decryptedRow.command_payload, sanitized.commandPayload)
+            || !jsonValuesEqual(decryptedRow.snapshot_before, sanitized.snapshotBefore)
+            || !jsonValuesEqual(decryptedRow.snapshot_after, sanitized.snapshotAfter)
+            || !jsonValuesEqual(decryptedRow.changes_json, sanitized.changesJson)
+            || !jsonValuesEqual(decryptedRow.context_json, sanitized.contextJson)
+          if (!changed) {
+            result.skipped += 1
+            continue
+          }
+
+          result.wouldUpdate += 1
+          if (options.dryRun) continue
+
+          let storagePayload: Record<string, unknown> = {
+            changes_json: sanitized.changesJson,
+            command_payload: sanitized.commandPayload,
+            context_json: sanitized.contextJson,
+            snapshot_after: sanitized.snapshotAfter,
+            snapshot_before: sanitized.snapshotBefore,
+          }
+          if (hasMappedEncryptedFields && this.tenantEncryptionService) {
+            storagePayload = await this.tenantEncryptionService.encryptEntityPayload(
+              'audit_logs:action_log',
+              storagePayload,
+              row.tenant_id,
+              row.organization_id,
+            )
+            for (const field of SENSITIVE_AUDIT_STORAGE_FIELDS) {
+              if (!encryptedFields.has(field) || storagePayload[field] == null) continue
+              if (!isEncryptedAuditValue(storagePayload[field])) {
+                throw new Error(`audit field ${field} could not be re-encrypted`)
+              }
+            }
+          }
+
+          await connection.execute(
+            `update action_logs
+                set undo_token = null,
+                    command_payload = ?::jsonb,
+                    snapshot_before = ?::jsonb,
+                    snapshot_after = ?::jsonb,
+                    changes_json = ?::jsonb,
+                    context_json = ?::jsonb,
+                    updated_at = now()
+              where id = ?`,
+            [
+              JSON.stringify(storagePayload.command_payload ?? null),
+              JSON.stringify(storagePayload.snapshot_before ?? null),
+              JSON.stringify(storagePayload.snapshot_after ?? null),
+              JSON.stringify(storagePayload.changes_json ?? null),
+              JSON.stringify(storagePayload.context_json ?? null),
+              row.id,
+            ],
+          )
+          result.updated += 1
+        } catch (err) {
+          result.errors += 1
+          report(`[sensitive-data:redact] Failed for action log ${row.id}: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      const lastRow = rows[rows.length - 1]
+      cursorCreatedAt = lastRow.created_at
+      cursorId = lastRow.id
+      report(
+        `[sensitive-data:redact] Processed ${result.scanned} action logs (updated: ${result.updated}, would update: ${result.wouldUpdate}, skipped: ${result.skipped}, errors: ${result.errors})`,
+      )
       if (rows.length < batchSize) break
     }
 
