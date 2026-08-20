@@ -10,6 +10,7 @@ import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { createLogger } from '../logger'
+import { isTenantDataEncryptionEnabled, isTenantDataEncryptionRequired } from '../encryption/toggles'
 
 const logger = createLogger('shared').child({ component: 'di' })
 
@@ -39,7 +40,6 @@ const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
 // instances. Same globalThis pattern as registerDiRegistrars so HMR
 // keeps working.
 const BOOTSTRAP_CACHE_KEY = '__openMercatoBootstrapCache__'
-const ENCRYPTION_ENABLED_KEY = '__openMercatoEncryptionEnabledCache__'
 
 const BOOTSTRAP_CACHE_KEYS = [
   'cache',
@@ -93,21 +93,6 @@ function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry 
   return entry
 }
 
-type EncryptionEnabledProbe = { isEnabled?: () => boolean } | null | undefined
-
-function getCachedEncryptionEnabled(service: EncryptionEnabledProbe): boolean | null {
-  if (!service || typeof service.isEnabled !== 'function') return false
-  const cached = (globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY]
-  if (typeof cached === 'boolean') return cached
-  try {
-    const result = !!service.isEnabled()
-    ;(globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY] = result
-    return result
-  } catch {
-    return null
-  }
-}
-
 function getGlobalRegistrars(): DiRegistrar[] | null {
   return (globalThis as any)[GLOBAL_KEY] ?? null
 }
@@ -124,7 +109,6 @@ export function registerDiRegistrars(registrars: DiRegistrar[]) {
   setGlobalRegistrars(registrars)
   // Force re-bootstrap on HMR — module subscribers may have changed.
   ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
-  ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
   // An app that gains a src/di.ts mid-session reloads through here, so the negative
   // resolution result must not outlive the reload.
   ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
@@ -150,7 +134,6 @@ export function registerAppDiRegistrar(registrar: AppDiRegistrar | null): void {
 /** Test-only helper to drop process-scoped request-container state. */
 export function resetBootstrapCache(): void {
   (globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
-  ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_LOAD_WARNING_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_REGISTER_WARNING_KEY] = undefined
   ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
@@ -272,7 +255,9 @@ export async function createRequestContainer(): Promise<AppContainer> {
           await bootstrap(container)
           setBootstrapCache(harvestBootstrapCache(container))
         }
-      } catch { /* optional */ }
+      } catch (error) {
+        if (isTenantDataEncryptionRequired()) throw error
+      }
     }
   }
   // App-level DI override. Scaffolded apps register this callback explicitly
@@ -327,17 +312,20 @@ export async function createRequestContainer(): Promise<AppContainer> {
     const tenantEncryptionService = container.hasRegistration('tenantEncryptionService')
       ? (container.resolve('tenantEncryptionService') as any)
       : null
-    if (emForEnc && tenantEncryptionService && getCachedEncryptionEnabled(tenantEncryptionService) === true) {
+    if (
+      emForEnc
+      && tenantEncryptionService
+      && (isTenantDataEncryptionEnabled() || isTenantDataEncryptionRequired())
+    ) {
       const { registerTenantEncryptionSubscriber } = await import('@open-mercato/shared/lib/encryption/subscriber')
       registerTenantEncryptionSubscriber(emForEnc, tenantEncryptionService)
     }
-  } catch {
-    // best-effort; do not block container creation
+  } catch (error) {
+    if (isTenantDataEncryptionRequired()) throw error
   }
   return container
 }
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   require('server-only')
 } catch {
   // allow CLI/generator usage where Next server-only is not present
