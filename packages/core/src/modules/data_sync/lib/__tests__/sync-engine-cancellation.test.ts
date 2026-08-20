@@ -191,8 +191,8 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       await jest.advanceTimersByTimeAsync(CANCELLATION_TICK_MS)
       await running
 
-      expect((syncRunService as any).markStatus).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
-      expect((syncRunService as any).commitBatchProgress).not.toHaveBeenCalled()
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
+      expect(syncRunService.commitBatchProgress as jest.Mock).not.toHaveBeenCalled()
       expect(progressService.markCancelled).toHaveBeenCalledWith('job-cancel-1', expect.objectContaining({ tenantId: 'tenant-1' }))
       expect(progressService.completeJob).not.toHaveBeenCalled()
       expect(mockEmitDataSyncEvent).toHaveBeenCalledWith('data_sync.run.cancelled', expect.objectContaining({ runId: 'run-cancel-1' }))
@@ -245,16 +245,88 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       await engine.runImport('run-cancel-1', 100, createScope())
 
       expect(yielded).toEqual([0, 1])
-      expect((syncRunService as any).commitBatchProgress).toHaveBeenCalledTimes(1)
-      expect((syncRunService as any).commitBatchProgress).toHaveBeenCalledWith(
+      expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledTimes(1)
+      expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledWith(
         'run-cancel-1',
         expect.anything(),
         'cursor-0',
         expect.anything(),
         expect.anything(),
       )
-      expect((syncRunService as any).markStatus).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
       expect(progressService.completeJob).not.toHaveBeenCalled()
+    })
+
+    it('reports completed when the stream drains after its final batch and the cancel lands during the last read', async () => {
+      // An adapter that ignores the signal and reports hasMore: false has delivered everything it
+      // had. Calling that cancelled would tell the operator a complete sync was partial and leave a
+      // finished run resumable.
+      const adapter = importAdapter(async function* () {
+        yield { ...importBatch(0), hasMore: false }
+        await new Promise((resolve) => setTimeout(resolve, 30_000))
+      })
+      let call = 0
+      const progressService = createProgressService({
+        isCancellationRequested: jest.fn(async () => call++ > 0),
+      })
+      const syncRunService = createSyncRunService(importRun)
+      const engine = buildEngine({ run: importRun, adapter, progressService, syncRunService })
+
+      jest.useFakeTimers()
+      const running = engine.runImport('run-cancel-1', 100, createScope())
+      await jest.advanceTimersByTimeAsync(30_000)
+      await running
+
+      expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledTimes(1)
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'completed', expect.anything(), undefined)
+      expect(progressService.completeJob).toHaveBeenCalled()
+      expect(progressService.markCancelled).not.toHaveBeenCalled()
+    })
+
+    it('reports failed, not cancelled, when an unrelated error coincides with the cancel', async () => {
+      const entered = makeDeferred()
+      const adapter = importAdapter(async function* ({ signal }) {
+        entered.resolve()
+        await whenAborted(signal)
+        throw new Error('upstream 500')
+      })
+      const progressService = createProgressService({ isCancellationRequested: jest.fn(async () => true) })
+      const syncRunService = createSyncRunService(importRun)
+      const engine = buildEngine({ run: importRun, adapter, progressService, syncRunService })
+
+      jest.useFakeTimers()
+      const running = engine.runImport('run-cancel-1', 100, createScope())
+      await entered.promise
+      await jest.advanceTimersByTimeAsync(CANCELLATION_TICK_MS)
+      await running
+
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'failed', expect.anything(), 'upstream 500')
+      expect(progressService.failJob).toHaveBeenCalled()
+      expect(progressService.markCancelled).not.toHaveBeenCalled()
+    })
+
+    it('reports cancelled when a signal-honouring adapter rejects with an AbortError', async () => {
+      const entered = makeDeferred()
+      const adapter = importAdapter(async function* ({ signal }) {
+        entered.resolve()
+        await whenAborted(signal)
+        const abortError = new Error('The operation was aborted')
+        abortError.name = 'AbortError'
+        throw abortError
+      })
+      const progressService = createProgressService({ isCancellationRequested: jest.fn(async () => true) })
+      const syncRunService = createSyncRunService(importRun)
+      const engine = buildEngine({ run: importRun, adapter, progressService, syncRunService })
+
+      jest.useFakeTimers()
+      const running = engine.runImport('run-cancel-1', 100, createScope())
+      await entered.promise
+      await jest.advanceTimersByTimeAsync(CANCELLATION_TICK_MS)
+      await running
+
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
+      expect(progressService.markCancelled).toHaveBeenCalled()
+      expect(progressService.failJob).not.toHaveBeenCalled()
     })
   })
 
@@ -277,8 +349,8 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       await jest.advanceTimersByTimeAsync(CANCELLATION_TICK_MS)
       await running
 
-      expect((syncRunService as any).markStatus).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
-      expect((syncRunService as any).commitBatchProgress).not.toHaveBeenCalled()
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
+      expect(syncRunService.commitBatchProgress as jest.Mock).not.toHaveBeenCalled()
       expect(progressService.markCancelled).toHaveBeenCalledWith('job-cancel-1', expect.objectContaining({ tenantId: 'tenant-1' }))
       expect(progressService.completeJob).not.toHaveBeenCalled()
       expect(mockEmitDataSyncEvent).toHaveBeenCalledWith('data_sync.run.cancelled', expect.objectContaining({ runId: 'run-cancel-1' }))
@@ -331,16 +403,85 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       await engine.runExport('run-cancel-1', 100, createScope())
 
       expect(yielded).toEqual([0, 1])
-      expect((syncRunService as any).commitBatchProgress).toHaveBeenCalledTimes(1)
-      expect((syncRunService as any).commitBatchProgress).toHaveBeenCalledWith(
+      expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledTimes(1)
+      expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledWith(
         'run-cancel-1',
         expect.anything(),
         'cursor-0',
         expect.anything(),
         expect.anything(),
       )
-      expect((syncRunService as any).markStatus).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
       expect(progressService.completeJob).not.toHaveBeenCalled()
+    })
+
+    it('reports completed when the stream drains after its final batch and the cancel lands during the last read', async () => {
+      const adapter = exportAdapter(async function* () {
+        yield { ...exportBatch(0), hasMore: false }
+        await new Promise((resolve) => setTimeout(resolve, 30_000))
+      })
+      let call = 0
+      const progressService = createProgressService({
+        isCancellationRequested: jest.fn(async () => call++ > 0),
+      })
+      const syncRunService = createSyncRunService(exportRun)
+      const engine = buildEngine({ run: exportRun, adapter, progressService, syncRunService })
+
+      jest.useFakeTimers()
+      const running = engine.runExport('run-cancel-1', 100, createScope())
+      await jest.advanceTimersByTimeAsync(30_000)
+      await running
+
+      expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledTimes(1)
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'completed', expect.anything(), undefined)
+      expect(progressService.completeJob).toHaveBeenCalled()
+      expect(progressService.markCancelled).not.toHaveBeenCalled()
+    })
+
+    it('reports failed, not cancelled, when an unrelated error coincides with the cancel', async () => {
+      const entered = makeDeferred()
+      const adapter = exportAdapter(async function* ({ signal }) {
+        entered.resolve()
+        await whenAborted(signal)
+        throw new Error('upstream 500')
+      })
+      const progressService = createProgressService({ isCancellationRequested: jest.fn(async () => true) })
+      const syncRunService = createSyncRunService(exportRun)
+      const engine = buildEngine({ run: exportRun, adapter, progressService, syncRunService })
+
+      jest.useFakeTimers()
+      const running = engine.runExport('run-cancel-1', 100, createScope())
+      await entered.promise
+      await jest.advanceTimersByTimeAsync(CANCELLATION_TICK_MS)
+      await running
+
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'failed', expect.anything(), 'upstream 500')
+      expect(progressService.failJob).toHaveBeenCalled()
+      expect(progressService.markCancelled).not.toHaveBeenCalled()
+    })
+
+    it('reports cancelled when a signal-honouring adapter rejects with an AbortError', async () => {
+      const entered = makeDeferred()
+      const adapter = exportAdapter(async function* ({ signal }) {
+        entered.resolve()
+        await whenAborted(signal)
+        const abortError = new Error('The operation was aborted')
+        abortError.name = 'AbortError'
+        throw abortError
+      })
+      const progressService = createProgressService({ isCancellationRequested: jest.fn(async () => true) })
+      const syncRunService = createSyncRunService(exportRun)
+      const engine = buildEngine({ run: exportRun, adapter, progressService, syncRunService })
+
+      jest.useFakeTimers()
+      const running = engine.runExport('run-cancel-1', 100, createScope())
+      await entered.promise
+      await jest.advanceTimersByTimeAsync(CANCELLATION_TICK_MS)
+      await running
+
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
+      expect(progressService.markCancelled).toHaveBeenCalled()
+      expect(progressService.failJob).not.toHaveBeenCalled()
     })
   })
 })

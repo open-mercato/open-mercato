@@ -143,8 +143,10 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `getMapping(...)`
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
+- optional `runParameters` — see below
+- optional `persistsSharedCursor(entityType)`
 
-### Honouring cancellation inside a batch
+## Honouring cancellation inside a batch
 
 `StreamImportInput` and `StreamExportInput` carry an optional `signal: AbortSignal`. The engine aborts
 it as soon as it observes a cancellation request — including while your generator is still working on a
@@ -167,12 +169,14 @@ async function* streamImport({ cursor, signal }: StreamImportInput): AsyncIterab
 }
 ```
 
+Check inside the per-record loop too, not only per page — a page whose records each go through the
+command bus is exactly the case where a batch outlasts the operator's patience. The in-tree adapters
+(`sync_excel`, `sync_akeneo`) do this and are worth copying.
+
 Release locks and connections in the generator's own `finally` — it runs when the engine closes the
 iterator on an early exit. The signal only reaches work running in the engine's own process: an adapter
 that hands part of a batch to other workers must give that work its own cancellation check. Adapters
 that ignore the signal keep the previous between-batches behavior.
-- optional `runParameters` — see below
-- optional `persistsSharedCursor(entityType)`
 
 ## Run parameters
 

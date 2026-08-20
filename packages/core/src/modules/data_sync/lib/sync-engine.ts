@@ -103,6 +103,13 @@ const HEARTBEAT_TICK_MS = (STALE_JOB_TIMEOUT_SECONDS * 1000) / 4
 // Runs `tick` on an interval only while the source iterator is pending, so heartbeats
 // stop the moment the producer dies and genuinely stale jobs still get swept. The outer
 // finally closes the adapter generator on early exits (cancellation, ownership conflict).
+// Our own abort, as opposed to a failure that merely coincided with one. Adapters are told to
+// return rather than throw, but `signal.throwIfAborted()` and an aborted `fetch` both surface as
+// this, and either is a cancellation rather than a fault.
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
 async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
   const iterator = source[Symbol.asyncIterator]()
   try {
@@ -588,6 +595,9 @@ export function createSyncEngine(deps: EngineDeps) {
       let processedCount = await seedProcessedCount(run.progressJobId, scope)
       let totalCount: number | null = null
       let committedBatches = activeRun.batchesCompleted ?? 0
+      // Whether the last committed batch said the source was exhausted. Distinguishes a stream that
+      // drained from one the adapter stopped early — see the post-stream finalize below.
+      let streamReportedDone = false
       // Captured while the triggering job's span is still the active one, so
       // every rooted batch trace can link back to it.
       const runTrace = captureTelemetryTrace()
@@ -611,7 +621,9 @@ export function createSyncEngine(deps: EngineDeps) {
               parameters: (run.parameters ?? {}) as RunParameters,
               signal: cancellation.signal,
             }),
-            () => { heartbeat(); pollCancellation() },
+            // `finally` so a synchronous throw from the heartbeat cannot also stop cancellation
+            // from being observed for the rest of the run.
+            () => { try { heartbeat() } finally { pollCancellation() } },
             HEARTBEAT_TICK_MS,
           ),
           {
@@ -655,6 +667,7 @@ export function createSyncEngine(deps: EngineDeps) {
               { expectedBatchesCompleted: committedBatches, persistSharedCursor },
             )
             committedBatches += 1
+            streamReportedDone = batch.hasMore === false
 
             await updateProgress(run.progressJobId, processedCount, totalCount, scope)
             await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
@@ -701,9 +714,11 @@ export function createSyncEngine(deps: EngineDeps) {
           },
           scope,
         )
-        // An adapter that honours the signal may reject instead of returning. The operator asked
-        // for cancellation, so the run is cancelled, not failed — the error stays in the log above.
-        if (cancellation.signal.aborted) {
+        // An adapter that honours the signal may reject instead of returning, so our own abort is
+        // a cancellation rather than a fault. Anything else that merely coincided with the cancel —
+        // a rejecting commit, an upstream 500 — is a genuine failure and keeps its message, its
+        // `failed` status and its failed lifecycle event.
+        if (cancellation.signal.aborted && isAbortError(error)) {
           await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
           return
         }
@@ -714,7 +729,12 @@ export function createSyncEngine(deps: EngineDeps) {
       // An adapter that honours the signal stops mid-batch and returns WITHOUT yielding, so the
       // batch handler — which owns the only other `cancelled` transition — never runs and the
       // stream reports `completed`.
-      if (cancellation.signal.aborted) {
+      //
+      // `streamReportedDone` keeps that from swallowing a run that genuinely finished: an adapter
+      // that ignores the signal and drains after reporting `hasMore: false` delivered everything it
+      // had, even when the cancel landed during the final read. Calling that cancelled would tell
+      // the operator a complete sync was partial and leave a finished run resumable.
+      if (cancellation.signal.aborted && !streamReportedDone) {
         await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
         return
       }
@@ -801,6 +821,9 @@ export function createSyncEngine(deps: EngineDeps) {
       const mapping = await resolveMapping(adapter, run.entityType, scope)
       let processedCount = await seedProcessedCount(run.progressJobId, scope)
       let committedBatches = activeRun.batchesCompleted ?? 0
+      // Whether the last committed batch said the source was exhausted. Distinguishes a stream that
+      // drained from one the adapter stopped early — see the post-stream finalize below.
+      let streamReportedDone = false
       // Captured while the triggering job's span is still the active one, so
       // every rooted batch trace can link back to it.
       const runTrace = captureTelemetryTrace()
@@ -824,7 +847,9 @@ export function createSyncEngine(deps: EngineDeps) {
               parameters: (run.parameters ?? {}) as RunParameters,
               signal: cancellation.signal,
             }),
-            () => { heartbeat(); pollCancellation() },
+            // `finally` so a synchronous throw from the heartbeat cannot also stop cancellation
+            // from being observed for the rest of the run.
+            () => { try { heartbeat() } finally { pollCancellation() } },
             HEARTBEAT_TICK_MS,
           ),
           {
@@ -868,6 +893,7 @@ export function createSyncEngine(deps: EngineDeps) {
               { expectedBatchesCompleted: committedBatches, persistSharedCursor },
             )
             committedBatches += 1
+            streamReportedDone = batch.hasMore === false
             await updateProgress(run.progressJobId, processedCount, null, scope)
             await logExportItemFailures(run.id, run.integrationId, batch.results, scope)
 
@@ -909,9 +935,11 @@ export function createSyncEngine(deps: EngineDeps) {
           },
           scope,
         )
-        // An adapter that honours the signal may reject instead of returning. The operator asked
-        // for cancellation, so the run is cancelled, not failed — the error stays in the log above.
-        if (cancellation.signal.aborted) {
+        // An adapter that honours the signal may reject instead of returning, so our own abort is
+        // a cancellation rather than a fault. Anything else that merely coincided with the cancel —
+        // a rejecting commit, an upstream 500 — is a genuine failure and keeps its message, its
+        // `failed` status and its failed lifecycle event.
+        if (cancellation.signal.aborted && isAbortError(error)) {
           await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
           return
         }
@@ -922,7 +950,12 @@ export function createSyncEngine(deps: EngineDeps) {
       // An adapter that honours the signal stops mid-batch and returns WITHOUT yielding, so the
       // batch handler — which owns the only other `cancelled` transition — never runs and the
       // stream reports `completed`.
-      if (cancellation.signal.aborted) {
+      //
+      // `streamReportedDone` keeps that from swallowing a run that genuinely finished: an adapter
+      // that ignores the signal and drains after reporting `hasMore: false` delivered everything it
+      // had, even when the cancel landed during the final read. Calling that cancelled would tell
+      // the operator a complete sync was partial and leave a finished run resumable.
+      if (cancellation.signal.aborted && !streamReportedDone) {
         await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
         return
       }

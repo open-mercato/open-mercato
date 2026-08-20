@@ -104,4 +104,55 @@ describe('akeneo adapter product import', () => {
     }))
     expect(reconcileProducts).toHaveBeenCalled()
   })
+
+  it('stops the product walk mid-page when the signal aborts, without yielding or reconciling', async () => {
+    const controller = new AbortController()
+    const listProducts = jest.fn(async () => ({
+      items: [
+        { uuid: 'product-1', identifier: 'sku-1', family: 'shirts', updated: '2026-03-11 12:00:00' },
+        { uuid: 'product-2', identifier: 'sku-2', family: 'shirts', updated: '2026-03-11 12:01:00' },
+      ],
+      nextUrl: null,
+      totalEstimate: 2,
+    }))
+    // Cancel lands while the first product is being upserted.
+    const upsertProduct = jest.fn(async () => {
+      controller.abort()
+      return [{ externalId: 'product-1', action: 'create', data: { localProductId: 'local-product-1' } }]
+    })
+    const reconcileProducts = jest.fn(async () => undefined)
+
+    ;(createAkeneoClient as jest.Mock).mockReturnValue({ listProducts })
+    ;(createAkeneoImporter as jest.Mock).mockResolvedValue({
+      upsertProduct,
+      reconcileMappedCustomFieldFieldsets: jest.fn(async () => undefined),
+      reconcileProducts,
+    })
+
+    const batches: ImportBatch[] = []
+    for await (const batch of akeneoDataSyncAdapter.streamImport!({
+      entityType: 'products',
+      batchSize: 100,
+      credentials: {},
+      mapping: {
+        entityType: 'products',
+        fields: [],
+        matchStrategy: 'externalId',
+      },
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      signal: controller.signal,
+    })) {
+      batches.push(batch)
+    }
+
+    // The return sits above the yield, so the abandoned page is never emitted and the engine never
+    // commits a cursor past products it did not apply.
+    expect(batches).toEqual([])
+    expect(upsertProduct).toHaveBeenCalledTimes(1)
+    // A partial walk has not seen every product, so reconciling would delete live records.
+    expect(reconcileProducts).not.toHaveBeenCalled()
+  })
 })
