@@ -6,7 +6,6 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { IconButton } from "../../primitives/icon-button";
 import { cn } from "@open-mercato/shared/lib/utils";
 import { Loader2, X } from "lucide-react";
-import { escapeAriaHiddenAncestors } from "./ariaHiddenEscape";
 
 export type ConfirmDialogProps = {
   /** Whether the dialog is open (controlled mode — used by useConfirmDialog) */
@@ -118,17 +117,6 @@ export function ConfirmDialog({
       }
     }
   }, [open, resolvedCancelText, portalTarget]);
-
-  // An outer modal (Radix Dialog and anything else using the `aria-hidden`
-  // package) marks every node outside its own content — including this portal —
-  // with aria-hidden. The native dialog still paints in the browser top layer
-  // and still blocks the UI, so leaving the marking in place would hand
-  // assistive technology a blocked page with no perceivable confirmation.
-  // Lift the marking while the confirmation is open and restore it on close.
-  React.useLayoutEffect(() => {
-    if (!open) return;
-    return escapeAriaHiddenAncestors(dialogRef.current);
-  }, [open, portalTarget]);
 
   // Handle native cancel event (Escape key)
   React.useEffect(() => {
