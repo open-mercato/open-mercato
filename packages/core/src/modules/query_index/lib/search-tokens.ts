@@ -303,24 +303,72 @@ export async function replaceSearchTokensForBatch(
     `${scopeKey(row.organization_id ?? null, row.tenant_id ?? null)}|${String(row.entity_id)}`
   const builtTally = tallyTokenRows(rows, recordKeyOf)
 
-  // Read outside the transaction, deliberately: this comparison can only ever decide to *skip*
-  // work. The worst a concurrent writer can do is cost us a rewrite we declined — and we declined
-  // it because the table already held exactly the rows this call wanted to write.
+  // Read outside the transaction, deliberately. The comparison decides only whether to skip a
+  // rewrite, so a concurrent writer costs us at most a rewrite we declined — declined because the
+  // table already held exactly the rows this call wanted to write. One ordering is worth naming
+  // though: if the read matches and a concurrent writer then commits tokens built from a *staler*
+  // doc, the unconditional rewrite this call used to perform would have overwritten them by
+  // accident. It no longer does, so those stale rows survive until the record's next write. That
+  // is a repair we lose, not a guarantee we break.
   const changedIdsByBucket = new Map<string, Set<string>>()
   for (const [key, bucket] of scopeBuckets.entries()) {
     const ids = Array.from(bucket.ids)
-    const stored = await db
+    const builtCountById = new Map<string, number>()
+    for (const id of ids) {
+      let total = 0
+      const tally = builtTally.get(`${key}|${id}`)
+      if (tally) for (const count of tally.values()) total += count
+      builtCountById.set(id, total)
+    }
+
+    // Count probe first. Its result is one row per record in the batch, so it is bounded by the
+    // batch size — unlike a bare row read, which would be bounded only by how many token rows the
+    // table already holds for these ids, a quantity this function does not control and (per #4681)
+    // has no reason to trust.
+    const storedCounts = await db
       .selectFrom('search_tokens' as any)
-      .select(['entity_id' as any, 'field' as any, 'token_hash' as any, 'token' as any])
+      .select(['entity_id' as any, sql<number>`count(*)`.as('token_count') as any])
       .where('entity_type' as any, '=', payloads[0].entityType)
       .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
       .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
       .where('entity_id' as any, 'in', ids)
+      .groupBy('entity_id' as any)
       .execute()
-    const storedTally = tallyTokenRows(stored as any[], (row) => String(row.entity_id))
+    const storedCountById = new Map<string, number>()
+    for (const row of storedCounts as any[]) {
+      storedCountById.set(String(row.entity_id), Number(row.token_count))
+    }
+
     const changed = new Set<string>()
-    for (const id of ids) {
-      if (!tallyEquals(builtTally.get(`${key}|${id}`), storedTally.get(id))) changed.add(id)
+    // A record whose stored row count already differs is changed, whatever the rows say — the
+    // duplicate case from #4681 resolves here without ever materializing the duplicated rows.
+    const contentCandidates = ids.filter((id) => {
+      const builtCount = builtCountById.get(id) ?? 0
+      if ((storedCountById.get(id) ?? 0) !== builtCount) {
+        changed.add(id)
+        return false
+      }
+      return builtCount > 0
+    })
+
+    if (contentCandidates.length) {
+      const rowBudget = contentCandidates.reduce((sum, id) => sum + (builtCountById.get(id) ?? 0), 0)
+      const stored = await db
+        .selectFrom('search_tokens' as any)
+        .select(['entity_id' as any, 'field' as any, 'token_hash' as any, 'token' as any])
+        .where('entity_type' as any, '=', payloads[0].entityType)
+        .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
+        .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
+        .where('entity_id' as any, 'in', contentCandidates)
+        // Counts already match, so this cannot truncate — it bounds the damage if a concurrent
+        // writer inserts between the probe and this read. A truncated read compares as changed,
+        // which costs a rewrite rather than a wrong skip.
+        .limit(rowBudget)
+        .execute()
+      const storedTally = tallyTokenRows(stored as any[], (row) => String(row.entity_id))
+      for (const id of contentCandidates) {
+        if (!tallyEquals(builtTally.get(`${key}|${id}`), storedTally.get(id))) changed.add(id)
+      }
     }
     changedIdsByBucket.set(key, changed)
   }

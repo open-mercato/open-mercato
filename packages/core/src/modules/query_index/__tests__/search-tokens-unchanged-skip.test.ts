@@ -26,9 +26,9 @@ const columnOf = (row: StoredRow, column: string): unknown => (row as unknown as
  */
 function createSearchTokenStore() {
   const rows: StoredRow[] = []
+  const reads: Array<{ kind: 'count' | 'rows'; rowCount: number }> = []
   let nextId = 1
   let transactionCount = 0
-  let selectCount = 0
 
   const assertTable = (table: unknown) => {
     if (String(table) !== 'search_tokens') throw new Error(`[internal] unexpected table: ${String(table)}`)
@@ -54,20 +54,46 @@ function createSearchTokenStore() {
     assertTable(table)
     const predicates: Array<(row: StoredRow) => boolean> = []
     let columns: string[] = []
+    let limit: number | null = null
+    let groupedBy: string | null = null
     const chain: any = {
+      // The count probe's select list contains a Kysely aggregate builder rather than a column
+      // name, so the grouped branch below keys off groupBy() instead of parsing it.
       select: (cols: unknown[]) => {
-        columns = cols.map(String)
+        columns = cols.filter((col) => typeof col === 'string').map(String)
         return chain
       },
       where: (...args: unknown[]) => {
         predicates.push(buildPredicate(args))
         return chain
       },
+      groupBy: (column: unknown) => {
+        groupedBy = String(column)
+        return chain
+      },
+      limit: (count: number) => {
+        limit = count
+        return chain
+      },
       execute: async () => {
-        selectCount += 1
-        return rows
-          .filter((row) => predicates.every((matches) => matches(row)))
-          .map((row) => Object.fromEntries(columns.map((column) => [column, columnOf(row, column)])))
+        const matched = rows.filter((row) => predicates.every((matches) => matches(row)))
+        if (groupedBy) {
+          const counts = new Map<string, number>()
+          for (const row of matched) {
+            const groupKey = String(columnOf(row, groupedBy))
+            counts.set(groupKey, (counts.get(groupKey) ?? 0) + 1)
+          }
+          reads.push({ kind: 'count', rowCount: counts.size })
+          return Array.from(counts.entries()).map(([groupKey, count]) => ({
+            [groupedBy as string]: groupKey,
+            token_count: String(count),
+          }))
+        }
+        const limited = limit === null ? matched : matched.slice(0, limit)
+        reads.push({ kind: 'rows', rowCount: limited.length })
+        return limited.map((row) =>
+          Object.fromEntries(columns.map((column) => [column, columnOf(row, column)]))
+        )
       },
     }
     return chain
@@ -131,8 +157,8 @@ function createSearchTokenStore() {
     get transactionCount() {
       return transactionCount
     },
-    get selectCount() {
-      return selectCount
+    get reads() {
+      return reads
     },
     rowIds: (entityId?: string) =>
       rows
@@ -196,7 +222,8 @@ describe('replaceSearchTokensForBatch — skips records whose tokens have not ch
 
     expect(store.rowIds()).toEqual(idsBefore)
     expect(store.transactionCount).toBe(1)
-    expect(store.selectCount).toBe(2)
+    // Whatever the table holds, the rows pulled into memory stay bounded by what was just built.
+    expect(store.reads.filter((read) => read.kind === 'rows').every((read) => read.rowCount <= idsBefore.length)).toBe(true)
   })
 
   it('still rewrites a changed record, and the new value is searchable afterwards', async () => {
@@ -246,6 +273,37 @@ describe('replaceSearchTokensForBatch — skips records whose tokens have not ch
     await replaceSearchTokensForBatch(store.db, [payload('order-1', { title: 'alpha widget' })])
 
     expect(store.rows.length).toBe(seededCount)
+  })
+
+  it('rewrites a bucket whose stored rows exceed the built count without reading the full stored set', async () => {
+    const store = createSearchTokenStore()
+    await replaceSearchTokensForBatch(store.db, [payload('order-1', { title: 'alpha widget' })])
+    const builtCount = store.rows.length
+    expect(builtCount).toBeGreaterThan(0)
+    // Far more stored rows than the document produces — the shape #4681 reports, and the case an
+    // unbounded read would pull into memory in full.
+    for (let index = 0; index < 200; index += 1) {
+      store.insertRaw({
+        entity_type: ENTITY_TYPE,
+        entity_id: 'order-1',
+        organization_id: 'org-1',
+        tenant_id: 'tenant-1',
+        field: 'title',
+        token_hash: `stale-${index}`,
+        token: null,
+      })
+    }
+    expect(store.rows.length).toBe(builtCount + 200)
+    const readsBefore = store.reads.length
+
+    await replaceSearchTokensForBatch(store.db, [payload('order-1', { title: 'alpha widget' })])
+
+    expect(store.rows.length).toBe(builtCount)
+    expect(store.rows.some((row) => row.token_hash.startsWith('stale-'))).toBe(false)
+    // The count probe alone settles it: the stored count already differs, so none of the 200
+    // surplus rows are ever pulled into memory.
+    const readsDuringCall = store.reads.slice(readsBefore)
+    expect(readsDuringCall.map((read) => read.kind)).toEqual(['count'])
   })
 
   it('skips an unchanged record when raw tokens are stored, so a stored NULL is not the only case covered', async () => {
