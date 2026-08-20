@@ -2393,6 +2393,15 @@ function processSubscribers(discovered: DiscoveredSubscriber[]): string[] {
   return subscribers
 }
 
+/**
+ * Registry helper emitted for a worker that declares `metadata.onJobAbandoned`.
+ *
+ * Named once because two things must stay in step: the call the worker entry renders, and the import
+ * the file needs for it. A generated file that references this without importing it type-checks
+ * nowhere, and only fails at `build:app` — see `generated-registry-imports.test.ts`.
+ */
+const ABANDON_HOOK_FACTORY = 'createLazyModuleWorkerAbandonHook'
+
 function workersDeclareAbandonHook(discovered: DiscoveredWorker[]): boolean {
   return discovered.some(({ metadata }) => metadata.hasJobAbandonedHook === true)
 }
@@ -2402,7 +2411,7 @@ function processWorkers(discovered: DiscoveredWorker[]): string[] {
   for (const { id, importPath, metadata } of discovered) {
     const workerId = metadata.id ?? id
     workers.push(
-      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}${metadata.lockDuration === undefined ? '' : `, lockDuration: ${toLiteral(metadata.lockDuration)}`}${metadata.maxStalledCount === undefined ? '' : `, maxStalledCount: ${toLiteral(metadata.maxStalledCount)}`}${metadata.hasJobAbandonedHook ? `, onJobAbandoned: createLazyModuleWorkerAbandonHook(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)})` : ''}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
+      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}${metadata.lockDuration === undefined ? '' : `, lockDuration: ${toLiteral(metadata.lockDuration)}`}${metadata.maxStalledCount === undefined ? '' : `, maxStalledCount: ${toLiteral(metadata.maxStalledCount)}`}${metadata.hasJobAbandonedHook ? `, onJobAbandoned: ${ABANDON_HOOK_FACTORY}(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)})` : ''}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
     )
   }
   return workers
@@ -2654,7 +2663,7 @@ function renderAstModuleRegistryFile(options: {
     namedImports: [
       { name: 'createLazyModuleSubscriber' },
       { name: 'createLazyModuleWorker' },
-      ...(options.includeAbandonHookImport ? [{ name: 'createLazyModuleWorkerAbandonHook' }] : []),
+      ...(options.includeAbandonHookImport ? [{ name: ABANDON_HOOK_FACTORY }] : []),
       { name: 'Module', isTypeOnly: true },
     ],
   })
@@ -2769,9 +2778,14 @@ function renderAstLegacyModuleRegistryOutput(options: {
   includeCreateElementImport?: boolean
   includeAbandonHookImport?: boolean
 }): string {
+  // Derived from what is actually being written, not from a flag the caller has to remember: an
+  // import that must be opted into at every render site produces a file referencing an undeclared
+  // name the first time someone forgets, and the file only fails at `build:app`.
+  const needsAbandonHookImport = options.includeAbandonHookImport
+    || options.moduleEntries.some((entry) => entry.includes(ABANDON_HOOK_FACTORY))
   const importSection = [
     ...(options.includeCreateElementImport ? ["import { createElement } from 'react'"] : []),
-    options.includeAbandonHookImport
+    needsAbandonHookImport
       ? "import { createLazyModuleSubscriber, createLazyModuleWorker, createLazyModuleWorkerAbandonHook, type Module } from '@open-mercato/shared/modules/registry'"
       : "import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'",
     ...options.imports.map((entry) => serializeGeneratedImport(entry)),
@@ -3090,7 +3104,7 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
         ...(metadata.hasJobAbandonedHook
           ? [{
             name: 'onJobAbandoned',
-            value: callExpression(identifier('createLazyModuleWorkerAbandonHook'), [
+            value: callExpression(identifier(ABANDON_HOOK_FACTORY), [
               arrowFunction({ body: importExpression(importPath) }),
               workerId,
             ]),
@@ -3896,6 +3910,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     imports: runtimeImports,
     moduleEntries: runtimeModuleDecls,
     includeCreateElementImport: true,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const frontendRoutesOutput = renderAstLegacyManifestOutput({
     fileName: 'frontend-routes.generated.ts',
@@ -4394,12 +4409,14 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     generator: 'registry (bootstrap version)',
     imports: bootstrapImports,
     moduleEntries: bootstrapModuleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const i18nOutput = renderAstModuleRegistryFile({
     fileName: 'modules.i18n.generated.ts',
     generator: 'registry (i18n version)',
     imports: i18nImports,
     moduleEntries: i18nModuleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const legacyOutput = renderAstLegacyAliasFile({
     fileName: 'bootstrap-modules.generated.ts',

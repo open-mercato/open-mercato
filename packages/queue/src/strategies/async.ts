@@ -102,6 +102,9 @@ function isAbandonedJobReason(message: string): boolean {
  * itself survives for diagnosis.
  */
 const ABANDON_REPORT_ACK_KEY = 'abandonReportedAt'
+// NOTE for anyone adding a retry action: the marker lives inside the job's own payload envelope, so a
+// job retried from admin tooling carries it into its next life and a second abandonment of that job
+// would never be reported. A retry path must clear `metadata.abandonReportedAt` when it re-enqueues.
 
 /**
  * How often a worker re-sweeps the failed set for unacknowledged abandoned jobs.
@@ -222,12 +225,12 @@ export function createAsyncQueue<T = unknown>(
     })
   }
 
-  function reportAbandonedJob(job: AbandonedJobRecord, reason: string): void {
-    if (!onJobAbandoned) return
+  function reportAbandonedJob(job: AbandonedJobRecord, reason: string): Promise<void> | null {
+    if (!onJobAbandoned) return null
     const payload = job.data
-    if (!payload) return
-    if (payload.metadata && payload.metadata[ABANDON_REPORT_ACK_KEY]) return
-    if (inFlightAbandonedJobIds.has(payload.id)) return
+    if (!payload) return null
+    if (payload.metadata && payload.metadata[ABANDON_REPORT_ACK_KEY]) return null
+    if (inFlightAbandonedJobIds.has(payload.id)) return null
     inFlightAbandonedJobIds.add(payload.id)
 
     const jobId = job.id ?? null
@@ -255,6 +258,7 @@ export function createAsyncQueue<T = unknown>(
     })
     pendingAbandonedReports.add(report)
     void report.then(() => pendingAbandonedReports.delete(report))
+    return report
   }
 
   // The failed set is this strategy's dead-letter queue for abandoned jobs. Enumerating it on worker
@@ -272,9 +276,16 @@ export function createAsyncQueue<T = unknown>(
       // re-delivers it, so stopping here loses nothing.
       if (closing) return
       for (const failedJob of failedJobs) {
+        // Re-checked every iteration for the same reason: a long fan-out must not outlive the drain.
+        if (closing) return
         const reason = failedJob.failedReason ?? ''
         if (!isAbandonedJobReason(reason)) continue
-        reportAbandonedJob(failedJob, reason)
+        // Awaited one at a time. Each report opens a request container and writes to the database, and
+        // the worst case for this loop is the first worker start after the feature ships, on a
+        // deployment that has been accumulating abandoned jobs — the largest backlog, on the process
+        // least able to absorb it. The sweep is a recovery path with no latency requirement (five
+        // minutes late is its normal mode), so pacing costs nothing worth having.
+        await reportAbandonedJob(failedJob, reason)
       }
     } catch (sweepError) {
       logger.error('Abandoned-job sweep failed', { err: sweepError as Error })

@@ -323,20 +323,40 @@ mid-flight; that attempt has no way to report anything either.) Any state create
 row, a progress record — is stranded in whatever "in progress" state it was left in, and nothing
 reconciles it: the queue says `failed` while the domain row still says `running`.
 
-`onJobAbandoned` is the hook for exactly that case:
+`onJobAbandoned` is the callback for exactly that case, and it is declared **on the worker**, beside
+the queue name it belongs to:
 
 ```typescript
-import { createModuleQueue } from '@open-mercato/queue'
+// workers/my-import.ts
+import type { WorkerMeta } from '@open-mercato/queue'
 
-const queue = createModuleQueue<ImportPayload>('my-import', {
+export const metadata: WorkerMeta = {
+  queue: 'my-import',
   concurrency: 5,
   onJobAbandoned: async (payload, info) => {
     const data = payload as { payload?: { runId?: string } } | undefined
     if (typeof data?.payload?.runId !== 'string') return
     await markRunFailed(data.payload.runId, `the queue abandoned this job: ${info.reason}`)
   },
-})
+}
+
+export default async function handle(job, ctx) { /* ... */ }
 ```
+
+**Declare it here and not on `createModuleQueue`.** That is the single most important thing about this
+callback, and the mistake is silent: the queue you build to *enqueue* jobs is a different instance
+from the one the worker runs on. `runWorker` builds the worker's queue from the worker descriptors,
+so a callback attached to the enqueueing queue is never installed on the consumer — and the process
+that restarts, which is the event being reported, never constructs the enqueueing queue at all. The
+symptom is no error, no log, and a domain row nobody is told about.
+
+Two consequences of travelling through worker metadata:
+
+- **One queue gets one callback.** When several workers share a queue and more than one declares it,
+  the first wins and the CLI warns, naming the queue and the workers involved.
+- **It is detected from the source at build time.** The generator reads `metadata` to emit the
+  registry, so the callback must be declared directly in that object literal — a spread, or a
+  metadata object built by a helper function, will not be seen.
 
 - It fires **only** when the queue abandons a job it never handed to the handler. It is deliberately
   not a general "job failed" hook — a handler that ran and threw already owns its outcome, and firing
