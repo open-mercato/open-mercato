@@ -65,6 +65,23 @@ function makeTool(overrides: Partial<AiToolDefinition> = {}): AiToolDefinition {
 
 function makeRepoStub(initialRow: AiPendingAction) {
   let row = { ...initialRow } as AiPendingAction & Record<string, unknown>
+  const claimForConfirmation = jest.fn(
+    async (_id: string, _scope: unknown, extra?: Record<string, unknown>) => {
+      if (row.status !== 'pending') {
+        return { claimed: false, action: row as AiPendingAction }
+      }
+      row = {
+        ...row,
+        status: 'confirmed' as never,
+        resolvedAt: ((extra?.now as Date | undefined) ?? new Date()) as never,
+        resolvedByUserId: (extra?.resolvedByUserId ?? null) as never,
+      }
+      if (extra && 'failedRecords' in extra) {
+        row.failedRecords = (extra.failedRecords ?? null) as never
+      }
+      return { claimed: true, action: row as AiPendingAction }
+    },
+  )
   const setStatus = jest.fn(
     async (_id: string, nextStatus: string, _scope: unknown, extra?: Record<string, unknown>) => {
       row = {
@@ -87,6 +104,7 @@ function makeRepoStub(initialRow: AiPendingAction) {
     },
   )
   return {
+    claimForConfirmation,
     setStatus,
     get current() {
       return row
@@ -125,9 +143,9 @@ describe('executePendingActionConfirm', () => {
       emitEvent,
     })
     expect(result.ok).toBe(true)
-    expect(repo.setStatus).toHaveBeenCalledTimes(3)
+    expect(repo.claimForConfirmation).toHaveBeenCalledTimes(1)
+    expect(repo.setStatus).toHaveBeenCalledTimes(2)
     expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
-      'confirmed',
       'executing',
       'confirmed',
     ])
@@ -180,7 +198,6 @@ describe('executePendingActionConfirm', () => {
     })
     expect(result.ok).toBe(false)
     expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
-      'confirmed',
       'executing',
       'failed',
     ])
@@ -221,6 +238,7 @@ describe('executePendingActionConfirm', () => {
     expect(result.ok).toBe(true)
     expect(result.executionResult).toEqual(priorResult)
     expect(handlerSpy).not.toHaveBeenCalled()
+    expect(repo.claimForConfirmation).not.toHaveBeenCalled()
     expect(repo.setStatus).not.toHaveBeenCalled()
     expect(emitEvent).not.toHaveBeenCalled()
   })
@@ -241,7 +259,7 @@ describe('executePendingActionConfirm', () => {
       failedRecords: failed,
     })
     expect(result.ok).toBe(true)
-    const firstCallExtra = repo.setStatus.mock.calls[0][3]
+    const firstCallExtra = repo.claimForConfirmation.mock.calls[0][2]
     expect(firstCallExtra).toMatchObject({ failedRecords: failed })
   })
 
@@ -276,11 +294,10 @@ describe('executePendingActionConfirm', () => {
     })
     expect(result.ok).toBe(true)
     expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
-      'confirmed',
       'executing',
       'confirmed',
     ])
-    const finalExtra = repo.setStatus.mock.calls[2][3] as Record<string, unknown>
+    const finalExtra = repo.setStatus.mock.calls[1][3] as Record<string, unknown>
     expect(finalExtra.failedRecords).toEqual([
       { recordId: 'p-3', error: { code: 'command_failed', message: 'db constraint' } },
     ])
@@ -330,7 +347,7 @@ describe('executePendingActionConfirm', () => {
       failedRecords: stale,
     })
     expect(result.ok).toBe(true)
-    const finalExtra = repo.setStatus.mock.calls[2][3] as Record<string, unknown>
+    const finalExtra = repo.setStatus.mock.calls[1][3] as Record<string, unknown>
     const merged = finalExtra.failedRecords as Array<{ recordId: string }>
     expect(merged.map((entry) => entry.recordId).sort()).toEqual(['p-2', 'p-3'])
   })
@@ -347,7 +364,50 @@ describe('executePendingActionConfirm', () => {
       emitEvent,
     })
     expect(result.ok).toBe(true)
-    const finalExtra = repo.setStatus.mock.calls[2][3] as Record<string, unknown>
+    const finalExtra = repo.setStatus.mock.calls[1][3] as Record<string, unknown>
     expect(finalExtra.failedRecords).toBeNull()
+  })
+
+  it('allows only one of twenty stale concurrent callers to invoke the handler', async () => {
+    const repo = makeRepoStub(makeAction())
+    const handler = jest.fn(async () => {
+      await Promise.resolve()
+      return { recordId: 'p-1', commandName: 'catalog.product.update' }
+    })
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        executePendingActionConfirm({
+          action: makeAction(),
+          agent: makeAgent(),
+          tool: makeTool({ handler }),
+          ctx: makeCtx(),
+          repo: repo as unknown as never,
+          emitEvent: jest.fn().mockResolvedValue(undefined),
+        }),
+      ),
+    )
+
+    expect(results).toHaveLength(20)
+    expect(repo.claimForConfirmation).toHaveBeenCalledTimes(20)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not invoke the handler when the atomic claim observes a terminal status', async () => {
+    const repo = makeRepoStub(makeAction({ status: 'cancelled' }))
+    const handler = jest.fn()
+
+    const result = await executePendingActionConfirm({
+      action: makeAction(),
+      agent: makeAgent(),
+      tool: makeTool({ handler }),
+      ctx: makeCtx(),
+      repo: repo as unknown as never,
+      emitEvent: jest.fn().mockResolvedValue(undefined),
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.executionResult).toMatchObject({ error: { code: 'invalid_status' } })
+    expect(handler).not.toHaveBeenCalled()
+    expect(repo.setStatus).not.toHaveBeenCalled()
   })
 })

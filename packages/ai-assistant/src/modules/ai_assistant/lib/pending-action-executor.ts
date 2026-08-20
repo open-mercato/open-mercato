@@ -8,11 +8,11 @@
  * `NextRequest`.
  *
  * Atomicity:
- * - The `pending → confirmed` and `confirmed → executing` transitions go
- *   through the repository's `em.transactional` boundary. If the process
- *   crashes between steps, the row is left in an intermediate terminal
- *   state (`executing` or `confirmed`) that the operator can recover —
- *   NEVER in a partially-applied state that hides the crash.
+ * - `pending → confirmed` is an atomic compare-and-swap claim. Exactly one
+ *   concurrent caller can win; losing callers never invoke the handler.
+ * - If the process crashes after the claim, the row is left in an intermediate
+ *   state (`executing` or `confirmed`) that the operator can recover — NEVER in
+ *   a partially-applied state that hides the crash.
  * - The tool handler itself runs OUTSIDE the repo transaction so that a
  *   long-running write does not hold an `ai_pending_actions` row lock.
  *   The handler's own transaction boundary (typically a command) is the
@@ -313,7 +313,8 @@ function toToolHandlerContext(
  *   retry contract).
  * - If the action is already `confirmed` without a stored `executionResult`
  *   (shouldn't happen in practice), returns a synthesized empty result.
- * - If the action is still `pending`, runs the transitions and the handler.
+ * - If the action is still `pending`, atomically claims it, then runs the
+ *   remaining transitions and handler only for the winning caller.
  * - Any other status is rejected at the re-check layer before this helper
  *   is ever called; this helper treats them as invariant violations.
  */
@@ -354,12 +355,30 @@ export async function executePendingActionConfirm(
   const partialFailedRecords =
     Array.isArray(failedRecords) && failedRecords.length > 0 ? failedRecords : null
 
-  const confirmedRow = await repo.setStatus(action.id, 'confirmed', scope, {
+  const claim = await repo.claimForConfirmation(action.id, scope, {
     resolvedByUserId: ctx.userId,
     now: clock,
     ...(partialFailedRecords ? { failedRecords: partialFailedRecords } : {}),
   })
-  const executingRow = await repo.setStatus(confirmedRow.id, 'executing', scope, { now: clock })
+  if (!claim.claimed) {
+    if (claim.action.status === 'confirmed' || claim.action.status === 'executing') {
+      const prior = (claim.action.executionResult ?? {}) as AiPendingActionExecutionResult
+      return { ok: true, action: claim.action, executionResult: prior }
+    }
+    return {
+      ok: false,
+      action: claim.action,
+      executionResult: {
+        error: {
+          code: 'invalid_status',
+          message: `Action is in status "${claim.action.status}".`,
+        },
+      },
+      cause: new Error(`Action is in status "${claim.action.status}"`),
+    }
+  }
+
+  const executingRow = await repo.setStatus(claim.action.id, 'executing', scope, { now: clock })
 
   let handlerOutput: unknown
   try {

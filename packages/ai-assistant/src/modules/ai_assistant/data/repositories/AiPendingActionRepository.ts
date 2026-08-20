@@ -51,6 +51,11 @@ export interface AiPendingActionSetStatusExtra {
   now?: Date
 }
 
+export interface AiPendingActionClaimResult {
+  claimed: boolean
+  action: AiPendingAction
+}
+
 /**
  * Persistent store for the Phase 3 WS-C mutation approval gate (Step 5.5).
  *
@@ -286,6 +291,64 @@ export class AiPendingActionRepository {
       await tx.persist(existing).flush()
       return existing
     })
+  }
+
+  /**
+   * Atomically claims a pending action for one confirmation request.
+   *
+   * The status predicate is part of the UPDATE, so concurrent callers cannot
+   * both win from stale in-memory `pending` snapshots. The winner advances the
+   * row to `confirmed`; losers receive the current row without changing it.
+   */
+  async claimForConfirmation(
+    id: string,
+    ctx: AiPendingActionContext,
+    extra?: Pick<AiPendingActionSetStatusExtra, 'resolvedByUserId' | 'failedRecords' | 'now'>,
+  ): Promise<AiPendingActionClaimResult> {
+    if (!ctx?.tenantId) {
+      throw new Error('AiPendingActionRepository.claimForConfirmation requires tenantId')
+    }
+    if (!id) {
+      throw new Error('AiPendingActionRepository.claimForConfirmation requires id')
+    }
+
+    const now = extra?.now ?? new Date()
+    const affected = await this.em.nativeUpdate(
+      AiPendingAction,
+      {
+        id,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId ?? null,
+        status: 'pending',
+      } as any,
+      {
+        status: 'confirmed',
+        resolvedAt: now,
+        resolvedByUserId: extra?.resolvedByUserId ?? null,
+        ...(Object.prototype.hasOwnProperty.call(extra ?? {}, 'failedRecords')
+          ? { failedRecords: normalizeFailedRecords(extra?.failedRecords) }
+          : {}),
+      } as any,
+    )
+
+    const action = await findOneWithDecryption<AiPendingAction>(
+      this.em,
+      AiPendingAction,
+      {
+        id,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId ?? null,
+      } as any,
+      { refresh: true },
+      {
+        tenantId: ctx.tenantId ?? null,
+        organizationId: ctx.organizationId ?? null,
+      },
+    )
+    if (!action) {
+      throw new Error(`AiPendingAction not found: ${id}`)
+    }
+    return { claimed: affected === 1, action }
   }
 
   async listExpired(

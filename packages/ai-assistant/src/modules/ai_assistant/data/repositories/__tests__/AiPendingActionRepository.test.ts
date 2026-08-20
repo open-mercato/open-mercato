@@ -146,6 +146,11 @@ function mockEm() {
     transactional: async (fn: (tx: any) => Promise<unknown>) => {
       return fn(em)
     },
+    nativeUpdate: async (_entity: unknown, where: any, data: Partial<Row>) => {
+      const matches = store.filter((row) => rowMatchesWhere(row, where))
+      for (const row of matches) Object.assign(row, data)
+      return matches.length
+    },
     __pendingPersist: null as Row | null,
     __store: store,
   }
@@ -260,6 +265,55 @@ describe('AiPendingActionRepository', () => {
     expect(expired.status).toBe('expired')
     expect(expired.resolvedAt).toEqual(expiredAt)
     expect(expired.resolvedByUserId).toBeNull()
+  })
+
+  it('claimForConfirmation permits exactly one transition from pending', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const now = new Date('2026-04-18T12:30:00.000Z')
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-claim' }), ctx)
+
+    const first = await repo.claimForConfirmation(row.id, ctx, {
+      resolvedByUserId: 'u-1',
+      now,
+    })
+    const second = await repo.claimForConfirmation(row.id, ctx, {
+      resolvedByUserId: 'u-1',
+      now,
+    })
+
+    expect(first.claimed).toBe(true)
+    expect(second.claimed).toBe(false)
+    expect(first.action.status).toBe('confirmed')
+    expect(second.action.status).toBe('confirmed')
+    expect(second.action.resolvedByUserId).toBe('u-1')
+    expect(second.action.resolvedAt).toEqual(now)
+  })
+
+  it('claimForConfirmation cannot claim a row through another tenant or organization scope', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ownerScope = { tenantId: tenantAlpha, organizationId: 'org-a', userId: 'u-1' }
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-scope' }), ownerScope)
+
+    await expect(
+      repo.claimForConfirmation(row.id, {
+        tenantId: tenantBeta,
+        organizationId: 'org-a',
+        userId: 'u-2',
+      }),
+    ).rejects.toThrow(`AiPendingAction not found: ${row.id}`)
+    await expect(
+      repo.claimForConfirmation(row.id, {
+        tenantId: tenantAlpha,
+        organizationId: 'org-b',
+        userId: 'u-2',
+      }),
+    ).rejects.toThrow(`AiPendingAction not found: ${row.id}`)
+
+    expect(row.status).toBe('pending')
+    expect(row.resolvedAt).toBeNull()
   })
 
   it('listExpired returns rows with status=pending and expiresAt < now, capped by limit, tenant-isolated', async () => {

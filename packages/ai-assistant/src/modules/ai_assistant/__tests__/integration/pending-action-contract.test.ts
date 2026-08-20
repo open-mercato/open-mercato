@@ -302,6 +302,33 @@ function makeRepoStub(options: RepoStubOptions) {
     },
   )
 
+  const claimForConfirmation = jest.fn(
+    async (
+      id: string,
+      scope: ScopeFilter,
+      extra?: {
+        now?: Date
+        resolvedByUserId?: string | null
+        failedRecords?: AiPendingActionFailedRecord[] | null
+      },
+    ) => {
+      const existing = store.get(id)
+      if (!existing || !matchesScope(existing, scope)) {
+        throw new Error(`row ${id} not found`)
+      }
+      if (existing.status !== 'pending') {
+        return { claimed: false, action: existing }
+      }
+      existing.status = 'confirmed'
+      existing.resolvedAt = (extra?.now ?? new Date()) as never
+      existing.resolvedByUserId = (extra?.resolvedByUserId ?? null) as never
+      if (extra && Object.prototype.hasOwnProperty.call(extra, 'failedRecords')) {
+        existing.failedRecords = (extra.failedRecords ?? null) as never
+      }
+      return { claimed: true, action: existing }
+    },
+  )
+
   const listExpired = jest.fn(
     async (scope: ScopeFilter, now: Date, limit: number) => {
       return Array.from(store.values())
@@ -316,10 +343,12 @@ function makeRepoStub(options: RepoStubOptions) {
   return {
     repo: {
       getById,
+      claimForConfirmation,
       setStatus,
       listExpired,
     } as unknown as import('../../data/repositories/AiPendingActionRepository').AiPendingActionRepository,
     getById,
+    claimForConfirmation,
     setStatus,
     listExpired,
     store,
@@ -355,7 +384,7 @@ describe('Pending-action contract integration (Step 5.17)', () => {
       commandName: 'catalog.product.update',
     })
     const transitions = setStatus.mock.calls.map((call) => call[1])
-    expect(transitions).toEqual(['confirmed', 'executing', 'confirmed'])
+    expect(transitions).toEqual(['executing', 'confirmed'])
     expect(store.get('pa_1')!.status).toBe('confirmed')
     expect(store.get('pa_1')!.resolvedAt).toBeTruthy()
     expect(store.get('pa_1')!.resolvedByUserId).toBe('user-a')
@@ -554,7 +583,7 @@ describe('Pending-action contract integration (Step 5.17)', () => {
       },
     ]
     const seed = makeSeed({ records, recordVersion: null })
-    const { repo, store, setStatus } = makeRepoStub({ seeds: [seed] })
+    const { repo, store, claimForConfirmation } = makeRepoStub({ seeds: [seed] })
     const emit = jest.fn().mockResolvedValue(undefined)
 
     const bulkTool = makeTool({
@@ -609,7 +638,7 @@ describe('Pending-action contract integration (Step 5.17)', () => {
       },
     ])
     // First transition must carry the failedRecords onto the row.
-    const firstExtra = setStatus.mock.calls[0][3]
+    const firstExtra = claimForConfirmation.mock.calls[0][2]
     expect(firstExtra).toMatchObject({
       failedRecords: [{ recordId: 'r-2', error: { code: 'stale_version' } }],
     })

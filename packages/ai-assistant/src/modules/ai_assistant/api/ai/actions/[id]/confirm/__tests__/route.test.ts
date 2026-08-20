@@ -4,6 +4,7 @@ const authMock = jest.fn()
 const loadAclMock = jest.fn()
 const createRequestContainerMock = jest.fn()
 const repoGetByIdMock = jest.fn()
+const repoClaimForConfirmationMock = jest.fn()
 const repoSetStatusMock = jest.fn()
 const policyOverrideGetMock = jest.fn()
 const loadAgentRegistryMock = jest.fn()
@@ -33,6 +34,7 @@ jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
 jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => ({
   AiPendingActionRepository: jest.fn().mockImplementation(() => ({
     getById: repoGetByIdMock,
+    claimForConfirmation: repoClaimForConfirmationMock,
     setStatus: repoSetStatusMock,
   })),
 }))
@@ -171,6 +173,16 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     getAgentMock.mockReturnValue(makeAgent())
     getToolMock.mockReturnValue(makeTool())
     attachmentFindMock.mockResolvedValue([])
+
+    repoClaimForConfirmationMock.mockImplementation(async (id: string, _scope: unknown, extra?: any) => ({
+      claimed: true,
+      action: makeRow({
+        id,
+        status: 'confirmed',
+        resolvedAt: extra?.now ?? new Date(),
+        resolvedByUserId: extra?.resolvedByUserId ?? null,
+      }),
+    }))
 
     repoSetStatusMock.mockImplementation(async (id: string, status: string, _scope: unknown, extra?: any) => {
       return { ...makeRow({ id, status }), ...(extra?.executionResult ? { executionResult: extra.executionResult } : {}) }
@@ -325,6 +337,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(body.ok).toBe(true)
     expect(body.mutationResult).toEqual(priorResult)
     expect(handlerSpy).not.toHaveBeenCalled()
+    expect(repoClaimForConfirmationMock).not.toHaveBeenCalled()
     expect(repoSetStatusMock).not.toHaveBeenCalled()
   })
 
