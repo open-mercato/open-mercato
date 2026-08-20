@@ -19,9 +19,21 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   ),
 }))
 
+const mockMentionableUsers = [
+  { id: 'USER-1', name: 'Ada Lovelace', trigger: 'Choose Ada' },
+  { id: 'USER-2', name: 'Anna', trigger: 'Choose Anna' },
+  { id: 'USER-3', name: 'Anna Kowalska', trigger: 'Choose Anna Kowalska' },
+]
+
 jest.mock('../backend/documents/[id]/MentionPicker', () => ({
   MentionPicker: ({ onPick }: { onPick: (user: { id: string; name: string }) => void }) => (
-    <button type="button" onClick={() => onPick({ id: 'USER-1', name: 'Ada Lovelace' })}>Choose Ada</button>
+    <>
+      {mockMentionableUsers.map((user) => (
+        <button key={user.id} type="button" onClick={() => onPick({ id: user.id, name: user.name })}>
+          {user.trigger}
+        </button>
+      ))}
+    </>
   ),
 }))
 
@@ -61,6 +73,41 @@ describe('CommentComposer mentions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Comment' }))
     expect(submitted).toHaveBeenCalledWith({ body: 'Review', pendingMentions: [] })
+  })
+
+  it('keeps a longer overlapping mention intact when the prefix mention chip is removed', () => {
+    function Harness() {
+      const [body, setBody] = React.useState('')
+      const [pendingMentions, setPendingMentions] = React.useState<PendingMention[]>([])
+      return (
+        <CommentComposer
+          documentId="11111111-1111-4111-8111-111111111111"
+          body={body}
+          pendingMentions={pendingMentions}
+          replyToName={null}
+          isSubmitting={false}
+          onBodyChange={setBody}
+          onMentionsChange={setPendingMentions}
+          onSubmit={jest.fn()}
+          onCancel={jest.fn()}
+        />
+      )
+    }
+
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'Mention' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Anna' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mention' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Anna Kowalska' }))
+
+    const textarea = screen.getByRole('textbox', { name: 'Comments' }) as HTMLTextAreaElement
+    expect(textarea.value).toBe('@Anna @Anna Kowalska ')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove mention of Anna' }))
+
+    expect(textarea.value).toBe(' @Anna Kowalska ')
+    expect(screen.queryByRole('button', { name: 'Remove mention of Anna' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Remove mention of Anna Kowalska' })).toBeTruthy()
   })
 
   it('refocuses the composer when the reply target changes between same-length UUIDs', () => {

@@ -46,7 +46,7 @@ export interface AttachmentServicePort {
     tenantId: string
     organizationId: string
     expectedOwner: { entityId: string; recordId: string }
-    expectedAssignment?: AttachmentAssignmentPort
+    expectedAssignment: AttachmentAssignmentPort
     expectedPartitionCode?: string
   }, options?: { em?: EntityManager; flush?: boolean }): Promise<AttachmentProviderCleanupPort | void>
 }

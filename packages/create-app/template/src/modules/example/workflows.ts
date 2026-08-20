@@ -60,3 +60,4 @@ export const workflowsConfig = createWorkflowsModuleConfig({
 })
 
 export default workflowsConfig
+

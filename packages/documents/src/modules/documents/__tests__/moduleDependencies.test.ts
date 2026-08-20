@@ -34,13 +34,20 @@ describe('documents module dependencies', () => {
       dependencies?: Record<string, string>
     }
     const buildSource = readFileSync(join(packageRoot, 'build.mjs'), 'utf8')
+    // The sidecar consumes the application's EntityManager, so its ORM range has
+    // to track the platform's rather than a literal pinned in this test.
+    const corePackageJson = JSON.parse(
+      readFileSync(join(packageRoot, '..', 'core', 'package.json'), 'utf8'),
+    ) as { dependencies?: Record<string, string> }
+    const coreOrmRange = corePackageJson.dependencies?.['@mikro-orm/core']
 
     expect(packageJson.scripts?.['collab:prod']).toBe('node dist/server/documents-collab-server.js')
     expect(packageJson.exports?.['./collab-server']).toEqual(expect.objectContaining({
       default: './dist/server/documents-collab-server.js',
     }))
     expect(packageJson.dependencies?.['@open-mercato/events']).toBe('workspace:*')
-    expect(packageJson.dependencies?.['@mikro-orm/core']).toBe('^7.1.8')
+    expect(coreOrmRange).toBeTruthy()
+    expect(packageJson.dependencies?.['@mikro-orm/core']).toBe(coreOrmRange)
     expect(buildSource).toContain("join(packageDir, 'server', 'documents-collab-server.ts')")
     expect(buildSource).toContain("outbase: '.'")
   })

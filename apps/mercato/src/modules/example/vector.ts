@@ -68,3 +68,4 @@ export const vectorConfig: VectorModuleConfig = {
 export const config = vectorConfig
 
 export default vectorConfig
+

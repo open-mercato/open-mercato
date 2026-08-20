@@ -289,7 +289,7 @@ describe('M9 duplicate command execution', () => {
   })
 
   it('creates the copy hidden, copies attachments, rewrites and re-materializes content, then reveals', async () => {
-    const { ctx, persisted } = makeHarness()
+    const { em, ctx, persisted } = makeHarness()
     const copyContent = Object.assign(new DocumentContent(), {
       id: newContentId,
       documentId: newDocumentId,
@@ -305,8 +305,11 @@ describe('M9 duplicate command execution', () => {
       contentType: 'image/png',
       contentDisposition: 'inline; filename="diagram.png"',
     })
-    mockCreateScoped.mockImplementation(async (input: { persistLink?: (tx: unknown, attachmentId: string) => void }) => {
-      input.persistLink?.(makeHarness().em, copiedAttachmentId)
+    // The attachment service runs persistLink inside the command's own unit of
+    // work, so the harness must hand back the very EntityManager the command
+    // opened its transaction on.
+    mockCreateScoped.mockImplementation(async (input: { persistLink?: (tx: EntityManager, attachmentId: string) => void }) => {
+      input.persistLink?.(em, copiedAttachmentId)
       return { id: copiedAttachmentId }
     })
 
@@ -326,6 +329,14 @@ describe('M9 duplicate command execution', () => {
     expect(copyContent.contentHtml).toContain(`/api/documents/${newDocumentId}/attachments/${copiedAttachmentId}`)
     expect(copyContent.contentHtml).not.toContain(sourceDocumentId)
     expect(copyContent.yjsState?.toString()).toBe(`yjs:${copyContent.contentHtml}`)
+    expect(persisted.attachments).toEqual([
+      expect.objectContaining({
+        documentId: newDocumentId,
+        attachmentId: copiedAttachmentId,
+        tenantId,
+        organizationId,
+      }),
+    ])
     expect(result.copiedAttachments).toBe(1)
     expect(result.projections?.[0]).toMatchObject({ kind: 'event', eventId: 'documents.document.duplicated' })
     expect(mockReadScoped.mock.calls[0]?.[0]).toMatchObject({

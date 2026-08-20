@@ -7,7 +7,11 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MentionPicker } from './MentionPicker'
-import { bodyContainsPendingMention, type PendingMention } from './commentTypes'
+import {
+  bodyContainsPendingMention,
+  removePendingMentionOccurrences,
+  type PendingMention,
+} from './commentTypes'
 
 type CommentComposerProps = {
   documentId: string
@@ -60,10 +64,10 @@ export const CommentComposer = React.forwardRef<HTMLFormElement, CommentComposer
   }, [onBodyChange, onMentionsChange])
 
   const removeMention = React.useCallback((mention: PendingMention) => {
-    onBodyChange(body.split(`@${mention.name}`).join(''))
+    onBodyChange(removePendingMentionOccurrences(body, mention, pendingMentions))
     onMentionsChange((current) => current.filter((candidate) => candidate.userId !== mention.userId))
     window.setTimeout(() => textareaRef.current?.focus(), 0)
-  }, [body, onBodyChange, onMentionsChange])
+  }, [body, onBodyChange, onMentionsChange, pendingMentions])
 
   return (
     <form

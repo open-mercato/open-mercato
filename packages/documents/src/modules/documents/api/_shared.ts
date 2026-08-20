@@ -502,7 +502,14 @@ async function localizeRouteErrorBody(body: Record<string, unknown>): Promise<Re
   const literal = ROUTE_ERROR_TRANSLATIONS[rawError]
   const key = literal?.key ?? rawError
   const fallback = literal?.fallback ?? ROUTE_ERROR_KEY_FALLBACKS[key]
-  if (!key.startsWith('documents.') && !key.startsWith('api.')) return body
+  // Attachment failures reach these routes as the attachments module's own
+  // catalogued keys. The locale dictionary is merged across modules, so they
+  // resolve here; without this prefix the raw key would reach the client.
+  if (
+    !key.startsWith('documents.')
+    && !key.startsWith('api.')
+    && !key.startsWith('attachments.')
+  ) return body
 
   try {
     const { translate } = await resolveTranslations()

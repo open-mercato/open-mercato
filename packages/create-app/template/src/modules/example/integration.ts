@@ -52,3 +52,4 @@ export const integrations: IntegrationDefinition[] = [
 ]
 
 export const bundles: IntegrationBundle[] = [bundle]
+

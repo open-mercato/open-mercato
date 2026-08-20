@@ -31,7 +31,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     type: 'documents.watch.changed',
     module: 'documents',
     titleKey: 'documents.notifications.watch.changed.title',
-    bodyKey: 'documents.notifications.watch.changed.restoredBody',
+    bodyKey: 'documents.notifications.watch.changed.body',
     icon: 'bell',
     severity: 'info',
     // sourceEntityId stores the changed resource id, so no {sourceEntityId}

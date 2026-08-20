@@ -27,6 +27,18 @@ describe('Documents route error localization', () => {
     })
   })
 
+  it('localizes attachment-module keys instead of leaking them to the client', async () => {
+    const response = await handleDocumentsRouteError(
+      new CrudHttpError(400, { error: 'attachments.errors.dangerousExecutable' }),
+      'documents.test',
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as { error: string }
+    expect(body.error).not.toBe('attachments.errors.dangerousExecutable')
+    expect(body.error).toContain('translated:attachments.errors.dangerousExecutable')
+  })
+
   it('maps legacy literal errors onto localized keys while preserving response details', async () => {
     const response = await handleDocumentsRouteError(
       new CrudHttpError(413, {

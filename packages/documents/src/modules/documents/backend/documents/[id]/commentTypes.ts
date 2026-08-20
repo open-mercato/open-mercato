@@ -15,16 +15,51 @@ export type NormalizedCommentAnchor = DocumentCommentAnchor | 'changed' | null
 
 const MENTION_WORD_CHARACTER = /[\p{L}\p{N}_]/u
 
+function isMentionTokenBoundary(body: string, index: number, tokenLength: number): boolean {
+  const before = index > 0 ? body[index - 1] ?? '' : ''
+  const after = body[index + tokenLength] ?? ''
+  return !MENTION_WORD_CHARACTER.test(before) && !MENTION_WORD_CHARACTER.test(after)
+}
+
 export function bodyContainsPendingMention(body: string, mention: PendingMention): boolean {
   const token = `@${mention.name}`
   let index = body.indexOf(token)
   while (index >= 0) {
-    const before = index > 0 ? body[index - 1] ?? '' : ''
-    const after = body[index + token.length] ?? ''
-    if (!MENTION_WORD_CHARACTER.test(before) && !MENTION_WORD_CHARACTER.test(after)) return true
+    if (isMentionTokenBoundary(body, index, token.length)) return true
     index = body.indexOf(token, index + token.length)
   }
   return false
+}
+
+export function removePendingMentionOccurrences(
+  body: string,
+  mention: PendingMention,
+  pendingMentions: PendingMention[],
+): string {
+  const token = `@${mention.name}`
+  const extendingTokens = pendingMentions
+    .map((candidate) => `@${candidate.name}`)
+    .filter((candidate) => candidate.length > token.length && candidate.startsWith(token))
+    .sort((left, right) => right.length - left.length)
+  let result = ''
+  let cursor = 0
+  while (cursor < body.length) {
+    const extending = extendingTokens.find((candidate) => (
+      body.startsWith(candidate, cursor) && isMentionTokenBoundary(body, cursor, candidate.length)
+    ))
+    if (extending) {
+      result += extending
+      cursor += extending.length
+      continue
+    }
+    if (body.startsWith(token, cursor) && isMentionTokenBoundary(body, cursor, token.length)) {
+      cursor += token.length
+      continue
+    }
+    result += body[cursor]
+    cursor += 1
+  }
+  return result
 }
 
 export type DocumentComment = {

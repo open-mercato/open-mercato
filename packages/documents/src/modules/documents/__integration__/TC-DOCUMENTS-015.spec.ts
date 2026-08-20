@@ -379,10 +379,15 @@ async function requireLiveSidecar(
   expect(tokenResponse.status(), 'collaboration token should mint in the sidecar-enabled harness').toBe(200)
   test.skip(!tokenBody?.url, 'Documents collaboration sidecar URL is not configured')
 
-  const healthResponse = await request
-    .get(healthUrlFromWebSocketUrl(tokenBody?.url as string))
-    .catch(() => null)
-  test.skip(!healthResponse, 'Documents collaboration sidecar is not reachable')
+  // A sidecar that is configured but down must fail this run rather than skip
+  // it: skipping would report green for exactly the collaboration behaviour
+  // these assertions exist to protect.
+  const healthUrl = healthUrlFromWebSocketUrl(tokenBody?.url as string)
+  const healthResponse = await request.get(healthUrl).catch(() => null)
+  expect(
+    healthResponse,
+    `configured collaboration sidecar at ${healthUrl} did not answer its health probe`,
+  ).not.toBeNull()
   expect(healthResponse?.status(), 'configured collaboration sidecar should be ready').toBe(200)
 }
 
@@ -703,8 +708,13 @@ test.describe('TC-DOCUMENTS-015: durable CRDT comment anchors', () => {
     let authorContext: BrowserContext | null = null
     let collaboratorContext: BrowserContext | null = null
     let reconnectContext: BrowserContext | null = null
+    let collabSidecar: ManagedCollabSidecar | null = null
 
     try {
+      // This test drives two live peers through the CRDT, so it owns its own
+      // sidecar exactly like the anchor test above rather than depending on one
+      // another spec happened to leave running.
+      collabSidecar = await ensureManagedCollabSidecar(BASE_URL)
       adminToken = await getAuthToken(request, 'admin')
       const adminScope = getTokenScope(adminToken)
       tenantId = adminScope.tenantId
@@ -851,6 +861,7 @@ test.describe('TC-DOCUMENTS-015: durable CRDT comment anchors', () => {
       await deleteUserIfExists(request, adminToken, collaborator?.id ?? null)
       await deleteUserIfExists(request, adminToken, author?.id ?? null)
       await deleteRoleIfExists(request, adminToken, roleId)
+      await collabSidecar?.stop()
     }
   })
 })

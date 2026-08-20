@@ -44,6 +44,12 @@ class FakeWorker implements DocxWorker {
   }
 }
 
+// The real-worker smoke tests must not race their own harness: the renderer's
+// deadline has to be the only one that can fire, so Jest's per-test budget is
+// kept a multiple above it.
+const REAL_WORKER_RENDER_TIMEOUT_MS = 5_000
+const REAL_WORKER_TEST_TIMEOUT_MS = REAL_WORKER_RENDER_TIMEOUT_MS * 4
+
 async function waitForWorker(workers: FakeWorker[]): Promise<FakeWorker> {
   for (let attempt = 0; attempt < 20 && workers.length === 0; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -177,7 +183,7 @@ describe('process-local DOCX renderer', () => {
   })
 
   it('builds an OpenXML archive in a real worker without image metadata dependencies', async () => {
-    const renderer = createDocxRenderer({ renderTimeoutMs: 5_000 })
+    const renderer = createDocxRenderer({ renderTimeoutMs: REAL_WORKER_RENDER_TIMEOUT_MS })
 
     const result = await renderer.render('<h1>Worker smoke test</h1><p><strong>Safe body</strong></p>')
 
@@ -187,13 +193,16 @@ describe('process-local DOCX renderer', () => {
     expect(documentXml).toContain('Worker smoke test')
     expect(documentXml).toContain('Safe body')
     expect(documentXml).toContain('<w:b/>')
-  })
+  }, REAL_WORKER_TEST_TIMEOUT_MS)
 
   it('resolves the traced dependency at worker runtime when a bundler replaces its path', async () => {
-    const renderer = createDocxRenderer({ renderTimeoutMs: 5_000 }, { modulePath: null })
+    const renderer = createDocxRenderer(
+      { renderTimeoutMs: REAL_WORKER_RENDER_TIMEOUT_MS },
+      { modulePath: null },
+    )
 
     const result = await renderer.render('<p>Bundled worker smoke test</p>')
 
     expect(Buffer.from(result).subarray(0, 2).toString('ascii')).toBe('PK')
-  })
+  }, REAL_WORKER_TEST_TIMEOUT_MS)
 })

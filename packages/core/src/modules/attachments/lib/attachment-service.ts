@@ -31,16 +31,16 @@ const logger = createLogger('attachments').child({ component: 'attachment-servic
  * callers get the same translation keys the public attachment route returns.
  */
 const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, string> = {
-  dangerous_executable: 'Executable file types are not allowed as attachments.',
-  max_upload_size: 'Attachment exceeds the maximum upload size.',
-  active_content: 'Active content uploads are not allowed.',
-  partition_unavailable: 'Attachment partition is not accessible for this scope',
+  dangerous_executable: 'attachments.errors.dangerousExecutable',
+  max_upload_size: 'attachments.errors.maxUploadSize',
+  active_content: 'attachments.errors.activeContentBlocked',
+  partition_unavailable: 'attachments.errors.partitionUnavailable',
   quota_exceeded: 'attachments.errors.quotaExceeded',
   quota_target_exists: 'attachments.errors.storagePathExists',
   quota_unavailable: 'attachments.errors.quotaUnavailable',
   quota_recovery_unsupported: 'attachments.errors.quotaRecoveryUnsupported',
-  storage_failed: 'Failed to persist attachment.',
-  persistence_failed: 'Failed to persist attachment.',
+  storage_failed: 'attachments.errors.storageFailed',
+  persistence_failed: 'attachments.errors.persistenceFailed',
 }
 
 
@@ -96,7 +96,12 @@ export type ReleaseScopedAttachmentInput = {
   tenantId: string
   organizationId: string
   expectedOwner: AttachmentOwner
-  expectedAssignment?: AttachmentAssignment
+  /**
+   * Required: releasing an attachment deletes the row *and* the provider bytes,
+   * so the caller must name the one assignment it owns. The release only
+   * proceeds when that assignment is the attachment's sole reference.
+   */
+  expectedAssignment: AttachmentAssignment
   expectedPartitionCode?: string
 }
 
@@ -347,6 +352,16 @@ export class DefaultAttachmentService implements AttachmentService {
     options: { em?: EntityManager; flush?: boolean } = {},
   ): Promise<AttachmentProviderCleanup | void> {
     const em = options.em ?? this.em
+    // The type makes `expectedAssignment` mandatory, but this service is handed
+    // out through untyped DI resolution and consumed through structural ports in
+    // other packages, so the shared-reference guard is enforced at runtime too:
+    // without it a caller could destroy an attachment other records still link.
+    const expectedAssignment = input.expectedAssignment
+    if (!expectedAssignment) {
+      throw new CrudHttpError(500, {
+        error: 'Attachment release requires the expected assignment of the releasing record',
+      })
+    }
     const isInTransaction = (em as { isInTransaction?: () => boolean }).isInTransaction
     if (
       options.flush !== false
@@ -377,14 +392,12 @@ export class DefaultAttachmentService implements AttachmentService {
     ) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
-    if (input.expectedAssignment) {
-      const assignments = readAttachmentMetadata(attachment.storageMetadata).assignments ?? []
-      if (!assignments.some((candidate) => assignmentMatches(candidate, input.expectedAssignment!))) {
-        throw new CrudHttpError(409, { error: 'Attachment is still referenced by another record' })
-      }
-      if (assignments.some((candidate) => !assignmentMatches(candidate, input.expectedAssignment!))) {
-        throw new CrudHttpError(409, { error: 'Attachment is still referenced by another record' })
-      }
+    const assignments = readAttachmentMetadata(attachment.storageMetadata).assignments ?? []
+    if (!assignments.some((candidate) => assignmentMatches(candidate, expectedAssignment))) {
+      throw new CrudHttpError(409, { error: 'Attachment is still referenced by another record' })
+    }
+    if (assignments.some((candidate) => !assignmentMatches(candidate, expectedAssignment))) {
+      throw new CrudHttpError(409, { error: 'Attachment is still referenced by another record' })
     }
 
     const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)

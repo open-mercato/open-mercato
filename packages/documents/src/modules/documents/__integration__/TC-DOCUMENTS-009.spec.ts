@@ -13,6 +13,12 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  ensureManagedCollabSidecar,
+  type ManagedCollabSidecar,
+} from './helpers/collabSidecar'
+
+const COLLAB_BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
 export const integrationMeta = {
   dependsOnModules: ['documents'],
@@ -582,8 +588,12 @@ test.describe('TC-DOCUMENTS-009: capability, folder, token, and readiness harden
     const stamp = Date.now()
     let adminToken: string | null = null
     let document: CreatedRecord | null = null
+    let collabSidecar: ManagedCollabSidecar | null = null
 
     try {
+      // Own the sidecar rather than depending on one another spec left running,
+      // otherwise the readiness contract below is never actually exercised.
+      collabSidecar = await ensureManagedCollabSidecar(COLLAB_BASE_URL)
       adminToken = await getAuthToken(request, 'admin')
       document = await createDocument(
         request,
@@ -614,6 +624,7 @@ test.describe('TC-DOCUMENTS-009: capability, folder, token, and readiness harden
       expect(healthResponse?.headers()['cache-control']).toBe('no-store')
     } finally {
       await deleteDocumentIfExists(request, adminToken, document)
+      await collabSidecar?.stop()
     }
   })
 })

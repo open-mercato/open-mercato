@@ -438,6 +438,35 @@ describe('DefaultAttachmentService', () => {
     expect(em.remove).not.toHaveBeenCalled()
   })
 
+  // `expectedAssignment` is a required field, but this service is resolved
+  // through untyped DI and consumed through structural ports in other packages,
+  // so an omitted assignment must fail closed rather than destroy an attachment
+  // another record still links to.
+  it('refuses to release when no expected assignment proves exclusive ownership', async () => {
+    const { service, driver, em } = createHarness({
+      attachment: attachment({
+        storageMetadata: {
+          assignments: [
+            { type: 'documents:document', id: 'document-1' },
+            { type: 'messages:message', id: 'message-1' },
+          ],
+        },
+      }),
+    })
+    const releaseWithoutAssignment = {
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    } as Parameters<typeof service.releaseScoped>[0]
+
+    await expectStatus(service.releaseScoped(releaseWithoutAssignment), 500)
+
+    expect(driver.delete).not.toHaveBeenCalled()
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('defers provider deletion until the owning transaction commits', async () => {
     const { service, driver, em } = createHarness()
     let cleanup: (() => Promise<void>) | void = undefined

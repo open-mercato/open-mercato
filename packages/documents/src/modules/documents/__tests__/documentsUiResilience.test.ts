@@ -32,36 +32,6 @@ describe('Documents UI resilience states', () => {
     expect(source).toContain(`onClick={${retryAction}}`)
   })
 
-  it('contains editor-island failures and exposes a local retry action', () => {
-    const source = read('backend/documents/[id]/DocumentPageClient.tsx')
-    expect(source).toContain('<DocumentEditorErrorBoundary')
-    expect(source).toContain('onRetry={retryEditorIsland}')
-    expect(source).toContain('documents.actions.retry')
-  })
-
-  it('only remounts the editor after a successful content refresh', () => {
-    const source = read('backend/documents/[id]/DocumentPageClient.tsx')
-    const failedRefreshGuard = source.indexOf("if (!contentCall.ok && contentCall.status !== 404)")
-    const editorRemount = source.indexOf('setEditorEpoch((current) => current + 1)', failedRefreshGuard)
-    expect(failedRefreshGuard).toBeGreaterThan(-1)
-    expect(source.indexOf("throw new Error(t('documents.editor.error.loadContent'))", failedRefreshGuard)).toBeGreaterThan(failedRefreshGuard)
-    expect(editorRemount).toBeGreaterThan(failedRefreshGuard)
-    expect(source).toContain('onRestored={reloadEditor}')
-  })
-
-  it('gives both editable ProseMirror surfaces accessible textbox semantics', () => {
-    const documentEditor = read('backend/documents/[id]/useDocumentEditor.ts')
-    expect(documentEditor).toContain("role: 'textbox'")
-    expect(documentEditor).toContain("'aria-label': t('documents.editor.content.ariaLabel')")
-    expect(documentEditor).toContain("'aria-multiline': 'true'")
-
-    const templateEditor = read('backend/documents/components/TemplateBodyEditor.tsx')
-    expect(templateEditor).toContain("role: 'textbox'")
-    expect(templateEditor).toContain("'aria-labelledby': editorLabelId")
-    expect(templateEditor).toContain("'aria-multiline': 'true'")
-    expect(templateEditor).toContain('<Label id={editorLabelId}>')
-  })
-
   it.each([
     ['backend/documents/components/NewFromTemplateDialog.tsx', 'flow.retryTemplates'],
     ['backend/documents/components/TemplateEditorDialog.tsx', 'templateDetail.retry'],
@@ -78,15 +48,6 @@ describe('Documents UI resilience states', () => {
     expect(source).toContain(retryAction)
   })
 
-  it('uses the shared radio-group contract for keyboard-accessible template selection', () => {
-    const source = read('backend/documents/components/NewFromTemplateDialog.tsx')
-    expect(source).toContain("from '@open-mercato/ui/primitives/radio'")
-    expect(source).toContain('<RadioGroup')
-    expect(source).toContain('orientation="vertical"')
-    expect(source).toContain('<Radio id={optionId} value={template.id}')
-    expect(source).not.toContain('role="listbox"')
-  })
-
   it.each([
     'backend/documents/DocumentsPageClient.tsx',
     'backend/documents/[id]/DocumentPageClient.tsx',
@@ -97,6 +58,9 @@ describe('Documents UI resilience states', () => {
     expect(source).not.toMatch(/^import\s+(?!type\b)[^\n]+from ['"]@tiptap\//m)
   })
 
+  // Structural on purpose: scripts/check-documents-bundle-budgets.mjs relies on the
+  // literal import specifier to attribute the island's chunk, so the import shape
+  // itself is the contract. Rendered behavior lives in documentsUiResilience.render.test.tsx.
   it('uses a literal dynamic import for the document editor island', () => {
     const source = read('backend/documents/[id]/DocumentPageClient.tsx')
     expect(source).toContain("dynamic(() => import('./DocumentEditorIsland')")

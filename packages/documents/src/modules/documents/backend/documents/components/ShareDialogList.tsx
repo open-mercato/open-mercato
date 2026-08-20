@@ -74,7 +74,7 @@ export function ShareDialogList({
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {share.principalSecondary
-                        ? `${principalTypeLabel} · ${share.principalSecondary}`
+                        ? `${principalTypeLabel} — ${share.principalSecondary}`
                         : principalTypeLabel}
                     </p>
                   </div>

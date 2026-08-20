@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { routeErrorSchema } from '../../_shared'
+import { routeErrorSchema, withDocumentsContextErrors } from '../../_shared'
 import { runDocumentLifecycleRoute } from '../archive/route'
 
 type RouteContext = {
@@ -21,7 +21,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   return runDocumentLifecycleRoute(request, context, 'documents.document.unarchive', 'documents.unarchive')
 }
 
-export const openApi: OpenApiRouteDoc = {
+export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
   tag: 'Documents',
   summary: 'Unarchive document',
   pathParams: z.object({ id: z.string().uuid() }),
@@ -37,6 +37,6 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
   },
-}
+})
 
 export default { POST }
