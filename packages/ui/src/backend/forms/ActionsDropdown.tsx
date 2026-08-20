@@ -34,6 +34,11 @@ export type ActionsDropdownProps = {
   size?: 'sm' | 'default'
 }
 
+function resolveRelatedNode(relatedTarget: EventTarget | null): Node | null {
+  const candidate = relatedTarget as Node | null
+  return candidate && typeof candidate.nodeType === 'number' ? candidate : null
+}
+
 export function ActionsDropdown({
   items,
   label,
@@ -47,6 +52,7 @@ export function ActionsDropdown({
   const menuRef = React.useRef<HTMLDivElement>(null)
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null)
   const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
+  const hoverOpenedRef = React.useRef(false)
   const [direction, setDirection] = React.useState<'down' | 'up'>('down')
 
   const resolvedLabel = label ?? t('ui.actions.actions', 'Actions')
@@ -95,6 +101,12 @@ export function ActionsDropdown({
   }, [open, updatePosition])
 
   React.useEffect(() => {
+    if (!open) {
+      hoverOpenedRef.current = false
+    }
+  }, [open])
+
+  React.useEffect(() => {
     return () => {
       if (hoverTimeoutRef.current) {
         clearTimeout(hoverTimeoutRef.current)
@@ -106,12 +118,15 @@ export function ActionsDropdown({
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current)
     }
+    if (!open) {
+      hoverOpenedRef.current = true
+    }
     setOpen(true)
     updatePosition()
   }
 
   const handleMouseLeave = (event: React.MouseEvent) => {
-    const nextTarget = event.relatedTarget as Node | null
+    const nextTarget = resolveRelatedNode(event.relatedTarget)
     if (nextTarget && (btnRef.current?.contains(nextTarget) || menuRef.current?.contains(nextTarget))) {
       return
     }
@@ -138,7 +153,9 @@ export function ActionsDropdown({
         aria-expanded={open}
         aria-label={resolvedAriaLabel}
         onClick={() => {
-          setOpen((prev) => !prev)
+          const commitsHoverOpen = hoverOpenedRef.current
+          hoverOpenedRef.current = false
+          setOpen((prev) => (prev ? commitsHoverOpen : true))
           requestAnimationFrame(updatePosition)
         }}
       >
