@@ -41,6 +41,13 @@ export type AddressEditorDraft = {
   region: string
   postalCode: string
   country: string
+  /**
+   * Contact details that belong to the ADDRESS rather than to the customer: the tax identifier it was
+   * invoiced under, and the phone a carrier calls about a delivery. Optional so every existing caller
+   * keeps compiling — one that omits them renders two empty fields, exactly as it does for `region`.
+   */
+  taxId?: string
+  phone?: string
   latitude?: string
   longitude?: string
   isPrimary: boolean
@@ -58,6 +65,8 @@ export type AddressEditorField =
   | 'region'
   | 'postalCode'
   | 'country'
+  | 'taxId'
+  | 'phone'
   | 'latitude'
   | 'longitude'
   | 'isPrimary'
@@ -114,6 +123,8 @@ export function AddressEditor({
     region: value.region ?? '',
     postalCode: value.postalCode ?? '',
     country: value.country ?? '',
+    taxId: value.taxId ?? '',
+    phone: value.phone ?? '',
     ...(showCoordinateFields
       ? { latitude: value.latitude ?? '', longitude: value.longitude ?? '' }
       : {}),
@@ -472,6 +483,31 @@ export function AddressEditor({
             {errors.longitude ? <p className="text-xs text-destructive">{errors.longitude}</p> : null}
           </>
         ) : null}
+        {/*
+          Ordinary fields, not a block rendered beside the editor. An address's tax identifier and
+          phone are as much part of it as its street, so they render always and edit the same way —
+          whether the address can be edited at all is a property of the address, not decided per
+          field.
+        */}
+        <Input
+          className={inputClass('taxId')}
+          placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+          value={current.taxId ?? ''}
+          onChange={(evt) => update('taxId', evt.target.value)}
+          disabled={disabled}
+          aria-invalid={errors.taxId ? 'true' : undefined}
+        />
+        {errors.taxId ? <p className="text-xs text-destructive">{errors.taxId}</p> : null}
+        <Input
+          className={inputClass('phone')}
+          placeholder={t('customers.people.detail.addresses.fields.phone', 'Phone')}
+          inputMode="tel"
+          value={current.phone ?? ''}
+          onChange={(evt) => update('phone', evt.target.value)}
+          disabled={disabled}
+          aria-invalid={errors.phone ? 'true' : undefined}
+        />
+        {errors.phone ? <p className="text-xs text-destructive">{errors.phone}</p> : null}
       </div>
       {!hidePrimaryToggle ? (
         <label className="inline-flex items-center gap-2 text-sm">

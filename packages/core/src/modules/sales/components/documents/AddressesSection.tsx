@@ -21,9 +21,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
   AddressView,
-  formatAddressContactPairs,
   formatAddressString,
-  type AddressContactLabels,
   type AddressFormatStrategy,
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
@@ -72,16 +70,20 @@ const emptyDraft: AddressEditorDraft = {
   region: '',
   postalCode: '',
   country: '',
+  taxId: '',
+  phone: '',
   isPrimary: false,
 }
 
 const EDITABLE_SNAPSHOT_KEYS = new Set(Object.keys(emptyDraft))
 
 /**
- * The twelve fields the editor owns, typed, plus whatever else the caller's snapshot carried.
+ * The fields the editor owns, typed, plus whatever else the caller's snapshot carried.
  *
- * The index signature is what lets an integration's extra keys (`taxId`, `phone`, …) survive the
- * merge-back below, while the named fields stay `string` for callers that read them — reading
+ * The index signature is what lets an integration's extra keys — `taxIdType`, and anything a future
+ * integration writes — survive the merge-back below, while the named fields stay `string` for callers
+ * that read them. `taxId` and `phone` are NOT among them any more: the editor renders both, so they
+ * are assigned from the draft like every other field. Reading
  * `normalized.city` off a bare `Record<string, unknown>` yields `unknown`, which is what forced the
  * `@ts-nocheck` on this file.
  */
@@ -97,6 +99,8 @@ type NormalizedAddressDraft = {
   region?: string
   postalCode?: string
   country?: string
+  taxId?: string
+  phone?: string
   isPrimary?: boolean
 } & Record<string, unknown>
 
@@ -126,6 +130,8 @@ function normalizeAddressDraft(
   assign('region', 'region')
   assign('postalCode', 'postalCode')
   assign('country', 'country')
+  assign('taxId', 'taxId')
+  assign('phone', 'phone')
   assign('isPrimary', 'isPrimary')
   if (!hasEditableContent) return null
   if (previous) {
@@ -152,6 +158,8 @@ function draftFromSnapshot(snapshot?: Record<string, unknown> | null): AddressEd
     region: typeof record.region === 'string' ? record.region : '',
     postalCode: typeof record.postalCode === 'string' ? record.postalCode : '',
     country: typeof record.country === 'string' ? record.country : '',
+    taxId: typeof record.taxId === 'string' ? record.taxId : '',
+    phone: typeof record.phone === 'string' ? record.phone : '',
     isPrimary: record.isPrimary === true,
   }
 }
@@ -221,45 +229,6 @@ function draftFromDocumentAddress(entry: DocumentAddressAssignment): AddressEdit
     country: entry.value.country ?? '',
     isPrimary: false,
   }
-}
-
-/**
- * The contact details a document address snapshot carries — the phone the carrier calls, the tax id
- * the invoice was issued under — rendered under the tile (spec
- * 2026-08-10-address-contact-and-tax-fields).
- *
- * Renders through `AddressView` with a contact-ONLY address, so there is a single render path for the
- * contact block rather than a second one living here: with no postal fields the component emits the
- * contact lines alone. Reads the FROZEN snapshot, not the editor draft — these keys are written by
- * integrations, the editor has no field for them, and Phase 0 guarantees they survive its saves.
- */
-function AddressContactBlock({
-  snapshot,
-  labels,
-  format,
-}: {
-  snapshot?: Record<string, unknown> | null
-  labels: AddressContactLabels
-  format: AddressFormatStrategy
-}) {
-  const record = (snapshot ?? {}) as Record<string, unknown>
-  const contactOnly: AddressValue = {
-    // No postal fields on purpose: with nothing for `formatAddressLines` to emit, `AddressView`
-    // renders the contact lines alone, beside the editor that already shows the street.
-    addressLine1: null,
-    phone: typeof record.phone === 'string' ? record.phone : null,
-    taxId: typeof record.taxId === 'string' ? record.taxId : null,
-    taxIdType: typeof record.taxIdType === 'string' ? record.taxIdType : null,
-  }
-  if (!formatAddressContactPairs(contactOnly, labels).length) return null
-  return (
-    <AddressView
-      address={contactOnly}
-      format={format}
-      contactLabels={labels}
-      contactClassName="text-xs text-muted-foreground"
-    />
-  )
 }
 
 export function SalesDocumentAddressesSection({
@@ -1100,10 +1069,6 @@ export function SalesDocumentAddressesSection({
     )
   }
 
-  const contactLabels: AddressContactLabels = {
-    taxId: t('sales.documents.detail.addresses.taxId', 'Tax ID'),
-    phone: t('sales.documents.detail.addresses.phone', 'Phone'),
-  }
 
   return (
     <div className="space-y-4">
@@ -1177,13 +1142,6 @@ export function SalesDocumentAddressesSection({
               />
             </div>
           ) : null}
-          {useCustomShipping ? (
-            <AddressContactBlock
-              snapshot={shippingAddressSnapshot}
-              labels={contactLabels}
-              format={addressFormat}
-            />
-          ) : null}
         </div>
 
         <div className="space-y-3 rounded border bg-card p-4">
@@ -1253,13 +1211,6 @@ export function SalesDocumentAddressesSection({
                 </div>
               ) : null}
             </>
-          ) : null}
-          {useCustomBilling ? (
-            <AddressContactBlock
-              snapshot={billingAddressSnapshot}
-              labels={contactLabels}
-              format={addressFormat}
-            />
           ) : null}
         </div>
         </div>

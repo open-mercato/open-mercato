@@ -87,6 +87,10 @@ jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () =>
   AddressEditor: ({ value, onChange, disabled }: any) => (
     <>
       <span data-testid="address-editor-disabled">{String(Boolean(disabled))}</span>
+      {/* The editor renders the contact details itself; what this section owes it is a draft that
+          carries them off the snapshot, which is what these expose. */}
+      <span data-testid="draft-taxId">{value?.taxId ?? ''}</span>
+      <span data-testid="draft-phone">{value?.phone ?? ''}</span>
       <button
         type="button"
         onClick={() =>
@@ -368,8 +372,8 @@ describe('SalesDocumentAddressesSection', () => {
     )
 
     await screen.findByRole('combobox')
-    expect(screen.getByText('Tax ID: PL1234567890')).toBeTruthy()
-    expect(screen.getByText('Phone: +48 600 100 200')).toBeTruthy()
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('PL1234567890')
+    expect(screen.getByTestId('draft-phone').textContent).toBe('+48 600 100 200')
     // The type interprets the value; it is never a displayed line of its own.
     expect(screen.queryByText(/eu_vat/)).toBeNull()
   })
@@ -390,8 +394,8 @@ describe('SalesDocumentAddressesSection', () => {
     )
 
     await screen.findByRole('combobox')
-    expect(screen.queryByText(/^Tax ID:/)).toBeNull()
-    expect(screen.queryByText(/^Phone:/)).toBeNull()
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('')
+    expect(screen.getByTestId('draft-phone').textContent).toBe('')
   })
 
   it('renders a disabled editor on a locked document, instead of an editable form the API will refuse', async () => {
@@ -440,7 +444,7 @@ describe('SalesDocumentAddressesSection', () => {
       />,
     )
     await screen.findByRole('combobox')
-    expect(screen.getByText('Tax ID: 1234567890')).toBeTruthy()
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('1234567890')
   })
 
   it('renders an EU VAT number', async () => {
@@ -458,7 +462,7 @@ describe('SalesDocumentAddressesSection', () => {
       />,
     )
     await screen.findByRole('combobox')
-    expect(screen.getByText('Tax ID: PL1234567890')).toBeTruthy()
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('PL1234567890')
   })
 
   it('hides the contact block once a saved address is selected, so it cannot show stale details', async () => {
