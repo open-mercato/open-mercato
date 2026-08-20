@@ -47,14 +47,14 @@ describe('IconButton pressed state', () => {
   // dark icon on a dark surface (invisible favorite/watch toggles).
   it.each(['outline', 'ghost'] as const)('keeps the primary fill on a pressed %s button in dark mode', (variant) => {
     const classes = iconButtonVariants({ variant })
-    expect(classes).toContain('enabled:aria-pressed:bg-primary')
-    expect(classes).toContain('dark:enabled:aria-pressed:bg-primary')
-    expect(classes).toContain('dark:enabled:aria-pressed:hover:bg-primary-hover')
+    expect(classes).toContain('not-disabled:aria-pressed:bg-primary')
+    expect(classes).toContain('dark:not-disabled:aria-pressed:bg-primary')
+    expect(classes).toContain('dark:not-disabled:aria-pressed:hover:bg-primary-hover')
   })
 
   // A toggle can be pressed and disabled at once — an active editor tool on a
   // read-only document. The pressed rules are more specific than the
-  // `disabled:` surface, so without an `enabled:` gate the disabled control
+  // `disabled:` surface, so without a not-disabled gate the disabled control
   // renders as a primary, actionable button in both themes.
   it.each(['outline', 'ghost'] as const)(
     'never lets the pressed surface outrank the disabled surface on a %s button',
@@ -63,12 +63,12 @@ describe('IconButton pressed state', () => {
       expect(classes).toContain('disabled:bg-bg-disabled')
       expect(classes).toContain('disabled:text-text-disabled')
       for (const pressed of classes.split(' ').filter((cls) => cls.includes('aria-pressed:'))) {
-        expect(pressed).toContain('enabled:aria-pressed:')
+        expect(pressed).toContain('not-disabled:aria-pressed:')
       }
     },
   )
 
-  it('renders a pressed disabled toggle with only enabled-gated pressed rules', () => {
+  it('renders a pressed disabled toggle with only not-disabled-gated pressed rules', () => {
     const { getByRole } = render(
       <IconButton variant="outline" aria-label="Highlight" aria-pressed disabled>
         <svg />
@@ -78,6 +78,33 @@ describe('IconButton pressed state', () => {
     expect(classes).toContain('disabled:bg-bg-disabled')
     expect(classes).not.toContain('aria-pressed:bg-primary')
     expect(classes).not.toContain('dark:aria-pressed:bg-primary')
-    expect(classes).toContain('enabled:aria-pressed:bg-primary')
+    expect(classes).toContain('not-disabled:aria-pressed:bg-primary')
+  })
+
+  // `enabled:` compiles to `&:enabled`, which the CSS spec restricts to form
+  // elements. `IconButton` supports `asChild` and is rendered onto links across
+  // the app (MessagesIcon, RoleAssignmentRow, DealsSection), so an `enabled:`
+  // gate would silently drop the pressed state on every one of those hosts.
+  // `not-disabled:` (`&:not(:disabled)`) matches a non-form host just fine.
+  it('keeps the pressed surface on an asChild anchor host', () => {
+    const { getByRole } = render(
+      <IconButton variant="ghost" asChild aria-pressed>
+        <a href="/inbox" aria-label="Messages">
+          <svg />
+        </a>
+      </IconButton>,
+    )
+    const anchor = getByRole('link')
+    const classes = anchor.className.split(' ')
+    expect(anchor.tagName).toBe('A')
+    expect(classes).toContain('not-disabled:aria-pressed:bg-primary')
+    expect(classes).toContain('not-disabled:aria-pressed:text-primary-foreground')
+    expect(classes).toContain('dark:not-disabled:aria-pressed:bg-primary')
+    // The whole point of the fix: no pressed rule may be gated on `:enabled`,
+    // which can never match an anchor.
+    for (const pressed of classes.filter((cls) => cls.includes('aria-pressed:'))) {
+      expect(pressed).not.toContain('enabled:aria-pressed:')
+      expect(pressed).toContain('not-disabled:aria-pressed:')
+    }
   })
 })

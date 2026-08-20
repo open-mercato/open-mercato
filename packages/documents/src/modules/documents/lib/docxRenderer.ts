@@ -99,6 +99,16 @@ type DocxRendererDeps = {
   allocateOutput?: (byteLength: number) => Uint8Array
 }
 
+/**
+ * The worker body is a standalone source string because it is evaluated in a
+ * fresh `worker_threads` context that cannot import from this package.
+ *
+ * The cost of that constraint: everything inside this template is invisible to
+ * `tsc`, `eslint` and `ds-lint`, so a typo here is a runtime failure rather
+ * than a build failure. The behaviour is pinned by __tests__/docxRenderer.test.ts,
+ * which drives a real worker rather than only a fake — keep it that way when
+ * editing this string.
+ */
 const DOCX_WORKER_SOURCE = String.raw`
 const { parentPort, workerData } = require('node:worker_threads')
 

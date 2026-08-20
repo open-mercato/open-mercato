@@ -1,7 +1,11 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { DefaultAttachmentService } from '../attachment-service'
+import type { StorageDriverFactory } from '../drivers'
+import type { AttachmentQuotaService } from '../quota-service'
+import { ScopedAttachmentUploadService } from '../scoped-upload-service'
 
 jest.mock('kysely', () => ({
   sql: Object.assign(
@@ -12,6 +16,13 @@ jest.mock('kysely', () => ({
     {},
   ),
 }))
+
+jest.mock('../partitions', () => ({
+  ensureDefaultPartitions: jest.fn(async () => undefined),
+  resolveDefaultPartitionCode: jest.fn(() => 'privateAttachments'),
+}))
+
+jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
@@ -133,6 +144,51 @@ function createHarness(options: {
   return { service, em, driver, factory, scopedUpload }
 }
 
+/**
+ * Wires the *real* `ScopedAttachmentUploadService` behind `DefaultAttachmentService`
+ * so the delegate's storage, quota and persistence paths run for real. The other
+ * harness stubs `createScoped`'s delegate out entirely, which cannot exercise
+ * what the delegate does with an error raised inside `persistLink`.
+ */
+function createDelegatingHarness() {
+  const driver = {
+    key: 'local',
+    prepareStoragePath: jest.fn(() => 'tenant-1/org-1/upload.txt'),
+    store: jest.fn(async () => ({ storagePath: 'tenant-1/org-1/upload.txt' })),
+    deleteStrict: jest.fn(async () => undefined),
+    delete: jest.fn(async () => undefined),
+  }
+  const transactionEm = {
+    create: jest.fn((_entity: unknown, values: Record<string, unknown>) => values),
+    persist: jest.fn(() => ({ flush: jest.fn(async () => undefined) })),
+  }
+  const em = {
+    findOne: jest.fn(async () => partition({ requiresOcr: false })),
+    transactional: jest.fn(async (work: (tx: unknown) => Promise<void>) => work(transactionEm)),
+  } as unknown as EntityManager
+  const quota = {
+    reserve: jest.fn(async () => ({
+      id: 'reservation-1',
+      leaseToken: 'lease-1',
+      expiresAt: new Date(Date.now() + 60_000),
+    })),
+    beginStorage: jest.fn(async () => undefined),
+    markStored: jest.fn(async () => undefined),
+    completeAttachment: jest.fn(async () => undefined),
+    release: jest.fn(async () => undefined),
+  }
+  const factory = { resolveForPartition: jest.fn(async () => driver) } as unknown as StorageDriverFactory
+  const uploadService = new ScopedAttachmentUploadService({
+    em,
+    dataEngine: null,
+    storageDriverFactory: factory,
+    attachmentQuotaService: quota as unknown as AttachmentQuotaService,
+    attachmentQuotaRecoveryScheduler: jest.fn(async () => undefined),
+  })
+  const service = new DefaultAttachmentService(em, factory, () => uploadService)
+  return { service, driver, quota, em }
+}
+
 function createInput(overrides: Record<string, unknown> = {}) {
   return {
     tenantId: 'tenant-1',
@@ -227,6 +283,40 @@ describe('DefaultAttachmentService', () => {
     await expectStatus(service.createScoped(createInput()), 500)
 
     expect(driver.store).not.toHaveBeenCalled()
+  })
+
+  // Every other test in this file — and every Documents-side test — replaces
+  // `createScoped`'s delegate with a double, so none of them reach the real
+  // persistence catch. This one wires the actual upload service in, because the
+  // regression it guards lived there: the catch discarded the caught error and
+  // reported `persistence_failed` (500) for a 403 the caller raised on purpose
+  // inside `persistLink`.
+  it('preserves a 403 raised inside persistLink and still compensates storage', async () => {
+    const { service, driver, quota } = createDelegatingHarness()
+    const persistLink = jest.fn(async () => {
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    })
+
+    await expect(service.createScoped(createInput({ persistLink }))).rejects.toMatchObject({
+      status: 403,
+      body: { error: 'Forbidden' },
+    })
+
+    expect(persistLink).toHaveBeenCalledTimes(1)
+    expect(driver.deleteStrict).toHaveBeenCalledWith('privateAttachments', 'tenant-1/org-1/upload.txt')
+    expect(quota.release).toHaveBeenCalledWith('reservation-1', 'lease-1')
+  })
+
+  it('still reports a genuine persistence failure as a 500', async () => {
+    const { service, driver, quota } = createDelegatingHarness()
+    const persistLink = jest.fn(async () => {
+      throw new Error('db unavailable')
+    })
+
+    await expectStatus(service.createScoped(createInput({ persistLink })), 500)
+
+    expect(driver.deleteStrict).toHaveBeenCalledWith('privateAttachments', 'tenant-1/org-1/upload.txt')
+    expect(quota.release).toHaveBeenCalledWith('reservation-1', 'lease-1')
   })
 
   it('scopes the attachment lookup to the caller tenant and organization', async () => {

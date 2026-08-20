@@ -12,6 +12,7 @@
   "attachments.errors.storageFailed": "첨부 파일을 저장소에 기록하지 못했습니다.",
   "attachments.errors.storagePathExists": "대상 저장 경로가 이미 존재합니다.",
   "attachments.errors.uploadFailed": "첨부 파일 업로드에 실패했습니다.",
+  "attachments.errors.uploadServiceUnavailable": "첨부 파일 업로드 서비스를 사용할 수 없습니다.",
   "attachments.library.actions.chooseReplacement": "교체 파일 선택",
   "attachments.library.actions.copied": "링크가 복사되었습니다.",
   "attachments.library.actions.copyError": "링크를 복사할 수 없습니다.",

@@ -12,6 +12,7 @@
   "attachments.errors.storageFailed": "Die Anhangsdatei konnte nicht im Speicher abgelegt werden.",
   "attachments.errors.storagePathExists": "Der Zielspeicherpfad existiert bereits.",
   "attachments.errors.uploadFailed": "Das Hochladen des Anhangs ist fehlgeschlagen.",
+  "attachments.errors.uploadServiceUnavailable": "Der Anhang-Upload-Dienst ist nicht verfügbar.",
   "attachments.library.actions.chooseReplacement": "Ersatzdatei auswählen",
   "attachments.library.actions.copied": "Link kopiert.",
   "attachments.library.actions.copyError": "Link konnte nicht kopiert werden.",

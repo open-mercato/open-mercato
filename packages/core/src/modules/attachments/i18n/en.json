@@ -12,6 +12,7 @@
   "attachments.errors.storageFailed": "Failed to store the attachment file.",
   "attachments.errors.storagePathExists": "The target storage path already exists.",
   "attachments.errors.uploadFailed": "Attachment upload failed.",
+  "attachments.errors.uploadServiceUnavailable": "The attachment upload service is not available.",
   "attachments.library.actions.chooseReplacement": "Choose replacement file",
   "attachments.library.actions.copied": "Link copied.",
   "attachments.library.actions.copyError": "Unable to copy link.",

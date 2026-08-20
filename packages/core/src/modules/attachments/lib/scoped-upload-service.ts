@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
@@ -83,9 +84,11 @@ export type ScopedAttachmentUploadInput = {
   partitionCode?: string | null
   maxBytes?: number
   /**
-   * Reject a partition that is public or not scoped to this tenant/organization.
-   * Module-owned uploads (documents, warranty claims) must never land in a
-   * partition another tenant — or an anonymous reader — can reach.
+   * Reject a partition flagged public, so a module-owned upload (documents,
+   * warranty claims) never lands where an anonymous reader can reach it. The
+   * tenant/organization half of that guarantee is not this flag's job: the
+   * partition lookup below already matches only a global partition or one owned
+   * by this tenant and organization, whether or not the flag is set.
    */
   requirePrivatePartition?: boolean
   /**
@@ -252,6 +255,12 @@ export class ScopedAttachmentUploadService {
     } catch (error) {
       await this.compensateStorage(driver, partition.code, storedPath, reservation)
       logger.error('Scoped attachment persistence failed', { err: error })
+      // `persistLink` is where callers run their own authorization (the
+      // documents module re-checks the edit capability inside this
+      // transaction), so a deliberate HTTP error from it must reach the route
+      // with its own status. Flattening it to 500 turns a documented 403 into
+      // an apparent server fault.
+      if (isCrudHttpError(error)) throw error
       throw new ScopedAttachmentUploadError('persistence_failed', 500)
     }
 

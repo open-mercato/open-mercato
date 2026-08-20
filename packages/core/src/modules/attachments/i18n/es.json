@@ -12,6 +12,7 @@
   "attachments.errors.storageFailed": "No se pudo almacenar el archivo adjunto.",
   "attachments.errors.storagePathExists": "La ruta de almacenamiento de destino ya existe.",
   "attachments.errors.uploadFailed": "Error al subir el archivo adjunto.",
+  "attachments.errors.uploadServiceUnavailable": "El servicio de carga de adjuntos no está disponible.",
   "attachments.library.actions.chooseReplacement": "Elegir archivo de reemplazo",
   "attachments.library.actions.copied": "Enlace copiado.",
   "attachments.library.actions.copyError": "No se pudo copiar el enlace.",

@@ -12,6 +12,7 @@
   "attachments.errors.storageFailed": "Nie udało się zapisać pliku załącznika w magazynie.",
   "attachments.errors.storagePathExists": "Docelowa ścieżka przechowywania już istnieje.",
   "attachments.errors.uploadFailed": "Przesyłanie załącznika nie powiodło się.",
+  "attachments.errors.uploadServiceUnavailable": "Usługa przesyłania załączników jest niedostępna.",
   "attachments.library.actions.chooseReplacement": "Wybierz plik zastępczy",
   "attachments.library.actions.copied": "Link skopiowany.",
   "attachments.library.actions.copyError": "Nie można skopiować linku.",

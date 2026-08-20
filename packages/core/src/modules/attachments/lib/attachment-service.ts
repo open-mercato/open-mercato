@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
@@ -26,23 +27,75 @@ import {
 
 const logger = createLogger('attachments').child({ component: 'attachment-service' })
 
-/**
- * The scoped upload service reports failures as machine codes; module-facing
- * callers get the same translation keys the public attachment route returns.
- */
-const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, string> = {
-  dangerous_executable: 'attachments.errors.dangerousExecutable',
-  max_upload_size: 'attachments.errors.maxUploadSize',
-  active_content: 'attachments.errors.activeContentBlocked',
-  partition_unavailable: 'attachments.errors.partitionUnavailable',
-  quota_exceeded: 'attachments.errors.quotaExceeded',
-  quota_target_exists: 'attachments.errors.storagePathExists',
-  quota_unavailable: 'attachments.errors.quotaUnavailable',
-  quota_recovery_unsupported: 'attachments.errors.quotaRecoveryUnsupported',
-  storage_failed: 'attachments.errors.storageFailed',
-  persistence_failed: 'attachments.errors.persistenceFailed',
+type AttachmentErrorMessage = {
+  key: string
+  fallback: string
 }
 
+/**
+ * The scoped upload service reports failures as machine codes. Each maps to the
+ * translation key the public attachment route uses for the same condition, and
+ * the key is resolved server-side before it reaches the response body — clients
+ * render the `error` field verbatim, so handing them a raw key would surface
+ * `attachments.errors.quotaExceeded` as the user-facing message.
+ */
+const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, AttachmentErrorMessage> = {
+  dangerous_executable: {
+    key: 'attachments.errors.dangerousExecutable',
+    fallback: 'Executable file types are not allowed as attachments.',
+  },
+  max_upload_size: {
+    key: 'attachments.errors.maxUploadSize',
+    fallback: 'Attachment exceeds the maximum upload size.',
+  },
+  active_content: {
+    key: 'attachments.errors.activeContentBlocked',
+    fallback: 'Active content uploads are not allowed.',
+  },
+  partition_unavailable: {
+    key: 'attachments.errors.partitionUnavailable',
+    fallback: 'Attachment partition is not available for this scope.',
+  },
+  quota_exceeded: {
+    key: 'attachments.errors.quotaExceeded',
+    fallback: 'Attachment storage quota exceeded for this tenant.',
+  },
+  quota_target_exists: {
+    key: 'attachments.errors.storagePathExists',
+    fallback: 'The target storage path already exists.',
+  },
+  quota_unavailable: {
+    key: 'attachments.errors.quotaUnavailable',
+    fallback: 'Storage quota accounting is unavailable.',
+  },
+  quota_recovery_unsupported: {
+    key: 'attachments.errors.quotaRecoveryUnsupported',
+    fallback: 'Storage driver cannot participate in quota recovery.',
+  },
+  storage_failed: {
+    key: 'attachments.errors.storageFailed',
+    fallback: 'Failed to store the attachment file.',
+  },
+  persistence_failed: {
+    key: 'attachments.errors.persistenceFailed',
+    fallback: 'Failed to persist attachment.',
+  },
+}
+
+const UPLOAD_FAILED_MESSAGE: AttachmentErrorMessage = {
+  key: 'attachments.errors.uploadFailed',
+  fallback: 'Attachment upload failed.',
+}
+
+const UPLOAD_SERVICE_UNAVAILABLE_MESSAGE: AttachmentErrorMessage = {
+  key: 'attachments.errors.uploadServiceUnavailable',
+  fallback: 'The attachment upload service is not available.',
+}
+
+async function translateAttachmentError(message: AttachmentErrorMessage): Promise<string> {
+  const { t } = await resolveTranslations()
+  return t(message.key, message.fallback)
+}
 
 export type AttachmentOwner = {
   entityId: string
@@ -234,7 +287,9 @@ export class DefaultAttachmentService implements AttachmentService {
       logger.error('Scoped attachment upload service could not be resolved', { err: error })
     }
     if (!uploadService) {
-      throw new CrudHttpError(500, { error: 'attachments.errors.quotaUnavailable' })
+      throw new CrudHttpError(500, {
+        error: await translateAttachmentError(UPLOAD_SERVICE_UNAVAILABLE_MESSAGE),
+      })
     }
 
     let attachment: Attachment
@@ -254,7 +309,8 @@ export class DefaultAttachmentService implements AttachmentService {
       })
     } catch (error) {
       if (isScopedAttachmentUploadError(error)) {
-        throw new CrudHttpError(error.status, { error: SCOPED_UPLOAD_ERROR_MESSAGES[error.code] ?? 'attachments.errors.uploadFailed' })
+        const message = SCOPED_UPLOAD_ERROR_MESSAGES[error.code] ?? UPLOAD_FAILED_MESSAGE
+        throw new CrudHttpError(error.status, { error: await translateAttachmentError(message) })
       }
       throw error
     }
@@ -263,7 +319,7 @@ export class DefaultAttachmentService implements AttachmentService {
       id: attachment.id,
       url: attachment.url ?? buildAttachmentFileUrl(attachment.id),
       fileName: attachment.fileName,
-      mimeType: attachment.mimeType ?? '',
+      mimeType: attachment.mimeType,
       fileSize: attachment.fileSize,
     }
   }
