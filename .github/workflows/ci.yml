@@ -318,6 +318,17 @@ jobs:
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
+      - name: Check for dead resolution keys
+        # Runs before the audit because a dead `resolutions` key is a *cause* of the
+        # failure the next step reports, and nothing else surfaces it: Yarn silently
+        # ignores a resolution whose `@npm:<descriptor>` suffix matches no descriptor
+        # in the tree, so a security pin stops applying the moment its requester bumps
+        # its declared range. All four `undici` keys had rotted that way before #5085,
+        # and the only symptom was a red audit with nothing in the diff to explain it
+        # (#5098). This job is the right home for the check because `audit-scope` gates
+        # it on exactly the inputs that can rot a key — manifests and lockfiles.
+        run: yarn check:resolutions
+
       - name: Audit dependencies for known CVEs
         # Uses scripts/audit-ci.mjs instead of `yarn npm audit` as a workaround for
         # an npm registry bug: the bulk advisories endpoint returns a gzip body with
