@@ -24,6 +24,7 @@ type ChannelListResponse = {
   items?: ChannelRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function ChannelsListPage() {

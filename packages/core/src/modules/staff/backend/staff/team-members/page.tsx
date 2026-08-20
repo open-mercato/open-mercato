@@ -47,6 +47,7 @@ type TeamMembersResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type TeamsResponse = {

@@ -79,6 +79,7 @@ type ProjectsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type KpisResponse = PmKpis | CollabKpis
