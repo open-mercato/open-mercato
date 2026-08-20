@@ -72,8 +72,7 @@ function makeRepoStub(initialRow: AiPendingAction) {
       }
       row = {
         ...row,
-        status: 'confirmed' as never,
-        resolvedAt: ((extra?.now as Date | undefined) ?? new Date()) as never,
+        status: 'executing' as never,
         resolvedByUserId: (extra?.resolvedByUserId ?? null) as never,
       }
       if (extra && 'failedRecords' in extra) {
@@ -130,7 +129,7 @@ function makeCtx() {
 }
 
 describe('executePendingActionConfirm', () => {
-  it('transitions pending → confirmed → executing → confirmed on handler success and emits typed ai.action.confirmed', async () => {
+  it('transitions pending → executing → confirmed on handler success and emits typed ai.action.confirmed', async () => {
     const repo = makeRepoStub(makeAction())
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const handler = jest.fn(async () => ({ recordId: 'p-1', commandName: 'catalog.product.update' }))
@@ -144,11 +143,8 @@ describe('executePendingActionConfirm', () => {
     })
     expect(result.ok).toBe(true)
     expect(repo.claimForConfirmation).toHaveBeenCalledTimes(1)
-    expect(repo.setStatus).toHaveBeenCalledTimes(2)
-    expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
-      'executing',
-      'confirmed',
-    ])
+    expect(repo.setStatus).toHaveBeenCalledTimes(1)
+    expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual(['confirmed'])
     expect(result.executionResult).toEqual({
       recordId: 'p-1',
       commandName: 'catalog.product.update',
@@ -180,7 +176,7 @@ describe('executePendingActionConfirm', () => {
     expect(typeof emittedPayload.resolvedAt).toBe('string')
   })
 
-  it('transitions pending → confirmed → executing → failed on handler throw and emits typed failure payload', async () => {
+  it('transitions pending → executing → failed on handler throw and emits typed failure payload', async () => {
     const repo = makeRepoStub(makeAction())
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const throwingTool = makeTool({
@@ -197,10 +193,7 @@ describe('executePendingActionConfirm', () => {
       emitEvent,
     })
     expect(result.ok).toBe(false)
-    expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
-      'executing',
-      'failed',
-    ])
+    expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual(['failed'])
     expect(result.executionResult.error).toMatchObject({ code: 'handler_error', message: 'db constraint' })
     expect(emitEvent).toHaveBeenCalledTimes(1)
     const [emittedId, emittedPayload] = emitEvent.mock.calls[0] as [
@@ -293,11 +286,8 @@ describe('executePendingActionConfirm', () => {
       emitEvent,
     })
     expect(result.ok).toBe(true)
-    expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual([
-      'executing',
-      'confirmed',
-    ])
-    const finalExtra = repo.setStatus.mock.calls[1][3] as Record<string, unknown>
+    expect(repo.setStatus.mock.calls.map((call) => call[1])).toEqual(['confirmed'])
+    const finalExtra = repo.setStatus.mock.calls[0][3] as Record<string, unknown>
     expect(finalExtra.failedRecords).toEqual([
       { recordId: 'p-3', error: { code: 'command_failed', message: 'db constraint' } },
     ])
@@ -347,7 +337,7 @@ describe('executePendingActionConfirm', () => {
       failedRecords: stale,
     })
     expect(result.ok).toBe(true)
-    const finalExtra = repo.setStatus.mock.calls[1][3] as Record<string, unknown>
+    const finalExtra = repo.setStatus.mock.calls[0][3] as Record<string, unknown>
     const merged = finalExtra.failedRecords as Array<{ recordId: string }>
     expect(merged.map((entry) => entry.recordId).sort()).toEqual(['p-2', 'p-3'])
   })
@@ -364,7 +354,7 @@ describe('executePendingActionConfirm', () => {
       emitEvent,
     })
     expect(result.ok).toBe(true)
-    const finalExtra = repo.setStatus.mock.calls[1][3] as Record<string, unknown>
+    const finalExtra = repo.setStatus.mock.calls[0][3] as Record<string, unknown>
     expect(finalExtra.failedRecords).toBeNull()
   })
 
@@ -390,6 +380,12 @@ describe('executePendingActionConfirm', () => {
     expect(results).toHaveLength(20)
     expect(repo.claimForConfirmation).toHaveBeenCalledTimes(20)
     expect(handler).toHaveBeenCalledTimes(1)
+    expect(results.filter((result) => result.ok)).toHaveLength(1)
+    expect(
+      results.filter(
+        (result) => result.executionResult.error?.code === 'confirmation_in_progress',
+      ),
+    ).toHaveLength(19)
   })
 
   it('does not invoke the handler when the atomic claim observes a terminal status', async () => {

@@ -71,12 +71,17 @@ export const openApi: OpenApiRouteDoc = {
           description: 'Confirmation complete; body includes the serialized pending action and the mutation result.',
           mediaType: 'application/json',
         },
+        {
+          status: 202,
+          description: 'Another request owns the atomic execution claim; retry or poll the pending action.',
+          mediaType: 'application/json',
+        },
       ],
       errors: [
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks `ai_assistant.view`, a required agent feature, tool whitelist, or accesses attachments outside their tenant.' },
         { status: 404, description: 'Pending action or agent not found in the caller scope.' },
-        { status: 409, description: 'Pending action is not in `pending` status or has expired.' },
+        { status: 409, description: 'Pending action is in an incompatible terminal status or has expired.' },
         { status: 412, description: 'Record version changed between propose and confirm, or the input schema no longer accepts the stored payload.' },
         { status: 500, description: 'Unexpected server failure during confirm.' },
       ],
@@ -164,6 +169,14 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
         mutationResult: executionResult,
       })
     }
+    if (row.status === 'executing') {
+      return NextResponse.json({
+        ok: false,
+        code: 'confirmation_in_progress',
+        pendingAction: serializePendingActionForClient(row),
+        mutationResult: null,
+      }, { status: 202 })
+    }
 
     await loadAgentRegistry()
     await loadAllModuleTools()
@@ -215,6 +228,15 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       repo,
       failedRecords: recheckResult.failedRecords ?? null,
     })
+
+    if (executed.executionResult.error?.code === 'confirmation_in_progress') {
+      return NextResponse.json({
+        ok: false,
+        code: 'confirmation_in_progress',
+        pendingAction: serializePendingActionForClient(executed.action),
+        mutationResult: null,
+      }, { status: 202 })
+    }
 
     return NextResponse.json({
       ok: executed.ok,

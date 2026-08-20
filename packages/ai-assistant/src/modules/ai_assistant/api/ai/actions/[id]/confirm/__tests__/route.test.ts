@@ -178,8 +178,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       claimed: true,
       action: makeRow({
         id,
-        status: 'confirmed',
-        resolvedAt: extra?.now ?? new Date(),
+        status: 'executing',
         resolvedByUserId: extra?.resolvedByUserId ?? null,
       }),
     }))
@@ -208,6 +207,36 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(body.ok).toBe(true)
     expect(body.pendingAction.status).toBe('confirmed')
     expect(body.mutationResult).toEqual({ recordId: 'p-1', commandName: 'catalog.product.update' })
+  })
+
+  it('returns 202 while another confirmation owns the execution claim', async () => {
+    repoGetByIdMock.mockResolvedValueOnce(makeRow({ status: 'executing' }))
+
+    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    expect(response.status).toBe(202)
+    const body = await response.json()
+    expect(body).toMatchObject({
+      ok: false,
+      code: 'confirmation_in_progress',
+      pendingAction: { status: 'executing' },
+      mutationResult: null,
+    })
+    expect(repoClaimForConfirmationMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 202 when this request loses the atomic claim', async () => {
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    repoClaimForConfirmationMock.mockResolvedValueOnce({
+      claimed: false,
+      action: makeRow({ status: 'executing', resolvedByUserId: 'user-1' }),
+    })
+
+    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    expect(response.status).toBe(202)
+    const body = await response.json()
+    expect(body.code).toBe('confirmation_in_progress')
+    expect(body.mutationResult).toBeNull()
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
   })
 
   it('409 invalid_status: already cancelled', async () => {

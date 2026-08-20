@@ -1,17 +1,17 @@
 /**
  * Pending-action executor (spec §9.4, Step 5.8).
  *
- * Transitions an `AiPendingAction` from `pending → confirmed → executing`,
+ * Atomically claims an `AiPendingAction` from `pending → executing`,
  * invokes the wrapped tool handler, and records the outcome. Isolated from
  * the HTTP route so the unit suite can exercise the state-machine +
  * event-emission + idempotency guarantees without constructing a
  * `NextRequest`.
  *
  * Atomicity:
- * - `pending → confirmed` is an atomic compare-and-swap claim. Exactly one
+ * - `pending → executing` is an atomic compare-and-swap claim. Exactly one
  *   concurrent caller can win; losing callers never invoke the handler.
  * - If the process crashes after the claim, the row is left in an intermediate
- *   state (`executing` or `confirmed`) that the operator can recover — NEVER in
+ *   state (`executing`) that the operator can recover — NEVER in
  *   a partially-applied state that hides the crash.
  * - The tool handler itself runs OUTSIDE the repo transaction so that a
  *   long-running write does not hold an `ai_pending_actions` row lock.
@@ -46,7 +46,7 @@ export interface PendingActionExecuteInput {
   agent: AiAgentDefinition
   tool: AiToolDefinition
   ctx: PendingActionExecuteContext
-  /** Carried over from the re-check; written onto the row with status=confirmed. */
+  /** Carried over from the re-check; written by the atomic executing claim. */
   failedRecords?: AiPendingActionFailedRecord[] | null
   repo?: AiPendingActionRepository
   /**
@@ -72,13 +72,27 @@ export interface PendingActionExecuteFail {
   ok: false
   action: AiPendingAction
   executionResult: AiPendingActionExecutionResult
-  /** The underlying error — the route translates into a 200 with `executionResult.error` set. */
+  /** The underlying error — the route maps in-progress to 202 and handler failures to the persisted result. */
   cause: unknown
 }
 
 export type PendingActionExecuteResult = PendingActionExecuteOk | PendingActionExecuteFail
 
 const CONFIRMED_EVENT_ID = 'ai.action.confirmed' as const
+
+function executionInProgress(action: AiPendingAction): PendingActionExecuteFail {
+  return {
+    ok: false,
+    action,
+    executionResult: {
+      error: {
+        code: 'confirmation_in_progress',
+        message: 'Pending action confirmation is already executing.',
+      },
+    },
+    cause: new Error('Pending action confirmation is already executing'),
+  }
+}
 
 type ConfirmedEmitter = (
   eventId: 'ai.action.confirmed',
@@ -311,8 +325,8 @@ function toToolHandlerContext(
  * - If the action is already `confirmed` with a stored `executionResult`,
  *   returns that prior result without re-invoking the handler (double-click /
  *   retry contract).
- * - If the action is already `confirmed` without a stored `executionResult`
- *   (shouldn't happen in practice), returns a synthesized empty result.
+ * - If the action is already `confirmed`, returns the stored result without
+ *   reopening the terminal state.
  * - If the action is still `pending`, atomically claims it, then runs the
  *   remaining transitions and handler only for the winning caller.
  * - Any other status is rejected at the re-check layer before this helper
@@ -337,8 +351,7 @@ export async function executePendingActionConfirm(
   }
 
   if (action.status === 'executing') {
-    const prior = (action.executionResult ?? {}) as AiPendingActionExecutionResult
-    return { ok: true, action, executionResult: prior }
+    return executionInProgress(action)
   }
 
   if (action.status !== 'pending') {
@@ -361,10 +374,11 @@ export async function executePendingActionConfirm(
     ...(partialFailedRecords ? { failedRecords: partialFailedRecords } : {}),
   })
   if (!claim.claimed) {
-    if (claim.action.status === 'confirmed' || claim.action.status === 'executing') {
+    if (claim.action.status === 'confirmed') {
       const prior = (claim.action.executionResult ?? {}) as AiPendingActionExecutionResult
       return { ok: true, action: claim.action, executionResult: prior }
     }
+    if (claim.action.status === 'executing') return executionInProgress(claim.action)
     return {
       ok: false,
       action: claim.action,
@@ -378,7 +392,7 @@ export async function executePendingActionConfirm(
     }
   }
 
-  const executingRow = await repo.setStatus(claim.action.id, 'executing', scope, { now: clock })
+  const executingRow = claim.action
 
   let handlerOutput: unknown
   try {

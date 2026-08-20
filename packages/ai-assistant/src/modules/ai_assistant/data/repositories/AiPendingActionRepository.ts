@@ -298,7 +298,8 @@ export class AiPendingActionRepository {
    *
    * The status predicate is part of the UPDATE, so concurrent callers cannot
    * both win from stale in-memory `pending` snapshots. The winner advances the
-   * row to `confirmed`; losers receive the current row without changing it.
+   * row directly to `executing`; losers receive the current row without
+   * changing it and can report that execution is still in progress.
    */
   async claimForConfirmation(
     id: string,
@@ -322,8 +323,7 @@ export class AiPendingActionRepository {
         status: 'pending',
       } as any,
       {
-        status: 'confirmed',
-        resolvedAt: now,
+        status: 'executing',
         resolvedByUserId: extra?.resolvedByUserId ?? null,
         ...(Object.prototype.hasOwnProperty.call(extra ?? {}, 'failedRecords')
           ? { failedRecords: normalizeFailedRecords(extra?.failedRecords) }

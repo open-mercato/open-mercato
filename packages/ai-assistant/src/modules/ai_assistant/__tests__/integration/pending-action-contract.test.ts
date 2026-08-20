@@ -319,8 +319,7 @@ function makeRepoStub(options: RepoStubOptions) {
       if (existing.status !== 'pending') {
         return { claimed: false, action: existing }
       }
-      existing.status = 'confirmed'
-      existing.resolvedAt = (extra?.now ?? new Date()) as never
+      existing.status = 'executing'
       existing.resolvedByUserId = (extra?.resolvedByUserId ?? null) as never
       if (extra && Object.prototype.hasOwnProperty.call(extra, 'failedRecords')) {
         existing.failedRecords = (extra.failedRecords ?? null) as never
@@ -384,7 +383,7 @@ describe('Pending-action contract integration (Step 5.17)', () => {
       commandName: 'catalog.product.update',
     })
     const transitions = setStatus.mock.calls.map((call) => call[1])
-    expect(transitions).toEqual(['executing', 'confirmed'])
+    expect(transitions).toEqual(['confirmed'])
     expect(store.get('pa_1')!.status).toBe('confirmed')
     expect(store.get('pa_1')!.resolvedAt).toBeTruthy()
     expect(store.get('pa_1')!.resolvedByUserId).toBe('user-a')
@@ -890,26 +889,11 @@ describe('Pending-action contract integration (Step 5.17)', () => {
   })
 
   // Scenario 14 -------------------------------------------------------------
-  it('scenario-14 illegal state transitions: direct pending→executing throws AiPendingActionStateError; executing→cancelled throws', async () => {
+  it('scenario-14 permits the claim path and rejects cancellation while executing or reopening a terminal row', async () => {
     const seed = makeSeed()
     const { repo } = makeRepoStub({ seeds: [seed] })
 
-    await expect(
-      repo.setStatus(
-        'pa_1',
-        'executing',
-        { tenantId: 'tenant-a', organizationId: 'org-a' },
-        { now: REFERENCE_CLOCK },
-      ),
-    ).rejects.toBeInstanceOf(AiPendingActionStateError)
-
-    // Walk to executing via the legal path (pending → confirmed → executing).
-    await repo.setStatus(
-      'pa_1',
-      'confirmed',
-      { tenantId: 'tenant-a', organizationId: 'org-a' },
-      { now: REFERENCE_CLOCK },
-    )
+    // The atomic claim uses the legal pending → executing transition.
     await repo.setStatus(
       'pa_1',
       'executing',
@@ -922,6 +906,22 @@ describe('Pending-action contract integration (Step 5.17)', () => {
       repo.setStatus(
         'pa_1',
         'cancelled',
+        { tenantId: 'tenant-a', organizationId: 'org-a' },
+        { now: REFERENCE_CLOCK },
+      ),
+    ).rejects.toBeInstanceOf(AiPendingActionStateError)
+
+    // Complete the execution, then verify that confirmed is terminal.
+    await repo.setStatus(
+      'pa_1',
+      'confirmed',
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
+      { now: REFERENCE_CLOCK },
+    )
+    await expect(
+      repo.setStatus(
+        'pa_1',
+        'executing',
         { tenantId: 'tenant-a', organizationId: 'org-a' },
         { now: REFERENCE_CLOCK },
       ),

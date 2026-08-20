@@ -27,9 +27,8 @@ export type AiPendingActionQueueMode = (typeof AI_PENDING_ACTION_QUEUE_MODES)[nu
  * Allowed state-machine edges for `AiPendingAction.status`:
  *
  * ```
- *     pending ──┬─▶ confirmed ──▶ executing ──▶ failed
- *               │                        └──▶ (terminal success keeps status = 'confirmed'
- *               │                               and stores executionResult.recordId)
+ *     pending ──┬─▶ executing ──┬─▶ confirmed
+ *               │               └─▶ failed
  *               ├─▶ cancelled
  *               └─▶ expired
  * ```
@@ -40,8 +39,8 @@ export const AI_PENDING_ACTION_ALLOWED_TRANSITIONS: Record<
   AiPendingActionStatus,
   ReadonlyArray<AiPendingActionStatus>
 > = {
-  pending: ['confirmed', 'cancelled', 'expired'],
-  confirmed: ['executing'],
+  pending: ['cancelled', 'expired', 'executing'],
+  confirmed: [],
   executing: ['confirmed', 'failed'],
   cancelled: [],
   expired: [],

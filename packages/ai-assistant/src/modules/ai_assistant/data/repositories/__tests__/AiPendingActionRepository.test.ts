@@ -243,6 +243,7 @@ describe('AiPendingActionRepository', () => {
     const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
 
     const row = await repo.create(baseInput({ idempotencyKey: 'idem-illegal' }), ctx)
+    await repo.setStatus(row.id, 'executing', ctx, { resolvedByUserId: 'u-1' })
     await repo.setStatus(row.id, 'confirmed', ctx, { resolvedByUserId: 'u-1' })
 
     await expect(
@@ -285,10 +286,10 @@ describe('AiPendingActionRepository', () => {
 
     expect(first.claimed).toBe(true)
     expect(second.claimed).toBe(false)
-    expect(first.action.status).toBe('confirmed')
-    expect(second.action.status).toBe('confirmed')
+    expect(first.action.status).toBe('executing')
+    expect(second.action.status).toBe('executing')
     expect(second.action.resolvedByUserId).toBe('u-1')
-    expect(second.action.resolvedAt).toEqual(now)
+    expect(second.action.resolvedAt).toBeNull()
   })
 
   it('claimForConfirmation cannot claim a row through another tenant or organization scope', async () => {
