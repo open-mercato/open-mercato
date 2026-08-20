@@ -75,12 +75,7 @@ import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
 import { isTransientDbError } from '../db/pg-errors'
-import {
-  addCrudWidgetPayload,
-  isRecord,
-  stripCrudWidgetPayload,
-  CRUD_WIDGET_PAYLOAD_KEY,
-} from './widget-payload'
+import { extractExtensionPayload, type ParsedExtensionPayload } from '../umes/extension-payload'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -1278,6 +1273,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     method: ApiInterceptorMethod
     body?: Record<string, unknown>
     query?: Record<string, unknown>
+    extensionPayload?: ParsedExtensionPayload
   }): Promise<{ errorResponse: Response | null; requestPayload: InterceptorRequest; metadataByInterceptor: Record<string, Record<string, unknown> | undefined> }> {
     const interceptorContext = await buildInterceptorContext(args.ctx)
     const requestPayload: InterceptorRequest = {
@@ -1290,15 +1286,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!interceptorContext) {
       return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
     }
-    const contextWithHeaders = {
+    const contextWithExtensions = {
       ...interceptorContext,
       extensionHeaders: parseExtensionHeaders(requestPayload.headers),
+      extensionPayload: args.extensionPayload,
     }
     const result = await runApiInterceptorsBefore({
       routePath: normalizeInterceptorRoutePath(args.request),
       method: args.method,
       request: requestPayload,
-      context: contextWithHeaders,
+      context: contextWithExtensions,
     })
     if (!result.ok) {
       return { errorResponse: json(result.body, { status: result.statusCode }), requestPayload, metadataByInterceptor: {} }
@@ -1315,6 +1312,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     statusCode: number
     body: Record<string, unknown>
     headers?: Record<string, string>
+    extensionPayload?: ParsedExtensionPayload
   }): Promise<{ ok: boolean; statusCode: number; body: Record<string, unknown>; headers: Record<string, string> } | null> {
     const interceptorContext = await buildInterceptorContext(args.ctx)
     if (!interceptorContext) return { ok: true, statusCode: args.statusCode, body: args.body, headers: args.headers ?? {} }
@@ -1327,7 +1325,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         body: args.body,
         headers: args.headers ?? {},
       } satisfies InterceptorResponse,
-      context: interceptorContext,
+      context: {
+        ...interceptorContext,
+        extensionHeaders: parseExtensionHeaders(args.requestPayload.headers),
+        extensionPayload: args.extensionPayload,
+      },
       metadataByInterceptor: args.metadataByInterceptor,
     })
     return result
@@ -2191,27 +2193,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return json({ error: 'Forbidden' }, { status: 403 })
       }
-      const body = await request.json().catch(() => ({}))
+      const rawBody = await request.json().catch(() => ({}))
+      const { entityBody, extensionPayload } = extractExtensionPayload(rawBody)
       let interceptorRequestPayload: InterceptorRequest | null = null
       let interceptorMetadata: Record<string, Record<string, unknown> | undefined> = {}
 
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.create!
-        const createCmdWidgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
-        const parsed = action.schema ? action.schema.parse(body) : body
+        const parsed = action.schema ? action.schema.parse(entityBody) : entityBody
         const beforeInterceptors = await applyInterceptorsBefore({
           ctx,
           request,
           method: 'POST',
-          body: parsed && typeof parsed === 'object'
-            ? addCrudWidgetPayload(parsed as Record<string, unknown>, createCmdWidgetPayload)
-            : undefined,
+          body: parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : undefined,
+          extensionPayload,
         })
         if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
         interceptorRequestPayload = beforeInterceptors.requestPayload
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
-        const interceptedBody = stripCrudWidgetPayload(interceptorRequestPayload.body ?? {})
+        const { entityBody: interceptedBody } = extractExtensionPayload(interceptorRequestPayload.body ?? {})
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
         let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
@@ -2294,6 +2295,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             metadataByInterceptor: interceptorMetadata,
             statusCode: action.status ?? 201,
             body: resolvedPayload as Record<string, unknown>,
+            extensionPayload,
           })
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
@@ -2328,22 +2330,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const createConfig = opts.create
       if (!createConfig) throw new Error('Create configuration missing')
 
-      const parsedBody = createConfig.schema.parse(body)
-      const widgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
+      const parsedBody = createConfig.schema.parse(entityBody)
       let input = parsedBody
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
         method: 'POST',
-        body: input && typeof input === 'object'
-          ? addCrudWidgetPayload(input as Record<string, unknown>, widgetPayload)
-          : undefined,
+        body: input && typeof input === 'object' ? input as Record<string, unknown> : undefined,
+        extensionPayload,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload
       interceptorMetadata = beforeInterceptors.metadataByInterceptor
       if (interceptorRequestPayload.body) {
-        input = createConfig.schema.parse(stripCrudWidgetPayload(interceptorRequestPayload.body))
+        input = createConfig.schema.parse(extractExtensionPayload(interceptorRequestPayload.body).entityBody)
       }
 
       // Sync before-event (*.creating)
@@ -2416,8 +2416,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (createConfig.customFields && (createConfig.customFields as any).enabled) {
           const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
           const values = cfc.map
-            ? cfc.map(body)
-            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+            ? cfc.map(entityBody as Record<string, unknown>)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(entityBody as Record<string, unknown>) : {})
           if (values && Object.keys(values).length > 0) {
             const de = (ctx.container.resolve('dataEngine') as DataEngine)
             await de.setCustomFields({
@@ -2480,6 +2480,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           metadataByInterceptor: interceptorMetadata,
           statusCode: 201,
           body: payload as Record<string, unknown>,
+          extensionPayload,
         })
         if (afterInterceptors && !afterInterceptors.ok) {
           return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
@@ -2512,7 +2513,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return json({ error: 'Forbidden' }, { status: 403 })
       }
-      const body = await request.json().catch(() => ({}))
+      const rawBody = await request.json().catch(() => ({}))
+      const { entityBody, extensionPayload } = extractExtensionPayload(rawBody)
       const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       let interceptorRequestPayload: InterceptorRequest | null = null
       let interceptorMetadata: Record<string, Record<string, unknown> | undefined> = {}
@@ -2520,20 +2522,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.update!
-        const updateCmdWidgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
-        const parsed = action.schema ? action.schema.parse(body) : body
+        const parsed = action.schema ? action.schema.parse(entityBody) : entityBody
         const beforeInterceptors = await applyInterceptorsBefore({
           ctx,
           request,
           method: 'PUT',
-          body: parsed && typeof parsed === 'object'
-            ? addCrudWidgetPayload(parsed as Record<string, unknown>, updateCmdWidgetPayload)
-            : undefined,
+          body: parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : undefined,
+          extensionPayload,
         })
         if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
         interceptorRequestPayload = beforeInterceptors.requestPayload
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
-        const interceptedBody = stripCrudWidgetPayload(interceptorRequestPayload.body ?? {})
+        const { entityBody: interceptedBody } = extractExtensionPayload(interceptorRequestPayload.body ?? {})
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
         let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
@@ -2613,6 +2613,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             metadataByInterceptor: interceptorMetadata,
             statusCode: action.status ?? 200,
             body: resolvedPayload as Record<string, unknown>,
+            extensionPayload,
           })
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
@@ -2657,22 +2658,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const updateConfig = opts.update
       if (!updateConfig) throw new Error('Update configuration missing')
 
-      const parsedBody = updateConfig.schema.parse(body)
-      const widgetPayload = isRecord(body) ? body[CRUD_WIDGET_PAYLOAD_KEY] : undefined
+      const parsedBody = updateConfig.schema.parse(entityBody)
       let input = parsedBody
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
         method: 'PUT',
-        body: input && typeof input === 'object'
-          ? addCrudWidgetPayload(input as Record<string, unknown>, widgetPayload)
-          : undefined,
+        body: input && typeof input === 'object' ? input as Record<string, unknown> : undefined,
+        extensionPayload,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload
       interceptorMetadata = beforeInterceptors.metadataByInterceptor
       if (interceptorRequestPayload.body) {
-        input = updateConfig.schema.parse(stripCrudWidgetPayload(interceptorRequestPayload.body))
+        input = updateConfig.schema.parse(extractExtensionPayload(interceptorRequestPayload.body).entityBody)
       }
 
       // Sync before-event (*.updating)
@@ -2761,8 +2760,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
           const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
           const values = cfc.map
-            ? cfc.map(body)
-            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+            ? cfc.map(entityBody as Record<string, unknown>)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(entityBody as Record<string, unknown>) : {})
           if (values && Object.keys(values).length > 0) {
             const de = (ctx.container.resolve('dataEngine') as DataEngine)
             await de.setCustomFields({
@@ -2824,6 +2823,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           metadataByInterceptor: interceptorMetadata,
           statusCode: 200,
           body: payload as Record<string, unknown>,
+          extensionPayload,
         })
         if (afterInterceptors && !afterInterceptors.ok) {
           return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })

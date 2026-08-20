@@ -1830,7 +1830,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const crudWidgetPayload = React.useMemo(
     () => buildCrudWidgetPayload(
       injectedFieldWidgets,
-      valuesRef.current as Record<string, unknown>,
+      values,
       hiddenInjectedFieldIds,
     ),
     [hiddenInjectedFieldIds, injectedFieldWidgets, values],

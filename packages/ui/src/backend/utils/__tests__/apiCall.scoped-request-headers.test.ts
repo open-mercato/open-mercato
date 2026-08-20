@@ -94,11 +94,11 @@ describe('withScopedApiRequestBody', () => {
     const calls = ((globalThis as { fetch?: jest.Mock }).fetch as jest.Mock).mock.calls
     expect(JSON.parse(calls[0][1].body)).toMatchObject({
       name: 'Alex',
-      __omWidgetPayload: { relations: { relatedPersonId: 'person-1', relationType: 'father' } },
+      __om_ext_v1: { relations: { relatedPersonId: 'person-1', relationType: 'father' } },
     })
     expect(JSON.parse(calls[1][1].body)).toMatchObject({
       name: 'Jordan',
-      __omWidgetPayload: { relations: { relatedPersonId: 'person-1' } },
+      __om_ext_v1: { relations: { relatedPersonId: 'person-1' } },
     })
     expect(JSON.parse(calls[2][1].body)).toEqual({ name: 'Taylor' })
   })

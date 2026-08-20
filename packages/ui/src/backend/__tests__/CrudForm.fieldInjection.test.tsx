@@ -32,7 +32,7 @@ jest.mock('../utils/apiCall', () => {
 })
 
 import * as React from 'react'
-import { act, waitFor } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
@@ -162,6 +162,9 @@ describe('CrudForm group field injection (#3047)', () => {
     )
 
     await waitFor(() => expect(container.querySelector('[data-crud-field-id="relatedPersonId"]')).toBeTruthy())
+    fireEvent.change(container.querySelector('[data-crud-field-id="relatedPersonId"] input') as HTMLInputElement, {
+      target: { value: 'person-2' },
+    })
     const form = container.querySelector('form') as HTMLFormElement
     await act(async () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
@@ -169,7 +172,7 @@ describe('CrudForm group field injection (#3047)', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
 
     expect(withScopedApiRequestBodyMock).toHaveBeenCalledWith({
-      customer_relations: { relatedPersonId: 'person-1' },
+      customer_relations: { relatedPersonId: 'person-2' },
     }, expect.any(Function))
   })
 })

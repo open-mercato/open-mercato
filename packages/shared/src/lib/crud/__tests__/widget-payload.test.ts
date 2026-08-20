@@ -1,10 +1,11 @@
 import {
-  CRUD_WIDGET_PAYLOAD_KEY,
-  addCrudWidgetPayload,
   buildCrudWidgetPayload,
-  mergeCrudWidgetPayload,
-  stripCrudWidgetPayload,
 } from '../widget-payload'
+import {
+  EXTENSION_PAYLOAD_TRANSPORT_KEY,
+  extractExtensionPayload,
+  mergeExtensionPayload,
+} from '../../umes/extension-payload'
 
 describe('CRUD widget payload', () => {
   it('groups active injected fields by module and omits hidden or non-JSON values', () => {
@@ -22,19 +23,19 @@ describe('CRUD widget payload', () => {
     })
   })
 
-  it('merges nested scopes by module and strips the reserved key for entity input', () => {
-    const merged = mergeCrudWidgetPayload(
+  it('merges nested scopes by module and extracts the transport key before entity validation', () => {
+    const merged = mergeExtensionPayload(
       { relations: { relatedPersonId: 'person-1' } },
       { relations: { relationType: 'father' } },
     )
-    const body = addCrudWidgetPayload({ name: 'Alex' }, merged)
-
-    expect(body).toEqual({
+    const { entityBody, extensionPayload } = extractExtensionPayload({
       name: 'Alex',
-      [CRUD_WIDGET_PAYLOAD_KEY]: {
-        relations: { relatedPersonId: 'person-1', relationType: 'father' },
-      },
+      [EXTENSION_PAYLOAD_TRANSPORT_KEY]: merged,
     })
-    expect(stripCrudWidgetPayload(body)).toEqual({ name: 'Alex' })
+
+    expect(extensionPayload).toEqual({
+      relations: { relatedPersonId: 'person-1', relationType: 'father' },
+    })
+    expect(entityBody).toEqual({ name: 'Alex' })
   })
 })

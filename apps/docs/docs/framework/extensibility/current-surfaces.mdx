@@ -20,7 +20,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 |---|---|---|
 | CRUD extension points | Use `makeCrudRoute` with validators/hooks | [CRUD factory](/framework/api/crud-factory) |
 | Multi-ID list filtering (`ids`) | Call any CRUD list endpoint with `?ids=<uuid1,uuid2,...>`; combine with interceptors for cross-module narrowing | [CRUD factory](/framework/api/crud-factory), [API extension guide](/framework/api/extending-api) |
-| API interceptors (UMES E) | Add `api/interceptors.ts`, export `interceptors` | [API extension guide](/framework/api/extending-api) |
+| API interceptors (UMES E) | Add `api/interceptors.ts`, export `interceptors`; CRUD writes may expose untrusted module data through `context.extensionPayload` | [API extension guide](/framework/api/extending-api) |
 | Response enrichers (UMES D) | Add `data/enrichers.ts`, export `enrichers` | [Data extensibility](/framework/database/data-extensibility) |
 | Query-level enrichers (UMES N) | Add `queryEngine: { enabled: true }` to enricher config | [Query engine extensibility](/framework/extensibility/query-engine-extensibility) |
 | Mutation guards (UMES M) | Add `data/guards.ts`, export `guards: MutationGuard[]` with priority ordering, payload modification, `afterSuccess` callbacks | [API extension guide](/framework/api/extending-api) |

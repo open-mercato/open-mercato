@@ -755,29 +755,37 @@ using the request-scoped widget payload provided by `CrudForm`. The host page
 does not need to forward a second callback argument:
 
 ```ts
+import { z } from 'zod'
+
+const relationSchema = z.object({
+  relatedPersonId: z.string().uuid(),
+  relationType: z.string().min(1),
+})
+
 const relationInterceptor: ApiInterceptor = {
   id: 'customer_relations.people-create',
   targetRoute: 'customers/people',
   methods: ['POST'],
-  async after(request, response) {
-    const relation = request.body?.__omWidgetPayload
-      && isRecord(request.body.__omWidgetPayload.customer_relations)
-      ? request.body.__omWidgetPayload.customer_relations
-      : null
+  async after(_request, response, context) {
+    const relation = context.extensionPayload?.customer_relations
     const createdPersonId = typeof response.body.id === 'string' ? response.body.id : null
     if (relation && createdPersonId) {
-      // Create the related row using the request-scoped tenant and organization.
-      // The reserved payload is never persisted as a customer field.
+      const input = relationSchema.parse(relation)
+      // Check the module feature here before using `input`, then create the related
+      // row with the request-scoped tenant and organization from `context`.
     }
     return {}
   },
 }
 ```
 
-The reserved `__omWidgetPayload` property is visible to API interceptor before
-and after hooks and is removed before CRUD entity mapping. Values are grouped
-by the contributing module id. Existing `onBeforeSave` headers and lifecycle
-signatures remain supported.
+`context.extensionPayload` is an optional, module-keyed extension channel that
+is available to API interceptor before and after hooks. Its values originate in
+the browser and are untrusted: each interceptor must validate them with Zod and
+enforce the contributing module's feature before using them. The private
+`__om_ext_v1` transport property is removed before CRUD and command schemas run,
+so it never reaches entity mapping. Existing `onBeforeSave` headers and
+lifecycle signatures remain supported.
 
 Called after save completes successfully.
 

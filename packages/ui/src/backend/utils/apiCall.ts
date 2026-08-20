@@ -4,10 +4,10 @@ import { apiFetch } from './api'
 import { raiseCrudError, readJsonSafe } from './serverErrors'
 import { createScopedHeaderStack } from './scopedHeaderStack'
 import {
-  CRUD_WIDGET_PAYLOAD_KEY,
-  mergeCrudWidgetPayload,
-  type CrudWidgetPayload,
-} from '@open-mercato/shared/lib/crud/widget-payload'
+  EXTENSION_PAYLOAD_TRANSPORT_KEY,
+  mergeExtensionPayload,
+  type ParsedExtensionPayload,
+} from '@open-mercato/shared/lib/umes/extension-payload'
 
 export type ApiCallOptions<TReturn> = {
   parse?: (res: Response) => Promise<TReturn | null>
@@ -23,13 +23,13 @@ export type ApiCallResult<TReturn> = {
 }
 
 const scopedRequestHeaders = createScopedHeaderStack()
-const scopedRequestBodies: CrudWidgetPayload[] = []
+const scopedRequestBodies: ParsedExtensionPayload[] = []
 
-function resolveScopedApiRequestBody(): CrudWidgetPayload | undefined {
+function resolveScopedApiRequestBody(): ParsedExtensionPayload | undefined {
   if (!scopedRequestBodies.length) return undefined
-  let result: CrudWidgetPayload | undefined
+  let result: ParsedExtensionPayload | undefined
   for (const body of scopedRequestBodies) {
-    result = mergeCrudWidgetPayload(result, body)
+    result = mergeExtensionPayload(result, body)
   }
   return result
 }
@@ -46,8 +46,8 @@ function withScopedWidgetPayload(init: RequestInit | undefined): RequestInit | u
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return init
   const mergedBody = {
     ...(body as Record<string, unknown>),
-    [CRUD_WIDGET_PAYLOAD_KEY]: mergeCrudWidgetPayload(
-      (body as Record<string, unknown>)[CRUD_WIDGET_PAYLOAD_KEY],
+    [EXTENSION_PAYLOAD_TRANSPORT_KEY]: mergeExtensionPayload(
+      (body as Record<string, unknown>)[EXTENSION_PAYLOAD_TRANSPORT_KEY],
       scopedPayload,
     ),
   }
@@ -96,7 +96,7 @@ export async function withScopedApiRequestHeaders<T>(
 }
 
 export async function withScopedApiRequestBody<T>(
-  widgetPayload: CrudWidgetPayload,
+  widgetPayload: ParsedExtensionPayload,
   run: () => Promise<T>,
 ): Promise<T> {
   scopedRequestBodies.push(widgetPayload)
