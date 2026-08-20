@@ -581,6 +581,7 @@
   "wms.backend.inventory.release.dialog.submit": "발매 예약",
   "wms.backend.inventory.release.dialog.title": "발매 예약",
   "wms.backend.inventory.release.errors.balanceIntegrityViolation": "잔액 무결성 오류 - \"mercato wms verify-balances --repair\"를 실행하여 재시도하기 전에 드리프트를 진단하고 수정하세요.",
+  "wms.backend.inventory.release.errors.reservationNotActive": "이 예약은 더 이상 활성 상태가 아닙니다. 이미 해제되었거나 처리되었습니다. 현재 상태를 보려면 목록을 새로 고치세요.",
   "wms.backend.inventory.release.errors.missingReservation": "예약 컨텍스트가 누락되었습니다. 대화 상자를 닫고 예약 표에서 다시 시도하세요.",
   "wms.backend.inventory.release.errors.submit": "예약을 해제하지 못했습니다.",
   "wms.backend.inventory.release.flash.success": "예약이 해제되었습니다",

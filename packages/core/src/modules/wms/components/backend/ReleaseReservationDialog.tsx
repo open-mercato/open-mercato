@@ -223,6 +223,16 @@ export function ReleaseReservationDialog({
                 )
                 return {}
               }
+              if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'reservation_not_active') {
+                flash(
+                  t(
+                    'wms.backend.inventory.release.errors.reservationNotActive',
+                    'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
+                  ),
+                  'error',
+                )
+                return {}
+              }
               await raiseCrudError(
                 call.response,
                 t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'),

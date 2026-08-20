@@ -18,7 +18,10 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InventoryBalance, InventoryReservation } from '../../data/entities'
 import { emitWmsEvent } from '../../events'
 import { loadExplicitWarehouseIdForOrder } from '../salesOrderWarehouseAssignment'
-import { reserveInventoryForConfirmedOrder } from '../salesOrderInventoryAutomation'
+import {
+  releaseInventoryForCancelledOrder,
+  reserveInventoryForConfirmedOrder,
+} from '../salesOrderInventoryAutomation'
 
 const findWithDecryptionMock = jest.mocked(findWithDecryption)
 const loadExplicitWarehouseIdForOrderMock = jest.mocked(loadExplicitWarehouseIdForOrder)
@@ -206,6 +209,57 @@ describe('reserveInventoryForConfirmedOrder', () => {
         shortfalls: expect.arrayContaining([
           expect.objectContaining({ catalogVariantId: 'variant-short', shortfallQuantity: 5 }),
         ]),
+      }),
+    )
+  })
+})
+
+describe('releaseInventoryForCancelledOrder', () => {
+  const execute = jest.fn(async () => ({ result: {} }))
+
+  beforeEach(() => {
+    findWithDecryptionMock.mockReset()
+    execute.mockReset()
+  })
+
+  it('continues releasing remaining reservations when one was already released', async () => {
+    findWithDecryptionMock.mockResolvedValue([
+      { id: 'reservation-already-released' } as InventoryReservation,
+      { id: 'reservation-still-active' } as InventoryReservation,
+    ])
+    execute
+      .mockRejectedValueOnce(new CrudHttpError(409, { error: 'reservation_not_active' }))
+      .mockResolvedValueOnce({ result: {} })
+
+    const em = { fork: () => ({}) }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(
+      releaseInventoryForCancelledOrder(
+        {
+          orderId: 'order-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        },
+        {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'commandBus') return { execute }
+            if (name === 'featureTogglesService') return featureTogglesService
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenLastCalledWith(
+      'wms.inventory.release',
+      expect.objectContaining({
+        input: expect.objectContaining({ reservationId: 'reservation-still-active' }),
       }),
     )
   })
