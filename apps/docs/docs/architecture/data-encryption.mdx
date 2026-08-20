@@ -9,7 +9,7 @@ This document outlines the data-encryption architecture so module owners can wir
 
 - Encrypt tenant-scoped data at rest using AES-GCM with per-tenant data-encryption keys (DEKs).
 - Let admins choose which system and custom-entity fields are encrypted; store these maps in the database and cache them aggressively.
-- Make encryption transparent to MikroORM reads/writes and CRUD factories while remaining opt-out when Vault/KMS is down.
+- Make encryption transparent to MikroORM reads/writes and CRUD factories while rejecting protected production writes when Vault/KMS is down.
 - Keep auth workable when email is encrypted by storing an email hash alongside the ciphertext for lookup during login.
 
 ## Components
@@ -34,11 +34,12 @@ This document outlines the data-encryption architecture so module owners can wir
 
 ## Environment variables
 
-- `TENANT_DATA_ENCRYPTION` – master toggle (`yes` by default). Disables hooks when set to `no` but keeps validation in place.
+- `TENANT_DATA_ENCRYPTION` – master toggle (`yes` by default). It may be disabled only outside production.
+- `TENANT_DATA_ENCRYPTION_REQUIRED` – opt-in fail-closed policy for non-production environments. Production always requires encryption.
 - `TENANT_DATA_ENCRYPTION_DEBUG` – `yes` to surface map evaluation decisions, Vault cache hits/misses, and fallback selection in logs.
 - `VAULT_ADDR`, `VAULT_TOKEN` – required for the HashiCorp Vault KMS provider.
 - `VAULT_KV_PATH` – KV v2 mount for tenant keys; defaults to `secret/data`.
-- Fallback secrets (used when Vault is down or missing): `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then legacy `TENANT_DATA_ENCRYPTION_KEY`. Auth/session secrets are intentionally excluded. The built-in dev fallback requires `ALLOW_DERIVED_KMS_FALLBACK=true`; production without a dedicated fallback secret falls back to the noop KMS.
+- Fallback secrets (used when Vault is down or missing): `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then legacy `TENANT_DATA_ENCRYPTION_KEY`. Auth/session secrets are intentionally excluded. The built-in dev fallback requires `ALLOW_DERIVED_KMS_FALLBACK=true`; production without Vault or a dedicated fallback secret fails readiness and rejects protected writes.
 
 ## Data flow
 
@@ -145,7 +146,7 @@ production-only encryption map still needs a test.
 
 ### Failure modes
 
-- **KMS unreachable** – encryption layer logs a warning and (per requirements) continues without encryption; maps are still evaluated so we can re-enable later.
+- **KMS unreachable** – production readiness becomes unhealthy and writes carrying mapped fields fail before persistence. Development continues without encryption unless required mode is enabled.
 - **Decryption error** – returns masked values or null plus a warning log; never throws raw crypto errors to clients.
 
 ## Encryption maps

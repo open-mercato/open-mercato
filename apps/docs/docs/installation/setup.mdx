@@ -601,12 +601,16 @@ POSTGRES_PASSWORD=postgres
 POSTGRES_DB=open-mercato
 DATABASE_URL=postgres://postgres:postgres@postgres:5432/open-mercato
 
-# Authentication (generate a strong secret for production)
+# Authentication (required by the production fullapp profile)
 JWT_SECRET=your-secure-jwt-secret-change-me
 
 # Application
 APP_URL=http://localhost:3000
-NODE_ENV=development
+NODE_ENV=production
+
+# Field-level encryption (or configure VAULT_ADDR + VAULT_TOKEN)
+TENANT_DATA_ENCRYPTION=true
+TENANT_DATA_ENCRYPTION_FALLBACK_KEY=replace-with-a-stable-random-secret
 
 # Caching
 CACHE_REDIS_URL=redis://redis:6379
@@ -690,6 +694,7 @@ When deploying to production environments, consider these recommendations:
 
 **Security:**
 - Generate a strong, unique `JWT_SECRET` (use `openssl rand -base64 32`)
+- Configure Vault or a stable `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` and monitor `/api/configs/health/ready`
 - Use strong, random passwords for `POSTGRES_PASSWORD` and `MEILISEARCH_MASTER_KEY`
 - Never expose database or Redis ports directly to the internet
 - Consider using Docker secrets or external secret management (Vault, AWS Secrets Manager)
@@ -782,4 +787,3 @@ The `starters/docker/compose.fullapp.yml` stack includes:
 Services communicate via a dedicated Docker network (`mercato-network-fullapp`) and use health checks to ensure proper startup order.
 
 For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
-
