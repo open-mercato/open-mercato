@@ -83,10 +83,15 @@ function resolveCrossProcessEmitOptions(
   const tenantId = normalizePayloadScope((payload as Record<string, unknown>)?.tenantId)
   if (!tenantId) return options
   const organizationId = normalizePayloadScope((payload as Record<string, unknown>)?.organizationId)
+  const organizationIdsValue = (payload as Record<string, unknown>)?.organizationIds
+  const organizationIds = Array.isArray(organizationIdsValue)
+    ? organizationIdsValue.filter((value): value is string => typeof value === 'string')
+    : []
   return {
     ...options,
     tenantId,
     ...(organizationId ? { organizationId } : {}),
+    ...(organizationIds.length > 0 ? { organizationIds } : {}),
   }
 }
 

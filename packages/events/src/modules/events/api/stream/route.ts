@@ -68,6 +68,9 @@ function normalizeAudience(data: Record<string, unknown>, options?: EmitOptions)
     : null
   if (hasTrustedScope) {
     if (trustedOrganizationId) organizationScopes.add(trustedOrganizationId)
+    for (const organizationId of collectStringValues(options?.organizationIds)) {
+      organizationScopes.add(organizationId)
+    }
   } else {
     if (typeof data.organizationId === 'string' && data.organizationId.trim().length > 0) {
       organizationScopes.add(data.organizationId.trim())

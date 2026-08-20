@@ -11,6 +11,7 @@ jest.mock('@open-mercato/shared/lib/api/context', () => ({
 type EmitOptions = {
   tenantId?: string | null
   organizationId?: string | null
+  organizationIds?: string[] | null
 }
 
 type GlobalEventTap = (
@@ -139,6 +140,35 @@ describe('SSE event stream — abort listener hygiene', () => {
       'stream_privacy_test.browser',
       { tenantId: 't1', marker: 'expected' },
       { tenantId: 't1', organizationId: 'o1' },
+    )
+
+    const { value, done } = await reader.read()
+    expect(done).toBe(false)
+    expect(new TextDecoder().decode(value)).toContain('"marker":"expected"')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('honors a trusted multi-organization audience for a clientBroadcast event', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    expect(mockGlobalEventTap).toBeDefined()
+    // Connection is scoped to org o1; an audience array that omits it must not deliver.
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', marker: 'must-not-arrive' },
+      { tenantId: 't1', organizationIds: ['o2', 'o3'] },
+    )
+    // An audience array that includes o1 must deliver, even without a singular organizationId.
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', marker: 'expected' },
+      { tenantId: 't1', organizationIds: ['o1', 'o2'] },
     )
 
     const { value, done } = await reader.read()

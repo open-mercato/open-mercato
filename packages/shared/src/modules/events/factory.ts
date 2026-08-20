@@ -325,6 +325,9 @@ export function createModuleEvents<
           ...(isClientBroadcast && emitOptions?.organizationId === undefined
             ? { organizationId: payload.organizationId ?? null }
             : {}),
+          ...(isClientBroadcast && emitOptions?.organizationIds === undefined && Array.isArray(payload.organizationIds)
+            ? { organizationIds: payload.organizationIds.filter((value): value is string => typeof value === 'string') }
+            : {}),
           emitterModuleId: moduleId,
         }
       : emitOptions

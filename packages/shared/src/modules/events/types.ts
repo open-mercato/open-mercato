@@ -69,6 +69,13 @@ export interface EmitOptions {
   /** Trusted organization scope forwarded to subscribers separately from the payload */
   organizationId?: string | null
   /**
+   * Trusted multi-organization audience forwarded to subscribers separately
+   * from the payload. Mirrors the documented SSE audience contract, where a
+   * clientBroadcast event may target several organizations at once; carried in
+   * trusted options so the receiver never falls back to payload scope.
+   */
+  organizationIds?: string[] | null
+  /**
    * Module that emitted a private cross-process coordination event.
    *
    * This is stamped by `createModuleEvents`; application inputs must not set or
