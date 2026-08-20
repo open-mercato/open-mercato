@@ -209,32 +209,124 @@ describe('PasskeyProvider', () => {
     expect(method.providerMetadata.counter).toBe(1)
   })
 
-  test('supports legacy verification payload for backward compatibility', async () => {
+  test('rejects a credentialId and challenge payload even with a prepared challenge', async () => {
     const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const method = {
-      id: 'method-legacy',
+      id: 'method-1',
       userId: 'user-1',
       type: 'passkey',
       providerMetadata: {
-        credentialId: 'cred-legacy',
+        credentialId: 'cred-123',
         credentialPublicKey: 'AQIDBA',
       },
     }
 
-    generateAuthenticationOptionsMock.mockResolvedValueOnce({
-      challenge: 'legacy-challenge',
-      rpId: 'localhost',
-      allowCredentials: [],
-      timeout: 300000,
-      userVerification: 'preferred',
-    } as never)
-
-    await provider.prepareChallenge('user-1', method)
+    const prepared = await provider.prepareChallenge('user-1', method)
     const valid = await provider.verify('user-1', method, {
-      credentialId: 'cred-legacy',
-      challenge: 'legacy-challenge',
+      credentialId: 'cred-123',
+      challenge: prepared.clientData?.challenge,
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects a credentialId payload when the client never prepared a challenge', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    const valid = await provider.verify('user-1', method, { credentialId: 'cred-123' })
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects a WebAuthn assertion when no challenge was prepared', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    const valid = await provider.verify('user-1', method, {
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'signature',
+        },
+      },
     })
 
-    expect(valid).toBe(true)
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects an assertion the authenticator did not sign', async () => {
+    verifyAuthenticationResponseMock.mockResolvedValue({ verified: false } as never)
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+        counter: 4,
+      },
+    }
+
+    const prepared = await provider.prepareChallenge('user-1', method)
+    const valid = await provider.verify('user-1', method, {
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'forged-signature',
+        },
+      },
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(false)
+    expect(method.providerMetadata.counter).toBe(4)
+  })
+
+  test('rejects an assertion that makes the WebAuthn verifier throw', async () => {
+    verifyAuthenticationResponseMock.mockRejectedValue(new Error('Unexpected authentication response'))
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    const prepared = await provider.prepareChallenge('user-1', method)
+
+    await expect(provider.verify('user-1', method, {
+      response: {},
+    }, prepared.verifyContext)).resolves.toBe(false)
   })
 })

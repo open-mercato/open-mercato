@@ -26,7 +26,7 @@
         "OMH-137", "OMH-140", "OMH-144", "OMH-146", "OMH-149", "OMH-150", "OMH-151", "OMH-153",
         "OMH-156", "OMH-163", "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
         "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193",
-        "OMH-223", "OMH-224"
+        "OMH-223", "OMH-224", "OMH-230"
       ]
     },
     "runners": {
@@ -82,7 +82,8 @@
     { "caseId": "OMH-192" },
     { "caseId": "OMH-193" },
     { "caseId": "OMH-223" },
-    { "caseId": "OMH-224" }
+    { "caseId": "OMH-224" },
+    { "caseId": "OMH-230" }
   ],
   "generatedCodeReview": {
     "required": true,
@@ -96,7 +97,7 @@
       "OMH-149", "OMH-150", "OMH-151", "OMH-153", "OMH-156", "OMH-163",
       "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
       "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193",
-        "OMH-223", "OMH-224"
+        "OMH-223", "OMH-224", "OMH-230"
     ],
     "runners": {
       "codex": { "modelSelector": "default" },
@@ -120,7 +121,7 @@
       "OMH-149", "OMH-150", "OMH-151", "OMH-153", "OMH-156", "OMH-163",
       "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
       "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193",
-        "OMH-223", "OMH-224"
+        "OMH-223", "OMH-224", "OMH-230"
     ],
     "runners": {
       "codex": { "modelSelector": "default" },

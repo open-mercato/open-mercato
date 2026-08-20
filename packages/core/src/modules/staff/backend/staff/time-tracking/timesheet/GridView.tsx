@@ -668,7 +668,26 @@ export function GridView({
                         type="button"
                         onClick={() => {
                           const project = projects.find((candidate) => candidate.id === row.timeProjectId)
-                          if (project) void onRemoveProject(project)
+                          if (!project) return
+                          // Drop the row's pending errors with the row. An invalid
+                          // cell left behind keeps Save blocked over a row that is
+                          // no longer on screen, so the reader cannot reach the
+                          // thing they are being told to fix.
+                          setInvalidCells((current) => {
+                            const prefix = cellKey(row.key, '')
+                            const next = Object.fromEntries(
+                              Object.entries(current).filter(([key]) => !key.startsWith(prefix)),
+                            ) as Record<string, true>
+                            return Object.keys(next).length === Object.keys(current).length ? current : next
+                          })
+                          setDirty((current) => {
+                            const prefix = cellKey(row.key, '')
+                            const next = Object.fromEntries(
+                              Object.entries(current).filter(([key]) => !key.startsWith(prefix)),
+                            ) as typeof current
+                            return Object.keys(next).length === Object.keys(current).length ? current : next
+                          })
+                          void onRemoveProject(project)
                         }}
                         aria-label={t('staff.timesheets.my.removeRow', 'Remove from grid')}
                         title={t('staff.timesheets.my.removeRow', 'Remove from grid')}

@@ -2409,6 +2409,7 @@
   "customers.personTags.newLabel": "New label",
   "customers.personTags.newLabelPlaceholder": "Label name...",
   "customers.personTags.newTag": "Neuer Tag",
+  "customers.personTags.retry": "Erneut versuchen",
   "customers.personTags.save": "Save",
   "customers.personTags.saveError": "Failed to save tags",
   "customers.personTags.saveSuccess": "Tags updated.",
@@ -2851,5 +2852,6 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Aufgaben aktualisiert",
   "customers.workPlan.customerTodos.table.state.empty": "Noch keine Kundenaufgaben.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Keine Aufgaben entsprechen den Filtern.",
-  "customers.workPlan.customerTodos.table.title": "Kundenbezogene Aufgaben"
+  "customers.workPlan.customerTodos.table.title": "Kundenbezogene Aufgaben",
+  "notifications.categories.customers": "Kunden"
 }

@@ -10,7 +10,7 @@ When working on search functionality, use this guide. It covers indexing, queryi
 4. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
 5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
 6. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
-7. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search and the AI tools fail closed, so an entity without it silently vanishes from results for every non-superadmin.
+7. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search, the hybrid `GET /api/search/search` endpoint and the AI tools all fail closed, so an entity without it silently vanishes from results for every non-superadmin.
 
 ## Ask First
 
@@ -497,6 +497,10 @@ await searchIndexer.reindexAll({ tenantId, purgeFirst: true })
 | `q` | string | Yes | MUST be non-empty; this is the search query |
 | `limit` | number | No | MUST NOT exceed 100 (default: 50) |
 | `strategies` | string | No | Comma-separated: `fulltext,vector,tokens` |
+| `entityTypes` | string | No | Comma-separated entity ids; intersected with the entity types the caller may read |
+
+Requires `search.view`, and — like global search — returns only the entity types the
+caller holds the declared `aclFeatures` for. Superadmins are exempt.
 
 ```bash
 curl "https://your-app.com/api/search?q=john%20doe&limit=20" \

@@ -33,8 +33,8 @@ import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   applySidebarPreference,
+  findSidebarPreference,
   loadFirstRoleSidebarPreference,
-  loadSidebarPreference,
 } from '@open-mercato/core/modules/auth/services/sidebarPreferencesService'
 import type { SidebarPreferencesSettings } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 
@@ -437,7 +437,7 @@ export async function resolveBackendChromePayload({
 
   const effectiveUserId = auth.isApiKey ? auth.userId : auth.sub
   if (effectiveUserId) {
-    userPreference = await loadSidebarPreference(em, {
+    userPreference = await findSidebarPreference(em, {
       userId: effectiveUserId,
       tenantId: scopedTenantId,
       organizationId: scopedOrganizationId,

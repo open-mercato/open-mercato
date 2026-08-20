@@ -14,7 +14,7 @@
  */
 
 import * as React from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildGridCells, buildGridRows, GridView } from '../GridView'
@@ -208,6 +208,25 @@ describe('the cells now use the shared parser', () => {
     expect(body.entries).toEqual([
       { date: TUESDAY, timeProjectId: PROJECT_ID, durationMinutes: 150 },
     ])
+  })
+})
+
+describe('removing a row (#4846, carried over from the legacy grid)', () => {
+  it('drops the row\'s validation error so the remaining valid edits can still be saved', async () => {
+    // An invalid cell left behind after its row is gone keeps Save blocked over
+    // something no longer on screen, so the reader cannot reach the thing they
+    // are being told to fix.
+    renderGrid({ entries: [] })
+    const row = screen.getByRole('row', { name: /Nordvik/ })
+    const monday = row.querySelectorAll('input[type="text"]')[0] as HTMLInputElement
+    fireEvent.change(monday, { target: { value: 'nonsense' } })
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(within(row).getByRole('button', { name: /Remove from grid/i }))
+    })
+
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled()
   })
 })
 

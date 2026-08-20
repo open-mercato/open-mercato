@@ -131,6 +131,78 @@ describe('SSE event stream — abort listener hygiene', () => {
     try { await reader.cancel() } catch {}
   })
 
+  it('ignores conflicting payload scope when trusted scope matches the connection', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    expect(mockGlobalEventTap).toBeDefined()
+    await mockGlobalEventTap?.(
+      'progress.job.updated',
+      { tenantId: 'forged-tenant', organizationId: 'forged-organization', marker: 'expected' },
+      { tenantId: 't1', organizationId: 'o1' },
+    )
+
+    const { value, done } = await reader.read()
+    expect(done).toBe(false)
+    expect(new TextDecoder().decode(value)).toContain('\"marker\":\"expected\"')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('preserves payload-authored scope for legacy emitters without a trusted scope marker', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    expect(mockGlobalEventTap).toBeDefined()
+    await mockGlobalEventTap?.(
+      'progress.job.updated',
+      { tenantId: 't1', organizationId: 'o1', marker: 'legacy-expected' },
+    )
+
+    const { value, done } = await reader.read()
+    expect(done).toBe(false)
+    expect(new TextDecoder().decode(value)).toContain('"marker":"legacy-expected"')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('does not fall back to payload scope when the trusted tenant marker is empty', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    expect(mockGlobalEventTap).toBeDefined()
+    await mockGlobalEventTap?.(
+      'progress.job.updated',
+      { tenantId: 't1', organizationId: 'o1', marker: 'must-not-arrive' },
+      { tenantId: null, organizationId: null },
+    )
+    await mockGlobalEventTap?.(
+      'progress.job.updated',
+      { marker: 'expected' },
+      { tenantId: 't1', organizationId: 'o1' },
+    )
+
+    const { value, done } = await reader.read()
+    expect(done).toBe(false)
+    const decoded = new TextDecoder().decode(value)
+    expect(decoded).toContain('"marker":"expected"')
+    expect(decoded).not.toContain('"marker":"must-not-arrive"')
+
+    try { await reader.cancel() } catch {}
+  })
+
   it('does not retain listeners across many reconnects', async () => {
     for (let i = 0; i < 20; i += 1) {
       const { req, controller, addSpy, removeSpy } = makeTrackedRequest()

@@ -13,6 +13,7 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { registerTelemetryLogger } from './facade/logger-bridge'
 import { captureTraceContext, continueTrace } from './facade/propagation'
+import { withSpan } from './facade/tracer'
 import { recordHttpDuration } from './facade/http'
 import { reportError } from './facade/report-error'
 
@@ -117,6 +118,7 @@ function createRuntime(provider: TelemetryProvider): TelemetryRuntime {
     captureTraceContext,
     continueTrace: (carrier, name, fn, options) =>
       continueTrace(carrier, name, () => fn(), options),
+    withSpan: (name, fn, options) => withSpan(name, fn, options),
     recordHttpDuration,
     reportError,
     shutdown: shutdownTelemetry,
