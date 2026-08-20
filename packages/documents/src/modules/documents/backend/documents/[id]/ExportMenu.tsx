@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
-import { FileDown, FileText } from 'lucide-react'
+import { ChevronDown, FileDown, FileText } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
-import { ActionsDropdown, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type ExportMenuProps = {
@@ -88,13 +89,14 @@ export async function downloadDocumentExport(
 
 export function ExportMenu({ documentId, editor }: ExportMenuProps) {
   const t = useT()
+  const label = t('documents.actions.export')
   const download = React.useCallback((format: ExportFormat) => {
     const snapshot = format === 'docx' ? buildDocxPaginationSnapshot(editor) : null
     void downloadDocumentExport(documentId, format, snapshot, t('documents.export.error')).catch((error) => {
       flash(error instanceof Error ? error.message : t('documents.export.runtimeUnavailable'), 'error')
     })
   }, [documentId, editor, t])
-  const items = React.useMemo<ActionItem[]>(() => [
+  const items = React.useMemo(() => [
     {
       id: 'docx',
       label: t('documents.export.docx'),
@@ -110,10 +112,33 @@ export function ExportMenu({ documentId, editor }: ExportMenuProps) {
   ], [download, t])
 
   return (
-    <ActionsDropdown
-      items={items}
-      label={t('documents.actions.export')}
-      ariaLabel={t('documents.actions.export')}
-    />
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" size="sm" aria-label={label} aria-haspopup="menu">
+          {label}
+          <ChevronDown className="size-3.5" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent role="menu" align="end" className="w-52 min-w-52 p-1">
+        {items.map((item) => {
+          const Icon = item.icon
+          return (
+            <PopoverClose key={item.id} asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                role="menuitem"
+                className="h-auto min-h-8 w-full justify-start py-1.5 text-left leading-snug whitespace-normal"
+                onClick={item.onSelect}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                {item.label}
+              </Button>
+            </PopoverClose>
+          )
+        })}
+      </PopoverContent>
+    </Popover>
   )
 }

@@ -88,8 +88,11 @@ export function VersionPreviewDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [loadAttempt, setLoadAttempt] = React.useState(0)
+  const [confirmingRestore, setConfirmingRestore] = React.useState(false)
+  const cancelRestoreRef = React.useRef<HTMLButtonElement>(null)
 
   React.useEffect(() => {
+    setConfirmingRestore(false)
     if (!versionId) { setPreview(null); setError(null); return }
     let active = true
     setLoading(true)
@@ -108,36 +111,85 @@ export function VersionPreviewDialog({
     return () => { active = false }
   }, [documentId, loadAttempt, t, versionId])
 
+  React.useEffect(() => {
+    if (confirmingRestore) cancelRestoreRef.current?.focus()
+  }, [confirmingRestore])
+
+  const requestRestore = React.useCallback(() => {
+    if (!canRestore || !preview || isRestoring) return
+    setConfirmingRestore(true)
+  }, [canRestore, isRestoring, preview])
+
+  const confirmRestore = React.useCallback(() => {
+    if (!canRestore || !preview || isRestoring) return
+    void onRestore(preview)
+  }, [canRestore, isRestoring, onRestore, preview])
+
+  const handleOpenChange = React.useCallback((open: boolean) => {
+    if (!open) setConfirmingRestore(false)
+    onOpenChange(open)
+  }, [onOpenChange])
+
   return (
-    <Dialog open={versionId !== null} onOpenChange={onOpenChange}>
+    <Dialog open={versionId !== null} onOpenChange={handleOpenChange}>
       <DialogContent size="xl" onKeyDown={(event) => {
-        if (event.key === 'Escape') onOpenChange(false)
+        if (event.key === 'Escape') {
+          if (confirmingRestore) {
+            event.preventDefault()
+            event.stopPropagation()
+            if (!isRestoring) setConfirmingRestore(false)
+          } else {
+            onOpenChange(false)
+          }
+        }
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && canRestore && preview && !isRestoring) {
           event.preventDefault()
-          void onRestore(preview)
+          if (confirmingRestore) confirmRestore()
+          else requestRestore()
         }
       }}>
         <DialogHeader>
-          <DialogTitle>{preview?.label ?? t('documents.versions.preview.title')}</DialogTitle>
-          <DialogDescription>
-            {preview ? t('documents.versions.preview.description', { creator: preview.creatorLabel, date: new Date(preview.createdAt).toLocaleString() }) : t('documents.versions.preview.loading')}
+          <DialogTitle>
+            {confirmingRestore
+              ? t('documents.versions.restore.confirmTitle')
+              : preview?.label ?? t('documents.versions.preview.title')}
+          </DialogTitle>
+          <DialogDescription aria-live={confirmingRestore ? 'assertive' : undefined}>
+            {confirmingRestore
+              ? t('documents.versions.restore.confirmBody')
+              : preview
+                ? t('documents.versions.preview.description', { creator: preview.creatorLabel, date: new Date(preview.createdAt).toLocaleString() })
+                : t('documents.versions.preview.loading')}
           </DialogDescription>
         </DialogHeader>
-        {loading ? <LoadingMessage label={t('documents.versions.preview.loading')} /> : null}
-        {error ? (
+        {!confirmingRestore && loading ? <LoadingMessage label={t('documents.versions.preview.loading')} /> : null}
+        {!confirmingRestore && error ? (
           <ErrorMessage
             label={error}
             action={<Button type="button" size="sm" variant="outline" onClick={() => setLoadAttempt((current) => current + 1)}>{t('documents.actions.retry')}</Button>}
           />
         ) : null}
-        {preview && !loading && !error ? <ReadOnlyVersion contentHtml={preview.contentHtml} fallbackLabel={t('documents.editor.entityRef.fallbackLabel')} /> : null}
+        {!confirmingRestore && preview && !loading && !error ? <ReadOnlyVersion contentHtml={preview.contentHtml} fallbackLabel={t('documents.editor.entityRef.fallbackLabel')} /> : null}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('documents.actions.close')}</Button>
-          {canRestore && preview ? (
-            <Button type="button" onClick={() => { void onRestore(preview) }} disabled={isRestoring}>
-              <RotateCcw />{t('documents.versions.actions.restore')}
-            </Button>
-          ) : null}
+          {confirmingRestore ? (
+            <>
+              <Button ref={cancelRestoreRef} type="button" variant="outline" onClick={() => setConfirmingRestore(false)} disabled={isRestoring}>
+                {t('documents.actions.cancel')}
+              </Button>
+              <Button type="button" onClick={confirmRestore} disabled={isRestoring}>
+                <RotateCcw />{t('documents.versions.actions.restore')}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('documents.actions.close')}</Button>
+              {canRestore && preview ? (
+                <Button type="button" onClick={requestRestore} disabled={isRestoring}>
+                  <RotateCcw />{t('documents.versions.actions.restore')}
+                </Button>
+              ) : null}
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

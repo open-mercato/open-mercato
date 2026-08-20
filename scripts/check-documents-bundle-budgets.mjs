@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url'
 import {
   carriesDocumentsEditorRuntime,
   collectEagerRouteChunks,
+  findMissingDocumentsBundleEvidence,
   isDocumentsListRouteClientModule,
   normalizeChunkPath,
   parseClientReferenceManifest,
@@ -132,10 +133,6 @@ if (!buildRoot) {
 }
 
 const chunkFiles = collectFiles(path.join(buildRoot, 'static'), (name) => name.endsWith('.js'), [])
-if (chunkFiles.length === 0) {
-  console.log('[documents:budgets] No client chunks found — skipping.')
-  process.exit(0)
-}
 
 const violations = []
 const editorChunks = []
@@ -161,15 +158,12 @@ for (const file of chunkFiles) {
   }
 }
 
-if (editorChunks.length === 0) {
-  console.log('[documents:budgets] No editor-runtime chunks found in the build output.')
-  process.exit(0)
-}
-
 editorChunks.sort((a, b) => b.bytes - a.bytes)
-console.log(`[documents:budgets] Measured ${editorChunks.length} editor-runtime chunk(s):`)
-for (const chunk of editorChunks.slice(0, 5)) {
-  console.log(`  ${formatKib(chunk.bytes).padStart(12)}  ${chunk.file}`)
+if (editorChunks.length > 0) {
+  console.log(`[documents:budgets] Measured ${editorChunks.length} editor-runtime chunk(s):`)
+  for (const chunk of editorChunks.slice(0, 5)) {
+    console.log(`  ${formatKib(chunk.bytes).padStart(12)}  ${chunk.file}`)
+  }
 }
 
 const listRouteLeaks = findListRouteLeaks(buildRoot, editorRuntimeChunks)
@@ -185,9 +179,14 @@ if (listRouteLeaks.checkedRoutes.length === 0) {
   }
 }
 violations.push(...listRouteLeaks.violations)
+violations.push(...findMissingDocumentsBundleEvidence({
+  clientChunkCount: chunkFiles.length,
+  editorRuntimeChunkCount: editorChunks.length,
+  checkedRouteCount: listRouteLeaks.checkedRoutes.length,
+}))
 
 if (violations.length > 0) {
-  console.error('[documents:budgets] Budget breach — a breach requires an explicit spec update, not a silent regression:')
+  console.error('[documents:budgets] Budget verification failed — missing evidence or a breach cannot pass silently:')
   for (const violation of violations) console.error(`  - ${violation}`)
   process.exit(1)
 }

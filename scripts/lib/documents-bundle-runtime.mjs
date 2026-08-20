@@ -54,3 +54,21 @@ export function collectEagerRouteChunks(manifest, isTrackedClientModule) {
   }
   return chunks
 }
+
+export function findMissingDocumentsBundleEvidence({
+  clientChunkCount,
+  editorRuntimeChunkCount,
+  checkedRouteCount,
+}) {
+  const violations = []
+  if (clientChunkCount === 0) {
+    violations.push('No client chunks were found in the completed Next.js build')
+  }
+  if (editorRuntimeChunkCount === 0) {
+    violations.push('No Documents editor-runtime chunks were found in the completed Next.js build')
+  }
+  if (checkedRouteCount === 0) {
+    violations.push('No route hosting the Documents list page was found in the client reference manifests')
+  }
+  return violations
+}

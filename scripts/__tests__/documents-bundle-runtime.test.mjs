@@ -4,6 +4,7 @@ import {
   carriesDocumentsEditorRuntime,
   collectEagerRouteChunks,
   DOCUMENTS_EDITOR_RUNTIME_MARKERS,
+  findMissingDocumentsBundleEvidence,
   isDocumentsListRouteClientModule,
   normalizeChunkPath,
   parseClientReferenceManifest,
@@ -105,4 +106,30 @@ test('Eager route chunks cover entry files and tracked sync modules, never async
 
 test('Eager route chunks tolerate a manifest without client modules or entry files', () => {
   assert.deepEqual([...collectEagerRouteChunks({}, isDocumentsListRouteClientModule)], [])
+})
+
+test('Completed builds fail closed when bundle evidence is missing', () => {
+  assert.deepEqual(
+    findMissingDocumentsBundleEvidence({
+      clientChunkCount: 0,
+      editorRuntimeChunkCount: 0,
+      checkedRouteCount: 0,
+    }),
+    [
+      'No client chunks were found in the completed Next.js build',
+      'No Documents editor-runtime chunks were found in the completed Next.js build',
+      'No route hosting the Documents list page was found in the client reference manifests',
+    ],
+  )
+})
+
+test('Completed builds pass the evidence gate only when every budget input was found', () => {
+  assert.deepEqual(
+    findMissingDocumentsBundleEvidence({
+      clientChunkCount: 12,
+      editorRuntimeChunkCount: 3,
+      checkedRouteCount: 1,
+    }),
+    [],
+  )
 })

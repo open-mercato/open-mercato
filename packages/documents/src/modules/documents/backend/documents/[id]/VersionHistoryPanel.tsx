@@ -6,7 +6,6 @@ import { Clock, Eye, History, Save } from 'lucide-react'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
-import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -91,7 +90,6 @@ export function VersionHistoryPanel({
   const activeDocumentId = React.useRef<string | null>(null)
   const currentDocumentIdRef = React.useRef(documentId)
   currentDocumentIdRef.current = documentId
-  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const mutationContextId = `documents-versions:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -171,13 +169,7 @@ export function VersionHistoryPanel({
     if (!mayRestore || restoreInFlight.current) return
     restoreInFlight.current = true
     try {
-      const confirmed = await confirm({
-        title: t('documents.versions.restore.confirmTitle'),
-        text: t('documents.versions.restore.confirmBody'),
-        confirmText: t('documents.versions.actions.restore'),
-        variant: 'default',
-      })
-      if (!confirmed || currentDocumentIdRef.current !== documentId) return
+      if (currentDocumentIdRef.current !== documentId) return
       setRestoringVersionId(version.id)
       await runMutation({
         operation: () => restoreVersionWithCurrentContentToken({
@@ -210,7 +202,7 @@ export function VersionHistoryPanel({
       restoreInFlight.current = false
       setRestoringVersionId(null)
     }
-  }, [confirm, documentId, mayRestore, mutationContextId, onRestored, reload, retryLastMutation, runMutation, t])
+  }, [documentId, mayRestore, mutationContextId, onRestored, reload, retryLastMutation, runMutation, t])
 
   const versions = state.status === 'ready' ? state.versions : []
   return (
@@ -245,7 +237,6 @@ export function VersionHistoryPanel({
         ))}
       </div>
       {previewVersionId ? <VersionPreviewDialog documentId={documentId} versionId={previewVersionId} canRestore={mayRestore} isRestoring={restoringVersionId !== null} onOpenChange={(open) => { if (!open) setPreviewVersionId(null) }} onRestore={handleRestore} /> : null}
-      {ConfirmDialogElement}
     </section>
   )
 }

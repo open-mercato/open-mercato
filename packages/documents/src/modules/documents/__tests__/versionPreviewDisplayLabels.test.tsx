@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
 
@@ -29,6 +29,7 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
 }))
 
 const translations: Record<string, string> = {
+  'documents.actions.cancel': 'Cancel',
   'documents.actions.close': 'Close',
   'documents.actions.retry': 'Retry',
   'documents.links.restrictedRecord': 'Restricted record',
@@ -37,6 +38,8 @@ const translations: Record<string, string> = {
   'documents.versions.preview.error': 'Failed to load version preview.',
   'documents.versions.preview.loading': 'Loading version preview…',
   'documents.versions.preview.title': 'Version preview',
+  'documents.versions.restore.confirmBody': 'The document will be reset to this version.',
+  'documents.versions.restore.confirmTitle': 'Restore this version?',
   'ui.dialog.close.ariaLabel': 'Close',
 }
 
@@ -161,5 +164,32 @@ describe('VersionPreviewDialog display labels', () => {
 
     expect(onRestore).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Restore' })).toHaveProperty('disabled', true)
+  })
+
+  it('keeps restore confirmation inside the accessible version-preview dialog', async () => {
+    const onRestore = jest.fn()
+    render(<VersionPreviewDialog
+      documentId={documentId}
+      versionId={versionId}
+      canRestore
+      isRestoring={false}
+      onOpenChange={jest.fn()}
+      onRestore={onRestore}
+    />)
+
+    await screen.findByText('Created by Unknown user')
+    const previewDialog = screen.getByRole('dialog', { name: 'Version preview' })
+    fireEvent.click(within(previewDialog).getByRole('button', { name: 'Restore' }))
+
+    const confirmationDialog = screen.getByRole('dialog', { name: 'Restore this version?' })
+    expect(confirmationDialog).toBe(previewDialog)
+    expect(within(confirmationDialog).getByText('The document will be reset to this version.')).toBeTruthy()
+    expect(onRestore).not.toHaveBeenCalled()
+    const cancel = within(confirmationDialog).getByRole('button', { name: 'Cancel' })
+    await waitFor(() => expect(document.activeElement).toBe(cancel))
+
+    fireEvent.click(within(confirmationDialog).getByRole('button', { name: 'Restore' }))
+    expect(onRestore).toHaveBeenCalledTimes(1)
+    expect(onRestore).toHaveBeenCalledWith(expect.objectContaining({ id: versionId }))
   })
 })

@@ -5,7 +5,6 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
-const confirmMock = jest.fn()
 const flashMock = jest.fn()
 const runMutationMock = jest.fn()
 const mockTranslate = (key: string) => key
@@ -48,9 +47,6 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({ runMutation: runMutationMock, retryLastMutation: jest.fn() }),
 }))
 jest.mock('@open-mercato/ui/backend/conflicts', () => ({ surfaceRecordConflict: jest.fn(() => false) }))
-jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
-  useConfirmDialog: () => ({ confirm: confirmMock, ConfirmDialogElement: null }),
-}))
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: (...args: unknown[]) => flashMock(...args) }))
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
@@ -95,7 +91,6 @@ describe('VersionHistoryPanel restore lifecycle', () => {
       ok: true,
       result: { contentHtml: '<p>Historical content</p>', updatedAt: restoredUpdatedAt },
     })
-    confirmMock.mockResolvedValue(true)
     runMutationMock.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
   })
 
