@@ -207,7 +207,20 @@ export type NotesSectionProps<C = unknown> = {
   iconSuggestions?: IconOption[]
   readMarkdownPreference?: () => boolean | null
   writeMarkdownPreference?: (value: boolean) => void
+  /** Force the plain textarea and hide the markdown toggle. Wins over `forceMarkdown`. */
   disableMarkdown?: boolean
+  /**
+   * Keep the rich markdown editor active for every note and hide the markdown toggle,
+   * so the editor shape cannot be switched. Ignored when `disableMarkdown` is set.
+   */
+  forceMarkdown?: boolean
+  /**
+   * Hide the markdown toggle without changing which editor renders — the seeded
+   * `readMarkdownPreference` value stays in effect. Implied by `forceMarkdown`.
+   */
+  hideMarkdownToggle?: boolean
+  /** Hide the appearance (icon/color) affordances: the palette buttons and the appearance dialog. */
+  disableAppearance?: boolean
 }
 
 export function sanitizeHexColor(value: string | null): string | null {
@@ -313,6 +326,9 @@ function NotesSectionImpl<C = unknown>({
   readMarkdownPreference,
   writeMarkdownPreference,
   disableMarkdown,
+  forceMarkdown,
+  hideMarkdownToggle,
+  disableAppearance,
 }: NotesSectionProps<C>) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
@@ -448,13 +464,16 @@ function NotesSectionImpl<C = unknown>({
   const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
   const [draftColor, setDraftColor] = React.useState<string | null>(null)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
+  const isMarkdownActive = !disableMarkdown && (Boolean(forceMarkdown) || isMarkdownEnabled)
+  const showMarkdownToggle = !disableMarkdown && !forceMarkdown && !hideMarkdownToggle
+  const showAppearanceControls = !disableAppearance
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const formRef = React.useRef<HTMLFormElement | null>(null)
   const focusComposer = React.useCallback(() => {
     if (!hasEntity) return
     setComposerOpen(true)
     window.requestAnimationFrame(() => {
-      if (isMarkdownEnabled) {
+      if (isMarkdownActive) {
         const markdownTextarea = formRef.current?.querySelector('textarea')
         if (markdownTextarea instanceof HTMLTextAreaElement) {
           markdownTextarea.focus()
@@ -467,7 +486,7 @@ function NotesSectionImpl<C = unknown>({
       element.focus()
       element.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
-  }, [formRef, hasEntity, isMarkdownEnabled])
+  }, [formRef, hasEntity, isMarkdownActive])
   const [appearanceDialogState, setAppearanceDialogState] = React.useState<
     | { mode: 'create'; icon: string | null; color: string | null }
     | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
@@ -584,7 +603,7 @@ function NotesSectionImpl<C = unknown>({
 
   React.useEffect(() => {
     adjustTextareaSize(textareaRef.current)
-  }, [adjustTextareaSize, draftBody, isMarkdownEnabled, composerOpen])
+  }, [adjustTextareaSize, draftBody, isMarkdownActive, composerOpen])
 
   React.useEffect(() => {
     const preference = readMarkdownPreference ? readMarkdownPreference() : null
@@ -990,31 +1009,33 @@ function NotesSectionImpl<C = unknown>({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium">{label('addLabel')}</h3>
               <div className="flex flex-wrap items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setAppearanceDialogError(null)
-                    setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
-                  }}
-                  disabled={isSubmitting || isLoading || !hasEntity}
-                >
-                  <span className="sr-only">{label('appearance.toggleOpen', 'Customize appearance')}</span>
-                  <Palette className="h-4 w-4" />
-                </Button>
-                {disableMarkdown ? null : (
+                {showAppearanceControls ? (
                   <Button
                     type="button"
-                    variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setAppearanceDialogError(null)
+                      setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
+                    }}
+                    disabled={isSubmitting || isLoading || !hasEntity}
+                  >
+                    <span className="sr-only">{label('appearance.toggleOpen', 'Customize appearance')}</span>
+                    <Palette className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                {showMarkdownToggle ? (
+                  <Button
+                    type="button"
+                    variant={isMarkdownActive ? 'secondary' : 'ghost'}
                     size="icon"
                     onClick={handleMarkdownToggle}
-                    aria-pressed={isMarkdownEnabled}
+                    aria-pressed={isMarkdownActive}
                     disabled={isSubmitting || isLoading}
                   >
                     <FileCode className="h-4 w-4" />
                   </Button>
-                )}
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -1090,7 +1111,7 @@ function NotesSectionImpl<C = unknown>({
             <SwitchableMarkdownInput
               value={draftBody}
               onChange={setDraftBody}
-              isMarkdownEnabled={isMarkdownEnabled}
+              isMarkdownEnabled={isMarkdownActive}
               disableMarkdown={disableMarkdown}
               rows={1}
               placeholder={label('placeholder')}
@@ -1214,24 +1235,26 @@ function NotesSectionImpl<C = unknown>({
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setAppearanceDialogError(null)
-                        setAppearanceDialogState({
-                          mode: 'edit',
-                          noteId: note.id,
-                          icon: note.appearanceIcon ?? null,
-                          color: note.appearanceColor ?? null,
-                        })
-                      }}
-                      disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
-                    >
-                      {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
-                    </Button>
+                    {showAppearanceControls ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setAppearanceDialogError(null)
+                          setAppearanceDialogState({
+                            mode: 'edit',
+                            noteId: note.id,
+                            icon: note.appearanceIcon ?? null,
+                            color: note.appearanceColor ?? null,
+                          })
+                        }}
+                        disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
+                      >
+                        {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       variant="ghost"
@@ -1257,7 +1280,7 @@ function NotesSectionImpl<C = unknown>({
                     <SwitchableMarkdownInput
                       value={contentEditor.value}
                       onChange={(nextValue) => setContentEditor((prev) => ({ ...prev, value: nextValue }))}
-                      isMarkdownEnabled={isMarkdownEnabled}
+                      isMarkdownEnabled={isMarkdownActive}
                       disableMarkdown={disableMarkdown}
                       rows={3}
                       textareaRef={contentTextareaRef}
@@ -1278,19 +1301,19 @@ function NotesSectionImpl<C = unknown>({
                           inlineLabel('saveShortcut')
                         )}
                       </Button>
-                      {disableMarkdown ? null : (
+                      {showMarkdownToggle ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           onClick={handleMarkdownToggle}
-                          aria-pressed={isMarkdownEnabled}
-                          className={isMarkdownEnabled ? 'text-primary' : undefined}
+                          aria-pressed={isMarkdownActive}
+                          className={isMarkdownActive ? 'text-primary' : undefined}
                           disabled={contentSavingId === note.id}
                         >
                           <FileCode className="h-4 w-4" />
                         </Button>
-                      )}
+                      ) : null}
                       <Button
                         type="button"
                         size="sm"
@@ -1340,29 +1363,31 @@ function NotesSectionImpl<C = unknown>({
           </div>
         )}
       </div>
-      <AppearanceDialog
-        open={appearanceDialogOpen}
-        title={
-          appearanceDialogState?.mode === 'edit'
-            ? label('appearance.edit')
-            : label('appearance.toggleOpen', 'Customize appearance')
-        }
-        icon={appearanceDialogState?.icon ?? null}
-        color={appearanceDialogState?.color ?? null}
-        labels={noteAppearanceLabels}
-        iconSuggestions={iconSuggestions}
-        onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
-        onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
-        onSubmit={() => {
-          void handleAppearanceDialogSubmit()
-        }}
-        onClose={handleAppearanceDialogClose}
-        isSaving={appearanceDialogSaving}
-        errorMessage={appearanceDialogError}
-        primaryLabel={appearanceDialogPrimaryLabel}
-        savingLabel={appearanceDialogSavingLabel}
-        cancelLabel={label('appearance.cancel')}
-      />
+      {showAppearanceControls ? (
+        <AppearanceDialog
+          open={appearanceDialogOpen}
+          title={
+            appearanceDialogState?.mode === 'edit'
+              ? label('appearance.edit')
+              : label('appearance.toggleOpen', 'Customize appearance')
+          }
+          icon={appearanceDialogState?.icon ?? null}
+          color={appearanceDialogState?.color ?? null}
+          labels={noteAppearanceLabels}
+          iconSuggestions={iconSuggestions}
+          onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
+          onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
+          onSubmit={() => {
+            void handleAppearanceDialogSubmit()
+          }}
+          onClose={handleAppearanceDialogClose}
+          isSaving={appearanceDialogSaving}
+          errorMessage={appearanceDialogError}
+          primaryLabel={appearanceDialogPrimaryLabel}
+          savingLabel={appearanceDialogSavingLabel}
+          cancelLabel={label('appearance.cancel')}
+        />
+      ) : null}
       {ConfirmDialogElement}
     </div>
   )
