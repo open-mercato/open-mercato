@@ -166,7 +166,7 @@ const listPeopleTool = defineAiTool({
 MUST rules:
 - MUST set `requiredFeatures` for any tool that reads or writes tenant data. The wildcard-aware ACL matcher is applied before the handler runs.
 - MUST use Zod for `inputSchema` — never raw JSON Schema.
-- MUST set `isMutation: true` on write tools. The policy gate strips these from read-only agents and from read-only tenant overrides.
+- MUST set `isMutation: true` on write tools. The policy gate strips these from read-only agents and from read-only tenant overrides, and `tools/list` derives the MCP `readOnlyHint` from the flag. MCP clients use that hint to decide whether human approval is needed, so an unflagged write is advertised as read-only.
 - MUST route every mutation tool through `prepareMutation(...)` (see the Mutation Approvals guide at `/framework/ai-assistant/mutation-approvals`). Writing directly inside the handler bypasses the approval gate — the runtime fails closed and refuses to return a result to the operator.
 - Mutation preview resolvers SHOULD return a normalized `after` snapshot and display hints when tool inputs contain dictionary IDs or other opaque values. Use `display.fieldLabels`, `display.before`, and `display.after` so `field-diff-card` shows operator-friendly names while `field`, `before`, and `after` keep the raw execution values.
 - MUST expose tools to an agent by listing the tool name in the agent's `allowedTools`. Tools not on the whitelist never reach the model.

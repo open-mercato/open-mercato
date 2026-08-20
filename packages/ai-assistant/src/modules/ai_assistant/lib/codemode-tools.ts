@@ -676,7 +676,9 @@ function registerExecuteTool(commonTypes: string): void {
     {
       name: 'execute',
       // api.request() reaches every documented endpoint, including POST/PUT/DELETE,
-      // so the tool is neither read-only nor guaranteed non-destructive.
+      // so the tool is neither read-only nor guaranteed non-destructive. It is
+      // intentionally exempt from prepareMutation: arbitrary sandbox code cannot
+      // provide the structured before/after preview that approval flow requires.
       isMutation: true,
       isDestructive: true,
       description: `Make API calls. Returns JSON.

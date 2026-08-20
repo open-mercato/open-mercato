@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
-import type { McpToolAnnotations } from './mcp-tool-annotations'
 
 /**
  * Execution context for MCP tool calls.
@@ -250,6 +249,15 @@ export type ToolInfo = {
   inputSchema: Record<string, unknown>
   /** MCP capability hints advertised for the tool (see `buildMcpToolAnnotations`). */
   annotations?: McpToolAnnotations
+}
+
+/** MCP `ToolAnnotations` values carried through remote and in-process clients. */
+export type McpToolAnnotations = {
+  title?: string
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
 }
 
 /**
