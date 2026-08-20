@@ -354,7 +354,7 @@
   "customers.calendar.settings.activityTypesHint": "이벤트를 생성할 때 캘린더에 표시되는 활동 유형입니다. 워크스페이스 사전에서 초기화됩니다.",
   "customers.calendar.settings.addCategory": "카테고리 추가…",
   "customers.calendar.settings.addType": "유형 추가…",
-  "customers.calendar.settings.aiSummaries": "AI 요약 및 빠른 작업",
+  "customers.calendar.settings.aiSummaries": "AI 요약",
   "customers.calendar.settings.cancel": "취소",
   "customers.calendar.settings.close": "닫기",
   "customers.calendar.settings.conflictScope": "충돌 범위",

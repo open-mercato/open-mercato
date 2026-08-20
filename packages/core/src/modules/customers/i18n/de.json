@@ -354,7 +354,7 @@
   "customers.calendar.settings.activityTypesHint": "Die Aktivitätstypen, die Ihr Kalender beim Erstellen eines Ereignisses anbietet. Aus dem Workspace-Wörterbuch übernommen.",
   "customers.calendar.settings.addCategory": "Kategorie hinzufügen…",
   "customers.calendar.settings.addType": "Typ hinzufügen…",
-  "customers.calendar.settings.aiSummaries": "KI-Zusammenfassungen & Schnellaktionen",
+  "customers.calendar.settings.aiSummaries": "KI-Zusammenfassungen",
   "customers.calendar.settings.cancel": "Abbrechen",
   "customers.calendar.settings.close": "Schließen",
   "customers.calendar.settings.conflictScope": "Konfliktbereich",

@@ -354,7 +354,7 @@
   "customers.calendar.settings.activityTypesHint": "Typy aktywności udostępniane przez kalendarz podczas tworzenia wydarzenia. Pobrane ze słownika obszaru roboczego.",
   "customers.calendar.settings.addCategory": "Dodaj kategorię…",
   "customers.calendar.settings.addType": "Dodaj typ…",
-  "customers.calendar.settings.aiSummaries": "Podsumowania AI i szybkie akcje",
+  "customers.calendar.settings.aiSummaries": "Podsumowania AI",
   "customers.calendar.settings.cancel": "Anuluj",
   "customers.calendar.settings.close": "Zamknij",
   "customers.calendar.settings.conflictScope": "Zakres konfliktów",
