@@ -1287,6 +1287,7 @@
   "sales.quotes.form.general": "일반",
   "sales.quotes.form.lines": "라인 항목",
   "sales.quotes.form.notes": "메모",
+  "sales.quotes.internal_notes_unsupported": "내부 메모는 견적서에서 사용할 수 없습니다.",
   "sales.quotes.lines.delete": "견적 항목 삭제",
   "sales.quotes.lines.upsert": "견적 항목 업데이트",
   "sales.quotes.list.title": "견적",

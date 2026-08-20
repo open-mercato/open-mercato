@@ -2409,6 +2409,7 @@
   "customers.personTags.newLabel": "새 라벨",
   "customers.personTags.newLabelPlaceholder": "라벨 이름...",
   "customers.personTags.newTag": "새 태그",
+  "customers.personTags.retry": "다시 시도",
   "customers.personTags.save": "저장",
   "customers.personTags.saveError": "태그 저장에 실패했습니다",
   "customers.personTags.saveSuccess": "태그가 업데이트되었습니다.",
