@@ -43,6 +43,9 @@ function rowMatchesWhere(row: Row, where: any): boolean {
     if ((row.organizationId ?? null) !== expected) return false
   }
   if (where.agentId && row.agentId !== where.agentId) return false
+  if (where.createdByUserId && row.createdByUserId !== where.createdByUserId) {
+    return false
+  }
   if (where.idempotencyKey && row.idempotencyKey !== where.idempotencyKey) {
     return false
   }
@@ -312,7 +315,7 @@ describe('AiPendingActionRepository', () => {
     expect(betaExpired.map((r) => r.idempotencyKey)).toEqual(['beta-0'])
   })
 
-  it('getById is tenant-scoped: another tenant returns null', async () => {
+  it('getById is tenant- and owner-scoped when userId is present', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
     const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
@@ -320,6 +323,13 @@ describe('AiPendingActionRepository', () => {
     const row = await repo.create(baseInput({ idempotencyKey: 'idem-iso' }), ctxAlpha)
     const sameTenant = await repo.getById(row.id, ctxAlpha)
     expect(sameTenant?.id).toBe(row.id)
+
+    const otherUser = await repo.getById(row.id, {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-2',
+    })
+    expect(otherUser).toBeNull()
 
     const otherTenant = await repo.getById(row.id, {
       tenantId: tenantBeta,
@@ -329,6 +339,43 @@ describe('AiPendingActionRepository', () => {
 
     // sanity: the entity class is importable from both paths
     void AiPendingAction
+  })
+
+  it('setStatus rejects a same-tenant caller who does not own the action', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-owner' }), ownerCtx)
+
+    await expect(
+      repo.setStatus(
+        row.id,
+        'cancelled',
+        { tenantId: tenantAlpha, organizationId: null, userId: 'u-2' },
+        { resolvedByUserId: 'u-2' },
+      ),
+    ).rejects.toThrow(`AiPendingAction not found: ${row.id}`)
+
+    expect(row.status).toBe('pending')
+    expect(row.resolvedByUserId).toBeNull()
+  })
+
+  it('allows system cleanup without a userId to resolve an expired action', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-cleanup' }), ownerCtx)
+    const expired = await repo.setStatus(
+      row.id,
+      'expired',
+      { tenantId: tenantAlpha, organizationId: null, userId: null },
+      { now: new Date('2026-04-18T13:00:00.000Z') },
+    )
+
+    expect(expired.status).toBe('expired')
+    expect(expired.resolvedByUserId).toBeNull()
   })
 
   it('listPendingForAgent returns only pending rows for the requested agent and tenant', async () => {

@@ -142,9 +142,19 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     expect(body.pendingAction.executionResult).toEqual({
       error: { code: 'cancelled_by_user', message: 'Wrong price' },
     })
+    expect(repoGetByIdMock).toHaveBeenCalledWith('pa_123', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
     expect(repoSetStatusMock).toHaveBeenCalledTimes(1)
-    const [, nextStatus, , extra] = repoSetStatusMock.mock.calls[0]
+    const [, nextStatus, scope, extra] = repoSetStatusMock.mock.calls[0]
     expect(nextStatus).toBe('cancelled')
+    expect(scope).toEqual({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
     expect(extra).toMatchObject({ resolvedByUserId: 'user-1' })
     expect(emitEventMock).toHaveBeenCalledTimes(1)
     expect(emitEventMock.mock.calls[0][0]).toBe('ai.action.cancelled')

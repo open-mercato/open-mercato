@@ -196,6 +196,18 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(body.ok).toBe(true)
     expect(body.pendingAction.status).toBe('confirmed')
     expect(body.mutationResult).toEqual({ recordId: 'p-1', commandName: 'catalog.product.update' })
+    expect(repoGetByIdMock).toHaveBeenCalledWith('pa_123', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+    for (const [, , scope] of repoSetStatusMock.mock.calls) {
+      expect(scope).toEqual({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+      })
+    }
   })
 
   it('409 invalid_status: already cancelled', async () => {

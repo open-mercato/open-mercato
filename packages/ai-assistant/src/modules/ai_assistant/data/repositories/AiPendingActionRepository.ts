@@ -187,6 +187,7 @@ export class AiPendingActionRepository {
         id,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
+        ...(ctx.userId ? { createdByUserId: ctx.userId } : {}),
       } as any,
       {},
       {
@@ -245,6 +246,7 @@ export class AiPendingActionRepository {
           id,
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId ?? null,
+          ...(ctx.userId ? { createdByUserId: ctx.userId } : {}),
         } as any,
         {},
         {
