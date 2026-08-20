@@ -12,7 +12,7 @@ async function loadCreateTransport(): Promise<CreateTransport> {
   }
   const createTransport = mod.createTransport ?? mod.default?.createTransport
   if (typeof createTransport !== 'function') {
-    throw new Error('SMTP_SEND_FAILED: nodemailer.createTransport is unavailable')
+    throw new Error('[internal] nodemailer.createTransport is unavailable')
   }
   return createTransport
 }
@@ -23,21 +23,27 @@ function buildTransporterOptions(config: SmtpConfig): SMTPTransport.Options {
     port: config.port,
     secure: config.secure,
     requireTLS: config.requireTls,
+    // `requireTLS: false` alone leaves nodemailer's opportunistic STARTTLS in place, which then
+    // verifies certificates — so a self-signed MailDev/Mailpit sink would fail despite the
+    // operator opting into cleartext. `ignoreTLS` makes the opt-in deterministic.
+    ignoreTLS: config.allowCleartext,
     tls: config.allowCleartext ? undefined : { rejectUnauthorized: true },
+    connectionTimeout: config.timeoutMs,
+    socketTimeout: config.timeoutMs,
     ...(config.user && config.password ? { auth: { user: config.user, pass: config.password } } : {}),
-    ...(config.timeoutMs ? { connectionTimeout: config.timeoutMs, socketTimeout: config.timeoutMs } : {}),
   }
 }
 
 export function createSmtpTransport(config: SmtpConfig): EmailTransport {
   return {
     async send({ to, subject, react, from, replyTo, attachments }: ResolvedEmailMessage): Promise<void> {
-      const createTransport = await loadCreateTransport()
-      const { render } = await import('@react-email/render')
-      const html = await render(react)
-      const text = await render(react, { plainText: true })
-      const transporter = createTransport(buildTransporterOptions(config))
+      let transporter: Transporter | undefined
       try {
+        const createTransport = await loadCreateTransport()
+        const { render } = await import('@react-email/render')
+        const html = await render(react)
+        const text = await render(react, { plainText: true })
+        transporter = createTransport(buildTransporterOptions(config))
         await transporter.sendMail({
           from,
           to,
@@ -45,6 +51,8 @@ export function createSmtpTransport(config: SmtpConfig): EmailTransport {
           html,
           text,
           ...(replyTo ? { replyTo } : {}),
+          // `SendEmailOptions['attachments'].content` is typed `string` and carries base64 on the
+          // Resend path, so the encoding is fixed here rather than sniffed.
           ...(attachments?.length
             ? {
                 attachments: attachments.map((attachment) => ({
@@ -60,7 +68,7 @@ export function createSmtpTransport(config: SmtpConfig): EmailTransport {
         const message = error instanceof Error ? error.message : String(error)
         throw new Error(`SMTP_SEND_FAILED: ${message}`)
       } finally {
-        transporter.close()
+        transporter?.close()
       }
     },
   }

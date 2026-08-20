@@ -52,12 +52,32 @@ const smtpConfigSchema = z.object({
   allowCleartext: z.boolean(),
   user: z.string().optional(),
   password: z.string().optional(),
-  timeoutMs: z.number().int().min(1).optional(),
+  timeoutMs: z.number().int().min(1),
 })
 
 export type SmtpConfig = z.infer<typeof smtpConfigSchema>
 
+// Bounds a hung SMTP server: nodemailer's own defaults are 2 minutes to connect and
+// 10 minutes on the socket, which would stall the calling request for that long.
+export const DEFAULT_SMTP_TIMEOUT_MS = 30_000
+
 let warnedInsecureSmtp = false
+let warnedInvalidSmtpTimeout = false
+
+function resolveSmtpTimeoutMs(): number {
+  const raw = normalizeEnvString(process.env.SMTP_TIMEOUT_MS)
+  if (!raw) return DEFAULT_SMTP_TIMEOUT_MS
+  const parsed = parseNumberWithDefault(raw, 0, { min: 1, integer: true })
+  if (parsed > 0) return parsed
+  if (!warnedInvalidSmtpTimeout) {
+    warnedInvalidSmtpTimeout = true
+    createLogger('email').warn('Ignoring unusable SMTP_TIMEOUT_MS; falling back to the default timeout', {
+      value: raw,
+      timeoutMs: DEFAULT_SMTP_TIMEOUT_MS,
+    })
+  }
+  return DEFAULT_SMTP_TIMEOUT_MS
+}
 
 export function resolveSmtpConfig(): SmtpConfig {
   const host = normalizeEnvString(process.env.SMTP_HOST)
@@ -75,16 +95,14 @@ export function resolveSmtpConfig(): SmtpConfig {
   }
   const user = normalizeEnvString(process.env.SMTP_USER)
   const password = normalizeEnvString(process.env.SMTP_PASSWORD)
-  const timeoutMsRaw = normalizeEnvString(process.env.SMTP_TIMEOUT_MS)
-  const timeoutMs = timeoutMsRaw ? parseNumberWithDefault(timeoutMsRaw, 0, { min: 1, integer: true }) : undefined
   return smtpConfigSchema.parse({
     host,
     port,
     secure,
     requireTls: !secure && !allowInsecure,
     allowCleartext,
+    timeoutMs: resolveSmtpTimeoutMs(),
     ...(user ? { user } : {}),
     ...(password ? { password } : {}),
-    ...(timeoutMs ? { timeoutMs } : {}),
   })
 }

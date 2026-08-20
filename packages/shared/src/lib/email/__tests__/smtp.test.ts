@@ -1,4 +1,5 @@
 import React from 'react'
+import { DEFAULT_SMTP_TIMEOUT_MS } from '../config'
 
 const mockSendMail = jest.fn()
 const mockCloseTransporter = jest.fn()
@@ -130,6 +131,14 @@ describe('sendEmail smtp transport', () => {
 
       await expect(sendTestEmail()).rejects.toThrow('RESEND_API_KEY is not set')
     })
+
+    it('EMAIL_STRATEGY=resend is honoured over auto-detection when only SMTP_HOST is set', async () => {
+      process.env.EMAIL_STRATEGY = 'resend'
+      process.env.SMTP_HOST = 'smtp.example.com'
+
+      await expect(sendTestEmail()).rejects.toThrow('RESEND_API_KEY is not set')
+      expect(mockCreateTransport).not.toHaveBeenCalled()
+    })
   })
 
   describe('transporter options', () => {
@@ -164,16 +173,48 @@ describe('sendEmail smtp transport', () => {
       expect(options.auth).toBeUndefined()
     })
 
-    it('defaults SMTP_SECURE to true on port 465 and false otherwise', async () => {
+    it('defaults SMTP_SECURE to true on port 465', async () => {
       process.env.SMTP_HOST = 'smtp.example.com'
       process.env.SMTP_PORT = '465'
-      await sendTestEmail()
-      expect(mockCreateTransport.mock.calls[0][0]).toMatchObject({ secure: true })
 
-      jest.resetModules()
-      process.env.SMTP_PORT = '587'
       await sendTestEmail()
-      expect(mockCreateTransport.mock.calls[1][0]).toMatchObject({ secure: false })
+
+      expect(mockCreateTransport.mock.calls[0][0]).toMatchObject({ secure: true })
+    })
+
+    it('defaults SMTP_SECURE to false on any other port', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com'
+      process.env.SMTP_PORT = '587'
+
+      await sendTestEmail()
+
+      expect(mockCreateTransport.mock.calls[0][0]).toMatchObject({ secure: false })
+    })
+
+    it('applies the default timeout when SMTP_TIMEOUT_MS is unset', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com'
+
+      await sendTestEmail()
+
+      expect(mockCreateTransport.mock.calls[0][0]).toMatchObject({
+        connectionTimeout: DEFAULT_SMTP_TIMEOUT_MS,
+        socketTimeout: DEFAULT_SMTP_TIMEOUT_MS,
+      })
+    })
+
+    it('falls back to the default timeout and warns once when SMTP_TIMEOUT_MS is unusable', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com'
+      process.env.SMTP_TIMEOUT_MS = 'soon'
+
+      await sendTestEmail()
+      await sendTestEmail()
+
+      expect(mockCreateTransport.mock.calls[0][0]).toMatchObject({
+        connectionTimeout: DEFAULT_SMTP_TIMEOUT_MS,
+        socketTimeout: DEFAULT_SMTP_TIMEOUT_MS,
+      })
+      expect(mockWarn).toHaveBeenCalledTimes(1)
+      expect(String(mockWarn.mock.calls[0][0])).toContain('SMTP_TIMEOUT_MS')
     })
   })
 
@@ -188,6 +229,7 @@ describe('sendEmail smtp transport', () => {
         expect.objectContaining({
           secure: false,
           requireTLS: true,
+          ignoreTLS: false,
           tls: { rejectUnauthorized: true },
         }),
       )
@@ -219,6 +261,7 @@ describe('sendEmail smtp transport', () => {
         expect.objectContaining({
           secure: false,
           requireTLS: false,
+          ignoreTLS: true,
           tls: undefined,
         }),
       )
@@ -294,6 +337,15 @@ describe('sendEmail smtp transport', () => {
       await sendTestEmail()
 
       expect(mockCloseTransporter).toHaveBeenCalledTimes(1)
+    })
+
+    it('wraps render failures as SMTP_SEND_FAILED without leaving a transporter open', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com'
+      mockRender.mockRejectedValueOnce(new Error('template blew up'))
+
+      await expect(sendTestEmail()).rejects.toThrow('SMTP_SEND_FAILED: template blew up')
+      expect(mockCreateTransport).not.toHaveBeenCalled()
+      expect(mockCloseTransporter).not.toHaveBeenCalled()
     })
   })
 
