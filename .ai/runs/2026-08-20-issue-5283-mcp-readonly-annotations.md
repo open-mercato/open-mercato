@@ -42,8 +42,8 @@ MCP annotations guide external approval behavior, so tests must preserve the con
 
 ### Phase 2: Address review findings
 
-- [ ] 2.1 Document `isMutation` as the source of MCP approval metadata
-- [ ] 2.2 Preserve the complete MCP annotation shape and document Code Mode's approval-path exception
+- [x] 2.1 Document `isMutation` as the source of MCP approval metadata — 4e4d4289
+- [x] 2.2 Preserve the complete MCP annotation shape and document Code Mode's approval-path exception — 4e4d4289
 - [ ] 2.3 Add focused coverage for every annotation transport surface
 
 ### Phase 3: Verify and hand off
