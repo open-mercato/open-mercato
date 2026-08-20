@@ -131,7 +131,7 @@ export function useBoardSelf() {
 /** Display names for the assignees a surface is about to render. */
 export function useAssigneeNames(assigneeIds: readonly string[]) {
   const scopeVersion = useOrganizationScopeVersion()
-  const ids = React.useMemo(() => Array.from(new Set(assigneeIds)).sort(), [assigneeIds])
+  const ids = React.useMemo(() => Array.from(new Set(assigneeIds)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)), [assigneeIds])
   return useQuery<Map<string, string>>({
     queryKey: [...BOARD_QUERY_ROOT, 'assignees', `scope:${scopeVersion}`, ids.join(',')],
     enabled: ids.length > 0,
@@ -155,7 +155,7 @@ export function useAssigneeNames(assigneeIds: readonly string[]) {
 /** Labels for the tags a surface is about to render. */
 export function useTagLabels(tagIds: readonly string[]) {
   const scopeVersion = useOrganizationScopeVersion()
-  const ids = React.useMemo(() => Array.from(new Set(tagIds)).sort(), [tagIds])
+  const ids = React.useMemo(() => Array.from(new Set(tagIds)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)), [tagIds])
   return useQuery<Map<string, string>>({
     queryKey: [...BOARD_QUERY_ROOT, 'tags', `scope:${scopeVersion}`, ids.join(',')],
     enabled: ids.length > 0,

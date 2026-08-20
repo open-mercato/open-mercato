@@ -22,6 +22,7 @@
  */
 
 import * as React from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Download, Lock, LockOpen } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
@@ -95,6 +96,7 @@ function readErrorMessage(payload: unknown, fallback: string): string {
  */
 export default function TimeTrackingReportDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const searchParams = useSearchParams()
   const reportId = typeof params?.id === 'string' ? params.id : ''
   const { payload: chrome } = useBackendChrome()
   const canClose = hasFeature(chrome?.grantedFeatures, LOCK_FEATURE)
@@ -109,6 +111,13 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
   const [unlockReason, setUnlockReason] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
+
+  const isClosed = sheet?.report.status === 'closed'
+  // Screen 15 is `?unlock=1`, and it may only mean what the unlock button means:
+  // the same closed-report state and the same feature. A draft report or a
+  // caller without the feature gets the page, never a dialog it cannot use.
+  const canUnlockNow = isClosed && canUnlock
+  const unlockRequested = searchParams.get('unlock') === '1'
 
   const labels = React.useMemo(
     () => ({
@@ -134,6 +143,11 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
     }),
     [reportId, retryLastMutation],
   )
+
+  React.useEffect(() => {
+    if (!canUnlockNow || !unlockRequested) return
+    setUnlockOpen(true)
+  }, [canUnlockNow, unlockRequested])
 
   React.useEffect(() => {
     if (!reportId) return
@@ -307,7 +321,6 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
     )
   }
 
-  const isClosed = sheet.report.status === 'closed'
   const lastExport = sheet.events.find((event) => event.eventType === 'exported') ?? null
 
   return (
@@ -342,7 +355,7 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
                 </Button>
               ))}
               {isClosed ? (
-                canUnlock ? (
+                canUnlockNow ? (
                   <Button
                     variant="destructive-outline"
                     onClick={() => setUnlockOpen(true)}

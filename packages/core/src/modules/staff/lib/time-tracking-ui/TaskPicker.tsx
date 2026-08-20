@@ -53,6 +53,14 @@ export type TaskPickerProps = {
   /** Task ids the viewer logged time to recently, most recent first. */
   recentTaskIds?: string[]
   statuses?: Record<string, TaskPickerStatus>
+  /**
+   * The search term, reported on every keystroke so the host can widen `items`
+   * with a server-side search. The picker keeps filtering what it was given, so
+   * a host that ignores this stays exactly as it was.
+   */
+  onQueryChange?: (query: string) => void
+  /** A host-side search for the current term is still in flight. */
+  searching?: boolean
   loading?: boolean
   disabled?: boolean
   /** Set when the picker was opened from inside one project. */
@@ -140,6 +148,8 @@ export function TaskPicker({
   items,
   recentTaskIds = [],
   statuses = {},
+  onQueryChange,
+  searching,
   loading,
   disabled,
   scopedProjectName,
@@ -183,13 +193,37 @@ export function TaskPicker({
 
   React.useEffect(() => { setActiveIndex(0) }, [query])
 
+  React.useEffect(() => { onQueryChange?.(query) }, [onQueryChange, query])
+
   React.useEffect(() => {
     if (!open) return
     const onPointerDown = (event: MouseEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
     }
+    /**
+     * Escape belongs to the innermost open layer, and while this list is open
+     * that layer is the list — not the dialog hosting it.
+     *
+     * Radix's `DismissableLayer`, which every Dialog and Drawer sits on, listens
+     * for Escape on the *document in the capture phase*, so anything bubbling
+     * out of this component runs after the dialog has already dismissed itself
+     * and taken the half-entered entry with it. The window is one step earlier
+     * in the same propagation path, so listening there — and stopping the event
+     * — is what makes "close the popover" and "close the dialog" two different
+     * keystrokes rather than one.
+     */
+    const onEscapeCapture = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setOpen(false)
+    }
     document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onEscapeCapture, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onEscapeCapture, true)
+    }
   }, [open])
 
   React.useEffect(() => {
@@ -221,12 +255,10 @@ export function TaskPicker({
         event.preventDefault()
         const target = flat[activeIndex]
         if (target) choose(target.id)
-        return
       }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setOpen(false)
-      }
+      // Escape is handled by the window-capture listener above, which has to run
+      // before Radix's document-capture dismissal — a React handler here would
+      // never see the key.
     },
     [activeIndex, choose, flat],
   )
@@ -318,7 +350,10 @@ export function TaskPicker({
             role="listbox"
             className="max-h-72 overflow-y-auto"
           >
-            {loading ? (
+            {loading || (searching && flat.length === 0) ? (
+              // A remote search that has not answered yet is still "loading" to
+              // the reader; saying "nothing matches" first and contradicting it
+              // a moment later is what makes a picker feel unreliable.
               <p className="px-3 py-4 text-center text-xs text-muted-foreground">{labels.loading}</p>
             ) : flat.length === 0 ? (
               <p className="px-3 py-4 text-center text-xs text-muted-foreground">

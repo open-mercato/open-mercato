@@ -180,6 +180,15 @@ export default function TimeTrackingSettingsPage() {
   const isDirty = draft && baseline ? isSettingsDraftDirty(draft, baseline) : false
   const canSave = canManage && isDirty && fieldErrors.length === 0 && !isSaving
 
+  /**
+   * optimistic-lock-exempt: tenant time-tracking settings are a single config
+   * blob written through `configService` (`api/timesheets/settings/route.ts`),
+   * not a row with an `updated_at` column — there is no version to send and no
+   * per-record conflict to report. The write is still guarded (mutation guards
+   * + `staff.timesheets.settings.manage`), and the one destructive consequence
+   * of a settings change — retroactive rounding — is a separate, explicitly
+   * confirmed action that skips entries locked into closed reports.
+   */
   const handleSave = React.useCallback(async () => {
     if (!draft) return
     const body = toSettingsPayload(draft)
@@ -485,7 +494,7 @@ export default function TimeTrackingSettingsPage() {
                     )}
                   </span>
                   {fieldErrors.includes('dailyHours') ? (
-                    <span className="text-xs text-status-error-base">
+                    <span className="text-xs text-status-error-text">
                       {t(
                         'staff.time_tracking.settings.targets.dailyHoursError',
                         'Enter a number of hours between 0 and 24, or leave the field empty.',
@@ -553,7 +562,7 @@ export default function TimeTrackingSettingsPage() {
                   )}
                 </span>
                 {fieldErrors.includes('assignmentGraceDays') ? (
-                  <span className="text-xs text-status-error-base">
+                  <span className="text-xs text-status-error-text">
                     {t(
                       'staff.time_tracking.settings.access.graceDaysError',
                       'Enter a whole number of days between 0 and 365.',

@@ -18,11 +18,31 @@ const TASK_ID = '55555555-5555-4555-8555-555555555555'
 const CHILD_ID = '66666666-6666-4666-8666-666666666666'
 const TASK_VERSION = '2026-08-12T10:00:00.000Z'
 
+type CapturedAccessibility = {
+  announcements: {
+    onDragStart: (args: { active: { id: string } }) => string | undefined
+    onDragOver: (args: { active: { id: string }; over: { id: string } | null }) => string | undefined
+    onDragEnd: (args: { active: { id: string }; over: { id: string } | null }) => string | undefined
+    onDragCancel: (args: { active: { id: string }; over: { id: string } | null }) => string | undefined
+  }
+  screenReaderInstructions: { draggable: string }
+}
+
 let dragEndHandler: ((event: unknown) => void) | null = null
+let capturedAccessibility: CapturedAccessibility | null = null
 
 jest.mock('@dnd-kit/core', () => ({
-  DndContext: ({ children, onDragEnd }: { children: React.ReactNode; onDragEnd: (event: unknown) => void }) => {
+  DndContext: ({
+    children,
+    onDragEnd,
+    accessibility,
+  }: {
+    children: React.ReactNode
+    onDragEnd: (event: unknown) => void
+    accessibility?: unknown
+  }) => {
     dragEndHandler = onDragEnd
+    capturedAccessibility = (accessibility ?? null) as CapturedAccessibility | null
     return <div data-testid="dnd-context">{children}</div>
   },
   DragOverlay: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -42,6 +62,9 @@ jest.mock('@dnd-kit/core', () => ({
   useDroppable: () => ({ setNodeRef: () => {}, isOver: false }),
 }))
 
+// Not for the board — it no longer imports this package. `packages/ui`'s CrudForm does,
+// through the shared `backend/detail` barrel, and the real module reads `KeyboardCode` off
+// the mocked `@dnd-kit/core` at load time.
 jest.mock('@dnd-kit/sortable', () => ({ sortableKeyboardCoordinates: () => undefined }))
 
 function interpolate(template: string, params?: Record<string, string | number>): string {
@@ -51,14 +74,16 @@ function interpolate(template: string, params?: Record<string, string | number>)
   )
 }
 
-const mockTranslate = (
-  key: string,
-  fallbackOrParams?: string | Record<string, string | number>,
-  params?: Record<string, string | number>,
-): string => {
-  if (typeof fallbackOrParams === 'string') return interpolate(fallbackOrParams, params)
-  return interpolate(key, fallbackOrParams)
-}
+const mockTranslate = jest.fn(
+  (
+    key: string,
+    fallbackOrParams?: string | Record<string, string | number>,
+    params?: Record<string, string | number>,
+  ): string => {
+    if (typeof fallbackOrParams === 'string') return interpolate(fallbackOrParams, params)
+    return interpolate(key, fallbackOrParams)
+  },
+)
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
 
@@ -66,8 +91,10 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
 }))
 
+const mockRouterPush = jest.fn()
+
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useRouter: () => ({ push: mockRouterPush, replace: jest.fn() }),
   useSearchParams: () => new URLSearchParams(''),
 }))
 
@@ -222,6 +249,7 @@ function broadcastStatusChange(taskStatusId: string) {
 beforeEach(() => {
   jest.clearAllMocks()
   dragEndHandler = null
+  capturedAccessibility = null
   tasksByStatus = {
     [BACKLOG_ID]: [baseTask({ loggedMinutes: 45, ownMinutes: 45 })],
     [IN_PROGRESS_ID]: [],
@@ -257,6 +285,130 @@ describe('KanbanBoard', () => {
     expect(mockWithScopedHeaders.mock.calls[0][0]).toEqual({
       [OPTIMISTIC_LOCK_HEADER_NAME]: TASK_VERSION,
     })
+  })
+
+  it('moves a card between columns from the keyboard, firing the same version-locked request', async () => {
+    const { container } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+
+    // No pointer anywhere in this flow: focus the card's Move control, open the menu with
+    // ArrowDown, and activate the focused option the way Enter on a native button does.
+    const trigger = screen.getByTestId(`kanban-card-move-${TASK_ID}`)
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    act(() => {
+      ;(trigger as HTMLButtonElement).focus()
+    })
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+
+    const option = await screen.findByTestId(`kanban-card-move-option-${TASK_ID}-${IN_PROGRESS_ID}`)
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(option))
+    // The card's own column is never offered as a target.
+    expect(screen.queryByTestId(`kanban-card-move-option-${TASK_ID}-${BACKLOG_ID}`)).toBeNull()
+
+    fireEvent.click(document.activeElement as HTMLElement)
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    const [url, init] = mockApiCallOrThrow.mock.calls[0]
+    expect(String(url)).toContain(`/api/staff/timesheets/tasks/${TASK_ID}/status`)
+    expect(init?.method).toBe('PATCH')
+    expect(JSON.parse(String(init?.body))).toMatchObject({ taskStatusId: IN_PROGRESS_ID })
+    expect(mockWithScopedHeaders.mock.calls[0][0]).toEqual({
+      [OPTIMISTIC_LOCK_HEADER_NAME]: TASK_VERSION,
+    })
+    await waitFor(() => expect(cardIn(container, IN_PROGRESS_ID, TASK_ID)).not.toBeNull())
+    // The menu closed and handed focus back to the control that opened it.
+    await waitFor(() => expect(screen.queryByTestId(`kanban-card-move-menu-${TASK_ID}`)).toBeNull())
+  })
+
+  it('closes the move menu on Escape without moving the card', async () => {
+    const { container } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+
+    const trigger = screen.getByTestId(`kanban-card-move-${TASK_ID}`)
+    fireEvent.click(trigger)
+    const menu = await screen.findByTestId(`kanban-card-move-menu-${TASK_ID}`)
+
+    fireEvent.keyDown(menu, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByTestId(`kanban-card-move-menu-${TASK_ID}`)).toBeNull())
+    expect(document.activeElement).toBe(trigger)
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+    expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull()
+  })
+
+  it('still opens the task drawer when Enter is pressed on the card itself', async () => {
+    const { container } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+
+    fireEvent.keyDown(cardIn(container, BACKLOG_ID, TASK_ID) as Element, { key: 'Enter' })
+
+    expect(mockRouterPush).toHaveBeenCalledWith(`?task=${TASK_ID}`, { scroll: false })
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('labels the card quick actions with the task they belong to', async () => {
+    const { container } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+
+    const actions = screen.getByTestId(`kanban-card-actions-${TASK_ID}`)
+    const labels = Array.from(actions.querySelectorAll('button')).map((button) =>
+      button.getAttribute('aria-label'),
+    )
+    expect(labels).toEqual([
+      'Start a timer for Migracja koszyka B2B',
+      'Add time to Migracja koszyka B2B',
+      'Move Migracja koszyka B2B to another column',
+    ])
+  })
+
+  it('narrates the drag through translated announcements instead of dnd-kit English defaults', async () => {
+    const { container } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+
+    const accessibility = capturedAccessibility
+    expect(accessibility).not.toBeNull()
+    const { announcements, screenReaderInstructions } = accessibility as CapturedAccessibility
+
+    // Every announcement names the task and the column in the caller's own words.
+    expect(announcements.onDragStart({ active: { id: TASK_ID } })).toBe(
+      'Picked up the task Migracja koszyka B2B.',
+    )
+    expect(
+      announcements.onDragOver({
+        active: { id: TASK_ID },
+        over: { id: `kanban-column:${IN_PROGRESS_ID}` },
+      }),
+    ).toBe('The task Migracja koszyka B2B is over the column W toku.')
+    expect(announcements.onDragOver({ active: { id: TASK_ID }, over: null })).toBe(
+      'The task Migracja koszyka B2B is not over a column.',
+    )
+    expect(
+      announcements.onDragEnd({ active: { id: TASK_ID }, over: { id: `kanban-column:${DONE_ID}` } }),
+    ).toBe('The task Migracja koszyka B2B was dropped into the column Zrobione.')
+    expect(announcements.onDragEnd({ active: { id: TASK_ID }, over: null })).toBe(
+      'The task Migracja koszyka B2B was dropped outside the columns.',
+    )
+    expect(announcements.onDragCancel({ active: { id: TASK_ID }, over: null })).toBe(
+      'Moving the task Migracja koszyka B2B was cancelled.',
+    )
+    expect(screenReaderInstructions.draggable).toContain('Move button')
+
+    // …and every one of them went through the translator, so a PL/DE/ES/KO session gets
+    // the locale string rather than the English fallback baked into this test.
+    const translatedKeys = mockTranslate.mock.calls.map((call) => call[0])
+    expect(translatedKeys).toEqual(
+      expect.arrayContaining([
+        'staff.time_tracking.board.dnd.dragStart',
+        'staff.time_tracking.board.dnd.dragOver',
+        'staff.time_tracking.board.dnd.dragOverNothing',
+        'staff.time_tracking.board.dnd.dragEnd',
+        'staff.time_tracking.board.dnd.dragEndOutside',
+        'staff.time_tracking.board.dnd.dragCancel',
+        'staff.time_tracking.board.dnd.instructions',
+      ]),
+    )
   })
 
   it('lands the card in the target column before the request resolves', async () => {

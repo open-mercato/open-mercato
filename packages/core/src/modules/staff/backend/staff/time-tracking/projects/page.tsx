@@ -364,6 +364,10 @@ export default function TimesheetProjectsPage() {
         title: t('staff.time_tracking.projects.assignMembers.title', 'Assign members'),
         searchPlaceholder: t('staff.timesheets.projects.employees.searchEmployee', 'Search team members...'),
         empty: t('staff.timesheets.projects.employees.noResults', 'No team members found'),
+        loadError: t(
+          'staff.time_tracking.projects.assignMembers.loadError',
+          'Could not load team members. Check your connection and try again.',
+        ),
         loading: t('staff.timesheets.projects.employees.loading', 'Loading employees...'),
         role: t('staff.timesheets.projects.employees.roleOnProject', 'Role on Project'),
         rolePlaceholder: t('staff.timesheets.projects.employees.rolePlaceholder', 'e.g. Developer, Designer...'),
@@ -607,6 +611,17 @@ export default function TimesheetProjectsPage() {
     setReloadToken((token) => token + 1)
   }, [])
 
+  const projectsMutationContextId = 'staff-time-projects-list:assign-members'
+  const { runMutation: runProjectsMutation, retryLastMutation: retryProjectsMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: projectsMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
   const handleDelete = React.useCallback(
     async (entry: ProjectRow) => {
       const message = labels.actions.deleteConfirm.replace('{{name}}', entry.name)
@@ -617,10 +632,20 @@ export default function TimesheetProjectsPage() {
       })
       if (!confirmed) return
       try {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(entry.updatedAt),
-          () => deleteCrud('staff/timesheets/time-projects', entry.id, { errorMessage: labels.errors.delete }),
-        )
+        await runProjectsMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(entry.updatedAt),
+              () => deleteCrud('staff/timesheets/time-projects', entry.id, { errorMessage: labels.errors.delete }),
+            ),
+          context: {
+            formId: projectsMutationContextId,
+            resourceKind: 'staff.time_project',
+            resourceId: entry.id,
+            retryLastMutation: retryProjectsMutation,
+          },
+          mutationPayload: { id: entry.id },
+        })
         flash(labels.messages.deleted, 'success')
         handleRefresh()
       } catch (error) {
@@ -629,18 +654,8 @@ export default function TimesheetProjectsPage() {
         flash(labels.errors.delete, 'error')
       }
     },
-    [confirm, handleRefresh, t, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted],
+    [confirm, handleRefresh, projectsMutationContextId, retryProjectsMutation, runProjectsMutation, t, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted],
   )
-
-  const assignMutationContextId = 'staff-time-projects-list:assign-members'
-  const { runMutation: runAssignMutation, retryLastMutation: retryAssignMutation } = useGuardedMutation<{
-    formId: string
-    resourceKind: string
-    retryLastMutation: () => Promise<boolean>
-  }>({
-    contextId: assignMutationContextId,
-    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
-  })
 
   const handleAssignMembers = React.useCallback(
     async (input: AssignMembersSubmitInput) => {
@@ -648,7 +663,7 @@ export default function TimesheetProjectsPage() {
       if (targets.length === 0 || input.staffMemberIds.length === 0) return
       setIsAssigning(true)
       try {
-        const { succeeded, failures } = await runAssignMutation({
+        const { succeeded, failures } = await runProjectsMutation({
           operation: () =>
             runBulkDelete(
               targets,
@@ -676,9 +691,9 @@ export default function TimesheetProjectsPage() {
               },
             ),
           context: {
-            formId: assignMutationContextId,
+            formId: projectsMutationContextId,
             resourceKind: 'staff.time_project_member',
-            retryLastMutation: retryAssignMutation,
+            retryLastMutation: retryProjectsMutation,
           },
           mutationPayload: {
             projectIds: targets.map((row) => row.id),
@@ -707,12 +722,12 @@ export default function TimesheetProjectsPage() {
       }
     },
     [
-      assignMutationContextId,
+      projectsMutationContextId,
       handleRefresh,
       labels.assign.error,
       labels.assign.progressName,
-      retryAssignMutation,
-      runAssignMutation,
+      retryProjectsMutation,
+      runProjectsMutation,
       selectedRows,
       t,
     ],
@@ -1014,14 +1029,12 @@ export default function TimesheetProjectsPage() {
     [labels.card, labels.statuses],
   )
 
-  const canManage = isPmRole
-
   const emptyStateCopy = React.useMemo(() => {
     const hasFiltersApplied = activeTab !== 'all' || search.trim().length > 0 || Object.values(filterValues).some(Boolean)
     if (hasFiltersApplied) return labels.emptyState.noMatches
-    if (!canManage) return labels.emptyState.noAssignments
+    if (!canManageProjects) return labels.emptyState.noAssignments
     return labels.emptyState.noProjects
-  }, [activeTab, search, filterValues, canManage, labels.emptyState])
+  }, [activeTab, search, filterValues, canManageProjects, labels.emptyState])
 
   const cardsData: ProjectCardData[] = rows.map((row) => ({
     id: row.id,
@@ -1106,7 +1119,7 @@ export default function TimesheetProjectsPage() {
             ) : rows.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-card p-10 text-center">
                 <p className="text-sm text-muted-foreground">{emptyStateCopy}</p>
-                {canManage ? (
+                {canManageProjects ? (
                   <div className="mt-3">
                     <Button asChild size="sm">
                       <Link href="/backend/staff/time-tracking/projects/create">
@@ -1140,7 +1153,7 @@ export default function TimesheetProjectsPage() {
             emptyState={
               <div className="py-12 text-center">
                 <p className="text-sm text-muted-foreground mb-4">{emptyStateCopy}</p>
-                {canManage ? (
+                {canManageProjects ? (
                   <Button asChild size="sm">
                     <Link href="/backend/staff/time-tracking/projects/create">{labels.actions.addFirst}</Link>
                   </Button>
@@ -1148,7 +1161,7 @@ export default function TimesheetProjectsPage() {
               </div>
             }
             actions={
-              canManage ? (
+              canManageProjects ? (
                 <Button asChild size="sm">
                   <Link href="/backend/staff/time-tracking/projects/create">{labels.actions.add}</Link>
                 </Button>
@@ -1178,7 +1191,7 @@ export default function TimesheetProjectsPage() {
                     label: labels.actions.viewDetails,
                     href: `/backend/staff/time-tracking/projects/${row.id}`,
                   },
-                  ...(canManage
+                  ...(canManageProjects
                     ? [
                         {
                           id: 'delete',
@@ -1211,6 +1224,7 @@ export default function TimesheetProjectsPage() {
             ),
             searchPlaceholder: labels.assign.searchPlaceholder,
             empty: labels.assign.empty,
+            loadError: labels.assign.loadError,
             loading: labels.assign.loading,
             role: labels.assign.role,
             rolePlaceholder: labels.assign.rolePlaceholder,

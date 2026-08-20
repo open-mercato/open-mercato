@@ -5,8 +5,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -25,6 +26,7 @@ export type AssignMembersDialogLabels = {
   description: string
   searchPlaceholder: string
   empty: string
+  loadError: string
   loading: string
   role: string
   rolePlaceholder: string
@@ -78,7 +80,11 @@ export function AssignMembersDialog({
 }: AssignMembersDialogProps) {
   const [search, setSearch] = React.useState('')
   const [candidates, setCandidates] = React.useState<Candidate[]>([])
-  const [isLoading, setIsLoading] = React.useState(false)
+  // The candidate list is fetched behind a debounce, so the dialog would render
+  // its "no results" copy for the whole debounce window before the first request
+  // even leaves. Seed the loading state from `open` instead.
+  const [isLoading, setIsLoading] = React.useState(open)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [selectedIds, setSelectedIds] = React.useState<string[]>([])
   const [role, setRole] = React.useState('')
   const [startDate, setStartDate] = React.useState(todayIso)
@@ -89,13 +95,14 @@ export function AssignMembersDialog({
     setSelectedIds([])
     setRole('')
     setStartDate(todayIso())
+    setLoadError(null)
   }, [open])
 
   React.useEffect(() => {
     if (!open) return
     let cancelled = false
+    setIsLoading(true)
     const handle = window.setTimeout(() => {
-      setIsLoading(true)
       const params = new URLSearchParams({
         pageSize: String(CANDIDATE_PAGE_SIZE),
         isActive: 'true',
@@ -104,17 +111,19 @@ export function AssignMembersDialog({
       readApiResultOrThrow<StaffMembersResponse>(
         `/api/staff/team-members?${params.toString()}`,
         undefined,
-        { errorMessage: labels.empty, fallback: { items: [] } },
+        { errorMessage: labels.loadError, fallback: { items: [] } },
       )
         .then((payload) => {
           if (cancelled) return
           const items = Array.isArray(payload.items) ? payload.items : []
           setCandidates(items.map(toCandidate).filter((item): item is Candidate => item !== null))
+          setLoadError(null)
         })
         .catch((error: unknown) => {
           if (cancelled) return
           logger.error('staff.timesheets.projects.assignMembers.candidates', { err: error })
           setCandidates([])
+          setLoadError(labels.loadError)
         })
         .finally(() => {
           if (!cancelled) setIsLoading(false)
@@ -124,7 +133,7 @@ export function AssignMembersDialog({
       cancelled = true
       window.clearTimeout(handle)
     }
-  }, [open, search, labels.empty])
+  }, [open, search, labels.loadError])
 
   const toggleCandidate = React.useCallback((id: string, checked: boolean) => {
     setSelectedIds((prev) => (checked ? Array.from(new Set([...prev, id])) : prev.filter((value) => value !== id)))
@@ -164,6 +173,8 @@ export function AssignMembersDialog({
           <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-border p-1">
             {isLoading ? (
               <LoadingMessage label={labels.loading} />
+            ) : loadError ? (
+              <ErrorMessage label={loadError} />
             ) : candidates.length === 0 ? (
               <p className="px-2 py-3 text-sm text-muted-foreground">{labels.empty}</p>
             ) : (
@@ -213,6 +224,7 @@ export function AssignMembersDialog({
               {labels.cancel}
             </Button>
             <Button type="button" disabled={!canSubmit} onClick={submit}>
+              {isSaving ? <Spinner className="size-4" /> : null}
               {labels.confirm}
             </Button>
           </div>

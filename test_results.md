@@ -7,12 +7,12 @@ One row per finding; add new ones as they are found.
 
 | | |
 |---|---|
-| Branch | `develop` |
-| Head | `ea078b78f` — feat(staff): seed time-tracking demo data |
+| Branch | `feat/time-tracking-suite-hardening` |
+| Head | `8f296f54e` + the 2026-08-20 hardening pass (uncommitted) |
 | App | `http://localhost:3100` (worktree `/2/open-mercato`) |
 | Data | demo seed — 4 projects, 27 tasks, ~470 entries, 2 reports |
 | Tester | Patryk Lewczuk |
-| Started | 2026-08-19 |
+| Started | 2026-08-19 · re-verified 2026-08-20 |
 
 **Status legend:** `open` · `in progress` · `fixed` · `wontfix` · `not reproducible`
 
@@ -27,11 +27,16 @@ One row per finding; add new ones as they are found.
 | 3 | Quick-log takes only duration — no description, date or billable | Task drawer — log time | Medium | **fixed** |
 | 4 | **Clicking a time entry opens a different entry** | Time entries — edit dialog | **High** | **fixed** |
 | 5 | Selecting a customer leaves the picker looking empty | Project form — customer picker | High | **fixed** |
-| 6 | Task references: short codes + searchable picker | Time entry — task picker | Medium | partly done |
-| 7 | Tags: cannot create inline, colour never rendered | Time entry / task drawer — tags | Medium | open |
+| 6 | Task references: short codes + searchable picker | Time entry — task picker | Medium | **fixed** |
+| 7 | Tags: cannot create inline, colour never rendered | Time entry / task drawer — tags | Medium | **fixed** |
 | 8 | Footer keyboard hints wrap into columns | Time entry dialog — footer | Low | **fixed** |
-| 9 | Entries list should default to my own entries | Time entries — filters | Medium | open |
-| 10 | Entry filters too thin (2 filters; options built from loaded rows) | Time entries — filters | Medium | open |
+| 9 | Entries list should default to my own entries | Time entries — filters | Medium | **fixed** |
+| 10 | Entry filters too thin (2 filters; options built from loaded rows) | Time entries — filters | Medium | **fixed** |
+
+Findings 6, 7, 9 and 10 were recorded against head `ea078b78f` and were already
+partly or wholly addressed by later commits; the 2026-08-20 audit re-verified each
+against current code and closed the remainder. What that audit found *beyond* the
+original ten is tracked below.
 
 ---
 
@@ -501,3 +506,48 @@ so a project with no entry on the current page cannot be filtered to — the fil
 ### Also worth fixing while in there
 
 Project options should come from `/api/staff/timesheets/time-projects`, not from the loaded rows, so the filter can reach a project that has no entry in the current period.
+
+---
+
+## 2026-08-20 — audit pass
+
+A six-agent cross-check (mockup conformance, design-system compliance, interaction
+and accessibility, integration wiring, re-verification of findings 1–10, validation
+gate) re-read the branch and closed the items below. Each was fixed with a
+regression test that was verified to fail against the pre-fix source.
+
+**Closed out of findings 6, 7, 9, 10**
+
+| # | Residue the audit found | Resolution |
+|---|---|---|
+| 6 | Picker search silently capped at the first 100 tasks (client-side filter over one page); dead `fetchTaskItems` + `LookupSelect` remnants | Server-side search restored — debounced remote query merged with the directory page, plus a pinned-task and by-id fallback so a searched or out-of-page task survives |
+| 7 | Task drawer still a bare `Select` — no search, no create, no colour, and its query never fetched `color` | Drawer now uses the shared `TagPicker`; query projects `color`; chips tinted as in the entry dialog |
+| 7 | Inline-created tags stored `color: null`, contradicting the code comment — picker dot tinted, resulting chip grey | Create now sends the same hue the dot derives |
+| 9 | Person filter gated on `manage_own`, so a consultant saw a whole-team filter that always returned empty | Gated on `manage_all`; the self-filter chip keeps its readable label via an unlisted-filter fallback |
+| 10 | `?taskId=` / `?ids=` deep links from the task drawer and entry dialog landed on an unfiltered list — tests asserted only that the *link* was built correctly | Both params now seed the filter state, render as removable chips with resolved titles, and clear their param when dismissed |
+
+**Found by the audit, not present in findings 1–10**
+
+| Area | Defect | Resolution |
+|---|---|---|
+| Entry dialog | Escape inside the task/tag popover closed the whole dialog and discarded the entry — a hand-rolled Escape handler competing with Radix's capture-phase `DismissableLayer` | Hand-rolled branch removed; both pickers dismiss on a capture-phase window listener |
+| Entry dialog · team drawer | No unsaved-change protection; the drawer even displayed a pending-change count before discarding it | Dirty snapshot + destructive confirm on every exit route |
+| Entries list | Inline description double-submitted (Enter → disable → blur → second PUT with a stale version), so a *successful* edit raised a 409 at the user | Single-flight guard; blur no longer re-saves in flight |
+| Task statuses API | List route never intersected with the project-access resolver, so any employee could enumerate Kanban column config for every project in the org | Narrowed via `resolveListProjectAccess`, matching the sibling routes |
+| Report config | Projects with zero entries in the period shipped pre-ticked | Default tick deferred until counts arrive; a hand-ticked empty project survives |
+| Project detail · projects list | Employee add/remove and project delete bypassed `useGuardedMutation`; a 409 was flattened into a generic failure | Wrapped in `runMutation` with `surfaceRecordConflict` |
+| Validation styling | `text-status-error-base` is not a valid token — 10 validation messages rendered in body colour | Replaced with `text-status-error-text` |
+| Timesheet | `?period=` / `?view=` never read; preferences shared between users on one browser | Params wired with URL → stored → default precedence; storage keys scoped per staff member |
+| Reports | `?unlock=1` never read | Wired, gated on the same closed-and-permitted condition as the button |
+| Timesheet grid | Task-cell writes sent no version, so the wired `surfaceRecordConflict` could never fire | Per-entry versions carried into the cells and sent on update/delete |
+| CI guards | Four repo-wide guard tests failing (sort comparators, optimistic-lock UI coverage, record-locks decisions, module-facts cap) | All four cleared |
+
+**Known-open, deliberately not fixed here**
+
+- Subtasks still cannot be timed or logged against (Phase 3.4 / D-2) — product scope.
+- The entry dialog never opens from a stopped timer (mockup screen 8's premise); its `headerHint` prop has no caller.
+- The project-scoped Kanban board is unreachable from the project detail page.
+- Task drawer cannot list tags the server already holds — the tasks list API projects no per-row tag ids (T3.10).
+- Tag assignments carry no version header; assignments are their own resource with no parent-task version. Route-side change if wanted.
+- Spec-mandated integration coverage remains 4 of 22 (TC-TT-018 / 019 / 021 are the money-critical ones).
+- Resolved Decision D-10 (19-char word-accumulated project codes) is contradicted by the shipped 3-letter derivation; the code is closer to the mockup, so the decision should be amended rather than the code reverted.

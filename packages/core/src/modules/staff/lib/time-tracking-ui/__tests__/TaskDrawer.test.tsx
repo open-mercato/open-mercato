@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -20,6 +20,11 @@ const CHILD_ID = '66666666-6666-4666-8666-666666666666'
 const OTHER_TASK_ID = '77777777-7777-4777-8777-777777777777'
 const SELF_ID = '88888888-8888-4888-8888-888888888888'
 const RUNNING_ENTRY_ID = '99999999-9999-4999-8999-999999999999'
+const TAG_BACKEND_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const TAG_DESIGN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const TAG_NEW_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+/** `purple` in `PROJECT_COLORS`, as jsdom serialises the tinted chip. */
+const PURPLE_RGB = 'rgba(168, 85, 247'
 const VERSION_ONE = '2026-08-12T10:00:00.000Z'
 const VERSION_TWO = '2026-08-12T11:00:00.000Z'
 
@@ -167,6 +172,7 @@ let childRows: Row[]
 let commentRows: Row[]
 let entryRows: Row[]
 let runningRows: Row[]
+let tagRows: Row[]
 
 function ok<T>(result: T) {
   return { ok: true, status: 200, result, response: {} as Response, cacheStatus: null }
@@ -192,7 +198,7 @@ function installApiRouter() {
     if (url.includes('/team-members?')) {
       return ok({ items: [{ id: SELF_ID, display_name: 'Anna Nowak' }], total: 1 }) as never
     }
-    if (url.includes('/timesheets/tags?')) return ok({ items: [], total: 0 }) as never
+    if (url.includes('/timesheets/tags?')) return ok({ items: tagRows, total: tagRows.length }) as never
     return ok({ items: [], total: 0 }) as never
   })
   mockApiCallOrThrow.mockImplementation(async () => ok({ ok: true }) as never)
@@ -269,6 +275,10 @@ beforeEach(() => {
     },
   ]
   runningRows = []
+  tagRows = [
+    { id: TAG_BACKEND_ID, label: 'Backend', color: 'purple' },
+    { id: TAG_DESIGN_ID, label: 'Design', color: 'teal' },
+  ]
   installApiRouter()
   mockUseBackendChrome.mockReturnValue({
     payload: {
@@ -496,6 +506,85 @@ describe('TaskDrawer', () => {
     await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/status`).length).toBe(1))
     const lastHeader = mockWithScopedHeaders.mock.calls[mockWithScopedHeaders.mock.calls.length - 1][0]
     expect(lastHeader).toEqual({ [OPTIMISTIC_LOCK_HEADER_NAME]: VERSION_TWO })
+  })
+
+  it('renders the assigned tags tinted with the colour the tags API returns', async () => {
+    // W10: the drawer's tags query projected only `{ id, label }`, so its chips were
+    // grey while the entry dialog tinted the same rows from `staff_time_tags.color`.
+    taskRow = { ...taskRow, tag_ids: [TAG_BACKEND_ID] }
+    renderDrawer()
+
+    const chip = await screen.findByText('Backend')
+    expect(chip.style.backgroundColor).toContain(PURPLE_RGB)
+    expect(chip.style.borderColor).toContain(PURPLE_RGB)
+  })
+
+  it('searches the tag list instead of showing every tag at once', async () => {
+    renderDrawer()
+
+    fireEvent.click(await screen.findByTestId('task-drawer-tag-select'))
+    fireEvent.change(screen.getByTestId('task-drawer-tag-search'), { target: { value: 'des' } })
+
+    const options = within(screen.getByRole('listbox')).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['Design'])
+  })
+
+  it('assigns a searched tag through the task-assignments endpoint', async () => {
+    renderDrawer()
+
+    fireEvent.click(await screen.findByTestId('task-drawer-tag-select'))
+    fireEvent.change(screen.getByTestId('task-drawer-tag-search'), { target: { value: 'back' } })
+    fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: 'Backend' }))
+
+    await waitFor(() => expect(writeCalls('/tags/task-assignments').length).toBe(1))
+    const [, init] = writeCalls('/tags/task-assignments')[0]
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({ taskId: TASK_ID, tagIds: [TAG_BACKEND_ID] })
+    // The swap must not reroute the write through the entry dialog's tag path.
+    expect(writeCalls('/timesheets/time-entries').length).toBe(0)
+  })
+
+  it('creates a tag inline and assigns the id the create route returned', async () => {
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/staff/timesheets/tags') {
+        tagRows = [...tagRows, { id: TAG_NEW_ID, label: 'Refaktor', color: 'emerald' }]
+        return ok({ id: TAG_NEW_ID }) as never
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.click(await screen.findByTestId('task-drawer-tag-select'))
+    fireEvent.change(screen.getByTestId('task-drawer-tag-search'), { target: { value: 'Refaktor' } })
+    fireEvent.click(await screen.findByTestId('task-drawer-tag-create'))
+
+    await waitFor(() => expect(writeCalls('/tags/task-assignments').length).toBe(1))
+    const createCall = mockApiCallOrThrow.mock.calls.find(([url]) => String(url) === '/api/staff/timesheets/tags')
+    expect(createCall?.[1]?.method).toBe('POST')
+    expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({ label: 'Refaktor', slug: 'refaktor' })
+    expect(JSON.parse(String(writeCalls('/tags/task-assignments')[0][1]?.body))).toEqual({
+      taskId: TASK_ID,
+      tagIds: [TAG_NEW_ID],
+    })
+  })
+
+  it('removes a tag through the same endpoint and leaves the version pipeline intact', async () => {
+    taskRow = { ...taskRow, tag_ids: [TAG_BACKEND_ID] }
+    renderDrawer()
+
+    fireEvent.click(await screen.findByLabelText('Remove tag Backend'))
+
+    await waitFor(() => expect(writeCalls('/tags/task-assignments').length).toBe(1))
+    const [, init] = writeCalls('/tags/task-assignments')[0]
+    expect(init?.method).toBe('DELETE')
+    expect(JSON.parse(String(init?.body))).toEqual({ taskId: TASK_ID, tagIds: [TAG_BACKEND_ID] })
+    // Tag assignments are their own resource and carry no task version; the swap
+    // must leave the per-field lock header pipeline exactly where it was.
+    await waitFor(() => expect(screen.getByTestId('task-drawer-status-select')).toBeTruthy())
+    fireEvent.change(screen.getByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/status`).length).toBe(1))
+    const lastHeader = mockWithScopedHeaders.mock.calls[mockWithScopedHeaders.mock.calls.length - 1][0]
+    expect(lastHeader).toEqual({ [OPTIMISTIC_LOCK_HEADER_NAME]: VERSION_ONE })
   })
 
   it('posts a comment on ⌘↵', async () => {

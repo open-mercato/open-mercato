@@ -320,6 +320,63 @@ describe('locked cells', () => {
   })
 })
 
+/**
+ * U11 — the grid is a data table, so it has to read as one. Before this, every
+ * row was eight unlabelled numbers to a screen reader and the weekend was
+ * signalled by a background tint alone.
+ */
+describe('table semantics', () => {
+  it('names the table with a caption and marks every column header', () => {
+    renderGrid()
+    expect(screen.getByRole('table', { name: /Timesheet grid/ })).toBeInTheDocument()
+    // Project + one per day + Total.
+    expect(screen.getAllByRole('columnheader')).toHaveLength(DAYS.length + 2)
+  })
+
+  it('makes the row label a row header, in the body and in the footer', () => {
+    renderGrid()
+    expect(screen.getByRole('rowheader', { name: /Nordvik/ })).toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: 'Daily Total' })).toBeInTheDocument()
+  })
+
+  it('gives the weekend columns a cue that is not just a background colour', () => {
+    renderGrid()
+    const weekendHeaders = screen
+      .getAllByRole('columnheader')
+      .filter((header) => header.getAttribute('title')?.includes('Weekend day'))
+    // 2026-07-18 and 2026-07-19 are the Saturday and Sunday of this week.
+    expect(weekendHeaders).toHaveLength(2)
+    expect(weekendHeaders[0]).toHaveTextContent('Weekend day')
+  })
+})
+
+/**
+ * U10 — the grid used to render headers over an empty body both while the
+ * period was loading and when there was nothing to show.
+ */
+describe('loading and empty states', () => {
+  it('draws skeleton rows in the real row geometry while the period loads', () => {
+    renderGrid({ isLoading: true })
+    const skeletonRows = screen.getAllByTestId('grid-skeleton-row')
+    expect(skeletonRows).toHaveLength(4)
+    // Same geometry as a data row: a row header, one cell per day, a total.
+    expect(within(skeletonRows[0]).getByRole('rowheader')).toBeInTheDocument()
+    expect(within(skeletonRows[0]).getAllByRole('cell')).toHaveLength(DAYS.length + 1)
+    expect(screen.getByRole('table', { name: /Timesheet grid/ })).toHaveAttribute('aria-busy', 'true')
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('grid-empty-row')).not.toBeInTheDocument()
+  })
+
+  it('renders an empty state inside the table when there are no rows', () => {
+    renderGrid({ projects: [], allAssignedProjects: [], entries: [] })
+    const emptyRow = screen.getByTestId('grid-empty-row')
+    expect(within(emptyRow).getByText('This grid has no rows yet')).toBeInTheDocument()
+    expect(within(emptyRow).getByText('Add a project row to start filling the grid.')).toBeInTheDocument()
+    expect(screen.queryByTestId('grid-skeleton-row')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('columnheader')).toHaveLength(DAYS.length + 2)
+  })
+})
+
 describe('read-only mode', () => {
   it('offers no inputs and no Save when looking at somebody else’s timesheet', () => {
     renderGrid({ readOnly: true })

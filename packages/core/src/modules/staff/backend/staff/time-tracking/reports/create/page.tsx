@@ -102,6 +102,11 @@ type MutationContext = {
   retryLastMutation: () => Promise<boolean>
 }
 
+function readPreselectedProjectIds(params: URLSearchParams): string[] {
+  const raw = params.get('projectIds')
+  return raw ? raw.split(',').map((id) => id.trim()).filter(Boolean) : []
+}
+
 function readRows(payload: unknown): Array<Record<string, unknown>> {
   if (!payload || typeof payload !== 'object') return []
   const items = (payload as { items?: unknown }).items
@@ -121,10 +126,14 @@ export default function TimeTrackingReportCreatePage() {
   const [period, setPeriod] = React.useState<ReportPeriodState>(() => initialReportPeriod())
   const [candidates, setCandidates] = React.useState<ReportCandidateProject[]>([])
   const [candidatesLoading, setCandidatesLoading] = React.useState(false)
-  const [selectedIds, setSelectedIds] = React.useState<string[]>(() => {
-    const raw = searchParams.get('projectIds')
-    return raw ? raw.split(',').map((id) => id.trim()).filter(Boolean) : []
-  })
+  const preselectedIds = React.useMemo(() => readPreselectedProjectIds(searchParams), [searchParams])
+  const [selectedIds, setSelectedIds] = React.useState<string[]>(preselectedIds)
+  // Note 2 forbids a pre-ticked project with no entries in the period, and the
+  // entry counts only arrive with the candidate preview. So the default tick is
+  // owed rather than applied: this flag says the screen still has to decide it
+  // once the counts are in. An explicit `?projectIds=` preselection settles the
+  // question up front and never becomes pending.
+  const [defaultSelectionPending, setDefaultSelectionPending] = React.useState(preselectedIds.length === 0)
   const [grouping, setGrouping] = React.useState<Grouping>('project_task')
   const [nonbillableMode, setNonbillableMode] = React.useState<NonbillableMode>('separate')
   const [showRates, setShowRates] = React.useState(true)
@@ -157,6 +166,11 @@ export default function TimeTrackingReportCreatePage() {
     contextId: MUTATION_CONTEXT_ID,
     blockedMessage: labels.createError,
   })
+
+  const selectedIdsRef = React.useRef<string[]>(selectedIds)
+  React.useEffect(() => {
+    selectedIdsRef.current = selectedIds
+  }, [selectedIds])
 
   React.useEffect(() => {
     if (!customer) return
@@ -192,11 +206,10 @@ export default function TimeTrackingReportCreatePage() {
           .map(toCandidateProject)
           .filter((project): project is ReportCandidateProject => project !== null)
         setCandidates(rows)
-        setSelectedIds((current) => {
-          const allowed = new Set(rows.map((project) => project.id))
-          const kept = current.filter((id) => allowed.has(id))
-          return kept.length > 0 ? kept : rows.map((project) => project.id)
-        })
+        const allowed = new Set(rows.map((project) => project.id))
+        const kept = selectedIdsRef.current.filter((id) => allowed.has(id))
+        setSelectedIds(kept)
+        setDefaultSelectionPending(kept.length === 0)
       })
       .catch((err) => {
         if (cancelled) return
@@ -306,6 +319,19 @@ export default function TimeTrackingReportCreatePage() {
     }
     return map
   }, [candidatePreview])
+
+  // The counts decide the default: every project with time in the period is
+  // ticked, the empty ones stay listed and untouched. Whatever the user ticked
+  // while the counts were in flight is merged in rather than overwritten — the
+  // screen settles the default once and then leaves the selection alone.
+  React.useEffect(() => {
+    if (!defaultSelectionPending || !candidatePreview || candidates.length === 0) return
+    const withEntries = candidates
+      .filter((project) => (projectFigures.get(project.id)?.entryCount ?? 0) > 0)
+      .map((project) => project.id)
+    setSelectedIds((current) => Array.from(new Set([...current, ...withEntries])))
+    setDefaultSelectionPending(false)
+  }, [candidatePreview, candidates, defaultSelectionPending, projectFigures])
 
   const currencyCode = preview?.currencyCode ?? candidatePreview?.currencyCode ?? null
 
@@ -423,6 +449,7 @@ export default function TimeTrackingReportCreatePage() {
                   setCustomer(selection)
                   setCustomerId(selection?.id ?? null)
                   setSelectedIds([])
+                  setDefaultSelectionPending(true)
                   setConflict(null)
                 }}
               />
@@ -484,7 +511,7 @@ export default function TimeTrackingReportCreatePage() {
                 </div>
               </div>
               {!isValidReportPeriod(period) ? (
-                <p className="text-xs text-status-error-base">
+                <p className="text-xs text-status-error-text">
                   {t('staff.time_tracking.reports.create.invalidPeriod', 'The end date must not precede the start date.')}
                 </p>
               ) : spansMultipleMonths(period) ? (

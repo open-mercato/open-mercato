@@ -31,9 +31,23 @@ export function CreateProjectDialog({ open, onOpenChange, onProjectCreated }: Cr
   const fields = React.useMemo(() => createProjectFormFields(t), [t])
   const groups = React.useMemo(() => createProjectFormGroups(t, { compact: true }), [t])
 
+  /**
+   * `CrudForm` bails out of its own Enter-to-submit handling as soon as a
+   * modifier is held, so the shortcut every other dialog in this feature offers
+   * has to be wired here — on the dialog, submitting the embedded form directly.
+   * Escape stays with Radix's dismissable layer, which this never intercepts.
+   */
+  const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!((event.metaKey || event.ctrlKey) && event.key === 'Enter')) return
+    const form = event.currentTarget.querySelector('form')
+    if (!form) return
+    event.preventDefault()
+    form.requestSubmit()
+  }, [])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" data-testid="create-project-dialog" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>
             {t('staff.timesheets.projects.form.createTitle', 'Create project')}

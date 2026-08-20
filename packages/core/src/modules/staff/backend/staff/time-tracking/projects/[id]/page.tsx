@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { LookupSelect } from '@open-mercato/ui/backend/inputs/LookupSelect'
@@ -11,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primi
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -31,6 +34,16 @@ import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
 const logger = createLogger('staff')
 
 const BACK_HREF = '/backend/staff/time-tracking/projects'
+
+const EMPLOYEE_MUTATION_CONTEXT_ID = 'staff-time-project-detail:employees'
+const EMPLOYEE_RESOURCE_KIND = 'staff.time_project_member'
+
+type EmployeeMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  retryLastMutation: () => Promise<boolean>
+}
 
 /**
  * Mirrors `NO_PROJECT_ACCESS_REASON` from
@@ -199,6 +212,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [addRole, setAddRole] = React.useState('')
   const [addStartDate, setAddStartDate] = React.useState('')
   const [addSaving, setAddSaving] = React.useState(false)
+  const [staffLookupError, setStaffLookupError] = React.useState<string | null>(null)
 
   // Fetched per tab rather than up front: a project page opened to check a rate
   // should not pay for two lists nobody looked at.
@@ -416,6 +430,21 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     })
   }, [])
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<EmployeeMutationContext>({
+    contextId: EMPLOYEE_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
+  const employeeMutationContext = React.useCallback(
+    (resourceId: string): EmployeeMutationContext => ({
+      formId: EMPLOYEE_MUTATION_CONTEXT_ID,
+      resourceKind: EMPLOYEE_RESOURCE_KIND,
+      resourceId,
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+
   // optimistic-lock-exempt: the employee add/remove calls below mutate the
   // time-project ↔ staff-member assignment junction (createCrud/deleteCrud of a
   // membership row), not a shared editable aggregate. Junction add/remove is exempt
@@ -429,66 +458,90 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     })
     if (!confirmed) return
     try {
-      await deleteCrud(
-        `staff/timesheets/time-projects/${projectId}/employees`,
-        emp.id,
-        { errorMessage: t('staff.timesheets.projects.employees.removeError', 'Failed to remove employee.') },
-      )
+      await runMutation({
+        operation: () =>
+          deleteCrud(
+            `staff/timesheets/time-projects/${projectId}/employees`,
+            emp.id,
+            { errorMessage: t('staff.timesheets.projects.employees.removeError', 'Failed to remove employee.') },
+          ),
+        context: employeeMutationContext(emp.id),
+        mutationPayload: { id: emp.id },
+      })
       flash(t('staff.timesheets.projects.employees.removed', 'Employee removed.'), 'success')
       setReloadToken((token) => token + 1)
-    } catch {
+    } catch (removeError) {
+      if (surfaceRecordConflict(removeError, t)) return
       flash(t('staff.timesheets.projects.employees.removeError', 'Failed to remove employee.'), 'error')
     }
-  }, [projectId, confirm, t])
+  }, [projectId, confirm, employeeMutationContext, runMutation, t])
 
   // --- Add employee dialog ---
   const openAddDialog = React.useCallback(() => {
     setAddStaffMemberId(null)
     setAddRole('')
     setAddStartDate(new Date().toISOString().slice(0, 10))
+    setStaffLookupError(null)
     setAddDialogOpen(true)
   }, [])
 
+  // A failed lookup is not an empty roster: swallowing it here left the picker
+  // claiming "No team members found" while the request had actually errored.
+  const staffLookupErrorMessage = t(
+    'staff.timesheets.projects.employees.loadError',
+    'Could not load team members. Check your connection and try again.',
+  )
+
   const fetchStaffMembers = React.useCallback(async (query: string) => {
+    const params = new URLSearchParams({ search: query, pageSize: '20', isActive: 'true' })
     try {
-      const params = new URLSearchParams({ search: query, pageSize: '20', isActive: 'true' })
       const payload = await readApiResultOrThrow<StaffMembersResponse>(
         `/api/staff/team-members?${params.toString()}`,
         undefined,
-        { errorMessage: '', fallback: { items: [] } },
+        { errorMessage: staffLookupErrorMessage, fallback: { items: [] } },
       )
       const items = Array.isArray(payload.items) ? payload.items : []
+      setStaffLookupError(null)
       return items.map((member) => ({
         id: member.id,
         title: member.display_name ?? member.displayName ?? member.id,
         subtitle: member.team?.name ?? null,
       }))
-    } catch {
-      return []
+    } catch (lookupError) {
+      logger.error('staff.timesheets.projects.employees.lookup', { err: lookupError })
+      setStaffLookupError(staffLookupErrorMessage)
+      throw lookupError
     }
-  }, [])
+  }, [staffLookupErrorMessage])
 
   const handleAddEmployee = React.useCallback(async () => {
     if (!projectId || !addStaffMemberId || !addStartDate) return
+    const payload = {
+      staffMemberId: addStaffMemberId,
+      timeProjectId: projectId,
+      role: addRole.trim() || null,
+      assignedStartDate: addStartDate,
+    }
     setAddSaving(true)
     try {
-      await createCrud(`staff/timesheets/time-projects/${projectId}/employees`, {
-        staffMemberId: addStaffMemberId,
-        timeProjectId: projectId,
-        role: addRole.trim() || null,
-        assignedStartDate: addStartDate,
-      }, {
-        errorMessage: t('staff.timesheets.projects.employees.addError', 'Failed to add employee.'),
+      await runMutation({
+        operation: () =>
+          createCrud(`staff/timesheets/time-projects/${projectId}/employees`, payload, {
+            errorMessage: t('staff.timesheets.projects.employees.addError', 'Failed to add employee.'),
+          }),
+        context: employeeMutationContext(addStaffMemberId),
+        mutationPayload: payload,
       })
       flash(t('staff.timesheets.projects.employees.added', 'Employee added.'), 'success')
       setAddDialogOpen(false)
       setReloadToken((token) => token + 1)
     } catch (addError) {
+      if (surfaceRecordConflict(addError, t)) return
       flash(addError instanceof Error ? addError.message : t('staff.timesheets.projects.employees.addError', 'Failed to add employee.'), 'error')
     } finally {
       setAddSaving(false)
     }
-  }, [projectId, addStaffMemberId, addRole, addStartDate, t])
+  }, [projectId, addStaffMemberId, addRole, addStartDate, employeeMutationContext, runMutation, t])
 
   // Screen 5: the team drawer lives behind `?panel=team` so the project form
   // link and the access-request notification (D-6, `&requesterUserId=`) can both
@@ -1247,6 +1300,11 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                   searchPlaceholder={t('staff.timesheets.projects.employees.searchEmployee', 'Search team members...')}
                   emptyLabel={t('staff.timesheets.projects.employees.noResults', 'No team members found')}
                 />
+                {staffLookupError ? (
+                  <p className="text-xs text-status-error-text" role="alert">
+                    {staffLookupError}
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="add-role">
@@ -1279,6 +1337,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                   disabled={addSaving || !addStaffMemberId || !addStartDate}
                   onClick={handleAddEmployee}
                 >
+                  {addSaving ? <Spinner className="size-4" /> : null}
                   {t('staff.timesheets.projects.add_employee', 'Add Employee')}
                 </Button>
               </div>

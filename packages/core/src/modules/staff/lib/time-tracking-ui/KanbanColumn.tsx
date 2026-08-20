@@ -8,7 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { KanbanCard, type KanbanTagOption } from './KanbanCard'
+import { KanbanCard, type KanbanMoveTarget, type KanbanTagOption } from './KanbanCard'
 import {
   columnLoggedMinutes,
   formatBoardMinutes,
@@ -42,13 +42,18 @@ export type KanbanColumnProps = {
   tagsByTaskId: ReadonlyMap<string, KanbanTagOption[]>
   subtasksByTaskId: ReadonlyMap<string, SubtaskProgress>
   quickAddPending: boolean
+  /** Every board column; the card menu is offered the ones other than this column. */
+  moveTargets?: readonly KanbanMoveTarget[]
   onQuickAdd: (statusId: string, title: string) => Promise<void>
   onLoadMore: (statusId: string) => void
   onOpenTask: (taskId: string) => void
   onStartTimer: (taskId: string) => void
   onStopTimer: (taskId: string) => void
   onAddTime: (taskId: string) => void
+  onMoveTask?: (taskId: string, targetStatusId: string) => void
 }
+
+const EMPTY_MOVE_TARGETS: readonly KanbanMoveTarget[] = []
 
 /**
  * One board column (mockup `kcol`): accent bar in the status colour, name, count
@@ -73,12 +78,14 @@ function KanbanColumnImpl({
   tagsByTaskId,
   subtasksByTaskId,
   quickAddPending,
+  moveTargets = EMPTY_MOVE_TARGETS,
   onQuickAdd,
   onLoadMore,
   onOpenTask,
   onStartTimer,
   onStopTimer,
   onAddTime,
+  onMoveTask,
 }: KanbanColumnProps): React.ReactElement {
   const t = useT()
   const [composing, setComposing] = React.useState(false)
@@ -99,6 +106,11 @@ function KanbanColumnImpl({
   }, [composing])
 
   const minutes = React.useMemo(() => columnLoggedMinutes(tasks), [tasks])
+
+  const cardMoveTargets = React.useMemo(
+    () => moveTargets.filter((target) => target.id !== status.id),
+    [moveTargets, status.id],
+  )
 
   const submitDraft = React.useCallback(async () => {
     const title = draft.trim()
@@ -212,10 +224,12 @@ function KanbanColumnImpl({
             timerRunning={runningTimerTaskId === task.id}
             pending={pendingTaskIds.has(task.id)}
             isActiveDrag={activeDragTaskId === task.id}
+            moveTargets={cardMoveTargets}
             onOpen={onOpenTask}
             onStartTimer={onStartTimer}
             onStopTimer={onStopTimer}
             onAddTime={onAddTime}
+            onMoveToColumn={onMoveTask}
           />
         ))}
         {hasMore ? (

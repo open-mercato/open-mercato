@@ -28,6 +28,12 @@
  *     already answers `null`; a zero would read as free work rather than as
  *     work that is out of scope.
  *
+ * The page is also the landing spot for two deep links — the task drawer's
+ * "show all entries" (`?taskId=`) and the entry dialog's jump to an overlapping
+ * entry (`?ids=`). Either one replaces the default "my entries, this week"
+ * seeding and shows up as a removable chip, because a list that quietly ignored
+ * the link would answer a question nobody asked.
+ *
  * Two things beyond the notes. Money columns exist only for a holder of
  * `staff.timesheets.rates.view` — the response has no `cost` for anybody else,
  * so the column is absent rather than blanked. And the footer never adds two
@@ -35,6 +41,7 @@
  */
 
 import * as React from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Copy, Lock, Plus } from 'lucide-react'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { SortingState } from '@tanstack/react-table'
@@ -104,6 +111,14 @@ const ENTRIES_API_PATH = 'staff/timesheets/time-entries'
 const ENTRIES_API = `/api/${ENTRIES_API_PATH}`
 const RATES_FEATURE = 'staff.timesheets.rates.view'
 const MANAGE_OWN_FEATURE = 'staff.timesheets.manage_own'
+const MANAGE_ALL_FEATURE = 'staff.timesheets.manage_all'
+/**
+ * Query parameters other screens use to hand this list a question: the task
+ * drawer's "show every entry for this task" (`?taskId=`) and the entry dialog's
+ * jump to a conflicting entry (`?ids=`). Both are read once on mount and become
+ * ordinary filter values, so they carry a removable chip like anything else.
+ */
+const DEEP_LINK_PARAMS = ['taskId', 'ids'] as const
 const REPORTS_PATH = '/backend/staff/time-tracking/reports'
 const MUTATION_CONTEXT_ID = 'staff.time_tracking.entriesList'
 const RESOURCE_KIND = 'staff.timesheets.time_entry'
@@ -182,16 +197,32 @@ async function loadDirectory(
 
 export default function TimeTrackingEntriesPage() {
   const t = useT()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const { payload } = useBackendChrome()
   const canSeeMoney = hasFeature(payload?.grantedFeatures, RATES_FEATURE)
   const canManage = hasFeature(payload?.grantedFeatures, MANAGE_OWN_FEATURE)
+  // Reading somebody else's entries is `manage_all`, not `manage_own`: the list
+  // route narrows every other caller back to their own rows, so offering them a
+  // person filter promises a lookup the server will answer with nothing.
+  const canManageAll = hasFeature(payload?.grantedFeatures, MANAGE_ALL_FEATURE)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
+  const deepLinkTaskId = searchParams?.get('taskId')?.trim() ?? ''
+  const deepLinkEntryIds = searchParams?.get('ids')?.trim() ?? ''
+
   const defaultRange = React.useMemo(() => currentWeekRange(), [])
-  const [filterValues, setFilterValues] = React.useState<FilterValues>(() => ({
-    period: { from: defaultRange.from, to: defaultRange.to },
-  }))
+  const [filterValues, setFilterValues] = React.useState<FilterValues>(() => {
+    // A deep link is the entire question the reader arrived with, so it replaces
+    // the default week instead of being intersected with it — an entry logged
+    // last month would otherwise be filtered straight back out of the list the
+    // link exists to show.
+    if (deepLinkTaskId) return { taskId: deepLinkTaskId }
+    if (deepLinkEntryIds) return { ids: deepLinkEntryIds }
+    return { period: { from: defaultRange.from, to: defaultRange.to } }
+  })
   // The list opens on your own timesheet. Someone holding `manage_all` sees every
   // entry in the organization otherwise, which is a page about other people.
   const [selfStaffMemberId, setSelfStaffMemberId] = React.useState<string | null>(null)
@@ -199,7 +230,9 @@ export default function TimeTrackingEntriesPage() {
   const [customerOptions, setCustomerOptions] = React.useState<{ value: string; label: string }[]>([])
   const [tagOptions, setTagOptions] = React.useState<{ value: string; label: string }[]>([])
   const [peopleOptions, setPeopleOptions] = React.useState<{ value: string; label: string }[]>([])
-  const personSeededRef = React.useRef(false)
+  // A deep link also outranks the "my entries" seeding the self lookup performs
+  // once it resolves; the entry being pointed at is frequently someone else's.
+  const personSeededRef = React.useRef(Boolean(deepLinkTaskId || deepLinkEntryIds))
   const [page, setPage] = React.useState(1)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'date', desc: true }])
   const [rows, setRows] = React.useState<TimeEntryListRow[]>([])
@@ -253,6 +286,9 @@ export default function TimeTrackingEntriesPage() {
         lockedYes: t('staff.time_tracking.entries.filters.lockedYes', 'Locked in a report'),
         lockedNo: t('staff.time_tracking.entries.filters.lockedNo', 'Not yet reported'),
         text: t('staff.time_tracking.entries.filters.text', 'Description contains'),
+        task: t('staff.time_tracking.entries.filters.task', 'Task'),
+        entry: t('staff.time_tracking.entries.filters.entry', 'Entry'),
+        entrySelection: t('staff.time_tracking.entries.filters.entrySelection', '{count} entries'),
         clearAll: t('staff.time_tracking.entries.filters.clearAll', 'Clear all'),
         remove: t('staff.time_tracking.entries.filters.remove', 'Remove filter {name}'),
       },
@@ -424,14 +460,46 @@ export default function TimeTrackingEntriesPage() {
     [presetContext],
   )
 
-  const removeChip = React.useCallback((id: string) => {
-    setFilterValues((current) => {
-      const next = { ...current }
-      delete next[id]
-      return next
-    })
+  /**
+   * A deep-link filter lives in two places — the filter state and the address
+   * bar — so dropping the chip has to drop the parameter too, otherwise the next
+   * render (or a reload) puts the narrowing straight back.
+   */
+  const dropDeepLinkParams = React.useCallback(
+    (ids: readonly string[]) => {
+      if (!searchParams) return
+      const next = new URLSearchParams(searchParams.toString())
+      let changed = false
+      for (const id of ids) {
+        if (!next.has(id)) continue
+        next.delete(id)
+        changed = true
+      }
+      if (!changed) return
+      const query = next.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname)
+    },
+    [pathname, router, searchParams],
+  )
+
+  const removeChip = React.useCallback(
+    (id: string) => {
+      setFilterValues((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      setPage(1)
+      dropDeepLinkParams([id])
+    },
+    [dropDeepLinkParams],
+  )
+
+  const clearAllFilters = React.useCallback(() => {
+    setFilterValues({})
     setPage(1)
-  }, [])
+    dropDeepLinkParams(DEEP_LINK_PARAMS)
+  }, [dropDeepLinkParams])
 
   const loadEntries = React.useCallback(async () => {
     if (hasLoadedOnceRef.current) setIsRefreshing(true)
@@ -458,6 +526,10 @@ export default function TimeTrackingEntriesPage() {
       if (tag) params.set('tagIds', tag)
       const text = readFilter('q')
       if (text.trim()) params.set('q', text.trim())
+      const taskFilter = readFilter('taskId')
+      if (taskFilter) params.set('taskId', taskFilter)
+      const entryIdsFilter = readFilter('ids')
+      if (entryIdsFilter) params.set('ids', entryIdsFilter)
 
       const listPayload = await readApiResultOrThrow<EntriesResponse>(
         `${ENTRIES_API}?${params.toString()}`,
@@ -745,7 +817,7 @@ export default function TimeTrackingEntriesPage() {
       // Only offered when the caller can actually see somebody else's time; for
       // everyone else the route already scopes to their own entries and the
       // control would be a lever attached to nothing.
-      ...(canManage && peopleOptions.length > 1
+      ...(canManageAll && peopleOptions.length > 1
         ? [{ id: 'staffMemberId', label: labels.filters.person, type: 'select' as const, options: peopleOptions }]
         : []),
       { id: 'tagIds', label: labels.filters.tag, type: 'select', options: tagOptions },
@@ -769,17 +841,31 @@ export default function TimeTrackingEntriesPage() {
       },
       { id: 'q', label: labels.filters.text, type: 'text' },
     ],
-    [labels.filters, canManage, projectOptions, customerOptions, peopleOptions, tagOptions],
+    [labels.filters, canManageAll, projectOptions, customerOptions, peopleOptions, tagOptions],
+  )
+
+  /**
+   * Filters that can be applied but own no control in the overlay: the self
+   * filter, which is seeded for everyone but only steerable by a `manage_all`
+   * holder, and the two deep-link narrowings. Naming them here is what keeps
+   * their chips reading as words instead of as a parameter name and a uuid.
+   */
+  const unlistedFilters = React.useMemo<FilterDef[]>(
+    () => [
+      { id: 'staffMemberId', label: labels.filters.person, type: 'select', options: peopleOptions },
+      { id: 'taskId', label: labels.filters.task, type: 'text' },
+      { id: 'ids', label: labels.filters.entry, type: 'text' },
+    ],
+    [labels.filters, peopleOptions],
   )
 
   /** Applied filters, as the reader would say them out loud. */
   const appliedChips = React.useMemo<AppliedFilterChip[]>(() => {
-    const label = (id: string) => filters.find((filter) => filter.id === id)?.label ?? id
-    const optionLabel = (id: string, value: string) => {
-      const def = filters.find((filter) => filter.id === id)
-      const options = (def as { options?: { value: string; label: string }[] } | undefined)?.options
-      return options?.find((option) => option.value === value)?.label ?? value
-    }
+    const defOf = (id: string) =>
+      filters.find((filter) => filter.id === id) ?? unlistedFilters.find((filter) => filter.id === id)
+    const label = (id: string) => defOf(id)?.label ?? id
+    const optionLabel = (id: string, value: string) =>
+      defOf(id)?.options?.find((option) => option.value === value)?.label ?? value
     const chips: AppliedFilterChip[] = []
     for (const [id, raw] of Object.entries(filterValues)) {
       if (raw === undefined || raw === null || raw === '') continue
@@ -790,10 +876,31 @@ export default function TimeTrackingEntriesPage() {
         continue
       }
       if (typeof raw !== 'string') continue
+      // A deep link arrives as an id, so its chip reads the loaded rows back for
+      // the task or the entry it names — a uuid on a chip explains nothing.
+      if (id === 'taskId') {
+        const first = raw.split(',')[0] ?? raw
+        const match = rows.find((row) => row.taskId === first)
+        chips.push({ id, label: label(id), value: match?.taskTitle ?? first })
+        continue
+      }
+      if (id === 'ids') {
+        const list = raw.split(',').map((value) => value.trim()).filter(Boolean)
+        if (list.length === 0) continue
+        const single = list.length === 1 ? rows.find((row) => row.id === list[0]) : undefined
+        chips.push({
+          id,
+          label: label(id),
+          value: single
+            ? (single.taskTitle ?? single.description ?? labels.noTask)
+            : labels.filters.entrySelection.replace('{count}', String(list.length)),
+        })
+        continue
+      }
       chips.push({ id, label: label(id), value: optionLabel(id, raw) })
     }
     return chips
-  }, [filterValues, filters])
+  }, [filterValues, filters, labels.filters.entrySelection, labels.noTask, rows, unlistedFilters])
 
   const columns = React.useMemo<ColumnDef<TimeEntryListRow>[]>(() => {
     const rightHeader = (label: string) => () => <span className="block text-right">{label}</span>
@@ -983,11 +1090,11 @@ export default function TimeTrackingEntriesPage() {
           onFiltersApply={(values) => {
             setFilterValues(values)
             setPage(1)
+            // The overlay does not carry the deep-link filters, so applying it
+            // drops them — the address bar has to agree with what is on screen.
+            dropDeepLinkParams(DEEP_LINK_PARAMS.filter((id) => !values[id]))
           }}
-          onFiltersClear={() => {
-            setFilterValues({})
-            setPage(1)
-          }}
+          onFiltersClear={clearAllFilters}
           activeFilterChips={
             <div className="flex flex-col gap-2">
               <EntryFilterPresets
@@ -998,7 +1105,7 @@ export default function TimeTrackingEntriesPage() {
               <EntryFilterChips
                 chips={appliedChips}
                 onRemove={removeChip}
-                onClearAll={() => { setFilterValues({}); setPage(1) }}
+                onClearAll={clearAllFilters}
                 clearAllLabel={labels.filters.clearAll}
                 removeLabel={(name) => labels.filters.remove.replace('{name}', name)}
               />
@@ -1008,7 +1115,7 @@ export default function TimeTrackingEntriesPage() {
             active: appliedChips.length > 0,
             entityNamePlural: labels.title,
             canRemoveLast: appliedChips.length > 0,
-            onClearAll: () => { setFilterValues({}); setPage(1) },
+            onClearAll: clearAllFilters,
             onRemoveLast: () => {
               const last = appliedChips[appliedChips.length - 1]
               if (last) removeChip(last.id)

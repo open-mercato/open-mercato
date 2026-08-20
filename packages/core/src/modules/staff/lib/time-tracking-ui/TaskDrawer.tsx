@@ -41,6 +41,9 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { TaskCommentThread } from './TaskCommentThread'
 import { TaskQuickLog, type QuickLogSubmission } from './TaskQuickLog'
+import { TagPicker, tagChipStyle } from './TagPicker'
+import { slugifyProjectName } from '../time-tracking/projectCode'
+import type { TagOption } from './timeEntryDialogState'
 import {
   computeSubtaskProgress,
   formatBoardMinutes,
@@ -318,7 +321,7 @@ export function TaskDrawer({
     return map
   }, [members])
 
-  const tagsQuery = useQuery<{ id: string; label: string }[]>({
+  const tagsQuery = useQuery<TagOption[]>({
     queryKey: [...DRAWER_QUERY_ROOT, 'tags', `scope:${scopeVersion}`],
     enabled: open,
     staleTime: 300_000,
@@ -331,9 +334,11 @@ export function TaskDrawer({
         .map((row) => {
           const id = readString(row, 'id')
           if (!id) return null
-          return { id, label: readString(row, 'label') ?? id }
+          // The colour has to travel with the tag or the drawer's chips render
+          // grey while the entry dialog's render tinted from the same rows.
+          return { id, label: readString(row, 'label') ?? id, color: readString(row, 'color') }
         })
-        .filter((tag): tag is { id: string; label: string } => tag !== null)
+        .filter((tag): tag is TagOption => tag !== null)
     },
   })
 
@@ -910,6 +915,42 @@ export function TaskDrawer({
     [onChanged, reportError, retryLastMutation, runMutation, t, tagIds, taskId],
   )
 
+  /**
+   * Creates the tag and hands it back so the picker can assign it through the
+   * drawer's own `handleTagChange` — the task-assignments write is untouched, the
+   * new row simply becomes assignable without leaving the drawer. The list is
+   * invalidated rather than patched so the server-assigned colour arrives with it.
+   */
+  const createTag = React.useCallback(
+    async (label: string): Promise<TagOption | null> => {
+      try {
+        const created = await apiCallOrThrow<Record<string, unknown>>(
+          '/api/staff/timesheets/tags',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ label, slug: slugifyProjectName(label).toLowerCase() }),
+          },
+          {
+            errorMessage: t(
+              'staff.time_tracking.entryDialog.errors.createTag',
+              'Could not create the tag.',
+            ),
+          },
+        )
+        const id = typeof created?.result?.id === 'string' ? created.result.id : null
+        if (!id) return null
+        await queryClient.invalidateQueries({ queryKey: [...DRAWER_QUERY_ROOT, 'tags'] })
+        return { id, label, color: null }
+      } catch (error) {
+        logger.warn('staff.time_tracking task drawer tag create failed', { err: error })
+        flash(t('staff.time_tracking.entryDialog.errors.createTag', 'Could not create the tag.'), 'error')
+        return null
+      }
+    },
+    [queryClient, t],
+  )
+
   const status = React.useMemo(
     () => statuses.find((entry) => entry.id === task?.taskStatusId) ?? null,
     [statuses, task?.taskStatusId],
@@ -919,9 +960,9 @@ export function TaskDrawer({
 
   const recentEntries = React.useMemo(() => entries.slice(0, RECENT_ENTRY_COUNT), [entries])
 
-  const assignedTags = React.useMemo(() => {
-    const labels = new Map(tagOptions.map((tag) => [tag.id, tag.label]))
-    return tagIds.map((id) => ({ id, label: labels.get(id) ?? id }))
+  const assignedTags = React.useMemo<TagOption[]>(() => {
+    const byId = new Map(tagOptions.map((tag) => [tag.id, tag]))
+    return tagIds.map((id) => byId.get(id) ?? { id, label: id, color: null })
   }, [tagIds, tagOptions])
 
   const availableTags = React.useMemo(
@@ -1222,7 +1263,7 @@ export function TaskDrawer({
             </span>
             <div className="flex flex-wrap items-center gap-2">
               {assignedTags.map((tag) => (
-                <Badge key={tag.id} variant="neutral" className="gap-1">
+                <Badge key={tag.id} variant="neutral" className="gap-1" style={tagChipStyle(tag)}>
                   {tag.label}
                   {canManage ? (
                     <button
@@ -1237,28 +1278,20 @@ export function TaskDrawer({
                   ) : null}
                 </Badge>
               ))}
-              {canManage && availableTags.length > 0 ? (
-                <Select
-                  key={tagIds.join(',')}
+              {canManage ? (
+                <TagPicker
+                  available={availableTags}
                   disabled={busy}
-                  onValueChange={(value) => { void handleTagChange(value, true) }}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="w-40"
-                    aria-label={t('staff.time_tracking.taskDrawer.properties.addTag', 'Add tag')}
-                    data-testid="task-drawer-tag-select"
-                  >
-                    <SelectValue placeholder={t('staff.time_tracking.taskDrawer.properties.addTag', 'Add tag')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableTags.map((tag) => (
-                      <SelectItem key={tag.id} value={tag.id}>
-                        {tag.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onAssign={(id) => { void handleTagChange(id, true) }}
+                  onCreate={createTag}
+                  labels={{
+                    add: t('staff.time_tracking.taskDrawer.properties.addTag', 'Add tag'),
+                    create: (name) =>
+                      t('staff.time_tracking.entryDialog.createTag', 'Create "{name}"', { name }),
+                    empty: t('staff.time_tracking.entryDialog.noTags', 'No matching tag'),
+                  }}
+                  testIdPrefix="task-drawer"
+                />
               ) : null}
             </div>
             <p className="text-xs text-muted-foreground">

@@ -1,10 +1,11 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { StaffTimeTaskStatus } from '../../../data/entities'
 import { staffTimeTaskStatusCreateSchema, staffTimeTaskStatusUpdateSchema } from '../../../data/validators'
 import { staffTimeTaskStatusCommandIds } from '../../../commands/timesheets-task-statuses'
+import { resolveListProjectAccess } from '../tasks/route'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
 const F = {
@@ -27,6 +28,12 @@ const F = {
  * board needs to read them, but only a Team Leader who can manage the project may
  * add, rename, recolour, reorder or remove one. Hence the asymmetric gating —
  * `tasks.view` to read, `projects.manage` to write.
+ *
+ * `tasks.view` is granted to every employee, so it decides *what kind* of access this
+ * is, never *whose* board is being read. The list is therefore intersected with
+ * `resolveProjectAccess` exactly as the tasks routes are — a column carries its
+ * project's naming, workflow and done/default policy, which is the same thing a task
+ * title leaks about a client the caller has no route to.
  */
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.tasks.view'] },
@@ -49,6 +56,61 @@ const listSchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
+
+type TaskStatusListQuery = z.infer<typeof listSchema>
+
+/** Non-UUID sentinel used as the "match nothing" filter, mirroring the tasks route. */
+const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
+
+function splitIdList(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null
+  const ids = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+  return ids.length > 0 ? ids : []
+}
+
+/**
+ * Every column query narrows to the projects the caller may actually see. The access
+ * decision is the tasks route's memoised resolver, so a board that loads its columns
+ * and its cards in one request pays for it once and both answers agree. Exported so
+ * the intersection is testable without standing up the CRUD factory.
+ */
+export async function buildTaskStatusListFilters(
+  query: TaskStatusListQuery,
+  ctx: CrudCtx,
+): Promise<Record<string, unknown>> {
+  const filters: Record<string, unknown> = {}
+
+  const narrowIds = splitIdList(query.ids)
+  const requestedProjectId =
+    typeof query.timeProjectId === 'string' && query.timeProjectId.trim().length > 0
+      ? query.timeProjectId.trim()
+      : null
+
+  const access = await resolveListProjectAccess(ctx)
+  if (!access.canManageAll) {
+    const projectIds = requestedProjectId
+      ? access.projectIds.filter((id) => id === requestedProjectId)
+      : [...access.projectIds]
+    if (projectIds.length === 0) {
+      // A non-member gets no row at all — not a redacted one — so a foreign board's
+      // column names and workflow never leave the server.
+      filters[F.time_project_id] = { $in: [IMPOSSIBLE_ID] }
+      return filters
+    }
+    filters[F.time_project_id] = { $in: projectIds }
+  } else if (requestedProjectId) {
+    filters[F.time_project_id] = requestedProjectId
+  }
+
+  if (narrowIds !== null) {
+    filters[F.id] = { $in: narrowIds.length > 0 ? narrowIds : [IMPOSSIBLE_ID] }
+  }
+
+  return filters
+}
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -87,20 +149,7 @@ const crud = makeCrudRoute({
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },
-    buildFilters: async (query) => {
-      const filters: Record<string, unknown> = {}
-      if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
-        const ids = query.ids
-          .split(',')
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0)
-        if (ids.length > 0) filters[F.id] = { $in: ids }
-      }
-      if (typeof query.timeProjectId === 'string' && query.timeProjectId.trim().length > 0) {
-        filters[F.time_project_id] = query.timeProjectId.trim()
-      }
-      return filters
-    },
+    buildFilters: buildTaskStatusListFilters,
   },
   actions: {
     create: {
@@ -158,6 +207,8 @@ export const taskStatusListItemSchema = z.object({
 export const openApi = createStaffCrudOpenApi({
   resourceName: 'TimeTaskStatus',
   pluralName: 'Time Task Statuses',
+  description:
+    'Returns the Kanban columns of the projects the caller can see. A caller without `staff.timesheets.projects.manage` is narrowed to the projects they are an active member of, so `timeProjectId` can only ever select a board they already have access to.',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(taskStatusListItemSchema),
   create: {

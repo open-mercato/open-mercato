@@ -158,7 +158,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // provenance entries and override targets to every render. The
     // `warranty_claims` module (see above) lands alongside it, so the cap
     // absorbs both additions.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_000_000)
+    //
+    // JSON cap raised a sixth time by the staff time-tracking consulting suite
+    // (2026-08-12-time-tracking-consulting-suite): ten new entities, fourteen
+    // events, seven ACL features, ~22 API routes plus the task/report search,
+    // notification, worker and injection-widget surfaces. Measured at 4,055,610
+    // bytes against the previous 4,000,000 cap — 1.4% over, and ordinary linear
+    // growth for a module of that size rather than the multiplicative blow-up
+    // this detector exists to catch. The delta cap absorbed it unchanged.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_250_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES

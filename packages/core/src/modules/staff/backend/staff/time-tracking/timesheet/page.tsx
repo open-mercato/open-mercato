@@ -26,6 +26,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -55,6 +56,7 @@ import {
   usePersistedPeriodKind,
   usePersistedView,
   viewsForPeriod,
+  type TimesheetView,
 } from '../../../../lib/time-tracking-ui/useTimesheetPreferences'
 import {
   buildTimesheetDays,
@@ -71,6 +73,7 @@ import {
   startOfMonthIso,
   todayIso,
   type TimesheetDateRange,
+  type TimesheetPeriodKind,
 } from '../../../../lib/time-tracking-ui/timesheetPeriod'
 import {
   buildLogTargets,
@@ -161,18 +164,33 @@ async function loadEntryPages(params: URLSearchParams): Promise<{ rows: Record<s
 
 export default function TimesheetPage() {
   const t = useT()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const { payload } = useBackendChrome()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const canManageProjects = hasFeature(payload?.grantedFeatures, RATES_MANAGE_FEATURE)
   const canManageOwn = hasFeature(payload?.grantedFeatures, MANAGE_OWN_FEATURE)
 
-  const [periodKind, setPeriodKind] = usePersistedPeriodKind()
+  const [data, setData] = React.useState<LoadedData>(EMPTY_DATA)
+  /**
+   * `?period=` and `?view=` are the documented deep-link contract for screens 11
+   * and 12, so the query string outranks the remembered preference: a link a
+   * colleague pasted must open on the period and the view it names.
+   *
+   * The preference is scoped to the staff member the page has resolved, so two
+   * people signing in from the same browser stop sharing one set of filters.
+   */
+  const periodParam = searchParams?.get('period') ?? null
+  const viewParam = searchParams?.get('view') ?? null
+  const userKey = data.staffMemberId
+
+  const [periodKind, setPeriodKind] = usePersistedPeriodKind({ userKey, urlOverride: periodParam })
   const [anchorDate, setAnchorDate] = React.useState<string>(() => todayIso())
-  const [storedView, setView] = usePersistedView(periodKind)
+  const [storedView, setView] = usePersistedView(periodKind, { userKey, urlOverride: viewParam })
   const view = resolveEffectiveView(periodKind, storedView)
-  const [projectFilter, setProjectFilter] = usePersistedFilterValue('project')
-  const [storedPersonFilter, setPersonFilter] = usePersistedFilterValue('person')
+  const [projectFilter, setProjectFilter] = usePersistedFilterValue('project', { userKey })
+  const [storedPersonFilter, setPersonFilter] = usePersistedFilterValue('person', { userKey })
   /**
    * A remembered colleague is only honoured while the caller may still look at
    * one. Losing the Team Leader feature must not leave the timesheet pinned to
@@ -183,7 +201,6 @@ export default function TimesheetPage() {
   const [expandedDate, setExpandedDate] = React.useState<string | null>(null)
   const [expandedTouched, setExpandedTouched] = React.useState(false)
 
-  const [data, setData] = React.useState<LoadedData>(EMPTY_DATA)
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
@@ -197,6 +214,35 @@ export default function TimesheetPage() {
   const range: TimesheetDateRange = React.useMemo(
     () => resolvePeriodRange(periodKind, anchorDate),
     [anchorDate, periodKind],
+  )
+
+  /**
+   * `router.replace` keeps the deep link truthful without pushing a history
+   * entry per toggle — the same idiom the board and projects screens use.
+   */
+  const replaceSearchParam = React.useCallback(
+    (name: string, value: string) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.set(name, value)
+      router.replace(`?${params.toString()}`, { scroll: false })
+    },
+    [router, searchParams],
+  )
+
+  const handlePeriodKindChange = React.useCallback(
+    (next: TimesheetPeriodKind) => {
+      setPeriodKind(next)
+      replaceSearchParam('period', next)
+    },
+    [replaceSearchParam, setPeriodKind],
+  )
+
+  const handleViewChange = React.useCallback(
+    (next: TimesheetView) => {
+      setView(next)
+      replaceSearchParam('view', next)
+    },
+    [replaceSearchParam, setView],
   )
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -603,7 +649,7 @@ export default function TimesheetPage() {
               <PeriodSelector
                 periodKind={periodKind}
                 anchorDate={anchorDate}
-                onPeriodKindChange={setPeriodKind}
+                onPeriodKindChange={handlePeriodKindChange}
                 onAnchorDateChange={setAnchorDate}
               />
               {canManageOwn && viewingSelf ? (
@@ -632,7 +678,7 @@ export default function TimesheetPage() {
               <TimesheetViewSwitch
                 view={view}
                 views={viewsForPeriod(periodKind)}
-                onViewChange={setView}
+                onViewChange={handleViewChange}
               />
             </div>
           </div>

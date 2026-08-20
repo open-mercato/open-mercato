@@ -81,7 +81,7 @@ export type BoardFilterScope = {
 export function boardServerFilterKey(filters: BoardFilters, scope: BoardFilterScope = {}): string {
   const parts = [`assignee:${filters.assigneeStaffMemberId ?? ''}`]
   if (scope.includeStatus) parts.push(`status:${filters.taskStatusId ?? ''}`)
-  parts.push(`tags:${[...filters.tagIds].sort().join(',')}`)
+  parts.push(`tags:${[...filters.tagIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}`)
   return parts.join('|')
 }
 
@@ -95,7 +95,7 @@ export function boardServerFilterParams(filters: BoardFilters, scope: BoardFilte
     params += `&taskStatusId=${encodeURIComponent(filters.taskStatusId)}`
   }
   if (filters.tagIds.length > 0) {
-    params += `&tagIds=${encodeURIComponent([...filters.tagIds].sort().join(','))}`
+    params += `&tagIds=${encodeURIComponent([...filters.tagIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','))}`
   }
   return params
 }

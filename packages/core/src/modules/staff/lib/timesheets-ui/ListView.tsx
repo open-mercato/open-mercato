@@ -95,6 +95,11 @@ const DESCRIPTION_CONTEXT_ID = 'staff.time_tracking.timesheet.list.description'
  * The write now also carries the record's version (`buildOptimisticLockHeader`),
  * which the old inline editor did not, so two people editing the same entry's
  * description get a conflict rather than a silent last-write-wins.
+ *
+ * A save is single-flight (`savingRef`). Committing with Enter disables the
+ * input, which blurs it, and the blur handler would otherwise fire a second PUT
+ * carrying the version captured before the first one landed — the user's own
+ * successful edit coming back at them as a conflict.
  */
 function InlineDescription({
   entry,
@@ -109,6 +114,7 @@ function InlineDescription({
   const [editing, setEditing] = React.useState(false)
   const [value, setValue] = React.useState(entry.description ?? '')
   const [saving, setSaving] = React.useState(false)
+  const savingRef = React.useRef(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -125,12 +131,14 @@ function InlineDescription({
   }, [editing])
 
   const save = React.useCallback(async () => {
+    if (savingRef.current) return
     const trimmed = value.trim()
     if (trimmed === (entry.description ?? '')) {
       setEditing(false)
       return
     }
     const payload = { id: entry.id, notes: trimmed || null }
+    savingRef.current = true
     setSaving(true)
     try {
       await runMutation({
@@ -150,10 +158,12 @@ function InlineDescription({
         },
         mutationPayload: payload,
       })
+      savingRef.current = false
       setSaving(false)
       setEditing(false)
       onSaved?.()
     } catch (error) {
+      savingRef.current = false
       setSaving(false)
       if (!surfaceRecordConflict(error, t)) {
         flash(
@@ -187,6 +197,7 @@ function InlineDescription({
       disabled={saving}
       onChange={(event) => setValue(event.target.value)}
       onBlur={() => {
+        if (savingRef.current) return
         void save()
       }}
       onKeyDown={(event) => {

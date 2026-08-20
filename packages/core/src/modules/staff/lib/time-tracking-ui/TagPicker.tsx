@@ -29,6 +29,11 @@ export type TagPickerProps = {
   onCreate: (label: string) => Promise<TagOption | null>
   labels: { add: string; create: (name: string) => string; empty: string }
   disabled?: boolean
+  /**
+   * Namespaces the control's test ids so both hosts stay addressable. Defaults to
+   * the entry dialog's prefix, which was the only host when the ids were minted.
+   */
+  testIdPrefix?: string
 }
 
 /**
@@ -39,7 +44,14 @@ export type TagPickerProps = {
  * tag or invent a worse one in the description. The cost is a vocabulary that
  * grows organically and will want tidying — a curation surface, not a gate here.
  */
-export function TagPicker({ available, onAssign, onCreate, labels, disabled }: TagPickerProps) {
+export function TagPicker({
+  available,
+  onAssign,
+  onCreate,
+  labels,
+  disabled,
+  testIdPrefix = 'entry-dialog',
+}: TagPickerProps) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
   const [creating, setCreating] = React.useState(false)
@@ -50,8 +62,28 @@ export function TagPicker({ available, onAssign, onCreate, labels, disabled }: T
     const onPointerDown = (event: MouseEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
     }
+    /**
+     * Escape closes this popover and nothing else.
+     *
+     * Radix's `DismissableLayer` — the dialog or drawer this picker is dropped
+     * into — listens for Escape on the *document in the capture phase*, so it
+     * would otherwise dismiss the whole form before the popover ever saw the
+     * key, discarding a half-entered entry to dismiss a tag list. The window is
+     * one step earlier in the same propagation path, so the innermost layer gets
+     * the first and only say.
+     */
+    const onEscapeCapture = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setOpen(false)
+    }
     document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onEscapeCapture, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onEscapeCapture, true)
+    }
   }, [open])
 
   const term = query.trim()
@@ -89,7 +121,7 @@ export function TagPicker({ available, onAssign, onCreate, labels, disabled }: T
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        data-testid="entry-dialog-tag-select"
+        data-testid={`${testIdPrefix}-tag-select`}
       >
         <TagIcon className="size-3.5" aria-hidden="true" />
         {labels.add}
@@ -114,7 +146,7 @@ export function TagPicker({ available, onAssign, onCreate, labels, disabled }: T
               }
               void create()
             }}
-            data-testid="entry-dialog-tag-search"
+            data-testid={`${testIdPrefix}-tag-search`}
           />
           <div className="mt-1 max-h-48 overflow-y-auto" role="listbox">
             {matches.map((tag) => (
@@ -148,7 +180,7 @@ export function TagPicker({ available, onAssign, onCreate, labels, disabled }: T
               className="mt-1 flex w-full items-center gap-2 rounded-sm border-t border-border px-2 py-1.5 text-left text-sm hover:bg-accent"
               disabled={creating}
               onClick={() => { void create() }}
-              data-testid="entry-dialog-tag-create"
+              data-testid={`${testIdPrefix}-tag-create`}
             >
               <Plus className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate">{labels.create(term)}</span>

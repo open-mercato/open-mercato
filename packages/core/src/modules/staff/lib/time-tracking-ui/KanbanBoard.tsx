@@ -6,17 +6,18 @@ import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
   DragOverlay,
-  KeyboardSensor,
   MeasuringStrategy,
   PointerSensor,
   pointerWithin,
   useSensor,
   useSensors,
+  type Announcements,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
+  type ScreenReaderInstructions,
+  type UniqueIdentifier,
 } from '@dnd-kit/core'
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { Plus, RotateCcw } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -37,7 +38,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { sumTaskLoggedMinutes } from '../timesheets-tasks/taskHoursTotals'
 import { KanbanColumn, KANBAN_COLUMN_DROPPABLE_PREFIX } from './KanbanColumn'
 import { TaskDrawer } from './TaskDrawer'
-import type { KanbanTagOption } from './KanbanCard'
+import type { KanbanMoveTarget, KanbanTagOption } from './KanbanCard'
 import {
   BOARD_DIRECTORY_PAGE_SIZE,
   BOARD_PAGE_SIZE,
@@ -255,7 +256,7 @@ export function KanbanBoard({
     for (const task of allTasks) {
       if (task.assigneeStaffMemberId) ids.add(task.assigneeStaffMemberId)
     }
-    return Array.from(ids).sort()
+    return Array.from(ids).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   }, [allTasks])
 
   const assigneeQuery = useAssigneeNames(assigneeIds)
@@ -265,7 +266,7 @@ export function KanbanBoard({
     for (const task of allTasks) {
       for (const id of task.tagIds) ids.add(id)
     }
-    return Array.from(ids).sort()
+    return Array.from(ids).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   }, [allTasks])
 
   const tagQuery = useTagLabels(tagIds)
@@ -474,10 +475,11 @@ export function KanbanBoard({
     ],
   )
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
+  // Pointer only. dnd-kit's keyboard sensor would have to own Enter/Space on the card —
+  // the key that opens the drawer — and it has no sortable context to traverse anyway;
+  // keyboard moves go through the card's explicit "Move" menu, which calls `moveTask`
+  // directly (U3).
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   const collisionDetection = React.useCallback<CollisionDetection>((args) => pointerWithin(args), [])
 
@@ -505,20 +507,102 @@ export function KanbanBoard({
 
   const handleDragCancel = React.useCallback(() => setActiveDragTaskId(null), [])
 
+  const targetStatusIdFor = React.useCallback(
+    (overId: UniqueIdentifier | null | undefined): string | null => {
+      if (typeof overId !== 'string') return null
+      return overId.startsWith(KANBAN_COLUMN_DROPPABLE_PREFIX)
+        ? overId.slice(KANBAN_COLUMN_DROPPABLE_PREFIX.length)
+        : statusIdByTaskId.get(overId) ?? null
+    },
+    [statusIdByTaskId],
+  )
+
   const handleDragEnd = React.useCallback(
     (event: DragEndEvent) => {
       setActiveDragTaskId(null)
       const taskId = typeof event.active.id === 'string' ? event.active.id : null
-      const overId = event.over?.id
-      if (!taskId || typeof overId !== 'string') return
-      const targetStatusId = overId.startsWith(KANBAN_COLUMN_DROPPABLE_PREFIX)
-        ? overId.slice(KANBAN_COLUMN_DROPPABLE_PREFIX.length)
-        : statusIdByTaskId.get(overId) ?? null
+      if (!taskId) return
+      const targetStatusId = targetStatusIdFor(event.over?.id)
       if (!targetStatusId) return
       if (statusIdByTaskId.get(taskId) === targetStatusId) return
       moveTask(taskId, targetStatusId)
     },
-    [moveTask, statusIdByTaskId],
+    [moveTask, statusIdByTaskId, targetStatusIdFor],
+  )
+
+  const moveTargets = React.useMemo<KanbanMoveTarget[]>(
+    () => visibleStatuses.map((status) => ({ id: status.id, name: status.name })),
+    [visibleStatuses],
+  )
+
+  const describeTask = React.useCallback(
+    (taskId: UniqueIdentifier | null | undefined): string => {
+      if (typeof taskId !== 'string') return ''
+      return allTasks.find((task) => task.id === taskId)?.title ?? taskId
+    },
+    [allTasks],
+  )
+
+  const describeColumn = React.useCallback(
+    (overId: UniqueIdentifier | null | undefined): string | null => {
+      const statusId = targetStatusIdFor(overId)
+      if (!statusId) return null
+      return statuses.find((status) => status.id === statusId)?.name ?? statusId
+    },
+    [statuses, targetStatusIdFor],
+  )
+
+  // dnd-kit narrates every drag through a live region. Left unset it narrates in English
+  // regardless of locale (U9), so the board owns the strings.
+  const announcements = React.useMemo<Announcements>(
+    () => ({
+      onDragStart: ({ active }) =>
+        t('staff.time_tracking.board.dnd.dragStart', 'Picked up the task {task}.', {
+          task: describeTask(active.id),
+        }),
+      onDragOver: ({ active, over }) => {
+        const column = describeColumn(over?.id)
+        return column
+          ? t('staff.time_tracking.board.dnd.dragOver', 'The task {task} is over the column {column}.', {
+              task: describeTask(active.id),
+              column,
+            })
+          : t('staff.time_tracking.board.dnd.dragOverNothing', 'The task {task} is not over a column.', {
+              task: describeTask(active.id),
+            })
+      },
+      onDragEnd: ({ active, over }) => {
+        const column = describeColumn(over?.id)
+        return column
+          ? t('staff.time_tracking.board.dnd.dragEnd', 'The task {task} was dropped into the column {column}.', {
+              task: describeTask(active.id),
+              column,
+            })
+          : t('staff.time_tracking.board.dnd.dragEndOutside', 'The task {task} was dropped outside the columns.', {
+              task: describeTask(active.id),
+            })
+      },
+      onDragCancel: ({ active }) =>
+        t('staff.time_tracking.board.dnd.dragCancel', 'Moving the task {task} was cancelled.', {
+          task: describeTask(active.id),
+        }),
+    }),
+    [describeColumn, describeTask, t],
+  )
+
+  const screenReaderInstructions = React.useMemo<ScreenReaderInstructions>(
+    () => ({
+      draggable: t(
+        'staff.time_tracking.board.dnd.instructions',
+        'Drag a card with the pointer to move it between columns. With the keyboard, press Enter on a card to open it, or use the Move button in the card actions to choose a target column.',
+      ),
+    }),
+    [t],
+  )
+
+  const accessibility = React.useMemo(
+    () => ({ announcements, screenReaderInstructions }),
+    [announcements, screenReaderInstructions],
   )
 
   const handleQuickAdd = React.useCallback(
@@ -802,6 +886,7 @@ export function KanbanBoard({
 
       <DndContext
         sensors={sensors}
+        accessibility={accessibility}
         collisionDetection={collisionDetection}
         measuring={measuringConfig}
         onDragStart={handleDragStart}
@@ -833,12 +918,14 @@ export function KanbanBoard({
                 tagsByTaskId={tagsByTaskId}
                 subtasksByTaskId={subtasksByTaskId}
                 quickAddPending={quickAddPendingStatusId === status.id}
+                moveTargets={moveTargets}
                 onQuickAdd={handleQuickAdd}
                 onLoadMore={handleLoadMore}
                 onOpenTask={openTask}
                 onStartTimer={handleStartTimer}
                 onStopTimer={handleStopTimer}
                 onAddTime={handleAddTime}
+                onMoveTask={moveTask}
               />
             )
           })}

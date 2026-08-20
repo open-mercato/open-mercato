@@ -268,7 +268,7 @@ function ChangeCurrencyDialog({
             </Alert>
           ) : null}
 
-          {error ? <p className="text-sm text-status-error-base">{error}</p> : null}
+          {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
         </div>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>

@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { KpiCard } from '@open-mercato/ui/backend/charts'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -185,7 +185,7 @@ export default function TimeTrackingMyWorkPage() {
   const canManageOwn = hasFeature(chrome?.grantedFeatures, MANAGE_OWN_FEATURE)
 
   const [data, setData] = React.useState<MyWorkPayload>(EMPTY_PAYLOAD)
-  const [isLoading, setIsLoading] = React.useState(true)
+  const [loadState, setLoadState] = React.useState<'loading' | 'ready' | 'error'>('loading')
   const [dialog, setDialog] = React.useState<{ open: boolean; entryId: string | null }>({
     open: false,
     entryId: null,
@@ -254,6 +254,9 @@ export default function TimeTrackingMyWorkPage() {
 
   const loadError = t('staff.time_tracking.myWork.errors.load', 'Failed to load your work summary.')
 
+  // A failed request leaves `data` at EMPTY_PAYLOAD, which reads as screen 2 — "no
+  // assignments" — so the failure has to be a state of its own or the page reports a
+  // server fault as an empty account.
   const load = React.useCallback(async () => {
     try {
       const result = await readApiResultOrThrow<MyWorkPayload>(MY_WORK_ENDPOINT, undefined, {
@@ -261,13 +264,17 @@ export default function TimeTrackingMyWorkPage() {
         fallback: EMPTY_PAYLOAD,
       })
       setData({ ...EMPTY_PAYLOAD, ...result })
+      setLoadState('ready')
     } catch (error) {
       logger.error('staff.time_tracking.my-work load failed', { err: error })
-      flash(loadError, 'error')
-    } finally {
-      setIsLoading(false)
+      setLoadState('error')
     }
   }, [loadError])
+
+  const retryLoad = React.useCallback(() => {
+    setLoadState('loading')
+    void load()
+  }, [load])
 
   React.useEffect(() => {
     void load()
@@ -405,12 +412,30 @@ export default function TimeTrackingMyWorkPage() {
     }
   }, [data.today, load, mutationContext, runMutation, t])
 
-  if (isLoading) {
+  if (loadState === 'loading') {
     return (
       <Page>
         <PageHeader title={t('staff.time_tracking.nav.my_work', 'My work')} />
         <PageBody>
           <LoadingMessage label={t('staff.timesheets.my.loading', 'Loading timesheets...')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (loadState === 'error') {
+    return (
+      <Page>
+        <PageHeader title={t('staff.time_tracking.nav.my_work', 'My work')} />
+        <PageBody>
+          <ErrorMessage
+            label={loadError}
+            action={
+              <Button type="button" variant="outline" size="sm" onClick={retryLoad}>
+                {t('staff.time_tracking.myWork.errors.retry', 'Try again')}
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )

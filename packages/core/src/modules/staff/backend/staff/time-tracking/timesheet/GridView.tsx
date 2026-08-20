@@ -7,7 +7,7 @@
  * This is the one surface of the old timesheet the redesign keeps, because it is
  * the fastest way in the product to fill a week. The table's markup, column
  * widths, weekend treatment, footer and totals are carried over unchanged; the
- * upgrade is three things and no more:
+ * functional upgrade is three things and no more:
  *
  *  1. **The shared duration parser.** Cells were a private `decimalToMinutes`
  *     that understood `1.5` and silently answered `0` for `1h 40m`. They are now
@@ -30,16 +30,27 @@
  *     ids (T4.2); those ids are marked here so the refusal lands on the cells
  *     that caused it rather than as an opaque batch failure.
  *
- * **Save path — and a defect this task found but must not fix.**
- * `POST …/time-entries/bulk` accepts `taskId` in its schema
- * (`staffTimeEntryBulkItemSchema`) but its handler never reads it: neither the
- * create branch nor the update branch assigns `task_id`. So a task row saved
- * through bulk would report success and drop the task — the same silent-no-op
- * class as T2.11 and T4.9. The bulk route is outside this phase's scope, so the
- * defect is reported rather than fixed, and task-row cells are written through
- * the single-entry CRUD route, which does honour `taskId` (and locks, rounding,
- * access, audit and undo with it). Project rows keep the bulk path unchanged.
- * When bulk learns `taskId`, `saveTaskCells` below collapses into the batch.
+ * **Table semantics and states.** The grid is a data table, so it carries an
+ * sr-only `<caption>`, `scope`d column headers and a `<th scope="row">` row
+ * label — without them a screen reader reads a row as eight unlabelled numbers.
+ * Weekends keep their background tint but no longer depend on it alone: the
+ * header also carries the day and the word in its `title` and an sr-only marker.
+ * `isLoading` draws skeleton rows in the real row geometry rather than a
+ * centered one-liner, and a period with no rows gets an in-table empty state
+ * instead of headers over an empty body.
+ *
+ * **Save path — two routes, and why.**
+ * The bulk endpoint now assigns `task_id` on both its create and update
+ * branches, so the silent-drop defect this file used to document is fixed and
+ * the note is retired. Task-row cells nonetheless keep writing through the
+ * single-entry CRUD route, for a different reason: that route carries a
+ * per-entry `If-Match`-style expected version, so a cell edited from another
+ * tab surfaces as a conflict on the cell that caused it. The batch has no
+ * per-row version contract — it is all-or-nothing and reconciles only the
+ * report lock (`409 time_entry_locked`) — so project rows sent through it are
+ * deliberately last-write-wins. optimistic-lock-exempt: the bulk batch has no
+ * per-row version field; per-cell locking is provided by the single-entry path
+ * above, and the batch's own gate is the closed-report lock.
  */
 
 import * as React from 'react'
@@ -53,12 +64,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -78,6 +90,9 @@ import {
 
 const logger = createLogger('staff').child({ component: 'time-tracking/timesheet/grid' })
 
+/** Placeholder rows drawn while the period loads — same geometry as a real row. */
+const SKELETON_ROW_COUNT = 4
+
 const ENTRIES_API_PATH = 'staff/timesheets/time-entries'
 const BULK_ENDPOINT = '/api/staff/timesheets/time-entries/bulk'
 const RESOURCE_KIND = 'staff.timesheets.time_entry'
@@ -96,6 +111,8 @@ export type GridViewProps = {
   canManageProjects: boolean
   /** Someone else's timesheet is readable but not editable from the grid. */
   readOnly: boolean
+  /** Draws skeleton rows instead of data while the period is being fetched. */
+  isLoading?: boolean
   rowMode: GridRowMode
   onRowModeChange: (mode: GridRowMode) => void
   onAddProject: (project: TimesheetProjectRef) => void | Promise<void>
@@ -112,6 +129,8 @@ type GridCell = {
   minutes: number
   entryIds: string[]
   lockedEntryIds: string[]
+  /** `updated_at` per entry id — the expected version a task-cell write sends. */
+  entryVersions: Record<string, string | null>
 }
 
 type DirtyCell = {
@@ -219,9 +238,10 @@ export function buildGridCells(
         ? buildTargetKey(entry.timeProjectId, null)
         : buildTargetKey(entry.timeProjectId, entry.taskId)
     const key = cellKey(rowKey, entry.date)
-    const current = cells.get(key) ?? { minutes: 0, entryIds: [], lockedEntryIds: [] }
+    const current = cells.get(key) ?? { minutes: 0, entryIds: [], lockedEntryIds: [], entryVersions: {} }
     current.minutes += Number.isFinite(entry.durationMinutes) ? entry.durationMinutes : 0
     current.entryIds.push(entry.id)
+    current.entryVersions[entry.id] = entry.updatedAt
     if (entry.isLocked) current.lockedEntryIds.push(entry.id)
     cells.set(key, current)
   }
@@ -238,6 +258,7 @@ export function GridView({
   canManage,
   canManageProjects,
   readOnly,
+  isLoading = false,
   rowMode,
   onRowModeChange,
   onAddProject,
@@ -410,11 +431,16 @@ export function GridView({
     async (changes: Array<{ row: GridRow; cell: DirtyCell }>) => {
       for (const { row, cell } of changes) {
         const key = cellKey(row.key, cell.date)
-        const existingId = cells.get(key)?.entryIds[0] ?? null
+        const storedCell = cells.get(key)
+        const existingId = storedCell?.entryIds[0] ?? null
+        const existingVersion = existingId ? storedCell?.entryVersions[existingId] ?? null : null
         const errorMessage = t('staff.timesheets.my.errors.save', 'Failed to save timesheets.')
         if (existingId && cell.minutes <= 0) {
           await runMutation({
-            operation: () => deleteCrud(ENTRIES_API_PATH, existingId, { errorMessage }),
+            operation: () =>
+              withScopedApiRequestHeaders(buildOptimisticLockHeader(existingVersion), () =>
+                deleteCrud(ENTRIES_API_PATH, existingId, { errorMessage }),
+              ),
             context: mutationContext(existingId),
             mutationPayload: { id: existingId },
           })
@@ -424,7 +450,10 @@ export function GridView({
         if (existingId) {
           const payload = { id: existingId, durationMinutes: cell.minutes }
           await runMutation({
-            operation: () => updateCrud(ENTRIES_API_PATH, payload, { errorMessage }),
+            operation: () =>
+              withScopedApiRequestHeaders(buildOptimisticLockHeader(existingVersion), () =>
+                updateCrud(ENTRIES_API_PATH, payload, { errorMessage }),
+              ),
             context: mutationContext(existingId),
             mutationPayload: payload,
           })
@@ -539,6 +568,7 @@ export function GridView({
   }, [projects, rows, tasks])
 
   const editable = canManage && !readOnly
+  const loadingLabel = t('staff.time_tracking.timesheet.grid.loading', 'Loading the timesheet grid\u2026')
 
   return (
     <div className="flex flex-col gap-3">
@@ -608,7 +638,13 @@ export function GridView({
       ) : null}
 
       <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm table-fixed">
+        <table className="w-full text-sm table-fixed" aria-busy={isLoading || undefined}>
+          <caption className="sr-only">
+            {t(
+              'staff.time_tracking.timesheet.grid.caption',
+              'Timesheet grid: one row per project or task, one column per day of the period.',
+            )}
+          </caption>
           <colgroup>
             <col className={dense ? 'w-[140px] min-w-[140px]' : 'w-[35%]'} />
             {days.map((date) => (
@@ -618,15 +654,21 @@ export function GridView({
           </colgroup>
           <thead>
             <tr className="border-b bg-muted/50">
-              <th className="sticky left-0 z-10 bg-muted px-3 py-2 text-left font-medium">
+              <th scope="col" className="sticky left-0 z-10 bg-muted px-3 py-2 text-left font-medium">
                 {t('staff.timesheets.my.project', 'Project')}
               </th>
               {days.map((date) => {
                 const { weekday, dayOfMonth } = dayHeaderParts(date)
                 const weekend = isWeekendIso(date)
+                // Weekends were signalled by a background tint alone, which a
+                // screen reader and a monochrome display both miss. The tint stays;
+                // the meaning now also travels as a title and an sr-only word.
+                const weekendLabel = t('staff.time_tracking.timesheet.grid.weekend', 'Weekend day')
                 return (
                   <th
+                    scope="col"
                     key={date}
+                    title={weekend ? `${date} · ${weekendLabel}` : date}
                     className={cn(
                       'py-2 text-center font-medium px-1',
                       weekend ? 'bg-muted/80 text-muted-foreground' : null,
@@ -634,18 +676,58 @@ export function GridView({
                   >
                     <div className="text-xs uppercase text-muted-foreground">{weekday}</div>
                     <div className="text-xs">{dayOfMonth}</div>
+                    {weekend ? <span className="sr-only">{weekendLabel}</span> : null}
                   </th>
                 )
               })}
-              <th className="px-3 py-2 text-right font-medium">{t('staff.timesheets.my.total', 'Total')}</th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                {t('staff.timesheets.my.total', 'Total')}
+              </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {isLoading
+              ? Array.from({ length: SKELETON_ROW_COUNT }).map((_, index) => (
+                  <tr key={`grid-skeleton-${index}`} data-testid="grid-skeleton-row" className="border-b">
+                    <th scope="row" className="sticky left-0 z-10 bg-background px-3 py-1.5 text-left font-medium">
+                      {index === 0 ? <span className="sr-only">{loadingLabel}</span> : null}
+                      <span aria-hidden="true" className="block h-4 w-32 animate-pulse rounded bg-muted" />
+                    </th>
+                    {days.map((date) => (
+                      <td key={date} className="px-0.5 py-0.5">
+                        <span
+                          aria-hidden="true"
+                          className={cn('mx-auto block h-6 animate-pulse rounded bg-muted', dense ? 'w-10' : 'w-16')}
+                        />
+                      </td>
+                    ))}
+                    <td className="px-3 py-1.5">
+                      <span aria-hidden="true" className="ml-auto block h-4 w-8 animate-pulse rounded bg-muted" />
+                    </td>
+                  </tr>
+                ))
+              : null}
+            {!isLoading && rows.length === 0 ? (
+              <tr data-testid="grid-empty-row" className="border-b">
+                <td colSpan={days.length + 2} className="px-3 py-10 text-center">
+                  <p className="text-sm font-medium text-foreground">
+                    {t('staff.time_tracking.timesheet.grid.empty.title', 'This grid has no rows yet')}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t(
+                      'staff.time_tracking.timesheet.grid.noRows',
+                      'Add a project row to start filling the grid.',
+                    )}
+                  </p>
+                </td>
+              </tr>
+            ) : null}
+            {isLoading ? null : rows.map((row) => (
               <tr key={row.key} className="group border-b hover:bg-muted/30">
-                <td
+                <th
+                  scope="row"
                   className={cn(
-                    'sticky left-0 z-10 bg-background px-3 py-1.5 font-medium text-foreground',
+                    'sticky left-0 z-10 bg-background px-3 py-1.5 text-left font-medium text-foreground',
                     row.taskId ? 'pl-6' : null,
                   )}
                 >
@@ -697,7 +779,7 @@ export function GridView({
                       </button>
                     ) : null}
                   </div>
-                </td>
+                </th>
                 {days.map((date) => {
                   const key = cellKey(row.key, date)
                   const weekend = isWeekendIso(date)
@@ -766,7 +848,7 @@ export function GridView({
                 </td>
               </tr>
             ))}
-            {editable ? (
+            {editable && !isLoading ? (
               <tr className="border-b">
                 <td colSpan={days.length + 2} className="sticky left-0 bg-background px-1 py-0.5">
                   <AddRowDropdown
@@ -794,9 +876,9 @@ export function GridView({
           </tbody>
           <tfoot>
             <tr className="border-t bg-muted/50 font-semibold">
-              <td className="sticky left-0 z-10 bg-muted px-3 py-2">
+              <th scope="row" className="sticky left-0 z-10 bg-muted px-3 py-2 text-left">
                 {t('staff.timesheets.my.daily_total', 'Daily Total')}
-              </td>
+              </th>
               {days.map((date) => {
                 const weekend = isWeekendIso(date)
                 const minutes = dayTotal(date)
@@ -819,12 +901,6 @@ export function GridView({
           </tfoot>
         </table>
       </div>
-
-      {rows.length === 0 ? (
-        <p className="px-1 text-sm text-muted-foreground">
-          {t('staff.time_tracking.timesheet.grid.noRows', 'Add a project row to start filling the grid.')}
-        </p>
-      ) : null}
 
       {ConfirmDialogElement}
     </div>

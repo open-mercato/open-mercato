@@ -5,6 +5,7 @@ import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ProjectTeamDrawer } from '../ProjectTeamDrawer'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 
 const mockConfirm = jest.fn(async () => true)
@@ -60,6 +61,7 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
   deleteCrud: jest.fn(async () => ({ ok: true, result: { ok: true } })),
 }))
 
+const mockFlash = flash as jest.MockedFunction<typeof flash>
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
 const mockCreateCrud = createCrud as jest.MockedFunction<typeof createCrud>
 const mockUpdateCrud = updateCrud as jest.MockedFunction<typeof updateCrud>
@@ -278,6 +280,105 @@ describe('ProjectTeamDrawer', () => {
       expect.anything(),
     )
     expect(mockDeleteCrud).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The drawer writes nothing until Save, so the footer's change count is the
+   * only record that the batch exists. Every way out of the drawer has to ask
+   * before throwing it away.
+   */
+  describe('unsaved changes', () => {
+    async function stageOneChange() {
+      const tomaszCheckbox = await screen.findByRole('checkbox', { name: /Assign Tomasz Iwan/ })
+      fireEvent.click(tomaszCheckbox)
+      await waitFor(() => { expect(screen.getByText('1 change to save')).toBeInTheDocument() })
+    }
+
+    it('asks before discarding staged changes and keeps them when declined', async () => {
+      const onOpenChange = jest.fn()
+      renderDrawer({ onOpenChange })
+      await stageOneChange()
+      mockConfirm.mockResolvedValue(false)
+
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledWith(
+          expect.objectContaining({ variant: 'destructive' }),
+        )
+      })
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(screen.getByText('1 change to save')).toBeInTheDocument()
+    })
+
+    it('closes once the discard is confirmed', async () => {
+      const onOpenChange = jest.fn()
+      renderDrawer({ onOpenChange })
+      await stageOneChange()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      await waitFor(() => { expect(onOpenChange).toHaveBeenCalledWith(false) })
+      expect(mockConfirm).toHaveBeenCalled()
+    })
+
+    it('closes without a prompt when nothing is staged', async () => {
+      const onOpenChange = jest.fn()
+      renderDrawer({ onOpenChange })
+      await screen.findByText('Anna Nowak')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      await waitFor(() => { expect(onOpenChange).toHaveBeenCalledWith(false) })
+      expect(mockConfirm).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * C6 — the save loop is sequential and not transactional, so a failure
+   * part-way through leaves the writes that already landed committed. The
+   * drawer must not keep showing the optimistic snapshot it staged.
+   */
+  it('reloads the team before reporting a mid-batch failure', async () => {
+    const onOpenChange = jest.fn()
+    const onSaved = jest.fn()
+    renderDrawer({ onOpenChange, onSaved })
+
+    const tomaszCheckbox = await screen.findByRole('checkbox', { name: /Assign Tomasz Iwan/ })
+    fireEvent.click(tomaszCheckbox)
+    await waitFor(() => { expect(screen.getByText('being added')).toBeInTheDocument() })
+    const paulinaCheckbox = screen.getByRole('checkbox', { name: /Assign Paulina Zych/ })
+    fireEvent.click(paulinaCheckbox)
+    await waitFor(() => { expect(screen.getByText('being removed')).toBeInTheDocument() })
+
+    const employeeReadsBefore = mockApiCall.mock.calls.filter(([url]) =>
+      String(url).includes('/employees'),
+    ).length
+    // The addition lands, the removal does not: the team is now half-applied.
+    mockDeleteCrud.mockRejectedValueOnce(new Error('Membership already removed'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => { expect(mockCreateCrud).toHaveBeenCalled() })
+    await waitFor(() => {
+      const employeeReadsAfter = mockApiCall.mock.calls.filter(([url]) =>
+        String(url).includes('/employees'),
+      ).length
+      expect(employeeReadsAfter).toBeGreaterThan(employeeReadsBefore)
+    })
+
+    expect(mockFlash).toHaveBeenCalledWith(
+      expect.stringContaining('Membership already removed'),
+      'error',
+    )
+    expect(mockFlash).toHaveBeenCalledWith(
+      expect.stringContaining('reloaded from the server'),
+      'error',
+    )
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+    // The staged batch is gone — what is on screen is what the server holds.
+    await waitFor(() => { expect(screen.getByText('No changes')).toBeInTheDocument() })
   })
 
   it('pre-selects the requester from an access-request deep link', async () => {

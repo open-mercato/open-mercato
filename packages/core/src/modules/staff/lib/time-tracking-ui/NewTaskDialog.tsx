@@ -11,6 +11,7 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import {
   Select,
   SelectContent,
@@ -197,6 +198,7 @@ export function NewTaskDialog({
             onClick={() => void submit()}
             data-testid="board-new-task-submit"
           >
+            {isSaving ? <Spinner className="size-4" /> : null}
             {t('staff.time_tracking.board.newTask.submit', 'Create task')}
           </Button>
         </DialogFooter>

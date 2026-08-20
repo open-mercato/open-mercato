@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { autoColorFromName } from '../../timesheets-ui/colors'
 import { TimeEntryDialog } from '../TimeEntryDialog'
 
 const TASK_ID = '11111111-1111-4111-8111-111111111111'
@@ -61,6 +62,11 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   }),
 }))
 
+const mockConfirm = jest.fn(async () => true)
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  useConfirmDialog: () => ({ confirm: mockConfirm, ConfirmDialogElement: null }),
+}))
+
 /**
  * The task picker is a `LookupSelect` — a search box over a fetched list, whose
  * own behaviour is covered in `packages/ui`. These tests care about what the
@@ -82,20 +88,33 @@ jest.mock('../TaskPicker', () => {
     onChange: (id: string | null) => void
     items: Item[]
     disabled?: boolean
+    onQueryChange?: (query: string) => void
   }
-  const TaskPicker = ({ value, onChange, items, disabled }: Props) =>
-    ReactModule.createElement(
-      'select',
-      {
-        value: value ?? '',
+  const TaskPicker = ({ value, onChange, items, disabled, onQueryChange }: Props) =>
+    ReactModule.createElement(ReactModule.Fragment, null, [
+      ReactModule.createElement(
+        'select',
+        {
+          key: '__select',
+          value: value ?? '',
+          disabled,
+          onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value || null),
+        },
+        [
+          ReactModule.createElement('option', { key: '__empty', value: '' }, ''),
+          ...items.map((item) => ReactModule.createElement('option', { key: item.id, value: item.id }, item.title)),
+        ],
+      ),
+      // The real picker reports its search box on every keystroke so the dialog
+      // can widen `items` with a server-side search; the stand-in exposes the
+      // same contract as a plain text box.
+      ReactModule.createElement('input', {
+        key: '__query',
+        'data-testid': 'task-picker-query',
         disabled,
-        onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value || null),
-      },
-      [
-        ReactModule.createElement('option', { key: '__empty', value: '' }, ''),
-        ...items.map((item) => ReactModule.createElement('option', { key: item.id, value: item.id }, item.title)),
-      ],
-    )
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) => onQueryChange?.(event.target.value),
+      }),
+    ])
   return { TaskPicker, __esModule: true }
 })
 
@@ -199,6 +218,21 @@ const taskRows: Row[] = [
   { id: OTHER_TASK_ID, title: 'Przegląd zapytań SQL', time_project_id: PROJECT_ID },
 ]
 
+/**
+ * The task the directory page never shows — the whole point of C7 is that a
+ * tenant past the first page can still reach it, and only the server can find it.
+ */
+const REMOTE_TASK_ID = '88888888-8888-4888-8888-888888888888'
+const remoteTaskRow: Row = {
+  id: REMOTE_TASK_ID,
+  reference: 'AWR-412',
+  title: 'Zamykanie rozliczeń kwartalnych',
+  time_project_id: PROJECT_ID,
+}
+
+/** Rows the tags endpoint answers with; a create pushes onto it, like the server. */
+let tagRows: Row[] = []
+
 const projectRows: Row[] = [
   {
     id: PROJECT_ID,
@@ -217,18 +251,45 @@ function installApiRouter() {
     if (url.includes('/team-members/self')) {
       return ok({ member: { id: SELF_ID, displayName: 'Anna Nowak' } }) as never
     }
-    if (url.includes('/timesheets/tasks')) return ok({ items: taskRows, total: taskRows.length }) as never
+    if (url.includes('/timesheets/tasks')) {
+      const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
+      const ids = query.get('ids')
+      if (ids) {
+        const rows = [...taskRows, remoteTaskRow].filter((row) => ids.split(',').includes(String(row.id)))
+        return ok({ items: rows, total: rows.length }) as never
+      }
+      const term = query.get('q') ?? query.get('reference')
+      if (term) {
+        const needle = term.toLowerCase()
+        const rows = [...taskRows, remoteTaskRow].filter(
+          (row) =>
+            String(row.title ?? '').toLowerCase().includes(needle) ||
+            String(row.reference ?? '').toLowerCase().startsWith(needle),
+        )
+        return ok({ items: rows, total: rows.length }) as never
+      }
+      return ok({ items: taskRows, total: taskRows.length }) as never
+    }
     if (url.includes('/timesheets/time-projects')) {
       return ok({ items: projectRows, total: projectRows.length }) as never
     }
-    if (url.includes('/timesheets/tags')) return ok({ items: [], total: 0 }) as never
+    if (url.includes('/timesheets/tags')) return ok({ items: tagRows, total: tagRows.length }) as never
     if (url.includes('/time-entries/overlaps')) {
       return ok({ items: overlapRows, total: overlapRows.length }) as never
     }
     if (url.includes('/time-entries?')) return ok({ items: entryRows, total: entryRows.length }) as never
     return ok({ items: [], total: 0 }) as never
   })
-  mockApiCallOrThrow.mockImplementation(async () => ok({ id: ENTRY_ID }) as never)
+  mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.includes('/timesheets/tags')) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      const id = `tag-${tagRows.length + 1}`
+      tagRows = [...tagRows, { id, label: body.label, slug: body.slug, color: body.color ?? null }]
+      return ok({ id }) as never
+    }
+    return ok({ id: ENTRY_ID }) as never
+  })
 }
 
 function renderDialog(props: Partial<React.ComponentProps<typeof TimeEntryDialog>> = {}) {
@@ -291,6 +352,8 @@ beforeEach(() => {
   }
   overlapRows = []
   entryRows = []
+  tagRows = []
+  mockConfirm.mockResolvedValue(true)
   mockUseBackendChrome.mockReturnValue({
     payload: { grantedFeatures: ['staff.timesheets.manage_own', 'staff.timesheets.rates.view'] },
   } as never)
@@ -622,19 +685,191 @@ describe('TimeEntryDialog — saving', () => {
     )
   })
 
-  it('saves on ⌘↵ and cancels on Escape', async () => {
-    const onOpenChange = jest.fn()
-    renderDialog({ onOpenChange })
+  it('saves on ⌘↵', async () => {
+    renderDialog()
     await pickTask()
     fireEvent.change(durationInput(), { target: { value: '1h' } })
 
-    const dialog = screen.getByTestId('entry-dialog')
-    fireEvent.keyDown(dialog, { key: 'Enter', metaKey: true })
+    fireEvent.keyDown(screen.getByTestId('entry-dialog'), { key: 'Enter', metaKey: true })
+
     await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
     expect((mockApiCallOrThrow.mock.calls[0]?.[1] as RequestInit).method).toBe('POST')
+  })
+})
 
-    fireEvent.keyDown(dialog, { key: 'Escape' })
-    expect(onOpenChange).toHaveBeenCalledWith(false)
+/**
+ * U2 — the dialog holds work that exists nowhere else until Save, so every way
+ * out of it has to ask first. The routes differ (Escape, the ×, the overlay,
+ * Cancel) but they all reach Radix's `onOpenChange`, which is where the guard is.
+ */
+describe('TimeEntryDialog — unsaved work', () => {
+  it('asks before discarding a half-entered entry and keeps it when declined', async () => {
+    mockConfirm.mockResolvedValue(false)
+    const onOpenChange = jest.fn()
+    renderDialog({ onOpenChange })
+    await pickTask()
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), {
+      target: { value: 'Poprawki mapowania cen' },
+    })
+
+    fireEvent.keyDown(screen.getByTestId('entry-dialog'), { key: 'Escape' })
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled())
+    expect(mockConfirm.mock.calls[0]?.[0]).toMatchObject({ variant: 'destructive' })
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect((screen.getByTestId('entry-dialog-description') as HTMLInputElement).value).toBe(
+      'Poprawki mapowania cen',
+    )
+  })
+
+  it('closes once the discard is confirmed', async () => {
+    mockConfirm.mockResolvedValue(true)
+    const onOpenChange = jest.fn()
+    renderDialog({ onOpenChange })
+    await pickTask()
+
+    fireEvent.click(screen.getByText('Cancel'))
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(mockConfirm).toHaveBeenCalled()
+  })
+
+  it('closes an untouched form without a prompt', async () => {
+    const onOpenChange = jest.fn()
+    renderDialog({ onOpenChange })
+    // Wait for the seed to land, so "untouched" means seeded-and-untouched
+    // rather than not-yet-seeded.
+    await screen.findByTestId('entry-dialog-description')
+
+    fireEvent.click(screen.getByText('Cancel'))
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(mockConfirm).not.toHaveBeenCalled()
+  })
+
+  it('does not treat a saved entry reopened for editing as dirty', async () => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        started_at: '2026-07-20T09:00:00.000Z',
+        ended_at: '2026-07-20T10:00:00.000Z',
+        duration_minutes: 60,
+        description: 'Analiza planów zapytań',
+        task_id: TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    const onOpenChange = jest.fn()
+    renderDialog({ entryId: ENTRY_ID, onOpenChange })
+    await waitFor(() =>
+      expect((screen.getByTestId('entry-dialog-description') as HTMLInputElement).value).toBe(
+        'Analiza planów zapytań',
+      ),
+    )
+
+    fireEvent.keyDown(screen.getByTestId('entry-dialog'), { key: 'Escape' })
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(mockConfirm).not.toHaveBeenCalled()
+  })
+
+  it('keeps the dialog open when Escape dismisses the tag popover instead', async () => {
+    const onOpenChange = jest.fn()
+    renderDialog({ onOpenChange })
+    await pickTask()
+
+    fireEvent.click(await screen.findByTestId('entry-dialog-tag-select'))
+    expect(screen.getByTestId('entry-dialog-tag-search')).toBeInTheDocument()
+
+    // Dispatched on the search box, as a real keystroke would be: the popover
+    // consumes it before Radix's document-capture dismissal ever sees it.
+    fireEvent.keyDown(screen.getByTestId('entry-dialog-tag-search'), { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByTestId('entry-dialog-tag-search')).not.toBeInTheDocument())
+    expect(mockConfirm).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+})
+
+/** C7 — the picker used to filter a fixed first page, so task 101 did not exist. */
+describe('TimeEntryDialog — task search', () => {
+  it('finds a task the directory page never returned', async () => {
+    renderDialog()
+    const select = taskSelect()
+    await waitFor(() => expect(select.querySelector(`option[value="${TASK_ID}"]`)).not.toBeNull())
+    expect(select.querySelector(`option[value="${REMOTE_TASK_ID}"]`)).toBeNull()
+
+    fireEvent.change(screen.getByTestId('task-picker-query'), { target: { value: 'kwartalnych' } })
+
+    await waitFor(() => expect(taskSelect().querySelector(`option[value="${REMOTE_TASK_ID}"]`)).not.toBeNull())
+    // Both fields are asked, because one term cannot be routed to one of them.
+    const searchUrls = mockApiCall.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.includes('/timesheets/tasks') && url.includes('kwartalnych'))
+    expect(searchUrls.some((url) => url.includes('q=kwartalnych'))).toBe(true)
+    expect(searchUrls.some((url) => url.includes('reference=kwartalnych'))).toBe(true)
+    for (const url of searchUrls) {
+      expect(Number(new URLSearchParams(url.slice(url.indexOf('?') + 1)).get('pageSize'))).toBeLessThanOrEqual(100)
+    }
+  })
+
+  it('debounces the remote search rather than asking once per keystroke', async () => {
+    renderDialog()
+    await waitFor(() => expect(taskSelect().querySelector(`option[value="${TASK_ID}"]`)).not.toBeNull())
+    const queryBox = screen.getByTestId('task-picker-query')
+
+    fireEvent.change(queryBox, { target: { value: 'k' } })
+    fireEvent.change(queryBox, { target: { value: 'kw' } })
+    fireEvent.change(queryBox, { target: { value: 'kwartalnych' } })
+
+    await waitFor(() => expect(taskSelect().querySelector(`option[value="${REMOTE_TASK_ID}"]`)).not.toBeNull())
+    const searched = mockApiCall.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.includes('/timesheets/tasks') && (url.includes('&q=') || url.includes('&reference=')))
+    // Two requests — the title one and the reference one — for the settled term.
+    expect(searched).toHaveLength(2)
+  })
+
+  it('keeps a searched task selected after the search box is cleared', async () => {
+    renderDialog()
+    await waitFor(() => expect(taskSelect().querySelector(`option[value="${TASK_ID}"]`)).not.toBeNull())
+
+    fireEvent.change(screen.getByTestId('task-picker-query'), { target: { value: 'AWR-412' } })
+    await waitFor(() => expect(taskSelect().querySelector(`option[value="${REMOTE_TASK_ID}"]`)).not.toBeNull())
+    fireEvent.change(taskSelect(), { target: { value: REMOTE_TASK_ID } })
+    fireEvent.change(screen.getByTestId('task-picker-query'), { target: { value: '' } })
+
+    await waitFor(() => expect(taskSelect().value).toBe(REMOTE_TASK_ID))
+    expect(taskSelect().querySelector(`option[value="${REMOTE_TASK_ID}"]`)).not.toBeNull()
+  })
+})
+
+/** C9 — the chip and the picker dot have to name the same colour. */
+describe('TimeEntryDialog — inline tag creation', () => {
+  it('sends the name-derived colour so the chip is not grey', async () => {
+    renderDialog()
+    await pickTask()
+
+    fireEvent.click(await screen.findByTestId('entry-dialog-tag-select'))
+    fireEvent.change(screen.getByTestId('entry-dialog-tag-search'), { target: { value: 'Rozliczenia' } })
+    fireEvent.click(screen.getByTestId('entry-dialog-tag-create'))
+
+    await waitFor(() => expect(tagRows).toHaveLength(1))
+    const createCall = mockApiCallOrThrow.mock.calls.find((call) => String(call[0]).includes('/timesheets/tags'))
+    const body = JSON.parse(String((createCall?.[1] as RequestInit).body)) as Record<string, unknown>
+    expect(body.label).toBe('Rozliczenia')
+    // The same hue the picker's dot is tinted with, not a server default of null.
+    expect(body.color).toBe(autoColorFromName('Rozliczenia').key)
+    expect(tagRows[0].color).toBe(body.color)
+
+    const chip = await screen.findByText('Rozliczenia')
+    const chipElement = chip.closest('[style]') as HTMLElement | null
+    expect(chipElement?.style.backgroundColor).not.toBe('')
   })
 })
 
@@ -678,5 +913,153 @@ describe('TimeEntryDialog — keyboard loop', () => {
     const dialog = screen.getByTestId('entry-dialog')
     expect(dialog.textContent).toContain('save and add another')
     expect(dialog.textContent).toContain('cancel')
+  })
+})
+
+/**
+ * U7 — the buttons only went `disabled` while a write was in flight, which on a
+ * slow connection is indistinguishable from a dialog that stopped responding.
+ * The spinner has to land on the button that was actually pressed.
+ */
+describe('TimeEntryDialog — pending state', () => {
+  it('spins the Save button while the write is in flight', async () => {
+    let release: (() => void) | null = null
+    mockApiCallOrThrow.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(ok({ id: ENTRY_ID }) as never)
+        }) as never,
+    )
+
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(saveButton().querySelector('[role="status"]')).not.toBeNull())
+    expect(screen.getByTestId('entry-dialog-save-again').querySelector('[role="status"]')).toBeNull()
+    expect(saveButton()).toBeDisabled()
+
+    release?.()
+    await waitFor(() => expect(saveButton().querySelector('[role="status"]')).toBeNull())
+  })
+
+  it('spins the save-and-add-another button instead when that one is pressed', async () => {
+    let release: (() => void) | null = null
+    mockApiCallOrThrow.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(ok({ id: ENTRY_ID }) as never)
+        }) as never,
+    )
+
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+
+    fireEvent.click(screen.getByTestId('entry-dialog-save-again'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('entry-dialog-save-again').querySelector('[role="status"]')).not.toBeNull(),
+    )
+    expect(saveButton().querySelector('[role="status"]')).toBeNull()
+
+    release?.()
+    await waitFor(() =>
+      expect(screen.getByTestId('entry-dialog-save-again').querySelector('[role="status"]')).toBeNull(),
+    )
+  })
+})
+
+/**
+ * U8 — a disabled Save cannot say which of the two required fields it is waiting
+ * for, and a field-shaped server complaint said in a toast makes the reader hunt
+ * for the control it is about. Both now answer under the offending control; only
+ * genuinely global failures stay in the flash.
+ */
+describe('TimeEntryDialog — field-level validation', () => {
+  it('names the missing task under the picker rather than only greying out Save', async () => {
+    renderDialog()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+
+    expect(saveButton()).not.toBeDisabled()
+    fireEvent.click(saveButton())
+
+    const message = await screen.findByTestId('entry-dialog-task-error')
+    expect(message).toHaveAttribute('role', 'alert')
+    expect(message.textContent).toBe('Pick the task this time belongs to.')
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+    expect(mockFlash).not.toHaveBeenCalled()
+  })
+
+  it('names the missing duration under the duration field', async () => {
+    renderDialog()
+    await pickTask()
+
+    expect(saveButton()).not.toBeDisabled()
+    fireEvent.click(saveButton())
+
+    const message = await screen.findByText('Enter how long the work took.')
+    expect(message).toHaveAttribute('role', 'alert')
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+    expect(mockFlash).not.toHaveBeenCalled()
+  })
+
+  it('drops the message as soon as the field is filled in, and then saves', async () => {
+    renderDialog()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+    await screen.findByTestId('entry-dialog-task-error')
+
+    await pickTask()
+
+    await waitFor(() => expect(screen.queryByTestId('entry-dialog-task-error')).not.toBeInTheDocument())
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+  })
+
+  it('puts a field-shaped server refusal under its field instead of in a toast', async () => {
+    mockApiCallOrThrow.mockRejectedValue(
+      Object.assign(new Error('Invalid input'), {
+        body: { error: 'Invalid input', details: [{ path: ['durationMinutes'], message: 'Must be under 24 hours.' }] },
+      }),
+    )
+
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    const message = await screen.findByText('Must be under 24 hours.')
+    expect(message).toHaveAttribute('role', 'alert')
+    expect(mockFlash).not.toHaveBeenCalled()
+  })
+
+  it('still flashes a network failure, which belongs to no field', async () => {
+    mockApiCallOrThrow.mockRejectedValue(new Error('Network request failed'))
+
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Network request failed', 'error'))
+    expect(screen.queryByTestId('entry-dialog-task-error')).not.toBeInTheDocument()
+  })
+
+  it('keeps the 409 conflict on its own path', async () => {
+    mockApiCallOrThrow.mockRejectedValue(
+      Object.assign(new Error('Conflict'), { body: { code: 'optimistic_lock_conflict' } }),
+    )
+
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    await waitFor(() => expect(mockFlash).not.toHaveBeenCalled())
+    expect(screen.queryByTestId('entry-dialog-task-error')).not.toBeInTheDocument()
   })
 })

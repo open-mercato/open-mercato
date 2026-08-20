@@ -516,9 +516,18 @@ export function ProjectTeamDrawer({
     // No optimistic-lock header, deliberately. The endpoint accepts and enforces
     // one (the CRUD factory registers a reader for this entity), but this drawer
     // saves a whole batch — additions, re-datings and removals — with no
-    // rollback, so a mid-batch 409 would leave the team half-applied and the
-    // drawer's snapshot stale. A per-row version round-trip belongs with a
-    // per-row conflict UX; the batch save is not it.
+    // rollback. A per-row version round-trip belongs with a per-row conflict UX;
+    // the batch save is not it.
+    //
+    // What this loop guarantees and what it does not (C6):
+    //  * GUARANTEED — the loop stops at the first failure, so no write is
+    //    attempted after one fails, and `handleSave` reloads the drawer from the
+    //    server before showing the error, so what the user then sees is the
+    //    persisted team rather than the optimistic local snapshot.
+    //  * NOT GUARANTEED — atomicity. There is no transaction across these three
+    //    passes: whatever was written before the failure stays written and is
+    //    not rolled back. The reload therefore also drops the part of the batch
+    //    that never reached the server; the user re-applies it and saves again.
     for (const update of changes.endDateUpdates) {
       await updateCrud(employeesPath, {
         id: update.member.membershipId,
@@ -562,16 +571,39 @@ export function ProjectTeamDrawer({
       onSaved?.()
       onOpenChange(false)
     } catch (error) {
-      flash(
-        error instanceof Error && error.message
+      logger.error('staff.time_tracking.projects.team.save failed', { err: error })
+      // The batch is not transactional (see `persistChanges`), so the local
+      // snapshot can no longer be trusted: re-read the memberships first and
+      // only then report, so the error and the rows underneath it agree.
+      await loadTeam()
+      const reason =
+        error instanceof Error && error.message.trim().length > 0
           ? error.message
-          : t('staff.time_tracking.projects.team.drawer.saveError', 'Could not save the project team.'),
+          : t('staff.time_tracking.projects.team.drawer.saveError', 'Could not save the project team.')
+      flash(
+        t(
+          'staff.time_tracking.projects.team.drawer.partialSaveError',
+          '{reason} Saving stopped part-way through, so the team shown below was reloaded from the server — check it and apply the remaining changes again.',
+          { reason },
+        ),
         'error',
       )
     } finally {
       setSaving(false)
     }
-  }, [changes, onOpenChange, onSaved, pendingChanges, persistChanges, projectId, retryLastMutation, runMutation, saving, t])
+  }, [
+    changes,
+    loadTeam,
+    onOpenChange,
+    onSaved,
+    pendingChanges,
+    persistChanges,
+    projectId,
+    retryLastMutation,
+    runMutation,
+    saving,
+    t,
+  ])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -582,6 +614,31 @@ export function ProjectTeamDrawer({
     },
     [handleSave],
   )
+
+  /**
+   * The drawer batches the whole team edit and writes nothing until Save, so
+   * Escape, the ×, the overlay and Cancel each stand to discard a set of changes
+   * the footer is at that moment counting out loud. They all reach `onOpenChange`,
+   * so the guard sits there once rather than on each of them.
+   */
+  const requestClose = React.useCallback(async () => {
+    if (saving) return
+    if (pendingChanges === 0) {
+      onOpenChange(false)
+      return
+    }
+    const confirmed = await confirm({
+      title: t('staff.time_tracking.projects.team.drawer.discard.title', 'Discard the team changes?'),
+      text: t(
+        'staff.time_tracking.projects.team.drawer.discard.text',
+        'Nothing has been saved yet, so closing now loses every change in this drawer.',
+      ),
+      confirmText: t('staff.time_tracking.projects.team.drawer.discard.confirm', 'Discard'),
+      cancelText: t('staff.time_tracking.projects.team.drawer.discard.cancel', 'Keep editing'),
+      variant: 'destructive',
+    })
+    if (confirmed) onOpenChange(false)
+  }, [confirm, onOpenChange, pendingChanges, saving, t])
 
   const matchesQuery = React.useCallback(
     (profile: PersonProfile) => {
@@ -767,7 +824,16 @@ export function ProjectTeamDrawer({
   )
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          onOpenChange(true)
+          return
+        }
+        void requestClose()
+      }}
+    >
       <DrawerContent
         className="sm:max-w-lg"
         onKeyDown={handleKeyDown}
@@ -845,7 +911,7 @@ export function ProjectTeamDrawer({
           )}
         </DrawerBody>
         <DrawerFooter leading={<span className="text-xs text-muted-foreground">{changeCountLabel}</span>}>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="ghost" onClick={() => { void requestClose() }}>
             {t('staff.time_tracking.projects.team.drawer.cancel', 'Cancel')}
           </Button>
           <Button type="button" disabled={saving || pendingChanges === 0} onClick={() => { void handleSave() }}>

@@ -7,18 +7,22 @@ import { isTimesheetPeriodKind, type TimesheetPeriodKind } from './timesheetPeri
  * "Filters (project, person, period) are remembered per user and come back next
  * time" — screen 11 note 4, US-E2.
  *
- * Storage follows `timesheets-projects-ui/useProjectsViewMode.ts` and
- * `time-tracking-ui/useBoardFilters.ts` verbatim rather than inventing a second
- * idiom for the same job: `localStorage`, guarded reads and writes, an optional
- * `userKey` segment no caller passes yet, and a lazy first read so a remount
- * restores without a round-trip.
+ * Three inputs decide what the timesheet opens on, in this order:
  *
- * That precedent scopes the memory to the browser profile rather than to the
- * signed-in identity (watch item W10). Keying on the staff member id would be
- * strictly more correct, but the id is only known after the first request
- * resolves, so the first paint would either flash an unfiltered timesheet or
- * write under the wrong key. This matches the two hooks already shipped; when
- * one of them moves to identity keying, this moves with it.
+ *  1. **The query string** — `?period=` and `?view=` are the documented deep-link
+ *     contract for screens 11 and 12, so a shared URL must beat whatever this
+ *     browser happens to remember. An unparseable value is ignored rather than
+ *     thrown on: a hand-edited link degrades to the remembered preference.
+ *  2. **The remembered preference**, scoped to the signed-in staff member.
+ *  3. **The period-dependent default.**
+ *
+ * `userKey` is the caller's staff member id, which only exists once the page has
+ * resolved it. Reading the unscoped key first and writing BOTH keys keeps that
+ * late arrival free: the unscoped entry is a first-paint hint (whoever wrote
+ * last), the scoped entry is the truth, and for a browser with one user the two
+ * always agree — so the hydration that follows the id is a no-op and costs no
+ * reload. Two people sharing a browser converge on their own entry after the
+ * first render pass instead of sharing one set of filters forever.
  *
  * **The anchor day is deliberately NOT persisted.** A remembered week would
  * reopen the timesheet on whatever week the user last looked at, which is wrong
@@ -27,6 +31,16 @@ import { isTimesheetPeriodKind, type TimesheetPeriodKind } from './timesheetPeri
  */
 
 export type TimesheetView = 'calendar' | 'list' | 'grid'
+
+export type TimesheetPreferenceScope = {
+  /** Staff member id the preference belongs to; `null` until the page resolves it. */
+  userKey?: string | null
+}
+
+export type TimesheetPreferenceOptions = TimesheetPreferenceScope & {
+  /** Raw `?period=` / `?view=` value; anything unparseable is ignored. */
+  urlOverride?: string | null
+}
 
 const PERIOD_KEY_PREFIX = 'staff.time_tracking.timesheet.period'
 const VIEW_KEY_PREFIX = 'staff.time_tracking.timesheet.view'
@@ -61,8 +75,32 @@ function writeStored(key: string, value: string): void {
   }
 }
 
+function readPreference<T>(
+  scopedKey: string,
+  sharedKey: string,
+  parse: (raw: string | null) => T | null,
+): T | null {
+  const scoped = parse(readStored(scopedKey))
+  if (scoped !== null) return scoped
+  if (scopedKey === sharedKey) return null
+  return parse(readStored(sharedKey))
+}
+
+function writePreference(scopedKey: string, sharedKey: string, value: string): void {
+  writeStored(scopedKey, value)
+  if (scopedKey !== sharedKey) writeStored(sharedKey, value)
+}
+
 export function isTimesheetView(value: unknown): value is TimesheetView {
   return value === 'calendar' || value === 'list' || value === 'grid'
+}
+
+function parsePeriodKind(raw: string | null): TimesheetPeriodKind | null {
+  return isTimesheetPeriodKind(raw) ? raw : null
+}
+
+function parseView(raw: string | null): TimesheetView | null {
+  return isTimesheetView(raw) ? raw : null
 }
 
 /**
@@ -93,19 +131,37 @@ export function resolveEffectiveView(kind: TimesheetPeriodKind, stored: Timeshee
 }
 
 export function usePersistedPeriodKind(
-  userKey?: string | null,
+  options: TimesheetPreferenceOptions = {},
 ): [TimesheetPeriodKind, (next: TimesheetPeriodKind) => void] {
+  const { userKey, urlOverride } = options
   const key = storageKey(PERIOD_KEY_PREFIX, userKey)
-  const [kind, setKind] = React.useState<TimesheetPeriodKind>(() => {
-    const stored = readStored(key)
-    return isTimesheetPeriodKind(stored) ? stored : 'week'
-  })
+  const sharedKey = storageKey(PERIOD_KEY_PREFIX)
+  const override = parsePeriodKind(urlOverride ?? null)
+
+  const [kind, setKind] = React.useState<TimesheetPeriodKind>(
+    () => override ?? readPreference(key, sharedKey, parsePeriodKind) ?? 'week',
+  )
+
+  // Back/forward and any other in-place URL change re-assert the link.
+  React.useEffect(() => {
+    if (override === null) return
+    setKind(override)
+  }, [override])
+
+  const keyRef = React.useRef(key)
+  React.useEffect(() => {
+    if (keyRef.current === key) return
+    keyRef.current = key
+    if (override !== null) return
+    setKind(readPreference(key, sharedKey, parsePeriodKind) ?? 'week')
+  }, [key, override, sharedKey])
+
   const update = React.useCallback(
     (next: TimesheetPeriodKind) => {
       setKind(next)
-      writeStored(key, next)
+      writePreference(key, sharedKey, next)
     },
-    [key],
+    [key, sharedKey],
   )
   return [kind, update]
 }
@@ -114,46 +170,76 @@ export function usePersistedPeriodKind(
  * The view is remembered PER PERIOD KIND, because the default is per period
  * kind. Choosing the list for a month must not silently override the grid a week
  * opens on, and vice versa.
+ *
+ * That is also why a period switch outranks `?view=`: the parameter described
+ * the period the link was made on, while the remembered choice is specific to
+ * the period now on screen.
  */
 export function usePersistedView(
   periodKind: TimesheetPeriodKind,
-  userKey?: string | null,
+  options: TimesheetPreferenceOptions = {},
 ): [TimesheetView, (next: TimesheetView) => void] {
+  const { userKey, urlOverride } = options
   const key = storageKey(VIEW_KEY_PREFIX, periodKind, userKey)
-  const [view, setView] = React.useState<TimesheetView>(() => {
-    const stored = readStored(key)
-    return isTimesheetView(stored) ? stored : defaultViewForPeriod(periodKind)
-  })
+  const sharedKey = storageKey(VIEW_KEY_PREFIX, periodKind)
+  const override = parseView(urlOverride ?? null)
+
+  const [view, setView] = React.useState<TimesheetView>(
+    () => override ?? readPreference(key, sharedKey, parseView) ?? defaultViewForPeriod(periodKind),
+  )
+
+  React.useEffect(() => {
+    if (override === null) return
+    setView(override)
+  }, [override])
+
   const keyRef = React.useRef(key)
+  const periodRef = React.useRef(periodKind)
   React.useEffect(() => {
     if (keyRef.current === key) return
+    const periodChanged = periodRef.current !== periodKind
     keyRef.current = key
-    const stored = readStored(key)
-    setView(isTimesheetView(stored) ? stored : defaultViewForPeriod(periodKind))
-  }, [key, periodKind])
+    periodRef.current = periodKind
+    if (override !== null && !periodChanged) return
+    setView(readPreference(key, sharedKey, parseView) ?? defaultViewForPeriod(periodKind))
+  }, [key, override, periodKind, sharedKey])
 
   const update = React.useCallback(
     (next: TimesheetView) => {
       setView(next)
-      writeStored(key, next)
+      writePreference(key, sharedKey, next)
     },
-    [key],
+    [key, sharedKey],
   )
   return [view, update]
 }
 
 export function usePersistedFilterValue(
   kind: 'project' | 'person',
-  userKey?: string | null,
+  options: TimesheetPreferenceScope = {},
 ): [string, (next: string) => void] {
-  const key = storageKey(kind === 'project' ? PROJECT_KEY_PREFIX : PERSON_KEY_PREFIX, userKey)
-  const [value, setValue] = React.useState<string>(() => readStored(key) ?? ALL_OPTION_VALUE)
+  const { userKey } = options
+  const prefix = kind === 'project' ? PROJECT_KEY_PREFIX : PERSON_KEY_PREFIX
+  const key = storageKey(prefix, userKey)
+  const sharedKey = storageKey(prefix)
+
+  const [value, setValue] = React.useState<string>(
+    () => readPreference(key, sharedKey, (raw) => raw) ?? ALL_OPTION_VALUE,
+  )
+
+  const keyRef = React.useRef(key)
+  React.useEffect(() => {
+    if (keyRef.current === key) return
+    keyRef.current = key
+    setValue(readPreference(key, sharedKey, (raw) => raw) ?? ALL_OPTION_VALUE)
+  }, [key, sharedKey])
+
   const update = React.useCallback(
     (next: string) => {
       setValue(next)
-      writeStored(key, next)
+      writePreference(key, sharedKey, next)
     },
-    [key],
+    [key, sharedKey],
   )
   return [value, update]
 }

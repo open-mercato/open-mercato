@@ -3,7 +3,7 @@
  */
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { readApiResultOrThrow, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -19,6 +19,18 @@ const EUR_ID = '55555555-5555-4555-8555-555555555555'
 const TASK_ID = '66666666-6666-4666-8666-666666666666'
 const PROJECT_ID = '77777777-7777-4777-8777-777777777777'
 const REPORT_ID = '88888888-8888-4888-8888-888888888888'
+const SELF_MEMBER_ID = '99999999-9999-4999-8999-999999999999'
+const OTHER_MEMBER_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const ENTRIES_PATH = '/backend/staff/time-tracking/entries'
+
+let mockSearch = ''
+const mockRouterReplace = jest.fn()
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: mockRouterReplace, push: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend/staff/time-tracking/entries',
+  useSearchParams: () => new URLSearchParams(mockSearch),
+}))
 
 function interpolate(template: string, params?: Record<string, string | number>): string {
   if (!params) return template
@@ -114,16 +126,28 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     columns = [],
     rowActions,
     actions,
+    filters = [],
+    activeFilterChips,
   }: {
     data?: Array<Record<string, unknown>>
     columns?: Array<Record<string, unknown>>
     rowActions?: (row: Record<string, unknown>) => React.ReactNode
     actions?: React.ReactNode
+    filters?: Array<Record<string, unknown>>
+    activeFilterChips?: React.ReactNode
   }) => {
     const columnKey = (column: Record<string, unknown>) => String(column.id ?? column.accessorKey ?? 'column')
     return (
       <div data-testid="data-table">
         <div data-testid="table-actions">{actions}</div>
+        <div data-testid="table-filters">
+          {filters.map((filter) => (
+            <span key={String(filter.id)} data-testid={`filter-${String(filter.id)}`}>
+              {String(filter.label)}
+            </span>
+          ))}
+        </div>
+        <div data-testid="table-filter-chips">{activeFilterChips}</div>
         <table>
           <thead>
             <tr>
@@ -159,6 +183,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
 }))
 
 const mockReadApiResult = readApiResultOrThrow as jest.MockedFunction<typeof readApiResultOrThrow>
+const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
 const mockApiCallOrThrow = apiCallOrThrow as jest.MockedFunction<typeof apiCallOrThrow>
 const mockDeleteCrud = deleteCrud as jest.MockedFunction<typeof deleteCrud>
 const mockUpdateCrud = updateCrud as jest.MockedFunction<typeof updateCrud>
@@ -200,6 +225,7 @@ function entryRow(overrides: ApiRow = {}): ApiRow {
 }
 
 let entryRows: ApiRow[] = []
+let entryListUrls: string[] = []
 
 function installListRouter() {
   mockReadApiResult.mockImplementation((async (input: RequestInfo | URL) => {
@@ -210,7 +236,39 @@ function installListRouter() {
     if (url.includes('/timesheets/time-projects?')) {
       return { items: [{ id: PROJECT_ID, name: 'migracja B2B', customer_snapshot: { name: 'Nordvik' } }] }
     }
+    entryListUrls.push(url)
     return { items: entryRows, total: entryRows.length, totalPages: 1 }
+  }) as never)
+}
+
+function lastEntryListQuery(): URLSearchParams {
+  const url = entryListUrls[entryListUrls.length - 1] ?? ''
+  return new URLSearchParams(url.slice(url.indexOf('?') + 1))
+}
+
+/**
+ * The filter vocabularies. The team-member list is deliberately the real,
+ * unscoped one — the whole point of the person-filter gate is that this route
+ * answers with the entire team no matter who is asking.
+ */
+function installVocabularyRouter() {
+  mockApiCall.mockImplementation((async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/api/staff/team-members/self')) {
+      return { ok: true, result: { member: { id: SELF_MEMBER_ID } } }
+    }
+    if (url.includes('/api/staff/team-members')) {
+      return {
+        ok: true,
+        result: {
+          items: [
+            { id: SELF_MEMBER_ID, display_name: 'Ada Kowalska' },
+            { id: OTHER_MEMBER_ID, display_name: 'Bartek Nowak' },
+          ],
+        },
+      }
+    }
+    return { ok: true, result: { items: [] } }
   }) as never)
 }
 
@@ -228,7 +286,9 @@ async function renderPage() {
 beforeEach(() => {
   jest.clearAllMocks()
   clearAllOperations()
+  mockSearch = ''
   entryRows = [entryRow()]
+  entryListUrls = []
   installListRouter()
   grantedFeatures(['staff.timesheets.view', 'staff.timesheets.manage_own', 'staff.timesheets.rates.view'])
   mockConfirm = jest.fn(async () => true)
@@ -448,5 +508,104 @@ describe('time entries list — copy yesterday (screen 1 note 5)', () => {
 
     await waitFor(() => expect(mockConfirm).toHaveBeenCalled())
     expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * FIX C5. `manage_own` is the right to edit YOUR OWN time; reading somebody
+ * else's is `manage_all`. `/api/staff/team-members` is unscoped, so gating the
+ * person filter on `manage_own` handed a consultant a dropdown of the whole
+ * team whose every entry answered with an empty list — the list route narrows
+ * the query back to the caller regardless of what the control asked for.
+ */
+describe('time entries list — who may filter by person', () => {
+  it('offers the person filter to a staff.timesheets.manage_all holder', async () => {
+    grantedFeatures(['staff.timesheets.view', 'staff.timesheets.manage_own', 'staff.timesheets.manage_all'])
+    installVocabularyRouter()
+    await renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('filter-staffMemberId')).toBeTruthy())
+    expect(screen.getByTestId('filter-staffMemberId').textContent).toBe('Person')
+  })
+
+  it('withholds it from a caller who can only manage their own entries', async () => {
+    grantedFeatures(['staff.timesheets.view', 'staff.timesheets.manage_own'])
+    installVocabularyRouter()
+    await renderPage()
+
+    // The self filter still seeds, so the vocabulary has certainly loaded by
+    // the time its chip appears — the control is absent, not merely late.
+    await waitFor(() =>
+      expect(within(screen.getByTestId('table-filter-chips')).getByText('Ada Kowalska')).toBeTruthy(),
+    )
+    expect(screen.queryByTestId('filter-staffMemberId')).toBeNull()
+  })
+
+  it('follows a wildcard grant the same way the server does', async () => {
+    grantedFeatures(['staff.*'])
+    installVocabularyRouter()
+    await renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('filter-staffMemberId')).toBeTruthy())
+  })
+})
+
+/**
+ * FIX W2. The task drawer's "show all" and the entry dialog's overlap jump both
+ * push a query string at this page. Asserting that those links are BUILT
+ * correctly (as `TaskDrawer.test.tsx` does) says nothing about whether they
+ * work; these assert that the receiving list actually narrows.
+ */
+describe('time entries list — deep links from the drawer and the dialog', () => {
+  it('filters by the task the drawer pointed at instead of showing this week', async () => {
+    mockSearch = `taskId=${TASK_ID}`
+    installVocabularyRouter()
+    await renderPage()
+
+    await waitFor(() => expect(entryListUrls.length).toBeGreaterThan(0))
+    const query = lastEntryListQuery()
+    expect(query.get('taskId')).toBe(TASK_ID)
+    // The default seeding must lose: an entry logged last month would otherwise
+    // be filtered straight back out of the list the link exists to show.
+    expect(query.get('from')).toBeNull()
+    expect(query.get('to')).toBeNull()
+    expect(query.get('staffMemberId')).toBeNull()
+  })
+
+  it('says which task narrowed the list, and lets the reader drop it', async () => {
+    mockSearch = `taskId=${TASK_ID}`
+    installVocabularyRouter()
+    await renderPage()
+
+    const chips = await screen.findByTestId('entry-filter-chips')
+    expect(chips.textContent).toContain('Task')
+    expect(chips.textContent).toContain('Migracja koszyka B2B')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('entry-filter-chip-remove-taskId'))
+    })
+
+    await waitFor(() => expect(lastEntryListQuery().get('taskId')).toBeNull())
+    expect(screen.queryByTestId('entry-filter-chip-remove-taskId')).toBeNull()
+    // The address bar has to agree with the screen, or a re-render puts the
+    // narrowing straight back.
+    expect(mockRouterReplace).toHaveBeenCalledWith(ENTRIES_PATH)
+  })
+
+  it('filters down to the overlapping entry the dialog pointed at', async () => {
+    mockSearch = `ids=${EUR_ID}`
+    entryRows = [entryRow({ id: EUR_ID, description: 'Nakładający się wpis' })]
+    installVocabularyRouter()
+    await renderPage()
+
+    await waitFor(() => expect(entryListUrls.length).toBeGreaterThan(0))
+    const query = lastEntryListQuery()
+    expect(query.get('ids')).toBe(EUR_ID)
+    expect(query.get('from')).toBeNull()
+    expect(query.get('staffMemberId')).toBeNull()
+
+    const chips = await screen.findByTestId('entry-filter-chips')
+    expect(chips.textContent).toContain('Entry')
+    expect(screen.getByTestId('entry-filter-chip-remove-ids')).toBeTruthy()
   })
 })

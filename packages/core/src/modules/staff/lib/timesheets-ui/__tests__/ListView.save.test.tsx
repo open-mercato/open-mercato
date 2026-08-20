@@ -8,7 +8,7 @@
 // New since the redesign: the PUT carries the record version, so a concurrent
 // edit of the same entry is a conflict rather than a silent overwrite.
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ListView } from '../ListView'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -166,6 +166,39 @@ describe('timesheet inline description save', () => {
     })
     expect(flashMock).not.toHaveBeenCalled()
     expect(onEntryUpdated).not.toHaveBeenCalled()
+  })
+
+  it('sends exactly one write when Enter commits and the resulting blur fires: the disabled input must not re-save a stale version', async () => {
+    let settleWrite: (value: unknown) => void = () => {}
+    apiCallOrThrowMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settleWrite = resolve
+        }),
+    )
+    const onEntryUpdated = jest.fn()
+
+    renderList(onEntryUpdated)
+    fireEvent.click(screen.getByRole('button', { name: 'Add description' }))
+    const input = screen.getByPlaceholderText('Add description') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Updated note' } })
+    // Enter starts the save, `disabled={saving}` blurs the focused input, and the
+    // blur handler used to fire a second PUT carrying the pre-save version.
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      settleWrite({ ok: true, status: 200, result: { ok: true }, response: {} })
+    })
+
+    await waitFor(() => {
+      expect(onEntryUpdated).toHaveBeenCalledTimes(1)
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(surfaceRecordConflictMock).not.toHaveBeenCalled()
+    expect(flashMock).not.toHaveBeenCalled()
   })
 
   it('sends the entry version with the write, so a concurrent edit conflicts instead of overwriting', async () => {

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import {
   Select,
@@ -12,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -45,7 +46,10 @@ export default function TimeTrackingBoardPage() {
       const call = await apiCall<Record<string, unknown>>(
         '/api/staff/timesheets/time-projects?page=1&pageSize=100&sortField=name&sortDir=asc',
       )
-      if (!call.ok) return []
+      // A failed call must not look like an empty project list: the empty state below
+      // tells the caller to ask a Team Leader for access, which is the wrong advice for
+      // a network error or a 500.
+      if (!call.ok) throw new Error(`[internal] staff.time_tracking board projects request failed (${call.status})`)
       return readItems(call.result)
         .map((row) => {
           const id = readString(row, 'id')
@@ -95,6 +99,24 @@ export default function TimeTrackingBoardPage() {
         <PageHeader title={t('staff.time_tracking.nav.tasks', 'Tasks')} />
         <PageBody>
           <LoadingMessage label={t('staff.time_tracking.board.loading', 'Loading the board…')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (projectsQuery.isError) {
+    return (
+      <Page>
+        <PageHeader title={t('staff.time_tracking.nav.tasks', 'Tasks')} />
+        <PageBody>
+          <ErrorMessage
+            label={t('staff.time_tracking.board.projectsLoadError', 'Could not load your projects.')}
+            action={
+              <Button type="button" variant="outline" size="sm" onClick={() => void projectsQuery.refetch()}>
+                {t('staff.time_tracking.board.reload', 'Try again')}
+              </Button>
+            }
+          />
         </PageBody>
       </Page>
     )

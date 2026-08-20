@@ -116,7 +116,7 @@ export function ProjectCodeField({
           </Button>
         </div>
         {duplicate ? (
-          <p className="text-xs text-status-error-base">
+          <p className="text-xs text-status-error-text">
             {t('staff.time_tracking.projects.code.duplicate', 'This code is already used by another project.')}
           </p>
         ) : (
@@ -126,7 +126,7 @@ export function ProjectCodeField({
               : t('staff.time_tracking.projects.code.autoHint', 'Derived from the project name; it prefixes every task reference.')}
           </p>
         )}
-        {error ? <p className="text-xs text-status-error-base">{error}</p> : null}
+        {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
       </div>
     )
   }
@@ -157,11 +157,11 @@ export function ProjectCodeField({
         </Button>
       </div>
       {duplicate ? (
-        <p className="text-xs text-status-error-base">
+        <p className="text-xs text-status-error-text">
           {t('staff.time_tracking.projects.code.duplicate', 'This code is already used by another project.')}
         </p>
       ) : null}
-      {error ? <p className="text-xs text-status-error-base">{error}</p> : null}
+      {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
     </div>
   )
 }

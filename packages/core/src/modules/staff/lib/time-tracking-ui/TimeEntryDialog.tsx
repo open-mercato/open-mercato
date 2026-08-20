@@ -24,16 +24,19 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Separator } from '@open-mercato/ui/primitives/separator'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { TagPicker, tagChipStyle } from './TagPicker'
 import { TaskPicker, type TaskPickerItem, type TaskPickerStatus } from './TaskPicker'
 import { slugifyProjectName } from '../time-tracking/projectCode'
+import { autoColorFromName } from '../timesheets-ui/colors'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
@@ -49,7 +52,6 @@ import { roundMinutes, DEFAULT_ROUNDING_SETTINGS, type RoundingSettings } from '
 import {
   combineDateAndClock,
   createIntervalState,
-  describeTaskOption,
   reduceIntervalState,
   resetIntervalState,
   readRowItems,
@@ -77,6 +79,8 @@ export const REPORTS_PATH = '/backend/staff/time-tracking/reports'
 
 const DIALOG_QUERY_ROOT = ['staff', 'time-tracking', 'entry-dialog'] as const
 const DIRECTORY_PAGE_SIZE = 100
+const TASK_SEARCH_PAGE_SIZE = 50
+const TASK_SEARCH_DEBOUNCE_MS = 250
 
 export type TimeEntryDialogDefaults = {
   date?: string
@@ -146,6 +150,106 @@ function parseRateText(value: string): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
+/**
+ * Everything a person can type into the form, in the one shape both the seed and
+ * the live state can be expressed in. Comparing two of these is how the dialog
+ * knows whether closing it would throw work away.
+ */
+type FormValues = {
+  taskId: string | null
+  description: string
+  date: string
+  startText: string
+  endText: string
+  durationMinutes: number | null
+  isBillable: boolean
+  rateOverrideEnabled: boolean
+  rateOverrideAmount: number | null
+  tagIds: string[]
+}
+
+type SaveMode = 'close' | 'again'
+
+/** The two controls a failed save can point at, empty when nothing is wrong. */
+type FieldIssues = {
+  task: string | null
+  duration: string | null
+}
+
+const NO_FIELD_ISSUES: FieldIssues = { task: null, duration: null }
+
+/**
+ * A server complaint that names a field belongs under that field, not in a
+ * toast. Only the two the form can point at are claimed; anything else stays
+ * global and is flashed.
+ */
+function readFieldIssues(error: unknown): FieldIssues | null {
+  const { fieldErrors } = normalizeCrudServerError(error)
+  if (!fieldErrors) return null
+  const task = fieldErrors.taskId ?? fieldErrors.task ?? null
+  const duration = fieldErrors.durationMinutes ?? fieldErrors.duration ?? null
+  if (!task && !duration) return null
+  return { task, duration }
+}
+
+function formSnapshot(values: FormValues): string {
+  return JSON.stringify([
+    values.taskId,
+    values.description.trim(),
+    values.date,
+    values.startText,
+    values.endText,
+    values.durationMinutes,
+    values.isBillable,
+    values.rateOverrideEnabled,
+    values.rateOverrideAmount,
+    [...values.tagIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+  ])
+}
+
+/**
+ * Two requests, merged.
+ *
+ * A single term cannot be routed to one field by shape — "Booking" is a title
+ * word and "AWR" is a code, and both are one alphanumeric token — and the query
+ * engine has no OR across fields, so the picker asks both questions and unions
+ * the answers. This is what makes task 400 of 900 findable: the directory the
+ * picker opens on is only ever its first page.
+ */
+async function fetchTaskOptions(term: string): Promise<TaskOption[]> {
+  const params = new URLSearchParams({
+    page: '1',
+    pageSize: String(TASK_SEARCH_PAGE_SIZE),
+    sortField: 'title',
+    sortDir: 'asc',
+  })
+  const responses = await Promise.all(
+    [
+      `/api/staff/timesheets/tasks?${params.toString()}&q=${encodeURIComponent(term)}`,
+      `/api/staff/timesheets/tasks?${params.toString()}&reference=${encodeURIComponent(term)}`,
+    ].map((url) => apiCall<Record<string, unknown>>(url).catch(() => null)),
+  )
+  const merged = new Map<string, TaskOption>()
+  for (const response of responses) {
+    if (!response?.ok) continue
+    for (const row of readRowItems(response.result)) {
+      const option = toTaskOption(row)
+      if (option && !merged.has(option.id)) merged.set(option.id, option)
+    }
+  }
+  return [...merged.values()]
+}
+
+/** Resolves the entry's own task when it sorts outside the directory's first page. */
+async function fetchTaskById(id: string): Promise<TaskOption | null> {
+  const call = await apiCall<Record<string, unknown>>(
+    `/api/staff/timesheets/tasks?ids=${encodeURIComponent(id)}&pageSize=1`,
+  )
+  if (!call.ok) return null
+  const row = readRowItems(call.result)[0]
+  return row ? toTaskOption(row) : null
+}
+
 function readErrorCode(error: unknown): string | null {
   const body = (error as { body?: { code?: unknown; error?: unknown } } | null)?.body
   if (body && typeof body.code === 'string') return body.code
@@ -189,6 +293,7 @@ export function TimeEntryDialog({
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const { payload } = useBackendChrome()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const canSeeMoney = hasFeature(payload?.grantedFeatures, RATES_FEATURE)
   const isEdit = typeof entryId === 'string' && entryId.length > 0
 
@@ -201,7 +306,26 @@ export function TimeEntryDialog({
   const [rateText, setRateText] = React.useState('')
   const [tagIds, setTagIds] = React.useState<string[]>([])
   const [overlaps, setOverlaps] = React.useState<OverlapEntry[]>([])
-  const [saving, setSaving] = React.useState(false)
+  /** Which button is in flight, so the spinner lands on the one that was pressed. */
+  const [savingMode, setSavingMode] = React.useState<SaveMode | null>(null)
+  /**
+   * What is wrong with a single control, said under that control. A disabled
+   * Save cannot explain which of the two required fields it is waiting for, and
+   * a server complaint about one field is not a global failure either.
+   */
+  const [fieldIssues, setFieldIssues] = React.useState<FieldIssues>(NO_FIELD_ISSUES)
+  const saving = savingMode !== null
+  const [taskSearch, setTaskSearch] = React.useState('')
+  const [debouncedTaskSearch, setDebouncedTaskSearch] = React.useState('')
+  /**
+   * The task the form is on, kept out of the two lists that come and go.
+   * The directory holds the first page only and the search results are replaced
+   * on every term, so without this the chosen task would vanish from under the
+   * selection the moment the search box was cleared.
+   */
+  const [pinnedTask, setPinnedTask] = React.useState<TaskOption | null>(null)
+  /** What the form was seeded with; `null` until it has been seeded at all. */
+  const [baseline, setBaseline] = React.useState<FormValues | null>(null)
   /**
    * T7.4 — the entry loop must be completable without a mouse, so the first field
    * of the loop is also the focus target twice over: when the dialog opens (Radix
@@ -263,6 +387,10 @@ export function TimeEntryDialog({
     },
   })
 
+  /**
+   * The first page of tasks, which is what the picker opens on. It is a head
+   * start, not the corpus — anything past it is reached through the search below.
+   */
   const tasksQuery = useQuery<TaskOption[]>({
     queryKey: [...DIALOG_QUERY_ROOT, 'tasks', `scope:${scopeVersion}`],
     enabled: open,
@@ -276,6 +404,23 @@ export function TimeEntryDialog({
         .map(toTaskOption)
         .filter((task): task is TaskOption => task !== null)
     },
+  })
+
+  // Debounced so a typed word is one pair of requests rather than one per letter.
+  React.useEffect(() => {
+    if (!open) {
+      setDebouncedTaskSearch('')
+      return
+    }
+    const handle = setTimeout(() => setDebouncedTaskSearch(taskSearch.trim()), TASK_SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(handle)
+  }, [open, taskSearch])
+
+  const taskSearchQuery = useQuery<TaskOption[]>({
+    queryKey: [...DIALOG_QUERY_ROOT, 'task-search', `scope:${scopeVersion}`, debouncedTaskSearch],
+    enabled: open && debouncedTaskSearch.length > 0,
+    staleTime: 60_000,
+    queryFn: () => fetchTaskOptions(debouncedTaskSearch),
   })
 
   const projectsQuery = useQuery<ProjectOption[]>({
@@ -398,7 +543,47 @@ export function TimeEntryDialog({
   const entry = entryQuery.data ?? null
   const locked = !!entry?.isLocked
   const lockedReportId = entry?.lockedReportId ?? null
-  const tasks = React.useMemo(() => tasksQuery.data ?? [], [tasksQuery.data])
+  const directoryTasks = React.useMemo(() => tasksQuery.data ?? [], [tasksQuery.data])
+  const searchedTasks = React.useMemo(() => taskSearchQuery.data ?? [], [taskSearchQuery.data])
+
+  React.useEffect(() => {
+    if (!taskId) {
+      setPinnedTask(null)
+      return
+    }
+    const found =
+      directoryTasks.find((task) => task.id === taskId) ??
+      searchedTasks.find((task) => task.id === taskId) ??
+      null
+    if (found) setPinnedTask(found)
+  }, [directoryTasks, searchedTasks, taskId])
+
+  /**
+   * An entry can point at a task that neither the first directory page nor the
+   * current search contains — editing one written months ago, for instance — and
+   * a form that cannot name the task it is on cannot resolve its project or rate
+   * either, so that one row is fetched by id.
+   */
+  const unresolvedTaskId =
+    taskId && !pinnedTask && !tasksQuery.isPending && !taskSearchQuery.isFetching ? taskId : null
+
+  const unresolvedTaskQuery = useQuery<TaskOption | null>({
+    queryKey: [...DIALOG_QUERY_ROOT, 'task', `scope:${scopeVersion}`, unresolvedTaskId ?? 'none'],
+    enabled: open && !!unresolvedTaskId,
+    staleTime: 60_000,
+    queryFn: () => fetchTaskById(unresolvedTaskId as string),
+  })
+
+  const tasks = React.useMemo(() => {
+    const merged = new Map<string, TaskOption>()
+    for (const task of directoryTasks) merged.set(task.id, task)
+    for (const task of searchedTasks) if (!merged.has(task.id)) merged.set(task.id, task)
+    for (const task of [pinnedTask, unresolvedTaskQuery.data ?? null]) {
+      if (task && !merged.has(task.id)) merged.set(task.id, task)
+    }
+    return [...merged.values()]
+  }, [directoryTasks, pinnedTask, searchedTasks, unresolvedTaskQuery.data])
+
   const projects = React.useMemo(() => projectsQuery.data ?? [], [projectsQuery.data])
   const tagOptions = React.useMemo(() => tagsQuery.data ?? [], [tagsQuery.data])
 
@@ -443,6 +628,27 @@ export function TimeEntryDialog({
       setRateText(seed.rateOverrideAmount !== null ? String(seed.rateOverrideAmount) : '')
       setTagIds(seed.tagIds)
       setOverlaps([])
+      setFieldIssues(NO_FIELD_ISSUES)
+      // The seed is run through the same derivation the state uses, so the
+      // baseline is what the form will actually show rather than what was asked
+      // for — otherwise a seeded start plus duration would read as an edit.
+      const derived = createIntervalState({
+        start: seed.start,
+        end: seed.end,
+        durationMinutes: seed.durationMinutes,
+      })
+      setBaseline({
+        taskId: seed.taskId,
+        description: seed.description,
+        date: seed.date || todayIsoDate(),
+        startText: derived.startText,
+        endText: derived.endText,
+        durationMinutes: derived.durationMinutes,
+        isBillable: seed.isBillable,
+        rateOverrideEnabled: seed.rateOverrideAmount !== null,
+        rateOverrideAmount: seed.rateOverrideAmount,
+        tagIds: seed.tagIds,
+      })
     },
     [],
   )
@@ -451,6 +657,9 @@ export function TimeEntryDialog({
     if (!open) {
       seedKeyRef.current = null
       billableDefaultRef.current = null
+      setBaseline(null)
+      setTaskSearch('')
+      setPinnedTask(null)
       return
     }
     if (isEdit && !entry) return
@@ -496,6 +705,11 @@ export function TimeEntryDialog({
     if (billableDefaultRef.current === seedKeyRef.current) return
     billableDefaultRef.current = seedKeyRef.current
     setIsBillable(settings.defaults.billable)
+    // The tenant default is part of the seed, just a late-arriving part, so the
+    // baseline moves with it — otherwise every new entry would open "dirty".
+    setBaseline((current) =>
+      current ? { ...current, isBillable: settings.defaults.billable } : current,
+    )
   }, [defaults?.isBillable, isEdit, open, settings.defaults.billable, settingsQuery.isPending])
 
   const durationMinutes = interval.durationMinutes
@@ -561,7 +775,98 @@ export function TimeEntryDialog({
   )
 
   const midnightEndDate = interval.crossesMidnight ? shiftIsoDate(date, 1) : null
-  const canSave = !locked && !!taskId && !interval.durationInvalid && !!durationMinutes && !saving
+  /**
+   * Unparseable duration text keeps Save disabled — the field already explains
+   * itself and there is nothing to send. A *missing* required value does not:
+   * pressing Save is how the form is asked what it is waiting for, and it
+   * answers under the control rather than by staying greyed out and silent.
+   */
+  const canSubmit = !locked && !interval.durationInvalid && !saving
+
+  // A field stops complaining the moment it is filled in.
+  React.useEffect(() => {
+    if (!taskId) return
+    setFieldIssues((current) => (current.task ? { ...current, task: null } : current))
+  }, [taskId])
+
+  React.useEffect(() => {
+    if (!durationMinutes) return
+    setFieldIssues((current) => (current.duration ? { ...current, duration: null } : current))
+  }, [durationMinutes])
+
+  const validateRequired = React.useCallback(() => {
+    const next: FieldIssues = {
+      task: taskId
+        ? null
+        : t('staff.time_tracking.entryDialog.errors.taskRequired', 'Pick the task this time belongs to.'),
+      duration: durationMinutes
+        ? null
+        : t('staff.time_tracking.entryDialog.errors.durationRequired', 'Enter how long the work took.'),
+    }
+    setFieldIssues(next)
+    return !next.task && !next.duration
+  }, [durationMinutes, t, taskId])
+
+  /**
+   * A locked entry has nothing editable in it, and a form that has not been
+   * seeded yet has nothing to compare against; everywhere else the seed is the
+   * baseline and any difference is work that closing would throw away.
+   */
+  const isDirty = React.useMemo(() => {
+    if (locked || !baseline) return false
+    return (
+      formSnapshot(baseline) !==
+      formSnapshot({
+        taskId,
+        description,
+        date,
+        startText: startClock,
+        endText: endClock,
+        durationMinutes,
+        isBillable,
+        rateOverrideEnabled,
+        rateOverrideAmount,
+        tagIds,
+      })
+    )
+  }, [
+    baseline,
+    date,
+    description,
+    durationMinutes,
+    endClock,
+    isBillable,
+    locked,
+    rateOverrideAmount,
+    rateOverrideEnabled,
+    startClock,
+    tagIds,
+    taskId,
+  ])
+
+  /**
+   * Every way out of the dialog — Escape, the ×, the overlay, Cancel — lands
+   * here, because a half-entered entry is lost the same way whichever one is
+   * used. A clean form closes silently; only real work is worth an interruption.
+   */
+  const requestClose = React.useCallback(async () => {
+    if (saving) return
+    if (!isDirty) {
+      onOpenChange(false)
+      return
+    }
+    const confirmed = await confirm({
+      title: t('staff.time_tracking.entryDialog.discard.title', 'Discard this time entry?'),
+      text: t(
+        'staff.time_tracking.entryDialog.discard.text',
+        'It has not been saved yet, so closing now loses what you entered.',
+      ),
+      confirmText: t('staff.time_tracking.entryDialog.discard.confirm', 'Discard'),
+      cancelText: t('staff.time_tracking.entryDialog.discard.cancel', 'Keep editing'),
+      variant: 'destructive',
+    })
+    if (confirmed) onOpenChange(false)
+  }, [confirm, isDirty, onOpenChange, saving, t])
 
   const buildPayload = React.useCallback(() => {
     const startedAt = parseClock(startClock) !== null ? combineDateAndClock(date, startClock) : null
@@ -607,6 +912,11 @@ export function TimeEntryDialog({
         )
         return
       }
+      const issues = readFieldIssues(error)
+      if (issues) {
+        setFieldIssues(issues)
+        return
+      }
       logger.error('staff.time_tracking entry dialog save failed', { err: error })
       flash(
         error instanceof Error && error.message
@@ -619,8 +929,9 @@ export function TimeEntryDialog({
   )
 
   const submit = React.useCallback(
-    async (mode: 'close' | 'again') => {
-      if (!canSave) return
+    async (mode: SaveMode) => {
+      if (!canSubmit) return
+      if (!validateRequired()) return
       if (!isEdit && !staffMemberId) {
         flash(
           t(
@@ -632,7 +943,7 @@ export function TimeEntryDialog({
         return
       }
       const body = buildPayload()
-      setSaving(true)
+      setSavingMode(mode)
       try {
         const saved = await runMutation({
           operation: () =>
@@ -670,13 +981,26 @@ export function TimeEntryDialog({
           // and the next entry starts where this one ended.
           const chain = settings.defaults.chainStartFromPreviousEnd
           const nextDate = interval.crossesMidnight && midnightEndDate ? midnightEndDate : date
+          const nextStart = chain ? endClock || null : null
           seedKeyRef.current = 'create'
           setDescription('')
           setDate(nextDate)
-          setIntervalState((current) =>
-            resetIntervalState(current, { start: chain ? endClock || null : null }),
-          )
+          setIntervalState((current) => resetIntervalState(current, { start: nextStart }))
           setOverlaps([])
+          // The next entry starts clean, so this is its baseline — without it the
+          // dialog would still be holding the one that was just written.
+          setBaseline({
+            taskId,
+            description: '',
+            date: nextDate,
+            startText: nextStart ?? '',
+            endText: '',
+            durationMinutes: null,
+            isBillable,
+            rateOverrideEnabled,
+            rateOverrideAmount,
+            tagIds,
+          })
           onSaved?.({ id: savedId, keptOpen: true })
           // Back to the top of the loop: pick task → duration → save → next.
           focusTaskPicker()
@@ -687,26 +1011,32 @@ export function TimeEntryDialog({
       } catch (error) {
         reportFailure(error)
       } finally {
-        setSaving(false)
+        setSavingMode(null)
       }
     },
     [
       buildPayload,
-      canSave,
+      canSubmit,
       date,
       endClock,
       entryId,
       interval.crossesMidnight,
+      isBillable,
       isEdit,
       midnightEndDate,
       onOpenChange,
       onSaved,
+      rateOverrideAmount,
+      rateOverrideEnabled,
       reportFailure,
       retryLastMutation,
       runMutation,
-      selfQuery.data?.id,
       settings.defaults.chainStartFromPreviousEnd,
+      staffMemberId,
       t,
+      tagIds,
+      taskId,
+      validateRequired,
     ],
   )
 
@@ -746,86 +1076,48 @@ export function TimeEntryDialog({
     [projectById, tasks],
   )
 
-  const taskLabelById = React.useMemo(() => {
-    const map = new Map<string, string>()
-    for (const task of tasks) {
-      map.set(task.id, describeTaskOption(task, task.timeProjectId ? projectById.get(task.timeProjectId) : null))
-    }
-    return map
-  }, [projectById, tasks])
-
-  /**
-   * Two requests, merged.
-   *
-   * A single term cannot be routed to one field by shape — "Booking" is a title
-   * word and "AWR" is a code, and both are one alphanumeric token — and the query
-   * engine has no OR across fields, so the picker asks both questions and unions
-   * the answers. An empty query returns the full list rather than nothing, since a
-   * picker that shows nothing until you type hides the thing you came to find.
-   */
-  const fetchTaskItems = React.useCallback(
-    async (query: string): Promise<LookupSelectItem[]> => {
-      const term = query.trim()
-      const params = new URLSearchParams({ page: '1', pageSize: '50', sortField: 'reference', sortDir: 'asc' })
-      const requests = term.length === 0
-        ? [`/api/staff/timesheets/tasks?${params.toString()}`]
-        : [
-            `/api/staff/timesheets/tasks?${params.toString()}&q=${encodeURIComponent(term)}`,
-            `/api/staff/timesheets/tasks?${params.toString()}&reference=${encodeURIComponent(term)}`,
-          ]
-
-      const responses = await Promise.all(
-        requests.map((url) => apiCall<Record<string, unknown>>(url).catch(() => null)),
-      )
-      const merged = new Map<string, TaskOption>()
-      for (const response of responses) {
-        if (!response?.ok) continue
-        for (const row of readRowItems(response.result)) {
-          const option = toTaskOption(row)
-          if (option && !merged.has(option.id)) merged.set(option.id, option)
-        }
-      }
-
-      return [...merged.values()].map((task) => ({
-        id: task.id,
-        title: task.reference ?? task.title,
-        subtitle: task.reference
-          ? describeTaskOption({ ...task, reference: null }, task.timeProjectId ? projectById.get(task.timeProjectId) : null)
-          : (task.timeProjectId ? projectById.get(task.timeProjectId)?.name ?? null : null),
-      }))
-    },
-    [projectById],
-  )
-
   const queryClient = useQueryClient()
   /**
-   * Creates the tag, then hands the id back so the caller can assign it. The
-   * cache is invalidated rather than patched so the new tag arrives with whatever
-   * the server decided — including the colour, which the create route assigns.
+   * Creates the tag, then hands it back so the caller can assign it.
+   *
+   * The colour is decided here rather than left to the server, which stores
+   * whatever it is sent and defaults to null. The picker already tints its dot
+   * with the name-derived hue, so sending that same hue is what makes the chip
+   * the entry ends up wearing the colour the row promised — instead of the grey
+   * one an unset column renders as.
    */
   const createTag = React.useCallback(
     async (label: string): Promise<TagOption | null> => {
+      const color = autoColorFromName(label).key
       try {
         const created = await apiCallOrThrow<Record<string, unknown>>(
           '/api/staff/timesheets/tags',
           {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ label, slug: slugifyProjectName(label).toLowerCase() }),
+            body: JSON.stringify({ label, slug: slugifyProjectName(label).toLowerCase(), color }),
           },
           { errorMessage: t('staff.time_tracking.entryDialog.errors.createTag', 'Could not create the tag.') },
         )
         const id = typeof created?.result?.id === 'string' ? created.result.id : null
         if (!id) return null
+        const option: TagOption = { id, label, color }
+        // Seeded before the refetch so the chip is never briefly the grey one the
+        // fix is about; the invalidation right after replaces it with the row the
+        // server actually stored.
+        queryClient.setQueryData<TagOption[]>(
+          [...DIALOG_QUERY_ROOT, 'tags', `scope:${scopeVersion}`],
+          (current) => [...(current ?? []), option],
+        )
         await queryClient.invalidateQueries({ queryKey: [...DIALOG_QUERY_ROOT, 'tags'] })
-        return { id, label, color: null }
+        return option
       } catch (error) {
         logger.warn('staff.time_tracking.entryDialog tag create failed', { err: error })
         flash(t('staff.time_tracking.entryDialog.errors.createTag', 'Could not create the tag.'), 'error')
         return null
       }
     },
-    [queryClient, t],
+    [queryClient, scopeVersion, t],
   )
 
   const overlap = overlaps[0] ?? null
@@ -891,23 +1183,41 @@ export function TimeEntryDialog({
             {t('staff.time_tracking.entryDialog.task', 'Task')}
             <span aria-hidden="true"> *</span>
           </Label>
-          <div data-testid="entry-dialog-task" ref={taskTriggerRef}>
+          <div
+            data-testid="entry-dialog-task"
+            ref={taskTriggerRef}
+            aria-invalid={fieldIssues.task ? true : undefined}
+            aria-describedby={fieldIssues.task ? 'entry-dialog-task-message' : undefined}
+          >
             <TaskPicker
               value={taskId}
               onChange={(next) => setTaskId(next || null)}
               items={pickerItems}
               recentTaskIds={recentQuery.data ?? []}
               statuses={statusesQuery.data ?? {}}
+              onQueryChange={setTaskSearch}
+              searching={taskSearchQuery.isFetching}
               loading={tasksQuery.isLoading}
               disabled={locked}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            {t(
-              'staff.time_tracking.entryDialog.taskHint',
-              'The project and the customer follow from the task — you do not pick them separately.',
-            )}
-          </p>
+          {fieldIssues.task ? (
+            <p
+              id="entry-dialog-task-message"
+              className="text-xs text-status-error-text"
+              role="alert"
+              data-testid="entry-dialog-task-error"
+            >
+              {fieldIssues.task}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'staff.time_tracking.entryDialog.taskHint',
+                'The project and the customer follow from the task — you do not pick them separately.',
+              )}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -945,6 +1255,7 @@ export function TimeEntryDialog({
               id="entry-dialog-duration"
               value={durationMinutes}
               disabled={locked}
+              error={fieldIssues.duration ?? undefined}
               ariaLabel={t('staff.time_tracking.entryDialog.duration', 'Duration')}
               onChange={(minutes, state) =>
                 setIntervalState((current) =>
@@ -1241,7 +1552,20 @@ export function TimeEntryDialog({
   })()
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      // Escape, the ×, and a click on the overlay all arrive here, which is why
+      // the unsaved-work guard sits on this one callback rather than on each of
+      // them. Radix keeps the dialog mounted until `open` actually flips, so
+      // declining the prompt simply leaves the form where it was.
+      onOpenChange={(next) => {
+        if (next) {
+          onOpenChange(true)
+          return
+        }
+        void requestClose()
+      }}
+    >
       <DialogContent
         size="lg"
         data-testid="entry-dialog"
@@ -1259,10 +1583,10 @@ export function TimeEntryDialog({
             // never needs the pointer.
             void submit(event.shiftKey ? 'again' : 'close')
           }
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onOpenChange(false)
-          }
+          // Escape is deliberately not handled here. Radix's `DismissableLayer`
+          // already dismisses only the topmost layer, so a picker popover open
+          // inside the form consumes the key on its own; a handler here closed
+          // the whole dialog regardless of what was open on top of it.
         }}
       >
         <DialogHeader>
@@ -1301,7 +1625,7 @@ export function TimeEntryDialog({
             <Kbd>esc</Kbd>
             {t('staff.time_tracking.entryDialog.shortcutCancel', 'cancel')}
           </span>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="ghost" onClick={() => { void requestClose() }}>
             {locked
               ? t('staff.time_tracking.entryDialog.close', 'Close')
               : t('staff.time_tracking.entryDialog.cancel', 'Cancel')}
@@ -1311,23 +1635,26 @@ export function TimeEntryDialog({
               <Button
                 type="button"
                 variant="outline"
-                disabled={!canSave}
+                disabled={!canSubmit}
                 onClick={() => void submit('again')}
                 data-testid="entry-dialog-save-again"
               >
+                {savingMode === 'again' ? <Spinner className="size-4" /> : null}
                 {t('staff.time_tracking.entryDialog.saveAndNew', 'Save and add another')}
               </Button>
               <Button
                 type="button"
-                disabled={!canSave}
+                disabled={!canSubmit}
                 onClick={() => void submit('close')}
                 data-testid="entry-dialog-save"
               >
+                {savingMode === 'close' ? <Spinner className="size-4" /> : null}
                 {t('staff.time_tracking.entryDialog.save', 'Save')}
               </Button>
             </>
           )}
         </DialogFooter>
+        {ConfirmDialogElement}
       </DialogContent>
     </Dialog>
   )

@@ -510,7 +510,7 @@ export function resolveReportCurrency(
   if (byCurrency.size > 1) {
     return {
       ok: false,
-      currencies: Array.from(byCurrency.keys()).sort(),
+      currencies: Array.from(byCurrency.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
       offenders: Array.from(byCurrency.values()).flat(),
     }
   }

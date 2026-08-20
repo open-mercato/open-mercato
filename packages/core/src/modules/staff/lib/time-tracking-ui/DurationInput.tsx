@@ -179,7 +179,7 @@ export function DurationInput({
         onKeyDown={onKeyDown}
       />
       {message ? (
-        <p id={messageId} className={cn('text-xs text-status-error-base', compact && 'sr-only')} role="alert">
+        <p id={messageId} className={cn('text-xs text-status-error-text', compact && 'sr-only')} role="alert">
           {message}
         </p>
       ) : showHint ? (

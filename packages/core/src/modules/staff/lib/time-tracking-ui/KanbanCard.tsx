@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useDraggable } from '@dnd-kit/core'
-import { Check, Play, Plus, Square } from 'lucide-react'
+import { ArrowRightLeft, Check, Play, Plus, Square } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -42,6 +42,12 @@ export type KanbanTagOption = {
   label: string
 }
 
+/** A column this card can be moved into — every board column except its own. */
+export type KanbanMoveTarget = {
+  id: string
+  name: string
+}
+
 export type KanbanCardProps = {
   task: BoardTask
   assigneeName: string | null
@@ -51,11 +57,20 @@ export type KanbanCardProps = {
   timerRunning: boolean
   pending: boolean
   isActiveDrag: boolean
+  /**
+   * Columns offered by the keyboard move menu. Empty (the default) hides the
+   * control, which is what a single-column board should do.
+   */
+  moveTargets?: readonly KanbanMoveTarget[]
   onOpen: (taskId: string) => void
   onStartTimer: (taskId: string) => void
   onStopTimer: (taskId: string) => void
   onAddTime: (taskId: string) => void
+  /** Same move the drag performs — optimistic update, lock header, rollback and all. */
+  onMoveToColumn?: (taskId: string, targetStatusId: string) => void
 }
+
+const EMPTY_MOVE_TARGETS: readonly KanbanMoveTarget[] = []
 
 function KanbanCardImpl({
   task,
@@ -65,10 +80,12 @@ function KanbanCardImpl({
   timerRunning,
   pending,
   isActiveDrag,
+  moveTargets = EMPTY_MOVE_TARGETS,
   onOpen,
   onStartTimer,
   onStopTimer,
   onAddTime,
+  onMoveToColumn,
 }: KanbanCardProps): React.ReactElement {
   const t = useT()
   const coarsePointer = useCoarsePointer()
@@ -103,6 +120,68 @@ function KanbanCardImpl({
       onOpen(task.id)
     },
     [onOpen, task.id],
+  )
+
+  // Keyboard operability of the board does NOT go through dnd-kit: its keyboard sensor
+  // would have to own Enter/Space on the card, and Enter is what opens the drawer. The
+  // move is an explicit menu instead — same `onMoveToColumn` the drop calls, so a keyboard
+  // move is the identical optimistic, version-locked request a drag issues.
+  const [moveMenuOpen, setMoveMenuOpen] = React.useState(false)
+  const moveTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const moveMenuRef = React.useRef<HTMLDivElement | null>(null)
+  const moveItemRefs = React.useRef<(HTMLButtonElement | null)[]>([])
+  const showMoveMenu = moveTargets.length > 0 && typeof onMoveToColumn === 'function'
+
+  React.useEffect(() => {
+    if (!moveMenuOpen) return
+    moveItemRefs.current[0]?.focus()
+  }, [moveMenuOpen])
+
+  React.useEffect(() => {
+    if (!moveMenuOpen) return
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (moveMenuRef.current?.contains(target)) return
+      if (moveTriggerRef.current?.contains(target)) return
+      setMoveMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [moveMenuOpen])
+
+  const closeMoveMenu = React.useCallback(() => {
+    setMoveMenuOpen(false)
+    moveTriggerRef.current?.focus()
+  }, [])
+
+  const handleMoveMenuKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeMoveMenu()
+        return
+      }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      event.preventDefault()
+      const items = moveItemRefs.current.filter(
+        (item): item is HTMLButtonElement => item !== null && item.isConnected,
+      )
+      if (items.length === 0) return
+      const current = items.indexOf(document.activeElement as HTMLButtonElement)
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      const next = current < 0 ? 0 : (current + step + items.length) % items.length
+      items[next]?.focus()
+    },
+    [closeMoveMenu],
+  )
+
+  const handleMoveSelect = React.useCallback(
+    (targetStatusId: string) => {
+      setMoveMenuOpen(false)
+      moveTriggerRef.current?.focus()
+      onMoveToColumn?.(task.id, targetStatusId)
+    },
+    [onMoveToColumn, task.id],
   )
 
   const quickActionsVisible = coarsePointer
@@ -178,13 +257,16 @@ function KanbanCardImpl({
         data-card-action="true"
         data-testid={`kanban-card-actions-${task.id}`}
         onPointerDown={stopPointerDown}
-        className={`flex flex-wrap items-center gap-1.5 ${quickActionsVisible}`}
+        className={`flex flex-wrap items-center gap-1.5 ${moveMenuOpen ? 'opacity-100' : quickActionsVisible}`}
       >
         {timerRunning ? (
           <Button
             type="button"
             variant="outline"
             size="2xs"
+            aria-label={t('staff.time_tracking.board.card.stopTimerAria', 'Stop the timer for {title}', {
+              title: task.title,
+            })}
             onClick={() => onStopTimer(task.id)}
           >
             <Square className="size-3" aria-hidden="true" />
@@ -195,16 +277,82 @@ function KanbanCardImpl({
             type="button"
             variant="outline"
             size="2xs"
+            aria-label={t('staff.time_tracking.board.card.startTimerAria', 'Start a timer for {title}', {
+              title: task.title,
+            })}
             onClick={() => onStartTimer(task.id)}
           >
             <Play className="size-3" aria-hidden="true" />
             {t('staff.time_tracking.board.card.startTimer', 'Start')}
           </Button>
         )}
-        <Button type="button" variant="outline" size="2xs" onClick={() => onAddTime(task.id)}>
+        <Button
+          type="button"
+          variant="outline"
+          size="2xs"
+          aria-label={t('staff.time_tracking.board.card.addTimeAria', 'Add time to {title}', {
+            title: task.title,
+          })}
+          onClick={() => onAddTime(task.id)}
+        >
           <Plus className="size-3" aria-hidden="true" />
           {t('staff.time_tracking.board.card.addTime', 'Add time')}
         </Button>
+        {showMoveMenu ? (
+          <div className="relative">
+            <Button
+              ref={moveTriggerRef}
+              type="button"
+              variant="outline"
+              size="2xs"
+              aria-haspopup="menu"
+              aria-expanded={moveMenuOpen}
+              aria-label={t('staff.time_tracking.board.card.moveTo.aria', 'Move {title} to another column', {
+                title: task.title,
+              })}
+              data-testid={`kanban-card-move-${task.id}`}
+              onClick={() => setMoveMenuOpen((open) => !open)}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowDown') return
+                event.preventDefault()
+                setMoveMenuOpen(true)
+              }}
+            >
+              <ArrowRightLeft className="size-3" aria-hidden="true" />
+              {t('staff.time_tracking.board.card.moveTo.cta', 'Move')}
+            </Button>
+            {moveMenuOpen ? (
+              <div
+                ref={moveMenuRef}
+                role="menu"
+                aria-label={t('staff.time_tracking.board.card.moveTo.menu', 'Move {title} to', {
+                  title: task.title,
+                })}
+                data-testid={`kanban-card-move-menu-${task.id}`}
+                onKeyDown={handleMoveMenuKeyDown}
+                className="absolute bottom-full left-0 z-dropdown mb-1 flex min-w-40 flex-col gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+              >
+                {moveTargets.map((target, index) => (
+                  <Button
+                    key={target.id}
+                    ref={(node: HTMLButtonElement | null) => {
+                      moveItemRefs.current[index] = node
+                    }}
+                    type="button"
+                    variant="ghost"
+                    size="2xs"
+                    role="menuitem"
+                    className="justify-start"
+                    data-testid={`kanban-card-move-option-${task.id}-${target.id}`}
+                    onClick={() => handleMoveSelect(target.id)}
+                  >
+                    {target.name}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   )
