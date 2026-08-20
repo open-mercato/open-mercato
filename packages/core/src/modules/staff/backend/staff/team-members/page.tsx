@@ -273,6 +273,9 @@ export default function StaffTeamMembersPage() {
         : typeof payload.totalPages === 'number'
           ? payload.totalPages
           : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      // A role filter is applied client-side over the fetched page, so the total
+      // shown is that array's length — exact by construction, never a capped floor.
+      setTotalIsCapped(!roleFilterApplied && payload.totalIsCapped === true)
     } catch (error) {
       logger.error('staff.team-members.list', { err: error })
       flash(labels.errors.load, 'error')

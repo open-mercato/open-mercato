@@ -73,6 +73,7 @@ export default function ChannelsListPage() {
         setRows(Array.isArray(data.items) ? data.items : [])
         setTotal(typeof data.total === 'number' ? data.total : 0)
         setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 1)
+        setTotalIsCapped(data.totalIsCapped === true)
       }
       setIsLoading(false)
     }

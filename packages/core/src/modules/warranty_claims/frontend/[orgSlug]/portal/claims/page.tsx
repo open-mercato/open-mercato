@@ -104,6 +104,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
         setRows(res.result.items)
         setTotal(res.result.total)
         setTotalPages(res.result.totalPages)
+        setTotalIsCapped(res.result.totalIsCapped === true)
       })
       .catch(() => {
         if (!cancelled) {

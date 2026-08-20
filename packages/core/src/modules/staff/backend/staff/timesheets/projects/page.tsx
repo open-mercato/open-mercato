@@ -405,6 +405,7 @@ export default function TimesheetProjectsPage() {
           ? payload.totalPages
           : Math.max(1, Math.ceil(items.length / PAGE_SIZE)),
       )
+      setTotalIsCapped(payload.totalIsCapped === true)
     } catch (error) {
       logger.error('staff.timesheets.projects.list', { err: error })
       flash(labels.errors.load, 'error')

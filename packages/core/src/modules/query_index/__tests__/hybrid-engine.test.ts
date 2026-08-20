@@ -1750,3 +1750,98 @@ describe('HybridQueryEngine cf filter operator coverage (#5039)', () => {
     expect(predicates).toHaveLength(0)
   })
 })
+
+describe('HybridQueryEngine like/ilike routing by column encryption (applyColumnFilter)', () => {
+  // Unit-level: applyColumnFilter is called directly with a recording builder, and
+  // buildSearchTokensSub is spied, so these cases pin the routing decision itself without
+  // standing up the full query() scaffolding.
+  const { sql } = require('kysely')
+
+  function makeEngine() {
+    const engine = new HybridQueryEngine({} as any, { query: jest.fn() } as any)
+    const tokensSpy = jest
+      .spyOn(engine as any, 'buildSearchTokensSub')
+      .mockReturnValue({ __sub: true } as any)
+    return { engine, tokensSpy }
+  }
+
+  function makeBuilder() {
+    const wheres: any[] = []
+    const eb: any = {
+      or: (parts: any[]) => ({ __or: parts }),
+      exists: (sub: any) => ({ __exists: sub }),
+    }
+    const q: any = {
+      where: (...args: any[]) => {
+        if (args.length === 1 && typeof args[0] === 'function') {
+          wheres.push({ callback: args[0](eb) })
+        } else {
+          wheres.push({ args })
+        }
+        return q
+      },
+    }
+    return { q, wheres }
+  }
+
+  const runtime = (encryptedFields: Set<string> | null | undefined) => ({
+    enabled: true,
+    config: { enabled: true, minTokenLength: 3, enablePartials: true, hashAlgorithm: 'sha256' as const, storeRawTokens: false, blocklistedFields: [] },
+    tenantId: 't1',
+    organizationScope: null,
+    searchSources: [{ entity: 'customers:customer_entity', recordIdColumn: 'b.id' }],
+    mintAlias: () => 'st_0',
+    encryptedFields,
+    entity: 'customers:customer_entity',
+    field: 'display_name',
+    recordIdColumn: 'b.id',
+  })
+
+  test('a plaintext column keeps exact ILIKE when the gate has resolved a set', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%avision%' }, runtime(new Set(['other_column'])))
+    expect(tokensSpy).not.toHaveBeenCalled()
+    expect(wheres).toEqual([{ args: ['b.display_name', 'ilike', '%avision%'] }])
+  })
+
+  test('an encrypted column still routes through tokens, matching across name shapes', () => {
+    // The map declares camelCase; the filter carries the snake_case column name.
+    const { engine, tokensSpy } = makeEngine()
+    const { q } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%avision%' }, runtime(new Set(['displayName'])))
+    expect(tokensSpy).toHaveBeenCalled()
+  })
+
+  test('an untokenizable term on a KNOWN-encrypted column matches nothing, not everything', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: 'ZK' }, runtime(new Set(['display_name'])))
+    expect(tokensSpy).not.toHaveBeenCalled()
+    expect(wheres).toHaveLength(1)
+    expect(JSON.stringify(wheres[0].args[0].toOperationNode())).toEqual(JSON.stringify(sql`false`.toOperationNode()))
+  })
+
+  test('with a nullish encrypted set (gate off / custom-entity / resolution failure) legacy semantics hold', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    // Tokenizable term: the rewrite still fires.
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%avision%' }, runtime(undefined))
+    expect(tokensSpy).toHaveBeenCalled()
+    // Untokenizable term: the predicate is dropped, NOT failed closed.
+    const before = wheres.length
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: 'ZK' }, runtime(undefined))
+    expect(wheres).toHaveLength(before)
+  })
+
+  test('buildBaseFilterExpression: untokenizable OR-leaf is false only for KNOWN-encrypted columns', () => {
+    const { engine } = makeEngine()
+    const eb: any = { or: (parts: any[]) => ({ __or: parts }), exists: (sub: any) => ({ __exists: sub }) }
+    const resolveBase = (f: string) => f
+    const qualify = (c: string) => `b.${c}`
+    const known = (engine as any).buildBaseFilterExpression(eb, { field: 'display_name', op: 'ilike', value: 'ZK' }, resolveBase, qualify, 'customers:customer_entity', { ...runtime(new Set(['display_name'])) })
+    const legacy = (engine as any).buildBaseFilterExpression(eb, { field: 'display_name', op: 'ilike', value: 'ZK' }, resolveBase, qualify, 'customers:customer_entity', { ...runtime(undefined) })
+    expect(JSON.stringify(known.toOperationNode())).toEqual(JSON.stringify(sql`false`.toOperationNode()))
+    expect(JSON.stringify(legacy.toOperationNode())).toEqual(JSON.stringify(sql`true`.toOperationNode()))
+  })
+})

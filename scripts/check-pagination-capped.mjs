@@ -48,9 +48,17 @@ for (const dir of SCAN_DIRS) {
       }
       const block = src.slice(at, end + 1)
       const rel = relative(ROOT, file)
-      if (!block.includes('totalIsCapped') && !allowlist.has(rel)) {
-        const line = src.slice(0, at).split('\n').length
-        offenders.push(`${rel}:${line}`)
+      const line = src.slice(0, at).split('\n').length
+      if (!allowlist.has(rel)) {
+        if (!block.includes('totalIsCapped')) {
+          offenders.push({ at: `${rel}:${line}`, why: 'not forwarded to DataTable' })
+        } else if (/const \[totalIsCapped,\s*setTotalIsCapped\]/.test(src) && !/setTotalIsCapped\s*\(/.test(src)) {
+          // Forwarding a flag that nothing ever assigns is worse than not
+          // forwarding it: the site reads as adopted, the guard reads green,
+          // and the value is hard-`false`, so a capped list silently loses
+          // every row past the floor. Presence is not wiring.
+          offenders.push({ at: `${rel}:${line}`, why: 'declared and forwarded, but setTotalIsCapped is never called' })
+        }
       }
       idx = end
     }
@@ -59,9 +67,9 @@ for (const dir of SCAN_DIRS) {
 
 console.log(`pagination={{ sites scanned: ${sites}; allowlisted files: ${allowlist.size}`)
 if (offenders.length) {
-  console.log(`\nMissing totalIsCapped (${offenders.length}):`)
-  for (const o of offenders) console.log(`  ${o}`)
+  console.log(`\nUnwired capped-count sites (${offenders.length}):`)
+  for (const o of offenders) console.log(`  ${o.at} — ${o.why}`)
   if (process.argv.includes('--fail')) process.exit(1)
 } else {
-  console.log('All server-backed pagination sites forward totalIsCapped.')
+  console.log('All server-backed pagination sites forward totalIsCapped, and assign it.')
 }

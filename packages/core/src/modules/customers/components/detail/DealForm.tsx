@@ -102,6 +102,12 @@ type EntityMultiSelectProps = {
   fetchByIds: (ids: string[]) => Promise<EntityOption[]>
   disabled?: boolean
   autoFocus?: boolean
+  /**
+   * Minimum trimmed query length before a lookup request is issued. Defaults to
+   * `1`, so a blank input never queries the address book (issue #5118). Set `0`
+   * to opt back into prefetching an unfiltered first page on mount.
+   */
+  minQueryLength?: number
 }
 
 const DEAL_ENTITY_IDS = [E.customers.customer_deal]
@@ -353,6 +359,7 @@ function EntityMultiSelect({
   fetchByIds,
   disabled = false,
   autoFocus = false,
+  minQueryLength = 1,
 }: EntityMultiSelectProps) {
   const [input, setInput] = React.useState('')
   const [suggestions, setSuggestions] = React.useState<EntityOption[]>([])
@@ -401,11 +408,18 @@ function EntityMultiSelect({
       setLoading(false)
       return
     }
+    const term = input.trim()
+    if (term.length < minQueryLength) {
+      setSuggestions([])
+      setLoading(false)
+      setError(null)
+      return
+    }
     let cancelled = false
     const handler = window.setTimeout(async () => {
       setLoading(true)
       try {
-        const results = await search(input.trim())
+        const results = await search(term)
         if (cancelled) return
         setSuggestions(results)
         setCache((prev) => {
@@ -429,7 +443,7 @@ function EntityMultiSelect({
       cancelled = true
       window.clearTimeout(handler)
     }
-  }, [disabled, errorLabel, input, search])
+  }, [disabled, errorLabel, input, minQueryLength, search])
 
   const filteredSuggestions = React.useMemo(
     () => suggestions.filter((option) => !normalizedValue.includes(option.id)),
@@ -660,12 +674,14 @@ export function DealPeopleSelector({
   options = [],
   disabled = false,
   autoFocus = false,
+  minQueryLength,
 }: {
   value: string[]
   onChange: (next: string[]) => void
   options?: EntityOption[]
   disabled?: boolean
   autoFocus?: boolean
+  minQueryLength?: number
 }) {
   const t = useT()
   const { searchPeople, fetchPeopleByIds } = useDealAssociationLookups()
@@ -685,6 +701,7 @@ export function DealPeopleSelector({
       fetchByIds={fetchPeopleByIds}
       disabled={disabled}
       autoFocus={autoFocus}
+      minQueryLength={minQueryLength}
     />
   )
 }
@@ -694,11 +711,13 @@ export function DealCompaniesSelector({
   onChange,
   options = [],
   disabled = false,
+  minQueryLength,
 }: {
   value: string[]
   onChange: (next: string[]) => void
   options?: EntityOption[]
   disabled?: boolean
+  minQueryLength?: number
 }) {
   const t = useT()
   const { searchCompanies, fetchCompaniesByIds } = useDealAssociationLookups()
@@ -717,6 +736,7 @@ export function DealCompaniesSelector({
       search={searchCompanies}
       fetchByIds={fetchCompaniesByIds}
       disabled={disabled}
+      minQueryLength={minQueryLength}
     />
   )
 }

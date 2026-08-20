@@ -491,6 +491,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         setRows([])
         setTotal(0)
         setTotalPages(1)
+        setTotalIsCapped(false)
         return
       }
       const payload = call.result ?? {}
@@ -502,6 +503,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         ? payload.totalPages
         : Math.max(1, Math.ceil(count / PAGE_SIZE))
       setTotalPages(pages)
+      setTotalIsCapped(payload.totalIsCapped === true)
       setCacheStatus(call.cacheStatus ?? null)
     } catch (err) {
       logger.error('sales.documents.list', { err })
