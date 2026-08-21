@@ -19,10 +19,11 @@ export type EnsureSystemEmailChannelResult = 'created' | 'updated' | 'failed'
 /**
  * Idempotently create or refresh a tenant's system email channel row.
  *
- * Shared by the three places that need the same row: the provider env preset run at tenant setup, the
- * `backfill-system-email` CLI used to migrate tenants that predate the Communications Hub, and the
- * lazy repair in `sendSystemEmail` for a tenant whose credentials were saved through the integrations
- * admin UI (which stores credentials but has no hook to create the channel).
+ * Shared by the two places that need the same row: the provider env preset, which runs at tenant setup
+ * and again on every `yarn mercato seed:defaults --module channel_<provider>` used to migrate tenants
+ * that predate the Communications Hub, and the lazy repair in `sendSystemEmail` for a tenant whose
+ * credentials were saved through the integrations admin UI (which stores credentials but has no hook
+ * to create the channel).
  *
  * Never throws: a channel row is a convenience for the Hub UI and for later lookups, so a failure to
  * write one must not take down the caller — an email send in particular still has usable credentials.
