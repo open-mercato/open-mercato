@@ -35,6 +35,9 @@ function validateDefinition(definition: PrivacyDataClassDefinition): void {
       throw new Error('[internal] Privacy retention must declare at least one action')
     }
   }
+  if (definition.environmentSanitization?.categories.length === 0) {
+    throw new Error('[internal] Environment sanitization must declare at least one category')
+  }
 }
 
 export function registerPrivacyDataClass(definition: PrivacyDataClassDefinition): void {
@@ -45,6 +48,13 @@ export function registerPrivacyDataClass(definition: PrivacyDataClassDefinition)
     subjectActions: [...new Set(definition.subjectActions)],
     ...(definition.retention
       ? { retention: { ...definition.retention, actions: [...new Set(definition.retention.actions)] } }
+      : {}),
+    ...(definition.environmentSanitization
+      ? {
+          environmentSanitization: {
+            categories: [...new Set(definition.environmentSanitization.categories)],
+          },
+        }
       : {}),
   })
 }

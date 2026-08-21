@@ -12,6 +12,7 @@ import {
   type AttachmentScanner,
 } from './lib/scanning'
 import type { AttachmentQuarantineStore } from './lib/quarantine'
+import { AttachmentEnvironmentPrivacyHandler } from './privacy'
 
 export function register(container: AppContainer) {
   container.register({
@@ -40,5 +41,6 @@ export function register(container: AppContainer) {
     )
       .singleton()
       .proxy(),
+    attachmentEnvironmentPrivacyHandler: asClass(AttachmentEnvironmentPrivacyHandler).scoped(),
   })
 }

@@ -1,6 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { PrivacyGovernanceService } from './services/governanceService'
+import { environmentSanitizationSchema } from './data/validators'
 
 type ParsedArgs = { flags: Record<string, string | boolean> }
 
@@ -62,11 +63,45 @@ const runRetention: ModuleCli = {
   },
 }
 
+const sanitizeEnvironment: ModuleCli = {
+  command: 'sanitize-environment',
+  async run(rest) {
+    try {
+      const args = parseArgs(rest)
+      const apply = args.flags.apply === true
+      const input = environmentSanitizationSchema.parse({
+        profile: 'sandbox-strict',
+        dryRun: !apply,
+        confirmation: typeof args.flags.confirm === 'string' ? args.flags.confirm : null,
+      })
+      const container = await createRequestContainer()
+      const service = container.resolve<PrivacyGovernanceService>('privacyGovernanceService')
+      const operation = await service.runEnvironmentSanitization(
+        { tenantId: stringFlag(args, 'tenant'), organizationId: stringFlag(args, 'organization') },
+        stringFlag(args, 'actor'),
+        input,
+      )
+      console.log(JSON.stringify({
+        operationId: operation.id,
+        status: operation.status,
+        dryRun: operation.dryRun,
+        report: operation.reportJson,
+      }, null, 2))
+      if (operation.status === 'failed' || operation.status === 'blocked') process.exitCode = 1
+      if (operation.status === 'partial') process.exitCode = 2
+    } catch (error) {
+      console.error(`[data_erasure] ${error instanceof Error ? error.message : 'Environment sanitization failed.'}`)
+      process.exitCode = 1
+    }
+  },
+}
+
 const help: ModuleCli = {
   command: 'help',
   run() {
     console.log('Usage: yarn mercato data_erasure retention-run --tenant <id> --organization <id> --actor <user-id> --policy <id> [--apply] [--max-batches <n>]')
+    console.log('       yarn mercato data_erasure sanitize-environment --tenant <id> --organization <id> --actor <user-id> [--apply --confirm SANITIZE_NON_PRODUCTION]')
   },
 }
 
-export default [runRetention, help]
+export default [runRetention, sanitizeEnvironment, help]

@@ -12,6 +12,13 @@ export type PrivacySubjectReference = {
 
 export type PrivacyRetentionAction = 'delete' | 'anonymize'
 export type PrivacySubjectAction = 'discover' | 'export' | 'erase' | 'anonymize'
+export type PrivacyEnvironmentSanitizationCategory =
+  | 'personal_data'
+  | 'authentication'
+  | 'credentials'
+  | 'outbound_integrations'
+  | 'attachments'
+  | 'ai_content'
 
 export type PrivacyDataClassDefinition = {
   id: string
@@ -25,6 +32,9 @@ export type PrivacyDataClassDefinition = {
     defaultDays: number
   }
   subjectActions: readonly PrivacySubjectAction[]
+  environmentSanitization?: {
+    categories: readonly PrivacyEnvironmentSanitizationCategory[]
+  }
 }
 
 export type PrivacyRetentionInput = {
@@ -64,12 +74,40 @@ export type PrivacySubjectMutationResult = {
   affected: number
 }
 
+export type PrivacyEnvironmentSanitizationInput = {
+  scope: PrivacyScope
+  dryRun: boolean
+  actorId: string
+  profile: 'sandbox-strict'
+}
+
+export type PrivacyEnvironmentSanitizationResult = {
+  matched: number
+  affected: number
+}
+
+export type PrivacyEnvironmentSanitizationFinding = {
+  code: string
+  count: number
+}
+
+export type PrivacyEnvironmentSanitizationVerificationResult = {
+  passed: boolean
+  findings: PrivacyEnvironmentSanitizationFinding[]
+}
+
 export type PrivacyDataClassHandler = {
   runRetention?: (input: PrivacyRetentionInput) => Promise<PrivacyRetentionResult>
   discoverSubject?: (input: PrivacySubjectInput) => Promise<PrivacySubjectDiscoveryResult>
   exportSubject?: (input: PrivacySubjectInput) => Promise<PrivacySubjectExportResult>
   eraseSubject?: (input: PrivacySubjectInput) => Promise<PrivacySubjectMutationResult>
   anonymizeSubject?: (input: PrivacySubjectInput) => Promise<PrivacySubjectMutationResult>
+  sanitizeEnvironment?: (
+    input: PrivacyEnvironmentSanitizationInput,
+  ) => Promise<PrivacyEnvironmentSanitizationResult>
+  verifyEnvironmentSanitization?: (
+    input: PrivacyEnvironmentSanitizationInput,
+  ) => Promise<PrivacyEnvironmentSanitizationVerificationResult>
 }
 
 export type PrivacyDataClassRegistry = {
