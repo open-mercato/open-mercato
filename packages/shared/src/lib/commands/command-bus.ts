@@ -38,6 +38,7 @@ import {
   markAuditRedoUnavailable,
   redactSensitiveAuditData,
 } from './audit-redaction'
+import { mergeCommandCorrelationContext } from './correlation'
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
@@ -606,6 +607,9 @@ export class CommandBus {
       const baseContext = asRecord(payload.context) ?? {}
       payload.context = { ...baseContext, source: runAs.source }
     }
+
+    const correlatedContext = mergeCommandCorrelationContext(payload.context, options.ctx)
+    if (correlatedContext) payload.context = correlatedContext
 
     const sensitiveInput = metadata.sensitiveInput === true || containsSensitiveAuditData(options.input)
     const existingCommandPayload = 'commandPayload' in payload

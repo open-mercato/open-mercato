@@ -35,6 +35,7 @@ export type CommandRuntimeContext = {
   selectedOrganizationId: string | null
   organizationIds: string[] | null
   request?: Request
+  correlationId?: string | null
   syncOrigin?: string | null
   /**
    * See {@link BulkImportSuppression}. Set by bulk backfill callers to defer heavy

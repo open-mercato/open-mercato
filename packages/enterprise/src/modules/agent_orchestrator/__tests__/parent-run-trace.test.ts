@@ -32,6 +32,7 @@ function registerResearcherSubAgent(): AgentRegistryEntry {
 describe('parent_run_id nested-run trace (Phase 4)', () => {
   it('persists parentRunId through createRun → runs.create command', async () => {
     let captured: Record<string, unknown> | undefined
+    const commandCtx: { correlationId?: string } = {}
     const commandBus = {
       async execute<I, O>(id: string, opts: { input: I }): Promise<{ result: O }> {
         if (id === 'agent_orchestrator.runs.create') {
@@ -41,7 +42,7 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
         return { result: {} as unknown as O }
       },
     }
-    const runId = await createRun(commandBus as never, {} as never, {
+    const runId = await createRun(commandBus as never, commandCtx as never, {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       agentId: SUB_AGENT_ID,
@@ -50,6 +51,8 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
     })
     expect(runId).toBe('nested-run-1')
     expect(captured?.parentRunId).toBe('parent-run-99')
+    expect(captured?.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(commandCtx.correlationId).toBe('nested-run-1')
   })
 
   it('the in-process delegate tool stamps the current run id as the nested run parentRunId', async () => {

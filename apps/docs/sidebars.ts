@@ -497,6 +497,7 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Security",
           items: [
+            "framework/security/audit-evidence",
             "framework/security/rate-limiting",
           ],
         },

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { type AgentResult, type AgentProposalPayload, type AgentType, type GuardResults } from '../../data/validators'
@@ -125,6 +126,7 @@ export async function createRun(
   commandBus: CommandBus,
   commandCtx: CommandRuntimeContext,
   input: {
+    id?: string
     tenantId: string
     organizationId: string
     agentId: string
@@ -152,15 +154,18 @@ export async function createRun(
     agentType?: AgentType | null
   },
 ): Promise<string> {
+  const runId = input.id ?? randomUUID()
+  commandCtx.correlationId = runId
   // Audited-command scope (Phase 3, layer B-b): the agent's own AgentRun write
   // goes through the audited Command path, so it passes the flush-time no-bypass
   // guard while a raw `em.flush()` under the same agent actor would throw.
   const { result } = await withAuditedCommand(() =>
-    commandBus.execute<typeof input, { runId: string }>(
+    commandBus.execute<typeof input & { id: string }, { runId: string }>(
       'agent_orchestrator.runs.create',
-      { input, ctx: commandCtx },
+      { input: { ...input, id: runId }, ctx: commandCtx },
     ),
   )
+  commandCtx.correlationId = result.runId
   return result.runId
 }
 
