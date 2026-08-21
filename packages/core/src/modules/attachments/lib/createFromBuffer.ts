@@ -8,6 +8,10 @@ import { buildAttachmentFileUrl } from './imageUrls'
 import { mergeAttachmentMetadata, upsertAssignment } from './metadata'
 import { assertAttachmentScopeInvariant } from './access'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
+import {
+  ensureAttachmentScanReceipt,
+  type AttachmentScanGate,
+} from './scanning'
 
 /** DataEngine handle whose exact type is derived from `emitCrudSideEffects` (no `any`). */
 type CrudDataEngine = Parameters<typeof emitCrudSideEffects>[0]['dataEngine']
@@ -26,6 +30,7 @@ export type CreateAttachmentFromBufferInput = {
   buffer: Buffer
   /** Storage partition; defaults to the entity's default partition. */
   partitionCode?: string | null
+  attachmentScanGate?: AttachmentScanGate | null
 }
 
 export type CreatedAttachment = {
@@ -47,6 +52,17 @@ export type CreatedAttachment = {
  */
 export async function createAttachmentFromBuffer(input: CreateAttachmentFromBufferInput): Promise<CreatedAttachment> {
   const { em } = input
+  const securityScan = await ensureAttachmentScanReceipt({
+    gate: input.attachmentScanGate,
+    request: {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      source: 'internal_buffer',
+      buffer: input.buffer,
+    },
+  })
   const code = (input.partitionCode && input.partitionCode.length > 0)
     ? input.partitionCode
     : resolveDefaultPartitionCode(input.entityId)
@@ -73,6 +89,7 @@ export async function createAttachmentFromBuffer(input: CreateAttachmentFromBuff
   const metadata = mergeAttachmentMetadata(null, {
     assignments: upsertAssignment([], { type: input.entityId, id: input.recordId }),
   })
+  metadata.securityScan = securityScan
   const attachmentId = randomUUID()
   assertAttachmentScopeInvariant({ tenantId: input.tenantId, organizationId: input.organizationId })
   const attachment = em.create(Attachment, {
