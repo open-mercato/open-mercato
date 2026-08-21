@@ -352,3 +352,192 @@ describe('ingestInboundMessageCommand — concurrent-insert race (M3)', () => {
     expect(result.status).toBe('duplicate')
   })
 })
+
+describe('ingestInboundMessageCommand — HTML body normalization', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'imap' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function makeInput(
+    body: string,
+    bodyFormat: 'text' | 'html',
+    channelPayload: Record<string, unknown> = {},
+  ): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'imap',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'ext-html-1',
+        externalConversationId: 'conv-1',
+        senderIdentifier: 'jane@example.com',
+        body,
+        bodyFormat,
+        timestamp: new Date(),
+        channelPayload,
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups() {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // no duplicate ExternalMessage
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'imap',
+        channelType: 'email',
+        userId: 'u-1',
+      } as never) // channel
+      .mockResolvedValue(null as never) // conversation + mapping → created
+  }
+
+  function composedInput(commandBus: { execute: jest.Mock }) {
+    const call = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'messages.messages.compose')
+    expect(call).toBeDefined()
+    return (call as unknown[])[1] as { input: { body: string; bodyFormat: string } }
+  }
+
+  it('converts an HTML body to plain text instead of relabelling it as text', async () => {
+    // `messages` renders bodies as plain text, so an HTML body that is merely
+    // relabelled surfaces raw markup (doctype, <style> blocks) in the inbox.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const html = [
+      '<!DOCTYPE html><html><head>',
+      '<style>body { margin: 0; font-size: 14px; }</style>',
+      '<script>console.log("tracking")</script>',
+      '</head><body><p>Cześć,</p><p>w nawiązaniu do spotkania.</p></body></html>',
+    ].join('')
+
+    await ingestInboundMessageCommand.execute(makeInput(html, 'html') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toContain('Cześć,')
+    expect(composed.body).toContain('w nawiązaniu do spotkania.')
+    expect(composed.body).not.toContain('<!DOCTYPE')
+    expect(composed.body).not.toContain('<p>')
+    expect(composed.body).not.toContain('font-size')
+    expect(composed.body).not.toContain('tracking')
+  })
+
+  it('leaves a plain-text body untouched', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(makeInput('Hello!\n\nRegards,\nJane', 'text') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe('Hello!\n\nRegards,\nJane')
+  })
+
+  it('stores the sender\'s own plain part verbatim for a multipart/alternative email', async () => {
+    // `lib/email-mime.ts` prefers the HTML part when picking `body` but keeps
+    // the text/plain alternative at `channelPayload.text`. That part is what a
+    // human actually composed, so it must beat html-to-text output — which
+    // inlines link URLs, flattens tables and synthesizes list markers.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const plain = 'Cześć,\n\nSzczegóły: https://example.com/order/1234\n\nPozdrawiam,\nJan'
+    const html = '<html><body><p>Cześć,</p><p>Szczegóły: <a href="https://example.com/order/1234">tutaj</a></p><p>Pozdrawiam,<br>Jan</p></body></html>'
+
+    await ingestInboundMessageCommand.execute(
+      makeInput(html, 'html', { html, text: plain }) as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe(plain)
+    // The conversion artefact the plain part exists to avoid.
+    expect(composed.body).not.toContain('[https://example.com/order/1234]')
+  })
+
+  it('still converts when the sender supplied no usable plain alternative', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const html = '<html><body><p>HTML only sender</p></body></html>'
+
+    await ingestInboundMessageCommand.execute(
+      makeInput(html, 'html', { html, text: '   ' }) as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe('HTML only sender')
+  })
+
+  it('bounds the synchronous parse of an oversized HTML body', async () => {
+    // Inbound mail is untrusted and `lib/email-capabilities.ts` allows bodies up
+    // to 5MB, so the whole document used to be parsed before the 50k truncation
+    // could apply. The pre-parse cap bounds that work.
+    //
+    // The padding is a <style> block, which the converter skips — so the marker
+    // that follows it survives truncation and is observable in the composed
+    // body. Without the cap the parser reaches it; with the cap the input is cut
+    // mid-<style> and the marker is never seen.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const cssPadding = '/* padding */ .a { color: #ffffff; }\n'.repeat(20_000)
+    const html = `<html><body><p>Opening line</p><style>${cssPadding}</style><p>MARKER-BEYOND-CAP</p></body></html>`
+    expect(cssPadding.length).toBeGreaterThan(512 * 1024)
+
+    await ingestInboundMessageCommand.execute(makeInput(html, 'html') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.body).toContain('Opening line')
+    expect(composed.body).not.toContain('MARKER-BEYOND-CAP')
+    expect(composed.body.length).toBeLessThanOrEqual(50_000)
+    // The cap counts markup bytes and the compose-level cap counts text
+    // characters, so this one bites first and the compose-level marker never
+    // fires to cover for it. It must say so itself rather than ending the body
+    // mid-sentence with nothing to tell the reader the rest exists.
+    expect(composed.body).toContain('message truncated by Open Mercato')
+  })
+
+  it('does not mark an HTML body that fits inside the pre-parse cap', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(
+      makeInput('<html><body><p>Short enough</p></body></html>', 'html') as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.body).toContain('Short enough')
+    expect(composed.body).not.toContain('message truncated by Open Mercato')
+  })
+})
