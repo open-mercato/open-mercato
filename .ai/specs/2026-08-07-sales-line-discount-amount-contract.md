@@ -55,15 +55,17 @@ pinned to that commit.
 
 `packages/core/src/modules/sales/commands/documents.ts`
 
-| symbol / command id | line | what |
+Line numbers are the **declaration** of each symbol; where the interesting expression sits elsewhere
+in the body it is given in the description.
+
+| symbol / command id | decl. | what |
 |---|---|---|
-| `mapOrderLineEntityToSnapshot` / `mapQuoteLineEntityToSnapshot` | 2873 / 2904 | feed the stored line total straight back in, where it is read as per-unit |
-| `createLineSnapshotFromInput` | 2973 | — |
-| ↳ its `discountAmount` | **3003** | create path: `line.discountAmount ?? null` — coalesces to **`null`** |
-| line entity payload build | 3091 | persist: `toNumericString(lineResult.discountAmount) ?? "0"` — writes the **line total** |
-| `sales.orders.lines.upsert` | **7141** | `parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0` |
-| `sales.quotes.lines.upsert` | **7635** | identical — **any fix must cover both** |
-| `sales.invoices.create` line loop | 8978 | `discountAmount: toNumericString(line.discountAmount ?? 0)` where `line` is `parsed.lines[i]` — see § Out of Scope → Invoice lines |
+| `mapOrderLineEntityToSnapshot` / `mapQuoteLineEntityToSnapshot` | 2888 / 2919 | feed the stored line total straight back in, where it is read as per-unit (`discountAmount` at 2906 / 2937) |
+| `createLineSnapshotFromInput` | 3006 | create path: `discountAmount: line.discountAmount ?? null` at **3036** — coalesces to **`null`** |
+| line entity payload build | — | persist: `discountAmount: toNumericString(lineResult.discountAmount) ?? "0"` at **3124** — writes the **line total** |
+| `sales.orders.lines.upsert` | 7010 | `parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0` at **7176–7177**; the inherited percent at 7178–7179 |
+| `sales.quotes.lines.upsert` | 7508 | identical, at **7670–7671** (percent 7672–7673) — **any fix must cover both** |
+| `sales.invoices.create` line loop | 8903 | `discountAmount: toNumericString(line.discountAmount ?? 0)` at 9014, where `line` is `parsed.lines[i]` — see § Out of Scope → Invoice lines |
 
 `packages/core/src/modules/sales/commands/returns.ts` — **a second, independent copy of the mapper**
 
@@ -718,3 +720,6 @@ rather than tagging two copies.
   sketch showing the coalescing chain decomposed per operand, since `?? 0` → `?? null` alone leaves
   re-inflation alive on the upsert-existing path. Header pin corrected and all anchors re-verified
   against `develop` @ `33a7d00c4`; merged `develop` to clear two unrelated red checks.
+- 2026-08-21 — Re-pinned the `documents.ts` table in § Verified source sites, which had kept its
+  pre-merge numbers while the rest of the document moved to `33a7d00c4`, and switched that table to
+  citing declaration lines throughout rather than mixing declarations with body lines.
