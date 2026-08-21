@@ -5,7 +5,7 @@
 
 ## TLDR
 
-The optional `OM_AI_RUNTIME_SECURITY_PROFILE=hardened` profile disables legacy Code Mode, enforces input moderation for typed agents, fails closed when the selected provider cannot moderate, and encrypts pending mutation inputs, diffs, and results. The default `standard` profile keeps existing behavior.
+The optional `OM_AI_RUNTIME_SECURITY_PROFILE=hardened` profile disables legacy Code Mode, enforces content safety for typed agents, and encrypts pending mutation inputs, diffs, and results. The first phase depended on provider moderation; `2026-08-21-provider-independent-ai-content-safety.md` supersedes that dependency with a local, provider-independent gate. The default `standard` profile keeps existing behavior.
 
 ## Overview
 
@@ -21,7 +21,7 @@ Before this change, provider capability could silently skip moderation on an `un
 - Disable `POST /api/chat`, the legacy OpenCode Code Mode entrypoint, in hardened mode.
 - Treat every typed agent input as untrusted in hardened mode.
 - Run the same moderation gate in text and object modes.
-- Reject enforced input when the provider lacks moderation support or the moderation service is unavailable.
+- Reject enforced input when the provider lacks moderation support or the moderation service is unavailable. This first-phase rule is superseded by the provider-independent content-safety service; provider moderation remains defense in depth.
 - Add a default encryption map for pending-action proposal content and execution output.
 
 ## Architecture
@@ -46,7 +46,7 @@ No schema change is required. The existing `ai_pending_actions` columns `normali
 
 | Failure scenario | Severity | Affected area | Mitigation | Residual risk |
 |---|---|---|---|---|
-| Provider has no moderation endpoint | High | hardened AI availability | Reject before model execution | Operator must choose a supported provider |
+| Provider has no moderation endpoint | High | hardened AI availability | Initially rejected; later resolved by the provider-independent scanner | Provider-specific moderation remains optional defense in depth |
 | Encryption service is unavailable | High | pending proposal confidentiality | Production encryption policy fails closed | Development may use the standard profile |
 | Legacy clients call Code Mode | Medium | legacy chat availability | Explicit 503 and documented migration to typed agents | Client must switch entrypoint |
 
@@ -64,3 +64,4 @@ The new environment variable and encryption-map file are additive. The default r
 ## Changelog
 
 - **2026-08-21:** Implemented the hardened profile, object-mode moderation parity, unsupported-provider fail-closed behavior, legacy Code Mode restriction, and pending-action encryption map.
+- **2026-08-21:** Superseded provider-specific availability requirements with the provider-independent content-safety contract.
