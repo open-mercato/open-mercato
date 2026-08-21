@@ -1,7 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { StructureKind, VariableDeclarationKind } from 'ts-morph'
+import {
+  findDuplicateEntityClassNames,
+  formatDuplicateEntityClassNamesWarning,
+  type EntityClassNameEntry,
+} from '@open-mercato/shared/lib/db/duplicateEntityClassNames'
 import type { PackageResolver } from '../resolver'
+import { parseEntityClassNames } from './entity-class-declarations'
 import { MODULE_CODE_EXTENSIONS, stripModuleCodeExtension } from './scanner'
 import {
   toVar,
@@ -50,6 +56,7 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
   const mods = resolver.loadEnabledModules()
   const imports: Array<{ name: string; moduleSpecifier: string }> = []
   const entitySources: Array<{ importName: string; moduleId: string }> = []
+  const classNameEntries: EntityClassNameEntry[] = []
   let n = 0
 
   for (const entry of mods) {
@@ -94,6 +101,11 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     }
     imports.push({ name: importName, moduleSpecifier: relImport })
     entitySources.push({ importName, moduleId: modId })
+
+    const entityFilePath = path.join(found.base, found.file)
+    for (const className of parseEntityClassNames(entityFilePath)) {
+      classNameEntries.push({ className, moduleId: modId, sourcePath: entityFilePath })
+    }
   }
 
   const sourceFile = createGeneratedSourceFile('entities.generated.ts')
@@ -211,7 +223,20 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     quiet,
   })
 
+  warnOnDuplicateEntityClassNames(classNameEntries)
+
   return result
+}
+
+/**
+ * A duplicate entity class name across modules silently corrupts entity resolution at
+ * runtime and no build step otherwise catches it, so surface it here — where the
+ * colliding registry is produced. Reported as a warning; generation still succeeds.
+ */
+function warnOnDuplicateEntityClassNames(entries: readonly EntityClassNameEntry[]): void {
+  const duplicates = findDuplicateEntityClassNames(entries)
+  if (duplicates.length === 0) return
+  console.warn(`\x1b[33m[Entities Warning]\x1b[0m ${formatDuplicateEntityClassNamesWarning(duplicates)}`)
 }
 
 function resolveConventionFile(baseDir: string, basename: string): string | null {

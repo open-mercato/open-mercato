@@ -5,6 +5,8 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { getSslConfig } from './ssl'
 import { createLogger } from '../logger'
+import { findDuplicateRegisteredEntityClassNames } from './duplicateEntities'
+import { formatDuplicateEntityClassNamesWarning } from './duplicateEntityClassNames'
 
 const logger = createLogger('shared').child({ component: 'orm' })
 
@@ -23,7 +25,21 @@ function setRegisteredEntities(entities: any[]): void {
   (globalThis as Record<string, unknown>)[GLOBAL_ENTITIES_KEY] = entities
 }
 
+/**
+ * A duplicate entity class name across modules corrupts entity resolution silently, and
+ * no build step catches it. Report it here — the one point every registration path goes
+ * through — so the logs name the cause instead of only its distant symptoms.
+ */
+function warnOnDuplicateEntityClassNames(entities: readonly unknown[]): void {
+  const duplicates = findDuplicateRegisteredEntityClassNames(entities)
+  if (duplicates.length === 0) return
+  logger.warn(`[Bootstrap] ${formatDuplicateEntityClassNamesWarning(duplicates)}`, {
+    classNames: duplicates.map((group) => group.className),
+  })
+}
+
 export function registerOrmEntities(entities: any[]) {
+  warnOnDuplicateEntityClassNames(entities)
   if (getRegisteredEntities() !== null && process.env.NODE_ENV === 'development') {
     logger.debug('ORM entities re-registered (this may occur during HMR)')
   }

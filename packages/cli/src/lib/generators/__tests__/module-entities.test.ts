@@ -135,3 +135,64 @@ describe('generateModuleEntities', () => {
     expect(secondStat.mtimeMs).toBe(firstStat.mtimeMs)
   })
 })
+
+describe('generateModuleEntities duplicate entity class names', () => {
+  const entitySource = (className: string, tableName: string) =>
+    `import { Entity } from '@mikro-orm/decorators/legacy'\n\n@Entity({ tableName: '${tableName}' })\nexport class ${className} {}\n`
+
+  let warnSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  function moduleWithEntities(id: string, content: string): ModuleEntry {
+    touchFile(path.join(tmpDir, 'packages', 'core', 'src', 'modules', id, 'data', 'entities.ts'), content)
+    return { id, from: '@open-mercato/core' }
+  }
+
+  it('warns when two modules declare the same entity class name, and still generates', async () => {
+    const modules = [
+      moduleWithEntities('billing', entitySource('Invoice', 'billing_invoices')),
+      moduleWithEntities('subscriptions', entitySource('Invoice', 'subscription_invoices')),
+    ]
+
+    const result = await generateModuleEntities({ resolver: createMockResolver(tmpDir, modules), quiet: true })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const message = warnSpy.mock.calls[0][0] as string
+    expect(message).toContain('[Entities Warning]')
+    expect(message).toContain('Invoice')
+    expect(message).toContain('billing')
+    expect(message).toContain('subscriptions')
+    // Warning-only by design: generation still succeeds.
+    expect(result.errors).toEqual([])
+    expect(readGenerated(tmpDir)).toContain('enhanceEntities')
+  })
+
+  it('stays silent when entity class names are unique', async () => {
+    const modules = [
+      moduleWithEntities('billing', entitySource('Invoice', 'billing_invoices')),
+      moduleWithEntities('subscriptions', entitySource('Subscription', 'subscriptions')),
+    ]
+
+    await generateModuleEntities({ resolver: createMockResolver(tmpDir, modules), quiet: true })
+
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('stays silent when only one of the colliding classes is an entity', async () => {
+    const modules = [
+      moduleWithEntities('billing', entitySource('Invoice', 'billing_invoices')),
+      moduleWithEntities('subscriptions', 'export class Invoice {}\n'),
+    ]
+
+    await generateModuleEntities({ resolver: createMockResolver(tmpDir, modules), quiet: true })
+
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+})
