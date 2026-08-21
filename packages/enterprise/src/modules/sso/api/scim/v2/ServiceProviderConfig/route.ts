@@ -8,7 +8,7 @@ export async function GET() {
     schemas: ['urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig'],
     documentationUri: 'https://open-mercato.com/docs/scim',
     patch: { supported: true },
-    bulk: { supported: false, maxOperations: 0, maxPayloadSize: 0 },
+    bulk: { supported: true, maxOperations: 100, maxPayloadSize: 1048576 },
     filter: { supported: true, maxResults: 200 },
     changePassword: { supported: false },
     sort: { supported: false },

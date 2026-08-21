@@ -15,6 +15,7 @@ export async function resolveSsoAdminContext(req: Request): Promise<{
     auth,
     scope: {
       isSuperAdmin,
+      actorId: auth.sub,
       organizationId: isSuperAdmin
         ? url.searchParams.get('organizationId') ?? null
         : auth.orgId ?? null,

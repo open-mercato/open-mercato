@@ -19,6 +19,7 @@ export interface SsoAdminScope {
   isSuperAdmin: boolean
   organizationId: string | null
   tenantId: string | null
+  actorId?: string | null
 }
 
 export interface SsoConfigPublic {

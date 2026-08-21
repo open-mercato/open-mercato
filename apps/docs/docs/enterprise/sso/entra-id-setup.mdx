@@ -157,6 +157,15 @@ You need a SCIM bearer token from Open Mercato. Generate one via the admin UI (S
 3. Keep default mappings — they should work out of the box
 4. Click **Save**
 
+### Configure Group Provisioning
+
+1. Under **Mappings**, open **Provision Microsoft Entra ID Groups**
+2. Enable create, update, and delete actions
+3. Keep `displayName` and `objectId` mapped to `displayName` and `externalId`
+4. Save the mapping and assign the required groups to the enterprise application
+
+Open Mercato accepts Entra membership updates sent as `Add` operations and filtered `Remove` operations such as `members[value eq "<user-id>"]`. A removed group only removes role grants that were previously assigned by that SSO configuration. Manual role assignments are left unchanged.
+
 ### Start Provisioning
 
 1. Back on the **Provisioning** page, set **Provisioning Status** to **On**
@@ -194,6 +203,14 @@ You need a SCIM bearer token from Open Mercato. Generate one via the admin UI (S
    - **Remove** the user from the application assignment
 2. **Expected**: Entra sends `PATCH /Users/{id}` with `active: false` -> user deactivated in Open Mercato, all sessions revoked
 
+### Test Group Membership
+
+1. Assign the test user to a group that is in scope for provisioning
+2. Run **Provision on demand** for the group or wait for the next cycle
+3. **Expected**: Entra creates or updates `/Groups/{id}` and adds the SCIM user ID to `members`
+4. Remove the user from the group and run provisioning again
+5. **Expected**: Entra sends a filtered member removal and Open Mercato removes only the role grant sourced from that SSO configuration
+
 ### Test OIDC + SCIM Together
 
 1. **Create a new user in Entra** and assign them to the Open Mercato Enterprise app
@@ -216,6 +233,8 @@ When building the SCIM endpoint, account for these Entra-specific behaviors:
 | **Mixed-case filter operators** | Sends `Eq` instead of `eq` in filters | Case-insensitive filter parsing |
 | **`externalId` mapping** | Maps `objectId` -> `externalId` by default | Always store `externalId` from SCIM requests |
 | **Soft delete** | Uses `IsSoftDeleted` Switch expression -> `active: false` | Handle as user deactivation |
+| **Group membership add** | Can send all members in one `Add` operation | Accept multiple members in one operation |
+| **Group membership remove** | Sends one filtered member removal per request | Accept `members[value eq "<id>"]` paths |
 
 ## Troubleshooting
 
