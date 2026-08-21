@@ -29,6 +29,7 @@ import {
 
 const ADMIN_EMAIL = 'admin@acme.com'
 const ADMIN_PASSWORD = 'secret'
+const AGENT_ID = 'deals.health_check'
 const RESTRICTED_FEATURES = ['agent_orchestrator.trace.view']
 
 type EvalCaseItem = Record<string, unknown>
@@ -52,7 +53,6 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
     expect(context.organizationId, 'admin token must carry an organization id').toBeTruthy()
 
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
-    const agentId = `qa.nav005_${stamp.replace(/-/g, '_')}`
     const seededRunIds: string[] = []
     const createdEvalCaseIds: string[] = []
     let restrictedRoleId: string | null = null
@@ -65,7 +65,7 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
         {
           tenantId: context.tenantId!,
           organizationId: context.organizationId!,
-          agentId,
+          agentId: AGENT_ID,
           status: 'ok',
           createdAt: new Date(),
         },
@@ -87,7 +87,7 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
       const listRes = await apiRequest(
         request,
         'GET',
-        `/api/agent_orchestrator/eval-cases?status=draft&agentDefinitionId=${encodeURIComponent(agentId)}&pageSize=50`,
+        `/api/agent_orchestrator/eval-cases?status=draft&agentDefinitionId=${encodeURIComponent(AGENT_ID)}&pageSize=50`,
         { token: adminToken },
       )
       expect(listRes.status(), await listRes.text()).toBe(200)
@@ -108,7 +108,7 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
       const filteredOut = await apiRequest(
         request,
         'GET',
-        `/api/agent_orchestrator/eval-cases?status=approved&agentDefinitionId=${encodeURIComponent(agentId)}`,
+        `/api/agent_orchestrator/eval-cases?status=approved&agentDefinitionId=${encodeURIComponent(AGENT_ID)}`,
         { token: adminToken },
       )
       expect(filteredOut.status()).toBe(200)
@@ -148,7 +148,7 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
       // agent's workspace, which is where the trace inspector's "View eval set"
       // action goes too.
       await loginAsAdmin(page)
-      await page.goto(`/backend/agents/${encodeURIComponent(agentId)}?tab=evaluation&section=cases`, {
+      await page.goto(`/backend/agents/${encodeURIComponent(AGENT_ID)}?tab=evaluation&section=cases`, {
         waitUntil: 'domcontentloaded',
       })
       await expect(
@@ -156,7 +156,7 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
         "the agent workspace must open on the Evaluation tab's Cases section",
       ).toBeVisible({ timeout: 15_000 })
       await expect(
-        page.getByText(agentId).first(),
+        page.getByText(AGENT_ID).first(),
         'the agent workspace must surface the agent whose draft case was created',
       ).toBeVisible({ timeout: 15_000 })
     } finally {
