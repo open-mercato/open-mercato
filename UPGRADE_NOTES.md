@@ -22,6 +22,21 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.7.0 → 0.7.1 (unreleased)
+
+### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+
+The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+
+- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
+- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+
+**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
+
+---
+
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
 ### Passkey MFA verification requires a real WebAuthn assertion (#3852)
@@ -159,6 +174,23 @@ Two changes ship together on `GET /api/search/search/global`, the endpoint the C
 `create-mercato-app --preset crm` and `--preset empty` produced apps with no Cmd+K palette at all, not even for a superadmin: the app shell renders the palette on `search.global`, and `filterGrantsByEnabledModules` strips every feature whose owning module is absent from the enabled-modules registry, so the grant never survived. Only the `classic` preset — which keeps the template's own `src/modules.ts` — had it.
 
 **Action:** none for existing apps. This changes only what *new* scaffolds generate. An app already scaffolded from `crm` or `empty` can add `{ id: 'search', from: '@open-mercato/search' }` to its `src/modules.ts`; the package is already pinned in the generated `package.json`, and the token strategy runs on the `search_tokens` table `query_index` maintains, so no Meilisearch and no embedding provider are needed.
+
+### Data sync batches now emit their own traces instead of nesting under the trigger
+
+Only relevant if you run telemetry (`TELEMETRY_BACKEND` set to an enabled backend). Trace context propagates from the request that starts a sync, through the queue, into the worker — and `ParentBasedSampler` only decides sampling at a trace's **root**. A run lasting hours therefore inherited one decision taken on a request from long before it: below `TELEMETRY_SAMPLING_RATIO=1.0` an entire run could emit nothing at all, and at `1.0` a single backfill produced one unrenderable million-span trace.
+
+The `data_sync` engine now wraps each batch in a **root** span (`data_sync.import.batch` / `data_sync.export.batch`) linked back to the run's trace, so every batch samples independently and each trace stays renderable.
+
+Sampling stays probabilistic — at ratio `p` a run of `n` batches still emits nothing with probability `(1 - p)^n` (75% for one batch at `p = 0.25`, 0.3% for twenty) — but a long run is no longer one coin flip, and at `1.0` each trace is now bounded instead of unrenderable.
+
+**Action for operators:** none required, but expect the new shape in your tracing backend. Sync work no longer appears inside the triggering request's trace; look for `data_sync.*.batch` root traces instead, and follow the span **link** to get back to the trigger. Saved views or dashboards that assumed the old nesting need repointing. Batch spans carry `data_sync.run_id`, `data_sync.integration_id`, `data_sync.entity_type`, `data_sync.batch_index`, `om.tenant_id` and `om.organization_id` for filtering. The read that finds the stream drained is traced separately as `data_sync.import.drain` / `data_sync.export.drain`, so a panel counting or averaging `*.batch` sees batches only.
+
+**Action for adapter authors:** none — `streamImport`/`streamExport` are unchanged, and generator `finally` blocks still run on cancellation and failure. If your adapter hand-rolls its own per-batch span, you can delete it: the engine's span now covers the same work, and an adapter-created span could never actually root itself. Any inner spans you create nest under the engine's batch span as before.
+
+One contract detail is now enforced where it previously was not: the engine drives your iterator directly instead of using `for await`, so the returned value must be a genuine `AsyncIterable` (an `async function*`, or an object with `[Symbol.asyncIterator]`) — which is what `streamImport`/`streamExport` have always been typed as. `for await` also happened to accept a *synchronous* iterable of promises; that was never part of the declared contract, and an untyped adapter relying on it now fails immediately with a `TypeError` on the first batch rather than silently. TypeScript adapters are unaffected.
+
+**For module authors:** the underlying mechanism is two new optional `SpanOptions` fields in `@open-mercato/telemetry` — `root?: boolean` (start a new trace, taking a fresh sampling decision) and `links?: TraceCarrier[]` (causal links as W3C carriers). Both are additive; a call that sets neither behaves exactly as before. Packages that cannot depend on `@open-mercato/telemetry` reach the same primitives through `withTelemetrySpan` / `captureTelemetryTrace` in `@open-mercato/shared/lib/telemetry/runtime`.
+
 ### TanStack Table upgraded to v9 — `ColumnDef` imports must move to the legacy entry point
 
 The platform now depends on `@tanstack/react-table@^9.0.0`. v9 is an API rewrite: `useReactTable` and the `get*RowModel` factories moved out of the package root, and `ColumnDef` gained a leading `TFeatures` generic (`ColumnDef<TFeatures, TData, TValue>` instead of `ColumnDef<TData, TValue>`). Because module code imports these types **directly from `@tanstack/react-table`** rather than through `@open-mercato/ui`, no bridge inside the platform can shield you from it — a module that declares `ColumnDef<MyRow>[]` stops compiling after the upgrade.
@@ -405,6 +437,19 @@ Fresh applications generated by `create-mercato-app` now include the same respon
 
 This is an opt-in security hardening step for existing apps and the default for newly scaffolded apps. It does not change Open Mercato API, event, DI, ACL, or database contracts.
 
+### The unique constraint on `onboarding_requests.email` is dropped (#4514)
+
+`onboarding_requests.email` has held system-scoped AES-256-GCM ciphertext since #4160, and every write uses a fresh random IV, so two rows for the same address never store the same value. The `onboarding_requests_email_unique` constraint left over from the plaintext era could therefore never fire. It is now dropped, leaving `onboarding_requests_email_hash_unique` as the single deduplication contract — the one the platform has actually enforced since #4160, through `hashForLookup`/`lookupHashCandidates`. The same migration adds a non-unique `onboarding_requests_email_idx` in its place, because the resubmission lookup still has a legacy `(email = input AND email_hash IS NULL)` arm and Postgres can only combine an `OR` through a bitmap when every arm is indexable — without a replacement index the whole disjunction, hash arm included, would fall back to a sequential scan.
+
+**Action for module authors:** none, unless you write to `onboarding_requests` directly. Deduplicating a signup request means matching `email_hash`, never `email`; code that already does that is unaffected. The one pattern that changes behavior is an upsert declaring `ON CONFLICT (email)` — Postgres requires a unique index for that inference, so such a statement now raises an error instead of silently never conflicting. Rewrite it against `email_hash`. Nothing else changes: no column, table, type, or API is renamed or removed, and every insert or update accepted before is still accepted.
+
+### `GET /api/attachments` serves an empty page past the end instead of clamping (#5299)
+
+The record-scoped attachments list was the only paged endpoint that clamped a requested page down to the last existing page — both for the database offset it used and for the `page` value it echoed back. Asking for page 7 of a 3-page result returned page 3's items labelled `page: 3`. It now behaves like every other query-engine-backed list: the offset is `(page - 1) * pageSize` unclamped, so a page past the end returns an empty `items` array, and `page` echoes exactly what was requested.
+
+**Action for API consumers:** none, unless you relied on the clamp. The route, method, and response shape are unchanged — `items`, `total`, `page`, `pageSize`, and `totalPages` are all still returned, and `page` is still an integer of at least `1`. Two patterns are worth checking. A loop that pages while the returned page is full previously never terminated on this endpoint and now does, which is the point of the change. A caller that used a deliberately large page number as a shorthand for "give me the last page" now receives an empty page instead, and must compute the last page from `totalPages` itself.
+
+**For module authors:** a client-side workaround that treated an echoed page lower than the requested one as the end of the list — the pattern `AttachmentsSection` adopted in #5274 — remains correct; it simply never triggers now. You can drop it when convenient, but nothing forces you to.
 
 ## 0.6.6 → 0.6.7 (2026-08-05)
 
@@ -529,6 +574,25 @@ export const bootstrap = createBootstrap(
 
 Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
 
+### `ComboboxInput` shows a "no matches" row for a non-empty query
+
+When the user has typed and the filtered suggestion list is empty, the popover now stays open and renders `ui.inputs.comboboxInput.noMatches` instead of closing silently. The loading affordance is unchanged: while a fetch is in flight the popover still shows `ui.inputs.comboboxInput.loading`, including when a stale suggestion list is present. The new key ships in every bundled locale.
+
+### `customers/components/detail/assignableStaff` moved to `customers/lib/assignableStaff`
+
+The implementation moved so non-component callers (API routes, commands) can import it without reaching into a `components/` path. The old path re-exports every public symbol and is marked `@deprecated`; it keeps working through 0.6.x and will be removed in 0.7.0. Update imports:
+
+```diff
+- import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
++ import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/lib/assignableStaff'
+```
+
+### Credit memo creation now persists validated order and invoice links
+
+`sales.credit_memos.create` now persists its validated `orderId` and `invoiceId` as the credit memo's `order` and `invoice` relations. `SalesCreditMemo` exposes both only as relations (`@ManyToOne` on `order_id` / `invoice_id`) and has never had scalar `orderId` / `invoiceId` properties, so earlier releases validated each reference and then silently dropped it — reads returned a null `order_id` and `invoice_id`. The delete snapshot and its undo path read and restore both links through the relation as well.
+
+`TC-SALES-031` asserts the persisted order link, and `credit-memo-document-links.test.ts` covers both relations on create and on delete-snapshot. No caller changes are required.
+
 ### Opt-in per-entity ACL for custom-entity records (#3857)
 
 Follow-up to the #2612 records-API hardening, which deliberately left custom/EAV entities on the coarse `entities.records.view` / `entities.records.manage` path. Those two features were **entity-agnostic**: any holder could read/modify/delete records of *every* custom entity in their tenant, so sensitive custom entities (salaries, board minutes) could not be compartmentalized from ordinary ones (intra-tenant horizontal privilege; cross-tenant was already blocked).
@@ -561,6 +625,19 @@ Contributor action:
   A plain `yarn install-skills` also self-heals (it sweeps the legacy per-agent links); the `--clean` form just makes it explicit.
 - If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
 - To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
+
+### Documents module — optional realtime-collaboration sidecar and env vars
+
+The new `documents` module ships an optional realtime-collaboration sidecar: the `documents-collab` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the create-app template equivalents), started with `yarn documents:collab`. Every related environment variable is **optional** and the stack degrades gracefully when they are unset:
+
+- `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` — browser-reachable `ws(s)://` endpoint, embedded into the client at **build time**. Unset → the document editor works in single-user mode (no realtime collaboration). A malformed or loopback production value is logged and ignored at runtime, so an optional collaboration misconfiguration cannot abort the platform image build.
+- `DOCUMENTS_COLLAB_JWT_SECRET_V2` — shared secret between the app and the sidecar; required only when collaboration is enabled. Must contain at least 32 UTF-8 bytes; the sidecar fails closed (refuses to serve collaboration tokens, `/healthz` reports 503) when it is missing or too short.
+- `DOCUMENTS_COLLAB_REDIS_URL` (falls back to `REDIS_URL`) — Redis endpoint used for multi-instance collaboration sync. The bundled compose files wire both to the stack's Redis out of the box.
+- `DOCUMENTS_COLLAB_REDIS_PREFIX` — deployment-scoped collaboration namespace. It is required when Redis is configured in production; use one shared value for all replicas of a deployment and a different value for every deployment sharing the Redis database. Bundled compose files derive an isolated default from `DEPLOY_ENV`.
+- `TENANT_DATA_ENCRYPTION_KEY` and the other `TENANT_DATA_ENCRYPTION*` vars — the sidecar decrypts the same tenant data as the app, so the compose files now pass the app service's encryption configuration to `documents-collab` too. If you run the sidecar outside the bundled compose files, forward your encryption configuration to it yourself.
+- PDF export requires Chromium. Both production Dockerfiles default `INSTALL_CHROMIUM=0`; opt in with `--build-arg INSTALL_CHROMIUM=1` (or `INSTALL_CHROMIUM=1 docker compose build app`). Without it, PDF export returns 503 and everything else keeps working. The measured Alpine runtime-image cost is **236 MB → 1.26 GB** (**+1.02 GB**), so deployments that need PDF export take that cost explicitly.
+
+*Action for downstream:* none for existing deployments — with no documents env vars set, images build and `docker compose config/ps/up` run exactly as before (the compose files use `:-` defaults, never `:?` required interpolation, and `APP_URL` keeps its `http://localhost:3000` default). The sidecar is behind the `documents-collab` Compose profile and no longer starts or binds port 4101 during a normal `up`. In the monorepo Compose files it reuses the exact image built by the `app` service rather than rebuilding the same tag with a different build-argument set; standalone templates retain Compose's project-scoped service images. To enable collaboration, set the collaboration URL and v2 secret, rebuild the app image, and start with `docker compose --profile documents-collab up`. Set `INSTALL_CHROMIUM=1` only when the deployment needs PDF export.
 
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
@@ -726,6 +803,42 @@ The heal is delivered as a version-gated **Upgrade Action** (`attachments.reconc
    Attachments whose parent record's org cannot be resolved (custom/legacy `entityId`s, hard-deleted parents, the virtual `attachments:library` entity) are counted and **left untouched** — nothing is deleted or blanked. Re-running after already-correct data is a no-op (`already_completed`).
 
 *Action for downstream:* if you ran a multi-org setup on an affected build, enable Upgrade Actions and run `attachments.reconcile-organization` once per tenant to heal misfiled attachments; a self-hoster with single-org or clean data can leave Upgrade Actions off. No contract surface changed (the reconciliation helper and upgrade-action entry are additive). See [`.ai/specs`](.ai/specs/) and issue #3765.
+
+### Role ACL organization semantics widened — review `role_acls` rows before upgrading
+
+`RbacService` changed how a role's organization grant is interpreted. Both changes widen access, so review your `role_acls` data before deploying.
+
+**1. An empty `organizations_json` array widens access for API-key principals only — human principals are unchanged.**
+
+For a **human user**, an empty array remains a deny-all organization scope: it projects to an empty accessible set, so `resolveOrganizationScope` still falls back to the user's **account organization and its descendants** and scoped reads and deletes fail closed. This is deliberate — collapsing it to `null` (unrestricted) would reopen the scoped-deletion hole closed by #4033, where a deny-all actor could delete an organization-bound API key. The role's *features* still apply; only its organization reach stays empty.
+
+For an **API-key principal**, an empty role allowlist now means "inherit the key's own organization binding" rather than contributing nothing. A key with a concrete `organization_id` therefore stays bound to that organization; only a key without one widens to the tenant.
+
+Find rows whose meaning depends on this distinction:
+
+```sql
+SELECT role_id, tenant_id FROM role_acls WHERE organizations_json = '[]'::jsonb AND deleted_at IS NULL;
+```
+
+No action is required for human-facing roles. Review these rows only where the role is assigned to API keys, and set an explicit allowlist (`'["<org-uuid>", …]'::jsonb`) if a key should stay narrower than its own binding. Use the explicit `["__all__"]` sentinel when tenant-wide access is what you actually want — it has always meant that and is unambiguous.
+
+**2. A role's organization grants now match the selected organization's ancestor chain.**
+
+`roleAclAllowsOrganization` used to require the selected organization to appear literally in `organizations_json`. It now also matches when any **ancestor** of the selected organization is listed, so a role scoped to a parent organization applies in that parent's descendants. This mirrors what `resolveOrganizationScope` already did when expanding parent grants to descendants, so most deployments see no change — but a role deliberately pinned to a parent org *without* wanting it to reach children now reaches them. Ancestor expansion requires the Directory hierarchy service; when Directory is disabled, matching stays exact and fails closed.
+
+**3. An organization-restricted role-level super-admin grant is no longer global.**
+
+A `RoleAcl` with `is_super_admin = true` *and* a non-empty, non-`__all__` `organizations_json` no longer short-circuits to global super-admin. It is now evaluated through the scoped ACL projection and stays bounded by its organization list. This is a **narrowing** — an operator relying on such a row for tenant-wide administration will lose that reach. Clear the row's `organizations_json` (or set `["__all__"]`) to restore global super-admin.
+
+Find affected rows:
+
+```sql
+SELECT role_id, tenant_id, organizations_json FROM role_acls
+WHERE is_super_admin = true AND jsonb_array_length(COALESCE(organizations_json, '[]'::jsonb)) > 0
+  AND NOT organizations_json ? '__all__' AND deleted_at IS NULL;
+```
+
+*Action for downstream:* run both queries against each tenant, decide per row, and adjust before deploying. No API, DI, or type surface changed — `RbacService` gained an optional third constructor argument (the Directory hierarchy seam) and keeps working without it.
 
 ### Removed — `MODULE_FACTS_ALLOWLIST` export (module fact-sheet auto-discovery) (#3752, #3798, #3754)
 

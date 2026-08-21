@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "lib/templateSeeds.ts",
+      "reason": "Default document-template seed content, not UI chrome. These strings are the starter body/name/description of documents that are written once into a tenant's own document_templates rows during setup, after which the tenant owns and edits them. Routing them through the runtime i18n catalogue would translate the editor's chrome rather than the stored rows, and re-seeding on a locale change is deliberately not a supported operation. Shipping locale-specific starter templates is a product decision tracked separately from this checker."
+    }
+  ]
+}
