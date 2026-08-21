@@ -48,6 +48,8 @@
   "scheduler.error.unauthorized": "권한이 없습니다",
   "scheduler.error.update_failed": "일정 수정에 실패했습니다",
   "scheduler.errors.id_required": "일정 식별자는 필수입니다.",
+  "scheduler.errors.module_target_immutable": "모듈이 생성한 일정은 대상을 소유하므로 여기서는 운영 필드만 수정할 수 있습니다.",
+  "scheduler.errors.queue_not_approved": "대상 큐는 승인된 스케줄러 대상이 아닙니다. 옵트인한 워커만 선택할 수 있습니다.",
   "scheduler.execution.actions": "작업",
   "scheduler.execution.completed_message": "이 실행은 오류 없이 성공적으로 완료되었습니다.",
   "scheduler.execution.details_title": "실행 상세 정보",

@@ -186,6 +186,7 @@ function scaffoldFixture(): ModuleEntry[] {
   touchFile(pkgModulePath('orders', 'subscribers', 'on-created.ts'), "export const metadata = { event: 'orders.order.created', persistent: true }\nexport default async function handler() {}\n")
   touchFile(pkgModulePath('orders', 'subscribers', 'on-payment.ts'), "export const metadata = { event: 'payments.payment.completed', persistent: true }\nexport default async function handler() {}\n")
   touchFile(pkgModulePath('orders', 'workers', 'sync-job.ts'), "export const metadata = { queue: 'orders.sync', concurrency: 2 }\nexport default async function handler() {}\n")
+  touchFile(pkgModulePath('orders', 'workers', 'safe-job.ts'), "export const metadata = { queue: 'orders.safe', schedulerSafe: true }\nexport default async function handler() {}\n")
   touchFile(pkgModulePath('orders', 'widgets', 'dashboard', 'revenue', 'widget.tsx'), 'export default function RevenueWidget() { return null }\n')
   touchFile(pkgModulePath('orders', 'widgets', 'injection', 'sidebar', 'widget.tsx'), 'export default function SidebarWidget() { return null }\n')
   touchFile(pkgModulePath('orders', 'widgets', 'injection-table.ts'), `export const injectionTable = {\n  'crud-form:orders:sales_order:fields': [{ widgetId: 'orders.sidebar', kind: 'section', priority: 50 }],\n}\nexport default injectionTable\n`)
@@ -1265,6 +1266,9 @@ describe('modules.bootstrap.generated.ts', () => {
     expect(content).toContain('orders.order.created')
     expect(content).toContain('setup:')
     expect(content).toContain('features:')
+    // worker metadata flags must survive into the registry the server registers
+    expect(content).toContain("queue: \"orders.safe\"")
+    expect(content).toContain('schedulerSafe: true')
 
     expect(content).not.toContain('frontendRoutes:')
     expect(content).not.toContain('backendRoutes:')
