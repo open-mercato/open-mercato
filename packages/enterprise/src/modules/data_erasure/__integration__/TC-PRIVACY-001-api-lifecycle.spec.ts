@@ -1,0 +1,168 @@
+import { randomUUID } from 'node:crypto'
+import { expect, test, type APIRequestContext } from '@playwright/test'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+
+type Policy = {
+  id: string
+  dataClassId: string
+  retentionDays: number
+  action: 'delete' | 'anonymize'
+  batchSize: number
+  isActive: boolean
+  updatedAt: string
+}
+
+type LegalHold = {
+  id: string
+  updatedAt: string
+}
+
+test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
+  test('registers data classes, runs retention, and blocks erasure under a legal hold', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let policy: Policy | null = null
+    let originalPolicy: Policy | null = null
+    let legalHold: LegalHold | null = null
+
+    try {
+      const classesResponse = await apiRequest(request, 'GET', '/api/data_erasure/data-classes', { token })
+      expect(classesResponse.ok()).toBeTruthy()
+      const classes = await classesResponse.json() as { items: Array<{ id: string }> }
+      expect(classes.items.map((item) => item.id)).toEqual(expect.arrayContaining([
+        'audit_logs.access_logs',
+        'auth.users',
+        'customers.people',
+      ]))
+
+      const listResponse = await apiRequest(request, 'GET', '/api/data_erasure/policies', { token })
+      expect(listResponse.ok()).toBeTruthy()
+      const listed = await listResponse.json() as { items: Policy[] }
+      originalPolicy = listed.items.find((item) => item.dataClassId === 'audit_logs.access_logs') ?? null
+
+      if (originalPolicy) {
+        policy = await updatePolicy(request, token, originalPolicy.id, originalPolicy.updatedAt, {
+          retentionDays: 90,
+          action: 'delete',
+          batchSize: 25,
+          isActive: true,
+        })
+      } else {
+        const createResponse = await apiRequest(request, 'POST', '/api/data_erasure/policies', {
+          token,
+          data: {
+            dataClassId: 'audit_logs.access_logs',
+            retentionDays: 90,
+            action: 'delete',
+            batchSize: 25,
+            isActive: true,
+          },
+        })
+        expect(createResponse.status()).toBe(201)
+        policy = await createResponse.json() as Policy
+      }
+
+      const retentionResponse = await apiRequest(request, 'POST', '/api/data_erasure/retention/run', {
+        token,
+        data: { policyId: policy.id, dryRun: true, maxBatches: 1 },
+      })
+      expect(retentionResponse.ok()).toBeTruthy()
+      const retention = await retentionResponse.json() as { status: string; dryRun: boolean; report: Record<string, unknown> }
+      expect(retention.status).toBe('completed')
+      expect(retention.dryRun).toBe(true)
+      expect(retention.report).toEqual(expect.objectContaining({ batches: 1 }))
+
+      const subjectId = randomUUID()
+      const holdResponse = await apiRequest(request, 'POST', '/api/data_erasure/legal-holds', {
+        token,
+        data: {
+          dataClassId: 'auth.users',
+          subject: { kind: 'auth:user', id: subjectId },
+          reason: 'Integration test legal hold',
+        },
+      })
+      expect(holdResponse.status()).toBe(201)
+      legalHold = await holdResponse.json() as LegalHold
+
+      const erasureResponse = await apiRequest(request, 'POST', '/api/data_erasure/subjects', {
+        token,
+        data: {
+          action: 'erase',
+          subject: { kind: 'auth:user', id: subjectId },
+          dataClassIds: ['auth.users'],
+          dryRun: false,
+        },
+      })
+      expect(erasureResponse.ok()).toBeTruthy()
+      const erasure = await erasureResponse.json() as {
+        operation: { id: string; status: string; report: { classes: Array<{ errorCode: string }> } }
+      }
+      expect(erasure.operation.status).toBe('blocked')
+      expect(erasure.operation.report.classes[0]?.errorCode).toBe('LEGAL_HOLD_ACTIVE')
+
+      const operationsResponse = await apiRequest(request, 'GET', '/api/data_erasure/operations?pageSize=100', { token })
+      expect(operationsResponse.ok()).toBeTruthy()
+      const operations = await operationsResponse.json() as { items: Array<{ id: string }> }
+      expect(operations.items.some((item) => item.id === erasure.operation.id)).toBe(true)
+    } finally {
+      if (legalHold) {
+        await postWithVersion(request, token, `/api/data_erasure/legal-holds/${legalHold.id}/release`, legalHold.updatedAt)
+          .catch(() => undefined)
+      }
+      if (policy) {
+        const restore = originalPolicy
+          ? {
+              retentionDays: originalPolicy.retentionDays,
+              action: originalPolicy.action,
+              batchSize: originalPolicy.batchSize,
+              isActive: originalPolicy.isActive,
+            }
+          : { isActive: false }
+        const latestResponse = await apiRequest(request, 'GET', `/api/data_erasure/policies/${policy.id}`, { token })
+        if (latestResponse.ok()) {
+          const latest = await latestResponse.json() as Policy
+          await updatePolicy(request, token, latest.id, latest.updatedAt, restore).catch(() => undefined)
+        }
+      }
+    }
+  })
+})
+
+async function updatePolicy(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+  updatedAt: string,
+  data: Record<string, unknown>,
+): Promise<Policy> {
+  const response = await request.put(resolveUrl(`/api/data_erasure/policies/${id}`), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      [OPTIMISTIC_LOCK_HEADER_NAME]: updatedAt,
+    },
+    data,
+  })
+  expect(response.ok(), `Policy update should succeed with status ${response.status()}`).toBeTruthy()
+  return response.json() as Promise<Policy>
+}
+
+async function postWithVersion(
+  request: APIRequestContext,
+  token: string,
+  path: string,
+  updatedAt: string,
+) {
+  return request.post(resolveUrl(path), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      [OPTIMISTIC_LOCK_HEADER_NAME]: updatedAt,
+    },
+  })
+}
+
+function resolveUrl(path: string): string {
+  const baseUrl = process.env.BASE_URL?.trim()
+  return baseUrl ? `${baseUrl}${path}` : path
+}

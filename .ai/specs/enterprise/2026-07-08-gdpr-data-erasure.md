@@ -2,6 +2,8 @@
 
 > Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) on 2026-07-08. Companion spec: [`2026-07-08-automated-database-backups.md`](2026-07-08-automated-database-backups.md) — owns the erasure-manifest mechanism and the post-restore re-run diff this spec produces entries for, plus the bounded-retention guarantee this spec's GDPR framing relies on.
 
+> **Implementation note, 2026-08-21:** The current implementation contract is [`2026-08-21-privacy-retention-dsr-engine.md`](2026-08-21-privacy-retention-dsr-engine.md). It broadens this design to cover retention policies, legal holds, discovery, export, erasure, and anonymization through module-owned handlers. The endpoint and entity names below are retained as design history and are not the current API contract.
+
 ## TLDR
 **Key Points:**
 - Enterprise module `data_erasure`: tenant-scoped GDPR Art. 17 erasure **orchestration** — the hard-delete primitives already exist (`customers.people.delete`, `auth.users.delete` both hard-delete with cascades); what is missing and what this spec adds is the append-only ledger, undo-snapshot hygiene, cross-module propagation, search-index cleanup, and durability across backup restores. De facto implements upstream issue #117 ("unified, GDPR compliant data removal tool").
@@ -200,5 +202,6 @@ Inherited from the combined spec's rev-5 report (all rows unchanged for the eras
 
 ## Changelog
 
+- 2026-08-21: Superseded implementation details by `2026-08-21-privacy-retention-dsr-engine.md`; retained this document as the source for irreversibility, no-PII undo logging, and restore-control reasoning.
 - 2026-07-08: Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) — this file carries the `data_erasure` module, the generic OSS erasure events, the core purge subscribers, and the GDPR guarantee/control framing; the backup pipeline, manifest mechanism, and restore-time diff live in [`2026-07-08-automated-database-backups.md`](2026-07-08-automated-database-backups.md).
 - Inherited history (combined spec): 2026-07-02 initial + full spec (PR #3742); 2026-07-03 rev 2 (gap-analysis corrections: `skipLog` no-PII-resurrection rule, per-id index delete events instead of `purgeIndexScope`, fail-with-guidance for persons with deals) and rev 3 (market research settled the deals/ledger/message-purge decisions; masked display label adopted); 2026-07-04 rev 4 (automated replay descoped to guided re-run; HMAC/blind-index/pepper removed) and rev 5 (executor+advisor review: completion semantics resolved market-style — `executed` = sync sweep, eventual subscriber propagation with `purged` confirmations; core-subscribing-to-enterprise ruled out on layering grounds → generic OSS events with Gate B; "one guarantee, one control" framing); 2026-07-06 market references generalized to pattern descriptions.

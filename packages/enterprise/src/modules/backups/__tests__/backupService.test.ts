@@ -8,6 +8,7 @@ import {
   readBackupManifest,
 } from '../lib/backupService'
 import { readAuditReceipt, verifyAuditReceipt } from '../lib/auditReceipts'
+import { ErasureManifestService, resolveErasureManifestDirectory } from '../lib/erasureManifest'
 
 const ENCRYPTION_KEY = Buffer.alloc(32, 7)
 const AUDIT_KEY = Buffer.alloc(32, 9)
@@ -84,6 +85,28 @@ describe('BackupService', () => {
     await expect(service.verify(backup.operationId)).rejects.toMatchObject<Partial<BackupServiceError>>({
       code: 'CHECKSUM_MISMATCH',
     })
+  })
+
+  it('reports erasures that must be reapplied after restore', async () => {
+    const service = createService()
+    const backup = await service.backup()
+    const erasureManifest = new ErasureManifestService(resolveErasureManifestDirectory(
+      backupDirectory,
+      { OM_ERASURE_MANIFEST_DIRECTORY: '' },
+    ))
+    await erasureManifest.append({
+      requestId: 'erasure-after-backup',
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+      subjectKind: 'auth:user',
+      subjectId: 'user-1',
+      executedAt: new Date('2026-08-21T10:00:10.000Z'),
+    })
+
+    const result = await service.verify(backup.operationId)
+
+    expect(result.pendingErasureActions).toHaveLength(1)
+    expect(result.pendingErasureActions[0]?.requestId).toBe('erasure-after-backup')
   })
 
   it('restores the decrypted archive only after force and database-name confirmation', async () => {
