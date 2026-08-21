@@ -172,7 +172,78 @@ describe('runTillioPullJob', () => {
     expect(adapter.fetchCalls).not.toHaveBeenCalled()
     expect(progressService.failJob).toHaveBeenCalledWith(
       'job-1',
-      { errorMessage: 'operator_missing' },
+      expect.objectContaining({ resultSummary: expect.objectContaining({ code: 'operator_missing' }) }),
+      expect.anything(),
+    )
+    // The bar prints errorMessage verbatim, so a bare code must never land there.
+    expect(progressService.failJob.mock.calls[0][1].errorMessage).not.toBe('operator_missing')
+  })
+
+  it('fails the job with the resume cursor when the batch cap ends the sweep', async () => {
+    const progressService = createProgressService()
+    const commandBus = { execute: jest.fn().mockResolvedValue({ result: { created: true } }) }
+    // Never stops advertising a next page, which is exactly what the cap exists for.
+    const adapter = {
+      fetchCalls: jest.fn(async (input: { cursor: string | null }) => ({
+        calls: [call(`c-${input.cursor ?? '1'}`)],
+        nextCursor: String(Number(input.cursor ?? '1') + 1),
+      })),
+    } as unknown as PhoneCallProviderAdapter & { fetchCalls: jest.Mock }
+
+    const summary = await runTillioPullJob({
+      container: createContainer({
+        progressService,
+        commandBus,
+        em: {},
+        integrationCredentialsService: {},
+      }),
+      payload,
+      adapter,
+    })
+
+    expect(summary.truncated).toBe(true)
+    expect(summary.resumeCursor).not.toBeNull()
+    expect(progressService.completeJob).not.toHaveBeenCalled()
+    expect(progressService.failJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        resultSummary: expect.objectContaining({ code: 'pull_truncated', truncated: true }),
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('fails the job when the provider stops echoing the requested page', async () => {
+    const progressService = createProgressService()
+    const commandBus = { execute: jest.fn().mockResolvedValue({ result: { created: true } }) }
+    const adapter = {
+      fetchCalls: jest.fn(async () => ({
+        calls: [call('a')],
+        nextCursor: null,
+        anomaly: 'page_not_echoed' as const,
+        anomalyCursor: '3',
+      })),
+    } as unknown as PhoneCallProviderAdapter & { fetchCalls: jest.Mock }
+
+    const summary = await runTillioPullJob({
+      container: createContainer({
+        progressService,
+        commandBus,
+        em: {},
+        integrationCredentialsService: {},
+      }),
+      payload,
+      adapter,
+    })
+
+    expect(summary.truncated).toBe(true)
+    expect(summary.resumeCursor).toBe('3')
+    expect(progressService.completeJob).not.toHaveBeenCalled()
+    expect(progressService.failJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        resultSummary: expect.objectContaining({ code: 'pull_pagination_anomaly', anomaly: 'page_not_echoed' }),
+      }),
       expect.anything(),
     )
   })

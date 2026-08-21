@@ -6,6 +6,7 @@ import type { IntegrationScope } from '@open-mercato/shared/modules/integrations
 import type {
   NormalizedPhoneCall,
   NormalizedPhoneCallBatch,
+  PhoneCallBatchAnomaly,
 } from '@open-mercato/shared/modules/phone_calls/types'
 import type { PhoneCallProviderAdapter } from '@open-mercato/shared/modules/phone_calls/provider'
 import type {
@@ -31,7 +32,7 @@ import {
   type TillioCredentialsService,
   type TillioOperatorRecord,
 } from './operators-store'
-import { evaluatePullReadiness, type PullReadiness } from './pull-readiness'
+import { evaluatePullReadiness, PULL_BLOCKER_MESSAGES, type PullReadiness } from './pull-readiness'
 import { zonedDayEnd, zonedDayStart } from './tz'
 
 const logger = createLogger('tillio').child({ component: 'pull-job' })
@@ -65,6 +66,10 @@ export type TillioPullSummary = {
   failed: number
   batches: number
   cancelled: boolean
+  /** True when the sweep stopped before the range was exhausted. */
+  truncated: boolean
+  /** Where a follow-up pull should pick up. Null unless `truncated`. */
+  resumeCursor: string | null
 }
 
 export type TillioPullContext = {
@@ -177,10 +182,31 @@ async function ingestBatch(calls: NormalizedPhoneCall[], deps: IngestDeps): Prom
   return counts
 }
 
-function describeFailure(err: unknown): string {
-  if (err instanceof TillioApiError) return `${classifyTillioError(err)}: ${err.message}`
-  if (err instanceof Error) return err.message
-  return 'Tillio pull failed'
+type PullFailure = { code: string; message: string }
+
+// The progress bar renders `errorMessage` verbatim and has no path to a translated string, so
+// what goes in has to be ours: a provider message could carry Tillio's own wording, an internal
+// hostname or a token fragment. The raw error stays in the log, the stable code in the summary.
+function describeFailure(err: unknown): PullFailure {
+  if (err instanceof TillioApiError) {
+    return classifyTillioError(err) === 'environment'
+      ? { code: 'provider_unreachable', message: 'Tillio could not be reached or rejected the stored credentials.' }
+      : { code: 'provider_error', message: 'Tillio rejected the request for calls.' }
+  }
+  return { code: 'pull_failed', message: 'The Tillio pull could not be completed.' }
+}
+
+function describeTruncation(summary: TillioPullSummary, anomaly: PhoneCallBatchAnomaly | null): PullFailure {
+  if (anomaly) {
+    return {
+      code: 'pull_pagination_anomaly',
+      message: `Tillio returned an inconsistent page listing, so the sweep stopped early after ${summary.fetched} calls.`,
+    }
+  }
+  return {
+    code: 'pull_truncated',
+    message: `Stopped after ${summary.batches} batches with more calls left in the range; ${summary.fetched} calls were ingested.`,
+  }
 }
 
 // Safe to retry: the ingest command keys on (providerKey, externalCallId) and updates in place,
@@ -210,6 +236,8 @@ export async function runTillioPullJob(params: {
     failed: 0,
     batches: 0,
     cancelled: false,
+    truncated: false,
+    resumeCursor: null,
   }
 
   await progressService.startJob(payload.progressJobId, progressContext)
@@ -222,9 +250,13 @@ export async function runTillioPullJob(params: {
     // while the job waits in the queue.
     const { readiness, environment, operator } = await resolvePullContext(credentialsService, em, scope)
     if (readiness.blocker || !environment || !operator) {
+      const blocker = readiness.blocker ?? 'environment_not_ready'
       await progressService.failJob(
         payload.progressJobId,
-        { errorMessage: readiness.blocker ?? 'environment_not_ready' },
+        {
+          errorMessage: PULL_BLOCKER_MESSAGES[blocker],
+          resultSummary: { ...summary, code: blocker },
+        },
         progressContext,
       )
       return summary
@@ -259,6 +291,7 @@ export async function runTillioPullJob(params: {
       })
 
     let cursor = payload.cursor ?? null
+    let anomaly: PhoneCallBatchAnomaly | null = null
 
     while (summary.batches < MAX_BATCHES) {
       const cancelled = await progressService.isCancellationRequested(
@@ -289,8 +322,42 @@ export async function runTillioPullJob(params: {
         progressContext,
       )
 
+      if (batch.anomaly) {
+        anomaly = batch.anomaly
+        // Re-running the page we could not trust is safe, because ingest keys on the
+        // provider's call id and updates in place.
+        summary.resumeCursor = batch.anomalyCursor ?? cursor
+        break
+      }
+
       cursor = batch.nextCursor ?? null
       if (!cursor) break
+    }
+
+    // A cursor surviving the loop means the batch cap ended it, not the provider.
+    if (!anomaly && cursor) summary.resumeCursor = cursor
+
+    if (anomaly || summary.resumeCursor) {
+      summary.truncated = true
+      const failure = describeTruncation(summary, anomaly)
+      logger.warn('the Tillio pull did not cover the whole range', {
+        progressJobId: payload.progressJobId,
+        code: failure.code,
+        anomaly,
+        resumeCursor: summary.resumeCursor,
+      })
+      // No in-between job state exists, and a sweep that silently skipped calls must not read
+      // as a clean one. The counts and the resume point ride along so the failure still says
+      // what landed and where to pick it up; the calls already ingested stay committed.
+      await progressService.failJob(
+        payload.progressJobId,
+        {
+          errorMessage: failure.message,
+          resultSummary: { ...summary, code: failure.code, ...(anomaly ? { anomaly } : {}) },
+        },
+        progressContext,
+      )
+      return summary
     }
 
     await progressService.completeJob(
@@ -300,12 +367,15 @@ export async function runTillioPullJob(params: {
     )
     return summary
   } catch (err) {
+    const failure = describeFailure(err)
+    logger.error('the Tillio pull failed', { progressJobId: payload.progressJobId, code: failure.code, err })
     try {
       await progressService.failJob(
         payload.progressJobId,
         {
-          errorMessage: describeFailure(err).slice(0, 2000),
+          errorMessage: failure.message,
           errorStack: err instanceof Error ? err.stack?.slice(0, 10000) : undefined,
+          resultSummary: { ...summary, code: failure.code },
         },
         progressContext,
       )

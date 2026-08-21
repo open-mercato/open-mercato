@@ -76,7 +76,18 @@ export interface FetchPhoneCallsInput {
   limit?: number | null
 }
 
+/**
+ * Why a provider stopped walking its pages before the range was exhausted. Without this an
+ * adapter that gave up on a broken response is indistinguishable from one that reached the
+ * end, and the caller reports a partial sweep as a complete one.
+ */
+export type PhoneCallBatchAnomaly = 'page_not_echoed' | 'invalid_page_count' | 'empty_page'
+
 export interface NormalizedPhoneCallBatch {
   calls: NormalizedPhoneCall[]
   nextCursor?: string | null
+  /** Present only when the walk stopped on a response the adapter could not trust. */
+  anomaly?: PhoneCallBatchAnomaly | null
+  /** The cursor the anomalous page was requested with, so a retry can resume from it. */
+  anomalyCursor?: string | null
 }

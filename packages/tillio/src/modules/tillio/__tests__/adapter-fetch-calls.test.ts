@@ -111,7 +111,9 @@ describe('tillioAdapter.fetchCalls', () => {
     expect(batch.nextCursor).toBeNull()
   })
 
-  it('stops when the server ignores the requested page', async () => {
+  // These three exits used to be indistinguishable from reaching the last page, which let a
+  // provider that ignores `page` pass off one page as the whole range.
+  it('reports the anomaly when the server ignores the requested page', async () => {
     fetchMock.mockResolvedValue(page([call('a')], 1, 5))
 
     const batch = await tillioAdapter.fetchCalls({ credentials, scope, cursor: '3' })
@@ -119,9 +121,11 @@ describe('tillioAdapter.fetchCalls', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(batch.calls).toHaveLength(1)
     expect(batch.nextCursor).toBeNull()
+    expect(batch.anomaly).toBe('page_not_echoed')
+    expect(batch.anomalyCursor).toBe('3')
   })
 
-  it('stops on an empty page even when more pages are claimed', async () => {
+  it('reports the anomaly on an empty page even when more pages are claimed', async () => {
     fetchMock.mockResolvedValueOnce(page([], 1, 9))
 
     const batch = await tillioAdapter.fetchCalls({ credentials, scope })
@@ -129,13 +133,15 @@ describe('tillioAdapter.fetchCalls', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(batch.calls).toHaveLength(0)
     expect(batch.nextCursor).toBeNull()
+    expect(batch.anomaly).toBe('empty_page')
   })
 
-  it('stops when pagination claims zero pages', async () => {
+  it('reports the anomaly when pagination claims zero pages', async () => {
     fetchMock.mockResolvedValueOnce(page([call('a')], 1, 0))
 
     const batch = await tillioAdapter.fetchCalls({ credentials, scope })
 
+    expect(batch.anomaly).toBe('invalid_page_count')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(batch.nextCursor).toBeNull()
   })

@@ -4,6 +4,7 @@ import type {
   FetchPhoneCallsInput,
   NormalizedPhoneCall,
   NormalizedPhoneCallBatch,
+  PhoneCallBatchAnomaly,
   ProviderValidationResult,
   ValidatePhoneCallProviderInput,
 } from '@open-mercato/shared/modules/phone_calls/types'
@@ -82,6 +83,8 @@ export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProvi
       const calls: NormalizedPhoneCall[] = []
       let page = parseCursor(input.cursor)
       let nextCursor: string | null = null
+      let anomaly: PhoneCallBatchAnomaly | null = null
+      let anomalyCursor: string | null = null
 
       while (true) {
         const response = await client.getCalls({
@@ -96,13 +99,24 @@ export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProvi
           calls.push(normalizeTillioCall(rawCall, { operatorId: operator.id, plugin: operator.plugin, timeZone }))
         }
 
-        // Guards against a broken response, not against large ranges: a `page`
-        // parameter the server ignored, a nonsensical `pages` count, or an empty
-        // page before the last one would otherwise spin this loop forever.
+        // These stop a broken response from spinning the loop forever, and they are reported
+        // rather than swallowed: a provider that ignores `page` answers one page and looks
+        // finished, which would turn a partial sweep into a clean one.
         const { pages, page: echoedPage } = response.pagination
-        if (echoedPage !== page) break
-        if (pages < 1 || page >= pages) break
-        if (response.calls.length === 0) break
+        if (echoedPage !== page) {
+          anomaly = 'page_not_echoed'
+        } else if (pages < 1) {
+          anomaly = 'invalid_page_count'
+        } else if (page < pages && response.calls.length === 0) {
+          anomaly = 'empty_page'
+        }
+        if (anomaly) {
+          anomalyCursor = String(page)
+          break
+        }
+
+        // Reaching the last page is ordinary exhaustion, not an anomaly.
+        if (page >= pages) break
 
         page += 1
         // The current page is always drained before stopping, so the cursor never
@@ -113,7 +127,7 @@ export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProvi
         }
       }
 
-      return { calls, nextCursor }
+      return { calls, nextCursor, anomaly, anomalyCursor }
     },
   }
 }

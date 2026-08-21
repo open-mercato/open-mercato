@@ -74,8 +74,9 @@ export function zonedDayStart(day: string, timeZone: string = TILLIO_TIMEZONE): 
   return zonedWallClockToUtc(day, 0, 0, 0, timeZone)
 }
 
-// 23:59, not 23:59:59: Tillio's date filter takes minute precision (see
-// `formatTillioTimestamp`), so seconds would be dropped on the way out anyway.
+// 23:59, not 23:59:59: Tillio's date filter is `YYYY-MM-DD HH:mm` with no seconds field (see
+// `formatTillioTimestamp`), so a finer bound cannot survive the trip out. Their own API
+// samples use 23:59 as the end of a day for the same reason.
 export function zonedDayEnd(day: string, timeZone: string = TILLIO_TIMEZONE): Date {
   return zonedWallClockToUtc(day, 23, 59, 0, timeZone)
 }
