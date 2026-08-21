@@ -9,6 +9,9 @@ import { emitSsoEvent } from '../events'
 import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
 import type { SsoProviderRegistry } from '../lib/registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { SSO_CONFIG_ENCRYPTION_ENTITY_ID } from '../encryption'
+import { isTenantDataEncryptionRequired } from '@open-mercato/shared/lib/encryption/toggles'
+import { TenantDataEncryptionUnavailableError } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 const logger = createLogger('sso').child({ component: 'config' })
 
@@ -32,6 +35,8 @@ export interface SsoConfigPublic {
   autoLinkByEmail: boolean
   isActive: boolean
   ssoRequired: boolean
+  requiredAcrValues: string[]
+  requiredAmrValues: string[]
   appRoleMappings: Record<string, string>
   createdAt: Date
   updatedAt: Date
@@ -97,6 +102,7 @@ export class SsoConfigService {
   async create(scope: SsoAdminScope, input: SsoConfigAdminCreateInput): Promise<SsoConfigPublic> {
     const orgId = scope.isSuperAdmin ? input.organizationId : scope.organizationId!
     const tenId = scope.isSuperAdmin ? (input.tenantId ?? null) : scope.tenantId
+    if (!orgId) throw new SsoConfigError('Organization context is required', 400)
 
     const existing = await this.em.findOne(SsoConfig, {
       organizationId: orgId,
@@ -112,12 +118,7 @@ export class SsoConfigService {
       if (!result.valid) throw new SsoConfigError(`Invalid domain "${d}": ${result.error}`, 400)
     }
 
-    const encrypted = await this.tenantEncryptionService.encryptEntityPayload(
-      'SsoConfig',
-      { clientSecretEnc: input.clientSecret },
-      tenId,
-      orgId,
-    )
+    const encryptedClientSecret = await this.encryptClientSecret(input.clientSecret, tenId, orgId)
 
     const config = this.em.create(SsoConfig, {
       name: input.name,
@@ -126,12 +127,14 @@ export class SsoConfigService {
       protocol: input.protocol,
       issuer: input.issuer,
       clientId: input.clientId,
-      clientSecretEnc: encrypted.clientSecretEnc as string,
+      clientSecretEnc: encryptedClientSecret,
       allowedDomains: domains,
       jitEnabled: input.jitEnabled,
       autoLinkByEmail: input.autoLinkByEmail,
       isActive: false,
-      ssoRequired: false,
+      ssoRequired: input.ssoRequired,
+      requiredAcrValues: input.requiredAcrValues,
+      requiredAmrValues: input.requiredAmrValues,
       appRoleMappings: input.appRoleMappings ?? {},
     } as RequiredEntityData<SsoConfig>)
 
@@ -163,16 +166,17 @@ export class SsoConfigService {
       config.jitEnabled = input.jitEnabled
     }
     if (input.autoLinkByEmail !== undefined) config.autoLinkByEmail = input.autoLinkByEmail
+    if (input.ssoRequired !== undefined) config.ssoRequired = input.ssoRequired
+    if (input.requiredAcrValues !== undefined) config.requiredAcrValues = input.requiredAcrValues
+    if (input.requiredAmrValues !== undefined) config.requiredAmrValues = input.requiredAmrValues
     if (input.appRoleMappings !== undefined) config.appRoleMappings = input.appRoleMappings
 
     if (input.clientSecret !== undefined) {
-      const encrypted = await this.tenantEncryptionService.encryptEntityPayload(
-        'SsoConfig',
-        { clientSecretEnc: input.clientSecret },
+      config.clientSecretEnc = await this.encryptClientSecret(
+        input.clientSecret,
         config.tenantId,
         config.organizationId,
       )
-      config.clientSecretEnc = encrypted.clientSecretEnc as string
     }
 
     await this.em.flush()
@@ -317,10 +321,26 @@ export class SsoConfigService {
       autoLinkByEmail: config.autoLinkByEmail,
       isActive: config.isActive,
       ssoRequired: config.ssoRequired,
+      requiredAcrValues: config.requiredAcrValues ?? [],
+      requiredAmrValues: config.requiredAmrValues ?? [],
       appRoleMappings: config.appRoleMappings ?? {},
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     }
+  }
+
+  async isSsoRequiredForOrganization(
+    tenantId: string | null,
+    organizationId: string,
+  ): Promise<boolean> {
+    const config = await this.em.findOne(SsoConfig, {
+      tenantId,
+      organizationId,
+      isActive: true,
+      ssoRequired: true,
+      deletedAt: null,
+    })
+    return config !== null
   }
 
   private async resolveConfig(scope: SsoAdminScope, id: string, em: EntityManager = this.em): Promise<SsoConfig> {
@@ -340,7 +360,49 @@ export class SsoConfigService {
     const provider = this.ssoProviderRegistry.resolve(config.protocol)
     if (!provider) return { ok: false, error: `No provider for protocol: ${config.protocol}` }
 
-    return provider.validateConfig(config)
+    const clientSecret = await this.decryptClientSecret(config)
+    return provider.validateConfig(config, { clientSecret })
+  }
+
+  private async decryptClientSecret(config: SsoConfig): Promise<string | undefined> {
+    if (!config.clientSecretEnc) return undefined
+
+    const decrypted = await this.tenantEncryptionService.decryptEntityPayload(
+      SSO_CONFIG_ENCRYPTION_ENTITY_ID,
+      { clientSecretEnc: config.clientSecretEnc },
+      config.tenantId,
+      config.organizationId,
+    )
+    return typeof decrypted.clientSecretEnc === 'string' ? decrypted.clientSecretEnc : undefined
+  }
+
+  private async encryptClientSecret(
+    clientSecret: string,
+    tenantId: string | null | undefined,
+    organizationId: string,
+  ): Promise<string> {
+    let encrypted: Record<string, unknown>
+    try {
+      encrypted = await this.tenantEncryptionService.encryptEntityPayload(
+        SSO_CONFIG_ENCRYPTION_ENTITY_ID,
+        { clientSecretEnc: clientSecret },
+        tenantId,
+        organizationId,
+      )
+    } catch (error) {
+      if (error instanceof TenantDataEncryptionUnavailableError) {
+        throw new SsoConfigError('OIDC client secret encryption is unavailable', 503)
+      }
+      throw error
+    }
+    const storedSecret = encrypted.clientSecretEnc
+    if (typeof storedSecret !== 'string') {
+      throw new SsoConfigError('OIDC client secret encryption is unavailable', 503)
+    }
+    if (isTenantDataEncryptionRequired() && storedSecret === clientSecret) {
+      throw new SsoConfigError('OIDC client secret encryption is unavailable', 503)
+    }
+    return storedSecret
   }
 
   private async lockActiveDomainMutation(em: EntityManager, configId: string, domains: string[] = []): Promise<void> {

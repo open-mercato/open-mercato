@@ -9,6 +9,9 @@ const domainString = () =>
     { message: 'Invalid domain format — only valid DNS hostnames with at least one dot are accepted' },
   )
 
+const oidcClaimValues = () =>
+  z.array(z.string().trim().min(1).max(255)).max(20).transform((values) => Array.from(new Set(values)))
+
 // --- SSO Config schema (for internal use / seeding) ---
 
 export const ssoConfigCreateSchema = z.object({
@@ -23,6 +26,8 @@ export const ssoConfigCreateSchema = z.object({
   autoLinkByEmail: z.boolean().default(true),
   isActive: z.boolean().default(false),
   ssoRequired: z.boolean().default(false),
+  requiredAcrValues: oidcClaimValues().default([]),
+  requiredAmrValues: oidcClaimValues().default([]),
   appRoleMappings: z.record(z.string().min(1).max(255), z.string().min(1).max(255)).default({}),
 })
 
@@ -64,6 +69,9 @@ export const ssoConfigAdminCreateSchema = z.object({
   allowedDomains: z.array(domainString()).default([]),
   jitEnabled: z.boolean().default(true),
   autoLinkByEmail: z.boolean().default(true),
+  ssoRequired: z.boolean().default(false),
+  requiredAcrValues: oidcClaimValues().default([]),
+  requiredAmrValues: oidcClaimValues().default([]),
   appRoleMappings: z.record(z.string().min(1).max(255), z.string().min(1).max(255)).default({}),
 })
 
@@ -75,6 +83,9 @@ export const ssoConfigAdminUpdateSchema = z.object({
   clientSecret: z.string().min(1).optional(),
   jitEnabled: z.boolean().optional(),
   autoLinkByEmail: z.boolean().optional(),
+  ssoRequired: z.boolean().optional(),
+  requiredAcrValues: oidcClaimValues().optional(),
+  requiredAmrValues: oidcClaimValues().optional(),
   appRoleMappings: z.record(z.string().min(1).max(255), z.string().min(1).max(255)).optional(),
 })
 

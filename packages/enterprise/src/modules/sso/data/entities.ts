@@ -42,6 +42,12 @@ export class SsoConfig {
   @Property({ name: 'sso_required', type: 'boolean', default: false })
   ssoRequired: boolean = false
 
+  @Property({ name: 'required_acr_values', type: 'jsonb', default: '[]' })
+  requiredAcrValues: string[] = []
+
+  @Property({ name: 'required_amr_values', type: 'jsonb', default: '[]' })
+  requiredAmrValues: string[] = []
+
   @Property({ name: 'app_role_mappings', type: 'jsonb', default: '{}' })
   appRoleMappings: Record<string, string> = {}
 
