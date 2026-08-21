@@ -112,7 +112,7 @@ test.describe('TC-AGENT-CASELOAD-013: URL queue-state round-trip', () => {
       // and the sort select reflects Agent A–Z (not the default).
       const rows = page.locator('table tbody tr')
       await expect(rows).toHaveCount(2, { timeout: 15_000 })
-      await expect(page.getByText('Agent A–Z')).toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Agent A–Z' })).toBeVisible()
       // The mount-time page reset must NOT clobber the deep-linked page=2.
       await expect(page).toHaveURL(new RegExp('page=2'), { timeout: 10_000 })
 
@@ -132,7 +132,7 @@ test.describe('TC-AGENT-CASELOAD-013: URL queue-state round-trip', () => {
       // Page 2 now holds the single remaining overflow row — still the
       // deep-linked slice, not the default first page of the inbox view.
       await expect(page.locator('table tbody tr')).toHaveCount(1, { timeout: 15_000 })
-      await expect(page.getByText('Agent A–Z')).toBeVisible()
+      await expect(page.getByRole('combobox').filter({ hasText: 'Agent A–Z' })).toBeVisible()
     } finally {
       await deleteAgentOrchestratorRowsForOrganization(orgId).catch(() => {})
       await deleteUserIfExists(request, superadminToken, userId).catch(() => {})
