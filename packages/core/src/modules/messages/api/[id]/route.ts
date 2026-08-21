@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../../auth/data/entities'
@@ -37,6 +38,36 @@ type MessageObjectPreviewPayload = {
   statusColor?: string
   metadata?: Record<string, string>
 } | null
+
+type RbacServiceLike = {
+  getGrantedFeatures?: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<string[]>
+}
+
+/**
+ * Feature list for the enricher ACL gate, resolved from RBAC.
+ *
+ * Mirrors `customers/api/interactions/route.ts`. Returning `undefined` on
+ * failure is deliberate — the runner then treats every feature-gated enricher
+ * as denied, which is the safe direction.
+ */
+async function resolveGrantedFeatures(
+  container: { resolve: (name: string) => unknown },
+  scope: { tenantId: string; organizationId: string | null; userId: string },
+): Promise<string[] | undefined> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.getGrantedFeatures) return undefined
+    return await rbac.getGrantedFeatures(scope.userId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+  } catch {
+    return undefined
+  }
+}
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
@@ -190,7 +221,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     })
   }
 
-  return Response.json({
+  const detail: Record<string, unknown> = {
     id: message.id,
     updatedAt: message.updatedAt ?? null,
     type: message.type,
@@ -265,7 +296,27 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     isRead: recipient ? (autoMarkRead || recipient.status !== 'unread') : true,
     conversationArchived,
     conversationAllUnread,
+  }
+
+  // Mirrors `enrichSingleRecord` in `shared/lib/crud/factory.ts`, which every
+  // `makeCrudRoute` host gets for free: same `_meta` envelope, and no blanket
+  // catch so a `critical: true` enricher still surfaces as an HTTP error.
+  // Non-critical failures never escape the runner — it merges `fallback` and
+  // records the id in `_meta.enricherErrors`.
+  const enriched = await applyResponseEnricherToRecord(detail, 'messages.message', {
+    organizationId: scope.organizationId ?? '',
+    tenantId: scope.tenantId,
+    userId: scope.userId,
+    em,
+    container: ctx.container,
+    userFeatures: await resolveGrantedFeatures(ctx.container, scope),
   })
+
+  if (enriched._meta.enrichedBy.length > 0 || enriched._meta.enricherErrors?.length) {
+    return Response.json({ ...enriched.record, _meta: enriched._meta })
+  }
+
+  return Response.json(enriched.record)
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
