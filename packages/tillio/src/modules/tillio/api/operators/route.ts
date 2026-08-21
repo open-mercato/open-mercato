@@ -11,6 +11,7 @@ import {
   readOperatorsBlob,
   type TillioCredentialsService,
 } from '../../lib/operators-store'
+import { createTillioLock, tillioOperatorLockKey } from '../../lib/locking'
 import {
   TillioApiError,
 } from '../../lib/errors'
@@ -138,7 +139,7 @@ export async function POST(req: Request) {
 
   try {
     const operator = await attachOperator(
-      { credentialsService, scope, appUrl },
+      { credentialsService, scope, appUrl, withLock: createTillioLock(em, tillioOperatorLockKey(scope)) },
       { plugin: parsedBody.data.plugin, config: parsedBody.data.config, label: guardedLabel },
     )
     await guarded.runAfterSuccess()

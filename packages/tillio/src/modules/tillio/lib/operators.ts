@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
 import { environmentSchema, readTenantSystemId } from './environment'
+import type { TillioLockRunner } from './locking'
 import { TILLIO_TIMEZONE } from './tz'
 import { TILLIO_INTEGRATION_ID } from '../integration'
 import {
@@ -140,6 +141,11 @@ export type AttachOperatorDeps = {
   credentialsService: TillioCredentialsService
   scope: IntegrationScope
   appUrl: string
+  /**
+   * Serializes the slot check and the write. Required rather than optional so a new call site
+   * has to decide: passing `(run) => run()` says the caller knows it cannot contend.
+   */
+  withLock: TillioLockRunner
 }
 
 export type AttachOperatorInput = {
@@ -182,16 +188,18 @@ export async function attachOperator(
   }
 
   try {
-    // Re-read right before the write: the credentials store has no compare-and-set, so the
-    // only thing narrowing the window between the limit check and the save is checking again
-    // once the slow remote calls are behind us. A concurrent attach that got here first wins,
-    // and this one is undone rather than silently overwriting the stored operator.
-    const current = await readOperatorsBlob(deps.credentialsService, deps.scope)
-    if (current.operators.length > 0) throw new TillioOperatorLimitError()
+    // The remote calls above stay outside the lock: holding a database transaction while
+    // waiting on Tillio would tie a connection to their latency. Inside it, the slot is
+    // re-checked and written as one step, so a concurrent attach either loses here and is
+    // undone below, or wins and is the only stored operator.
+    await deps.withLock(async () => {
+      const current = await readOperatorsBlob(deps.credentialsService, deps.scope)
+      if (current.operators.length > 0) throw new TillioOperatorLimitError()
 
-    await saveOperatorsBlob(deps.credentialsService, deps.scope, {
-      operators: [record],
-      defaultOperatorId: operatorId,
+      await saveOperatorsBlob(deps.credentialsService, deps.scope, {
+        operators: [record],
+        defaultOperatorId: operatorId,
+      })
     })
   } catch (err) {
     // `addConfig` already registered this operator on Tillio's side. If we cannot persist it

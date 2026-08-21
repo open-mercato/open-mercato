@@ -1,7 +1,9 @@
 import { createInterface } from 'node:readline'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { applyTillioEnvPreset, TILLIO_ENV_VARS } from './lib/preset'
+import { createTillioLock, tillioOperatorLockKey } from './lib/locking'
 import type { TillioCredentialsService, TillioOperatorRecord } from './lib/operators-store'
 
 const USAGE = [
@@ -86,6 +88,10 @@ const configureFromEnv: ModuleCli = {
         scope: { tenantId, organizationId },
         force,
         confirmOperatorReplacement,
+        withLock: createTillioLock(
+          container.resolve('em') as EntityManager,
+          tillioOperatorLockKey({ tenantId, organizationId }),
+        ),
       })
 
       if (result.status === 'skipped') {

@@ -18,6 +18,7 @@ import {
 import type { TillioCredentialsService } from '../../lib/operators-store'
 import { blockerSection, PULL_BLOCKER_MESSAGES } from '../../lib/pull-readiness'
 import { getTillioQueue, TILLIO_PULL_QUEUE } from '../../lib/queue'
+import { createTillioLock, tillioPullLockKey } from '../../lib/locking'
 
 const logger = createLogger('tillio').child({ component: 'pull-route' })
 
@@ -149,59 +150,64 @@ export async function POST(req: Request) {
   }
   const range = guardedBody.data
 
-  // Best-effort: this check and `createJob` are not atomic, so two near-simultaneous requests
-  // can both pass. Harmless because the worker runs at concurrency 1 and ingest is idempotent.
-  const active = await progressService.getActiveJobs(progressContext)
-  if (active.some((job) => job.jobType === TILLIO_PULL_JOB_TYPE)) {
-    return NextResponse.json(
-      { ok: false, code: 'pull_already_running', section: 'operator', message: 'A Tillio pull is already running.' },
-      { status: 429 },
-    )
-  }
+  // The 429 below is a documented contract, so the check and the create happen under a lock
+  // rather than merely close together. Two requests arriving at once would otherwise both see
+  // no active job and both sweep the provider.
+  const withLock = createTillioLock(em, tillioPullLockKey(scope))
 
-  const progressJob = await progressService.createJob(
-    {
-      jobType: TILLIO_PULL_JOB_TYPE,
-      name: 'Pull calls from Tillio',
-      description: `Pulling Tillio calls from ${range.from} to ${range.to}`,
-      cancellable: true,
-      meta: {
-        resourceKind: PHONE_CALL_RESOURCE_KIND,
-        providerKey: TILLIO_PROVIDER_KEY,
-        from: range.from,
-        to: range.to,
+  return withLock(async () => {
+    const active = await progressService.getActiveJobs(progressContext)
+    if (active.some((job) => job.jobType === TILLIO_PULL_JOB_TYPE)) {
+      return NextResponse.json(
+        { ok: false, code: 'pull_already_running', section: 'operator', message: 'A Tillio pull is already running.' },
+        { status: 429 },
+      )
+    }
+
+    const progressJob = await progressService.createJob(
+      {
+        jobType: TILLIO_PULL_JOB_TYPE,
+        name: 'Pull calls from Tillio',
+        description: `Pulling Tillio calls from ${range.from} to ${range.to}`,
+        cancellable: true,
+        meta: {
+          resourceKind: PHONE_CALL_RESOURCE_KIND,
+          providerKey: TILLIO_PROVIDER_KEY,
+          from: range.from,
+          to: range.to,
+        },
       },
-    },
-    progressContext,
-  )
-
-  const payload: TillioPullJobPayload = {
-    progressJobId: progressJob.id,
-    scope: { tenantId: auth.tenantId, organizationId: auth.orgId, userId: auth.sub ?? null },
-    from: range.from,
-    to: range.to,
-    cursor: range.cursor ?? null,
-    limit: range.limit ?? null,
-  }
-  try {
-    await getTillioQueue(TILLIO_PULL_QUEUE).enqueue(payload as unknown as Record<string, unknown>)
-  } catch (err) {
-    // The job row exists but nothing will ever advance it, and the active-job check above
-    // would answer 429 to every later pull until the stale sweep clears it. One unreachable
-    // queue would lock the tenant out of pulling.
-    logger.error('could not enqueue the Tillio pull', { progressJobId: progressJob.id, err })
-    await progressService
-      .failJob(progressJob.id, { errorMessage: 'enqueue_failed' }, progressContext)
-      .catch((failErr: unknown) => {
-        logger.error('could not fail the orphaned pull job', { progressJobId: progressJob.id, err: failErr })
-      })
-    return NextResponse.json(
-      { ok: false, code: 'pull_failed', section: 'operator', message: 'Could not queue the Tillio pull.' },
-      { status: 500 },
+      progressContext,
     )
-  }
 
-  await guarded.runAfterSuccess()
+    const payload: TillioPullJobPayload = {
+      progressJobId: progressJob.id,
+      scope: { tenantId: scope.tenantId, organizationId: scope.organizationId, userId: auth.sub ?? null },
+      from: range.from,
+      to: range.to,
+      cursor: range.cursor ?? null,
+      limit: range.limit ?? null,
+    }
+    try {
+      await getTillioQueue(TILLIO_PULL_QUEUE).enqueue(payload as unknown as Record<string, unknown>)
+    } catch (err) {
+      // The job row exists but nothing will ever advance it, and the active-job check above
+      // would answer 429 to every later pull until the stale sweep clears it. One unreachable
+      // queue would lock the tenant out of pulling.
+      logger.error('could not enqueue the Tillio pull', { progressJobId: progressJob.id, err })
+      await progressService
+        .failJob(progressJob.id, { errorMessage: 'The pull could not be handed to the queue.' }, progressContext)
+        .catch((failErr: unknown) => {
+          logger.error('could not fail the orphaned pull job', { progressJobId: progressJob.id, err: failErr })
+        })
+      return NextResponse.json(
+        { ok: false, code: 'pull_failed', section: 'operator', message: 'Could not queue the Tillio pull.' },
+        { status: 500 },
+      )
+    }
 
-  return NextResponse.json({ ok: true, progressJobId: progressJob.id }, { status: 202 })
+    await guarded.runAfterSuccess()
+
+    return NextResponse.json({ ok: true, progressJobId: progressJob.id }, { status: 202 })
+  })
 }

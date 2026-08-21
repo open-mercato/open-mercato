@@ -1,6 +1,8 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { applyTillioEnvPreset } from './lib/preset'
+import { createTillioLock, tillioOperatorLockKey } from './lib/locking'
 import type { TillioCredentialsService } from './lib/operators-store'
 
 const logger = createLogger('tillio').child({ component: 'setup' })
@@ -20,6 +22,10 @@ export const setup: ModuleSetupConfig = {
         integrationHealthService: container.resolve('integrationHealthService'),
         integrationLogService: container.resolve('integrationLogService'),
         scope: { tenantId, organizationId },
+        withLock: createTillioLock(
+          container.resolve('em') as EntityManager,
+          tillioOperatorLockKey({ tenantId, organizationId }),
+        ),
       })
       if (result.status === 'skipped') {
         logger.debug('env preset not applied', { reason: result.reason })

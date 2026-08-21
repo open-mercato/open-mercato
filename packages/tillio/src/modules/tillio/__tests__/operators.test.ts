@@ -18,6 +18,9 @@ const createTillioClientMock = createTillioClient as jest.MockedFunction<typeof 
 
 const scope = { tenantId: 'tn', organizationId: 'org' }
 const appUrl = 'https://app.example.com'
+// These cases drive one attach at a time, so the section needs no serialization; the advisory
+// lock itself needs a database and is exercised where the route wires it.
+const passThroughLock = <T>(run: () => Promise<T>): Promise<T> => run()
 const readyEnv = { apiUrl: 'https://a.example.com', apiKey: 'k', tenantSystemId: 'OM-x' }
 
 function fakeStore(initial: Record<string, Record<string, unknown> | null> = {}): {
@@ -59,7 +62,7 @@ describe('attachOperator', () => {
     const client = mockClient()
     const { service, store } = fakeStore({ [TILLIO_INTEGRATION_ID]: { ...readyEnv } })
 
-    const record = await attachOperator({ credentialsService: service, scope, appUrl }, {
+    const record = await attachOperator({ credentialsService: service, scope, appUrl, withLock: passThroughLock }, {
       plugin: 'Ringostat',
       config: { key: 'ringo-key' },
     })
@@ -86,7 +89,7 @@ describe('attachOperator', () => {
       },
     })
 
-    await expect(attachOperator({ credentialsService: service, scope, appUrl }, { plugin: 'Ringostat', config: { key: 'k' } }))
+    await expect(attachOperator({ credentialsService: service, scope, appUrl, withLock: passThroughLock }, { plugin: 'Ringostat', config: { key: 'k' } }))
       .rejects.toBeInstanceOf(TillioOperatorLimitError)
     expect(client.validateConfig).not.toHaveBeenCalled()
   })
@@ -95,7 +98,7 @@ describe('attachOperator', () => {
     const client = mockClient()
     const { service } = fakeStore({ [TILLIO_INTEGRATION_ID]: { apiUrl: 'https://a.example.com', apiKey: 'k' } })
 
-    await expect(attachOperator({ credentialsService: service, scope, appUrl }, { plugin: 'Ringostat', config: { key: 'k' } }))
+    await expect(attachOperator({ credentialsService: service, scope, appUrl, withLock: passThroughLock }, { plugin: 'Ringostat', config: { key: 'k' } }))
       .rejects.toBeInstanceOf(TillioEnvironmentNotReadyError)
     expect(client.addConfig).not.toHaveBeenCalled()
   })
@@ -110,7 +113,7 @@ describe('attachOperator', () => {
       }),
     }
 
-    await expect(attachOperator({ credentialsService: service, scope, appUrl }, { plugin: 'Ringostat', config: { key: 'k' } }))
+    await expect(attachOperator({ credentialsService: service, scope, appUrl, withLock: passThroughLock }, { plugin: 'Ringostat', config: { key: 'k' } }))
       .rejects.toThrow('disk full')
     expect(client.deleteConfig).toHaveBeenCalledWith('Ringostat', 'tok-1', 'app.example.com/OM-x-ringostat-1')
   })
@@ -136,7 +139,7 @@ describe('attachOperator', () => {
       }),
     }
 
-    await expect(attachOperator({ credentialsService: service, scope, appUrl }, { plugin: 'Ringostat', config: { key: 'k' } }))
+    await expect(attachOperator({ credentialsService: service, scope, appUrl, withLock: passThroughLock }, { plugin: 'Ringostat', config: { key: 'k' } }))
       .rejects.toBeInstanceOf(TillioOperatorLimitError)
     expect(client.deleteConfig).toHaveBeenCalledWith('Ringostat', 'tok-1', 'app.example.com/OM-x-ringostat-1')
     expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toBeUndefined()

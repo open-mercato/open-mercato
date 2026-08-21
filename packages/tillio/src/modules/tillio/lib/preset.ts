@@ -4,6 +4,7 @@ import type { IntegrationScope } from '@open-mercato/shared/modules/integrations
 import { TILLIO_INTEGRATION_ID } from '../integration'
 import { environmentSchema, type TillioEnvironment } from './environment'
 import { attachOperator, detachOperator, TillioOperatorLimitError } from './operators'
+import type { TillioLockRunner } from './locking'
 import { readOperatorsBlob, type TillioCredentialsService, type TillioOperatorRecord } from './operators-store'
 
 const logger = createLogger('tillio').child({ component: 'preset' })
@@ -72,6 +73,12 @@ export type ApplyTillioEnvPresetParams = {
   // Supplied by the CLI, where somebody is at the terminal to answer. Tenant bootstrap passes
   // nothing, so the swap is refused unless the deployment declared it through the env var.
   confirmOperatorReplacement?: (operator: TillioOperatorRecord) => Promise<boolean>
+  /**
+   * Serializes the operator write against a concurrent attach from the admin UI. Optional
+   * because a bootstrap that runs before the app serves traffic has nothing to contend with;
+   * both shipped callers pass a real one.
+   */
+  withLock?: TillioLockRunner
 }
 
 function readValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -113,6 +120,7 @@ async function attachOperatorFromPreset(params: {
   scope: IntegrationScope
   appUrl: string
   ringostatKey: string
+  withLock: TillioLockRunner
 }): Promise<'attached' | 'kept' | 'failed'> {
   if (!params.appUrl.trim()) {
     logger.warn('cannot attach the operator without APP_URL')
@@ -121,7 +129,12 @@ async function attachOperatorFromPreset(params: {
 
   try {
     await attachOperator(
-      { credentialsService: params.credentialsService, scope: params.scope, appUrl: params.appUrl },
+      {
+        credentialsService: params.credentialsService,
+        scope: params.scope,
+        appUrl: params.appUrl,
+        withLock: params.withLock,
+      },
       { plugin: 'Ringostat', config: { key: params.ringostatKey } },
     )
     return 'attached'
@@ -195,6 +208,7 @@ export async function applyTillioEnvPreset(params: ApplyTillioEnvPresetParams): 
         scope: params.scope,
         appUrl: params.appUrl ?? process.env.APP_URL ?? '',
         ringostatKey: preset.ringostatKey,
+        withLock: params.withLock ?? ((run) => run()),
       })
       : 'failed'
   }

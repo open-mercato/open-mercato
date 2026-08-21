@@ -143,7 +143,12 @@ describe('applyTillioEnvPreset', () => {
 
     expect(result).toMatchObject({ operator: 'attached' })
     expect(attachOperator).toHaveBeenCalledWith(
-      { credentialsService: service, scope, appUrl: 'https://app.example.com' },
+      {
+        credentialsService: service,
+        scope,
+        appUrl: 'https://app.example.com',
+        withLock: expect.any(Function),
+      },
       { plugin: 'Ringostat', config: { key: 'ringostat-key' } },
     )
   })
