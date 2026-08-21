@@ -51,11 +51,13 @@ describe('ingestInboundMessageCommand input schema', () => {
       body: 'hi',
       bodyFormat: 'text',
       timestamp: null,
+      providerTimestamp: new Date('2026-05-29T10:00:00.000Z'),
       channelPayload: {},
       channelContentType: 'email/mime',
       channelMetadata: {},
     })
     expect(result.timestamp).toBeNull()
+    expect(result.providerTimestamp).toEqual(new Date('2026-05-29T10:00:00.000Z'))
   })
 
   it('rejects empty providerKey', async () => {
@@ -392,6 +394,7 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
         },
       } as any,
       commandBus,
+      em,
     }
   }
 
@@ -554,5 +557,35 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
     const { input: composed } = composedInput(commandBus)
     expect(composed.body).toContain('Short enough')
     expect(composed.body).not.toContain('message truncated by Open Mercato')
+  })
+
+  it('persists only the separately supplied provider timestamp on ExternalMessage', async () => {
+    primeLookups()
+    const { ctx, em } = makeCtx()
+    const providerTimestamp = new Date('2026-05-29T10:00:00.000Z')
+    const input = makeInput('hello', 'text')
+    input.message.timestamp = new Date('2026-05-28T10:00:00.000Z')
+    input.message.providerTimestamp = providerTimestamp
+
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const externalMessageCreate = em.create.mock.calls.find(([, data]: [unknown, Record<string, unknown>]) => (
+      data.externalMessageId === 'ext-html-1' && data.direction === 'inbound'
+    ))
+    expect(externalMessageCreate?.[1].providerTimestamp).toEqual(providerTimestamp)
+  })
+
+  it('does not reclassify the canonical timestamp as a provider timestamp', async () => {
+    primeLookups()
+    const { ctx, em } = makeCtx()
+    const input = makeInput('hello', 'text')
+    input.message.timestamp = new Date('2026-05-28T10:00:00.000Z')
+
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const externalMessageCreate = em.create.mock.calls.find(([, data]: [unknown, Record<string, unknown>]) => (
+      data.externalMessageId === 'ext-html-1' && data.direction === 'inbound'
+    ))
+    expect(externalMessageCreate?.[1].providerTimestamp).toBeNull()
   })
 })

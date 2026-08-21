@@ -43,6 +43,9 @@ export type ThreadMatchInput = {
 
   bodyPlain: string | null
   bodyHtml: string | null
+
+  /** @deprecated Ignored by the matcher; retained for backward compatibility. */
+  receivedAt?: Date
 }
 
 export type ThreadMatchStrategy =

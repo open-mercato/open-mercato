@@ -119,5 +119,6 @@ describe('normalizeInboundGmailMessage', () => {
       fallbackDate,
     })
     expect(result.timestamp).toEqual(fallbackDate)
+    expect(result.providerTimestamp).toEqual(fallbackDate)
   })
 })

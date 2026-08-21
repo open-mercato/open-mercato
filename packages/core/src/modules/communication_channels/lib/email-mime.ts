@@ -436,6 +436,7 @@ function validDate(value: Date | string | null | undefined): Date | null {
  */
 export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): NormalizedInboundMessage {
   const { parsed } = options
+  const providerTimestamp = validDate(options.fallbackDate)
 
   const messageId = stripBrackets(parsed.messageId) ?? options.fallbackMessageId
   const inReplyTo = stripBrackets(parsed.inReplyTo)
@@ -480,7 +481,8 @@ export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): Norm
     body,
     bodyFormat,
     attachments,
-    timestamp: validDate(parsed.date) ?? validDate(options.fallbackDate),
+    timestamp: validDate(parsed.date) ?? providerTimestamp,
+    providerTimestamp,
     replyToExternalId: inReplyTo ?? undefined,
     channelPayload,
     channelContentType: 'email/mime',

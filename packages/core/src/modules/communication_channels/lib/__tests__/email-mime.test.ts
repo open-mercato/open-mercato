@@ -410,6 +410,7 @@ describe('normalizeMimeInbound', () => {
       fallbackDate,
     })
     expect(result.timestamp).toEqual(new Date('2026-05-28T10:00:00.000Z'))
+    expect(result.providerTimestamp).toEqual(fallbackDate)
   })
 
   it('uses the provider fallback when the MIME date is invalid', () => {
@@ -422,6 +423,7 @@ describe('normalizeMimeInbound', () => {
       fallbackDate,
     })
     expect(result.timestamp).toEqual(fallbackDate)
+    expect(result.providerTimestamp).toEqual(fallbackDate)
   })
 
   it('returns null when neither MIME nor provider supplies a valid date', () => {
@@ -433,5 +435,6 @@ describe('normalizeMimeInbound', () => {
       fallbackDate: new Date(Number.NaN),
     })
     expect(result.timestamp).toBeNull()
+    expect(result.providerTimestamp).toBeNull()
   })
 })

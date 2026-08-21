@@ -462,7 +462,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       direction: 'inbound',
       senderIdentifier: m.senderIdentifier,
       senderDisplayName: m.senderDisplayName ?? null,
-      providerTimestamp: null,
+      providerTimestamp: m.providerTimestamp ?? null,
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId ?? null,
     })

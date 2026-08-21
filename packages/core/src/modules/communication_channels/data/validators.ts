@@ -122,6 +122,7 @@ export const normalizedInboundMessageSchema = z.object({
   bodyFormat: z.enum(['text', 'markdown', 'html']),
   attachments: z.array(normalizedAttachmentSchema).optional(),
   timestamp: z.date().nullable(),
+  providerTimestamp: z.date().nullable().optional(),
   replyToExternalId: z.string().optional(),
   channelPayload: z.record(z.string(), z.unknown()),
   channelContentType: z.string().min(1),

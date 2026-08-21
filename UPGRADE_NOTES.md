@@ -489,6 +489,10 @@ Two related changes:
 
 Existing adapters that always return `Date` remain valid. Consumers of normalized inbound messages must handle `null` explicitly. Gmail and IMAP normalization use a valid MIME `Date` first, then their provider internal date, and finally `null`.
 
+Adapters may additionally return the optional `NormalizedInboundMessage.providerTimestamp` when the provider exposes a distinct native transport or storage time. The communication hub persists that value in `ExternalMessage.providerTimestamp`; it never reclassifies the canonical `timestamp` as provider-native time. Gmail and IMAP populate this field from `internalDate` and `INTERNALDATE`, respectively. See `.ai/specs/2026-08-21-normalized-inbound-message-timestamp-contract.md` for the provenance and compatibility contract.
+
+`ThreadMatchInput.receivedAt` is deprecated and ignored by the matcher, but remains available as an optional field for backward compatibility. Callers may remove it immediately; the field will remain for at least one minor release before removal under the standard deprecation protocol.
+
 ### Query index reindex now fails when a batch loses records
 
 `upsertIndexBatch` used to swallow every write error: the bulk `INSERT … ON CONFLICT` had a bare `catch`, and the per-row fallback ran inside a transaction whose per-row `catch` could not actually recover — in Postgres a failed statement aborts the transaction, and `COMMIT` on an aborted transaction returns a `ROLLBACK` tag without raising. A single bad record therefore discarded its entire batch (up to 500 rows) while the reindex job still credited the coverage counters and finished green, and the subsequent orphan purge then deleted the pre-existing index rows for those records.
