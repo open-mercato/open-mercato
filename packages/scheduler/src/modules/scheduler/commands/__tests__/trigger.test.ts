@@ -59,10 +59,14 @@ function makeEm(schedule: Record<string, unknown> | null) {
   }
 }
 
-function makeCtx(auth: Record<string, unknown> | null, em: any) {
+const userHasAllFeatures = jest.fn()
+
+function makeCtx(auth: Record<string, unknown> | null, em: any, rbacService: any = { userHasAllFeatures }) {
   return {
     auth,
-    container: { resolve: jest.fn(() => em) },
+    container: {
+      resolve: jest.fn((name: string) => (name === 'rbacService' ? rbacService : em)),
+    },
     selectedOrganizationId: null,
   } as any
 }
@@ -78,6 +82,7 @@ describe('scheduler.jobs.trigger', () => {
     process.env.QUEUE_STRATEGY = 'async'
     enqueue.mockResolvedValue('queue-job-1')
     close.mockResolvedValue(undefined)
+    userHasAllFeatures.mockResolvedValue(true)
   })
 
   afterAll(() => {
@@ -196,6 +201,76 @@ describe('scheduler.jobs.trigger', () => {
     const result = await trigger.execute({ id: SCHEDULE_ID }, ctx)
 
     expect(result.outcome).toBe('enqueued')
+  })
+
+  it('refuses a command schedule the triggering user is not authorized to run, instead of enqueueing it', async () => {
+    // The worker gates the run with this same assertion and can only throw when it
+    // refuses, which BullMQ retries forever while the caller has already been told
+    // the run was enqueued. Deciding here turns that into a 403 and an audit row.
+    userHasAllFeatures.mockResolvedValue(false)
+    const trigger = loadTriggerCommand()
+    const em = makeEm(makeSchedule({ targetType: 'command', targetQueue: null, targetCommand: 'scheduler.test.echo' }))
+
+    const result = await trigger.execute({ id: SCHEDULE_ID }, makeCtx(tenantActor, em))
+
+    expect(result).toMatchObject({
+      outcome: 'forbidden',
+      queueJobId: null,
+      error: 'Scheduled command actor is not authorized',
+    })
+    // Access to the row was granted, so naming it discloses nothing the refusal withholds.
+    expect(result).toMatchObject({ scheduleName: 'Nightly report', target: 'scheduler.test.echo' })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('authorizes the actor the worker will run as, not the caller when there is no bound user', async () => {
+    const trigger = loadTriggerCommand()
+    const em = makeEm(
+      makeSchedule({
+        targetType: 'command',
+        targetQueue: null,
+        targetCommand: 'scheduler.test.echo',
+        createdByUserId: 'creator-1',
+      }),
+    )
+    // A key-only caller contributes no user id, so the run falls back to the
+    // creator — and the creator is who this pre-check must authorize.
+    const ctx = makeCtx({ sub: 'api-key-1', tenantId: 'tenant-a', orgId: null, isApiKey: true }, em)
+
+    const result = await trigger.execute({ id: SCHEDULE_ID }, ctx)
+
+    expect(result.outcome).toBe('enqueued')
+    expect(userHasAllFeatures).toHaveBeenCalledWith('creator-1', ['scheduler.jobs.manage'], {
+      tenantId: 'tenant-a',
+      organizationId: null,
+    })
+  })
+
+  it('refuses a command schedule with no actor at all rather than enqueueing an unrunnable job', async () => {
+    const trigger = loadTriggerCommand()
+    const em = makeEm(
+      makeSchedule({ targetType: 'command', targetQueue: null, targetCommand: 'scheduler.test.echo' }),
+    )
+    const ctx = makeCtx({ sub: 'api-key-1', tenantId: 'tenant-a', orgId: null, isApiKey: true }, em)
+
+    const result = await trigger.execute({ id: SCHEDULE_ID }, ctx)
+
+    expect(result).toMatchObject({
+      outcome: 'forbidden',
+      error: 'Scheduled command requires an authenticated actor',
+    })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('leaves a queue schedule untouched by the scheduled-command gate', async () => {
+    userHasAllFeatures.mockResolvedValue(false)
+    const trigger = loadTriggerCommand()
+    const em = makeEm(makeSchedule())
+
+    const result = await trigger.execute({ id: SCHEDULE_ID }, makeCtx(tenantActor, em))
+
+    expect(result.outcome).toBe('enqueued')
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
   })
 
   it('returns strategy_unsupported when the queue strategy is not async', async () => {

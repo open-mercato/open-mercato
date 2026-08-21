@@ -21,8 +21,10 @@ jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
   getRedisUrlOrThrow: jest.fn(() => 'redis://localhost:6379'),
 }))
 
+const emitSchedulerEvent = jest.fn(async () => undefined)
+
 jest.mock('../../events', () => ({
-  emitSchedulerEvent: jest.fn(async () => undefined),
+  emitSchedulerEvent: (...args: unknown[]) => emitSchedulerEvent(...(args as [])),
 }))
 
 const scheduleId = '11111111-1111-4111-8111-111111111111'
@@ -147,6 +149,7 @@ describe('executeScheduleWorker command actor attribution', () => {
 
   beforeEach(() => {
     mockCommandExecute.mockReset()
+    emitSchedulerEvent.mockClear()
     mockCommandExecute.mockResolvedValue({ result: { ok: true }, logEntry: null })
   })
 
@@ -205,8 +208,27 @@ describe('executeScheduleWorker command actor attribution', () => {
 
     const { promise } = runWorker(schedule, { triggerType: 'manual', triggeredByUserId: 'user-b' }, context)
 
-    await expect(promise).rejects.toThrow('Scheduled command actor is not authorized')
+    // The refusal is permanent, so it ends the job rather than throwing: a throw
+    // is indistinguishable from an outage and BullMQ would retry a decision no
+    // attempt can change, leaving no trace but a log line.
+    await expect(promise).resolves.toBeUndefined()
     expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(schedule.lastRunAt).toBeUndefined()
+    expect(emitSchedulerEvent).toHaveBeenCalledWith(
+      'scheduler.job.failed',
+      expect.objectContaining({ id: scheduleId, error: 'Scheduled command actor is not authorized' }),
+    )
+  })
+
+  it('still throws when the authorization lookup itself fails, so a genuine outage is retried', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const context = buildWorkerContext(schedule)
+    context.rbacService.userHasAllFeatures.mockRejectedValue(new Error('rbac store unavailable'))
+
+    const { promise } = runWorker(schedule, {}, context)
+
+    await expect(promise).rejects.toThrow('rbac store unavailable')
+    expect(emitSchedulerEvent).not.toHaveBeenCalledWith('scheduler.job.failed', expect.anything())
   })
 
   it('falls back to the creator when a manual trigger carries no user (API-key caller)', async () => {

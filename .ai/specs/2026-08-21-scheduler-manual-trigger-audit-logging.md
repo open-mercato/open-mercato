@@ -90,6 +90,26 @@ schedule so a caller cannot confirm an id exists. For `not_found` and `forbidden
 `scheduleName`, `targetType` and `target` stay `null`; details are populated only once access has been
 granted. The requested id *is* recorded, so probing is traceable.
 
+### A command schedule's authorization is decided at trigger time
+
+The worker gates a command run with `assertSchedulerSafeCommandAuthorized`, and its only way to refuse
+is to throw. Inside a retrying queue that refusal is invisible: the caller already has `200 ok`, the
+audit row already says `enqueued`, and BullMQ retries a decision no attempt can turn into a success.
+
+So `commands/trigger.ts` runs the same assertion, against the same actor the worker will resolve
+(`resolveScheduledCommandActorUserId(schedule, { triggeredByUserId })`), before it enqueues anything.
+A refusal becomes `outcome: 'forbidden'` — the caller's `403` and the audit row's outcome, decided
+where the row is written. Unlike an access refusal it carries the schedule's details, because access
+to the row has already been granted and naming it discloses nothing the decision withholds.
+
+The worker keeps its gate: the pre-check can go stale between enqueue and execution, and unattended
+runs never pass through the trigger command at all. What changed there is the shape of the refusal.
+`assertSchedulerSafeCommandAuthorized` now raises `SchedulerCommandAuthorizationError` — every
+rejection it makes is a permanent decision, not a transient failure — and the worker catches that one
+type, emits `scheduler.job.failed` and returns, matching how the queue branch ends its equivalent
+conditions. Any other error, such as an RBAC lookup whose store is down, still propagates so BullMQ
+retries it.
+
 ### No undo
 
 Registered `isUndoable: false` with no `undo`/`redo`. A queued execution runs as soon as a worker
@@ -136,8 +156,9 @@ New action-log rows: `commandId: 'scheduler.jobs.trigger'`, `resourceKind: 'sche
 | Risk | Severity | Area | Mitigation | Residual |
 | --- | --- | --- | --- | --- |
 | The audit write happens after the enqueue and the bus does not guard it, so a failing audit store returns an error for a job that *was* queued; a user retry could double-run the schedule | Medium | `api/trigger` | Not swallowed — silently losing the row is the failure this change exists to prevent. The route logs the failure at error level so the run stays traceable | A retry after an audit-store outage can enqueue twice |
-| Gating the effective actor **narrows** access: a user holding only `scheduler.jobs.trigger` can no longer manually run a command schedule authored by someone with broader features | Medium | worker RBAC | Intended — that path was privilege escalation through another user's authorization. Blast radius is one allowlisted command (`scheduler.test.echo`) | Deployments relying on that escalation see a refusal |
+| Gating the effective actor **narrows** access: a user holding only `scheduler.jobs.trigger` can no longer manually run a command schedule authored by someone with broader features | Medium | trigger + worker RBAC | Intended — that path was privilege escalation through another user's authorization. The refusal is decided at trigger time, so the caller gets `403` and the audit row records `forbidden`; blast radius is one allowlisted command (`scheduler.test.echo`) | Deployments relying on that escalation see a visible refusal |
 | Gating the effective actor **widens** access where the triggerer holds features the creator lacks | Low | worker RBAC | Intended and consistent with the invariant | None |
+| An unattended command schedule whose creator has since lost the required features now ends as `scheduler.job.failed` instead of being retried | Low | worker RBAC | The retries could never succeed and left no trace but a log line; a failed event is the state an operator has to act on | Deployments watching for retry noise as the signal see a failed event instead |
 | Queue-strategy and enqueue failures now also produce audit rows | Low | audit volume | Bounded by the trigger's own feature gate | Slightly more rows |
 | A refused trigger writes a row naming a schedule id the caller cannot see | Low | `audit_logs` | Only the id is recorded, scoped to the caller's tenant; no attribute of the row is included | None |
 
@@ -148,18 +169,25 @@ Not changed: database schema, ACL features, event ids, DI keys, response shapes.
 - `commands/__tests__/trigger.test.ts` — every outcome (`enqueued`, `not_found`, foreign-tenant
   `not_found`, `forbidden`, super-admin system-scope success, `strategy_unsupported`, `failed`),
   queue closed on both the success and failure paths, a close failure not failing a completed enqueue,
-  API-key fallback, and `buildLog` output for a success and a refusal.
+  API-key fallback, and `buildLog` output for a success and a refusal. Plus the trigger-time
+  scheduled-command gate: an unauthorized actor gets `forbidden` with the schedule's details and no
+  enqueue, the gate authorizes the actor the worker will resolve (the creator, for a key-only caller),
+  a command schedule with no resolvable actor is refused, and a queue schedule bypasses the gate.
 - `lib/__tests__/commandContext.test.ts` — triggering user wins, falls back to creator, then to the
   system actor; direct coverage of `resolveScheduledCommandActorUserId` including blank ids.
 - `workers/__tests__/execute-schedule.worker.test.ts` — a manual run gates and executes as the
   triggerer; an unattended run still gates the creator; a triggering user on a `scheduled` payload is
-  ignored; a triggerer lacking the target features is refused even when the creator holds them.
+  ignored; a triggerer lacking the target features is refused even when the creator holds them, and
+  that refusal ends the job with a `scheduler.job.failed` event rather than throwing, while a failing
+  RBAC lookup still throws so BullMQ retries it.
 - `__integration__/TC-SCHED-009.spec.ts` — a manual trigger and a refused trigger each write an
   action-log row naming the caller. Independent of `QUEUE_STRATEGY`, because refusals are logged too.
 
 ## Backward Compatibility
 
-No contract surface changes. The command id and the `scheduler.audit.trigger` i18n key are additive;
+No contract surface changes. `SchedulerCommandAuthorizationError` is an additive export and a subclass
+of `Error`, so callers matching on the existing messages are unaffected — the messages are unchanged.
+The command id and the `scheduler.audit.trigger` i18n key are additive;
 the route's request/response shapes, status codes and feature gate are untouched. The behavior changes
 are confined to which identity a manually triggered command schedule runs as, and which identity the
 scheduler-safe-command gate authorizes — both described under Risks above.

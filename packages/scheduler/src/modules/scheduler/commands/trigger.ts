@@ -29,6 +29,11 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { resolveScheduleAccess } from '../lib/scheduleAccess.js'
+import {
+  assertSchedulerSafeCommandAuthorized,
+  type SchedulerCommandRbacService,
+} from '../lib/scheduler-safe-commands.js'
+import { resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
 import { resolveCommandActorUserId } from './jobs.js'
 import type { ScheduleTriggerInput } from '../data/validators.js'
 import type { ExecuteSchedulePayload } from '../workers/execute-schedule.worker.js'
@@ -109,19 +114,60 @@ const triggerScheduleCommand: CommandHandler<ScheduleTriggerInput, TriggerSchedu
       return { ...details, outcome: 'strategy_unsupported', queueJobId: null, error: null }
     }
 
+    // `resolveCommandActorUserId` resolves the bound user whenever the auth
+    // context carries one — including an API key issued on a user's behalf — and
+    // yields null only for a key-only context. That matters now that the worker
+    // authorizes and runs a manual command schedule as this identity: a bare key
+    // id is not a user id, so it falls back to the schedule's creator rather than
+    // failing an RBAC lookup that could never succeed.
+    const triggeredByUserId = resolveCommandActorUserId(ctx)
+
+    // Decide a command schedule's authorization here, where the audit row is
+    // written, rather than leaving it to the worker.
+    //
+    // The worker gates the run with the same assertion and throws when it refuses,
+    // and a throw inside a retrying queue is invisible: the caller has already been
+    // told the run was enqueued, the audit row already says `enqueued`, and BullMQ
+    // keeps retrying a refusal that no attempt can turn into a success. Answering
+    // `forbidden` now makes the refusal the caller's HTTP response and the audit
+    // row's outcome. The worker keeps its own gate as the authority — this decision
+    // can go stale between enqueue and execution — but the common case is decided
+    // where it can be seen.
+    //
+    // Unlike `refusedTrigger`, this refusal carries the schedule's details: access
+    // to the row has already been granted, so naming it discloses nothing new.
+    if (schedule.targetType === 'command') {
+      const actorUserId = resolveScheduledCommandActorUserId(schedule, { triggeredByUserId })
+      try {
+        await assertSchedulerSafeCommandAuthorized({
+          commandId: schedule.targetCommand,
+          actorUserId,
+          tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId,
+          rbacService: ctx.container.resolve<SchedulerCommandRbacService>('rbacService'),
+        })
+      } catch (error) {
+        logger.info('Manual trigger refused by scheduled-command authorization', {
+          scheduleId: schedule.id,
+          commandId: schedule.targetCommand,
+          err: error,
+        })
+        return {
+          ...details,
+          outcome: 'forbidden',
+          queueJobId: null,
+          error: error instanceof Error ? error.message : null,
+        }
+      }
+    }
+
     const payload: ExecuteSchedulePayload = {
       scheduleId: schedule.id,
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
       scopeType: schedule.scopeType,
       triggerType: 'manual',
-      // `resolveCommandActorUserId` resolves the bound user whenever the auth
-      // context carries one — including an API key issued on a user's behalf — and
-      // yields null only for a key-only context. That matters now that the worker
-      // authorizes and runs a manual command schedule as this identity: a bare key
-      // id is not a user id, so it falls back to the schedule's creator rather than
-      // failing an RBAC lookup that could never succeed.
-      triggeredByUserId: resolveCommandActorUserId(ctx),
+      triggeredByUserId,
     }
 
     let executionQueue: Queue<ExecuteSchedulePayload> | null = null

@@ -11,6 +11,23 @@ export type SchedulerCommandRbacService = {
   ) => Promise<boolean>
 }
 
+/**
+ * A scheduled command run was refused, and no retry can change that.
+ *
+ * Every rejection `assertSchedulerSafeCommandAuthorized` raises is a decision
+ * about the actor and the command, not a transient failure: the command is off
+ * the allowlist, there is no actor to authorize, the RBAC service is missing, or
+ * the actor lacks the required features. Callers running inside a retrying queue
+ * need to tell that apart from a genuine outage, so it is thrown as its own type
+ * rather than left for message matching. The messages themselves are unchanged.
+ */
+export class SchedulerCommandAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SchedulerCommandAuthorizationError'
+  }
+}
+
 const schedulerSafeCommands = new Map<string, SchedulerSafeCommandDefinition>()
 
 function normalizeCommandId(commandId: unknown): string | null {
@@ -60,16 +77,16 @@ export async function assertSchedulerSafeCommandAuthorized(params: {
 }): Promise<SchedulerSafeCommandDefinition> {
   const command = getSchedulerSafeCommand(params.commandId)
   if (!command) {
-    throw new Error('Scheduled command is not allowed')
+    throw new SchedulerCommandAuthorizationError('Scheduled command is not allowed')
   }
 
   const actorUserId = normalizeCommandId(params.actorUserId)
   if (!actorUserId) {
-    throw new Error('Scheduled command requires an authenticated actor')
+    throw new SchedulerCommandAuthorizationError('Scheduled command requires an authenticated actor')
   }
 
   if (typeof params.rbacService.userHasAllFeatures !== 'function') {
-    throw new Error('Scheduled command authorization is unavailable')
+    throw new SchedulerCommandAuthorizationError('Scheduled command authorization is unavailable')
   }
 
   const authorized = await params.rbacService.userHasAllFeatures(actorUserId, command.requiredFeatures, {
@@ -77,7 +94,7 @@ export async function assertSchedulerSafeCommandAuthorized(params: {
     organizationId: params.organizationId ?? null,
   })
   if (!authorized) {
-    throw new Error('Scheduled command actor is not authorized')
+    throw new SchedulerCommandAuthorizationError('Scheduled command actor is not authorized')
   }
 
   return command
