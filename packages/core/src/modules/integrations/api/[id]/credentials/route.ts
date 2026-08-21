@@ -183,11 +183,13 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   try {
-    // Secret fields are returned masked on GET; when the client round-trips the
-    // mask sentinel it means "unchanged", so restore the existing stored secret
-    // instead of overwriting it with the placeholder.
     const existing = await credentialsService.resolve(integration.id, scope)
-    const credentialsToSave = mergeMaskedSecretCredentials(schema, payloadData.credentials, existing ?? {})
+    const credentialsToSave = mergeMaskedSecretCredentials(
+      schema,
+      payloadData.credentials,
+      existing ?? {},
+      payloadData.unchangedSecretFields,
+    )
     await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
     if (isCredentialsEncryptionUnavailableError(error)) {
