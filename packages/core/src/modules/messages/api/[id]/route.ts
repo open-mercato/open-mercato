@@ -298,42 +298,25 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     conversationAllUnread,
   }
 
-  // Response enrichers targeting `messages.message`.
-  //
-  // Without this the detail response carries no `_`-prefixed enrichment, and
-  // every consumer of one silently renders nothing — including the shipped
-  // `communication_channels` channel-payload renderer, whose whole job is to
-  // display the sanitized email HTML / Block Kit payload below the body. The
-  // enricher and the widget both exist; only this call was missing to connect
-  // them.
-  //
-  // Errors are swallowed deliberately: an enricher is decoration, and losing
-  // the message body because a decorator threw is the worse failure. The
-  // runner already records per-enricher errors in `_meta.enricherErrors`.
-  //
-  // Features come from RBAC, NOT from `resolveUserFeatures(ctx.auth)`: the
-  // session token carries `roles`, never `features`, so reading them off auth
-  // yields an empty list and the runner's ACL filter drops every feature-gated
-  // enricher — including `communication_channels.message-channel`, which is
-  // gated on `communication_channels.view`. That failure is silent: the
-  // response is well-formed, just missing the enrichment. Verified against a
-  // live instance before and after.
-  let enrichedDetail = detail
-  try {
-    const enriched = await applyResponseEnricherToRecord(detail, 'messages.message', {
-      organizationId: scope.organizationId ?? '',
-      tenantId: scope.tenantId,
-      userId: scope.userId,
-      em,
-      container: ctx.container,
-      userFeatures: await resolveGrantedFeatures(ctx.container, scope),
-    })
-    enrichedDetail = enriched.record
-  } catch (error) {
-    logger.warn('response enrichers failed for message detail', { messageId: params.id, err: error })
+  // Mirrors `enrichSingleRecord` in `shared/lib/crud/factory.ts`, which every
+  // `makeCrudRoute` host gets for free: same `_meta` envelope, and no blanket
+  // catch so a `critical: true` enricher still surfaces as an HTTP error.
+  // Non-critical failures never escape the runner — it merges `fallback` and
+  // records the id in `_meta.enricherErrors`.
+  const enriched = await applyResponseEnricherToRecord(detail, 'messages.message', {
+    organizationId: scope.organizationId ?? '',
+    tenantId: scope.tenantId,
+    userId: scope.userId,
+    em,
+    container: ctx.container,
+    userFeatures: await resolveGrantedFeatures(ctx.container, scope),
+  })
+
+  if (enriched._meta.enrichedBy.length > 0 || enriched._meta.enricherErrors?.length) {
+    return Response.json({ ...enriched.record, _meta: enriched._meta })
   }
 
-  return Response.json(enrichedDetail)
+  return Response.json(enriched.record)
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {

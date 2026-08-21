@@ -132,6 +132,41 @@ describe('GET /api/messages/[id] — response enrichers', () => {
       expect.objectContaining({ tenantId, organizationId, userId }),
     )
     expect(body._channelPayload).toEqual({ sanitizedHtml: '<p>Hello</p>' })
+    expect(body._meta).toEqual({ enrichedBy: ['communication_channels.message-channel'] })
+  })
+
+  it('omits _meta when no enricher ran', async () => {
+    applyResponseEnricherToRecordMock.mockImplementationOnce(async (record: Record<string, unknown>) => ({
+      record,
+      _meta: { enrichedBy: [] },
+    }))
+
+    const res = await GET(new Request(`http://localhost/api/messages/${messageId}`), {
+      params: { id: messageId },
+    })
+    const body = await res.json()
+
+    expect(body.id).toBe(messageId)
+    expect(body._meta).toBeUndefined()
+  })
+
+  it('reports a non-critical enricher failure through _meta.enricherErrors', async () => {
+    // The runner isolates non-critical failures itself: it merges the enricher's
+    // `fallback` and records the id. The route only has to pass that envelope on.
+    applyResponseEnricherToRecordMock.mockImplementationOnce(async (record: Record<string, unknown>) => ({
+      record: { ...record, _channelPayload: null },
+      _meta: { enrichedBy: [], enricherErrors: ['communication_channels.message-channel'] },
+    }))
+
+    const res = await GET(new Request(`http://localhost/api/messages/${messageId}`), {
+      params: { id: messageId },
+    })
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.subject).toBe('Quote #123')
+    expect(body._channelPayload).toBeNull()
+    expect(body._meta.enricherErrors).toEqual(['communication_channels.message-channel'])
   })
 
   it('resolves enricher features from RBAC, not from the session token', async () => {
@@ -166,19 +201,15 @@ describe('GET /api/messages/[id] — response enrichers', () => {
     expect((context as { userFeatures?: string[] }).userFeatures).toBeUndefined()
   })
 
-  it('still returns the message when an enricher throws', async () => {
-    // Enrichment is decoration — losing the message body because a decorator
-    // failed would be the worse outcome.
-    applyResponseEnricherToRecordMock.mockRejectedValueOnce(new Error('enricher blew up'))
+  it('propagates a critical enricher failure instead of degrading silently', async () => {
+    // `critical: true` is specified as "enricher errors propagate as HTTP errors"
+    // (`response-enricher.ts`), and it is the only error the runner re-throws.
+    // Catching it here would turn a declared hard failure into a well-formed
+    // response that is quietly missing data.
+    applyResponseEnricherToRecordMock.mockRejectedValueOnce(new Error('critical enricher blew up'))
 
-    const res = await GET(new Request(`http://localhost/api/messages/${messageId}`), {
-      params: { id: messageId },
-    })
-    const body = await res.json()
-
-    expect(res.status).toBe(200)
-    expect(body.id).toBe(messageId)
-    expect(body.subject).toBe('Quote #123')
-    expect(body._channelPayload).toBeUndefined()
+    await expect(
+      GET(new Request(`http://localhost/api/messages/${messageId}`), { params: { id: messageId } }),
+    ).rejects.toThrow('critical enricher blew up')
   })
 })
