@@ -73,7 +73,7 @@ None. No entities, no migrations, no persisted state. Span batches pass through 
 
 - **Auth:** `requireAuth: true`, no feature grant (sending a span is not privileged; unauthenticated ingest is refused by the dispatcher). Rate limit 120 points / 60 s, key prefix `telemetry_browser_traces`.
 - **Body:** OTLP/HTTP trace export as produced by `@opentelemetry/exporter-trace-otlp-http` (JSON today; `content-type` and `content-encoding` are forwarded verbatim so a protobuf or gzip switch needs no proxy change). 1 MB cap, enforced on declared `content-length` before buffering — unconditionally, even while disabled — and re-checked during a capped streaming read for clients that lie or omit the header.
-- **Responses:** `204` accepted-and-dropped (telemetry disabled — keeps stale clients quiet), `202` forwarded, `413` over cap, `502` collector rejected/unreachable (logged, never thrown). Fire-and-forget by design; the client never retries.
+- **Responses:** `204` accepted-and-dropped (telemetry disabled — keeps stale clients quiet), `202` forwarded, `413` over cap, `202` collector rejected/unreachable (logged, never thrown). Fire-and-forget by design; the client never retries — every failure status is kept outside the exporter's retryable set (`429`, `502`, `503`, `504`) so a collector outage cannot turn into a retry storm from every open tab.
 - The package export surface grows additively: `@open-mercato/telemetry/browser` and `@open-mercato/telemetry/browser/server` (new entries), `src/trace-headers.ts` constants. The server facade and its rules are untouched.
 
 ## Risks & Impact Review

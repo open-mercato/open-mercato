@@ -35,6 +35,12 @@ const COLLECTOR_TIMEOUT_MS = 5_000
  * measures, so every failure path returns a success-ish status and is logged instead. Dropped spans
  * are cheaper than a retry storm from every open browser tab.
  *
+ * That is why a collector failure answers 202 rather than 502: 502 is in the OTLP exporter's
+ * retryable set (`429 || 502 || 503 || 504`), so a collector outage would make every open tab
+ * retry each batch with backoff — the exact amplification this contract rules out — and surface a
+ * failed request in the user's devtools on every attempt. The outage is observable in the server
+ * log instead, where it belongs.
+ *
  * Raw `fetch` is correct here (the AGENTS.md rule targets app-to-own-API calls that have a framework
  * primitive) — this is a server-to-collector hop over plain OTLP/HTTP with no DI-provided client.
  */
@@ -83,14 +89,14 @@ export async function POST(req: Request): Promise<Response> {
         status: res.status,
         bytes: body.byteLength,
       })
-      return new Response(null, { status: 502 })
+      return new Response(null, { status: 202 })
     }
   } catch (err) {
     logger.warn('telemetry.browser.export.failed', {
       error: err instanceof Error ? err.message : String(err),
       bytes: body.byteLength,
     })
-    return new Response(null, { status: 502 })
+    return new Response(null, { status: 202 })
   }
 
   return new Response(null, { status: 202 })
