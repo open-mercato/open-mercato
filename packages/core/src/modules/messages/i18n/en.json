@@ -255,6 +255,7 @@
   "messages.types.default": "Message",
   "messages.types.defaultWithObjects": "Object message",
   "messages.types.system": "System notification",
+  "messages.unknownDate": "Unknown date",
   "messages.visibility": "Visibility",
   "messages.visibilityInternal": "Internal",
   "messages.visibilityInternalHint": "Internal messages are sent to selected system users.",
