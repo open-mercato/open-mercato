@@ -97,4 +97,31 @@ describe('communication_channels seedDefaults — test-seed channel credentials'
     expect(persisted).toHaveLength(0)
     expect(saved).toHaveLength(0)
   })
+
+  it('seeds nothing when the system email provider is not the test-seed provider', async () => {
+    process.env.SYSTEM_EMAIL_PROVIDER = 'resend'
+    const { container, saved, persisted } = buildContainer(null)
+
+    await setup.seedDefaults?.({ container, ...SCOPE } as never)
+
+    expect(persisted).toHaveLength(0)
+    expect(saved).toHaveLength(0)
+  })
+
+  it('does not abort tenant initialization when credential storage is unavailable', async () => {
+    const em = {
+      fork: () => em,
+      create: (_entity: unknown, data: Record<string, unknown>) => data,
+      persist: () => em,
+      flush: async () => undefined,
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        throw new Error('[internal] integrations module not registered')
+      },
+    }
+
+    await expect(setup.seedDefaults?.({ container, ...SCOPE } as never)).resolves.toBeUndefined()
+  })
 })

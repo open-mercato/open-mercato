@@ -154,16 +154,27 @@ export const setup: ModuleSetupConfig = {
        * finished configuring its provider, which is also the only one of the three
        * credential cases the integration suite would otherwise never exercise.
        */
-      const credentialsService = container.resolve('integrationCredentialsService') as CredentialsServiceLike
-      const testSeedIntegrationId = `channel_${TEST_SEED_PROVIDER_KEY}`
-      const credentialScope = { tenantId, organizationId, userId: null }
-      const existingCredentials = await credentialsService.resolve(testSeedIntegrationId, credentialScope)
-      if (!existingCredentials) {
-        await credentialsService.save(
-          testSeedIntegrationId,
-          { testSeed: true, fromAddress: TEST_SEED_FROM_ADDRESS },
-          credentialScope,
-        )
+      // Best-effort, like the scheduler registration below: credential storage needs the
+      // integrations module and a usable encryption key, and neither is guaranteed in every
+      // harness. A failure here must not abort tenant initialization for every other module.
+      try {
+        const credentialsService = container.resolve('integrationCredentialsService') as CredentialsServiceLike
+        const testSeedIntegrationId = `channel_${TEST_SEED_PROVIDER_KEY}`
+        const credentialScope = { tenantId, organizationId, userId: null }
+        const existingCredentials = await credentialsService.resolve(testSeedIntegrationId, credentialScope)
+        if (!existingCredentials) {
+          await credentialsService.save(
+            testSeedIntegrationId,
+            { testSeed: true, fromAddress: TEST_SEED_FROM_ADDRESS },
+            credentialScope,
+          )
+        }
+      } catch (error) {
+        logger.warn('Test-seed email credentials could not be stored; tenant-scoped sends will fail closed', {
+          err: error,
+          tenantId,
+          organizationId,
+        })
       }
     }
 
