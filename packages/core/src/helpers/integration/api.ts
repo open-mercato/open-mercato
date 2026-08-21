@@ -95,22 +95,30 @@ export async function apiRequest(
   request: APIRequestContext,
   method: string,
   path: string,
-  options: { token: string; data?: unknown; timeout?: number },
+  options: {
+    token: string;
+    data?: unknown;
+    timeout?: number;
+    retryTransport?: boolean;
+    headers?: Record<string, string>;
+  },
 ) {
   const headers = {
     Authorization: `Bearer ${options.token}`,
     'Content-Type': 'application/json',
+    ...(options.headers ?? {}),
   };
   const timeout = options.timeout ?? 30_000;
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const maxAttempts = options.retryTransport === false ? 1 : 2;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       return await request.fetch(resolveUrl(path), { method, headers, data: options.data, timeout });
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : '';
       const retryable = /timeout|idle-session|socket|ECONNRESET|Target page, context or browser has been closed/i.test(message);
-      if (!retryable || attempt === 1) throw error;
+      if (!retryable || attempt === maxAttempts - 1) throw error;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }

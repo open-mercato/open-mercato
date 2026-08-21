@@ -5,6 +5,8 @@ import * as React from 'react'
 import { cleanup } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { AgendaList } from '../AgendaList'
+import { formatTimeRange } from '../EventBlock'
+import { formatTimeLabel } from '../../../lib/calendar/format'
 import { buildCalendarItem } from './fixtures'
 
 const AGENDA_ANCHOR = new Date(2026, 7, 10, 0, 0, 0)
@@ -23,6 +25,11 @@ function dayGroupHeadingText(container: HTMLElement): string {
 
 function eventRowLabel(container: HTMLElement): string {
   return container.querySelector('button[aria-label]')?.getAttribute('aria-label') ?? ''
+}
+
+function eventRowTimes(container: HTMLElement): string[] {
+  const timeColumn = container.querySelector('button[aria-label]')?.firstElementChild
+  return Array.from(timeColumn?.querySelectorAll('span') ?? []).map((span) => span.textContent ?? '')
 }
 
 describe('AgendaList — locale-aware date/time formatting (#5116)', () => {
@@ -59,4 +66,25 @@ describe('AgendaList — locale-aware date/time formatting (#5116)', () => {
     expect(plText).not.toBe('')
     expect(plText).not.toBe(enText)
   })
+})
+
+describe('AgendaList — shared time formatting (#5275)', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it.each(['pl', 'de'])(
+    'renders the event row start, end and range exactly as the week view renders them in %s',
+    (locale) => {
+      const item = buildCalendarItem()
+
+      const view = renderAgenda(locale)
+      const rowLabel = eventRowLabel(view.container)
+      const rowTimes = eventRowTimes(view.container)
+      view.unmount()
+
+      expect(rowTimes).toEqual([formatTimeLabel(locale, item.start), formatTimeLabel(locale, item.end)])
+      expect(rowLabel).toBe(`${item.title} · ${formatTimeRange(locale, item.start, item.end)}`)
+    },
+  )
 })
