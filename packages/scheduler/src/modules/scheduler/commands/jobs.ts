@@ -83,7 +83,7 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return value instanceof Date ? value : new Date(value)
 }
 
-function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
+export function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
   const auth = ctx.auth
   if (!auth) return null
   if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId.trim()

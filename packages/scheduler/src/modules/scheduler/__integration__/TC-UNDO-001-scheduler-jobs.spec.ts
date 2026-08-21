@@ -65,10 +65,13 @@ test.describe('TC-UNDO-001 scheduler.jobs undo/redo (#2504)', () => {
     })
   })
 
-  // §4 — manual trigger is a fire-and-forget enqueue that never goes through the
-  // command bus, so it exposes no undo affordance. The assertion holds regardless of
-  // QUEUE_STRATEGY: async returns 200 (enqueued), local returns 400 (rejected) — neither
-  // issues an `x-om-operation` undo token.
+  // §4 — manual trigger runs through the command bus so the attempt is audited
+  // (TC-SCHED-009), but `scheduler.jobs.trigger` is registered `isUndoable: false`
+  // with no `undo` handler, so no undo token is minted and it exposes no undo
+  // affordance: the enqueued run is reversed through the entries the run itself
+  // writes. The assertion holds regardless of QUEUE_STRATEGY: async returns 200
+  // (enqueued), local returns 400 (rejected) — neither issues an `x-om-operation`
+  // undo token.
   test('§4 trigger exposes no undo token', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let jobId: string | null = null

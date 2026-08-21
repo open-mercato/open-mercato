@@ -7,7 +7,7 @@ import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { emitSchedulerEvent } from '../events.js'
 import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
-import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -211,7 +211,12 @@ export default async function executeScheduleWorker(
 
   } else if (schedule.targetType === 'command' && schedule.targetCommand) {
     const commandBus = new CommandBus()
-    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    // A manual run acts as whoever pressed the button; an unattended run keeps
+    // acting as the schedule's creator. The gate below and the context built
+    // afterwards must agree on that identity, so it is resolved once, by the same
+    // helper the context itself uses.
+    const triggeredByUserId = payload.triggerType === 'manual' ? payload.triggeredByUserId ?? null : null
+    const actorUserId = resolveScheduledCommandActorUserId(schedule, { triggeredByUserId })
     await assertSchedulerSafeCommandAuthorized({
       commandId: schedule.targetCommand,
       actorUserId,
@@ -219,15 +224,18 @@ export default async function executeScheduleWorker(
       organizationId: schedule.organizationId,
       rbacService,
     })
-    
+
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
     }
-    
+
     // Build the schedule-scoped command context after the allowlist/RBAC gate.
-    const commandCtx = buildScheduledCommandContext(schedule, ctx as unknown as AppContainer)
+    // The gate authorized `actorUserId`; this must execute as that same identity.
+    const commandCtx = buildScheduledCommandContext(schedule, ctx as unknown as AppContainer, {
+      triggeredByUserId,
+    })
     
     const commandResult = await commandBus.execute(schedule.targetCommand, {
       input: commandInput,

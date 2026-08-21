@@ -118,6 +118,115 @@ describe('executeScheduleWorker command scope', () => {
   })
 })
 
+describe('executeScheduleWorker command actor attribution', () => {
+  function runWorker(
+    schedule: ScheduledJob,
+    payloadOverrides: Record<string, unknown> = {},
+    context = buildWorkerContext(schedule),
+  ) {
+    return {
+      context,
+      promise: executeScheduleWorker(
+        {
+          id: 'queued-job-1',
+          queue: 'scheduler-execution',
+          payload: {
+            scheduleId,
+            tenantId: schedule.tenantId,
+            organizationId: schedule.organizationId,
+            scopeType: schedule.scopeType,
+            ...payloadOverrides,
+          },
+          attempts: 0,
+          createdAt: Date.now(),
+        },
+        context.context,
+      ),
+    }
+  }
+
+  beforeEach(() => {
+    mockCommandExecute.mockReset()
+    mockCommandExecute.mockResolvedValue({ result: { ok: true }, logEntry: null })
+  })
+
+  it('runs a manual trigger as the user who triggered it, not the creator', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'manual',
+      triggeredByUserId: 'user-b',
+    })
+    await promise
+
+    // The gate authorizes the identity that will execute...
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-b',
+      ['scheduler.jobs.manage'],
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
+    )
+    // ...and the command context carries that same identity.
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-b', userId: 'user-b' })
+  })
+
+  it('keeps running an unattended run as the schedule creator', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule)
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      ['scheduler.jobs.manage'],
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
+    )
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-a', userId: 'user-a' })
+  })
+
+  it('ignores a triggering user carried on a scheduled (non-manual) run', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'scheduled',
+      triggeredByUserId: 'user-b',
+    })
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('refuses a manual trigger whose triggering user lacks the target features, even when the creator holds them', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const context = buildWorkerContext(schedule)
+    context.rbacService.userHasAllFeatures.mockImplementation(async (userId: string) => userId === 'user-a')
+
+    const { promise } = runWorker(schedule, { triggerType: 'manual', triggeredByUserId: 'user-b' }, context)
+
+    await expect(promise).rejects.toThrow('Scheduled command actor is not authorized')
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the creator when a manual trigger carries no user (API-key caller)', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'manual',
+      triggeredByUserId: null,
+    })
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      expect.anything(),
+      expect.anything(),
+    )
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-a' })
+  })
+})
+
 describe('executeScheduleWorker queue target payload contract', () => {
   const enqueue = jest.fn(async () => 'target-job-1')
   const close = jest.fn(async () => undefined)

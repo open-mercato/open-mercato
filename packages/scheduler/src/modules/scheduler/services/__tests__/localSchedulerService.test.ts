@@ -400,7 +400,7 @@ describe('LocalSchedulerService', () => {
         'scheduler.job.failed',
         expect.objectContaining({
           id: 'test-1',
-          error: 'Scheduled command creator is not authorized',
+          error: 'Scheduled command actor is not authorized',
         })
       )
       consoleErrorSpy.mockRestore()

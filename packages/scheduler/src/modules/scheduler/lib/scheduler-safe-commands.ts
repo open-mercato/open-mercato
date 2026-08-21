@@ -65,7 +65,7 @@ export async function assertSchedulerSafeCommandAuthorized(params: {
 
   const actorUserId = normalizeCommandId(params.actorUserId)
   if (!actorUserId) {
-    throw new Error('Scheduled command requires an authenticated creator')
+    throw new Error('Scheduled command requires an authenticated actor')
   }
 
   if (typeof params.rbacService.userHasAllFeatures !== 'function') {
@@ -77,7 +77,7 @@ export async function assertSchedulerSafeCommandAuthorized(params: {
     organizationId: params.organizationId ?? null,
   })
   if (!authorized) {
-    throw new Error('Scheduled command creator is not authorized')
+    throw new Error('Scheduled command actor is not authorized')
   }
 
   return command
