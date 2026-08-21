@@ -37,11 +37,12 @@ const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|passwo
 const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
 const GENERATED_YARN_CONFIG_LIMIT = 16_384
 // The deterministic step invokes no model, so its ceiling must not ride --case-timeout. Timed on
-// macOS, the complete 213-case catalog finished in 211-515 ms, and going from one case to the whole
-// catalog cost about 35 ms, so the run is dominated by fixed process and catalog load rather than
-// by case count. A flat allowance is therefore the honest shape, and 120000 ms is both about 233x
-// the slowest observed run and the value this gate already gives its other model-free step,
-// fixture preparation. It bounds a hang; a healthy run never approaches it.
+// Linux x86_64, the complete 234-case catalog finished in 768-998 ms, and narrowing the selection
+// down to a single case measured 842-890 ms, inside the same spread, so the run is dominated by
+// fixed process and catalog load rather than by case count. A flat allowance is therefore the
+// honest shape, and 120000 ms is both about 120x the slowest observed run and the value this gate
+// already gives its other model-free step, fixture preparation. It bounds a hang; a healthy run
+// never approaches it.
 export const DETERMINISTIC_STEP_TIMEOUT_MS = 120_000
 
 function usage() {

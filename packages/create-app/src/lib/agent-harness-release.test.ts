@@ -82,16 +82,17 @@ test('the deterministic step budgets its process independently of the per-model 
   assert.equal(invocation.args.includes('--runner'), false)
   assert.equal(invocation.args.includes('--timeout'), false)
   assert.equal(invocation.timeout, release.DETERMINISTIC_STEP_TIMEOUT_MS)
-  // 120000 ms is about 233x the slowest observed complete-catalog run (515 ms cold, 211-258 ms
-  // warm, 213 cases) and matches the flat allowance the gate already gives fixture preparation,
-  // the release path's other model-free step.
+  // 120000 ms is about 120x the slowest observed complete-catalog run (768-998 ms over the shipped
+  // catalog) and matches the flat allowance the gate already gives fixture preparation, the release
+  // path's other model-free step.
   assert.equal(release.DETERMINISTIC_STEP_TIMEOUT_MS, 120_000)
   // The invocation takes the evaluator and the root and nothing else, so no operator ceiling and no
   // catalog size can reach it. Spell out what the old formula would have produced across the whole
-  // accepted --case-timeout range and a catalog ten times the shipped one, so a future edit that
-  // reintroduces the scaling has to break this assertion to do it.
+  // accepted --case-timeout range and over catalog sizes from a single case to ten times the
+  // present one, so a future edit that reintroduces the scaling has to break this assertion to do
+  // it. The assertion holds for any size, so catalog growth never makes these figures wrong.
   for (const caseTimeout of [1_000, 120_000, 600_000, 3_600_000]) {
-    for (const caseCount of [1, 213, 2_130]) {
+    for (const caseCount of [1, 234, 2_340]) {
       assert.notEqual(invocation.timeout, caseTimeout * Math.max(1, caseCount) + 60_000)
     }
   }

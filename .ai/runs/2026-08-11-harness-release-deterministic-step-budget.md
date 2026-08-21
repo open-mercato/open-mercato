@@ -39,6 +39,33 @@ Two facts follow, and they decide the shape of the fix:
 2. The cost is **almost entirely fixed** (process start plus catalog/guide load). Going from 1 case
    to 213 adds roughly 35 ms, i.e. a marginal cost near **0.2 ms per case**.
 
+### Re-measurement after the 2026-08-21 base merge
+
+Merging the latest `develop` grew the shipped catalog from 213 cases to 234, which made the numbers
+above stale and tripped the repo's own `every published case count states the shipped catalog or the
+portability sample` guard in `agent-surface-coverage.test.ts`. The measurement was therefore repeated
+against the current catalog, on Linux x86_64 this time, five runs per selection. Every run reported
+`Deterministic: 234/234 selected cases passed`.
+
+| Selection | Cases | Observed wall time |
+|---|---|---|
+| `--case OMH-001` | 1 | 842 ms, 871 ms, 871 ms, 890 ms, 889 ms |
+| `--family testing` | 8 | 875 ms, 933 ms, 962 ms, 823 ms, 949 ms |
+| `--family business` | 63 | 791 ms, 951 ms, 967 ms, 929 ms, 950 ms |
+| `--all` | 234 | 917 ms, 998 ms, 768 ms, 812 ms, 934 ms |
+
+This host is uniformly slower than the macOS one — process start dominates on both, and here it
+costs roughly 850 ms rather than 180 ms. Both readings survive, and the second is now the stronger
+of the two: the complete-catalog run still finishes in **well under a second** (slowest 998 ms), and
+the single-case run and the complete-catalog run are no longer distinguishable at all — their ranges
+overlap, so the per-case marginal cost is below this host's run-to-run noise. Fact 2 therefore holds
+more firmly than it did at 0.2 ms per case: catalog size does not move the duration, and a flat
+budget remains the honest shape. The one figure that changes is the safety factor, from about 233×
+the slowest observed run to about **120×** — still a ceiling no healthy run can approach.
+
+The shipped documentation (`RELEASE.md`, the constant's comment, and the test's comment) states this
+second measurement, because it is the one taken against the catalog the gate actually ships.
+
 ## Decision
 
 A **flat 120 000 ms** allowance, `DETERMINISTIC_STEP_TIMEOUT_MS`, returned together with the argv
@@ -47,9 +74,10 @@ from an exported `deterministicInvocation()` so the call site and the test read 
 - Flat rather than catalog-scaled, because fact 2 says catalog size barely moves the duration —
   scaling on `caseCount` would be fitting noise. At 0.2 ms per case the catalog would need to reach
   six figures before it consumed a meaningful part of the ceiling.
-- 120 000 ms rather than a freehand number, because it is roughly **233×** the slowest observed run
-  and it is the value this script already gives its other model-free step: fixture preparation runs
-  under a flat `120_000`. The gate now budgets model-free work one way and model work another.
+- 120 000 ms rather than a freehand number, because it is roughly **120×** the slowest observed run
+  (about 233× against the earlier macOS measurement) and it is the value this script already gives
+  its other model-free step: fixture preparation runs under a flat `120_000`. The gate now budgets
+  model-free work one way and model work another.
 
 ## Tasks / Progress
 
@@ -60,6 +88,8 @@ from an exported `deterministicInvocation()` so the call site and the test read 
 - [x] Record the change and the governed lanes in `agentic/shared/ai/harness/RELEASE.md`
 - [x] Run the validation gate — local runner, no compose `app` container; all eight commands green
 - [x] Open the PR
+- [x] Merge the latest `develop` in, re-measure against the grown 234-case catalog, and restate the
+      published figures (2026-08-21, `om-auto-fix-pr`)
 
 ## Notes
 
