@@ -172,9 +172,11 @@ export async function buildPersonEmailThreads(
   )) as CustomerInteraction[]
 
   const linkIds: string[] = []
+  const seenLinkIds = new Set<string>()
   for (const interaction of interactions) {
     const linkId = interaction.externalMessageId
-    if (!linkId || linkIds.includes(linkId)) continue
+    if (!linkId || seenLinkIds.has(linkId)) continue
+    seenLinkIds.add(linkId)
     linkIds.push(linkId)
   }
   if (linkIds.length === 0) return []
