@@ -22,7 +22,7 @@ type ModelUsageResponse = {
 
 test.describe('TC-AGENT-COMPLIANCE-001: tenant model usage export', () => {
   test('requires authentication and exports the scoped registry as JSON and CSV', async ({ request }) => {
-    const anonymous = await apiRequest(request, 'GET', '/api/agent_orchestrator/model-usage')
+    const anonymous = await request.get('/api/agent_orchestrator/model-usage')
     expect(anonymous.status()).toBe(401)
 
     const token = await getAuthToken(request, 'admin@acme.com', 'secret')
