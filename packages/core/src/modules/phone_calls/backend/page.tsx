@@ -9,6 +9,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useProgressPoll } from '@open-mercato/ui/backend/progress/useProgressPoll'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { PHONE_CALL_RESOURCE_KIND } from '@open-mercato/shared/modules/phone_calls/types'
@@ -96,6 +97,27 @@ export default function PhoneCallsPage() {
     if (meta?.resourceKind !== PHONE_CALL_RESOURCE_KIND) return
     setReloadToken((token) => token + 1)
   }, [])
+
+  // The event above is a live subscription with no replay: one emitted while the stream is
+  // reconnecting is gone, and the grid keeps showing a range the ingest already filled. Polling
+  // asks for state instead of waiting to be told, keyed by job id so nothing reloads twice.
+  const { recentlyCompleted } = useProgressPoll()
+  const seenJobIds = React.useRef<Set<string> | null>(null)
+  React.useEffect(() => {
+    const ingestJobs = recentlyCompleted.filter(
+      (job) => (job.meta as { resourceKind?: string } | null | undefined)?.resourceKind === PHONE_CALL_RESOURCE_KIND,
+    )
+    // Jobs that finished before this page mounted are recorded without a reload; the initial
+    // load already covers them.
+    if (seenJobIds.current === null) {
+      seenJobIds.current = new Set(ingestJobs.map((job) => job.id))
+      return
+    }
+    const unseen = ingestJobs.filter((job) => !seenJobIds.current!.has(job.id))
+    if (!unseen.length) return
+    for (const job of unseen) seenJobIds.current.add(job.id)
+    setReloadToken((token) => token + 1)
+  }, [recentlyCompleted])
 
   const queryString = React.useMemo(() => {
     const params = new URLSearchParams()
