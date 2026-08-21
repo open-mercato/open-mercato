@@ -49,6 +49,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
           name: taskName,
           targetType: 'agent',
           targetAgentId: 'deals.health_check',
+          triggers: [{ kind: 'manual' }],
           enabled: true,
         },
       })
