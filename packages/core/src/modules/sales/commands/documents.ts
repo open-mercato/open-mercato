@@ -9104,6 +9104,58 @@ const createInvoiceCommand: CommandHandler<
   },
 };
 
+const invoiceUpdateChangeKeys = [
+  "invoiceNumber",
+  "statusEntryId",
+  "status",
+  "issueDate",
+  "dueDate",
+  "currencyCode",
+  "subtotalNetAmount",
+  "subtotalGrossAmount",
+  "discountTotalAmount",
+  "taxTotalAmount",
+  "grandTotalNetAmount",
+  "grandTotalGrossAmount",
+  "paidTotalAmount",
+  "outstandingAmount",
+  "metadata",
+] as const;
+
+function selectInvoiceUpdateChangeKeys(
+  input: z.infer<typeof invoiceUpdateSchema>,
+): Array<(typeof invoiceUpdateChangeKeys)[number]> {
+  return invoiceUpdateChangeKeys.filter((key) =>
+    key === "status"
+      ? input.statusEntryId !== undefined
+      : input[key as keyof z.infer<typeof invoiceUpdateSchema>] !== undefined,
+  );
+}
+
+function applyInvoiceHeaderUpdate(
+  invoice: SalesInvoice,
+  input: z.infer<typeof invoiceUpdateSchema>,
+  resolvedStatus: string | null | undefined,
+): void {
+  if (input.invoiceNumber !== undefined) invoice.invoiceNumber = input.invoiceNumber;
+  if (input.statusEntryId !== undefined) {
+    invoice.statusEntryId = input.statusEntryId;
+    invoice.status = resolvedStatus ?? null;
+  }
+  if (input.issueDate !== undefined) invoice.issueDate = input.issueDate;
+  if (input.dueDate !== undefined) invoice.dueDate = input.dueDate;
+  if (input.currencyCode !== undefined) invoice.currencyCode = input.currencyCode;
+  if (input.subtotalNetAmount !== undefined) invoice.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) invoice.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
+  if (input.discountTotalAmount !== undefined) invoice.discountTotalAmount = toNumericString(input.discountTotalAmount);
+  if (input.taxTotalAmount !== undefined) invoice.taxTotalAmount = toNumericString(input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) invoice.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) invoice.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
+  if (input.paidTotalAmount !== undefined) invoice.paidTotalAmount = toNumericString(input.paidTotalAmount);
+  if (input.outstandingAmount !== undefined) invoice.outstandingAmount = toNumericString(input.outstandingAmount);
+  if (input.metadata !== undefined) invoice.metadata = input.metadata;
+}
+
 const updateInvoiceCommand: CommandHandler<
   z.infer<typeof invoiceUpdateSchema>,
   { invoiceId: string }
@@ -9132,29 +9184,12 @@ const updateInvoiceCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(invoice, parsed, [
-      "invoiceNumber",
-      "statusEntryId",
-      "status",
-      "issueDate",
-      "dueDate",
-      "currencyCode",
-      "subtotalNetAmount",
-      "subtotalGrossAmount",
-      "discountTotalAmount",
-      "taxTotalAmount",
-      "grandTotalNetAmount",
-      "grandTotalGrossAmount",
-      "paidTotalAmount",
-      "outstandingAmount",
-      "metadata",
-    ]);
-
+    let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
-      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
+      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
     }
 
-    Object.assign(invoice, changes);
+    applyInvoiceHeaderUpdate(invoice, parsed, resolvedStatus);
     invoice.updatedAt = new Date();
     await em.flush();
 
@@ -9190,11 +9225,18 @@ const updateInvoiceCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadInvoiceSnapshot(em, result.invoiceId);
   },
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const before = snapshots.before as InvoiceGraphSnapshot | undefined;
     const after = snapshots.after as InvoiceGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
+    const changes = before
+      ? buildChanges(
+          before.invoice as unknown as Record<string, unknown>,
+          after.invoice as unknown as Record<string, unknown>,
+          selectInvoiceUpdateChangeKeys(input),
+        )
+      : {};
     return {
       actionLabel: translate("sales.audit.invoices.update", "Update invoice"),
       resourceKind: "sales.invoice",
@@ -9203,6 +9245,7 @@ const updateInvoiceCommand: CommandHandler<
       organizationId: after.invoice.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: { before, after } satisfies InvoiceUndoPayload,
       },
@@ -9611,6 +9654,52 @@ const createCreditMemoCommand: CommandHandler<
   },
 };
 
+const creditMemoUpdateChangeKeys = [
+  "creditMemoNumber",
+  "statusEntryId",
+  "status",
+  "reason",
+  "issueDate",
+  "currencyCode",
+  "subtotalNetAmount",
+  "subtotalGrossAmount",
+  "taxTotalAmount",
+  "grandTotalNetAmount",
+  "grandTotalGrossAmount",
+  "metadata",
+] as const;
+
+function selectCreditMemoUpdateChangeKeys(
+  input: z.infer<typeof creditMemoUpdateSchema>,
+): Array<(typeof creditMemoUpdateChangeKeys)[number]> {
+  return creditMemoUpdateChangeKeys.filter((key) =>
+    key === "status"
+      ? input.statusEntryId !== undefined
+      : input[key as keyof z.infer<typeof creditMemoUpdateSchema>] !== undefined,
+  );
+}
+
+function applyCreditMemoHeaderUpdate(
+  creditMemo: SalesCreditMemo,
+  input: z.infer<typeof creditMemoUpdateSchema>,
+  resolvedStatus: string | null | undefined,
+): void {
+  if (input.creditMemoNumber !== undefined) creditMemo.creditMemoNumber = input.creditMemoNumber;
+  if (input.statusEntryId !== undefined) {
+    creditMemo.statusEntryId = input.statusEntryId;
+    creditMemo.status = resolvedStatus ?? null;
+  }
+  if (input.reason !== undefined) creditMemo.reason = input.reason;
+  if (input.issueDate !== undefined) creditMemo.issueDate = input.issueDate;
+  if (input.currencyCode !== undefined) creditMemo.currencyCode = input.currencyCode;
+  if (input.subtotalNetAmount !== undefined) creditMemo.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) creditMemo.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
+  if (input.taxTotalAmount !== undefined) creditMemo.taxTotalAmount = toNumericString(input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) creditMemo.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) creditMemo.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
+  if (input.metadata !== undefined) creditMemo.metadata = input.metadata;
+}
+
 const updateCreditMemoCommand: CommandHandler<
   z.infer<typeof creditMemoUpdateSchema>,
   { creditMemoId: string }
@@ -9639,26 +9728,12 @@ const updateCreditMemoCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(creditMemo, parsed, [
-      "creditMemoNumber",
-      "statusEntryId",
-      "status",
-      "reason",
-      "issueDate",
-      "currencyCode",
-      "subtotalNetAmount",
-      "subtotalGrossAmount",
-      "taxTotalAmount",
-      "grandTotalNetAmount",
-      "grandTotalGrossAmount",
-      "metadata",
-    ]);
-
+    let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
-      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
+      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
     }
 
-    Object.assign(creditMemo, changes);
+    applyCreditMemoHeaderUpdate(creditMemo, parsed, resolvedStatus);
     creditMemo.updatedAt = new Date();
     await em.flush();
 
@@ -9694,11 +9769,18 @@ const updateCreditMemoCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadCreditMemoSnapshot(em, result.creditMemoId);
   },
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const before = snapshots.before as CreditMemoGraphSnapshot | undefined;
     const after = snapshots.after as CreditMemoGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
+    const changes = before
+      ? buildChanges(
+          before.creditMemo as unknown as Record<string, unknown>,
+          after.creditMemo as unknown as Record<string, unknown>,
+          selectCreditMemoUpdateChangeKeys(input),
+        )
+      : {};
     return {
       actionLabel: translate("sales.audit.credit_memos.update", "Update credit memo"),
       resourceKind: "sales.credit_memo",
@@ -9707,6 +9789,7 @@ const updateCreditMemoCommand: CommandHandler<
       organizationId: after.creditMemo.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: { before, after } satisfies CreditMemoUndoPayload,
       },
