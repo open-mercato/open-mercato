@@ -18,9 +18,21 @@
 - Logical per-tenant export/restore (tenant portability, selective restore into a live database).
 - Point-in-time recovery (WAL archiving) — see "Relation to infrastructure-level DR" below.
 
+### Implemented CLI baseline (2026-08-21)
+
+The first independently deployable slice is implemented in the Enterprise `backups` module. It provides local encrypted whole-database archives and the following commands: `backups run`, `backups list`, `backups verify`, and `backups restore`.
+
+- `run` streams `pg_dump -Fc` through AES-256-GCM, writes an atomic manifest with the encrypted archive checksum, application version, PostgreSQL tool version, migration fingerprint, actor, scope, and operation ID.
+- `verify` checks the checksum, encryption-key fingerprint, application/tool compatibility, GCM authentication tag, and `pg_restore --list` without changing a database.
+- `restore --dry-run` executes the same non-mutating verification path. A real restore requires `OM_BACKUP_RESTORE_DATABASE_URL`, `--force`, and `--confirm <database>`. Version mismatch remains blocked unless the operator separately passes `--allow-version-mismatch`.
+- Each backup, verification, and restore writes signed `started` plus `completed` or `failed` receipts to `OM_BACKUP_AUDIT_DIRECTORY`. The receipt store is independent of the database being restored and should be mounted or shipped to operator-controlled append-only storage.
+- Database credentials and keys are env-only. They are never accepted as CLI arguments.
+
+The scheduled S3 pipeline, retention worker, status API, admin page, and erasure-manifest integration described below remain pending extensions. The local CLI baseline does not depend on them.
+
 **Concerns:**
 - `storage-s3` upload is `Buffer`-only; archives need additive **optional** streaming methods on the driver.
-- The archive encryption key is a restore precondition — escrow procedure documented; after rotation the old key must be kept until its archives age out (restore accepts an explicit `--encryption-key` for pre-rotation archives).
+- The archive encryption key is a restore precondition — escrow procedure documented; after rotation the old key must be kept until its archives age out and supplied through the secret environment for the restore process. Keys are never accepted as CLI arguments.
 - Notifications are tenant-scoped by contract, so scheduled (tenant-less) run failures have no notification addressee in v1 — detection relies on the status page freshness state plus a documented external uptime check; manual runs notify the triggering admin through the standard path.
 
 ## Overview
@@ -152,11 +164,11 @@ Errors: 401/403 per guards; 409 when a `backup_run` row is already `running` —
 
 ## CLI Contracts (`ModuleCli[]` in `cli.ts`)
 
-No enterprise module ships a `cli.ts` today — `backups` is the first; Phase 1 verifies registry discovery (`modules.cli.generated.ts`) early.
+The Enterprise `backups` module ships the CLI baseline described above. The contracts below describe the remaining object-storage and verification-database extensions planned for the automated pipeline.
 
 - `mercato backups run [--label <text>]` — synchronous backup with progress output; exits non-zero on failure.
 - `mercato backups list [--status <s>]` — archive inventory table.
-- `mercato backups restore <runId|storageKey> [--target-database-url <url>] [--force] [--encryption-key <base64>]` — downloads, verifies `checksum_sha256`, decrypts (`--encryption-key` overrides the env key for pre-rotation archives; the run row's key fingerprint identifies which key an archive needs), `pg_restore`s. Safety rails: refuses a non-empty target without `--force`; when the target is the live `DATABASE_URL` it requires typing the database name to confirm; prints a maintenance-mode reminder. Afterwards: diffs the erasure manifest against the restored database state **across all `tenant_<id>` prefixes** (a physical restore resurrects every tenant at once) and prints the re-run list (masked labels + request ids), warns if the producer module is inactive, then emits `backups.restore.completed` with `pendingErasureCount` and exits with a distinct code when it is > 0. The restore runbook documents the cross-environment key-material caveat (issue #994): restoring into a different environment requires the same tenant DEKs and archive key.
+- `mercato backups restore <runId|storageKey> [--force]` — downloads and restores an object-storage archive. The existing local implementation reads the target only from `OM_BACKUP_RESTORE_DATABASE_URL`, requires `--confirm <database>`, and reads the archive key only from the environment. Planned object-storage support retains these secret-safe contracts. Afterwards: diffs the erasure manifest against the restored database state **across all `tenant_<id>` prefixes** (a physical restore resurrects every tenant at once) and prints the re-run list (masked labels + request ids), warns if the producer module is inactive, then emits `backups.restore.completed` with `pendingErasureCount` and exits with a distinct code when it is > 0. The restore runbook documents the cross-environment key-material caveat (issue #994): restoring into a different environment requires the same tenant DEKs and archive key.
 - `mercato backups verify [runId]` — restores the given (default: latest completed) archive into `OM_BACKUP_VERIFY_DATABASE_URL`, runs sanity checks (pg_restore exit code, row-count spot checks on `users`/`tenants`, migrations table matches source), prints the result and exits non-zero on failure, drops the scratch schema. On-demand in v1; operators can schedule it through the scheduler admin UI.
 
 `pg_dump`/`pg_restore` are invoked with the connection string passed via environment (never argv), version-checked at startup, `pg_dump_version` recorded per run. No user-controlled input is interpolated into argv.
@@ -176,7 +188,7 @@ Backup pipeline: `pg_dump -Fc` stdout → `crypto.createCipheriv('aes-256-gcm')`
 
 ## Security Considerations
 
-- Archive encryption: AES-256-GCM with an instance key from env; fingerprint recorded per run; the key never appears in logs, API responses, `backup_run` rows, or the archive. Rotation: set the new key, keep the old key escrowed until its archives age out, pass it explicitly (`--encryption-key`) when restoring a pre-rotation archive. No in-app multi-key slot in v1.
+- Archive encryption: AES-256-GCM with an instance key from env; fingerprint recorded per run; the key never appears in logs, API responses, `backup_run` rows, or the archive. Rotation: set the new key, keep the old key escrowed until its archives age out, and inject the required key into the restore process environment for a pre-rotation archive. No in-app multi-key slot in v1.
 - Losing the key = losing the backups. Status page shows the active key fingerprint; docs state the key must be escrowed separately from the database host.
 - Restore endpoint does not exist over HTTP.
 - Manifest entries are plain JSON that only produce an operator-reviewed re-run list — a tampered entry cannot trigger automated deletion.
@@ -239,7 +251,7 @@ Each phase ends with a working application (`yarn generate && yarn typecheck && 
 | Risk | Severity | Mitigation | Residual |
 |------|----------|------------|----------|
 | Backup silently stops (worker dead, schedule never fires) | High | Freshness state on status page + documented external uptime check on `/api/backups/status`; schedules visible in scheduler admin UI; on-demand `backups verify` | Operator without external monitoring notices only on the status page |
-| Encryption key lost | High | Loud docs + fingerprint on status page + escrow guidance incl. post-rotation retention (`--encryption-key` flag) | Key loss irrecoverable by design |
+| Encryption key lost | High | Loud docs + fingerprint on status page + escrow guidance covering post-rotation retention and restore-time secret injection | Key loss irrecoverable by design |
 | Restore executed against live DB by mistake | High | Typed-confirmation rail, non-empty-target guard, `--force` explicitness | Operator with raw `pg_restore` bypasses tooling — documented unsupported |
 | Operator skips the post-restore re-run step | Medium | Restore CLI prints the list, exits with a distinct code when `pendingErasureCount > 0`, runbook marks the step mandatory | Human-process risk; accepted (see companion spec's guarantee/control split) |
 | pg_dump version drift vs server / missing binaries | Medium | Phase 0 Gate A before any code; version recorded per run; on-demand verify catches later drift | — |
@@ -253,5 +265,6 @@ Inherited from the combined spec's rev-5 report (all rows unchanged for the back
 
 ## Changelog
 
+- 2026-08-21: Implemented the local audited CLI baseline: encrypted streaming backup, atomic manifest, checksum and migration fingerprint, offline verification and dry-run, safety-railed restore, and independent signed operation receipts. Kept scheduling, S3, retention, UI, and erasure-manifest integration as pending extensions.
 - 2026-07-08: Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) — this file carries the backups module, the storage-streaming platform extension, and the erasure-manifest mechanism (contract + restore-time diff); the erasure producer, ledger, and GDPR framing live in [`2026-07-08-gdpr-data-erasure.md`](2026-07-08-gdpr-data-erasure.md). Added "Relation to infrastructure-level DR" recording the open core-team discussion (PR #3742): in-app = portable baseline + compliance surface; WAL/PITR IaC repo = complementary recommended upgrade track.
 - Inherited history (combined spec): 2026-07-02 initial + full spec (PR #3742); 2026-07-03 rev 2 (gap-analysis corrections: scheduler adoption instead of queue extension, storage path via `createStorageService()`, DB-status single-flight) and rev 3 (market research applied); 2026-07-04 rev 4 (descoped above-market clusters: automated replay → guided re-run, verification worker → on-demand CLI, notification resolver removed, key-rotation slot removed) and rev 5 (executor+advisor review: `runMutationGuards()` citation fix, Phase 0 gates, edit-survivor sweep, `seedDefaults` mechanism); 2026-07-06 market references generalized to pattern descriptions.

@@ -154,7 +154,7 @@ WORKDIR /app
 
 # Build toolchain kept: the entrypoint's fallback `yarn install` (stale
 # lockfile vs prebuilt image) still compiles native modules.
-RUN apk add --no-cache python3 make g++ ca-certificates openssl
+RUN apk add --no-cache python3 make g++ ca-certificates openssl postgresql-client
 RUN corepack enable
 
 # Prebuilt artifacts, staged OUTSIDE /app because the repo bind mount masks
@@ -210,9 +210,9 @@ WORKDIR /app
 # Install only production system dependencies (Alpine uses apk)
 # sudo: allows non-root user to chown the Railway-mounted volume at startup
 RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
-      apk add --no-cache ca-certificates chromium openssl sudo; \
+      apk add --no-cache ca-certificates chromium openssl postgresql-client sudo; \
     else \
-      apk add --no-cache ca-certificates openssl sudo; \
+      apk add --no-cache ca-certificates openssl postgresql-client sudo; \
     fi
 
 # Enable Corepack for Yarn

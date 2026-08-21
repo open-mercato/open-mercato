@@ -194,6 +194,7 @@ if (enterpriseModulesEnabled) {
   enabledModules.push(
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
+    { id: 'backups', from: '@open-mercato/enterprise' },
   )
 }
 

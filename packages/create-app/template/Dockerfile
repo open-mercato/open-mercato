@@ -37,7 +37,7 @@ ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
 
 WORKDIR /app
 
-RUN apk add --no-cache python3 make g++ ca-certificates openssl
+RUN apk add --no-cache python3 make g++ ca-certificates openssl postgresql-client
 RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml ./
@@ -81,9 +81,9 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
-      apk add --no-cache ca-certificates chromium openssl; \
+      apk add --no-cache ca-certificates chromium openssl postgresql-client; \
     else \
-      apk add --no-cache ca-certificates openssl; \
+      apk add --no-cache ca-certificates openssl postgresql-client; \
     fi
 RUN corepack enable
 
