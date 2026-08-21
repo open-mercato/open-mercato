@@ -1056,6 +1056,8 @@
   "sales.documents.items.variantSearch": "Search variant",
   "sales.documents.list.errors.load": "Failed to load documents.",
   "sales.documents.list.filters.channel": "Channel",
+  "sales.documents.list.filters.channelPlaceholder": "Search channels",
+  "sales.documents.list.filters.channelUnassigned": "(No channel)",
   "sales.documents.list.filters.customer": "Customer id",
   "sales.documents.list.filters.customerPlaceholder": "Customer id",
   "sales.documents.list.filters.date": "Date",
