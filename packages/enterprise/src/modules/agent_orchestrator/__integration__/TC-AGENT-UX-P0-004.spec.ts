@@ -19,7 +19,7 @@ import {
 import { deleteAgentProcessesForOrganization, insertAgentProcessFixture } from './helpers/agentUxFixtures'
 
 /**
- * TC-AGENT-UX-P0-004: Caseload inbox pager + disabled process stub actions.
+ * TC-AGENT-UX-P0-004: Caseload inbox pager + non-operable process stub actions.
  * Source: spec .ai/specs/enterprise/agent-orchestrator/2026-07-12-ux-p0-hotfixes.md
  * (§3 stub actions, §6 inbox pager, Testing Strategy).
  *
@@ -27,7 +27,8 @@ import { deleteAgentProcessesForOrganization, insertAgentProcessFixture } from '
  * view) must show a "1–20 of 25" range label and reach the remaining 5 rows on
  * page 2 — before this fix it hard-capped at the first 20 with no affordance.
  * A seeded agent_processes row then backs the detail-page assertion that
- * Pause/Reassign/Take-over render disabled (no success-flashing no-ops).
+ * Pause/Reassign/Take-over are either hidden or disabled according to the
+ * preview-UI flag, never enabled success-flashing no-ops.
  */
 
 const AGENT_ID = 'deals.health_check'
@@ -42,8 +43,8 @@ async function loginAs(page: Page, email: string, password: string): Promise<voi
   await expect(page).toHaveURL(/\/backend/, { timeout: 10_000 })
 }
 
-test.describe('TC-AGENT-UX-P0-004: inbox pager and disabled process actions', () => {
-  test('inbox pages past 20 rows and process actions are disabled', async ({ page, request }) => {
+test.describe('TC-AGENT-UX-P0-004: inbox pager and non-operable process actions', () => {
+  test('inbox pages past 20 rows and process actions cannot be invoked', async ({ page, request }) => {
     test.slow()
 
     const superadminToken = await getAuthToken(request, 'superadmin')
@@ -123,10 +124,18 @@ test.describe('TC-AGENT-UX-P0-004: inbox pager and disabled process actions', ()
       await page.getByRole('navigation', { name: /pagination/i }).getByRole('button', { name: /page 2/i }).click()
       await expect(page.getByText(`21–${PENDING_COUNT} of ${PENDING_COUNT}`)).toBeVisible({ timeout: 10_000 })
 
-      // --- Process detail stub actions render disabled.
+      // --- Preview stubs are hidden by default; when the preview flag enables
+      // them they remain disabled and therefore cannot claim a real action.
       await page.goto(`/backend/processes/${encodeURIComponent(processId)}`, { waitUntil: 'domcontentloaded' })
-      for (const name of [/pause/i, /reassign/i, /take over/i]) {
-        await expect(page.getByRole('button', { name })).toBeDisabled({ timeout: 10_000 })
+      const actionButtons = [/pause/i, /reassign/i, /take over/i].map((name) => page.getByRole('button', { name }))
+      const visibleActionCount = (await Promise.all(actionButtons.map((button) => button.count()))).reduce(
+        (sum, count) => sum + count,
+        0,
+      )
+      if (visibleActionCount > 0) {
+        for (const button of actionButtons) await expect(button).toBeDisabled()
+      } else {
+        for (const button of actionButtons) await expect(button).toHaveCount(0)
       }
     } finally {
       await deleteAgentOrchestratorRowsForOrganization(orgId).catch(() => {})
