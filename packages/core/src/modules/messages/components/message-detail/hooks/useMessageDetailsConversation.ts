@@ -13,6 +13,7 @@ export type ConversationItem = {
   senderEmail?: string | null
   externalName?: string | null
   externalEmail?: string | null
+  sourceEntityType?: string | null
   body: string
   bodyFormat?: 'text' | 'markdown'
   sentAt?: string | null
@@ -38,6 +39,7 @@ export function useMessageDetailsConversation({
         senderEmail: detail.senderEmail,
         externalName: detail.externalName,
         externalEmail: detail.externalEmail,
+        sourceEntityType: detail.sourceEntityType,
         body: detail.body,
         bodyFormat: detail.bodyFormat,
         sentAt: detail.sentAt,
@@ -53,6 +55,7 @@ export function useMessageDetailsConversation({
         senderEmail: item.senderEmail,
         externalName: item.externalName,
         externalEmail: item.externalEmail,
+        sourceEntityType: item.sourceEntityType,
         body: item.body,
         bodyFormat: item.bodyFormat,
         sentAt: item.sentAt,
@@ -67,6 +70,7 @@ export function useMessageDetailsConversation({
         senderEmail: detail.senderEmail,
         externalName: detail.externalName,
         externalEmail: detail.externalEmail,
+        sourceEntityType: detail.sourceEntityType,
         body: detail.body,
         bodyFormat: detail.bodyFormat,
         sentAt: detail.sentAt,

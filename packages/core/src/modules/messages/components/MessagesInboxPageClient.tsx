@@ -18,12 +18,13 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
-import { getMessageListParticipantLabel, getMessageParticipantLabel } from './messageListLabels'
+import { getMessageListParticipantLabel } from './messageListLabels'
 import { toErrorMessage } from './message-detail/utils'
 import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesInboxBulkActions'
 import {
   buildMessagesInboxFilters,
   buildMessagesListParams,
+  buildSenderOptionsFromMessages,
   type SenderOption,
 } from './inboxFilters'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -40,6 +41,7 @@ type MessageListItem = {
   senderEmail?: string | null
   externalName?: string | null
   externalEmail?: string | null
+  sourceEntityType?: string | null
   priority: string
   status: string
   hasObjects: boolean
@@ -238,22 +240,7 @@ export function MessagesInboxPageClient() {
 
   React.useEffect(() => {
     const items = listQuery.data?.items ?? []
-    const next = items.flatMap((item): SenderOption[] => {
-      if (typeof item.senderUserId !== 'string' || item.senderUserId.trim().length === 0) return []
-      const name = typeof item.senderName === 'string' && item.senderName.trim().length > 0
-        ? item.senderName.trim()
-        : null
-      const email = typeof item.senderEmail === 'string' && item.senderEmail.trim().length > 0
-        ? item.senderEmail.trim()
-        : null
-      const label = getMessageParticipantLabel(item)
-      return [{
-        value: item.senderUserId,
-        label,
-        description: email && email !== label ? email : null,
-      }]
-    })
-    mergeSenderOptions(next)
+    mergeSenderOptions(buildSenderOptionsFromMessages(items))
   }, [listQuery.data?.items, mergeSenderOptions])
 
   React.useEffect(() => {

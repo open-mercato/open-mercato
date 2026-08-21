@@ -108,6 +108,34 @@ describe('useMessageDetailsConversation', () => {
     expect(result.current.buildConversationListItemMessage(outbound!).senderName).toBe('Agent Smith')
   })
 
+  it('attributes an assigned inbound conversation to the external sender, not the assigned agent', () => {
+    // Once an operator assigns the conversation, ingest composes every further
+    // inbound message under the agent's user id, so the row resolves a real
+    // platform name. `sourceEntityType` is what tells the label chain the
+    // message came from outside and the agent is not its author.
+    const { result } = renderConversation(buildIngestedDetail({
+      sourceEntityType: 'communication_channels.external_conversation',
+      thread: [
+        {
+          id: 'message-1',
+          senderUserId: 'agent-1',
+          senderName: 'Anna Nowak',
+          senderEmail: 'anna@support.example.com',
+          externalName: 'Jan Kowalski',
+          externalEmail: 'jan@example.com',
+          sourceEntityType: 'communication_channels.external_conversation',
+          body: 'first message',
+          bodyFormat: 'text',
+          sentAt: '2026-08-13T09:00:00.000Z',
+        },
+      ],
+    }))
+
+    const inbound = result.current.conversationItems.find((item) => item.id === 'message-1')
+    expect(inbound?.sourceEntityType).toBe('communication_channels.external_conversation')
+    expect(result.current.buildConversationListItemMessage(inbound!).senderName).toBe('Jan Kowalski')
+  })
+
   it('falls back to the sender id only when no identity at all is available', () => {
     const { result } = renderConversation(buildIngestedDetail({
       thread: [

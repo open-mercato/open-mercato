@@ -64,6 +64,67 @@ describe('messageListLabels', () => {
   })
 })
 
+describe('inbound external attribution', () => {
+  const INBOUND = 'communication_channels.external_conversation'
+
+  it('attributes an assigned conversation to the external sender, not the assigned agent', () => {
+    // `ingest-inbound-message` composes with `mapping.assignedUserId` as the
+    // sender once an operator assigns the thread, so the agent resolves to a
+    // real name in the user directory. Preferring it would print the agent as
+    // the author of the customer's own email — a wrong answer that reads as a
+    // fact, unlike the uuid this fix originally replaced.
+    expect(getMessageParticipantLabel({
+      senderUserId: 'agent-1',
+      senderName: 'Anna Nowak',
+      senderEmail: 'anna@support.example.com',
+      externalName: 'Jan Kowalski',
+      externalEmail: 'jan@example.com',
+      sourceEntityType: INBOUND,
+    })).toBe('Jan Kowalski')
+
+    expect(getMessageListParticipantLabel({
+      senderUserId: 'agent-1',
+      senderName: 'Anna Nowak',
+      externalEmail: 'jan@example.com',
+      sourceEntityType: INBOUND,
+    }, 'inbox', t)).toBe('jan@example.com')
+  })
+
+  it('falls back to the platform sender when an inbound message carries no external identity', () => {
+    expect(getMessageParticipantLabel({
+      senderUserId: 'bot-1',
+      senderName: 'Channel Bot',
+      externalName: '  ',
+      externalEmail: null,
+      sourceEntityType: INBOUND,
+    })).toBe('Channel Bot')
+  })
+
+  it('keeps platform-sender precedence for outbound messages that carry an external counterparty', () => {
+    // `lib/send-as-user.ts` composes outbound mail with the same
+    // `channel.<provider>` type but `sourceEntityType` of
+    // `communication_channels.send_as_user`, and puts the SUBJECT in
+    // `externalName`. Discriminating on the type would label these with the
+    // subject line instead of their real author.
+    expect(getMessageParticipantLabel({
+      senderUserId: 'agent-1',
+      senderName: 'Anna Nowak',
+      externalName: 'Re: order 1234',
+      externalEmail: 'jan@example.com',
+      sourceEntityType: 'communication_channels.send_as_user',
+    })).toBe('Anna Nowak')
+  })
+
+  it('still returns the sender id for an inbound message with no identity at all', () => {
+    const systemUserId = '00000000-0000-0000-0000-000000000000'
+
+    expect(getMessageParticipantLabel({
+      senderUserId: systemUserId,
+      sourceEntityType: INBOUND,
+    })).toBe(systemUserId)
+  })
+})
+
 describe('getMessageParticipantLabel', () => {
   it('resolves identities in order without folder-specific rules', () => {
     expect(getMessageParticipantLabel({

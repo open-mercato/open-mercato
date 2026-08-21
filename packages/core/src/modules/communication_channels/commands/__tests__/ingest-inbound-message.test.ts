@@ -520,5 +520,24 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
     expect(composed.body).toContain('Opening line')
     expect(composed.body).not.toContain('MARKER-BEYOND-CAP')
     expect(composed.body.length).toBeLessThanOrEqual(50_000)
+    // The cap counts markup bytes and the compose-level cap counts text
+    // characters, so this one bites first and the compose-level marker never
+    // fires to cover for it. It must say so itself rather than ending the body
+    // mid-sentence with nothing to tell the reader the rest exists.
+    expect(composed.body).toContain('message truncated by Open Mercato')
+  })
+
+  it('does not mark an HTML body that fits inside the pre-parse cap', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(
+      makeInput('<html><body><p>Short enough</p></body></html>', 'html') as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.body).toContain('Short enough')
+    expect(composed.body).not.toContain('message truncated by Open Mercato')
   })
 })

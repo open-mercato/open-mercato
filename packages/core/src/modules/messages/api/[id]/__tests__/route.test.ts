@@ -445,6 +445,7 @@ describe('messages /api/messages/[id] GET', () => {
         senderUserId: systemUserId,
         externalName: 'Jan Kowalski',
         externalEmail: 'jan@example.com',
+        sourceEntityType: 'communication_channels.external_conversation',
         body: 'newest reply',
         bodyFormat: 'text',
         sentAt: new Date('2026-08-13T10:00:00.000Z'),
@@ -454,6 +455,7 @@ describe('messages /api/messages/[id] GET', () => {
         senderUserId: systemUserId,
         externalName: 'Jan Kowalski',
         externalEmail: 'jan@example.com',
+        sourceEntityType: 'communication_channels.external_conversation',
         body: 'first message',
         bodyFormat: 'text',
         sentAt: new Date('2026-08-13T09:00:00.000Z'),
@@ -511,6 +513,7 @@ describe('messages /api/messages/[id] GET', () => {
         senderName?: string | null
         externalName?: string | null
         externalEmail?: string | null
+        sourceEntityType?: string | null
       }>
     }
 
@@ -519,6 +522,10 @@ describe('messages /api/messages/[id] GET', () => {
       expect(item.senderName).toBeNull()
       expect(item.externalName).toBe('Jan Kowalski')
       expect(item.externalEmail).toBe('jan@example.com')
+      // The label chain needs this discriminator to know the external identity
+      // is the author here rather than the recipient — without it a thread
+      // assigned to an agent would print the agent as the customer's name.
+      expect(item.sourceEntityType).toBe('communication_channels.external_conversation')
     }
   })
 })

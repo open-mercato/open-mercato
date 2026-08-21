@@ -353,16 +353,24 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     const MAX_COMPOSE_BODY = 50_000
     // Bound the synchronous parse: inbound mail is untrusted and the 5MB body
     // ceiling from `lib/email-capabilities.ts` would otherwise block the ingest
-    // worker on a single oversized document. The cap is two orders of magnitude
-    // above the 50k that survives truncation, so no realistic message is cut.
+    // worker on a single oversized document. This cap counts markup bytes while
+    // MAX_COMPOSE_BODY counts text characters, so it can bite first — an
+    // ordinary marketing template or a long quoted thread is easily over 512KB
+    // of markup and still well under 50k characters of text. It therefore
+    // carries the same truncation marker, rather than ending mid-sentence with
+    // nothing to tell the reader the rest exists.
     const MAX_HTML_PARSE_INPUT = 512 * 1024
     const TRUNCATE_MARKER =
       '\n\n[…message truncated by Open Mercato — full body preserved in ExternalMessage.rawPayload]'
     const sourceBody = m.body ?? ''
     const plainAlternative =
       typeof m.channelPayload?.text === 'string' ? m.channelPayload.text.trim() : ''
+    const convertHtmlBody = () => {
+      const converted = htmlToPlainText(sourceBody.slice(0, MAX_HTML_PARSE_INPUT))
+      return sourceBody.length > MAX_HTML_PARSE_INPUT ? converted + TRUNCATE_MARKER : converted
+    }
     const rawBody = m.bodyFormat === 'html'
-      ? (plainAlternative || htmlToPlainText(sourceBody.slice(0, MAX_HTML_PARSE_INPUT)))
+      ? (plainAlternative || convertHtmlBody())
       : sourceBody
     const truncatedBody =
       rawBody.length > MAX_COMPOSE_BODY

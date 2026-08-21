@@ -57,6 +57,7 @@ export const messageThreadItemSchema = z.object({
   senderEmail: z.string().nullable().optional(),
   externalName: z.string().nullable().optional(),
   externalEmail: z.string().nullable().optional(),
+  sourceEntityType: z.string().nullable().optional(),
   body: z.string(),
   bodyFormat: z.enum(['text', 'markdown']).optional(),
   sentAt: z.string().nullable().optional(),
