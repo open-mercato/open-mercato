@@ -15,7 +15,7 @@
 - `AddressValue` contact fields + opt-in `AddressView` contact block
 - Tax-id typing (`taxIdType`) and EU-VAT normalization on write
 - Locked documents render a disabled editor instead of an editable one
-- Type-aware indexing/display policy for tax ids
+- Type-aware indexing policy for tax ids (display is ungated — see Design Decisions)
 - `name` → `label` rename on address entities (deprecation protocol)
 
 **Concerns:**
@@ -67,7 +67,7 @@ Model the contact details as **optional fields on `AddressValue`**, rendered by 
 | Contact block outside `formatAddressLines` | `formatAddressString` joins lines with `", "` into picker labels and table cells; a tax id spliced into `"Baker Street 10, NW1 London"` is wrong in every one. A test pins postal-line purity. |
 | Labels-as-opt-in, caller-translated | The util module is deliberately i18n-free; callers have `useT()`. Also enables phone-without-tax-id, which is the common delivery-address case. |
 | Snapshot as carrier on the sales side, not typed columns | The snapshot is where the per-document value is frozen and where integrations already write. Typed columns would need a write path and a backfill to reach the same place. |
-| Tax identifier carries an explicit type | Follows Stripe; without it the value cannot be interpreted, validated or gated. Shape is `{country}_{kind}` — see Design Decisions. |
+| Tax identifier carries an explicit type | Follows Stripe; without it the value cannot be interpreted, labelled or validated. Shape is `{country}_{kind}` — see Design Decisions. |
 
 ### Alternatives Considered
 
@@ -86,7 +86,7 @@ Every question raised while this spec was drafted is settled. They are recorded 
 
 - **Scope — one spec, phased.** Contact-detail rendering and tax-id semantics freeze the same `AddressValue` surface, so splitting them would commit to a bare `taxId: string` in the first spec and regret it in the second. The phases below are independently shippable, which is what a split would have bought.
 
-- **`taxIdType` is Stripe-shaped `{country}_{kind}`, seeded `eu_vat`, `pl_nip`, `other`, widened one case at a time as they are observed.** A minimal `eu_vat | local | other` enum was considered and rejected: `local` cannot be interpreted without a constrained country, `country` stays unconstrained free text (see the deferred-work list below), and the display gate would then have nothing reliable to key on — so the ambiguity in Problem 4 would move rather than resolve. The larger seed set is a smaller commitment than it looks, because the backward-compatibility contract makes these enums additive-only; only the seed values freeze. It also makes the display gate implementable immediately.
+- **`taxIdType` is Stripe-shaped `{country}_{kind}`, seeded `eu_vat`, `pl_nip`, `other`, widened one case at a time as they are observed.** A minimal `eu_vat | local | other` enum was considered and rejected: `local` cannot be interpreted without a constrained country, and `country` stays unconstrained free text (see the deferred-work list below) — so the ambiguity in Problem 4 would move rather than resolve. The larger seed set is a smaller commitment than it looks, because the backward-compatibility contract makes these enums additive-only; only the seed values freeze. It is what lets a renderer label `PL1234567890` as an EU VAT number and `1234567890` as a domestic one without guessing from the format.
 
 - **Displaying a tax identifier is not gated.** It renders to anyone who can read the record that carries it, like every other field on the address. A gate keyed on `taxIdType` was specified here and rejected in Phase 2 review, for two reasons that also rule out the obvious repairs. First, `1234567890` and `PL1234567890` are the same business with the same number, so keying on the format makes visibility depend on which form the source system happened to record rather than on anything about the data. Second, `customers/search.ts` does not draw that split: it divides on **who the identifier belongs to** — `:713` `excluded` for people, beside `government_id` and `ssn`; `:805` `hashOnly` for companies, beside `registration_number` — and a document address snapshot carries no reliable signal to tell a person from a company. Gating this one field also buys little while the company name, the recipient name and the full postal address render ungated beside it; for a sole trader those identify the person more than the number does. A deployment that needs the field hidden already has the mechanism: contact labels are opt-in per field, so supplying no `taxId` label renders no tax id.
 
@@ -166,7 +166,7 @@ The `SalesDocumentForm.tsx` copy is deliberately left alone: it runs only on doc
 
 ### Phase 1 — contact fields and render
 1. `AddressValue` + `formatAddressContactPairs` + `AddressView` contact block, with postal-purity and self-hiding tests.
-2. Wire to the shipping/billing snapshot tiles.
+2. Render `taxId` and `phone` as ordinary `AddressEditor` fields, and own them in the snapshot tiles' draft (`emptyDraft` + the normalising assign list) so a manual save keeps them.
 3. Add `taxIdType` to the type and the pair-formatter.
 4. Pass `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137`.
 5. Remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the errors it hides.
@@ -175,7 +175,7 @@ The `SalesDocumentForm.tsx` copy is deliberately left alone: it runs only on doc
 
 ### Phase 2 — tax-id semantics
 1. `normalizeEuVatId()` util — ISO-2 prefix on write.
-2. Type-aware display gate; align search config so a public VAT number may index where local/personal numbers stay `hashOnly` or excluded.
+2. Align search config so a public VAT number may index where local/personal numbers stay `hashOnly` or excluded. Indexing only — display is ungated, per Design Decisions.
 
 ### Phase 3 — recipient name + customer address book *(separable)*
 1. `recipientName` on `AddressValue`/`AddressView`; `recipient_name`, `phone` columns on `CustomerAddress` with encryption-map entries.
@@ -198,10 +198,10 @@ Write operations are limited to the existing document-update path (Phase 0/1) an
 
 #### Tax id shown to under-privileged users
 - **Scenario**: A personal (non-VAT) tax number renders in the document detail to a user who shouldn't see PII.
-- **Severity**: Medium
+- **Severity**: Low
 - **Affected area**: sales document detail
-- **Mitigation**: the type-aware gate ships with Phase 2, before any tax id renders to a non-privileged user; `pl_nip`/`other` sit behind the existing PII feature.
-- **Residual risk**: `eu_vat` renders ungated by design — it is a public identifier (VIES).
+- **Mitigation**: none by type, deliberately — a tax id renders to anyone who can read the record carrying it, like every other field on the address. Reading a sales document is itself the privilege: the company name, the recipient name and the full postal address already render ungated beside the number, and for a sole trader those identify the person more than it does. A deployment that needs the field hidden supplies no `taxId` contact label, which renders no tax id.
+- **Residual risk**: accepted. The rejected alternative — gating on `taxIdType` — gave the same business two different visibilities depending on whether its number was recorded as `1234567890` or `PL1234567890`.
 
 #### Editor merge-back resurrects a stale key
 - **Scenario**: Integration updates the snapshot while a user edits; save merges the user's postal fields with the pre-edit contact keys.
