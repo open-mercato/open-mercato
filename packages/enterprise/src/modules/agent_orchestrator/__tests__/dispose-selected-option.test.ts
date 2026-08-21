@@ -27,9 +27,13 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   validateCrudMutationGuard: jest.fn(async () => null),
   runCrudMutationGuardAfterSuccess: jest.fn(async () => {}),
 }))
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  invalidateCrudCache: jest.fn(async () => {}),
+}))
 
 import { disposeProposalSchema } from '../data/validators'
 import { disposeProposalCommand } from '../commands/dispose'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -226,6 +230,13 @@ describe('dispose command — the option must be one the agent offered', () => {
     expect(stored.selectedOptionId).toBe('hold')
     // The indexed float the low-confidence facet reads follows the CHOSEN option.
     expect(stored.confidence).toBe(0.3)
+    expect(invalidateCrudCache).toHaveBeenCalledWith(
+      expect.anything(),
+      'AgentProposal',
+      { id: PROPOSAL_ID, tenantId: TENANT, organizationId: ORG },
+      TENANT,
+      'command:agent_orchestrator.proposals.dispose',
+    )
   })
 
   test('an EDIT names an option from the ORIGINAL payload, not one invented in the edit', async () => {
