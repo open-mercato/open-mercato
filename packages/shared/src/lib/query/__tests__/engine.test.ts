@@ -178,6 +178,13 @@ function createFakeKysely(overrides?: FakeData) {
           return infoRows.find((row: any) => !targetTable || row.table_name === targetTable)
         }
         if (localOps.selects.some((s: any) => s && typeof s === 'object' && (s.__isCount || String(s?.alias || '') === 'count'))) {
+          // An aggregate over a recorded subquery (the capped-count probe) counts
+          // the subquery's source rows bounded by its LIMIT, mirroring Postgres.
+          if (localOps.subquery) {
+            const sourceRows = (data[localOps.subquery.table] || []).length
+            const innerLimit = localOps.subquery.limits
+            return { count: String(innerLimit ? Math.min(sourceRows, innerLimit) : sourceRows) }
+          }
           return { count: String((data[localOps.table] || []).length) }
         }
         const rows = data[localOps.table] || []
@@ -190,6 +197,22 @@ function createFakeKysely(overrides?: FakeData) {
   }
 
   function builderFor(tableArg: any): any {
+    if (tableArg && typeof tableArg === 'object' && tableArg._ops) {
+      // selectFrom(subquery.as(alias)) — the capped-count probe shape.
+      const ops = {
+        table: '__subquery__',
+        alias: tableArg._ops.alias ?? null,
+        subquery: tableArg._ops,
+        wheres: [] as any[],
+        joins: [] as any[],
+        selects: [] as any[],
+        orderBys: [] as any[],
+        groups: [] as any[],
+        limits: 0,
+        offsets: 0,
+      }
+      return makeBuilder(ops, true)
+    }
     const parsed = parseTableSpec(tableArg)
     const ops = {
       table: parsed.table,
@@ -695,10 +718,10 @@ describe('BasicQueryEngine (Kysely)', () => {
 
     expect(result.items.map((item: any) => item.display_name)).toEqual(['Charlie', 'Dave'])
     const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
-    expect(baseCalls.length).toBe(2)
-    // qFull ('full' projection) is built first (used for count + phase 2);
-    // qSort ('sortKeys' projection) is built second (phase 1).
-    const [phase2Call, phase1Call] = baseCalls
+    expect(baseCalls.length).toBe(3)
+    // qFull ('full' projection) is built first (used for phase 2), then the
+    // 'count' projection (the bounded count probe), then 'sortKeys' (phase 1).
+    const [phase2Call, , phase1Call] = baseCalls
     // Phase 1 (slim id+sort-column scan): no SQL order/limit — the full candidate
     // set is fetched, decrypted, and sorted in memory.
     expect(phase1Call._ops.orderBys).toEqual([])
@@ -880,7 +903,7 @@ describe('BasicQueryEngine (Kysely)', () => {
         page: { page: 1, pageSize: 2 },
       })
       expect(result.meta?.encryptedSortRowCapWarning).toBeUndefined()
-      const [, phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+      const [, , phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
       expect(phase1Call._ops.limits).toBe(0)
     })
 
@@ -914,9 +937,36 @@ describe('BasicQueryEngine (Kysely)', () => {
         maxRows: 3,
         totalMatched: 5,
       })
-      const [, phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
-      expect(phase1Call._ops.limits).toBe(3)
+      const [, , phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+      // cap + 1 probe: truncation is detected from the candidate scan itself,
+      // not by comparing against a (possibly capped) total.
+      expect(phase1Call._ops.limits).toBe(4)
       expect(phase1Call._ops.orderBys).toEqual([['customer_entities.id', 'asc']])
+    })
+
+    test('still warns when the list count itself is capped below the matched set', async () => {
+      // The old detection compared `total > sortCap`; with OM_LIST_COUNT_CAP at or
+      // below the sort cap that comparison can never fire. The probe must warn anyway.
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '3'
+      process.env.OM_LIST_COUNT_CAP = '3'
+      try {
+        const { engine } = buildFixture()
+        const result = await engine.query('customers:customer_entity', {
+          tenantId: 't1',
+          organizationId: 'org1',
+          fields: ['id', 'display_name'],
+          sort: [{ field: 'display_name', dir: SortDir.Asc }],
+          page: { page: 1, pageSize: 2 },
+        })
+        expect(result.total).toBe(3)
+        expect(result.meta?.listCountCapWarning).toEqual({ entity: 'customers:customer_entity', cap: 3 })
+        expect(result.meta?.encryptedSortRowCapWarning).toMatchObject({
+          entity: 'customers:customer_entity',
+          maxRows: 3,
+        })
+      } finally {
+        delete process.env.OM_LIST_COUNT_CAP
+      }
     })
   })
 
@@ -954,6 +1004,80 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
     expect(baseCall._ops.limits).toBe(10)
     expect(baseCall._ops.offsets).toBe(10)
+  })
+
+  describe('OM_LIST_COUNT_CAP boundary', () => {
+    const originalCap = process.env.OM_LIST_COUNT_CAP
+    afterEach(() => {
+      if (originalCap === undefined) delete process.env.OM_LIST_COUNT_CAP
+      else process.env.OM_LIST_COUNT_CAP = originalCap
+    })
+
+    function buildFixture(rowCount: number) {
+      const rows = Array.from({ length: rowCount }, (_, i) => ({
+        id: String(i + 1), tenant_id: 't1', organization_id: 'org1', display_name: `Row ${i + 1}`,
+      }))
+      const fakeDb = createFakeKysely({
+        customer_entities: rows,
+        'information_schema.columns': [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+      })
+      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+      return { fakeDb, engine }
+    }
+
+    const query = (engine: BasicQueryEngine) => engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      page: { page: 1, pageSize: 2 },
+    })
+
+    test('cap - 1 matching rows: exact total, no flag', async () => {
+      process.env.OM_LIST_COUNT_CAP = '5'
+      const { engine } = buildFixture(4)
+      const result = await query(engine)
+      expect(result.total).toBe(4)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+    })
+
+    test('exactly cap matching rows: exact total, no flag — a genuine total of cap is not mislabeled', async () => {
+      process.env.OM_LIST_COUNT_CAP = '5'
+      const { engine } = buildFixture(5)
+      const result = await query(engine)
+      expect(result.total).toBe(5)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+    })
+
+    test('cap + 1 matching rows: total reports cap (not the probe value) with the warning', async () => {
+      process.env.OM_LIST_COUNT_CAP = '5'
+      const { engine } = buildFixture(6)
+      const result = await query(engine)
+      expect(result.total).toBe(5)
+      expect(result.meta?.listCountCapWarning).toEqual({ entity: 'customers:customer_entity', cap: 5 })
+    })
+
+    test('OM_LIST_COUNT_CAP=0: exact totals however large the set', async () => {
+      process.env.OM_LIST_COUNT_CAP = '0'
+      const { engine } = buildFixture(7)
+      const result = await query(engine)
+      expect(result.total).toBe(7)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+    })
+
+    test('unparseable value falls back to the default cap rather than disabling it', async () => {
+      process.env.OM_LIST_COUNT_CAP = 'not-a-number'
+      const { fakeDb, engine } = buildFixture(3)
+      const result = await query(engine)
+      expect(result.total).toBe(3)
+      const outer = fakeDb._calls.find((call: any) => call._ops.table === '__subquery__')
+      expect(outer._ops.subquery.limits).toBe(10_001)
+    })
   })
 
   // A tiebreak sort is only worth configuring if the engine actually emits it.

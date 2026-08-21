@@ -128,6 +128,14 @@ export type PaginationProps = {
   pageSize: number
   total: number
   totalPages: number
+  /**
+   * `total` (and the `totalPages` derived from it) is a floor, not an exact
+   * count — the server capped the list count (`totalIsCapped: true` on the
+   * list payload). Capped totals render as "{total}+" and pagination stays
+   * open past the floor via short-page detection instead of ending at
+   * `ceil(total / pageSize)`.
+   */
+  totalIsCapped?: boolean
   onPageChange: (page: number) => void
   durationMs?: number | null
   cacheStatus?: 'hit' | 'miss' | null
@@ -2613,8 +2621,21 @@ export function DataTable<T extends RowData>({
     if (!pagination || pagination.total === 0) return null
 
     const { page, totalPages, onPageChange, durationMs, cacheStatus } = pagination
+    const totalIsCapped = pagination.totalIsCapped === true
+    // Short-page detection: a full current page means a next page may exist,
+    // even past the capped floor. `data` holds exactly the rendered page's rows.
+    const pageIsFull = data.length >= pagination.pageSize
     const startItem = (page - 1) * pagination.pageSize + 1
-    const endItem = Math.min(page * pagination.pageSize, pagination.total)
+    // Past a capped floor, `total` can sit below the window — derive the end
+    // of the range from the rows actually shown instead.
+    const endItem = totalIsCapped
+      ? Math.max(startItem, startItem + data.length - 1)
+      : Math.min(page * pagination.pageSize, pagination.total)
+    // Short-page detection false-positives when the true row count is an exact
+    // multiple of `pageSize`: Next stays enabled on the last full page and the
+    // page after it comes back empty. `total` is the cap rather than 0, so the
+    // pager still renders — claim no range rather than "X to X" over no rows.
+    const pageIsEmpty = data.length === 0
     const effectiveDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0)
       ? durationMs
       : measuredDurationMs ?? undefined
@@ -2653,17 +2674,27 @@ export function DataTable<T extends RowData>({
           page={page}
           pageSize={pagination.pageSize}
           total={pagination.total}
+          totalIsCapped={totalIsCapped}
+          hasNextPage={totalIsCapped ? pageIsFull : undefined}
           onPageChange={(next) => { onPageChange(next); scrollTableIntoView() }}
           onPageSizeChange={pagination.onPageSizeChange ? (next) => {
             pagination.onPageSizeChange!(next)
             scrollTableIntoView()
           } : undefined}
           pageSizeOptions={pageSizeOptions}
-          formatPageInfo={() =>
-            durationLabel
+          formatPageInfo={() => {
+            if (totalIsCapped) {
+              if (pageIsEmpty) {
+                return t('ui.dataTable.pagination.resultsCappedNoRows', 'No further results past {total}', { total: pagination.total })
+              }
+              return durationLabel
+                ? t('ui.dataTable.pagination.resultsCappedWithDuration', 'Showing {start} to {end} of {total}+ results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
+                : t('ui.dataTable.pagination.resultsCapped', 'Showing {start} to {end} of {total}+ results', { start: startItem, end: endItem, total: pagination.total })
+            }
+            return durationLabel
               ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
               : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
-          }
+          }}
           formatPageSizeLabel={(size) =>
             `${size} ${t('ui.dataTable.pagination.perPage', 'per page')}`
           }
@@ -2672,7 +2703,7 @@ export function DataTable<T extends RowData>({
         />
       </div>
     )
-  }, [pagination, showQueryTime, measuredDurationMs, scrollTableIntoView, t])
+  }, [pagination, data, showQueryTime, measuredDurationMs, scrollTableIntoView, t])
 
   // Auto filters: fetch custom field defs when requested
   const resolvedEntityIds = React.useMemo(() => {

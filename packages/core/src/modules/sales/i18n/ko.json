@@ -1056,6 +1056,8 @@
   "sales.documents.items.variantSearch": "옵션(변형) 검색",
   "sales.documents.list.errors.load": "문서를 불러오지 못했습니다.",
   "sales.documents.list.filters.channel": "채널",
+  "sales.documents.list.filters.channelPlaceholder": "채널 검색",
+  "sales.documents.list.filters.channelUnassigned": "(채널 없음)",
   "sales.documents.list.filters.customer": "고객 ID",
   "sales.documents.list.filters.customerPlaceholder": "고객 ID",
   "sales.documents.list.filters.date": "날짜",

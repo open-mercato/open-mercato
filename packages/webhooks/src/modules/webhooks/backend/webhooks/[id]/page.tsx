@@ -77,6 +77,7 @@ type DeliveryResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type DeliveryDetail = DeliveryRow & {
@@ -113,6 +114,7 @@ export default function WebhookDetailPage() {
   const [deliveryPage, setDeliveryPage] = React.useState(1)
   const [deliveryTotal, setDeliveryTotal] = React.useState(0)
   const [deliveryTotalPages, setDeliveryTotalPages] = React.useState(1)
+  const [deliveryTotalIsCapped, setDeliveryTotalIsCapped] = React.useState(false)
   const [deliveriesLoading, setDeliveriesLoading] = React.useState(false)
   const [isRefreshingDeliveries, setIsRefreshingDeliveries] = React.useState(false)
   const [testDelivery, setTestDelivery] = React.useState<DeliveryDetail | null>(null)
@@ -188,6 +190,7 @@ export default function WebhookDetailPage() {
         setDeliveries(call.result.items)
         setDeliveryTotal(call.result.total)
         setDeliveryTotalPages(call.result.totalPages)
+        setDeliveryTotalIsCapped(call.result.totalIsCapped === true)
       }
     } finally {
       if (!silent) {
@@ -686,6 +689,7 @@ export default function WebhookDetailPage() {
               pageSize: 20,
               total: deliveryTotal,
               totalPages: deliveryTotalPages,
+              totalIsCapped: deliveryTotalIsCapped,
               onPageChange: setDeliveryPage,
             }}
             isLoading={deliveriesLoading || isRefreshingDeliveries}
