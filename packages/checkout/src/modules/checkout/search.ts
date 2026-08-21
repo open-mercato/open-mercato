@@ -10,6 +10,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: CHECKOUT_ENTITY_IDS.link,
+      aclFeatures: ['checkout.view'],
       enabled: true,
       priority: 10,
       fieldPolicy: {
@@ -29,6 +30,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: CHECKOUT_ENTITY_IDS.template,
+      aclFeatures: ['checkout.view'],
       enabled: true,
       priority: 8,
       fieldPolicy: {
@@ -55,6 +57,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: CHECKOUT_ENTITY_IDS.transaction,
+      aclFeatures: ['checkout.view'],
       enabled: true,
       priority: 6,
       fieldPolicy: {

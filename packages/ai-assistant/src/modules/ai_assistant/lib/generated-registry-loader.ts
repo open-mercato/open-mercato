@@ -17,6 +17,7 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import path from 'node:path'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -72,6 +73,10 @@ export function findGeneratedFile(fileName: string): string | null {
  * lazily through the workspace's normal module resolution. Eagerly bundling
  * pulls Next.js / route-handler internals into the `.mjs` and breaks at runtime
  * (e.g. `next/server` package-exports map).
+ *
+ * The `@app` local module entries are the one exception: those targets are raw
+ * app TypeScript with no compiled sibling, so they are compiled separately
+ * (see `compileAppLocalModuleEntries`) and the registry points at the artifact.
  */
 export async function compileAndImportGenerated(tsPath: string): Promise<Record<string, unknown>> {
   const useJestCjsArtifact = isJestRuntime()
@@ -83,17 +88,25 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
     throw new Error(`Generated file not found: ${tsPath}`)
   }
 
+  const runtime = useJestCjsArtifact ? 'cjs' : 'esm'
+  const tsSource = fs.readFileSync(tsPath, 'utf-8')
+  // Runs on every call, not only when the registry itself is stale: the
+  // artifact path is stable, so a registry cache hit would otherwise pin an
+  // app module's compiled output to whatever it was when the registry was
+  // last regenerated.
+  const appLocalArtifacts = await compileAppLocalModuleEntries(tsSource, appRoot, runtime)
+
   const jsExists = fs.existsSync(jsPath)
   const needsCompile =
     !jsExists || fs.statSync(tsPath).mtimeMs > fs.statSync(jsPath).mtimeMs
 
   if (needsCompile) {
     const esbuild = await import('esbuild')
-    const tsSource = fs.readFileSync(tsPath, 'utf-8')
     const aliasRewritten = rewriteGeneratedAliasImportsForRuntime(
       tsSource,
       appRoot,
-      useJestCjsArtifact ? 'cjs' : 'esm',
+      runtime,
+      appLocalArtifacts,
     )
     const result = await esbuild.transform(aliasRewritten, {
       loader: 'ts',
@@ -113,6 +126,73 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
 
 function isJestRuntime(): boolean {
   return typeof process.env.JEST_WORKER_ID === 'string'
+}
+
+/** Every `../../src/...` specifier the generator emitted for `@app` local modules. */
+export function collectAppLocalSpecifiers(source: string): string[] {
+  const specifiers = new Set<string>()
+  for (const [, specifier] of source.matchAll(APP_LOCAL_STATIC_IMPORT)) specifiers.add(specifier)
+  for (const [, specifier] of source.matchAll(APP_LOCAL_DYNAMIC_IMPORT)) specifiers.add(specifier)
+  return [...specifiers].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
+/** Stable, collision-free artifact name for one app-local specifier. */
+function appLocalArtifactName(specifier: string, runtime: 'esm' | 'cjs'): string {
+  const slug = specifier.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  const digest = crypto.createHash('sha256').update(specifier).digest('hex').slice(0, 8)
+  return `${slug}-${digest}.${runtime === 'cjs' ? 'cjs' : 'mjs'}`
+}
+
+/**
+ * Compile every `@app` local module entry the generated registry references,
+ * and map each specifier to its artifact.
+ *
+ * Package-backed modules (`@open-mercato/*`) never reach here — their bare
+ * specifiers resolve through `node_modules` to compiled `.js`. App-local
+ * modules have no compiled sibling, and Node cannot load their `.ts` source
+ * directly: relative specifiers need explicit extensions under type stripping,
+ * and the module's own graph (`./di`, `./data/entities`) carries decorator and
+ * enum syntax that type stripping rejects outright. Bundling the entry with
+ * every package import left external is what makes the source loadable.
+ *
+ * A module that fails to compile is logged and left pointing at its raw source,
+ * which reproduces the pre-existing resolution error rather than silently
+ * dropping the module's tools from the registry.
+ */
+async function compileAppLocalModuleEntries(
+  source: string,
+  appRoot: string,
+  runtime: 'esm' | 'cjs',
+): Promise<Map<string, string>> {
+  const specifiers = collectAppLocalSpecifiers(source)
+  const artifacts = new Map<string, string>()
+  if (specifiers.length === 0) return artifacts
+
+  const generatedDir = path.join(appRoot, '.mercato', 'generated')
+  const { compileAppSourceFile } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+
+  for (const specifier of specifiers) {
+    const target = path.resolve(generatedDir, specifier)
+    const tsPath = fs.existsSync(`${target}.ts`)
+      ? `${target}.ts`
+      : fs.existsSync(target) && target.endsWith('.ts')
+        ? target
+        : null
+    if (tsPath === null) continue
+
+    const outFile = path.join(generatedDir, 'app-modules', appLocalArtifactName(specifier, runtime))
+    try {
+      await compileAppSourceFile(tsPath, { appRoot, outFile, format: runtime })
+      artifacts.set(specifier, outFile)
+    } catch (error) {
+      logger.warn('Could not compile an app-local module entry for the generated registry', {
+        specifier,
+        err: error,
+      })
+    }
+  }
+
+  return artifacts
 }
 
 const UNSAFE_JS_STRING_CHAR_ESCAPES: Record<number, string> = {
@@ -166,33 +246,48 @@ function toSafeJsStringLiteral(value: string): string {
  *      relative to. Package-backed modules (`@open-mercato/*`) are unaffected —
  *      their bare specifiers resolve through `node_modules` to compiled `.js`.
  *
- * Both shapes reuse the same `.ts`-suffix probe so a source-only TypeScript
- * target is loaded directly (Node strips types). Other specifiers (bare
+ * When `appLocalArtifacts` maps a shape-2 specifier to a compiled artifact, that
+ * artifact wins: pointing Node at raw app TypeScript only works while the file
+ * and its whole graph stay within what type stripping accepts, which app
+ * modules do not (see `compileAppLocalModuleEntries`). Without a mapping both
+ * shapes fall back to the same `.ts`-suffix probe. Other specifiers (bare
  * packages, sibling `./` imports) are left untouched. Exported for unit testing.
  */
-export function rewriteGeneratedAliasImports(source: string, appRoot: string): string {
-  return rewriteGeneratedAliasImportsForRuntime(source, appRoot, 'esm')
+export function rewriteGeneratedAliasImports(
+  source: string,
+  appRoot: string,
+  appLocalArtifacts?: Map<string, string>,
+): string {
+  return rewriteGeneratedAliasImportsForRuntime(source, appRoot, 'esm', appLocalArtifacts)
 }
+
+const APP_LOCAL_STATIC_IMPORT = /from\s+["']((?:\.\.\/)+src\/[^"']+)["']/g
+const APP_LOCAL_DYNAMIC_IMPORT = /import\s*\(\s*["']((?:\.\.\/)+src\/[^"']+)["']\s*\)/g
 
 function rewriteGeneratedAliasImportsForRuntime(
   source: string,
   appRoot: string,
   runtime: 'esm' | 'cjs',
+  appLocalArtifacts: Map<string, string> = new Map(),
 ): string {
   const generatedDir = path.join(appRoot, '.mercato', 'generated')
+  const toRuntimeLiteral = (target: string): string =>
+    toSafeJsStringLiteral(runtime === 'esm' ? pathToFileURL(target).href : target)
   const toResolvedLiteral = (target: string): string => {
     const candidate = fs.existsSync(target)
       ? target
       : fs.existsSync(target + '.ts')
         ? target + '.ts'
         : target
-    const specifier = runtime === 'esm' ? pathToFileURL(candidate).href : candidate
-    return toSafeJsStringLiteral(specifier)
+    return toRuntimeLiteral(candidate)
   }
   const resolveAlias = (relativePath: string): string =>
     toResolvedLiteral(path.join(appRoot, relativePath))
-  const resolveRelative = (specifier: string): string =>
-    toResolvedLiteral(path.resolve(generatedDir, specifier))
+  const resolveRelative = (specifier: string): string => {
+    const artifact = appLocalArtifacts.get(specifier)
+    if (artifact !== undefined) return toRuntimeLiteral(artifact)
+    return toResolvedLiteral(path.resolve(generatedDir, specifier))
+  }
   return source
     .replace(/from\s+["']@\/([^"']+)["']/g, (_match, relativePath: string) => {
       return `from ${resolveAlias(relativePath)}`
@@ -200,10 +295,10 @@ function rewriteGeneratedAliasImportsForRuntime(
     .replace(/import\s*\(\s*["']@\/([^"']+)["']\s*\)/g, (_match, relativePath: string) => {
       return `import(${resolveAlias(relativePath)})`
     })
-    .replace(/from\s+["']((?:\.\.\/)+src\/[^"']+)["']/g, (_match, specifier: string) => {
+    .replace(APP_LOCAL_STATIC_IMPORT, (_match, specifier: string) => {
       return `from ${resolveRelative(specifier)}`
     })
-    .replace(/import\s*\(\s*["']((?:\.\.\/)+src\/[^"']+)["']\s*\)/g, (_match, specifier: string) => {
+    .replace(APP_LOCAL_DYNAMIC_IMPORT, (_match, specifier: string) => {
       return `import(${resolveRelative(specifier)})`
     })
 }

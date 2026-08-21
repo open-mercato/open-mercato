@@ -20,7 +20,7 @@ const contentSecurityPolicy = [
   "connect-src 'self' https: ws: wss:",
 ].join('; ')
 
-const nextConfig: NextConfig = {
+const nextConfig: NextConfig & { agentRules?: boolean } = {
   distDir: '.mercato/next',
   // Next 16.3+ has `next dev` auto-generate AGENTS.md/CLAUDE.md pointing agents
   // at node_modules/next/dist/docs. This repo owns its own agent-instruction
@@ -55,6 +55,9 @@ const nextConfig: NextConfig = {
     'esbuild',
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
+    'puppeteer-core',
+    'jszip',
+    'yjs',
     // Telemetry: the OTEL SDK + instrumentations must run as real Node modules,
     // not be bundled — the auto-instrumentations (pg/undici) monkey-patch the
     // underlying drivers at runtime. The full list is owned by

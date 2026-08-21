@@ -195,7 +195,7 @@ only surfaces other tooling should depend on:
 
 | Surface | Contract |
 |---------|----------|
-| `node scripts/stryker/scope.mjs [--base <ref>] [--json]` | stdout: GH Actions matrix JSON; exit 0 with an empty matrix when nothing is in scope |
+| `node scripts/stryker/scope.mjs [--base <ref>]` | stdout: GH Actions matrix JSON (always — the `--json` flag from the draft was dropped as a no-op); stderr: dropped-file warnings; exit 0 with an empty matrix when nothing is in scope |
 | `node scripts/stryker/report.mjs <mutation.json>` | stdout: markdown survivor table; exit 0 always |
 | `yarn mutation:changed` | local wrapper: clean-tree guard → `scope.mjs` → Stryker per package |
 
@@ -217,6 +217,7 @@ number for a broken build.
 | PR touches no in-scope files (UI-only, API-only, docs) | `scope.mjs` emits an empty matrix; the workflow skips. No score is invented. |
 | PR touches more than `MUTATION_MAX_FILES` in one package | The list is truncated deterministically and the dropped paths are printed in the summary. A silent cap would misrepresent coverage. |
 | File deleted in the diff | Excluded via `--diff-filter=d`; Stryker would otherwise fail on a missing path. |
+| PR changes an in-scope file no test covers yet | `relatedTests.mjs` partitions the mutate list with `jest --listTests --findRelatedTests` before Stryker runs, so the uncovered files are reported as needing tests rather than making the `enableFindRelatedTests` dry run execute zero tests and throw `ConfigError: No tests were executed`. When *every* file in a package is uncovered the mutation step is skipped entirely; both the report and the enforcement step read the partition outputs, so that skip is scored like "no mutants were generated" — reported, never failed — while a genuinely missing report after Stryker did run still fails closed under enforcement. |
 | File renamed | Treated as a new path and mutated; the old path is gone and is not scored. |
 | A widely-imported file is changed | `--findRelatedTests` pulls in a large test set — the pilot measured 530 tests per mutant for `boolean.ts` versus 127 for a leaf file. Bounded by `timeout-minutes: 20`; a timeout is reported as an infrastructure outcome, never as a low score. |
 | Flaky test in the related set | Can mark a mutant killed or timed out incorrectly. Advisory phases surface it as noise to investigate; Phase 3 must not be enabled while a package has known flaky suites. |
@@ -258,11 +259,11 @@ Nothing persists between runs; nothing else depends on it.
 | Phase | Deliverable | Exit criterion |
 |-------|-------------|----------------|
 | **0** ✅ | Feasibility pilot on `packages/shared` | Done — `.ai/analysis/2026-07-31-stryker-mutation-testing-pilot.md` |
-| **0b** | Same measurement on `packages/core` | A run on 3 representative `core` business-logic files completes under 10 min, or `core` stays out of scope |
-| **1** | Config factory, scope script, advisory workflow, `shared` allowlisted | Green advisory runs on real PRs for 2–3 weeks; scores collected |
-| **2** | Survivor reporting (job summary + artifact; optional fork-guarded PR comment) | A developer can act on a survivor without opening the artifact |
-| **3** | Enforcement: `thresholds.break`, minimum-mutant floor, `MUTATION_ENFORCE=true` | Core-team sign-off on the threshold, chosen from Phase 1–2 data |
-| **4** | Optional: `incremental` + cache, `mixinJestEnvironment` for `perTest` coverage, nightly trend run | Only if Phase 1–3 timings demand it |
+| **0b** ✅ | Same measurement on `packages/core` | Done — `core` **excluded**: only a 75-LOC leaf completed (1 m 45 s); `commands/roles.ts` exceeded 10 min and `data/validators.ts` projected ~6 h 42 m |
+| **1** ✅ | Config factory, scope script, advisory workflow, `shared` allowlisted | Shipped. Still needs green advisory runs on real PRs for 2–3 weeks before Phase 3 is considered |
+| **2** ✅ | Survivor reporting (job summary + artifact; optional fork-guarded PR comment) | Shipped, including the fork-guarded comment |
+| **3** ⏸ | Enforcement: `thresholds.break`, minimum-mutant floor, `MUTATION_ENFORCE=true` | **Implemented but dormant** — `MUTATION_ENFORCE` defaults to `false`. Core-team sign-off on the threshold is still outstanding |
+| **4** ⏸ | Optional: `incremental` + cache, `mixinJestEnvironment` for `perTest` coverage, nightly trend run | **Attempted, not shipped** — timings do not demand it, and `perTest` is blocked by the `@jest-environment` docblocks without a repo-wide resolver change |
 
 ## 📋 Implementation Plan
 
@@ -307,6 +308,37 @@ Nothing persists between runs; nothing else depends on it.
 
 ### Phase 3 — enforcement (2 steps, gated on core-team approval)
 
+> **Status (2026-08-04): implemented but DORMANT — awaiting an explicit core-team decision.**
+>
+> The full machinery ships in the implementation PR: the `MUTATION_MIN_MUTANTS` floor, the 70 %
+> threshold, and the `MUTATION_ENFORCE` flag, all unit-tested. **`MUTATION_ENFORCE` defaults to
+> `false`**, the workflow keeps `continue-on-error`, and the check is neither registered nor
+> documented as a required merge-blocking check.
+>
+> This is deliberate, not an omission. Q1 above leaves enforcement to a recorded core-team
+> decision, and `AGENTS.md` classifies changes to the PR pipeline as **Ask First**. Approving the
+> tooling therefore does not approve enforcement.
+>
+> **To enable it, after that decision:** set the `MUTATION_ENFORCE` repository variable to `'true'`.
+> That is the whole change — no code edit, no workflow edit. Reverting is setting it back.
+>
+> **Verify one thing at the moment of flipping the flag: that `vars` actually reaches fork pull
+> requests.** Every enforcement decision reads `vars.MUTATION_ENFORCE` and falls back to the
+> advisory branch when the value is absent. While the gate is dormant that is harmless, because
+> absent and `'false'` mean the same thing. Once the variable is `'true'` they stop being
+> equivalent: if configuration variables are not exposed to `pull_request` runs from forks,
+> enforcement would be silently **off** for exactly the external contributions it is most meant to
+> scrutinise and **on** for internal branches — an asymmetry nobody would notice, because both
+> states render as a passing check. Confirm it with one `workflow_dispatch` run plus one fork PR
+> before trusting the flag; if `vars` does not reach fork runs, drive enforcement from a committed
+> value in the workflow instead of a repository variable.
+>
+> One design note. Step 2 below says "set `thresholds.break`". It is implemented in
+> `scripts/stryker/enforce.mjs` rather than in Stryker's own `thresholds.break`, which stays `null`.
+> Stryker's built-in break has no notion of the minimum-mutant floor, so it would fail a four-mutant
+> diff on a single survivor — precisely what step 1's floor exists to prevent. The threshold and the
+> floor have to be evaluated together, which means one decision function owns both.
+
 1. Add the minimum-mutant floor to the runner: below `MUTATION_MIN_MUTANTS` (default 20) the score
    is reported but never fails. **Test:** unit test — 4 mutants with 1 survivor does not fail;
    30 mutants at 60 % does.
@@ -316,6 +348,36 @@ Nothing persists between runs; nothing else depends on it.
    added passes.
 
 ### Phase 4 — optional optimisation (2 steps)
+
+> **Status (2026-08-04): attempted, deliberately NOT shipped. Both steps stay open.**
+>
+> This phase is conditional by its own exit criterion — *"Only if Phase 1–3 timings demand it."*
+> They do not, and step 1 turns out not to be reachable without violating Q3. Both were attempted
+> rather than assumed; the evidence is below so a future attempt starts from facts.
+>
+> **Step 1 — `perTest` coverage: blocked, not deferred.** Running `packages/shared` with
+> `--coverageAnalysis perTest` fails in the initial test run, exactly as Q3 predicted: 19 of its
+> suites carry `@jest-environment` docblocks (792 repo-wide). Stryker does ship the matching wrapped
+> environments (`@stryker-mutator/jest-runner/jest-env/node` and `.../jest-env/jsdom`), so the
+> obvious fix is to redirect the docblocks' targets. That was tried with a Jest `moduleNameMapper`
+> entry mapping `jest-environment-node` and `jest-environment-jsdom` onto the Stryker wrappers —
+> **it does not work**, because Jest resolves the `@jest-environment` docblock outside the
+> `moduleNameMapper` path. The two remaining routes are editing all 19 test files (Q3 forbids it) or
+> replacing the repo-wide Jest `resolver` in `jest.config.base.cjs`, which would put every suite in
+> the repository behind a change made for a mutation-testing optimisation. Neither is justified by a
+> job that currently finishes in about three minutes.
+>
+> **Step 2 — `incremental` + cache: not justified, and not free.** The measured `packages/shared`
+> job is roughly 1 min of `yarn install` plus `build:packages` and 1 m 27 s of mutation, against a
+> `timeout-minutes: 20` budget. There is no timing pressure to relieve. Against that, a stale
+> incremental file makes Stryker report mutants as killed that the current tests do not kill — a
+> false green in the one check whose entire value is trustworthy signal. Shipping it would trade
+> real correctness risk for time nobody needs.
+>
+> **Revisit when** a package with materially larger suites is allowlisted (which today means solving
+> the `packages/core` problem from Phase 0b), or when the advisory runs from Phases 1–2 show the job
+> approaching its timeout. At that point `perTest` via a Jest `resolver` change becomes worth its
+> blast radius, and it is the higher-leverage of the two.
 
 1. `mixinJestEnvironment` wrapper module so `@jest-environment` docblocks can point at a
    Stryker-aware environment, unlocking `coverageAnalysis: "perTest"`. **Test:** the dry run
@@ -332,3 +394,58 @@ Nothing persists between runs; nothing else depends on it.
 - CI scoping precedent (`prepare` job's changed-module detection): `.github/workflows/ci.yml`
 - Petrović & Ivanković, *State of Mutation Testing at Google* (ICSE-SEIP 2018) — diff-scoped
   presentation and arid-mutant suppression as adoption prerequisites
+
+## 📝 Changelog
+
+### 2026-08-04 — implemented (PR #4932)
+
+Phases 0b, 1 and 2 shipped. Phase 3 shipped **dormant**. Phase 4 was attempted and deliberately not
+shipped. What changed against the design as written:
+
+| Design intent | What shipped | Why |
+|---------------|--------------|-----|
+| Phase 0b decides whether `core` is in scope | `packages/core` **excluded** | Only a 75-LOC leaf completed (1 m 45 s, 41 mutants, 58.5 %). `commands/roles.ts` exceeded 10 min twice; `data/validators.ts` produced 403 mutants with a ~6 h 42 m projection. The 10-minute exit criterion is missed by ~2 orders of magnitude. |
+| Phase 3 sets `MUTATION_ENFORCE=true` | Enforcement implemented, **`MUTATION_ENFORCE` defaults to `false`** | Q1 reserves enforcement for a recorded core-team decision, and `AGENTS.md` makes PR-pipeline changes Ask First. Enabling it is one repository-variable change. |
+| Phase 3 sets `thresholds.break` | Threshold lives in `scripts/stryker/enforce.mjs`; Stryker's `thresholds.break` stays `null` | Stryker's built-in break has no notion of the minimum-mutant floor and would fail a four-mutant diff on one survivor — what the floor exists to prevent. Threshold and floor must be evaluated together. |
+| Phase 3 documents the gate in `AGENTS.md` → Validation Commands | **Not done**, deliberately | Listing a dormant, non-blocking check as a validation command would misrepresent it. Documented as dormant in `apps/docs/docs/tutorials/testing.mdx` instead. |
+| Phase 4 delivers `perTest` and `incremental` | **Neither shipped** | `perTest` is blocked: the `moduleNameMapper` redirect onto Stryker's wrapped environments does not work, because Jest resolves `@jest-environment` outside that path. The remaining routes violate Q3 or change the repo-wide resolver. `incremental` was declined on risk — the job uses ~15 % of its timeout budget, and a stale incremental file yields false greens. |
+
+Additions the design did not anticipate:
+
+- **The workflow builds packages before mutating.** Package suites resolve their siblings through
+  `dist/`, so Stryker's initial dry run fails in a clean checkout with
+  `Cannot find module '@open-mercato/cache'`.
+- **`.stryker-tmp/` and `**/reports/mutation/` are gitignored.** Without that, a local run leaves
+  untracked output that makes the wrapper's own clean-tree guard refuse the next run.
+- **The `inPlace` blast radius is now measured, not assumed.** An interrupted run left 4 966
+  modified files in `packages/core`, because `disableTypeChecks` injects `// @ts-nocheck` before
+  mutating. `disableTypeChecks` cannot be turned off to shrink it — this repo's ts-jest transformer
+  type-checks, so type-breaking mutants would error instead of being scored.
+- **A follow-up worth filing:** `packages/core`'s `auth/lib/rateLimitCheck.ts` scored 58.5 %, with
+  survivors clustered on early-return guards that the tests never attribute a rejection to. Real
+  finding, out of scope here.
+
+### 2026-08-20 — uncovered files are reported, not fatal (PR #5343, issue #5281)
+
+`jest.enableFindRelatedTests: true` means Stryker's dry run executes only the tests related to each
+mutated file, so a diff-scoped file with no related test made the dry run execute nothing and throw
+`ConfigError: No tests were executed`, aborting the whole `mutate` job and leaving no
+`mutation.json`. It was hit for real on PR #5219.
+
+- `scripts/stryker/relatedTests.mjs` (new) partitions a package's mutate list into `covered` /
+  `uncovered` with `jest --listTests --findRelatedTests` — a static dependency-graph query, not a
+  test run. A Jest invocation that throws is treated as `uncovered` with a log line rather than
+  propagating, so the partition step itself can never be the thing that turns the job red.
+- The workflow feeds Stryker only the covered subset and skips the mutation step entirely when
+  nothing is covered. **Both** downstream consumers receive the partition outputs: `report.mjs`
+  renders a "Needs tests" note, and `enforce.mjs` treats "covered is empty and uncovered is not" as
+  the skip path — a non-failing outcome, matching its existing "no mutants were generated" verdict.
+  Without that second half, flipping `MUTATION_ENFORCE` to `'true'` would have re-created exactly
+  the red check this change removes, and broken Phase 3's "one value rather than a code change"
+  property. A missing report with a non-empty covered list is still a genuine crash and still fails
+  closed.
+- `scripts/stryker/mutation-changed.mjs` had the identical unconditional gap and gets the same
+  partition, parsing the mutate list through the shared `splitMutateList` so the local wrapper and
+  the CI entrypoint cannot drift apart again.
+- `scope.mjs` and `createConfig.mjs` are untouched: coverage filtering needs an installed Jest, so
+  it belongs after `yarn install` in the `mutate` job, not in the lightweight `scope` job.
