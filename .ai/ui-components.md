@@ -4840,7 +4840,8 @@ const [value, setValue] = React.useState<string>('')
 - **Blur**: a 200 ms delay before commit lets `onClick` on a suggestion win the race.
 - **`allowCustomValues={false}`**: on blur or `Enter`, if the typed text does not match any option (by value or case-insensitive label), the input reverts to the current `value`.
 - **Inner element**: deliberately a raw `<input>` (not the `Input` primitive) — the focus / suggestion-popup interplay relies on a plain input. The raw element is styled to *match* the DS `Input` visual contract (`h-9 rounded-md border-input shadow-xs`, `focus-visible:shadow-focus focus-visible:border-foreground`, `placeholder:text-muted-foreground`). Do not "fix" by swapping to the DS `Input` wrapper.
-- **Popup visual**: `rounded-2xl` container with Figma drop-shadow (`0 16px 32px -12px rgba(14,18,27,0.1)`), `p-2`, items `rounded-lg p-2` with `bg-muted` for keyboard-highlighted row — matches the DS `SelectContent` / `SelectItem` token contract.
+- **Popup placement**: the suggestion list is rendered through the DS [`Popover`](#popover) (`PopoverAnchor` + `PopoverContent`), so it is portaled to `<body>` and cannot be clipped by a scrolling ancestor such as a `Dialog` (`overflow-y-auto`). Query it from the document, not from the field wrapper, in tests. Focus stays on the `<input>` — `onOpenAutoFocus` / `onCloseAutoFocus` are prevented.
+- **Popup visual**: `PopoverContent` container (`rounded-md border-input bg-popover shadow-md`, `z-popover`) sized to the trigger via `--radix-popover-trigger-width`, `p-2`, items `rounded-lg p-2` with `bg-muted` for the keyboard-highlighted row — matches the DS `SelectContent` / `SelectItem` token contract.
 
 ### Props
 
