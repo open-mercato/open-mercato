@@ -52,6 +52,14 @@ const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, Atta
     key: 'attachments.errors.activeContentBlocked',
     fallback: 'Active content uploads are not allowed.',
   },
+  scan_rejected: {
+    key: 'attachments.errors.scanRejected',
+    fallback: 'Attachment was rejected by the configured security scanner.',
+  },
+  scan_unavailable: {
+    key: 'attachments.errors.scanUnavailable',
+    fallback: 'Attachment scanning is temporarily unavailable.',
+  },
   partition_unavailable: {
     key: 'attachments.errors.partitionUnavailable',
     fallback: 'Attachment partition is not available for this scope.',

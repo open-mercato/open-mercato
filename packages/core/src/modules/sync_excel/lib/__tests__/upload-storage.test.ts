@@ -74,11 +74,16 @@ describe('sync_excel upload storage', () => {
       fileName: 'leads.csv',
       buffer: csvBuffer,
     }))
-    expect(attachment.storageMetadata).toEqual({
+    expect(attachment.storageMetadata).toEqual(expect.objectContaining({
       module: 'sync_excel',
       temporary: true,
       uploadId: 'upload-1',
-    })
+      securityScan: expect.objectContaining({
+        status: 'scanner_unavailable',
+        scanner: 'unavailable',
+        policy: 'optional',
+      }),
+    }))
     expect(attachment.storageMetadata).not.toHaveProperty('inlineCsvBase64')
     expect(mockEm.persist).toHaveBeenCalledWith(attachment)
     expect(mockEm.flush).toHaveBeenCalledTimes(1)

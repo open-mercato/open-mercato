@@ -1,15 +1,18 @@
 /** @jest-environment node */
+import { createHash } from 'node:crypto'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveSyncExcelConcreteScope = jest.fn()
 const mockCreateSyncExcelUploadAttachment = jest.fn()
+const mockAttachmentScanGate = { scan: jest.fn() }
+const mockParseCsvPreview = jest.fn()
 const mockEntityManager = {
   create: jest.fn((_entity: unknown, payload: Record<string, unknown>) => payload),
   persist: jest.fn(),
   flush: jest.fn(),
 }
 const mockContainer = {
-  resolve: jest.fn(() => mockEntityManager),
+  resolve: jest.fn((key: string) => key === 'attachmentScanGate' ? mockAttachmentScanGate : mockEntityManager),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -27,6 +30,12 @@ jest.mock('../../../lib/scope', () => ({
 jest.mock('../../../lib/upload-storage', () => ({
   createSyncExcelUploadAttachment: jest.fn((params: unknown) => mockCreateSyncExcelUploadAttachment(params)),
 }))
+
+jest.mock('../../../lib/parser', () => ({
+  parseCsvPreview: jest.fn((...args: unknown[]) => mockParseCsvPreview(...args)),
+}))
+
+import { AttachmentScanError, type AttachmentScanReceipt } from '../../../../attachments/lib/scanning'
 
 type RouteModule = typeof import('../route')
 let postHandler: RouteModule['POST']
@@ -56,6 +65,21 @@ describe('sync_excel upload route limits', () => {
       },
     })
     mockCreateSyncExcelUploadAttachment.mockResolvedValue({ id: 'attachment-1' })
+    mockAttachmentScanGate.scan.mockImplementation(async ({ buffer }: { buffer: Buffer }) => ({
+      status: 'clean',
+      scanner: 'test-scanner',
+      policy: 'required',
+      checkedAt: '2026-08-21T12:00:00.000Z',
+      contentSha256: createHash('sha256').update(buffer).digest('hex'),
+      reasonCode: null,
+    }))
+    mockParseCsvPreview.mockReturnValue({
+      delimiter: ',',
+      encoding: 'utf-8',
+      headers: ['firstName'],
+      sampleRows: [],
+      totalRows: 0,
+    })
     mockEntityManager.flush.mockResolvedValue(undefined)
   })
 
@@ -160,5 +184,34 @@ describe('sync_excel upload route limits', () => {
       entityType: 'customers.person',
     })
     expect(mockCreateSyncExcelUploadAttachment).toHaveBeenCalled()
+  })
+
+  it('does not parse or store a CSV when the scanner quarantines it', async () => {
+    const receipt: AttachmentScanReceipt = {
+      status: 'quarantined',
+      scanner: 'test-scanner',
+      policy: 'required',
+      checkedAt: '2026-08-21T12:00:00.000Z',
+      contentSha256: 'b'.repeat(64),
+      reasonCode: 'malware_detected',
+    }
+    mockAttachmentScanGate.scan.mockRejectedValueOnce(
+      new AttachmentScanError('quarantined', receipt, 'quarantine-1'),
+    )
+    const formData = new FormData()
+    formData.set('entityType', 'customers.person')
+    formData.set('file', new File([
+      Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'),
+    ], 'eicar.csv', { type: 'text/csv' }))
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/upload', {
+      method: 'POST',
+      body: formData,
+    }))
+
+    expect(response.status).toBe(422)
+    expect(mockParseCsvPreview).not.toHaveBeenCalled()
+    expect(mockCreateSyncExcelUploadAttachment).not.toHaveBeenCalled()
+    expect(mockEntityManager.create).not.toHaveBeenCalled()
   })
 })

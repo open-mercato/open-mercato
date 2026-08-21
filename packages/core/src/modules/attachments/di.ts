@@ -1,4 +1,4 @@
-import { asFunction, asValue } from 'awilix'
+import { asClass, asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { StorageDriverFactory } from './lib/drivers/driverFactory'
@@ -7,9 +7,33 @@ import { createAttachmentQuotaService, type AttachmentQuotaService } from './lib
 import { scheduleAttachmentQuotaRecovery } from './lib/quota-recovery-queue'
 import { AttachmentTargetAccessService } from './lib/target-access-service'
 import { ScopedAttachmentUploadService } from './lib/scoped-upload-service'
+import { LocalAttachmentQuarantineStore } from './lib/quarantine'
+import {
+  DefaultAttachmentScanGate,
+  UnavailableAttachmentScanner,
+  resolveAttachmentScanPolicy,
+  resolveAttachmentScanTimeoutMs,
+  type AttachmentScanGate,
+  type AttachmentScanner,
+} from './lib/scanning'
+import type { AttachmentQuarantineStore } from './lib/quarantine'
 
 export function register(container: AppContainer) {
   container.register({
+    attachmentScanner: asClass(UnavailableAttachmentScanner).singleton(),
+    attachmentQuarantineStore: asFunction(() => new LocalAttachmentQuarantineStore()).singleton(),
+    attachmentScanGate: asFunction(({
+      attachmentScanner,
+      attachmentQuarantineStore,
+    }: {
+      attachmentScanner: AttachmentScanner
+      attachmentQuarantineStore: AttachmentQuarantineStore
+    }) => new DefaultAttachmentScanGate(
+      attachmentScanner,
+      attachmentQuarantineStore,
+      resolveAttachmentScanPolicy(),
+      resolveAttachmentScanTimeoutMs(),
+    )).scoped(),
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
     attachmentQuotaService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
       createAttachmentQuotaService(em),
@@ -27,18 +51,21 @@ export function register(container: AppContainer) {
       storageDriverFactory,
       attachmentQuotaService,
       attachmentQuotaRecoveryScheduler,
+      attachmentScanGate,
     }: {
       em: ConstructorParameters<typeof StorageDriverFactory>[0]
       dataEngine: DataEngine
       storageDriverFactory: StorageDriverFactory
       attachmentQuotaService: AttachmentQuotaService
       attachmentQuotaRecoveryScheduler: typeof scheduleAttachmentQuotaRecovery
+      attachmentScanGate: AttachmentScanGate
     }) => new ScopedAttachmentUploadService({
       em,
       dataEngine,
       storageDriverFactory,
       attachmentQuotaService,
       attachmentQuotaRecoveryScheduler,
+      attachmentScanGate,
     }))
       .scoped()
       .proxy(),

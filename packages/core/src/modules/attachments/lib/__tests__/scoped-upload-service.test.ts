@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
+import { AttachmentScanError, type AttachmentScanReceipt } from '../scanning'
 import {
   isScopedAttachmentUploadError,
   ScopedAttachmentUploadError,
@@ -22,6 +24,7 @@ function makeHarness(options: {
   persistFails?: boolean
   reserveFails?: boolean
   markStoredFails?: boolean
+  scanRejects?: boolean
   storedPath?: string
 } = {}) {
   const order: string[] = []
@@ -85,14 +88,30 @@ function makeHarness(options: {
     flushOrmEntityChanges: jest.fn(async () => undefined),
   } as unknown as DataEngine
   const scheduler = jest.fn(async () => undefined)
+  const attachmentScanGate = {
+    scan: jest.fn(async (request: { buffer: Buffer }) => {
+      order.push('scan')
+      const receipt: AttachmentScanReceipt = {
+        status: options.scanRejects ? 'rejected' : 'clean',
+        scanner: 'test-scanner',
+        policy: 'required',
+        checkedAt: '2026-08-27T12:00:00.000Z',
+        contentSha256: createHash('sha256').update(request.buffer).digest('hex'),
+        reasonCode: options.scanRejects ? 'malware_detected' : null,
+      }
+      if (options.scanRejects) throw new AttachmentScanError('rejected', receipt)
+      return receipt
+    }),
+  }
   const service = new ScopedAttachmentUploadService({
     em,
     dataEngine,
     storageDriverFactory,
     attachmentQuotaService: quota,
     attachmentQuotaRecoveryScheduler: scheduler,
+    attachmentScanGate,
   })
-  return { service, order, attachment, driver, quota, dataEngine, em }
+  return { service, order, attachment, driver, quota, dataEngine, em, attachmentScanGate }
 }
 
 const input = {
@@ -112,13 +131,16 @@ describe('ScopedAttachmentUploadService', () => {
 
     await expect(service.upload(input)).resolves.toBe(attachment)
 
-    expect(order).toEqual(['reserve', 'begin', 'store', 'stored', 'persist', 'complete'])
+    expect(order).toEqual(['scan', 'reserve', 'begin', 'store', 'stored', 'persist', 'complete'])
     expect(attachment).toMatchObject({
       tenantId,
       organizationId,
       entityId: input.entityId,
       recordId: input.recordId,
       storagePath: 'tenant/org/upload.pdf',
+      storageMetadata: expect.objectContaining({
+        securityScan: expect.objectContaining({ status: 'clean', scanner: 'test-scanner' }),
+      }),
     })
     expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'created' }))
     expect(em.findOne).toHaveBeenCalledWith(expect.anything(), {
@@ -140,7 +162,7 @@ describe('ScopedAttachmentUploadService', () => {
 
     expect(driver.deleteStrict).toHaveBeenCalledWith('privateAttachments', 'tenant/org/upload.pdf')
     expect(quota.release).toHaveBeenCalledWith('reservation-1', 'lease-1')
-    expect(order).toEqual(['reserve', 'begin', 'store', 'stored', 'persist', 'delete', 'release'])
+    expect(order).toEqual(['scan', 'reserve', 'begin', 'store', 'stored', 'persist', 'delete', 'release'])
     expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
@@ -166,6 +188,17 @@ describe('ScopedAttachmentUploadService', () => {
       code: 'quota_exceeded',
       status: 413,
     }))
+    expect(driver.store).not.toHaveBeenCalled()
+  })
+
+  it('rejects suspicious bytes before quota reservation or storage', async () => {
+    const { service, driver, quota } = makeHarness({ scanRejects: true })
+
+    await expect(service.upload(input)).rejects.toEqual(expect.objectContaining<Partial<ScopedAttachmentUploadError>>({
+      code: 'scan_rejected',
+      status: 422,
+    }))
+    expect(quota.reserve).not.toHaveBeenCalled()
     expect(driver.store).not.toHaveBeenCalled()
   })
 })

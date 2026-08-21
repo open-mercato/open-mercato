@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 139 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 140 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -20,6 +20,7 @@ This catalog indexes 139 focused lessons. Route the task first, then read only r
 
 ### architecture
 
+- [Awilix services with optional constructor configuration need explicit factories](lessons/awilix-services-with-optional-constructor-configuration-need-explicit-factories.md) — area:architecture,testing; module:attachments; topic:provider-lifecycle,runtime-startup,testing
 - [Durable quota reservations need fenced leases, conditional creates, and bounded sizes](lessons/durable-quota-reservations-need-fenced-leases.md) — area:architecture,module-data; module:attachments,storage_s3; topic:data-scoping,command-pattern,database-migrations
 - [Encode untrusted Markdown fragments as data, not chained escapes](lessons/encode-untrusted-markdown-fragments-as-data.md) — area:architecture,testing; module:platform; topic:network-security,testing
 

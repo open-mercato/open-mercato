@@ -52,6 +52,11 @@ write time.
   attachments upload route (`api/route.ts`) already guards its creation site.
 - **MUST gate every attachment read through `checkAttachmentAccess`** (`lib/access.ts`)
   so tenant scoping and partition visibility are enforced consistently.
+- **MUST pass every new untrusted byte buffer through `AttachmentScanGate`**
+  (`lib/scanning.ts`) before storage, parsing, OCR, thumbnail generation, indexing,
+  or `Attachment` persistence. Resolve `attachmentScanGate` from DI in runtime
+  routes and commands. Cross-module server uploads must use `attachmentService.createScoped()`,
+  which routes bytes through the same DI gate before quota reservation or storage.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
@@ -64,6 +69,8 @@ write time.
 - **Never create a partial-null attachment** (one scope column set, the other null).
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
   it reintroduces the cross-tenant fail-open class.
+- **Never persist quarantined bytes in an attachment partition or create an
+  `Attachment` row for them.** Quarantine is outside all application read routes.
 
 ## Known cross-module creation paths
 
@@ -71,9 +78,13 @@ These paths create `Attachment` rows from other modules and must preserve the
 both-or-neither invariant (audited for #2109):
 
 - `packages/core/src/modules/attachments/api/route.ts` — primary upload; scope comes
-  from authenticated request context (both set). **Guarded.**
+  from authenticated request context (both set). **Scope-guarded and scanned.**
 - `packages/core/src/modules/sync_excel/lib/upload-storage.ts` — both scopes are
-  required inputs (type-enforced). Safe.
+  required inputs (type-enforced). The route scans before CSV parsing and passes
+  the in-process receipt to storage so the bytes are not scanned twice.
+- `packages/core/src/modules/attachments/lib/scoped-upload-service.ts` — reusable
+  server-side buffer creation behind `attachmentService.createScoped()`. Scanned
+  before quota reservation, partition lookup or storage.
 - `packages/core/src/modules/catalog/seed/examples.ts` — both scopes required on
   `SeedScope`. Safe.
 - `packages/core/src/modules/catalog/commands/variants.ts` — clones variant media to
