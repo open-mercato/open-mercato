@@ -207,6 +207,27 @@ describe('AppShell', () => {
     )
   })
 
+  it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {
+    const { rerender } = renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Users List' }]} />
+      </AppShell>,
+      { dict },
+    )
+
+    mockPathname = '/backend/roles'
+    rerender(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Roles' }]} />
+      </AppShell>,
+    )
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
+    expect(activePage).toHaveTextContent('Roles')
+    expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
+  })
+
   it('hides the backend footer status bar when requested', () => {
     renderWithProviders(
       <AppShell
@@ -447,6 +468,52 @@ describe('AppShell', () => {
     await waitFor(() => {
       expect(screen.getByText('Dashboard content')).toBeInTheDocument()
       expect(getBreadcrumbText()).not.toContain('Users List')
+    })
+  })
+
+  it('keeps the new page breadcrumb after client-side navigation', async () => {
+    mockPathname = '/backend/documents'
+
+    const { rerender } = renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb title="Documents" breadcrumb={[{ label: 'Documents' }]} />
+        <div>Documents list</div>
+      </AppShell>,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Documents')).toBeInTheDocument()
+    })
+
+    mockPathname = '/backend/documents/document-id'
+    rerender(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb
+          title="Document"
+          breadcrumb={[
+            { label: 'Documents', href: '/backend/documents' },
+            { label: 'Document' },
+          ]}
+        />
+        <div>Document detail</div>
+      </AppShell>,
+    )
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' })
+      expect(within(breadcrumb).getByRole('link', { name: 'Documents' })).toHaveAttribute('href', '/backend/documents')
+      expect(within(breadcrumb).getByText('Document')).toHaveAttribute('aria-current', 'page')
     })
   })
 

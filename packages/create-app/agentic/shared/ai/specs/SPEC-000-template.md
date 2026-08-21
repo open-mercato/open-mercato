@@ -88,6 +88,8 @@ Name the installed records that remain the source of truth. Do not duplicate CRM
 
 List every new or changed page before implementation. Inspect the closest existing Open Mercato page and `.ai/guides/backend-ui.md`; record that reference below. Tabular admin data uses `DataTable`, CRUD create/edit surfaces use `CrudForm`, and backend reads use the shared API helpers. Any custom page or component exception needs an explicit rationale and approval in this section.
 
+Cross-record references follow the reference display rule: every reference to another record is a selection control backed by a scoped option source showing display names (reuse the owning module's picker or option source when one exists), tables render display names or stored display snapshots, and raw IDs live only in API payloads — a user never types or reads one. Specify the option-source route (or the reused picker) for each reference field in the contracts below.
+
 | Surface / route | Purpose and primary actions | Data source / mutations | Closest installed reference | Canonical shell / components | Required states | Requirement IDs |
 |---|---|---|---|---|---|---|
 | `/backend/{route}` | {list/create/edit/etc.} | `{API paths / command IDs}` | `{module/path or component family}` | `Page`, `PageBody`, `DataTable`, `CrudForm`, {others} | loading, empty, error, conflict, success, permission denied | REQ-001 |

@@ -20,6 +20,8 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
+import { fieldNameCandidates } from './encrypted-sort'
+import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
   buildCustomFieldDefinitionIndexFromRows,
@@ -43,9 +45,48 @@ const entityTableCache = new Map<string, string>()
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
-  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null, options?: { ignoreRuntimeHealth?: boolean }) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
+
+/**
+ * Membership across name shapes: encryption maps may declare a field as `displayName` or
+ * `display_name` (TenantDataEncryptionService resolves both), while query filters carry real
+ * column names. Both sides expand through `fieldNameCandidates` at set-build and lookup time.
+ */
+export function isEncryptedLikeField(encrypted: ReadonlySet<string>, field: string): boolean {
+  return fieldNameCandidates(field).some((candidate) => encrypted.has(candidate))
+}
+
+// The all-orgs union behind `getEncryptedFieldNames(..., organizationId: null)` is an UNCACHED
+// `encryption_maps` read. Encryption maps change on deploys, not per request, so a short TTL
+// removes the per-search round-trip without meaningfully delaying a map rollout.
+const ENCRYPTED_LIKE_FIELDS_TTL_MS = 60_000
+const ENCRYPTED_LIKE_FIELDS_CACHE_CAP = 500
+const encryptedLikeFieldsCache = new Map<string, { at: number; fields: Set<string> }>()
+
+export async function resolveEncryptedLikeFieldSet(
+  read: () => Promise<readonly string[]>,
+  entity: string,
+  tenantId: string | null,
+): Promise<Set<string>> {
+  const key = `${entity}|${tenantId ?? ''}`
+  const hit = encryptedLikeFieldsCache.get(key)
+  if (hit && Date.now() - hit.at < ENCRYPTED_LIKE_FIELDS_TTL_MS) return hit.fields
+  const names = await read()
+  const fields = new Set<string>()
+  for (const name of names ?? []) {
+    for (const candidate of fieldNameCandidates(String(name))) fields.add(candidate)
+  }
+  if (encryptedLikeFieldsCache.size >= ENCRYPTED_LIKE_FIELDS_CACHE_CAP) encryptedLikeFieldsCache.clear()
+  encryptedLikeFieldsCache.set(key, { at: Date.now(), fields })
+  return fields
+}
+
+/** Test-only: the TTL memo would otherwise leak state across specs. */
+export function clearEncryptedLikeFieldsCache(): void {
+  encryptedLikeFieldsCache.clear()
+}
 
 type ResolvedCustomFieldSource = {
   entityId: EntityId
@@ -71,6 +112,16 @@ const pluralizeBaseName = (name: string): string => {
   if (name.endsWith('y')) return `${name.slice(0, -1)}ies`
   return `${name}s`
 }
+
+/**
+ * Accepts a module-declared `EntityExtension.table` only when it is a bare SQL
+ * identifier. The value is interpolated into a join clause, so anything else is
+ * ignored in favour of the derived table name.
+ */
+const PLAIN_TABLE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+const isPlainTableIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && PLAIN_TABLE_IDENTIFIER_PATTERN.test(value)
 
 const toPascalCase = (value: string): string => {
   return value
@@ -316,6 +367,10 @@ export class BasicQueryEngine implements QueryEngine {
     }
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
+    // Custom-field leaves carrying an orGroup belong to an OR disjunct; applying them
+    // one `.where()` at a time would AND them onto every disjunct (#5039).
+    const regularCfFilters = cfFilters.filter((filter) => !filter.orGroup)
+    const orGroupCfFilters = cfFilters.filter((filter) => filter.orGroup)
     const searchConfig = resolveSearchConfig()
     const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => isSearchFilterOp(filter.op))
     // Callers that opt out of automatic tenant/org scoping own the full
@@ -331,6 +386,62 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
+    // Opt-in via OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false: the pre-existing
+    // rewrite-everything behavior is kept). When enabled, base-column like/ilike is rerouted
+    // through search tokens ONLY for encrypted columns, where
+    // ILIKE against ciphertext cannot match. On a plaintext column SQL ILIKE is exact, and the token
+    // rewrite silently changes the result set: tokenization splits on non-alphanumerics and drops
+    // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to
+    // the tokens {202, 2026} and matches every record from that year instead of the one document.
+    // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while the
+    // KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
+    // `organizationId: null` is deliberate, not an omission: the service then unions in every
+    // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays on
+    // the token path -- a wider set fails safe. Passing the request's org instead would silently
+    // break encrypted-column search for orgs without their own map. That union is an UNCACHED
+    // `encryption_maps` read, one extra round-trip per searched list request. `null` means
+    // the encryption service could not answer at all; keep the pre-existing rewrite-everything
+    // behavior then, because guessing "plaintext" would turn encrypted-column search into an
+    // ILIKE-on-ciphertext that matches nothing.
+    let encryptedLikeFields: Set<string> | null = null
+    if (
+      searchActive &&
+      searchConfig.useIlikeForNonEncryptedFields === true &&
+      searchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
+    ) {
+      try {
+        const service = this.getEncryptionService()
+        const readEncryptedFieldNames = service?.getEncryptedFieldNames?.bind(service)
+        if (readEncryptedFieldNames) {
+          encryptedLikeFields = await resolveEncryptedLikeFieldSet(
+            () => readEncryptedFieldNames(
+              String(entity),
+              opts.tenantId ?? null,
+              null,
+              { ignoreRuntimeHealth: true },
+            ),
+            String(entity),
+            opts.tenantId ?? null,
+          )
+        } else if (isTenantDataEncryptionEnabled()) {
+          // Encryption is on but the service is unreachable (a swallowed DI failure looks
+          // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
+          // rather than guessing "plaintext" and running ILIKE against ciphertext.
+          encryptedLikeFields = null
+        } else {
+          // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
+          encryptedLikeFields = new Set()
+        }
+      } catch (err) {
+        // The fallback is safe (the old rewrite-everything behavior), but taking it silently
+        // would hide that the gate has stopped working.
+        logger.warn('search: encrypted-field map unavailable; keeping the token rewrite for all columns', {
+          entity: String(entity),
+          error: err instanceof Error ? err.message : String(err),
+        })
+        encryptedLikeFields = null
+      }
+    }
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -408,7 +519,13 @@ export class BasicQueryEngine implements QueryEngine {
         searchActive &&
         typeof value === 'string' &&
         fieldName &&
-        typeof column === 'string'
+        typeof column === 'string' &&
+        // Plaintext columns keep exact SQL ILIKE -- see the encryptedLikeFields note above. cf:*
+        // filters never reach this path (they are applied by the custom-field branches), so this
+        // gate only decides base columns. Membership is tested across name-shape candidates --
+        // encryption maps may declare `displayName` while the filter carries the column name
+        // `display_name`, and a raw comparison would misread that ciphertext column as plaintext.
+        (encryptedLikeFields === null || isEncryptedLikeField(encryptedLikeFields, fieldName))
       ) {
         const tokens = tokenizeText(String(value), searchConfig)
         const hashes = tokens.hashes
@@ -576,50 +693,40 @@ export class BasicQueryEngine implements QueryEngine {
       }
 
       // OR-grouped filters: AND within each group (one $or disjunct), OR between groups.
-      if (orGroupFilters.length > 0) {
-        const groups = new Map<string, typeof orGroupFilters>()
-        for (const f of orGroupFilters) {
+      // Resolution happens here (it needs async column lookups); the WHERE itself is
+      // applied further down, once the cf:* value expressions exist — an OR group may
+      // contain custom-field leaves whose SQL is only available then (#5039).
+      type ResolvedOrClause =
+        | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'cf'; key: string; op: NormalizedFilter['op']; value: unknown }
+      const resolvedGroupFilters: ResolvedOrClause[][] = []
+      if (orGroupFilters.length > 0 || orGroupCfFilters.length > 0) {
+        const groups = new Map<string, NormalizedFilter[]>()
+        for (const f of [...orGroupFilters, ...orGroupCfFilters]) {
           const group = groups.get(f.orGroup!) ?? []
-          group.push(f)
+          group.push(f as NormalizedFilter)
           groups.set(f.orGroup!, group)
         }
-        type ResolvedOrClause =
-          | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
-          | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
-        const resolvedGroupFilters: ResolvedOrClause[][] = []
         for (const [, groupFilters] of groups) {
           const resolved: ResolvedOrClause[] = []
           for (const filter of groupFilters) {
-            const column = await this.resolveBaseColumn(table, String(filter.field))
+            const field = String(filter.field)
+            if (field.startsWith('cf:')) {
+              resolved.push({ kind: 'cf', key: field.slice(3), op: filter.op, value: filter.value })
+              continue
+            }
+            const column = await this.resolveBaseColumn(table, field)
             if (column) {
               resolved.push({ kind: 'column', qualified: qualify(column), op: filter.op, value: filter.value })
             } else {
               // Field is not a base column — for custom-entity records it lives in
               // entity_indexes.doc. Build an EXISTS sub-filter so `$or` searches
               // across doc fields resolve instead of being silently dropped (#3229).
-              resolved.push({ kind: 'doc', field: String(filter.field), op: filter.op, value: filter.value })
+              resolved.push({ kind: 'doc', field, op: filter.op, value: filter.value })
             }
           }
           if (resolved.length > 0) resolvedGroupFilters.push(resolved)
-        }
-        if (resolvedGroupFilters.length > 0) {
-          q = q.where((eb: any) => eb.or(
-            resolvedGroupFilters.map((group) => {
-              const parts = group.map((rf) => rf.kind === 'column'
-                ? this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
-                : this.buildIndexDocOpExpression(eb, {
-                    entity: String(entity),
-                    field: rf.field,
-                    op: rf.op,
-                    value: rf.value,
-                    recordIdColumn,
-                    tenantId: opts.tenantId ?? null,
-                    organizationScope: orgScope,
-                    withDeleted: opts.withDeleted === true,
-                  }))
-              return parts.length === 1 ? parts[0] : eb.and(parts)
-            })
-          ))
         }
       }
 
@@ -869,8 +976,9 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
-      // Apply cf:* filters (on raw expressions)
-      for (const f of cfFilters) {
+      // Apply cf:* filters (on raw expressions). OR-grouped ones are excluded here and
+      // combined with their disjunct's other leaves right below.
+      for (const f of regularCfFilters) {
         if (!f.field.startsWith('cf:')) continue
         const key = f.field.slice(3)
         const expr = cfValueExprByKey[key]
@@ -912,6 +1020,43 @@ export class BasicQueryEngine implements QueryEngine {
         q = this.applyColumnOp(q, expr, f.op, f.value)
       }
 
+      // OR groups are applied here, after the cf:* value expressions exist, so a
+      // disjunct mixing base/doc and custom-field leaves is united rather than
+      // intersected. A cf leaf whose key resolved no value expression yields no
+      // predicate and is dropped; a disjunct left empty by that is dropped too,
+      // because an empty AND would read as TRUE and widen the result.
+      //
+      // Known limitation, shared with the `doc` clause kind above: a leaf inside an OR
+      // group compares against the stored value directly and does not route `like` /
+      // `ilike` through the search-token index the way the ungrouped path does. On a
+      // field covered by an encryption map such a leaf therefore compares against
+      // ciphertext and will not match.
+      const applicableGroupFilters = resolvedGroupFilters
+        .map((group) => group.filter((rf) => rf.kind !== 'cf' || Boolean(cfValueExprByKey[rf.key])))
+        .filter((group) => group.length > 0)
+      if (applicableGroupFilters.length > 0) {
+        q = q.where((eb: any) => {
+          const disjuncts = applicableGroupFilters.map((group) => {
+            const parts = group.map((rf) => {
+              if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
+              if (rf.kind === 'cf') return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+              return this.buildIndexDocOpExpression(eb, {
+                entity: String(entity),
+                field: rf.field,
+                op: rf.op,
+                value: rf.value,
+                recordIdColumn,
+                tenantId: opts.tenantId ?? null,
+                organizationScope: orgScope,
+                withDeleted: opts.withDeleted === true,
+              })
+            })
+            return parts.length === 1 ? parts[0] : eb.and(parts)
+          })
+          return disjuncts.length === 1 ? disjuncts[0] : eb.or(disjuncts)
+        })
+      }
+
       // Entity extensions joins (no selection yet; enables future filters/projections)
       if (opts.includeExtensions) {
         const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
@@ -923,7 +1068,15 @@ export class BasicQueryEngine implements QueryEngine {
           : exts
         for (const e of chosen) {
           const [, extName] = (e.extension as string).split(':')
-          const extTable = extName.endsWith('s') ? extName : `${extName}s`
+          // Uses the SAME derivation as every other table-name fallback in this file
+          // (`pluralizeBaseName`, also called at the resolveEntityTableName sites above)
+          // rather than a separate inline one. The inline version handled only `+s`, so
+          // `example_customer_priority` derived `example_customer_prioritys` against the
+          // real `example_customer_priorities`. Behaviour is unchanged for every name that
+          // does not end in `y`; `table` below remains the escape hatch for irregular
+          // plurals no guesser can win (`person` → `people`).
+          const derivedTable = pluralizeBaseName(extName)
+          const extTable = isPlainTableIdentifier(e.table) ? e.table : derivedTable
           const alias = `ext_${sanitize(extName)}`
           q = q.leftJoin(`${extTable} as ${alias}` as any, (jb: any) =>
             jb.onRef(`${alias}.${e.join.extensionKey}`, '=', `${table}.${e.join.baseKey}`)
@@ -1154,7 +1307,7 @@ export class BasicQueryEngine implements QueryEngine {
     }
   }
 
-  private buildColumnOpExpression(eb: any, column: string, op: string, value: unknown): any {
+  private buildColumnOpExpression(eb: any, column: string | RawBuilder<unknown>, op: string, value: unknown): any {
     switch (op) {
       case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
       case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)

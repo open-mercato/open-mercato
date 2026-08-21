@@ -248,6 +248,15 @@ type SerializableWorkerMetadata = {
   concurrency?: number
   lockDuration?: number
   maxStalledCount?: number
+  /**
+   * Whether the worker's metadata declares an `onJobAbandoned` callback.
+   *
+   * A function cannot be serialized into the registry the way the scalar options are, so the flag is
+   * resolved here at build time and the callback itself is emitted as a lazy import beside the
+   * handler. Recorded only when the source module could actually be loaded — the object-literal
+   * fallback below cannot see whether a referenced identifier is a function.
+   */
+  hasJobAbandonedHook?: boolean
 }
 
 type PageMetadataManifestLoadResult = {
@@ -301,6 +310,131 @@ function buildCacheBustedSourceImportUrl(sourceFile: string): string {
     url.searchParams.set('v', `${stat.mtimeMs}-${stat.size}`)
   } catch {}
   return url.href
+}
+
+function assertGeneratorPluginUsesTypeOnlyImports(sourceFile: string): void {
+  const source = fs.readFileSync(sourceFile, 'utf8')
+  const scriptKind = sourceFile.endsWith('.js') || sourceFile.endsWith('.mjs') || sourceFile.endsWith('.cjs')
+    ? ts.ScriptKind.JS
+    : ts.ScriptKind.TS
+  const parsed = ts.createSourceFile(sourceFile, source, ts.ScriptTarget.Latest, true, scriptKind)
+  const violations: string[] = []
+
+  for (const statement of parsed.statements) {
+    if (ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly) {
+      violations.push(statement.getText(parsed))
+    }
+    if (ts.isImportEqualsDeclaration(statement)) {
+      violations.push(statement.getText(parsed))
+    }
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && !statement.isTypeOnly) {
+      violations.push(statement.getText(parsed))
+    }
+  }
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
+      violations.push(node.getText(parsed))
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+
+  if (violations.length > 0) {
+    throw new Error(
+      `Generator plugin ${sourceFile} contains runtime imports. generators.ts may use only \`import type\`: ${violations.join('; ')}`,
+    )
+  }
+}
+
+const GENERATOR_PLUGIN_OUTPUT_MANIFEST = '.generator-plugin-outputs.json'
+
+function normalizeGeneratorPluginOutputFileName(pluginId: string, outputFileName: string): string {
+  const normalized = outputFileName.replace(/\\/g, '/')
+  if (
+    path.isAbsolute(outputFileName)
+    || outputFileName.includes('\\')
+    || normalized.startsWith('/')
+    || normalized.startsWith('../')
+    || normalized.includes('/../')
+    || !normalized.endsWith('.ts')
+  ) {
+    throw new Error(
+      `Generator plugin '${pluginId}' has an invalid outputFileName '${outputFileName}'; expected a relative .ts path inside the generated directory.`,
+    )
+  }
+  return normalized
+}
+
+function resolveGeneratorPluginOutputNames(
+  plugins: ReadonlyMap<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>,
+): Map<string, string> {
+  const outputNames = new Map<string, string>()
+  const ownersByOutput = new Map<string, string>()
+  for (const [pluginId, plugin] of plugins) {
+    const outputName = normalizeGeneratorPluginOutputFileName(pluginId, plugin.outputFileName)
+    const existingOwner = ownersByOutput.get(outputName)
+    if (existingOwner) {
+      throw new Error(
+        `Generator plugins '${existingOwner}' and '${pluginId}' declare the same output file '${outputName}'.`,
+      )
+    }
+    ownersByOutput.set(outputName, pluginId)
+    outputNames.set(pluginId, outputName)
+  }
+  return outputNames
+}
+
+function reconcileGeneratorPluginOutputs(options: {
+  outputDir: string
+  outputNames: Iterable<string>
+  result: GeneratorResult
+}): void {
+  const manifestPath = path.join(options.outputDir, GENERATOR_PLUGIN_OUTPUT_MANIFEST)
+  let previousOutputs: string[] = []
+  if (fs.existsSync(manifestPath)) {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as unknown
+    if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
+      throw new Error(`Invalid generator plugin output manifest: ${manifestPath}`)
+    }
+    previousOutputs = parsed.map((entry) => normalizeGeneratorPluginOutputFileName('manifest', entry))
+  }
+
+  const currentOutputs = new Set(options.outputNames)
+  for (const staleOutput of previousOutputs) {
+    if (currentOutputs.has(staleOutput)) continue
+    for (const stalePath of [
+      path.join(options.outputDir, staleOutput),
+      path.join(options.outputDir, staleOutput.replace(/\.ts$/, '.checksum')),
+    ]) {
+      if (!fs.existsSync(stalePath)) continue
+      fs.unlinkSync(stalePath)
+      options.result.filesWritten.push(stalePath)
+    }
+  }
+
+  if (currentOutputs.size === 0) {
+    if (fs.existsSync(manifestPath)) {
+      fs.unlinkSync(manifestPath)
+      options.result.filesWritten.push(manifestPath)
+    }
+    return
+  }
+
+  const manifestContent = `${JSON.stringify(
+    [...currentOutputs].sort((left, right) => left.localeCompare(right)),
+    null,
+    2,
+  )}\n`
+  if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifestContent) {
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
+    fs.writeFileSync(manifestPath, manifestContent)
+    options.result.filesWritten.push(manifestPath)
+  }
 }
 
 function unwrapObjectLiteralExpression(
@@ -452,6 +586,55 @@ function extractObjectPropertiesFromAst(sourceFile: string, exportName: string):
   }
 
   return Object.keys(result).length > 0 ? result : null
+}
+
+/**
+ * Whether an exported object literal declares a property, regardless of what it evaluates to.
+ *
+ * Needed for callbacks: the value resolvers above can read literals and local constants, but a
+ * property whose value is an imported function stays unresolvable, so "did the author declare it"
+ * cannot be answered by inspecting the extracted value. Answering it from the syntax instead is what
+ * lets the generator emit a lazy accessor for a hook it can see but cannot serialize.
+ */
+export function namedObjectLiteralDeclaresProperty(sourceFile: string, exportName: string, propertyName: string): boolean {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return false
+  }
+
+  const parsed = ts.createSourceFile(sourceFile, source, ts.ScriptTarget.Latest, true, inferScriptKind(sourceFile))
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) exportedNames.add(element.name.text)
+    }
+  }
+
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const exportsDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier: ts.Modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue
+      if (!exportsDirectly && !exportedNames.has(exportName)) continue
+      const objectLiteral = unwrapObjectLiteralExpression(declaration.initializer)
+      if (!objectLiteral) return false
+      return objectLiteral.properties.some((property) => {
+        const name = property.name
+        if (!name) return false
+        const key = ts.isIdentifier(name) ? name.text : ts.isStringLiteral(name) ? name.text : null
+        return key === propertyName
+      })
+    }
+  }
+  return false
 }
 
 export function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
@@ -1232,6 +1415,7 @@ function collectCommandLoaderEntries(
   roots: ModuleRoots,
   imps: ModuleImports,
   modId: string,
+  quiet = false,
 ): CommandLoaderGenerationEntry[] {
   const files = scanModuleDir(roots, COMMAND_SCAN_CONFIG)
   const entries: CommandLoaderGenerationEntry[] = []
@@ -1242,11 +1426,13 @@ function collectCommandLoaderEntries(
     const logicalKey = stripModuleCodeExtension(file.relPath)
     const basename = path.basename(logicalKey)
     if (basename === 'shared' || basename === 'factory') continue
+    const ids = extractCommandIdsFromSource(resolved.absolutePath)
+    if (ids.length > 0) warnIfRegisterCommandNotAtImportTime(resolved.absolutePath, quiet)
     entries.push({
       moduleId: modId,
       key: `${modId}:commands:${logicalKey}`,
       importPath: resolved.importPath,
-      ids: extractCommandIdsFromSource(resolved.absolutePath),
+      ids,
     })
   }
   return entries
@@ -1384,6 +1570,78 @@ function findExistingModuleFileByBaseNames(baseDir: string, relativeBaseNames: s
     if (resolved) return resolved
   }
   return null
+}
+
+const warnedConventionPaths = new Set<string>()
+
+/**
+ * Clears the once-per-path warning ledger.
+ *
+ * A single `yarn generate` runs three registry emitters over one discovery, and each of them
+ * walks the same frontend and backend page files, so an unguarded warning would print the
+ * same line up to six times. A diagnostic that repeats is a diagnostic that gets skimmed
+ * past, so each offending path is named once per run and the ledger resets when the run's
+ * discovery is built.
+ */
+export function resetConventionWarnings(): void {
+  warnedConventionPaths.clear()
+}
+
+function alreadyWarned(sourcePath: string): boolean {
+  if (warnedConventionPaths.has(sourcePath)) return true
+  warnedConventionPaths.add(sourcePath)
+  return false
+}
+
+/**
+ * Warns when a discovered page metadata file exports no `metadata` binding.
+ *
+ * Both page-route emitters read `<module>.metadata` off the imported file. When the author
+ * named the export something else — `meta` is the common near-miss — that read yields
+ * `undefined`, the route still generates, and every declaration in the file is dropped.
+ * `requireAuth` and `requireFeatures` are among them, so the page ships with no
+ * authorization gate and nothing in the build says so. The warning names that consequence
+ * because the rule alone ("export `metadata`") does not convey why it matters.
+ */
+export function warnIfPageMetaMissingMetadataExport(metaPath: string | null, quiet = false): void {
+  if (!metaPath || quiet) return
+  if (hasNamedExport(metaPath, 'metadata')) return
+  if (alreadyWarned(metaPath)) return
+  console.warn(
+    `[generate] ⚠ Page metadata file exports no 'metadata' — page metadata is dropped, `
+    + `including requireAuth/requireFeatures, so the page renders with NO authorization gate: ${metaPath}`,
+  )
+}
+
+/**
+ * Warns when a `commands/*.ts` file registers commands only from inside a function.
+ *
+ * Command discovery extracts ids statically and emits a lazy loader per file; the loader
+ * resolves a command by importing that file and relying on `registerCommand(...)` running as
+ * an import-time side effect. When every call sits inside a function body that nothing
+ * invokes, the ids still appear in the generated manifest but the handlers never register,
+ * so the command bus reports the command as unknown at runtime.
+ *
+ * Heuristic and deliberately conservative: it only fires when the file contains at least one
+ * `registerCommand(` call and none of them is at top level (column 0), which is how every
+ * correct module writes them.
+ */
+export function warnIfRegisterCommandNotAtImportTime(sourcePath: string, quiet = false): void {
+  if (quiet) return
+  let source = ''
+  try {
+    source = fs.readFileSync(sourcePath, 'utf8')
+  } catch {
+    return
+  }
+  if (!/\bregisterCommand\s*\(/.test(source)) return
+  const hasTopLevelCall = /^registerCommand\s*\(/m.test(source)
+  if (hasTopLevelCall) return
+  if (alreadyWarned(sourcePath)) return
+  console.warn(
+    `[generate] ⚠ registerCommand(...) is never called at import time — these command ids will `
+    + `appear in the manifest but the handlers will not register at runtime: ${sourcePath}`,
+  )
 }
 
 function toModuleImportSubpath(filePath: string, baseDir: string): string {
@@ -1654,6 +1912,7 @@ function normalizeWorkerMetadata(raw: unknown): SerializableWorkerMetadata | nul
   if (typeof source.concurrency === 'number') normalized.concurrency = source.concurrency
   if (typeof source.lockDuration === 'number') normalized.lockDuration = source.lockDuration
   if (typeof source.maxStalledCount === 'number') normalized.maxStalledCount = source.maxStalledCount
+  if (typeof source.onJobAbandoned === 'function') normalized.hasJobAbandonedHook = true
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -1665,8 +1924,16 @@ async function loadSubscriberMetadata(sourceFile: string): Promise<SerializableS
 
 async function loadWorkerMetadata(sourceFile: string): Promise<SerializableWorkerMetadata | null> {
   const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
-  return normalizeWorkerMetadata(sourceModule?.metadata)
+  const metadata = normalizeWorkerMetadata(sourceModule?.metadata)
     ?? normalizeWorkerMetadata(extractNamedObjectLiteralExport(sourceFile, 'metadata'))
+  if (!metadata) return null
+  // Resolved from the syntax, not the extracted value: a worker module that cannot be imported at
+  // build time falls back to the literal extractor, which cannot tell an imported function from an
+  // unresolvable identifier. Missing this is silent — the hook is simply never installed.
+  if (!metadata.hasJobAbandonedHook && namedObjectLiteralDeclaresProperty(sourceFile, 'metadata', 'onJobAbandoned')) {
+    metadata.hasJobAbandonedHook = true
+  }
+  return metadata
 }
 
 async function discoverSubscribers(
@@ -1749,7 +2016,9 @@ function discoverTranslations(roots: ModuleRoots): DiscoveredTranslation[] {
 
 async function createModuleRegistryDiscovery(
   resolver: PackageResolver,
+  quiet = false,
 ): Promise<ModuleRegistryDiscovery> {
+  resetConventionWarnings()
   const enabled = resolver.loadEnabledModules()
   const modules: ModuleRegistryDiscoveryEntry[] = []
   const trackedRoots = new Set<string>()
@@ -1781,7 +2050,7 @@ async function createModuleRegistryDiscovery(
       resolve,
       frontendFiles: scanModuleDir(roots, SCAN_CONFIGS.frontendPages),
       backendFiles: scanModuleDir(roots, SCAN_CONFIGS.backendPages),
-      commandLoaderEntries: collectCommandLoaderEntries(roots, imps, modId),
+      commandLoaderEntries: collectCommandLoaderEntries(roots, imps, modId, quiet),
       getSubscribers: () => subscribers ??= discoverSubscribers(roots, imps, modId),
       getWorkers: () => workers ??= discoverWorkers(roots, imps, modId),
       translations: discoverTranslations(roots),
@@ -1843,8 +2112,9 @@ async function processPageFiles(options: {
   runtimeImports: string[]
   manifestImports?: string[]
   importIdRef: { value: number }
+  quiet?: boolean
 }): Promise<PageRouteGenerationResult> {
-  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef } = options
+  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef, quiet } = options
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
   const eagerRoutes: string[] = []
   const runtimeRoutes: string[] = []
@@ -1870,6 +2140,7 @@ async function processPageFiles(options: {
     const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
+    warnIfPageMetaMissingMetadataExport(metaPath, quiet)
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
@@ -2228,6 +2499,19 @@ async function processApiRoutes(options: {
 }
 
 /**
+ * Registry helper emitted for a worker that declares `metadata.onJobAbandoned`.
+ *
+ * Named once because two things must stay in step: the call the worker entry renders, and the import
+ * the file needs for it. A generated file that references this without importing it type-checks
+ * nowhere, and only fails at `build:app` — see `generated-registry-imports.test.ts`.
+ */
+const ABANDON_HOOK_FACTORY = 'createLazyModuleWorkerAbandonHook'
+
+function workersDeclareAbandonHook(discovered: DiscoveredWorker[]): boolean {
+  return discovered.some(({ metadata }) => metadata.hasJobAbandonedHook === true)
+}
+
+/**
  * Resolves a convention file and pushes its import + config entry to standalone arrays.
  * Used for files that produce their own generated output (notifications, AI tools, events, analytics, enrichers, etc.).
  *
@@ -2484,6 +2768,7 @@ function renderAstModuleRegistryFile(options: {
   imports: GeneratedImportStatement[]
   moduleEntries: WriterFunction[]
   includeCreateElementImport?: boolean
+  includeAbandonHookImport?: boolean
 }): string {
   const sourceFile = createGeneratedSourceFile(options.fileName)
   addAutoGeneratedComment(sourceFile, options.generator)
@@ -2499,6 +2784,7 @@ function renderAstModuleRegistryFile(options: {
     namedImports: [
       { name: 'createLazyModuleSubscriber' },
       { name: 'createLazyModuleWorker' },
+      ...(options.includeAbandonHookImport ? [{ name: ABANDON_HOOK_FACTORY }] : []),
       { name: 'Module', isTypeOnly: true },
     ],
   })
@@ -2754,6 +3040,7 @@ async function processPageFilesAst(options: {
   pkgImportBase: string
   imports: string[]
   importIdRef: { value: number }
+  quiet?: boolean
 }): Promise<{ routes: WriterFunction[]; routePatterns: string[] }> {
   const {
     files,
@@ -2765,6 +3052,7 @@ async function processPageFilesAst(options: {
     pkgImportBase,
     imports,
     importIdRef,
+    quiet,
   } = options
   const routes: WriterFunction[] = []
   const routePatterns: string[] = []
@@ -2801,6 +3089,7 @@ async function processPageFilesAst(options: {
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
 
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
+    warnIfPageMetaMissingMetadataExport(metaPath, quiet)
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = sanitizeGeneratedModuleSpecifier(
@@ -2919,6 +3208,15 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
         { name: 'concurrency', value: metadata.concurrency ?? 1 },
         ...(metadata.lockDuration === undefined ? [] : [{ name: 'lockDuration', value: metadata.lockDuration }]),
         ...(metadata.maxStalledCount === undefined ? [] : [{ name: 'maxStalledCount', value: metadata.maxStalledCount }]),
+        ...(metadata.hasJobAbandonedHook
+          ? [{
+            name: 'onJobAbandoned',
+            value: callExpression(identifier(ABANDON_HOOK_FACTORY), [
+              arrowFunction({ body: importExpression(importPath) }),
+              workerId,
+            ]),
+          }]
+          : []),
         {
           name: 'handler',
           value: callExpression(identifier('createLazyModuleWorker'), [
@@ -3258,6 +3556,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   for (const discovered of discovery.modules) {
     const resolved = discovered.resolve('generators.ts')
     if (!resolved) continue
+    assertGeneratorPluginUsesTypeOnlyImports(resolved.absolutePath)
     try {
       const pluginMod = await import(buildCacheBustedSourceImportUrl(resolved.absolutePath))
       const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
@@ -3270,6 +3569,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       }
     } catch {}
   }
+
+  const pluginOutputNames = resolveGeneratorPluginOutputNames(pluginRegistry)
 
   const imports: string[] = []
   const runtimeImports: string[] = []
@@ -3289,6 +3590,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
+  let hasAbandonHookWorkers = false
 
   // UMES conflict detection: collect file paths during module processing
   const umesConflictSources: Array<{
@@ -3361,6 +3663,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
           runtimeImports,
           manifestImports: frontendRouteManifestImports,
           importIdRef,
+          quiet,
         })
         frontendRoutes.push(...generatedFrontendRoutes.eagerRoutes)
         runtimeFrontendRoutes.push(...generatedFrontendRoutes.runtimeRoutes)
@@ -3484,6 +3787,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
           runtimeImports,
           manifestImports: backendRouteManifestImports,
           importIdRef,
+          quiet,
         })
         backendRoutes.push(...generatedBackendRoutes.eagerRoutes)
         runtimeBackendRoutes.push(...generatedBackendRoutes.runtimeRoutes)
@@ -3538,7 +3842,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
     // 18. Workers
-    workers.push(...processWorkersAst(await discovered.getWorkers()))
+    const discoveredWorkersForModule = await discovered.getWorkers()
+    if (workersDeclareAbandonHook(discoveredWorkersForModule)) hasAbandonHookWorkers = true
+    workers.push(...processWorkersAst(discoveredWorkersForModule))
 
     // Build combined customFieldSets expression
     {
@@ -3781,6 +4087,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const runtimeOutput = renderAstModuleRegistryFile({
     fileName: 'modules.runtime.generated.ts',
@@ -3788,6 +4095,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     imports: runtimeImports,
     moduleEntries: runtimeModuleDecls,
     includeCreateElementImport: true,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const frontendRoutesOutput = renderAstManifestFile({
     fileName: 'frontend-routes.generated.ts',
@@ -3909,10 +4217,15 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     const importSection = state.imports.join('\n')
     const entriesLiteral = state.configs.join(',\n  ')
     const content = plugin.buildOutput({ importSection, entriesLiteral })
-    const outFile = path.join(outputDir, plugin.outputFileName)
-    const checksumFile = outFile.replace('.ts', '.checksum')
+    const outFile = path.join(outputDir, pluginOutputNames.get(pluginId)!)
+    const checksumFile = outFile.replace(/\.ts$/, '.checksum')
     writeGeneratedFile({ outFile, checksumFile, content, structureChecksum, result, quiet })
   }
+  reconcileGeneratorPluginOutputs({
+    outputDir,
+    outputNames: pluginOutputNames.values(),
+    result,
+  })
 
   // Bootstrap registrations: aggregate core registrations + plugin bootstrap-registration hooks
   // into one file. Always written (with at least the core backend route registration) so bootstrap.ts
@@ -3982,6 +4295,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
+  let hasAbandonHookWorkers = false
   const seenBackendRoutePatterns = new Map<string, string>()
 
   for (const discovered of discovery.modules) {
@@ -4082,6 +4396,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           pkgImportBase: imps.pkgBase,
           imports,
           importIdRef,
+          quiet,
         })
         frontendRoutes.push(...feAst.routes)
         hasRouteComponents = true
@@ -4103,6 +4418,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           pkgImportBase: imps.pkgBase,
           imports,
           importIdRef,
+          quiet,
         })
         backendRoutes.push(...beAst.routes)
         for (const pattern of beAst.routePatterns) {
@@ -4141,7 +4457,9 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
 
     subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
-    workers.push(...processWorkersAst(await discovered.getWorkers()))
+    const discoveredWorkersForModule = await discovered.getWorkers()
+    if (workersDeclareAbandonHook(discoveredWorkersForModule)) hasAbandonHookWorkers = true
+    workers.push(...processWorkersAst(discoveredWorkersForModule))
 
     {
       dashboardWidgetsValue = buildModuleDashboardWidgetsValue(discovered.dashboardWidgetEntries)
@@ -4265,18 +4583,21 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const bootstrapOutput = renderAstModuleRegistryFile({
     fileName: 'modules.bootstrap.generated.ts',
     generator: 'registry (bootstrap version)',
     imports: bootstrapImports,
     moduleEntries: bootstrapModuleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const i18nOutput = renderAstModuleRegistryFile({
     fileName: 'modules.i18n.generated.ts',
     generator: 'registry (i18n version)',
     imports: i18nImports,
     moduleEntries: i18nModuleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const legacyOutput = renderAstLegacyAliasFile({
     fileName: 'bootstrap-modules.generated.ts',
@@ -4367,6 +4688,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
  * Excludes: frontend routes, backend routes, API handlers, injection widgets
  */
 async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
+  let hasAbandonHookWorkers = false
   const { resolver, quiet = false } = options
   const { discovery } = options
   const result = createGeneratorResult()
@@ -4518,6 +4840,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     // Workers
     const discoveredWorkers = await discovered.getWorkers()
     const workerGenerationEntries = collectWorkerGenerationEntries(discoveredWorkers, modId)
+    if (workersDeclareAbandonHook(discoveredWorkers)) hasAbandonHookWorkers = true
     workers.push(...processWorkersAst(discoveredWorkers))
     devSupervisorWorkers.push(...workerGenerationEntries.map(({ importPath: _importPath, ...worker }) => worker))
 
@@ -4641,6 +4964,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     generator: 'registry (CLI version)',
     imports,
     moduleEntries: moduleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const legacyOutput = renderAstLegacyAliasFile({
     fileName: 'cli-modules.generated.ts',
@@ -4705,22 +5029,22 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 }
 
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryApp(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryAppFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryCliFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistries(options: ModuleRegistryOptions): Promise<GeneratorResult[]> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return [
     await generateModuleRegistryFromDiscovery({ ...options, discovery }),
     await generateModuleRegistryAppFromDiscovery({ ...options, discovery }),

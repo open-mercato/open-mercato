@@ -185,3 +185,64 @@ describe('auth server integrity checks', () => {
     await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'missing' })
   })
 })
+
+describe('super-admin tenant cookie override', () => {
+  const ACTOR_TENANT = '22222222-2222-4222-8222-222222222222'
+  const OTHER_TENANT = '44444444-4444-4444-8444-444444444444'
+
+  const superAdminAuth = {
+    sub: '11111111-1111-4111-8111-111111111111',
+    tenantId: ACTOR_TENANT,
+    orgId: '33333333-3333-4333-8333-333333333333',
+    roles: ['superadmin'],
+    isSuperAdmin: true,
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    cookieStore.get.mockReset()
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => (name === 'em' ? em : null),
+    })
+    verifyJwt.mockReturnValue(superAdminAuth)
+    resolveCanonicalStaffAuthContext.mockResolvedValue(superAdminAuth)
+  })
+
+  async function authFor(cookie: string) {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    return getAuthFromRequest(new Request('https://example.test/api/test', { headers: { cookie } }))
+  }
+
+  it.each([
+    ['blank', 'om_selected_tenant='],
+    ['whitespace-only', 'om_selected_tenant=%20%20'],
+  ])('treats a %s tenant cookie as no selection and keeps the tenant from the token', async (_label, tenantCookie) => {
+    const auth = await authFor(`auth_token=jwt-token; ${tenantCookie}`)
+
+    expect(auth?.tenantId).toBe(ACTOR_TENANT)
+    expect(auth).not.toHaveProperty('actorTenantId')
+  })
+
+  it('still applies a concrete tenant selection and preserves the actor tenant', async () => {
+    const auth = await authFor(`auth_token=jwt-token; om_selected_tenant=${OTHER_TENANT}`)
+
+    expect(auth?.tenantId).toBe(OTHER_TENANT)
+    expect((auth as { actorTenantId?: string | null }).actorTenantId).toBe(ACTOR_TENANT)
+  })
+
+  it('leaves the organization override working when the tenant cookie is blank', async () => {
+    const auth = await authFor('auth_token=jwt-token; om_selected_tenant=; om_selected_org=__all__')
+
+    expect(auth?.tenantId).toBe(ACTOR_TENANT)
+    expect(auth?.orgId).toBeNull()
+    expect((auth as { actorOrgId?: string | null }).actorOrgId).toBe(superAdminAuth.orgId)
+  })
+
+  it('leaves a non-super-admin session untouched by a blank tenant cookie', async () => {
+    const staffAuth = { ...superAdminAuth, roles: ['employee'], isSuperAdmin: false }
+    verifyJwt.mockReturnValue(staffAuth)
+    resolveCanonicalStaffAuthContext.mockResolvedValue(staffAuth)
+
+    await expect(authFor('auth_token=jwt-token; om_selected_tenant=')).resolves.toEqual(staffAuth)
+  })
+})

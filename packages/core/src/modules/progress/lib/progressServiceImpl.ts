@@ -9,6 +9,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   STALE_JOB_TIMEOUT_SECONDS,
   STALE_PENDING_TIMEOUT_SECONDS,
+  STALE_SWEEP_ERROR_PREFIX,
 } from './progressService'
 import { PROGRESS_EVENTS } from './events'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -131,6 +132,58 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     return {}
   }
 
+  // The start transition (START_FROM_STATUSES) doubles as the recovery path for jobs a
+  // stale sweep flipped to `failed` while their producer was alive but slow. Callers pass
+  // the EM to run against so the forked heartbeat path can reuse the same CAS.
+  //
+  // `staleSweptOnly` is for the revive paths: a live write proves the producer is alive,
+  // but it does NOT prove the recorded failure was the sweep's. Narrowing the CAS to rows
+  // the sweep tagged keeps a genuine failure's message and stack intact instead of
+  // resurrecting the job and erasing why it died. `startJob` stays unrestricted so an
+  // at-least-once queue can still retry a genuinely failed job from the top.
+  async function startJobViaCas(
+    targetEm: EntityManager,
+    job: ProgressJob,
+    ctx: ProgressServiceContext,
+    options: { staleSweptOnly?: boolean } = {},
+  ): Promise<ProgressJob | null> {
+    const now = new Date()
+    // Progress counts are absolute and survive across deliveries, so the elapsed window
+    // calculateEta divides them by has to survive too. Resetting it on every revive makes
+    // a job with hours of work left report seconds remaining.
+    const startedAt = job.startedAt ?? now
+    const filter: Record<string, unknown> = {
+      ...jobScopeFilter(job.id, ctx),
+      status: { $in: START_FROM_STATUSES as ProgressJobStatus[] },
+    }
+    if (options.staleSweptOnly) filter.errorMessage = { $like: `${STALE_SWEEP_ERROR_PREFIX}%` }
+    const affected = await targetEm.nativeUpdate(ProgressJob, filter as FilterQuery<ProgressJob>, {
+      status: 'running',
+      startedAt,
+      heartbeatAt: now,
+      finishedAt: null,
+      errorMessage: null,
+      errorStack: null,
+      updatedAt: now,
+    })
+    if (affected === 0) return null
+
+    job.status = 'running'
+    job.startedAt = startedAt
+    job.heartbeatAt = now
+    job.finishedAt = null
+    job.errorMessage = null
+    job.errorStack = null
+
+    await eventBus.emit(PROGRESS_EVENTS.JOB_STARTED, {
+      ...buildJobPayload(job),
+      tenantId: ctx.tenantId,
+      organizationId: job.organizationId ?? null,
+    })
+
+    return job
+  }
+
   async function persistAndMaybeBroadcast(entry: JobUpdateThrottleEntry, ctx: ProgressServiceContext): Promise<ProgressJob> {
     const job = entry.job
     const now = Date.now()
@@ -153,16 +206,32 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       updatedAt: new Date(),
       ...buildBufferedCountData(entry),
     }
-    const affected = await em.nativeUpdate(ProgressJob, {
+    const writableFilter = {
       ...jobScopeFilter(job.id, ctx),
       status: { $in: PROGRESS_WRITABLE_STATUSES as ProgressJobStatus[] },
-    } as FilterQuery<ProgressJob>, data)
+    } as FilterQuery<ProgressJob>
+    let affected = await em.nativeUpdate(ProgressJob, writableFilter, data)
 
     if (affected === 0) {
-      // The job reached a terminal state in another process; stop writing to it.
-      forgetJobThrottle(job.id)
+      // A stale sweep may have flipped a live job to `failed` between writes. Revive it
+      // through the start CAS and retry once so the buffered delta isn't silently dropped.
       const fresh = await loadFreshJob(job.id, ctx)
-      return fresh ?? job
+      let revived = false
+      if (fresh && fresh.status === 'failed' && (await startJobViaCas(em, fresh, ctx, { staleSweptOnly: true }))) {
+        revived = true
+        job.status = 'running'
+        job.startedAt = fresh.startedAt
+        job.finishedAt = null
+        job.errorMessage = null
+        job.errorStack = null
+        affected = await em.nativeUpdate(ProgressJob, writableFilter, data)
+      }
+      if (affected === 0) {
+        // The job reached a genuinely terminal state in another process; stop writing to it.
+        forgetJobThrottle(job.id)
+        const latest = revived ? await loadFreshJob(job.id, ctx) : fresh
+        return latest ?? job
+      }
     }
 
     const persistedJob = usesAtomicIncrement ? (await loadFreshJob(job.id, ctx)) ?? job : job
@@ -219,47 +288,48 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         return job
       }
 
+      const started = await startJobViaCas(em, job, ctx)
+      if (started) return started
+
+      const fresh = await loadFreshJob(jobId, ctx)
+      return fresh ?? job
+    },
+
+    async touchJobHeartbeat(jobId, ctx) {
+      // Forked EM: keepalive timers call this while the shared EM may be mid-transaction
+      // inside a producer's own writes, so the heartbeat must not join that unit of work.
+      const fork = em.fork()
       const now = new Date()
-      const affected = await em.nativeUpdate(ProgressJob, {
+      const affected = await fork.nativeUpdate(ProgressJob, {
         ...jobScopeFilter(jobId, ctx),
-        status: { $in: START_FROM_STATUSES as ProgressJobStatus[] },
+        status: { $in: PROGRESS_WRITABLE_STATUSES as ProgressJobStatus[] },
       } as FilterQuery<ProgressJob>, {
-        status: 'running',
-        startedAt: now,
         heartbeatAt: now,
-        finishedAt: null,
-        errorMessage: null,
-        errorStack: null,
         updatedAt: now,
       })
+      if (affected > 0) return
 
-      if (affected === 0) {
-        const fresh = await loadFreshJob(jobId, ctx)
-        return fresh ?? job
-      }
-
-      job.status = 'running'
-      job.startedAt = now
-      job.heartbeatAt = now
-      job.finishedAt = null
-      job.errorMessage = null
-      job.errorStack = null
-
-      await eventBus.emit(PROGRESS_EVENTS.JOB_STARTED, {
-        ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      })
-
-      return job
+      const job = await fork.findOne(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
+      if (!job || job.status !== 'failed') return
+      // A live producer heartbeating a `failed` job means a stale sweep false-positived;
+      // revive through the start CAS so the card recovers without waiting for a batch boundary.
+      await startJobViaCas(fork, job, ctx, { staleSweptOnly: true })
     },
 
     async updateProgress(jobId, input, ctx) {
       const entry = await ensureThrottleEntry(jobId, ctx)
       const job = entry.job
       if (TERMINAL_STATUSES.includes(job.status)) {
-        forgetJobThrottle(jobId)
-        return job
+        // `failed` may be a false-positive stale sweep on a slow-but-alive producer; the
+        // fact that this write is happening proves the producer is alive, so revive and
+        // apply the update. `completed`/`cancelled` stay terminal, and a failure the sweep
+        // did not write keeps its diagnostics (see startJobViaCas).
+        const revived = job.status === 'failed' && (await startJobViaCas(em, job, ctx, { staleSweptOnly: true }))
+        if (!revived) {
+          forgetJobThrottle(jobId)
+          return job
+        }
+        entry.lastPersistedAt = 0
       }
 
       if (input.processedCount !== undefined) {
@@ -295,8 +365,12 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const entry = await ensureThrottleEntry(jobId, ctx)
       const job = entry.job
       if (TERMINAL_STATUSES.includes(job.status)) {
-        forgetJobThrottle(jobId)
-        return job
+        const revived = job.status === 'failed' && (await startJobViaCas(em, job, ctx, { staleSweptOnly: true }))
+        if (!revived) {
+          forgetJobThrottle(jobId)
+          return job
+        }
+        entry.lastPersistedAt = 0
       }
 
       job.processedCount += delta
@@ -387,6 +461,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         finishedAt: now,
         errorMessage: input.errorMessage,
         errorStack: input.errorStack,
+        ...(input.resultSummary ? { resultSummary: input.resultSummary } : {}),
         updatedAt: now,
         ...(entry
           ? {
@@ -412,6 +487,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       snapshot.finishedAt = now
       snapshot.errorMessage = input.errorMessage
       snapshot.errorStack = input.errorStack
+      if (input.resultSummary) {
+        snapshot.resultSummary = input.resultSummary
+      }
 
       const persistedJob = (await loadFreshJob(jobId, ctx)) ?? snapshot
 
@@ -600,7 +678,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const staleRunning = await em.find(ProgressJob, { ...scope, ...staleFilter }, { disableIdentityMap: true })
 
       for (const job of staleRunning) {
-        const errorMessage = `Job stale: no heartbeat for ${timeoutSeconds} seconds`
+        const errorMessage = `${STALE_SWEEP_ERROR_PREFIX} no heartbeat for ${timeoutSeconds} seconds`
         // Per-row CAS (re-checking the staleness condition): exactly one concurrent
         // sweeper wins, and a heartbeat that landed after the SELECT aborts the failure.
         const affected = await em.nativeUpdate(ProgressJob, {
@@ -640,7 +718,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const stalePending = await em.find(ProgressJob, { ...scope, ...stalePendingFilter }, { disableIdentityMap: true })
 
       for (const job of stalePending) {
-        const errorMessage = `Job stale: never started within ${STALE_PENDING_TIMEOUT_SECONDS} seconds`
+        const errorMessage = `${STALE_SWEEP_ERROR_PREFIX} never started within ${STALE_PENDING_TIMEOUT_SECONDS} seconds`
         const affected = await em.nativeUpdate(ProgressJob, {
           id: job.id,
           tenantId: job.tenantId,

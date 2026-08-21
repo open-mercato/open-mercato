@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Plus } from 'lucide-react'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -65,6 +65,8 @@ export function createSalesOrderLineDraft(
       currencyCode: typeof payload.currencyCode === 'string' ? payload.currencyCode : null,
       unitPriceNet,
       unitPriceGross,
+      discountAmount: normalizeNumber(payload.discountAmount, 0) * quantity,
+      discountPercent: normalizeNumber(payload.discountPercent, 0),
       taxRate,
       totalNet,
       totalGross,

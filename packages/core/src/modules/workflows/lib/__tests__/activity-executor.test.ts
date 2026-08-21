@@ -17,6 +17,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
 import { WorkflowInstance } from '../../data/entities'
 import * as activityExecutor from '../activity-executor'
 import type { ActivityDefinition, ActivityContext } from '../activity-executor'
@@ -27,6 +28,17 @@ import {
 
 // Mock global fetch
 global.fetch = jest.fn()
+
+createModuleEvents({
+  moduleId: 'workflow_emit_security_test',
+  events: [
+    {
+      id: 'workflow_emit_security_test.private_coordination',
+      label: 'Private coordination',
+      crossProcessBroadcast: true,
+    },
+  ] as const,
+})
 
 describe('Activity Executor (Unit Tests)', () => {
   let mockEm: jest.Mocked<EntityManager>
@@ -330,6 +342,38 @@ describe('Activity Executor (Unit Tests)', () => {
           process.env.OM_WORKFLOWS_TEST_EVENT_SECRET = originalSecret
         }
       }
+    })
+
+    test('rejects private cross-process coordination events', async () => {
+      const mockEventBus = {
+        emitEvent: jest.fn().mockResolvedValue(undefined),
+      }
+      mockContainer.resolve.mockReturnValue(mockEventBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-private-event',
+        activityName: 'Spoof private coordination event',
+        activityType: 'EMIT_EVENT',
+        config: {
+          eventName: 'workflow_emit_security_test.private_coordination',
+          payload: {
+            id: 'foreign-record-id',
+            tenantId: 'foreign-tenant-id',
+            organizationId: 'foreign-organization-id',
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext,
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('cannot emit private cross-process event')
+      expect(mockEventBus.emitEvent).not.toHaveBeenCalled()
     })
 
     test('should fail EMIT_EVENT when a payload value stays unresolved', async () => {
@@ -2575,5 +2619,34 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.output.waited).toBe(true)
       expect(result.output.durationMs).toBe(10000)
     })
+  })
+})
+
+describe('resolveActivityTimeoutMs', () => {
+  const resolve = activityExecutor.resolveActivityTimeoutMs
+
+  test('prefers the canonical timeoutMs over the deprecated alias', () => {
+    expect(resolve({ timeoutMs: 5000, timeout: 'PT30S' })).toBe(5000)
+  })
+
+  test('reads a plain millisecond string from the deprecated alias', () => {
+    expect(resolve({ timeout: '30000' })).toBe(30000)
+  })
+
+  test('reads a duration string from the deprecated alias', () => {
+    expect(resolve({ timeout: 'PT30S' })).toBe(30 * 1000)
+    expect(resolve({ timeout: '5m' })).toBe(5 * 60 * 1000)
+  })
+
+  test('falls back to the alias when timeoutMs is not a usable value', () => {
+    expect(resolve({ timeoutMs: 0, timeout: '30000' })).toBe(30000)
+  })
+
+  test('ignores a malformed alias rather than throwing mid-execution', () => {
+    expect(resolve({ timeout: 'not-a-duration' })).toBeUndefined()
+  })
+
+  test('returns undefined when no timeout is configured', () => {
+    expect(resolve({})).toBeUndefined()
   })
 })

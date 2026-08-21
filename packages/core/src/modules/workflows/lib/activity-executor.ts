@@ -22,10 +22,12 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
+import { resolveActivityTimeoutMs } from './activityTimeoutFields'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
@@ -114,33 +116,7 @@ export interface ActivityDefinition {
   compensate?: boolean // Flag to execute compensation on failure
 }
 
-/**
- * Effective timeout for an activity, in milliseconds.
- *
- * The editor and this executor both speak `timeoutMs`, but the definition
- * schema historically accepted only an ISO 8601 `timeout` string — so stored
- * definitions can carry either. Prefer `timeoutMs`; fall back to parsing
- * `timeout`, ignoring a malformed value rather than throwing mid-execution
- * (an unparseable timeout must not fail an activity that would otherwise
- * succeed). Returns undefined when no usable timeout is configured (#4424).
- */
-export function resolveActivityTimeoutMs(activity: {
-  timeoutMs?: number
-  timeout?: string
-}): number | undefined {
-  if (typeof activity.timeoutMs === 'number' && activity.timeoutMs > 0) {
-    return activity.timeoutMs
-  }
-  if (typeof activity.timeout === 'string' && activity.timeout.trim().length > 0) {
-    try {
-      const parsed = parseDuration(activity.timeout.trim())
-      if (Number.isFinite(parsed) && parsed > 0) return parsed
-    } catch {
-      return undefined
-    }
-  }
-  return undefined
-}
+export { resolveActivityTimeoutMs }
 
 export interface RetryPolicy {
   maxAttempts: number
@@ -601,6 +577,14 @@ export async function executeEmitEvent(
 
   if (!eventName) {
     throw new Error('EMIT_EVENT requires "eventName" field')
+  }
+
+  // Workflow definitions are tenant-managed input. Private cross-process
+  // events coordinate trusted server state (for example closing an in-memory
+  // collaboration room), so allowing a workflow to name one would turn a
+  // regular event activity into a cross-process invalidation primitive.
+  if (isPrivateCrossProcessBroadcastEvent(eventName)) {
+    throw new Error(`EMIT_EVENT cannot emit private cross-process event "${eventName}"`)
   }
 
   // Emissions are fire-and-forget and no subscriber validates the payload shape,
@@ -1494,6 +1478,11 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Execute a promise with timeout
+ *
+ * Only CALL_API and CALL_WEBHOOK honour the abort signal today — they forward
+ * it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and EXECUTE_FUNCTION
+ * still run to completion after the timeout has been recorded. Tracked in
+ * #5148.
  */
 async function executeWithTimeout<T>(
   executor: (signal: AbortSignal) => Promise<T>,
