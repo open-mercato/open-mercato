@@ -106,9 +106,65 @@ describe('security MFA challenge routes', () => {
       'totp',
       { code: '123456' },
       { request: expect.any(Request) },
+      { userId: 'user-1' },
     )
     expect(mockedIssueVerifiedMfaToken).toHaveBeenCalledWith(context.auth, ['totp', 'otp_email'])
     expect(mockedSetAuthCookie).toHaveBeenCalledWith(expect.any(NextResponse), 'verified-token')
+  })
+
+  test('verify route surfaces 404 when service rejects a cross-user challenge', async () => {
+    const context = buildContext({
+      verifyChallenge: jest.fn(async () => {
+        throw Object.assign(new Error('MFA challenge not found'), { statusCode: 404, name: 'MfaVerificationServiceError' })
+      }),
+    })
+    mockedResolveMfaRequestContext.mockResolvedValue(context)
+
+    const response = await verifyChallenge(new Request('https://example.test/api/security/mfa/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ challengeId: 'challenge-other-user', methodType: 'totp', payload: { code: '123456' } }),
+    }))
+
+    expect(response.status).toBe(404)
+    expect(mockedIssueVerifiedMfaToken).not.toHaveBeenCalled()
+    expect(mockedSetAuthCookie).not.toHaveBeenCalled()
+  })
+
+  test('prepare route forwards the authenticated user as the scope argument', async () => {
+    const context = buildContext()
+    mockedResolveMfaRequestContext.mockResolvedValue(context)
+
+    const response = await prepareChallenge(new Request('https://example.test/api/security/mfa/prepare', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ challengeId: 'challenge-1', methodType: 'totp' }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(context.mfaVerificationService.prepareChallenge).toHaveBeenCalledWith(
+      'challenge-1',
+      'totp',
+      { request: expect.any(Request) },
+      { userId: 'user-1' },
+    )
+  })
+
+  test('prepare route surfaces 404 when service rejects a cross-user challenge', async () => {
+    const context = buildContext({
+      prepareChallenge: jest.fn(async () => {
+        throw Object.assign(new Error('MFA challenge not found'), { statusCode: 404, name: 'MfaVerificationServiceError' })
+      }),
+    })
+    mockedResolveMfaRequestContext.mockResolvedValue(context)
+
+    const response = await prepareChallenge(new Request('https://example.test/api/security/mfa/prepare', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ challengeId: 'challenge-other-user', methodType: 'totp' }),
+    }))
+
+    expect(response.status).toBe(404)
   })
 
   test('verify route returns 401 when challenge verification fails', async () => {

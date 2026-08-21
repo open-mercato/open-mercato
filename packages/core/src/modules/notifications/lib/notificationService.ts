@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
@@ -14,15 +15,28 @@ import {
   type NotificationTenantContext,
 } from './notificationFactory'
 import { toNotificationDto } from './notificationMapper'
-import { getRecipientUserIdsForFeature, getRecipientUserIdsForRole } from './notificationRecipients'
+import { buildNotificationReadScopeWhere } from './notificationScope'
+import {
+  getRecipientUserIdsForFeature,
+  getRecipientUserIdsForRole,
+  getScopedNotificationRecipientUserIds,
+} from './notificationRecipients'
 import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getNotificationType } from './notification-type-registry'
+import { getNotificationTypeOverrides, type NotificationTypeOverrides } from './typeOverrides'
+import { getNotificationDeliveryStrategies } from './deliveryStrategies'
+import { resolveEffectiveChannels } from './shouldDeliver'
+import {
+  createNotificationPreferenceService,
+  type NotificationPreferenceService,
+} from './notificationPreferenceService'
+import { inAppVisibleFilter, inAppVisibleSql, isInAppVisible } from './notificationVisibility'
 
-const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
+const logger = createLogger('notifications').child({ component: 'service' })
 
-function debug(...args: unknown[]): void {
-  if (DEBUG) {
-    console.log('[notifications]', ...args)
-  }
+function debug(message: string, ...details: unknown[]): void {
+  logger.debug(message, details.length ? { details } : undefined)
 }
 
 function getDb(em: EntityManager): Kysely<any> {
@@ -30,9 +44,47 @@ function getDb(em: EntityManager): Kysely<any> {
 }
 
 const UNIQUE_NOTIFICATION_ACTIVE_STATUSES: NotificationStatus[] = ['unread', 'read', 'actioned']
+const NOTIFICATION_RESOURCE_KIND = 'notifications.notification'
 
 function normalizeOrgScope(organizationId: string | null | undefined): string | null {
   return organizationId ?? null
+}
+
+async function invalidateNotificationCache(
+  container: NotificationServiceDeps['container'],
+  ctx: Pick<NotificationServiceContext, 'tenantId' | 'organizationId'>,
+  reason: string,
+  notificationId?: string,
+): Promise<void> {
+  if (!container) return
+  await invalidateCrudCache(
+    container as Parameters<typeof invalidateCrudCache>[0],
+    NOTIFICATION_RESOURCE_KIND,
+    {
+      id: notificationId,
+      tenantId: ctx.tenantId,
+      organizationId: normalizeOrgScope(ctx.organizationId),
+    },
+    ctx.tenantId,
+    reason,
+  )
+}
+
+async function assertNotificationRecipientsInScope(
+  em: EntityManager,
+  recipientUserIds: string[],
+  ctx: NotificationServiceContext,
+): Promise<void> {
+  const scopedRecipientUserIds = await getScopedNotificationRecipientUserIds(
+    getDb(em),
+    ctx.tenantId,
+    normalizeOrgScope(ctx.organizationId),
+    recipientUserIds,
+  )
+
+  if (scopedRecipientUserIds.length !== recipientUserIds.length) {
+    throw new CrudHttpError(404, { error: 'Notification recipient not found' })
+  }
 }
 
 function applyNotificationContent(
@@ -40,6 +92,7 @@ function applyNotificationContent(
   input: NotificationContentInput,
   recipientUserId: string,
   ctx: NotificationTenantContext,
+  channels: string[] | null,
 ) {
   const actions = sanitizeNotificationActions(input.actions)
   const linkHref = assertSafeNotificationHref(input.linkHref)
@@ -65,6 +118,7 @@ function applyNotificationContent(
   notification.sourceEntityId = input.sourceEntityId
   notification.linkHref = linkHref
   notification.groupKey = input.groupKey
+  notification.channels = channels
   notification.expiresAt = input.expiresAt ? new Date(input.expiresAt) : null
   notification.tenantId = ctx.tenantId
   notification.organizationId = normalizeOrgScope(ctx.organizationId)
@@ -106,16 +160,21 @@ async function emitNotificationSseEvents(
   eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
   notifications: Notification[],
   ctx: NotificationServiceContext,
-  recipientUserIds: string[],
 ): Promise<void> {
+  // Live bell updates only for notifications actually delivered to the in-app channel; the others
+  // exist as records but must not bump anyone's badge/inbox.
+  const visible = notifications.filter((notification) => isInAppVisible(notification.channels))
+  if (visible.length === 0) return
+
+  const visibleRecipientUserIds = Array.from(new Set(visible.map((n) => n.recipientUserId)))
   await eventBus.emit(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, {
     tenantId: ctx.tenantId,
     organizationId: normalizeOrgScope(ctx.organizationId),
-    recipientUserIds,
-    count: notifications.length,
+    recipientUserIds: visibleRecipientUserIds,
+    count: visible.length,
   })
 
-  for (const notification of notifications) {
+  for (const notification of visible) {
     await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
       tenantId: notification.tenantId,
       organizationId: notification.organizationId ?? null,
@@ -130,6 +189,7 @@ async function createOrRefreshNotification(
   input: NotificationContentInput,
   recipientUserId: string,
   ctx: NotificationTenantContext,
+  channels: string[] | null,
 ): Promise<Notification> {
   if (input.groupKey && input.groupKey.trim().length > 0) {
     const orgScope = normalizeOrgScope(ctx.organizationId) ?? 'global'
@@ -153,25 +213,30 @@ async function createOrRefreshNotification(
     })
 
     if (existing) {
-      applyNotificationContent(existing, input, recipientUserId, ctx)
+      applyNotificationContent(existing, input, recipientUserId, ctx, channels)
       return existing
     }
   }
 
-  return buildNotificationEntity(em, input, recipientUserId, ctx)
+  return buildNotificationEntity(em, input, recipientUserId, ctx, channels)
 }
 
 export interface NotificationServiceContext {
   tenantId: string
   organizationId?: string | null
+  organizationIds?: string[] | null
   userId?: string | null
+}
+
+export type CreateFeatureNotificationServiceInput = CreateFeatureNotificationInput & {
+  restrictRecipientsToOrganization?: boolean
 }
 
 export interface NotificationService {
   create(input: CreateNotificationInput, ctx: NotificationServiceContext): Promise<Notification>
   createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
-  createForFeature(input: CreateFeatureNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+  createForFeature(input: CreateFeatureNotificationServiceInput, ctx: NotificationServiceContext): Promise<Notification[]>
   markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
   markAllAsRead(ctx: NotificationServiceContext): Promise<number>
   dismiss(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
@@ -210,23 +275,94 @@ export interface NotificationServiceDeps {
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
   const { em: rootEm, eventBus, commandBus, container } = deps
 
+  /**
+   * Resolves the authoritative delivery-channel set for one recipient at create time — the single
+   * gate that folds per-send target, per-type eligibility, registered strategies, and the
+   * recipient's per-channel preferences (`nonOptOut` bypasses opt-out). Stored on the row and
+   * replayed by the dispatcher; `in_app` membership also drives bell/inbox visibility.
+   *
+   * Returns `null` (⇒ "all channels", legacy behavior) when no delivery strategies are registered
+   * (e.g. a minimal bootstrap/test), so notifications never become silently undeliverable/invisible
+   * in an environment that simply hasn't wired the seam.
+   */
+  const resolveChannelsFor = async (
+    content: NotificationContentInput,
+    recipientUserId: string,
+    scopeCtx: NotificationServiceContext,
+    preferences: NotificationPreferenceService = createNotificationPreferenceService({ em: rootEm.fork() }),
+    typeOverrides?: NotificationTypeOverrides | null,
+  ): Promise<string[] | null> => {
+    const registeredChannels = getNotificationDeliveryStrategies().map((strategy) => strategy.id)
+    if (registeredChannels.length === 0) return null
+    // Treat an empty target as "no restriction" (all channels) rather than "no deliverable channel":
+    // a programmatic caller that computed an empty array should not silently black-hole the
+    // notification. The HTTP layer rejects an empty `channels` outright (see validators.ts).
+    const targetChannels = content.channels && content.channels.length > 0 ? content.channels : null
+    const overrides = typeOverrides === undefined
+      ? (await getNotificationTypeOverrides(rootEm.fork(), scopeCtx.tenantId, [content.type])).get(content.type) ?? null
+      : typeOverrides
+    return resolveEffectiveChannels({
+      typeId: content.type,
+      type: getNotificationType(content.type),
+      scope: { tenantId: scopeCtx.tenantId, userId: recipientUserId },
+      targetChannels,
+      registeredChannels,
+      preferences,
+      channelsOverride: overrides?.channels ?? null,
+      nonOptOutOverride: overrides?.nonOptOut ?? null,
+    })
+  }
+
+  /**
+   * Broadcast counterpart of {@link resolveChannelsFor}: resolves the channel set for every recipient
+   * up front, BEFORE the write transaction opens, reusing a single forked EM / preference service
+   * across the whole set. This keeps the preference reads out of the write transaction (matching
+   * `create`, which resolves before its transaction) and avoids one EM fork per recipient on large
+   * role/feature broadcasts.
+   */
+  const resolveChannelsForRecipients = async (
+    content: NotificationContentInput,
+    recipientUserIds: string[],
+    scopeCtx: NotificationServiceContext,
+  ): Promise<Array<{ recipientUserId: string; channels: string[] | null }>> => {
+    const preferences = createNotificationPreferenceService({ em: rootEm.fork() })
+    // Stored overrides are per-type (not per-recipient) — read once for the whole broadcast.
+    const typeOverrides =
+      (await getNotificationTypeOverrides(rootEm.fork(), scopeCtx.tenantId, [content.type])).get(content.type) ?? null
+    const resolved: Array<{ recipientUserId: string; channels: string[] | null }> = []
+    for (const recipientUserId of recipientUserIds) {
+      resolved.push({
+        recipientUserId,
+        channels: await resolveChannelsFor(content, recipientUserId, scopeCtx, preferences, typeOverrides),
+      })
+    }
+    return resolved
+  }
+
   return {
     async create(input, ctx) {
       const { recipientUserId, ...content } = input
+      const channels = await resolveChannelsFor(content, recipientUserId, ctx)
       const writeEm = rootEm.fork()
       const notification = await writeEm.transactional(async (tx) => {
-        const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        await assertNotificationRecipientsInScope(tx, [recipientUserId], ctx)
+        const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
         await tx.flush()
         return entity
       })
 
+      await invalidateNotificationCache(container, ctx, 'created')
+      // Always emit the domain event (drives the deliver subscriber → push/email/…). Only bump the
+      // live in-app bell when this notification is actually visible in-app.
       await emitNotificationCreated(eventBus, notification, ctx)
-      await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
-        tenantId: notification.tenantId,
-        organizationId: notification.organizationId ?? null,
-        recipientUserId: notification.recipientUserId,
-        notification: toNotificationDto(notification),
-      })
+      if (isInAppVisible(notification.channels)) {
+        await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
+          tenantId: notification.tenantId,
+          organizationId: notification.organizationId ?? null,
+          recipientUserId: notification.recipientUserId,
+          notification: toNotificationDto(notification),
+        })
+      }
 
       return notification
     },
@@ -235,18 +371,21 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const recipientUserIds = Array.from(new Set(input.recipientUserIds))
       const { recipientUserIds: _recipientUserIds, ...content } = input
       const notifications: Notification[] = []
+      const resolved = await resolveChannelsForRecipients(content, recipientUserIds, ctx)
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
-        for (const recipientUserId of recipientUserIds) {
-          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        await assertNotificationRecipientsInScope(tx, recipientUserIds, ctx)
+        for (const { recipientUserId, channels } of resolved) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
       })
 
+      await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
-      await emitNotificationSseEvents(eventBus, notifications, ctx, recipientUserIds)
+      await emitNotificationSseEvents(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -263,18 +402,20 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const { roleId: _roleId, ...content } = input
       const notifications: Notification[] = []
       const uniqueRecipientUserIds = Array.from(new Set(recipientUserIds))
+      const resolved = await resolveChannelsForRecipients(content, uniqueRecipientUserIds, ctx)
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
-        for (const recipientUserId of uniqueRecipientUserIds) {
-          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        for (const { recipientUserId, channels } of resolved) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
       })
 
+      await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
-      await emitNotificationSseEvents(eventBus, notifications, ctx, uniqueRecipientUserIds)
+      await emitNotificationSseEvents(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -289,23 +430,100 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         return []
       }
 
-      debug('Creating notifications for', recipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
+      let authorizedRecipientUserIds = recipientUserIds
+      if (input.restrictRecipientsToOrganization) {
+        const uniqueCandidateUserIds = Array.from(new Set(recipientUserIds))
+        if (!ctx.organizationId) {
+          logger.warn('Organization-restricted feature fan-out skipped because organization scope is missing', {
+            tenantId: ctx.tenantId,
+            requiredFeature: input.requiredFeature,
+          })
+          return []
+        }
 
-      const { requiredFeature: _requiredFeature, ...content } = input
+        if (uniqueCandidateUserIds.length > 200) {
+          logger.warn('Organization-restricted feature fan-out skipped because the candidate cap was exceeded', {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            requiredFeature: input.requiredFeature,
+            candidateCount: uniqueCandidateUserIds.length,
+            candidateCap: 200,
+          })
+          return []
+        }
+
+        if (!container) {
+          logger.warn('Organization-restricted feature fan-out skipped because the DI container is unavailable', {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            requiredFeature: input.requiredFeature,
+          })
+          return []
+        }
+
+        try {
+          const rbacService = container.resolve('rbacService') as {
+            userHasAllFeatures: (
+              userId: string,
+              features: string[],
+              scope: { tenantId: string | null; organizationId: string | null },
+            ) => Promise<boolean>
+          }
+          const allowedRecipientUserIds: string[] = []
+          for (let offset = 0; offset < uniqueCandidateUserIds.length; offset += 10) {
+            const candidates = uniqueCandidateUserIds.slice(offset, offset + 10)
+            const results = await Promise.all(candidates.map(async (recipientUserId) => ({
+              recipientUserId,
+              allowed: await rbacService.userHasAllFeatures(
+                recipientUserId,
+                [input.requiredFeature],
+                { tenantId: ctx.tenantId, organizationId: ctx.organizationId ?? null },
+              ),
+            })))
+            for (const result of results) {
+              if (result.allowed) allowedRecipientUserIds.push(result.recipientUserId)
+            }
+          }
+          authorizedRecipientUserIds = allowedRecipientUserIds
+        } catch (err) {
+          logger.warn('Organization-restricted feature fan-out skipped because RBAC filtering failed', {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            requiredFeature: input.requiredFeature,
+            err,
+          })
+          return []
+        }
+
+        if (authorizedRecipientUserIds.length === 0) {
+          debug('No users found with feature in organization:', input.requiredFeature, ctx.organizationId)
+          return []
+        }
+      }
+
+      debug('Creating notifications for', authorizedRecipientUserIds.length, 'user(s) with feature:', input.requiredFeature)
+
+      const {
+        requiredFeature: _requiredFeature,
+        restrictRecipientsToOrganization: _restrictRecipientsToOrganization,
+        ...content
+      } = input
       const notifications: Notification[] = []
-      const uniqueRecipientUserIds = Array.from(new Set(recipientUserIds))
+      const uniqueRecipientUserIds = Array.from(new Set(authorizedRecipientUserIds))
+      const resolved = await resolveChannelsForRecipients(content, uniqueRecipientUserIds, ctx)
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
-        for (const recipientUserId of uniqueRecipientUserIds) {
-          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        for (const { recipientUserId, channels } of resolved) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
       })
 
+      await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
-      await emitNotificationSseEvents(eventBus, notifications, ctx, uniqueRecipientUserIds)
+      await emitNotificationSseEvents(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -319,6 +537,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         notification.readAt = new Date()
         await em.flush()
 
+        await invalidateNotificationCache(container, ctx, 'updated', notification.id)
         await eventBus.emit(NOTIFICATION_EVENTS.READ, {
           notificationId: notification.id,
           userId: ctx.userId,
@@ -337,6 +556,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           .where('recipient_user_id' as any, '=', ctx.userId as any)
           .where('tenant_id' as any, '=', ctx.tenantId)
           .where('status' as any, '=', 'unread')
+          // Only in-app-visible rows count toward the badge (see getUnreadCount),
+          // so "mark all as read" must scope to the SAME set — otherwise it flips
+          // push/email-only rows the user never saw and SSE-broadcasts a read for
+          // notifications that were never in the bell, inflating the returned
+          // count past what the badge showed.
+          .where(inAppVisibleSql() as any)
         if (ctx.organizationId) {
           chain = chain.where('organization_id' as any, '=', ctx.organizationId)
         }
@@ -364,6 +589,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         } as any) as any,
       ).executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
       const result = Number(updateResult?.numUpdatedRows ?? targetRows.length)
+
+      await invalidateNotificationCache(container, ctx, 'updated')
 
       const notifications = await findWithDecryption(em, Notification, {
         id: { $in: targetRows.map((row) => row.id) },
@@ -398,6 +625,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       notification.dismissedAt = new Date()
       await em.flush()
 
+      await invalidateNotificationCache(container, ctx, 'updated', notification.id)
       await eventBus.emit(NOTIFICATION_EVENTS.DISMISSED, {
         notificationId: notification.id,
         userId: ctx.userId,
@@ -427,6 +655,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       await em.flush()
 
+      await invalidateNotificationCache(container, ctx, 'updated', notification.id)
       await eventBus.emit(NOTIFICATION_EVENTS.RESTORED, {
         notificationId: notification.id,
         userId: ctx.userId,
@@ -446,6 +675,57 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       if (!action) {
         throw new Error('Action not found')
+      }
+
+      // Reject an already-actioned notification before dispatching the command,
+      // so a retry or double-click cannot re-run the side effect.
+      if (notification.status === 'actioned') {
+        throw conflict('Notification action already executed')
+      }
+
+      const actionedAt = new Date()
+      const previousStatus = notification.status
+      const previousActionedAt = notification.actionedAt ?? null
+      const previousActionTaken = notification.actionTaken ?? null
+
+      // Atomically claim the notification so only one concurrent request can run
+      // the side-effecting command. The conditional UPDATE matches only while the
+      // notification has not been actioned yet; a losing request updates 0 rows.
+      const claimResult = (await getDb(em)
+        .updateTable('notifications' as any)
+        .set({
+          status: 'actioned',
+          actioned_at: actionedAt,
+          action_taken: input.actionId,
+        } as any)
+        .where('id' as any, '=', notification.id)
+        .where('recipient_user_id' as any, '=', ctx.userId as any)
+        .where('tenant_id' as any, '=', ctx.tenantId)
+        .where('status' as any, '!=', 'actioned')
+        .executeTakeFirst()) as { numUpdatedRows?: bigint | number } | undefined
+
+      if (Number(claimResult?.numUpdatedRows ?? 0) === 0) {
+        throw conflict('Notification action already executed')
+      }
+
+      // The claim is provisional: if the side-effecting command fails, the action
+      // never actually completed, so release the claim to its prior state. This
+      // lets the user retry the action instead of the notification being locked as
+      // `actioned` forever. Only release while we still own the claim
+      // (status = 'actioned'), so a concurrent winner's state is never clobbered.
+      const releaseClaim = async () => {
+        await getDb(em)
+          .updateTable('notifications' as any)
+          .set({
+            status: previousStatus,
+            actioned_at: previousActionedAt,
+            action_taken: previousActionTaken,
+          } as any)
+          .where('id' as any, '=', notification.id)
+          .where('recipient_user_id' as any, '=', ctx.userId as any)
+          .where('tenant_id' as any, '=', ctx.tenantId)
+          .where('status' as any, '=', 'actioned')
+          .executeTakeFirst()
       }
 
       let result: unknown = null
@@ -469,21 +749,33 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationIds: ctx.organizationId ? [ctx.organizationId] : null,
         }
 
-        const commandResult = await commandBus.execute(action.commandId, {
-          input: commandInput,
-          ctx: commandCtx,
-          metadata: {
-            tenantId: ctx.tenantId,
-            organizationId: ctx.organizationId,
-            resourceKind: 'notifications',
-          },
-        })
+        let commandResult: { result: unknown }
+        try {
+          commandResult = await commandBus.execute(action.commandId, {
+            input: commandInput,
+            ctx: commandCtx,
+            metadata: {
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId,
+              resourceKind: 'notifications',
+            },
+          })
+        } catch (err) {
+          // Never let a rollback failure mask the original command error — the
+          // caller needs the real failure to decide whether to retry.
+          try {
+            await releaseClaim()
+          } catch (releaseErr) {
+            debug('failed to release notification action claim', releaseErr)
+          }
+          throw err
+        }
 
         result = commandResult.result
       }
 
       notification.status = 'actioned'
-      notification.actionedAt = new Date()
+      notification.actionedAt = actionedAt
       notification.actionTaken = input.actionId
       notification.actionResult = result as Record<string, unknown>
 
@@ -493,6 +785,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       await em.flush()
 
+      await invalidateNotificationCache(container, ctx, 'updated', notification.id)
       await eventBus.emit(NOTIFICATION_EVENTS.ACTIONED, {
         notificationId: notification.id,
         actionId: input.actionId,
@@ -509,6 +802,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         recipientUserId: ctx.userId,
         tenantId: ctx.tenantId,
         status: 'unread',
+        $and: [
+          buildNotificationReadScopeWhere(ctx),
+          inAppVisibleFilter(),
+        ],
       })
     },
 
@@ -517,6 +814,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const filters: Record<string, unknown> = {
         recipientUserId: ctx.userId,
         tenantId: ctx.tenantId,
+        $and: [
+          buildNotificationReadScopeWhere(ctx),
+          inAppVisibleFilter(),
+        ],
       }
 
       if (since) {
@@ -532,6 +833,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           recipientUserId: ctx.userId,
           tenantId: ctx.tenantId,
           status: 'unread',
+          $and: [
+            buildNotificationReadScopeWhere(ctx),
+            inAppVisibleFilter(),
+          ],
         }),
       ])
 
@@ -550,6 +855,19 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const em = rootEm.fork()
       const db = getDb(em)
 
+      const affectedScopes = await db
+        .selectFrom('notifications' as any)
+        .select([
+          'tenant_id' as any,
+          'organization_id' as any,
+        ])
+        .where('expires_at' as any, '<', sql`now()`)
+        .where('status' as any, 'not in', ['actioned', 'dismissed'])
+        .distinct()
+        .execute() as Array<{ tenant_id: string; organization_id: string | null }>
+
+      if (!affectedScopes.length) return 0
+
       const updateResult = await db
         .updateTable('notifications' as any)
         .set({
@@ -559,6 +877,13 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         .where('expires_at' as any, '<', sql`now()`)
         .where('status' as any, 'not in', ['actioned', 'dismissed'])
         .executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
+
+      for (const scope of affectedScopes) {
+        await invalidateNotificationCache(container, {
+          tenantId: scope.tenant_id,
+          organizationId: scope.organization_id,
+        }, 'updated')
+      }
 
       return Number(updateResult?.numUpdatedRows ?? 0)
     },
@@ -574,7 +899,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         .where('tenant_id' as any, '=', ctx.tenantId)
         .executeTakeFirst() as { numDeletedRows?: bigint | number } | undefined
 
-      return Number(deleteResult?.numDeletedRows ?? 0)
+      const deletedCount = Number(deleteResult?.numDeletedRows ?? 0)
+      if (deletedCount > 0) {
+        await invalidateNotificationCache(container, ctx, 'deleted')
+      }
+
+      return deletedCount
     },
   }
 }

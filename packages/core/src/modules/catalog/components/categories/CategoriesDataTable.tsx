@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/catalog/extension-points'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -37,6 +39,7 @@ type CategoriesResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 50
@@ -112,6 +115,7 @@ export default function CategoriesDataTable() {
   const rows = data?.items ?? []
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
+  const totalIsCapped = data?.totalIsCapped === true
 
   const columns = React.useMemo<ColumnDef<CategoryRow>[]>(() => [
     {
@@ -198,6 +202,13 @@ export default function CategoriesDataTable() {
         ) : undefined}
         columns={columns}
         data={rows}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('catalog.categories.list.title', 'Categories')}
+            createHref={canManage ? '/backend/catalog/categories/create' : undefined}
+            createLabel={canManage ? t('catalog.categories.list.actions.create', 'Create') : undefined}
+          />
+        )}
         searchValue={search}
         searchPlaceholder={t('catalog.categories.list.searchPlaceholder', 'Search categories')}
         onSearchChange={(value) => { setSearch(value); setPage(1) }}
@@ -224,7 +235,7 @@ export default function CategoriesDataTable() {
           setPage(1)
         }}
         sortable={false}
-        perspective={{ tableId: 'catalog.categories.list' }}
+        perspective={{ tableId: extensionPoints.hosts.categoriesTable.tableId }}
         rowActions={(row) => (
           canManage ? (
             <RowActions
@@ -240,6 +251,7 @@ export default function CategoriesDataTable() {
           pageSize: PAGE_SIZE,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
         }}
         isLoading={isLoading}

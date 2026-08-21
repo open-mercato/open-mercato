@@ -26,7 +26,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Plus, Trash2, Edit2, Zap, Info, X } from 'lucide-react'
+import { Plus, Trash2, Edit2, Zap, X } from 'lucide-react'
 import type { WorkflowDefinitionTrigger } from '../data/entities'
 
 interface DefinitionTriggersEditorProps {
@@ -285,7 +285,7 @@ export function DefinitionTriggersEditor({
       <div className="rounded-lg border bg-card p-3 md:p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-amber-500" />
+            <Zap className="w-5 h-5 text-status-warning-icon" />
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">
               {t('workflows.triggers.title', 'Event Triggers')}
             </h3>
@@ -301,8 +301,7 @@ export function DefinitionTriggersEditor({
         </p>
 
         {value.length === 0 ? (
-          <Alert variant="info">
-            <Info className="w-4 h-4" />
+          <Alert status="information">
             <AlertTitle>{t('workflows.triggers.empty.title', 'No triggers configured')}</AlertTitle>
             <AlertDescription>
               {t('workflows.triggers.empty.description', 'Click "Add Trigger" to create an event trigger that automatically starts this workflow.')}
@@ -568,7 +567,7 @@ export function DefinitionTriggersEditor({
               {t('common.cancel', 'Cancel')}
             </Button>
             <Button
-              variant="destructive"
+              variant="destructive-solid"
               onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}
             >
               {t('common.delete', 'Delete')}

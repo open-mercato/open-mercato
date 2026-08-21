@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import type { MessageDetail } from '../types'
 import { formatDateTime } from '../utils'
+import { getMessageParticipantLabel } from '../../messageListLabels'
 
 type MessageHeaderProps = {
   detail: MessageDetail
@@ -40,6 +41,7 @@ export function MessageHeader(props: MessageHeaderProps) {
   const t = useT()
   const showSubject = props.showSubject !== false
   const canReply = !props.detail.isDraft && props.detail.typeDefinition.allowReply
+  const senderLabel = getMessageParticipantLabel(props.detail)
   const actionItems = React.useMemo(() => {
     const items: ActionItem[] = []
 
@@ -73,7 +75,7 @@ export function MessageHeader(props: MessageHeaderProps) {
       })
     }
 
-    if (!props.detail.isDraft) {
+    if (!props.detail.isDraft && props.detail.canArchive) {
       items.push({
         id: 'toggle-archive',
         label: props.isArchived
@@ -121,7 +123,7 @@ export function MessageHeader(props: MessageHeaderProps) {
         <FormHeader
           mode="detail"
           title={showSubject ? props.detail.subject : undefined}
-          subtitle={`${t('messages.detail.from', 'From')}: ${props.detail.senderName || props.detail.senderEmail || props.detail.senderUserId}`}
+          subtitle={`${t('messages.detail.from', 'From')}: ${senderLabel}`}
           statusBadge={<p className="text-xs text-muted-foreground">{formatDateTime(props.detail.sentAt)}</p>}
           utilityActions={canReply ? (
             <IconButton

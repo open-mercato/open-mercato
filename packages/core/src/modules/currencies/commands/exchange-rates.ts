@@ -2,8 +2,9 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ExchangeRate, Currency } from '../data/entities'
 import {
@@ -16,6 +17,7 @@ import {
 } from '../data/validators'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
 
 const exchangeRateCrudEvents: CrudEventsConfig = {
   module: 'currencies',
@@ -45,9 +47,17 @@ type ExchangeRateSnapshot = {
 
 type ExchangeRateUndoPayload = UndoPayload<ExchangeRateSnapshot>
 
-async function loadExchangeRateSnapshot(em: EntityManager, id: string): Promise<ExchangeRateSnapshot | null> {
-  const record = await em.findOne(ExchangeRate, { id })
+async function loadExchangeRateSnapshot(
+  em: EntityManager,
+  id: string,
+  ctx: Parameters<typeof buildCurrencyCommandWhere>[0],
+): Promise<ExchangeRateSnapshot | null> {
+  const record = await em.findOne(
+    ExchangeRate,
+    buildCurrencyCommandWhere<ExchangeRate>(ctx, { id }),
+  )
   if (!record) return null
+  ensureCurrencyCommandScope(ctx, record)
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -96,6 +106,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
   id: 'currencies.exchange_rates.create',
   async execute(input, ctx) {
     const parsed = exchangeRateCreateSchema.parse(input)
+    ensureCurrencyCommandScope(ctx, parsed)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -113,9 +124,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       deletedAt: null,
     })
     if (existing) {
-      throw new CrudHttpError(400, {
-        error: 'Exchange rate for this currency pair, date, and source already exists',
-      })
+      throw conflict('Exchange rate for this currency pair, date, and source already exists')
     }
 
     const now = new Date()
@@ -133,7 +142,14 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       updatedAt: now,
     })
     em.persist(record)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err, 'exchange_rates_pair_datetime_source_unique')) {
+        throw conflict('Exchange rate for this currency pair, date, and source already exists')
+      }
+      throw err
+    }
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -152,7 +168,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadExchangeRateSnapshot(em, result.exchangeRateId)
+    return loadExchangeRateSnapshot(em, result.exchangeRateId, ctx)
   },
   buildLog: async ({ snapshots }) => {
     const after = snapshots.after as ExchangeRateSnapshot | undefined
@@ -179,6 +195,12 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     record.isActive = false
     await em.flush()
   },
+  redo: makeCreateRedo<ExchangeRate, ExchangeRateSnapshot, ExchangeRateCreateInput, { exchangeRateId: string }>({
+    entityClass: ExchangeRate,
+    dateFields: ['createdAt', 'updatedAt', 'deletedAt', 'date'],
+    buildResult: (entity) => ({ exchangeRateId: entity.id }),
+    events: exchangeRateCrudEvents,
+  }),
 }
 
 const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { exchangeRateId: string }> = {
@@ -186,7 +208,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
   async prepare(input, ctx) {
     requireId(input.id, 'Exchange rate ID is required')
     const em = ctx.container.resolve('em') as EntityManager
-    const before = await loadExchangeRateSnapshot(em, input.id)
+    const before = await loadExchangeRateSnapshot(em, input.id, ctx)
     return { before }
   },
   async execute(input, ctx) {
@@ -194,10 +216,14 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     requireId(parsed.id, 'Exchange rate ID is required')
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(ExchangeRate, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(
+      ExchangeRate,
+      buildCurrencyCommandWhere<ExchangeRate>(ctx, { id: parsed.id }),
+    )
     if (!record) {
       throw new CrudHttpError(404, { error: 'Exchange rate not found' })
     }
+    ensureCurrencyCommandScope(ctx, record)
 
     // Validate currencies if changed
     const fromCode = parsed.fromCurrencyCode ?? record.fromCurrencyCode
@@ -221,9 +247,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
         deletedAt: null,
       })
       if (existing) {
-        throw new CrudHttpError(400, {
-          error: 'Exchange rate for this currency pair, date, and source already exists',
-        })
+        throw conflict('Exchange rate for this currency pair, date, and source already exists')
       }
     }
 
@@ -278,7 +302,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadExchangeRateSnapshot(em, result.exchangeRateId)
+    return loadExchangeRateSnapshot(em, result.exchangeRateId, ctx)
   },
   buildLog: async ({ snapshots, result }) => {
     const before = snapshots.before as ExchangeRateSnapshot | undefined
@@ -322,7 +346,7 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
   async prepare(input, ctx) {
     requireId(input.id, 'Exchange rate ID is required')
     const em = ctx.container.resolve('em') as EntityManager
-    const before = await loadExchangeRateSnapshot(em, input.id)
+    const before = await loadExchangeRateSnapshot(em, input.id, ctx)
     return { before }
   },
   async execute(input, ctx) {
@@ -330,10 +354,14 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
     requireId(parsed.id, 'Exchange rate ID is required')
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(ExchangeRate, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(
+      ExchangeRate,
+      buildCurrencyCommandWhere<ExchangeRate>(ctx, { id: parsed.id }),
+    )
     if (!record) {
       throw new CrudHttpError(404, { error: 'Exchange rate not found' })
     }
+    ensureCurrencyCommandScope(ctx, record)
 
     record.deletedAt = new Date()
     record.isActive = false

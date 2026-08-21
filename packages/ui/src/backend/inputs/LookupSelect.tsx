@@ -5,6 +5,9 @@ import { Check, Loader2, Search, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'LookupSelect' })
 
 export type LookupSelectItem = {
   id: string
@@ -83,6 +86,8 @@ export function LookupSelect({
   const [hasTyped, setHasTyped] = React.useState(defaultOpen)
   const [error, setError] = React.useState<string | null>(null)
   const [fetchKey, setFetchKey] = React.useState(0)
+  const [activeIndex, setActiveIndex] = React.useState(-1)
+  const listboxId = React.useId()
   const fetchItemsRef = React.useRef(fetchItems ?? fetchOptions)
   const setQueryRef = React.useRef(setQuery)
   const onReadyRef = React.useRef(onReady)
@@ -113,6 +118,73 @@ export function LookupSelect({
 
   const shouldSearch =
     defaultOpen || query.trim().length >= minQuery || Boolean(value && (options?.length ?? 0) > 0)
+
+  React.useEffect(() => {
+    setActiveIndex(-1)
+  }, [items])
+
+  const optionDomId = React.useCallback(
+    (index: number) => `${listboxId}-option-${index}`,
+    [listboxId],
+  )
+
+  const isInteractiveItem = React.useCallback(
+    (item: LookupSelectItem) => !item.disabled || value === item.id,
+    [value],
+  )
+
+  const moveActiveIndex = React.useCallback((direction: 1 | -1) => {
+    setActiveIndex((current) => {
+      if (!items.length) return -1
+      let next = current
+      for (let step = 0; step < items.length; step += 1) {
+        next = (next + direction + items.length) % items.length
+        if (isInteractiveItem(items[next])) return next
+      }
+      return current
+    })
+  }, [isInteractiveItem, items])
+
+  React.useEffect(() => {
+    if (activeIndex < 0) return
+    const activeElement = typeof document !== 'undefined'
+      ? document.getElementById(optionDomId(activeIndex))
+      : null
+    if (typeof activeElement?.scrollIntoView === 'function') {
+      activeElement.scrollIntoView({ block: 'nearest' })
+    }
+  }, [activeIndex, optionDomId])
+
+  const listboxVisible = shouldSearch && !disabled
+  const handleInputKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!listboxVisible) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveActiveIndex(1)
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveActiveIndex(-1)
+      return
+    }
+    if (event.key === 'Enter') {
+      if (activeIndex < 0 || activeIndex >= items.length) return
+      const item = items[activeIndex]
+      if (!isInteractiveItem(item)) return
+      event.preventDefault()
+      onChange(item.id)
+      setActiveIndex(-1)
+      return
+    }
+    if (event.key === 'Escape') {
+      if (query.length === 0 && activeIndex < 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      setQuery('')
+      setActiveIndex(-1)
+    }
+  }, [activeIndex, items, isInteractiveItem, listboxVisible, moveActiveIndex, onChange, query])
   React.useEffect(() => {
     if (disabled) {
       setItems(options ?? [])
@@ -140,7 +212,7 @@ export function LookupSelect({
         })
         .catch((err) => {
           if (cancelled) return
-          console.error('LookupSelect.fetchItems', err)
+          logger.error('Failed to fetch lookup items', { err })
           setError('error')
         })
         .finally(() => {
@@ -166,8 +238,14 @@ export function LookupSelect({
               setQuery(event.target.value)
               setHasTyped(true)
             }}
+            onKeyDown={handleInputKeyDown}
             placeholder={resolvedSearchPlaceholder}
             disabled={disabled}
+            role="combobox"
+            aria-expanded={listboxVisible}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-activedescendant={activeIndex >= 0 ? optionDomId(activeIndex) : undefined}
           />
         </div>
         {actionSlot ? <div className="sm:self-start">{actionSlot}</div> : null}
@@ -183,21 +261,28 @@ export function LookupSelect({
           {!loading && !loadingProp && !items.length ? (
             <p className="text-xs text-muted-foreground">{resolvedEmptyLabel}</p>
           ) : null}
-          <div className="flex flex-col gap-1.5 max-h-80 overflow-y-auto -mx-0.5 px-0.5 py-0.5">
-            {items.map((item) => {
+          <div
+            id={listboxId}
+            role="listbox"
+            className="flex flex-col gap-1.5 max-h-80 overflow-y-auto -mx-0.5 px-0.5 py-0.5"
+          >
+            {items.map((item, index) => {
               const isSelected = value === item.id
               const isInteractive = !item.disabled || isSelected
+              const isActive = index === activeIndex
               return (
                 <div
                   key={item.id}
+                  id={optionDomId(index)}
                   className={cn(
                     'group flex items-center gap-4 rounded-xl border p-4 transition-all duration-150 focus-visible:outline-none focus-visible:shadow-focus',
                     isInteractive ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
                     isSelected
                       ? 'border-brand-violet bg-brand-violet/5 shadow-sm'
-                      : 'border-input bg-card hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm'
+                      : 'border-input bg-card hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm',
+                    isActive && !isSelected ? 'border-foreground/20 bg-muted/30 shadow-sm' : null
                   )}
-                  role="button"
+                  role="option"
                   tabIndex={item.disabled ? -1 : 0}
                   onClick={() => {
                     if (!isInteractive) return
@@ -210,7 +295,7 @@ export function LookupSelect({
                       onChange(item.id)
                     }
                   }}
-                  aria-pressed={isSelected}
+                  aria-selected={isSelected}
                   aria-disabled={item.disabled && !isSelected ? true : undefined}
                   title={isSelected ? resolvedSelectedLabel : resolvedSelectLabel}
                 >

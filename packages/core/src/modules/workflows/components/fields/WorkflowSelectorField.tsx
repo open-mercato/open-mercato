@@ -10,6 +10,9 @@ import { Search, X, Loader2, AlertCircle, Workflow } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { WorkflowSelector, type WorkflowDefinition } from '../WorkflowSelector'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 interface WorkflowSelectorFieldProps extends CrudCustomFieldRenderProps {
   value: string
@@ -90,7 +93,7 @@ export function WorkflowSelectorField({
         })
       }
     } catch (err) {
-      console.error(`Failed to fetch workflow details for ${wfId}:`, err)
+      logger.error('Failed to fetch workflow details', { workflowId: wfId, err })
       setWorkflowDetails({
         workflowId: wfId,
         loading: false,
@@ -125,7 +128,7 @@ export function WorkflowSelectorField({
         <p className="text-xs text-muted-foreground mt-0.5">
           {description}
         </p>
-        {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+        {error && <p className="text-xs text-status-error-text mt-1">{error}</p>}
       </div>
 
       {!workflowId ? (
@@ -156,10 +159,10 @@ export function WorkflowSelectorField({
               ) : workflowDetails?.error ? (
                 <>
                   <div className="flex items-center gap-2">
-                    <AlertCircle className="size-4 text-yellow-600" />
+                    <AlertCircle className="size-4 text-status-warning-text" />
                     <span className="text-sm font-semibold text-gray-900">{workflowId}</span>
                   </div>
-                  <p className="text-xs text-yellow-600">{t('workflows.common.workflowNotFoundOrUnavailable')}</p>
+                  <p className="text-xs text-status-warning-text">{t('workflows.common.workflowNotFoundOrUnavailable')}</p>
                 </>
               ) : (
                 <>
@@ -175,7 +178,7 @@ export function WorkflowSelectorField({
                       )}
                       {workflowDetails?.enabled !== undefined && (
                         workflowDetails.enabled ? (
-                          <Badge variant="default" className="bg-emerald-500 text-xs">
+                          <Badge variant="default" className="bg-status-success-solid text-status-success-solid-foreground text-xs">
                             {t('common.enabled')}
                           </Badge>
                         ) : (

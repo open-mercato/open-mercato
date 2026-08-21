@@ -14,11 +14,15 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTeamMember, StaffTimeProject } from '../../../../data/entities'
 import { staffTimeEntryBulkSaveSchema } from '../../../../data/validators'
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
+import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
 import {
   resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -227,6 +231,22 @@ export async function POST(req: Request) {
     }
     await flushCrudSideEffects(dataEngine)
 
+    const invalidatedRecordIds = new Set<string>()
+    for (const change of pendingChanges) {
+      if (invalidatedRecordIds.has(change.entity.id)) continue
+      invalidatedRecordIds.add(change.entity.id)
+      await invalidateStaffTimeEntryCache(
+        container,
+        {
+          id: change.entity.id,
+          organizationId: change.entity.organizationId,
+          tenantId: change.entity.tenantId,
+        },
+        tenantId,
+        `bulk:${change.action}`,
+      )
+    }
+
     if (guardResult.afterSuccessCallbacks.length) {
       await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
         tenantId,
@@ -246,7 +266,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.timesheets.time-entries.bulk failed', err)
+    logger.error('staff.timesheets.time-entries.bulk failed', { err })
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.bulkSave', 'Failed to bulk save time entries.') },
       { status: 400 },

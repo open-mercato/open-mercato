@@ -6,9 +6,18 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
+import { Check, Plus } from 'lucide-react'
 
 // Types
 type EmbeddingProviderId = 'openai' | 'google' | 'mistral' | 'cohere' | 'bedrock' | 'ollama'
@@ -44,7 +53,9 @@ type EmbeddingSettings = {
   autoIndexingLocked: boolean
   lockReason: string | null
   embeddingConfig: EmbeddingProviderConfig | null
+  embeddingConfigSource?: 'tenant' | 'instance' | 'env'
   configuredProviders: EmbeddingProviderId[]
+  providerAvailability?: { providerId: EmbeddingProviderId; available: boolean; reason?: string; models?: number }[]
   indexedDimension: number | null
   reindexRequired: boolean
   documentCount: number | null
@@ -68,6 +79,8 @@ type VectorDriverStatus = {
   name: string
   configured: boolean
   implemented: boolean
+  available?: boolean | null
+  unavailableReason?: string | null
   envVars: VectorDriverEnvVar[]
 }
 
@@ -436,6 +449,31 @@ export function VectorSearchSection({
   const isEmbeddingConfigured = embeddingSettings?.configuredProviders?.includes(savedProvider)
   const providerOptions: EmbeddingProviderId[] = ['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']
 
+  const activeDriver = vectorStoreConfig?.drivers.find((driver) => driver.id === vectorStoreConfig.currentDriver)
+  const isStoreUnavailable = activeDriver?.available === false
+  const storeUnavailableReason = activeDriver?.unavailableReason ?? null
+
+  const storeUnavailableBanner = isStoreUnavailable ? (
+    <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
+      <div className="flex items-start gap-3">
+        <svg className="h-5 w-5 text-status-warning-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div>
+          <p className="text-sm font-medium text-status-warning-text">
+            {t('search.settings.vector.storeUnavailable', 'Vector store is not available')}
+          </p>
+          <p className="text-xs text-status-warning-text mt-1">
+            {t('search.settings.vector.storeUnavailableHint', 'Vector indexing and semantic search are skipped until the store is reachable. Install the pgvector extension on your PostgreSQL server; the status is rechecked about once a minute.')}
+          </p>
+          {storeUnavailableReason ? (
+            <p className="text-xs text-status-warning-text mt-1 font-mono">{storeUnavailableReason}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  ) : null
+
   const autoIndexingChecked = embeddingSettings ? embeddingSettings.autoIndexingEnabled : true
   const autoIndexingDisabled = embeddingLoading || embeddingSaving || Boolean(embeddingSettings?.autoIndexingLocked)
 
@@ -470,13 +508,14 @@ export function VectorSearchSection({
             </div>
           ) : (
             <div className="space-y-4">
+              {storeUnavailableBanner}
               {/* Vector Store Driver Status */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.store', 'Vector Store')}</h3>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {vectorStoreConfig?.drivers.map((driver) => {
                     const isCurrent = driver.id === vectorStoreConfig.currentDriver
-                    const isReady = driver.configured && driver.implemented
+                    const isReady = driver.configured && driver.implemented && driver.available !== false
                     return (
                       <div
                         key={driver.id}
@@ -531,119 +570,154 @@ export function VectorSearchSection({
               {/* Embedding Provider Selection */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.providers', 'Embedding Provider')}</h3>
-                <p className="text-xs text-muted-foreground mb-3">{t('search.settings.vector.providersHint', 'Select a provider to generate embeddings. Only providers with configured API keys can be selected.')}</p>
+                <p className="text-xs text-muted-foreground mb-1">{t('search.settings.vector.providersHint', 'Select a provider to generate embeddings. Only reachable providers can be selected.')}</p>
+                {embeddingSettings?.embeddingConfigSource && embeddingSettings.embeddingConfigSource !== 'tenant' && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {t('search.settings.vector.inheritingDefault', 'This tenant is inheriting the instance/environment default. Saving a provider creates an override for this tenant.')}
+                  </p>
+                )}
+                {embeddingSettings?.embeddingConfigSource === 'tenant' && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {t('search.settings.vector.usingTenantConfig', 'This tenant is using its own embedding settings.')}
+                  </p>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-start">
                   {providerOptions.map((providerId) => {
                     const info = EMBEDDING_PROVIDERS[providerId]
-                    const isConfigured = embeddingSettings?.configuredProviders?.includes(providerId)
+                    const availability = embeddingSettings?.providerAvailability?.find((entry) => entry.providerId === providerId)
+                    const isConfigured = availability
+                      ? availability.available
+                      : embeddingSettings?.configuredProviders?.includes(providerId)
                     const isSelected = displayProvider === providerId
                     const isCurrentlySaved = savedProvider === providerId
                     return (
-                      <button
+                      <div
                         key={providerId}
-                        type="button"
-                        onClick={() => isConfigured && handleProviderChange(providerId)}
-                        disabled={!isConfigured || embeddingLoading || embeddingSaving}
-                        className={`text-left p-3 rounded-lg border-2 transition-all ${
+                        className={`rounded-lg border-2 transition-all ${
                           isSelected
                             ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
                             : isConfigured
-                              ? 'border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer'
-                              : 'border-border bg-muted/30 opacity-50 cursor-not-allowed'
+                              ? 'border-border hover:border-primary/50 hover:bg-muted/50'
+                              : 'cursor-not-allowed border-border bg-muted/30 opacity-50'
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className={`text-sm font-medium ${isSelected ? 'text-primary' : isConfigured ? '' : 'text-muted-foreground'}`}>
-                                {info.name}
-                              </p>
-                              {isCurrentlySaved && isConfigured && (
-                                <span className="text-overline px-1.5 py-0.5 rounded bg-status-success-bg text-status-success-text">
-                                  {t('search.settings.vector.active', 'Active')}
-                                </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => handleProviderChange(providerId)}
+                          disabled={!isConfigured || embeddingLoading || embeddingSaving}
+                          aria-pressed={isSelected}
+                          aria-expanded={isConfigured ? isSelected : undefined}
+                          aria-controls={isSelected && isConfigured ? `provider-${providerId}-configuration` : undefined}
+                          className="h-auto w-full justify-start whitespace-normal rounded-lg p-3 text-left"
+                        >
+                          <div className="flex w-full items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className={`text-sm font-medium ${isSelected ? 'text-primary' : isConfigured ? '' : 'text-muted-foreground'}`}>
+                                  {info.name}
+                                </p>
+                                {isCurrentlySaved && isConfigured && (
+                                  <span className="text-overline rounded bg-status-success-bg px-1.5 py-0.5 text-status-success-text">
+                                    {t('search.settings.vector.active', 'Active')}
+                                  </span>
+                                )}
+                              </div>
+                              {isConfigured ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {info.models.length} {t('search.settings.vector.modelsAvailable', 'models available')}
+                                </p>
+                              ) : availability?.reason ? (
+                                <p className="mt-1 text-xs text-status-warning-text">
+                                  {availability.reason}
+                                </p>
+                              ) : (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {t('search.settings.vector.setEnvVar', 'Set')} <code className="rounded bg-muted px-1 font-mono text-overline">{info.envKeyRequired}</code>
+                                </p>
                               )}
                             </div>
-                            {isConfigured ? (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {info.models.length} {t('search.settings.vector.modelsAvailable', 'models available')}
-                              </p>
-                            ) : (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {t('search.settings.vector.setEnvVar', 'Set')} <code className="font-mono text-overline bg-muted px-1 rounded">{info.envKeyRequired}</code>
-                              </p>
-                            )}
+                            <div className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full ${
+                              isSelected
+                                ? 'bg-primary text-primary-foreground'
+                                : isConfigured
+                                  ? 'bg-status-success-bg text-status-success-icon'
+                                  : 'bg-muted text-muted-foreground'
+                            }`}>
+                              {isConfigured ? (
+                                <Check className="size-3" aria-hidden="true" />
+                              ) : (
+                                <Plus className="size-3" aria-hidden="true" />
+                              )}
+                            </div>
                           </div>
-                          <div className={`flex h-5 w-5 items-center justify-center rounded-full flex-shrink-0 ${
-                            isSelected
-                              ? 'bg-primary text-primary-foreground'
-                              : isConfigured
-                                ? 'bg-status-success-bg text-status-success-icon'
-                                : 'bg-muted text-muted-foreground'
-                          }`}>
-                            {isSelected ? (
-                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            ) : isConfigured ? (
-                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            ) : (
-                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                              </svg>
-                            )}
-                          </div>
-                        </div>
+                        </Button>
 
                         {/* Model Selection */}
                         {isSelected && isConfigured && (
-                          <div className="mt-3 pt-3 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} role="presentation">
+                          <div
+                            id={`provider-${providerId}-configuration`}
+                            className="mx-3 mb-3 space-y-2 border-t border-border pt-3"
+                          >
                             <div className="space-y-1">
                               <Label htmlFor={`model-${providerId}`} className="text-xs font-medium">
                                 {t('search.settings.model.label', 'Model')}
                               </Label>
-                              <select
-                                id={`model-${providerId}`}
-                                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                              <Select
                                 value={displayModel}
-                                onChange={(e) => handleModelChange(e.target.value)}
+                                onValueChange={handleModelChange}
                                 disabled={embeddingLoading || embeddingSaving}
                               >
-                                {savedCustomModel && displayProvider === savedProvider && (
-                                  <option key={savedCustomModel.id} value={savedCustomModel.id}>
-                                    {savedCustomModel.name} ({savedCustomModel.dimension}d)
-                                  </option>
-                                )}
-                                {displayProviderInfo.models.map((model) => (
-                                  <option key={model.id} value={model.id}>
-                                    {model.name} ({model.dimension}d)
-                                  </option>
-                                ))}
-                                <option value="custom">{t('search.settings.model.custom', 'Custom...')}</option>
-                              </select>
+                                <SelectTrigger id={`model-${providerId}`} size="sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {savedCustomModel && displayProvider === savedProvider && (
+                                    <SelectItem key={savedCustomModel.id} value={savedCustomModel.id}>
+                                      {savedCustomModel.name} ({savedCustomModel.dimension}d)
+                                    </SelectItem>
+                                  )}
+                                  {displayProviderInfo.models.map((model) => (
+                                    <SelectItem key={model.id} value={model.id}>
+                                      {model.name} ({model.dimension}d)
+                                    </SelectItem>
+                                  ))}
+                                  <SelectItem value="custom">{t('search.settings.model.custom', 'Custom...')}</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
 
                             {isCustomModel && (
-                              <div className="space-y-2 p-2 rounded border border-input bg-muted/30">
-                                <input
-                                  type="text"
-                                  className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
-                                  value={customModelName}
-                                  onChange={(e) => setCustomModelName(e.target.value)}
-                                  placeholder={t('search.settings.model.namePlaceholder', 'Model name')}
-                                  disabled={embeddingLoading || embeddingSaving}
-                                />
-                                <input
-                                  type="number"
-                                  className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
-                                  value={customDimension}
-                                  onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
-                                  placeholder="768"
-                                  min={1}
-                                  disabled={embeddingLoading || embeddingSaving}
-                                />
+                              <div className="space-y-2 rounded border border-input bg-muted/30 p-2">
+                                <div className="space-y-1">
+                                  <Label htmlFor={`custom-model-name-${providerId}`} className="text-xs font-medium">
+                                    {t('search.settings.model.namePlaceholder', 'Model name')}
+                                  </Label>
+                                  <Input
+                                    id={`custom-model-name-${providerId}`}
+                                    type="text"
+                                    size="sm"
+                                    value={customModelName}
+                                    onChange={(e) => setCustomModelName(e.target.value)}
+                                    placeholder={t('search.settings.model.namePlaceholder', 'Model name')}
+                                    disabled={embeddingLoading || embeddingSaving}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label htmlFor={`custom-model-dimension-${providerId}`} className="text-xs font-medium">
+                                    {t('search.settings.dimension.label', 'Dimensions')}
+                                  </Label>
+                                  <Input
+                                    id={`custom-model-dimension-${providerId}`}
+                                    type="number"
+                                    size="sm"
+                                    value={customDimension}
+                                    onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
+                                    placeholder="768"
+                                    min={1}
+                                    disabled={embeddingLoading || embeddingSaving}
+                                  />
+                                </div>
                               </div>
                             )}
 
@@ -671,7 +745,7 @@ export function VectorSearchSection({
                             )}
                           </div>
                         )}
-                      </button>
+                      </div>
                     )
                   })}
                 </div>
@@ -700,6 +774,8 @@ export function VectorSearchSection({
               <Spinner size="sm" />
               <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
             </div>
+          ) : isStoreUnavailable ? (
+            storeUnavailableBanner
           ) : !isEmbeddingConfigured ? (
             <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
               <div className="flex items-start gap-3">
@@ -933,7 +1009,7 @@ export function VectorSearchSection({
               <Button type="button" variant="outline" onClick={handleEmbeddingCancelChange} disabled={embeddingSaving}>
                 {t('search.settings.actions.cancel', 'Cancel')}
               </Button>
-              <Button type="button" variant="destructive" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
+              <Button type="button" variant="destructive-solid" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
                 {embeddingSaving ? <Spinner size="sm" className="mr-2" /> : null}
                 {t('search.settings.actions.confirm', 'Confirm')}
               </Button>

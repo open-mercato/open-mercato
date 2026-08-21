@@ -14,6 +14,7 @@ import {
   type CategoryUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -119,6 +120,27 @@ function normalizeSlug(slug?: string | null): string | null {
   if (typeof slug !== 'string') return null
   const trimmed = slug.trim().toLowerCase()
   return trimmed.length ? trimmed : null
+}
+
+function categorySeedFromSnapshot(snapshot: CategorySnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    slug: snapshot.slug,
+    description: snapshot.description,
+    parentId: snapshot.parentId,
+    rootId: snapshot.rootId,
+    treePath: snapshot.treePath,
+    depth: snapshot.depth,
+    ancestorIds: snapshot.ancestorIds,
+    childIds: snapshot.childIds,
+    descendantIds: snapshot.descendantIds,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  }
 }
 
 const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: string }> = {
@@ -246,6 +268,26 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
       })
     }
   },
+  redo: makeCreateRedo<CatalogProductCategory, CategorySnapshot, CategoryCreateInput, { categoryId: string }>({
+    entityClass: CatalogProductCategory,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: categorySeedFromSnapshot,
+    buildResult: (entity) => ({ categoryId: entity.id }),
+    events: categoryCrudEvents,
+    afterRestore: async ({ em, ctx, entity, snapshot }) => {
+      await rebuildCategoryHierarchyForOrganization(em, entity.organizationId, entity.tenantId)
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_category,
+          recordId: entity.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          values: snapshot.custom,
+        })
+      }
+    },
+  }),
 }
 
 const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: string }> = {

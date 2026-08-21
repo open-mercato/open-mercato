@@ -46,9 +46,12 @@ export type MessageAction = {
 
 export type MessageDetail = {
   id: string
+  updatedAt?: string | null
   type: string
   isDraft: boolean
   canEditDraft: boolean
+  canArchive: boolean
+  isArchived: boolean
   visibility?: 'public' | 'internal' | null
   sourceEntityType?: string | null
   sourceEntityId?: string | null
@@ -91,12 +94,17 @@ export type MessageDetail = {
     senderUserId: string
     senderName?: string | null
     senderEmail?: string | null
+    externalName?: string | null
+    externalEmail?: string | null
+    sourceEntityType?: string | null
     body: string
     bodyFormat?: 'text' | 'markdown'
     sentAt?: string | null
     objects?: MessageDetailObject[]
   }>
   isRead: boolean
+  conversationArchived?: boolean
+  conversationAllUnread?: boolean
 }
 
 export type ActionResult = {

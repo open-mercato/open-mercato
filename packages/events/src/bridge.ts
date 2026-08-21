@@ -1,16 +1,39 @@
+import { randomUUID } from 'node:crypto'
 import { Client, Pool } from 'pg'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EmitOptions, EventPayload } from './types'
 
 const BRIDGE_CHANNEL = 'om_event_bridge'
 const MAX_MESSAGE_BYTES = 7_000
 const RECONNECT_DELAY_MS = 1_000
+const CROSS_PROCESS_EVENT_INSTANCE_ID_KEY = '__openMercatoCrossProcessEventInstanceId__'
+
+const logger = createLogger('events')
+
+/**
+ * PIDs can collide across containers, so self-echo suppression must not rely
+ * on originPid alone. Every publisher stamps envelopes with this random
+ * per-process instance id; consumers prefer it and fall back to originPid
+ * only for envelopes published by older processes during a rolling deploy.
+ */
+function getCrossProcessEventInstanceId(): string {
+  const globalScope = globalThis as Record<string, unknown>
+  const existing = globalScope[CROSS_PROCESS_EVENT_INSTANCE_ID_KEY]
+  if (typeof existing === 'string' && existing.length > 0) return existing
+  const created = randomUUID()
+  globalScope[CROSS_PROCESS_EVENT_INSTANCE_ID_KEY] = created
+  return created
+}
+
+export const CROSS_PROCESS_EVENT_INSTANCE_ID = getCrossProcessEventInstanceId()
 
 type BridgeEnvelope = {
   event: string
   payload: EventPayload
   options?: EmitOptions
   originPid: number
+  originInstanceId?: string
 }
 
 type CrossProcessEventListener = (envelope: BridgeEnvelope) => void | Promise<void>
@@ -66,7 +89,7 @@ async function dispatchEnvelope(envelope: BridgeEnvelope): Promise<void> {
     try {
       await Promise.resolve(listener(envelope))
     } catch (error) {
-      console.error(`[events] Cross-process listener error for "${envelope.event}":`, error)
+      logger.error('Cross-process listener error', { event: envelope.event, err: error })
     }
   }
 }
@@ -118,7 +141,7 @@ async function ensureCrossProcessListener(): Promise<void> {
         if (!parsed || typeof parsed.event !== 'string') return
         void dispatchEnvelope(parsed)
       } catch (error) {
-        console.warn('[events] Failed to parse cross-process bridge payload:', error)
+        logger.warn('Failed to parse cross-process bridge payload', { err: error })
       }
     })
 
@@ -137,7 +160,7 @@ async function ensureCrossProcessListener(): Promise<void> {
     listenerClient = client
   })()
     .catch((error) => {
-      console.warn('[events] Cross-process event bridge listener failed:', error)
+      logger.warn('Cross-process event bridge listener failed', { err: error })
       scheduleReconnect()
     })
     .finally(() => {
@@ -155,16 +178,23 @@ export async function publishCrossProcessEvent(
   const pool = getPublisherPool()
   if (!pool) return
 
+  const bridgeOptions = options
+    && Object.prototype.hasOwnProperty.call(options, 'tenantId')
+    && options.tenantId === undefined
+    ? { ...options, tenantId: null }
+    : options
+
   const envelope: BridgeEnvelope = {
     event,
     payload,
-    options,
+    options: bridgeOptions,
     originPid: process.pid,
+    originInstanceId: CROSS_PROCESS_EVENT_INSTANCE_ID,
   }
 
   const serialized = JSON.stringify(envelope)
   if (Buffer.byteLength(serialized, 'utf8') > MAX_MESSAGE_BYTES) {
-    console.warn(`[events] Cross-process event "${event}" dropped: payload exceeds ${MAX_MESSAGE_BYTES} bytes`)
+    logger.warn('Cross-process event dropped: payload exceeds size limit', { event, maxBytes: MAX_MESSAGE_BYTES })
     return
   }
 

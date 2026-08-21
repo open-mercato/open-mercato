@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { expectOperation, undoOk, redoOk } from '@open-mercato/core/helpers/integration/undoHarness'
+import { expectOperation, undoOk, redoOk, skipIfUndoTestsDisabled } from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
  * TC-UNDO-001 (§5 X10 / invariant I4) — custom-field values are restored exactly on undo.
@@ -15,6 +15,10 @@ const COMPANIES = '/api/customers/companies'
 const DEFINITIONS = '/api/entities/definitions'
 
 test.describe('TC-UNDO-001 custom-field restore (I4 / X10)', () => {
+  test.beforeAll(() => {
+    skipIfUndoTestsDisabled()
+  })
+
   test('company cf: set → update → undo restores → redo re-applies', async ({ request }: { request: APIRequestContext }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()

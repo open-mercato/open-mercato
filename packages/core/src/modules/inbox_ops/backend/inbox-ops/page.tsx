@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -41,6 +41,7 @@ type ProposalListResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type StatusCounts = {
@@ -90,6 +91,7 @@ export default function InboxOpsProposalsPage() {
 
   const [items, setItems] = React.useState<ProposalRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(25)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -119,6 +121,7 @@ export default function InboxOpsProposalsPage() {
       if (result?.ok && result.result?.items) {
         setItems(result.result.items)
         setTotal(result.result.total || 0)
+        setTotalIsCapped(result.result.totalIsCapped === true)
       } else {
         setError(t('inbox_ops.flash.load_failed', 'Failed to load proposals'))
       }
@@ -147,6 +150,13 @@ export default function InboxOpsProposalsPage() {
   React.useEffect(() => {
     if (initialLoadComplete) loadProposals()
   }, [page, statusFilter, categoryFilter, search, scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (initialLoadComplete) {
+      loadCounts()
+      loadSettings()
+    }
+  }, [scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopyAddress = React.useCallback(() => {
     if (settings?.inboxAddress) {
@@ -377,6 +387,7 @@ export default function InboxOpsProposalsPage() {
             pageSize,
             total,
             totalPages: Math.ceil(total / pageSize),
+            totalIsCapped,
             onPageChange: setPage,
           }}
           isLoading={isLoading}

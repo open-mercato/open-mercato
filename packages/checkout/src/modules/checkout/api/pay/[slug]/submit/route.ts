@@ -3,10 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
@@ -22,8 +20,12 @@ import {
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
 import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
-import { checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
+import { checkoutSubmitRateLimitConfig, enforceCheckoutRateLimit } from '../../../../lib/rateLimiter'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { checkoutTag } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout')
 
 type CachedSubmitResponse = {
   transactionId: string
@@ -107,34 +109,79 @@ function addAllowedOrigin(allowedOrigins: Set<string>, candidate: string) {
   }
 }
 
-function buildAllowedOrigins(req: Request): string[] {
-  const requestUrl = new URL(req.url)
-  const allowedOrigins = new Set<string>()
-  addAllowedOrigin(allowedOrigins, requestUrl.origin)
+function collectConfiguredOrigins(): string[] {
+  const origins = [...CONFIGURED_ALLOWED_ORIGINS]
+  for (const origin of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
+    if (origin) origins.push(origin)
+  }
+  return origins
+}
 
-  for (const origin of CONFIGURED_ALLOWED_ORIGINS) {
+// Allowed origins are built ONLY from server-configured values. The inbound
+// request URL, Host and X-Forwarded-Host headers are attacker-controllable on
+// deployments that do not normalize them at the edge, so they must never seed
+// the allowlist (otherwise a spoofed Host self-passes the origin check).
+function buildAllowedOrigins(): string[] {
+  const allowedOrigins = new Set<string>()
+  for (const origin of collectConfiguredOrigins()) {
     addAllowedOrigin(allowedOrigins, origin)
   }
-  for (const origin of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
-    if (origin) addAllowedOrigin(allowedOrigins, origin)
-  }
-
-  const hostCandidates = [
-    ...splitHeaderValues(req.headers.get('x-forwarded-host')),
-    ...splitHeaderValues(req.headers.get('host')),
-  ]
-  const protoCandidates = new Set<string>([
-    ...splitHeaderValues(req.headers.get('x-forwarded-proto')),
-    requestUrl.protocol.replace(/:$/, ''),
-  ])
-
-  for (const host of hostCandidates) {
-    for (const proto of protoCandidates) {
-      addAllowedOrigin(allowedOrigins, `${proto}://${host}`)
-    }
-  }
-
   return Array.from(allowedOrigins)
+}
+
+// Resolve the origin used to build gateway-bound success/cancel/return URLs.
+// Always prefer a server-pinned configured origin; only fall back to the request
+// origin on loopback (local dev/test), where the Host cannot be spoofed by a
+// remote attacker. A non-loopback request with no configured origin is a
+// misconfiguration and is rejected rather than emitting an attacker-controllable URL.
+function resolveServerOrigin(req: Request): string {
+  for (const candidate of collectConfiguredOrigins()) {
+    const normalized = normalizeConfiguredOrigin(candidate)
+    if (normalized) return normalized
+  }
+  const requestUrl = new URL(req.url)
+  if (isLoopbackHostname(requestUrl.hostname)) return requestUrl.origin
+  throw new CrudHttpError(500, { error: 'Checkout origin is not configured' })
+}
+
+// Normalize a host value (bare host, host:port, or full origin) to its authority
+// (`hostname` plus any non-default port), lower-cased. Protocol is intentionally
+// dropped: the gateway-bound URLs are already pinned to the configured origin, so
+// the host guard below only needs to reject foreign hosts — not enforce protocol
+// or internal-upstream-host parity, which would 403 legitimate proxied requests.
+function hostAuthority(value: string): string | null {
+  const candidate = value.includes('://') ? value : `https://${value}`
+  try {
+    const url = new URL(candidate)
+    if (!url.hostname) return null
+    const port = url.port && url.port !== '80' && url.port !== '443' ? `:${url.port}` : ''
+    return `${url.hostname.toLowerCase()}${port}`
+  } catch {
+    return null
+  }
+}
+
+function allowedHostAuthorities(allowedOrigins: string[]): Set<string> {
+  const authorities = new Set<string>()
+  for (const origin of allowedOrigins) {
+    const authority = hostAuthority(origin)
+    if (authority) authorities.add(authority)
+  }
+  return authorities
+}
+
+// The externally-asserted host: the proxy-forwarded X-Forwarded-Host when present,
+// otherwise the Host header. The internal upstream Host (and protocol) are ignored
+// so a correctly-proxied request is not rejected for not matching the public origin.
+function requestHostAuthorities(req: Request): string[] {
+  const forwarded = splitHeaderValues(req.headers.get('x-forwarded-host'))
+  const hostValues = forwarded.length > 0 ? forwarded : splitHeaderValues(req.headers.get('host'))
+  const authorities: string[] = []
+  for (const value of hostValues) {
+    const authority = hostAuthority(value)
+    if (authority) authorities.push(authority)
+  }
+  return authorities
 }
 
 function isIdempotencyConflict(error: unknown): boolean {
@@ -191,7 +238,7 @@ async function buildSubmitResponse(
       deletedAt: null,
     })
     : null
-  const requestUrl = new URL(req.url)
+  const serverOrigin = resolveServerOrigin(req)
   const clientSession = gatewayTransaction
     ? readClientSession(gatewayTransaction.gatewayMetadata)
     : null
@@ -202,8 +249,8 @@ async function buildSubmitResponse(
           ? {
               payload: {
                 ...(clientSession.payload ?? {}),
-                returnUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
-                cancelUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
+                returnUrl: `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
+                cancelUrl: `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
               },
             }
           : {}),
@@ -226,23 +273,40 @@ export const metadata = {
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
     const container = await createRequestContainer()
-    try {
-      const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
-      const ip = getClientIp(req, 1) ?? 'unknown'
-      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, `checkout-submit:${ip}`, 'Too many payment attempts. Please try again later.')
-      if (rateLimitResponse) return rateLimitResponse
-    } catch {
-      // Rate limiting is fail-open
-    }
+    // Fail-closed: this endpoint creates payment sessions that can charge cards.
+    const rateLimitResponse = await enforceCheckoutRateLimit({
+      req,
+      container,
+      config: checkoutSubmitRateLimitConfig,
+      namespace: 'checkout-submit',
+      errorMessage: 'Too many payment attempts. Please try again later.',
+      posture: 'fail-closed',
+    })
+    if (rateLimitResponse) return rateLimitResponse
     const resolvedParams = await params
 
-    const origin = req.headers.get('origin')
-    const referer = req.headers.get('referer')
-    if (origin || referer) {
-      const allowedOrigins = buildAllowedOrigins(req)
-      const submittedOrigin = origin ?? (referer ? new URL(referer).origin : null)
-      if (submittedOrigin && !allowedOrigins.some((allowedOrigin) => isAllowedRequestOrigin(submittedOrigin, allowedOrigin))) {
-        return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+    const allowedOrigins = buildAllowedOrigins()
+    if (allowedOrigins.length > 0) {
+      // Reject spoofed Host / X-Forwarded-Host before any business logic runs so
+      // an attacker-controlled host can never flow into gateway-bound URLs. Hosts
+      // are matched by authority (protocol-independent) so a correctly TLS-proxied
+      // request — internal http, X-Forwarded-Proto https — is not rejected.
+      const allowedAuthorities = allowedHostAuthorities(allowedOrigins)
+      const hostAuthorities = requestHostAuthorities(req)
+      if (
+        hostAuthorities.length > 0
+        && !hostAuthorities.every((authority) => allowedAuthorities.has(authority))
+      ) {
+        return NextResponse.json({ error: 'Invalid request host' }, { status: 403 })
+      }
+
+      const origin = req.headers.get('origin')
+      const referer = req.headers.get('referer')
+      if (origin || referer) {
+        const submittedOrigin = origin ?? (referer ? new URL(referer).origin : null)
+        if (submittedOrigin && !allowedOrigins.some((allowedOrigin) => isAllowedRequestOrigin(submittedOrigin, allowedOrigin))) {
+          return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+        }
       }
     }
 
@@ -374,9 +438,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!transactionId) {
       throw new CrudHttpError(500, { error: 'Failed to initialize checkout transaction' })
     }
-    const requestUrl = new URL(req.url)
-    const successUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transactionId)}`
-    const cancelUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transactionId)}`
+    const serverOrigin = resolveServerOrigin(req)
+    const successUrl = `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transactionId)}`
+    const cancelUrl = `${serverOrigin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transactionId)}`
     const transaction = await findOneWithDecryption(em, CheckoutTransaction, {
       id: transactionId,
       organizationId: link.organizationId,
@@ -409,10 +473,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         || link.gatewaySettings?.presentationMode === 'auto'
         ? link.gatewaySettings.presentationMode
         : undefined
+
+      let sessionResult: Awaited<ReturnType<typeof paymentGatewayService.createPaymentSession>>
       try {
-        const sessionResult = await paymentGatewayService.createPaymentSession({
+        sessionResult = await paymentGatewayService.createPaymentSession({
           providerKey: link.gatewayProviderKey,
           paymentId: transactionId,
+          idempotencyKey,
           amount: sessionAmount,
           currencyCode: sessionCurrencyCode,
           paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
@@ -433,6 +500,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           organizationId: link.organizationId,
           tenantId: link.tenantId,
         })
+      } catch (error) {
+        // The gateway itself failed — mark the transaction failed and surface 502.
+        await commandBus.execute('checkout.transaction.updateStatus', {
+          input: {
+            id: transaction.id,
+            status: 'failed',
+            paymentStatus: transaction.paymentStatus ?? 'failed',
+            organizationId: link.organizationId,
+            tenantId: link.tenantId,
+          },
+          ctx,
+        }).catch(() => undefined)
+        logger.error('Failed to create payment session', {
+          linkId: link.id,
+          transactionId: transaction.id,
+          providerKey: link.gatewayProviderKey,
+          err: error,
+        })
+        throw new CrudHttpError(502, { error: 'checkout.payPage.errors.sessionStart' })
+      }
+
+      // Update the transaction status to reflect the gateway response.
+      // If the webhook already raced ahead and completed this transaction,
+      // updateStatus will throw a 409 conflict — that is correct behavior and
+      // means the payment succeeded, so we treat it as benign and fall through
+      // to return the real, already-terminal transaction below.
+      let statusConflict = false
+      try {
         await commandBus.execute('checkout.transaction.updateStatus', {
           input: {
             id: transaction.id,
@@ -445,24 +540,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           ctx,
         })
       } catch (error) {
-        await commandBus.execute('checkout.transaction.updateStatus', {
-          input: {
-            id: transaction.id,
-            status: 'failed',
-            paymentStatus: transaction.paymentStatus ?? 'failed',
-            organizationId: link.organizationId,
-            tenantId: link.tenantId,
-          },
-          ctx,
-        }).catch(() => undefined)
-        console.error('[checkout] Failed to create payment session', {
+        const isConflict = isCrudHttpError(error)
+          && error.status === 409
+          && (
+            (error.body as Record<string, unknown> | undefined)?.code === 'concurrent_status_update'
+            || (error.body as Record<string, unknown> | undefined)?.code === 'invalid_status_transition'
+          )
+        if (!isConflict) throw error
+        logger.info('Transaction status already advanced by concurrent writer — webhook won the race', {
           linkId: link.id,
           transactionId: transaction.id,
-          providerKey: link.gatewayProviderKey,
-          error: error instanceof Error ? error.message : String(error),
+          conflictCode: (error.body as Record<string, unknown> | undefined)?.code,
         })
-        throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
+        statusConflict = true
       }
+
       const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
         id: transaction.id,
         organizationId: link.organizationId,
@@ -471,26 +563,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       if (!refreshedTransaction) {
         throw new CrudHttpError(404, { error: 'Transaction not found' })
       }
-      await emitCheckoutEvent('checkout.transaction.sessionStarted', {
-        transactionId: refreshedTransaction.id,
-        linkId: refreshedTransaction.linkId,
-        templateId: link.templateId ?? null,
-        slug: link.slug,
-        status: refreshedTransaction.status,
-        paymentStatus: refreshedTransaction.paymentStatus ?? null,
-        amount: Number(refreshedTransaction.amount),
-        currency: refreshedTransaction.currencyCode,
-        gatewayProvider: link.gatewayProviderKey,
-        gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
-        occurredAt: new Date().toISOString(),
-        tenantId: link.tenantId,
-        organizationId: link.organizationId,
-      }).catch(() => undefined)
+      if (!statusConflict) {
+        await emitCheckoutEvent('checkout.transaction.sessionStarted', {
+          transactionId: refreshedTransaction.id,
+          linkId: refreshedTransaction.linkId,
+          templateId: link.templateId ?? null,
+          slug: link.slug,
+          status: refreshedTransaction.status,
+          paymentStatus: refreshedTransaction.paymentStatus ?? null,
+          amount: Number(refreshedTransaction.amount),
+          currency: refreshedTransaction.currencyCode,
+          gatewayProvider: link.gatewayProviderKey,
+          gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
+          occurredAt: new Date().toISOString(),
+          tenantId: link.tenantId,
+          organizationId: link.organizationId,
+        }).catch(() => undefined)
+      }
       return NextResponse.json(
         await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),
         { status: 201 },
       )
     }
+
     return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
   } catch (error) {
     return handleCheckoutRouteError(error)
@@ -499,6 +594,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
 export const openApi = {
   tags: [checkoutTag],
+  methods: {
+    POST: {
+      errors: [
+        { status: 429, description: 'Too many payment attempts', schema: rateLimitErrorSchema },
+        { status: 503, description: 'Rate limiting could not be enforced, so the payment was rejected', schema: rateLimitErrorSchema },
+      ],
+    },
+  },
 }
 
 export default POST

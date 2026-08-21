@@ -6,6 +6,7 @@
   "translations.locales.flash.error": "Fehler beim Aktualisieren der Sprachen",
   "translations.locales.flash.saved": "Sprachen aktualisiert",
   "translations.locales.loading": "Sprachen werden geladen...",
+  "translations.locales.remove": "{{locale}} entfernen",
   "translations.locales.title": "Unterstützte Sprachen",
   "translations.manager.actions.retry": "Erneut versuchen",
   "translations.manager.actions.save": "Übersetzungen speichern",

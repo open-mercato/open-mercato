@@ -4,6 +4,9 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { createConnectedChannelRow, MailboxAlreadyConnectedError } from '../lib/connect-channel'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'connect-credential-channel' })
 
 const connectCredentialChannelSchema = z.object({
   providerKey: z.string().min(1).max(64),
@@ -12,7 +15,12 @@ const connectCredentialChannelSchema = z.object({
   credentials: z.record(z.string(), z.unknown()),
   /** Optional polling interval (seconds) — set when adapter is polling-based. */
   pollIntervalSeconds: z.number().int().positive().max(86_400).optional(),
-  userId: z.string().uuid(),
+  /**
+   * Connecting user. `null` for tenant-wide (admin-connected) channels whose
+   * provider declares `channelScope: 'tenant'` (push: FCM/APNs/Expo) — the
+   * resulting channel + credentials are stored with `user_id = NULL`.
+   */
+  userId: z.string().uuid().nullable(),
   scope: z.object({
     tenantId: z.string().uuid(),
     organizationId: z.string().uuid().nullable(),
@@ -23,9 +31,10 @@ export type ConnectCredentialChannelInput = z.infer<typeof connectCredentialChan
 
 export type ConnectCredentialChannelResult =
   | { status: 'connected'; channelId: string; externalIdentifier: string | null }
-  | { status: 'validation_failed'; errors: Record<string, string> }
+  | { status: 'validation_failed'; errors: Record<string, string>; errorCodes?: Record<string, string> }
   | { status: 'no_adapter'; reason: string }
   | { status: 'duplicate_mailbox'; externalIdentifier: string; existingProviderKey: string }
+  | { status: 'wrong_scope_for_route'; providerKey: string }
 
 export const COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID =
   'communication_channels.channel.connect_credential'
@@ -39,21 +48,26 @@ type CredentialsServiceLike = {
 }
 
 /**
- * Connect a per-user credential-based channel (IMAP, and future basic-auth providers).
+ * Connect a credential-based channel (IMAP, push providers, and future basic-auth
+ * providers).
  *
  * Flow:
  *   1. Resolve the adapter for `providerKey`.
- *   2. Call `adapter.validateCredentials?` — adapters that don't implement it
+ *   2. Decide scope: `adapter.channelScope === 'tenant'` → the channel + credentials
+ *      are stored with `user_id = NULL` (one shared channel per tenant, e.g. push
+ *      FCM/APNs/Expo); otherwise they are stored under the connecting `userId`.
+ *   3. Call `adapter.validateCredentials?` — adapters that don't implement it
  *      are accepted optimistically (the hub trusts the adapter to fail on first
  *      use). Adapters with the method return field-level errors via Zod-like
  *      `{ ok: false, errors: { fieldName: 'message' } }`; we forward those to
  *      the caller for `createCrudFormError`.
- *   3. Persist the credentials encrypted via `integrationCredentialsService.save?` if available.
- *   4. Create the `CommunicationChannel` row with `userId = currentUser.id`,
+ *   4. Persist the credentials encrypted via `integrationCredentialsService.save?` if available.
+ *   5. Create the `CommunicationChannel` row with the effective `userId`,
  *      `status = 'connected'`, and the adapter's declared capabilities snapshot.
  *
- * The route handler binds the `userId` field from the authenticated session;
- * the command refuses inputs whose `userId` doesn't pass UUID validation.
+ * The per-user route binds `userId` from the authenticated session; the tenant
+ * route passes `userId: null`. Either way the command re-derives the effective
+ * scope from the adapter, so a tenant provider is never stamped per-user.
  */
 const connectCredentialChannelCommand: CommandHandler<
   ConnectCredentialChannelInput,
@@ -72,6 +86,23 @@ const connectCredentialChannelCommand: CommandHandler<
       }
     }
 
+    // Tenant-wide providers (push: FCM/APNs/Expo) store one shared channel +
+    // credential row per tenant with `user_id = NULL`; per-user providers
+    // (Gmail/IMAP) keep the connecting user's id.
+    //
+    // SECURITY: a tenant-scoped provider must only be connected through the
+    // admin-gated tenant route (which passes `userId: null`). If it arrives with
+    // a non-null `userId` it came from the per-user route (feature
+    // `connect_user_channel`, granted to manager/employee) — refuse rather than
+    // silently minting a privileged tenant-wide channel that bypasses the
+    // admin-only `connect_tenant_channel` gate. The tenant route passes
+    // `userId: null`, so legitimate tenant connects still pass.
+    const tenantScoped = adapter.channelScope === 'tenant'
+    if (tenantScoped && input.userId !== null) {
+      return { status: 'wrong_scope_for_route', providerKey: input.providerKey }
+    }
+    const effectiveUserId = tenantScoped ? null : input.userId
+
     // Optional credential validation.
     if (typeof adapter.validateCredentials === 'function') {
       const validation = await adapter.validateCredentials({
@@ -86,6 +117,7 @@ const connectCredentialChannelCommand: CommandHandler<
         return {
           status: 'validation_failed',
           errors: validation.errors ?? { _form: 'Credential validation failed' },
+          errorCodes: validation.errorCodes,
         }
       }
     }
@@ -103,11 +135,24 @@ const connectCredentialChannelCommand: CommandHandler<
     //
     // `scope.userId` is set so the credentials service writes a per-user row.
     // Without this, two users on the same tenant share one credentials row
-    // (see review R2-C1 / N1, 2026-05-26).
+    // (see review R2-C1 / N1, 2026-05-26). Tenant-wide providers pass `null`
+    // here so the service writes/reads the shared `user_id = NULL` row (same
+    // pattern as Stripe/Akeneo tenant-wide credentials).
+    //
+    // `organizationId` for tenant scope is pinned to `tenantId` (not the
+    // connecting admin's selected org). The channel dedup/heal is org-agnostic
+    // (index + heal key ignore org) and the channel row is stored with
+    // `organization_id = NULL`, so push-delivery resolves credentials at
+    // `channel.organizationId ?? tenantId` = `tenantId`. Pinning the write to the
+    // same key keeps a cross-org reconnect (e.g. key rotation from another org)
+    // overwriting the one credential row the delivery path actually reads, rather
+    // than orphaning it under a per-org key.
     const credentialsScope = {
       tenantId: input.scope.tenantId,
-      organizationId: input.scope.organizationId ?? input.scope.tenantId,
-      userId: input.userId,
+      organizationId: tenantScoped
+        ? input.scope.tenantId
+        : input.scope.organizationId ?? input.scope.tenantId,
+      userId: effectiveUserId,
     }
     let credentialsRefId: string | null = null
     let credentialsPersisted = false
@@ -115,16 +160,12 @@ const connectCredentialChannelCommand: CommandHandler<
       try {
         await credentialsService.save(
           `channel_${input.providerKey}`,
-          { ...input.credentials, userId: input.userId },
+          { ...input.credentials, ...(effectiveUserId ? { userId: effectiveUserId } : {}) },
           credentialsScope,
         )
         credentialsPersisted = true
       } catch (err) {
-        console.warn(
-          `[communication_channels:connect_credential] credentials persist failed for ${input.providerKey}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        )
+        logger.warn('credentials persist failed for provider', { providerKey: input.providerKey, err })
       }
       // Resolve the saved row id so we can link channel.credentialsRef. Best-effort.
       if (credentialsPersisted) {
@@ -183,8 +224,14 @@ const connectCredentialChannelCommand: CommandHandler<
         displayName: input.displayName,
         externalIdentifier,
         credentialsRefId,
-        userId: input.userId,
-        scope: { tenantId: input.scope.tenantId, organizationId: input.scope.organizationId ?? null },
+        userId: effectiveUserId,
+        // Tenant-wide channels store `organization_id = NULL` (truly tenant-scoped,
+        // matching the entity's `user_id NULL` semantics) so the org-agnostic heal
+        // key stays stable across orgs and delivery reads creds at `?? tenantId`.
+        scope: {
+          tenantId: input.scope.tenantId,
+          organizationId: tenantScoped ? null : input.scope.organizationId ?? null,
+        },
         pollIntervalSeconds: input.pollIntervalSeconds,
       })
     } catch (err) {
@@ -206,7 +253,7 @@ const connectCredentialChannelCommand: CommandHandler<
     // covers the channel until the operator clicks "Re-register push".
     // Imported lazily to avoid a circular module load (push-register reads
     // the channel adapter registry, which is initialised after this module).
-    if (credentialsAvailable && input.providerKey === 'gmail') {
+    if (credentialsAvailable && input.providerKey === 'gmail' && input.userId) {
       const adapterSupportsPush =
         typeof adapter.registerPush === 'function' && typeof adapter.unregisterPush === 'function'
       const organizationId = input.scope.organizationId
@@ -225,11 +272,7 @@ const connectCredentialChannelCommand: CommandHandler<
         } catch (err) {
           // Never fail the connect on push errors — operator can manually
           // re-register via the dedicated route. Log + continue.
-          console.warn(
-            `[connect-credential-channel] best-effort pushRegister failed for ${channel.id}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          )
+          logger.warn('best-effort pushRegister failed for channel', { channelId: channel.id, err })
         }
       }
     }

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   registerModuleOverrideApplier,
   type ModuleOverrideEntry,
@@ -28,10 +29,12 @@ import {
  *
  * `null` always means "remove from the registry"; a definition replaces.
  *
- * @see ../../../../../../.ai/specs/2026-04-30-ai-overrides-and-module-disable.md
+ * @see ../../../../../../.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md
  */
 import type { AiAgentDefinition, AiAgentExtension } from './ai-agent-definition'
 import type { AiToolDefinition } from './types'
+
+const logger = createLogger('ai_assistant')
 
 /** Override for a single agent: replace with a definition or remove with `null`. */
 export type AiAgentOverride = AiAgentDefinition | null
@@ -201,9 +204,9 @@ export function applyAiOverridesDispatcherEntries(
 
 // Side-effect: register the `'ai'` applier on first module load so the
 // umbrella dispatcher in `@open-mercato/shared/modules/overrides` can
-// route `entry.overrides.ai` here. Any consumer that imports
-// `@open-mercato/ai-assistant` (which apps do via `bootstrap.ts`) gets
-// the registration for free — no second import needed.
+// route `entry.overrides.ai` here. Apps import this focused module from
+// `bootstrap-common.ts` so they register the applier without tracing the
+// package's MCP/provider umbrella into every server runtime.
 registerModuleOverrideApplier<AiModuleOverridesShape>(
   'ai',
   (entries: ReadonlyArray<ModuleOverrideEntry<AiModuleOverridesShape>>) => {
@@ -319,18 +322,14 @@ export function applyAgentOverrideMap(
       // — useful for app-level "synthetic" agents without authoring a
       // module file. Warn at the structured logger so the operator
       // notices a stale id slipping through.
-      console.warn(
-        `[AI Overrides] Override registers a new agent "${id}" — no base entry to replace.`,
-      )
+      logger.warn('Override registers a new agent — no base entry to replace', { agentId: id })
     }
     if (value === null) {
       byId.delete(id)
       continue
     }
     if (!value || typeof value.id !== 'string' || value.id !== id) {
-      console.warn(
-        `[AI Overrides] Skipping malformed agent override for id "${id}" — id mismatch or missing fields.`,
-      )
+      logger.warn('Skipping malformed agent override — id mismatch or missing fields', { agentId: id })
       continue
     }
     byId.set(id, value)
@@ -355,9 +354,7 @@ export function applyToolOverrideMap<TTool extends { name: string }>(
     }
     if (value === undefined) continue
     if (!value || typeof (value as TTool).name !== 'string' || (value as TTool).name !== name) {
-      console.warn(
-        `[AI Overrides] Skipping malformed tool override for name "${name}" — name mismatch or missing fields.`,
-      )
+      logger.warn('Skipping malformed tool override — name mismatch or missing fields', { toolName: name })
       continue
     }
     out.set(name, value as TTool)

@@ -3,10 +3,12 @@
 import React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 interface AccountStatusData {
@@ -15,6 +17,12 @@ interface AccountStatusData {
   isActive: boolean
   emailVerified: boolean
   lastLoginAt: string | null
+}
+
+interface PendingInvitationData {
+  id: string
+  email: string
+  expiresAt: string
 }
 
 interface AccountStatusProps {
@@ -49,6 +57,10 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
   const [availableRoles, setAvailableRoles] = React.useState<RoleOption[]>([])
   const [isLoadingRoles, setIsLoadingRoles] = React.useState(true)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const { runMutation } = useGuardedMutation<{ entityType: string }>({
+    contextId: 'customer_accounts:account-status-invite',
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -109,9 +121,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
     )
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
-
+  async function handleSubmit() {
     const trimmedEmail = email.trim()
     if (!trimmedEmail) {
       flash(t('customer_accounts.widgets.invite.error.emailRequired', 'Email is required'), 'error')
@@ -124,28 +134,35 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
 
     setIsSubmitting(true)
     try {
-      const call = await apiCall<{ ok: boolean; error?: string }>(
-        '/api/customer_accounts/admin/users-invite',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            email: trimmedEmail,
-            roleIds: selectedRoleIds,
-            displayName: displayName.trim() || undefined,
-            customerEntityId: personEntityId,
-          }),
+      await runMutation({
+        context: { entityType: 'customer_accounts:user' },
+        mutationPayload: { personEntityId, roleIds: selectedRoleIds },
+        operation: async () => {
+          // optimistic-lock-exempt: creates a new portal invitation, not a concurrent record edit
+          const call = await apiCall<{ ok: boolean; error?: string }>(
+            '/api/customer_accounts/admin/users-invite',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                email: trimmedEmail,
+                roleIds: selectedRoleIds,
+                displayName: displayName.trim() || undefined,
+                personEntityId,
+              }),
+            },
+          )
+
+          if (!call.ok) {
+            const errorMessage = (call.result as Record<string, unknown> | null)?.error as string | undefined
+            flash(errorMessage || t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
+            return
+          }
+
+          flash(t('customer_accounts.widgets.invite.success', 'Invitation sent successfully'), 'success')
+          onSuccess()
         },
-      )
-
-      if (!call.ok) {
-        const errorMessage = (call.result as Record<string, unknown> | null)?.error as string | undefined
-        flash(errorMessage || t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
-        return
-      }
-
-      flash(t('customer_accounts.widgets.invite.success', 'Invitation sent successfully'), 'success')
-      onSuccess()
+      })
     } catch {
       flash(t('customer_accounts.widgets.invite.error.failed', 'Failed to send invitation'), 'error')
     } finally {
@@ -164,7 +181,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 mt-2">
+    <div className="space-y-3 mt-2">
       <div>
         <label htmlFor="invite-email" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('common.email', 'Email')}
@@ -222,8 +239,9 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
 
       <div className="flex justify-end gap-2 pt-1">
         <Button
-          type="submit"
+          type="button"
           size="sm"
+          onClick={handleSubmit}
           disabled={isSubmitting || !email.trim() || selectedRoleIds.length === 0}
         >
           {isSubmitting
@@ -231,7 +249,7 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
             : t('customer_accounts.widgets.invite.submit', 'Send Invitation')}
         </Button>
       </div>
-    </form>
+    </div>
   )
 }
 
@@ -254,9 +272,29 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     enabled: !!personEntityId,
   })
 
+  // A portal account only exists once the invitation is accepted, so the users
+  // query above stays empty right after a successful invite. Without this the
+  // widget renders the identical "no account" state and the invite looks like a
+  // no-op (#4950).
+  const { data: pendingInvitation, isLoading: isLoadingInvitation } = useQuery({
+    queryKey: ['customer-account-pending-invitation', personEntityId],
+    queryFn: async (): Promise<PendingInvitationData | null> => {
+      if (!personEntityId) return null
+      const result = await apiCall(
+        `/api/customer_accounts/admin/users-invite?personEntityId=${encodeURIComponent(personEntityId)}&pageSize=1`,
+      )
+      if (!result.ok) return null
+      const json = result.result as Record<string, unknown> | null
+      const items = json?.items as PendingInvitationData[] | undefined
+      return items?.[0] || null
+    },
+    enabled: !!personEntityId && !isLoading && !data,
+  })
+
   function handleInviteSuccess() {
     setShowInviteForm(false)
     queryClient.invalidateQueries({ queryKey: ['customer-account-status', personEntityId] })
+    queryClient.invalidateQueries({ queryKey: ['customer-account-pending-invitation', personEntityId] })
   }
 
   if (isLoading) {
@@ -267,8 +305,29 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     return (
       <div className="rounded-md border p-3">
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
-        <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
-        {!showInviteForm && personEntityId && (
+        {isLoadingInvitation ? (
+          <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
+        ) : pendingInvitation ? (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('common.status', 'Status')}</span>
+              <StatusBadge variant="warning" dot>
+                {t('customer_accounts.widgets.invitationPending', 'Invitation pending')}
+              </StatusBadge>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('common.email', 'Email')}</span>
+              <span>{pendingInvitation.email}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('customer_accounts.widgets.invitationExpires', 'Invitation expires')}</span>
+              <span>{new Date(pendingInvitation.expiresAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
+        )}
+        {!showInviteForm && personEntityId && !isLoadingInvitation && (
           <div className="mt-2">
             <Button
               type="button"
@@ -276,7 +335,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
               size="sm"
               onClick={() => setShowInviteForm(true)}
             >
-              {t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
+              {pendingInvitation
+                ? t('customer_accounts.widgets.invite.resend', 'Resend invitation')
+                : t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
             </Button>
           </div>
         )}
@@ -293,9 +354,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t('common.status', 'Status')}</span>
-          <span className={data.isActive ? 'text-green-600' : 'text-red-600'}>
+          <StatusBadge variant={data.isActive ? 'success' : 'error'} dot>
             {data.isActive ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
-          </span>
+          </StatusBadge>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t('common.email', 'Email')}</span>

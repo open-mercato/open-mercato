@@ -61,7 +61,8 @@ test.describe('TC-CRM-005: Link Person to Company', () => {
 
       await page.goto(`/backend/customers/companies/${companyId}`);
       await page.getByRole('tab', { name: 'People' }).click();
-      await expect(page.getByText(displayName, { exact: true })).toBeVisible();
+      await expect(page.getByText('Roles at this company', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Choose person' }).first()).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

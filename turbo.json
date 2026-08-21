@@ -9,6 +9,18 @@
       "inputs": ["$TURBO_DEFAULT$", "generated/**"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
+    "@open-mercato/cli#build": {
+      "dependsOn": ["^build"],
+      "cache": true,
+      "inputs": ["$TURBO_DEFAULT$", "generated/**"],
+      "outputs": ["dist/**"]
+    },
+    "create-mercato-app#build": {
+      "dependsOn": ["^build"],
+      "cache": true,
+      "inputs": ["$TURBO_DEFAULT$", "generated/**"],
+      "outputs": ["dist/**"]
+    },
     "start": {
       "cache": false,
       "persistent": true
@@ -34,6 +46,11 @@
       "outputs": []
     },
     "test": {
+      "cache": false,
+      "outputs": []
+    },
+    "create-mercato-app#test": {
+      "dependsOn": ["^build"],
       "cache": false,
       "outputs": []
     },

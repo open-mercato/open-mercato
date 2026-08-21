@@ -14,21 +14,27 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import {
+  assertActorCanAccessUserTarget,
+  assertActorCanAssignUserDestination,
   assertActorCanGrantRoleTokens,
   assertActorCanModifySuperAdminUserTarget,
   listSuperAdminUserIds,
+  resolveUserDestinationRoles,
+  throwUserDestinationOrganizationNotFound,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
-import { sql } from 'kysely'
+import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
+import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import {
   getSelectedTenantFromRequest,
   resolveOrganizationScopeForRequest,
 } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'users' })
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -37,6 +43,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   name: z.string().optional(),
   organizationId: z.string().uuid().optional(),
+  scopeToActiveOrganization: z.boolean().optional(),
   roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
 
@@ -68,6 +75,7 @@ const userUpdateSchema = z.object({
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
+  isConfirmed: z.boolean().optional(),
 })
 
 const userListItemSchema = z.object({
@@ -80,6 +88,8 @@ const userListItemSchema = z.object({
   tenantName: z.string().nullable(),
   roles: z.array(z.string()),
   roleIds: z.array(z.string().uuid()).optional(),
+  hasPassword: z.boolean().optional(),
+  isConfirmed: z.boolean(),
   updatedAt: z.string().nullable().optional(),
 })
 
@@ -96,6 +106,25 @@ const errorResponseSchema = z.object({ error: z.string() })
 
 type CrudInput = Record<string, unknown>
 type UserListFilter = Record<string, unknown>
+
+// UserRole carries no tenant/organization columns of its own, so the caller's scope has to be
+// expressed as a predicate on the `user` relation — MikroORM compiles that into a database-side
+// join against `users` with the scope predicates in the WHERE clause, keeping the link lookup
+// bounded to the scope instead of every tenant holding the role.
+function buildRoleLinkFilter(
+  roleIdList: string[],
+  userScope: UserListFilter[],
+  candidateUserIds: Set<string> | null,
+): UserListFilter {
+  const scope = candidateUserIds
+    ? [...userScope, { id: { $in: Array.from(candidateUserIds) } }]
+    : userScope
+  return {
+    role: { $in: roleIdList },
+    deletedAt: null,
+    user: scope.length > 1 ? { $and: scope } : scope[0],
+  }
+}
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -140,8 +169,16 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         if (ctx.request) {
           if (typeof parsed.id === 'string' && parsed.id.length) {
             await assertCanModifySuperAdminTarget(ctx.request, parsed.id)
+            await assertCanAccessUserTarget(ctx.request, parsed.id)
           }
-          await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+          if (typeof parsed.organizationId === 'string' && parsed.organizationId.length) {
+            const destinationChanged = await assertCanAssignUserDestination(ctx.request, parsed)
+            if (!destinationChanged) {
+              await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+            }
+          } else {
+            await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+          }
         }
         return parsed
       },
@@ -149,6 +186,14 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     },
     delete: {
       commandId: 'auth.users.delete',
+      mapInput: async ({ parsed, raw, ctx }) => {
+        const targetId = resolveDeleteTargetId(parsed, raw)
+        if (ctx.request && targetId) {
+          await assertCanModifySuperAdminTarget(ctx.request, targetId)
+          await assertCanAccessUserTarget(ctx.request, targetId)
+        }
+        return parsed
+      },
       response: () => ({ ok: true }),
     },
   },
@@ -166,6 +211,7 @@ export async function GET(req: Request) {
     search: url.searchParams.get('search') || undefined,
     name: url.searchParams.get('name') || undefined,
     organizationId: url.searchParams.get('organizationId') || undefined,
+    scopeToActiveOrganization: parseBooleanFlag(url.searchParams.get('scopeToActiveOrganization') || undefined),
     roleIds: rawRoleIds.length ? rawRoleIds : undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
@@ -179,9 +225,9 @@ export async function GET(req: Request) {
       isSuperAdmin = isSuperAdmin || !!acl?.isSuperAdmin
     }
   } catch (err) {
-    console.error('users: failed to resolve rbac', err)
+    logger.error('Failed to resolve rbac', { err })
   }
-  const { id, page, pageSize, search, name, organizationId, roleIds } = parsed.data
+  const { id, page, pageSize, search, name, organizationId, scopeToActiveOrganization, roleIds } = parsed.data
   const filters: any[] = [{ deletedAt: null }]
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   let effectiveTenantId: string | null = null
@@ -230,6 +276,12 @@ export async function GET(req: Request) {
     ? effectiveSelectedOrganizationId
     : auth.orgId ?? null
   if (organizationId) filters.push({ organizationId })
+  // Recipient/assignee pickers scope to the caller's active organization so they never
+  // suggest users outside it. A message composed here is stamped with the caller's
+  // active org (auth.orgId), and the message detail endpoint enforces
+  // hasOrganizationAccess(scope.organizationId, message.organizationId); scoping the
+  // suggestions to the same org keeps a picked recipient able to open what they were sent.
+  if (scopeToActiveOrganization) filters.push({ organizationId: auth.orgId ?? null })
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   if (trimmedName) {
     const searchPattern = `%${escapeLikePattern(trimmedName)}%`
@@ -244,21 +296,27 @@ export async function GET(req: Request) {
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))
-    const linksForRoles = await em.find(UserRole, { role: { $in: uniqueRoleIds as any } } as any)
+    const linksForRoles = await em.find(
+      UserRole,
+      buildRoleLinkFilter(uniqueRoleIds, filters, idFilter) as any,
+    )
     const roleUserIds = new Set<string>()
     for (const link of linksForRoles) {
       const uid = String((link as any).user?.id || (link as any).user || '')
       if (uid) roleUserIds.add(uid)
     }
-    if (roleUserIds.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+    if (roleUserIds.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
     if (idFilter) {
+      // buildRoleLinkFilter already constrains the lookup to `user.id IN idFilter`, so this
+      // intersection is enforced database-side; the loop stays as an application-level backstop
+      // so the `?id=` + `?roleId=` contract does not depend on that predicate alone.
       for (const uid of Array.from(idFilter)) {
         if (!roleUserIds.has(uid)) idFilter.delete(uid)
       }
     } else {
       idFilter = roleUserIds
     }
-    if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+    if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
   }
   const trimmedSearch = typeof search === 'string' ? search.trim() : ''
   if (trimmedSearch) {
@@ -307,7 +365,7 @@ export async function GET(req: Request) {
     if (matchingRoleIds.length) {
       const roleSearchLinks = await em.find(
         UserRole,
-        { role: { $in: matchingRoleIds as any } } as any,
+        buildRoleLinkFilter(matchingRoleIds, filters, idFilter) as any,
       )
       const matchingRoleUserIds = Array.from(new Set(
         roleSearchLinks
@@ -341,7 +399,7 @@ export async function GET(req: Request) {
     ? await findWithDecryption(
         em,
         UserRole,
-        { user: { $in: userIds as any } } as any,
+        { user: { $in: userIds as any }, deletedAt: null } as any,
         { populate: ['role'] },
         {
           tenantId: effectiveTenantId ?? auth.tenantId ?? null,
@@ -429,7 +487,8 @@ export async function GET(req: Request) {
       tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
-      hasPassword: !!u.passwordHash,
+      ...(id ? { hasPassword: !!u.passwordHash } : {}),
+      isConfirmed: u.isConfirmed !== false,
       updatedAt: u.updatedAt instanceof Date ? u.updatedAt.toISOString() : null,
       ...(cfByUser[uid] || {}),
     }
@@ -463,6 +522,7 @@ export const DELETE = async (req: Request) => {
   if (targetId) {
     try {
       await assertCanModifySuperAdminTarget(req, targetId)
+      await assertCanAccessUserTarget(req, targetId)
     } catch (err) {
       if (err instanceof CrudHttpError) {
         return NextResponse.json(err.body, { status: err.status })
@@ -480,31 +540,13 @@ async function findUserIdsBySearchTokens(
   tenantScope: string | null | undefined,
   field?: string,
 ): Promise<string[] | null> {
-  const trimmed = search.trim()
-  if (!trimmed) return null
-  const searchConfig = resolveSearchConfig()
-  if (!searchConfig.enabled) return []
-  const { hashes } = tokenizeText(trimmed, searchConfig)
-  if (!hashes.length) return []
-
-  const db = (em as any).getKysely() as any
-  let query = db
-    .selectFrom('search_tokens')
-    .select('entity_id')
-    .where('entity_type', '=', entityType)
-    .where('token_hash', 'in', hashes)
-    .groupBy('entity_id')
-    .having(sql<boolean>`count(distinct token_hash) >= ${hashes.length}`)
-  if (field) {
-    query = query.where('field', '=', field)
-  }
-  if (tenantScope !== undefined) {
-    query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantScope}`)
-  }
-  const rows = (await query.execute()) as Array<{ entity_id?: unknown }>
-  return rows
-    .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  return findEntityIdsBySearchTokensCompat({
+    db: em.getKysely<SearchTokenDatabase>(),
+    entityType,
+    query: search,
+    fields: field ? [field] : undefined,
+    scope: { tenantId: tenantScope },
+  })
 }
 
 async function assertCanModifySuperAdminTarget(req: Request, targetUserId: string) {
@@ -522,6 +564,40 @@ async function assertCanModifySuperAdminTarget(req: Request, targetUserId: strin
   })
 }
 
+async function assertCanAccessUserTarget(req: Request, targetUserId: string) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    tenantId: auth.tenantId ?? null,
+  })
+  await assertActorCanAccessUserTarget({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    targetUserId,
+    organizationScope,
+  })
+}
+
+function resolveDeleteTargetId(parsed: unknown, raw: unknown): string | null {
+  const fromParsed = readId((parsed as Record<string, unknown> | null | undefined))
+  if (fromParsed) return fromParsed
+  const rawRecord = raw as { body?: Record<string, unknown>; query?: Record<string, unknown> } | null | undefined
+  return readId(rawRecord?.query) ?? readId(rawRecord?.body)
+}
+
+function readId(record: Record<string, unknown> | null | undefined): string | null {
+  const value = record?.id
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
 async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {
   if (!Array.isArray(roles)) return
   const auth = await getAuthFromRequest(req)
@@ -537,6 +613,65 @@ async function assertCanAssignRoles(req: Request, roles: unknown, payload: Recor
     organizationId: auth.orgId ?? null,
     roleTokens: roles,
   })
+}
+
+async function assertCanAssignUserDestination(req: Request, payload: Record<string, unknown>): Promise<boolean> {
+  const organizationId = typeof payload.organizationId === 'string' ? payload.organizationId : null
+  const targetUserId = typeof payload.id === 'string' ? payload.id : null
+  if (!organizationId || !targetUserId) return false
+
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const targetUser = await findOneWithDecryption(
+    em,
+    User,
+    { id: targetUserId, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  if (!targetUser) return false
+  const organization = await findOneWithDecryption(
+    em,
+    Organization,
+    { id: organizationId },
+    { populate: ['tenant'] },
+    { tenantId: null, organizationId },
+  )
+  if (!organization) return throwUserDestinationOrganizationNotFound(400)
+  const destinationTenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+  if (!destinationTenantId) return throwUserDestinationOrganizationNotFound(400)
+  const currentOrganizationId = targetUser.organizationId ? String(targetUser.organizationId) : null
+  const currentTenantId = targetUser.tenantId ? String(targetUser.tenantId) : null
+  if (currentOrganizationId === organizationId && currentTenantId === destinationTenantId) {
+    return false
+  }
+  const roles = await resolveUserDestinationRoles({
+    em,
+    targetUserId,
+    destinationTenantId,
+    roleTokens: payload.roles,
+  })
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    tenantId: destinationTenantId,
+  })
+  await assertActorCanAssignUserDestination({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    actorIsSuperAdmin: auth.isSuperAdmin === true,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    allowedOrganizationIds: organizationScope.allowedIds,
+    destinationTenantId,
+    destinationOrganizationId: organizationId,
+    roles,
+  })
+  return true
 }
 
 async function resolveTargetTenantIdForRoleGrant(
@@ -578,7 +713,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters.',
+        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record).',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },
@@ -606,7 +741,8 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user',
-      description: 'Updates profile fields including display name, organization assignment, credentials, or role memberships.',
+      description:
+        'Updates profile fields including display name, organization assignment, credentials, or role memberships. A destination organization must be within the caller\'s descendant-expanded organization scope. Retained and newly assigned roles must belong to the destination tenant and be grantable by the caller. Setting isConfirmed=false deactivates the account: the user can no longer sign in and every active session is revoked; isConfirmed=true reactivates it. A tenant cannot drop below a protected role\'s minimum active holder count, so revoking the role from, deactivating, moving, or deleting the last active administrator is rejected.',
       requestBody: {
         contentType: 'application/json',
         schema: userUpdateSchema,
@@ -615,21 +751,21 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'User updated', schema: okResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
+        { status: 400, description: 'Invalid payload, duplicate email, or the update would remove the last active holder of a protected role', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
-        { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
-        { status: 404, description: 'User not found', schema: errorResponseSchema },
+        { status: 403, description: 'Destination organization is outside caller scope, or a retained or assigned role is not grantable', schema: errorResponseSchema },
+        { status: 404, description: 'User or destination organization not found in the caller tenant scope', schema: errorResponseSchema },
       ],
     },
     DELETE: {
       summary: 'Delete user',
-      description: 'Deletes a user by identifier. Undo support is provided via the command bus.',
+      description: 'Deletes a user by identifier. Rejected when the target is the last active holder of a protected role in the tenant. Undo support is provided via the command bus.',
       query: z.object({ id: z.string().uuid().describe('User identifier') }),
       responses: [
         { status: 200, description: 'User deleted', schema: okResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'User cannot be deleted', schema: errorResponseSchema },
+        { status: 400, description: 'User cannot be deleted, or is the last active holder of a protected role', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 404, description: 'User not found', schema: errorResponseSchema },
       ],

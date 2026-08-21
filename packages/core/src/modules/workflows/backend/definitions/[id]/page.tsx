@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
@@ -35,6 +36,7 @@ import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 export default function EditWorkflowDefinitionPage() {
   const router = useRouter()
   const params = useParams()
+  const pathname = usePathname()
   const t = useT()
   const isMobile = useIsMobile()
 
@@ -221,6 +223,21 @@ export default function EditWorkflowDefinitionPage() {
     router.push(`/backend/definitions/visual-editor?id=${definitionId}`)
   }, [router, definitionId])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `workflows.definition` + id
+  // explicitly. The resourceKind mirrors the save-time `useGuardedMutation` context
+  // and server guard so the held lock matches the conflict surface for the same
+  // definition across both the form and visual editors.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'workflows.definition',
+      resourceId: definitionId ?? null,
+      updatedAt: typeof definition?.updatedAt === 'string' ? definition.updatedAt : null,
+      data: (definition ?? null) as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -271,7 +288,7 @@ export default function EditWorkflowDefinitionPage() {
     <Page>
       <PageBody>
         {isCodeOnly && (
-          <Alert variant="info" className="mb-4">
+          <Alert status="information" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
               <span>{t('workflows.source.code.readonlyBanner')}</span>
               <Button variant="outline" size="sm" onClick={handleCustomize}>
@@ -281,7 +298,7 @@ export default function EditWorkflowDefinitionPage() {
           </Alert>
         )}
         {isCodeOverride && (
-          <Alert variant="warning" className="mb-4">
+          <Alert status="warning" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
               <span>{t('workflows.source.code_override.banner')}</span>
               <Button variant="outline" size="sm" onClick={handleResetToCode}>

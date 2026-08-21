@@ -14,11 +14,107 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      # In-network MCP wiring. MCP_SERVER_API_KEY (env) wins when set; the
+      # file fallback reads the key the mcp service provisioned into the
+      # shared volume after waiting for the MCP /health endpoint.
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://mcp:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+    volumes:
+      - mcp_shared:/run/mcp-shared:ro
+    depends_on:
+      mcp:
+        condition: service_started
+    # Visibility only (compose ps / smoke tests): the entrypoint owns the
+    # wait-for-MCP-and-key sequencing.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
+      interval: 30s
+      timeout: 6s
+      retries: 20
+      start_period: 900s
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - mercato-network-fullapp
+
+  mcp:
+    image: open-mercato/app:${DEPLOY_ENV:-local}
+    container_name: mercato-mcp-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    user: "0"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        if [ ! -f /app/docker/scripts/mcp-entrypoint.sh ]; then
+          echo "ERROR: mcp-entrypoint.sh not found. Please rebuild the container: docker compose build --no-cache app"
+          exit 1
+        fi
+        sh /app/docker/scripts/mcp-entrypoint.sh
+    volumes:
+      - mcp_shared:/run/mcp-shared
+    environment:
+      # The image (Dockerfile `runner` stage) is a production build installed with
+      # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
+      # NODE_ENV=production for it), but pinning `development` here still leaked into every other
+      # process in the container: `mercato init`, migrations, the worker supervisor, the scheduler,
+      # and the whole MCP sidecar.
+      NODE_ENV: ${NODE_ENV:-production}
+      NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
+      DEPLOY_ENV: ${DEPLOY_ENV:-local}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
+      CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      CACHE_STRATEGY: redis
+      AUTO_SPAWN_WORKERS: "false"
+      AUTO_SPAWN_SCHEDULER: "false"
+      MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      # No default: a published fallback secret lets anyone forge tokens for this deployment.
+      # Set JWT_SECRET in the .env file next to this compose file (`openssl rand -hex 32`).
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
+      JWT_LEGACY_GRACE_MINUTES: "${JWT_LEGACY_GRACE_MINUTES:-480}"
+      JWT_LEGACY_CUTOVER_AT: "${JWT_LEGACY_CUTOVER_AT:-}"
+      # Code Mode api.request() must call back into the app over service DNS.
+      # NEXT_PUBLIC_* are pinned so a stray .env cannot hijack the base URL.
+      APP_URL: http://app:${CONTAINER_PORT:-3000}
+      NEXT_PUBLIC_APP_URL: http://app:${CONTAINER_PORT:-3000}
+      NEXT_PUBLIC_API_BASE_URL: ""
+      # Session-token (tier 2) decryption requires the app's encryption config.
+      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
+      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+      OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      MCP_PORT: "3001"
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
+      MCP_DEBUG: ${MCP_DEBUG:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      app:
+        condition: service_started
+    # Visibility only (compose ps / smoke tests): startup ordering is owned by
+    # the entrypoint wait loops, not by this healthcheck.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 900s
     networks:
       - mercato-network-fullapp
 
@@ -32,7 +128,16 @@ services:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
+        - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
+        # Optional: browser-reachable ws(s):// endpoint baked in at build time.
+        # Leave unset to disable realtime document collaboration (the editor
+        # falls back to single-user editing). Invalid production values are
+        # ignored at runtime instead of failing the image build.
+        - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
     image: open-mercato/app:${DEPLOY_ENV:-local}
+    # Without a restart policy the app stays down after a daemon/host reboot
+    # while mcp and opencode (restart: unless-stopped) wait on it forever.
+    restart: unless-stopped
     user: "0"
     command:
       - /bin/sh
@@ -47,6 +152,7 @@ services:
     volumes:
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/apps/mercato/storage
+      - mcp_shared:/run/mcp-shared:ro
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
@@ -57,25 +163,65 @@ services:
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
-      NODE_ENV: development
+      # The image (Dockerfile `runner` stage) is a production build installed with
+      # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
+      # NODE_ENV=production for it), but pinning `development` here still leaked into every other
+      # process in the container: `mercato init`, migrations, the worker supervisor, the scheduler,
+      # and the whole MCP sidecar.
+      NODE_ENV: ${NODE_ENV:-production}
       # Prevents V8 from growing toward total host RAM before GC kicks in.
       # Override in .env to tune for your host: --max-old-space-size=6144 suits 16 GB+ servers.
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=3072}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: ${CONTAINER_PORT:-3000}
+      # Bind on all interfaces so Docker's published-port forwarding can reach
+      # the server; next start otherwise honors the container's HOSTNAME and
+      # binds an address unreachable from the host.
+      HOSTNAME: 0.0.0.0
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
-      JWT_SECRET: ${JWT_SECRET:-JWT}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_ACQUIRE_TIMEOUT: ${DB_POOL_ACQUIRE_TIMEOUT:-6000}
+      DB_POOL_IDLE_TIMEOUT: ${DB_POOL_IDLE_TIMEOUT:-3000}
+      DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: ${DB_IDLE_IN_TRANSACTION_TIMEOUT_MS:-120000}
+      # No default: a published fallback secret lets anyone forge tokens for this deployment.
+      # Set JWT_SECRET in the .env file next to this compose file (`openssl rand -hex 32`).
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
+      JWT_LEGACY_GRACE_MINUTES: "${JWT_LEGACY_GRACE_MINUTES:-480}"
+      JWT_LEGACY_CUTOVER_AT: "${JWT_LEGACY_CUTOVER_AT:-}"
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+      CONSENT_INTEGRITY_SECRET: ${CONSENT_INTEGRITY_SECRET:-}
+      # Set APP_URL to the public application origin in production deployments.
       APP_URL: ${APP_URL:-http://localhost:3000}
+      # Optional: unset disables realtime document collaboration (single-user editing keeps working).
+      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
+      # Required only when collaboration is enabled: a unique high-entropy shared secret
+      # (>= 32 UTF-8 bytes). The sidecar fails closed at runtime when it is missing or too short.
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: ${DOCUMENTS_COLLAB_JWT_SECRET_V2:-}
+      # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
+      APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
+      REDIS_URL: ${REDIS_URL:-}
+      QUEUE_REDIS_URL: ${QUEUE_REDIS_URL:-}
+      QUEUE_STRATEGY: ${QUEUE_STRATEGY:-local}
+      NEXT_PUBLIC_QUEUE_STRATEGY: ${NEXT_PUBLIC_QUEUE_STRATEGY:-local}
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       CACHE_STRATEGY: redis
+      RATE_LIMIT_STRATEGY: ${RATE_LIMIT_STRATEGY:-memory}
+      OM_MULTI_INSTANCE: ${OM_MULTI_INSTANCE:-false}
+      OM_INSTANCE_COUNT: ${OM_INSTANCE_COUNT:-1}
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
       OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Point OpenCode clients at the sibling opencode service (the code default
+      # http://localhost:4096 is unreachable from inside the app container).
+      OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
@@ -86,6 +232,7 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-}
       NEW_RELIC_APP_NAME: ${NEW_RELIC_APP_NAME:-}
       NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+      OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING: ${OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING:-false}
       TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
@@ -98,12 +245,75 @@ services:
       PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,${PLATFORM_PRIMARY_HOST:-openmercato.com}}
       PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://${PLATFORM_PRIMARY_HOST:-openmercato.com}}
       CUSTOMER_DOMAIN_ORIGIN_HEADER: ${CUSTOMER_DOMAIN_ORIGIN_HEADER:-X-Open-Mercato-Origin}
+      # MCP wiring (OPENCODE_URL is declared above with the AI provider block;
+      # NEXT_PUBLIC_APP_URL stays a browser-resolvable URL, never service DNS).
+      MCP_URL: ${MCP_URL:-http://mcp:3001}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       meilisearch:
+        condition: service_healthy
+    networks:
+      - mercato-network-fullapp
+
+  documents-collab:
+    profiles:
+      - documents-collab
+    # Reuse the image built by app. A second build of the same tag with a
+    # different arg set races the app build and needlessly rebuilds the repo.
+    image: open-mercato/app:${DEPLOY_ENV:-local}
+    command: ["yarn", "documents:collab"]
+    working_dir: /app
+    restart: unless-stopped
+    ports:
+      - "${DOCUMENTS_COLLAB_PORT:-4101}:${DOCUMENTS_COLLAB_PORT:-4101}"
+    # Liveness only: any HTTP reply (including 503 when collaboration is not
+    # configured) means the process is serving; a connection error means it is
+    # down. Readiness would false-negative on the optional collab feature.
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+(process.env.DOCUMENTS_COLLAB_PORT||4101)+'/healthz',r=>process.exit(0)).on('error',()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
+      # Same required secret and bounded legacy-token window as the app service:
+      # the sidecar boots the app container and must never fall back to a
+      # published signing secret either.
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
+      JWT_LEGACY_GRACE_MINUTES: "${JWT_LEGACY_GRACE_MINUTES:-480}"
+      JWT_LEGACY_CUTOVER_AT: "${JWT_LEGACY_CUTOVER_AT:-}"
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      NEXT_PUBLIC_APP_URL: ${APP_URL:-http://localhost:3000}
+      DOCUMENTS_COLLAB_PORT: ${DOCUMENTS_COLLAB_PORT:-4101}
+      DOCUMENTS_COLLAB_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      DOCUMENTS_COLLAB_REDIS_PREFIX: ${DOCUMENTS_COLLAB_REDIS_PREFIX:-open-mercato:documents:collab:${DEPLOY_ENV:-local}}
+      # Same Redis as the app so multi-instance collaboration sync works out of the box
+      # (DOCUMENTS_COLLAB_REDIS_URL wins when both are set).
+      REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      DOCUMENTS_COLLAB_ALLOWED_ORIGINS: ${DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-${APP_URL}}
+      # Required only when collaboration is enabled; the sidecar fails closed when missing/too short.
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: ${DOCUMENTS_COLLAB_JWT_SECRET_V2:-}
+      DOCUMENTS_COLLAB_JWT_SECRET: ${DOCUMENTS_COLLAB_JWT_SECRET:-}
+      DOCUMENTS_COLLAB_APP_ROOT: /app/apps/mercato
+      # Mirror the app service's tenant-encryption configuration so the sidecar
+      # can decrypt the same data as the app.
+      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
+      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+      CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      CACHE_STRATEGY: redis
+    depends_on:
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - mercato-network-fullapp
@@ -197,6 +407,8 @@ volumes:
     name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
     name: mercato-attachments-storage-${DEPLOY_ENV:-local}
+  mcp_shared:
+    name: mercato-mcp-shared-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:

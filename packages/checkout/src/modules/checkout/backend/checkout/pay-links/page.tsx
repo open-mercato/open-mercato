@@ -1,8 +1,9 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -14,6 +15,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type LinkRow = {
   id: string
@@ -35,6 +37,7 @@ type ListResponse = {
   items: LinkRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -51,6 +54,7 @@ export default function CheckoutPayLinksPage() {
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const { runMutation } = useGuardedMutation<{
     entityType: string
@@ -95,6 +99,7 @@ export default function CheckoutPayLinksPage() {
     setRows(result.items ?? [])
     setTotal(result.total ?? 0)
     setTotalPages(result.totalPages ?? 1)
+    setTotalIsCapped(result?.totalIsCapped === true)
     setLoading(false)
   }, [filters.pricingMode, filters.status, page, search])
 
@@ -194,9 +199,9 @@ export default function CheckoutPayLinksPage() {
           filterValues={filters}
           onFiltersApply={(next) => { setFilters(next); setPage(1) }}
           onFiltersClear={() => { setFilters({}); setPage(1) }}
-          pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 25, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={loading}
-          perspective={{ tableId: 'checkout-links' }}
+          perspective={{ tableId: extensionPoints.hosts.linksTable.tableId }}
           actions={(
             <Button asChild>
               <Link href="/backend/checkout/pay-links/create">
@@ -204,6 +209,13 @@ export default function CheckoutPayLinksPage() {
                 {t('checkout.admin.payLinks.actions.create')}
               </Link>
             </Button>
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('checkout.admin.payLinks.title')}
+              createHref="/backend/checkout/pay-links/create"
+              createLabel={t('checkout.admin.payLinks.actions.create')}
+            />
           )}
           rowActions={(row) => (
             <RowActions items={[

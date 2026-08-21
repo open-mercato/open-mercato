@@ -19,6 +19,42 @@ export const CATALOG_PRODUCT_RELATION_TYPES = ['bundle', 'grouped'] as const
 
 export type CatalogProductRelationType = (typeof CATALOG_PRODUCT_RELATION_TYPES)[number]
 
+export const CATALOG_GTU_CODES = [
+  'GTU_01',
+  'GTU_02',
+  'GTU_03',
+  'GTU_04',
+  'GTU_05',
+  'GTU_06',
+  'GTU_07',
+  'GTU_08',
+  'GTU_09',
+  'GTU_10',
+  'GTU_11',
+  'GTU_12',
+  'GTU_13',
+] as const
+
+export type CatalogGtuCode = (typeof CATALOG_GTU_CODES)[number]
+
+export const CATALOG_EXCISE_CATEGORIES = [
+  'alcohol',
+  'tobacco',
+  'energy_drink',
+  'fuel',
+  'other',
+] as const
+
+export type CatalogExciseCategory = (typeof CATALOG_EXCISE_CATEGORIES)[number]
+
+export const CATALOG_HAZMAT_PACKING_GROUPS = ['I', 'II', 'III'] as const
+
+export type CatalogHazmatPackingGroup = (typeof CATALOG_HAZMAT_PACKING_GROUPS)[number]
+
+export const CATALOG_GTIN_TYPES = ['ean13', 'ean8', 'upc', 'isbn', 'asin', 'mpn'] as const
+
+export type CatalogGtinType = (typeof CATALOG_GTIN_TYPES)[number]
+
 export type CatalogProductOptionChoice = {
   code: string
   label?: string | null

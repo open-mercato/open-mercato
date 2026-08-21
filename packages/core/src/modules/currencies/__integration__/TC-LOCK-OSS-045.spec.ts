@@ -4,6 +4,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 import {
   createCurrencyFixture,
   deleteCurrenciesEntityIfExists,
+  generateUniqueCurrencyCode,
 } from '@open-mercato/core/modules/core/__integration__/helpers/currenciesFixtures'
 import {
   bumpRecordViaApi,
@@ -14,6 +15,7 @@ import {
   expectConflictBody,
   CONFLICT_BANNER_TESTID,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
+import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv'
 import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
@@ -43,12 +45,7 @@ import { fillControlledInput } from '@open-mercato/core/modules/core/__integrati
 
 const CURRENCY_API_BASE = '/api/currencies/currencies'
 
-function randomCode(): string {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  let out = ''
-  for (let i = 0; i < 3; i += 1) out += letters[Math.floor(Math.random() * letters.length)]
-  return out
-}
+const randomCode = generateUniqueCurrencyCode
 
 /**
  * Create a currency fixture with a unique three-letter code, retrying on the
@@ -84,10 +81,17 @@ async function raiseConflictBar(
   currencyId: string,
   code: string,
 ): Promise<void> {
-  await page.goto(`/backend/currencies/${currencyId}`)
+  await page.goto(`/backend/currencies/${currencyId}`, { waitUntil: 'commit' })
 
   const nameInput = page.locator('[data-crud-field-id="name"] input').first()
-  await expect(nameInput).toBeVisible({ timeout: 10_000 })
+  const loaded = await nameInput
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!loaded) {
+    await page.reload({ waitUntil: 'commit' }).catch(() => {})
+    await expect(nameInput).toBeVisible({ timeout: 15_000 })
+  }
 
   // Advance updated_at out-of-band → the browser form now holds a stale token.
   await bumpRecordViaApi(page.request, token, CURRENCY_API_BASE, {
@@ -162,6 +166,7 @@ test.describe('TC-LOCK-OSS-045: conflict-bar UX suite (currencies)', () => {
   })
 
   test('UX-04: navigating to an unrelated route auto-clears the bar', async ({ page }) => {
+    test.slow()
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let currencyId: string | null = null
@@ -171,7 +176,7 @@ test.describe('TC-LOCK-OSS-045: conflict-bar UX suite (currencies)', () => {
       await login(page, 'admin')
       await raiseConflictBar(page, token, stamp, currencyId, fixture.code)
 
-      await page.goto('/backend')
+      await page.goto('/backend', { waitUntil: 'commit' })
       await expect(page.getByTestId(CONFLICT_BANNER_TESTID)).toHaveCount(0, { timeout: 15_000 })
     } finally {
       await deleteCurrenciesEntityIfExists(page.request, token, CURRENCY_API_BASE, currencyId)
@@ -196,6 +201,8 @@ test.describe('TC-LOCK-OSS-045: conflict-bar UX suite (currencies)', () => {
   })
 
   test('UX-06: de locale renders the translated bar title, not the en string or raw token', async ({ page }) => {
+    test.skip(isStandaloneIntegration(), 'Standalone smoke runs do not publish the de UI dictionary bundle.')
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let currencyId: string | null = null

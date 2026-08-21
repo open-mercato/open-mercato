@@ -1,7 +1,7 @@
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { invalidateDictionaryCache } from '../api/dictionaries/cache'
@@ -24,6 +24,10 @@ import {
   normalizeDictionaryColor,
   normalizeDictionaryIcon,
 } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type CustomerDictionaryEntrySnapshot = {
   id: string
@@ -115,7 +119,7 @@ async function invalidateCache(
   try {
     cache = (ctx.container.resolve('cache') as CacheStrategy)
   } catch (err) {
-    console.warn('[customers.commands.dictionaries] cache resolve failed; skipping invalidation', err)
+    logger.warn('cache resolve failed; skipping invalidation', { component: 'commands.dictionaries', err })
     cache = undefined
   }
   if (!cache) return
@@ -338,6 +342,50 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
       await invalidateCache(ctx, before)
     }
   },
+  redo: async ({ logEntry, ctx }) => {
+    const undo = extractUndoPayload<CustomerDictionaryEntryUndoPayload>(logEntry)
+    const after = resolveRedoSnapshot<CustomerDictionaryEntrySnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for dictionary entry create' })
+    }
+    ensureTenantScope(ctx, after.tenantId)
+    ensureOrganizationScope(ctx, after.organizationId)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let entry = await findOneWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      { id: after.id },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!entry) {
+      entry = em.create(CustomerDictionaryEntry, {
+        id: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        kind: after.kind,
+        value: after.value,
+        normalizedValue: after.normalizedValue,
+        label: after.label,
+        color: after.color,
+        icon: after.icon,
+      })
+      em.persist(entry)
+    } else {
+      applySnapshot(entry, after)
+      entry.updatedAt = new Date()
+    }
+    await em.flush()
+    await invalidateCache(ctx, after)
+
+    return {
+      entryId: after.id,
+      tenantId: after.tenantId,
+      organizationId: after.organizationId,
+      mode: undo?.before ? 'updated' : 'created',
+      ...(undo?.before ? { before: undo.before } : {}),
+    } satisfies CreateResult
+  },
 }
 
 type UpdateResult = {
@@ -377,7 +425,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
       },
     )
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
-      throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+      throw notFound('Dictionary entry not found')
     }
 
     let changed = false
@@ -563,7 +611,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
       },
     )
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
-      throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+      throw notFound('Dictionary entry not found')
     }
     if (entry.kind === 'person_company_role') {
       const usage = await loadRoleTypeUsage(em, {

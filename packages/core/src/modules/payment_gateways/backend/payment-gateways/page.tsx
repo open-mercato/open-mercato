@@ -1,7 +1,8 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/payment_gateways/extension-points'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -88,6 +89,7 @@ type TransactionsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -182,6 +184,7 @@ export default function PaymentTransactionsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -228,6 +231,7 @@ export default function PaymentTransactionsPage() {
       setRows(Array.isArray(call.result.items) ? call.result.items : [])
       setTotal(call.result.total ?? 0)
       setTotalPages(call.result.totalPages ?? 1)
+      setTotalIsCapped(call.result?.totalIsCapped === true)
     } else {
       flash(t('payment_gateways.transactions.error.load', 'Failed to load payment transactions'), 'error')
       setRows([])
@@ -290,19 +294,35 @@ export default function PaymentTransactionsPage() {
   const handleRefreshStatus = React.useCallback(async () => {
     if (!selectedId) return
     setIsRefreshingStatus(true)
-    const call = await apiCall(`/api/payment_gateways/status?transactionId=${encodeURIComponent(selectedId)}`, undefined, { fallback: null })
-    if (!call.ok) {
-      flash(t('payment_gateways.transactions.error.refreshStatus', 'Failed to refresh transaction status'), 'error')
+    try {
+      await runMutation({
+        operation: async () => {
+          await apiCallOrThrow('/api/payment_gateways/status', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ transactionId: selectedId }),
+          })
+        },
+        context: {
+          entityType: 'payment_gateways:gateway_transaction',
+          entityId: selectedId,
+        },
+        mutationPayload: { transactionId: selectedId },
+      })
+      await Promise.all([
+        loadRows(),
+        loadDetail(selectedId),
+      ])
+      flash(t('payment_gateways.transactions.success.refreshStatus', 'Transaction status refreshed'), 'success')
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : t('payment_gateways.transactions.error.refreshStatus', 'Failed to refresh transaction status')
+      flash(message, 'error')
+    } finally {
       setIsRefreshingStatus(false)
-      return
     }
-    await Promise.all([
-      loadRows(),
-      loadDetail(selectedId),
-    ])
-    flash(t('payment_gateways.transactions.success.refreshStatus', 'Transaction status refreshed'), 'success')
-    setIsRefreshingStatus(false)
-  }, [loadDetail, loadRows, selectedId, t])
+  }, [loadDetail, loadRows, runMutation, selectedId, t])
 
   const handleCapturePayment = React.useCallback(async () => {
     if (!selectedId) return
@@ -338,7 +358,7 @@ export default function PaymentTransactionsPage() {
   }, [loadDetail, loadRows, runMutation, selectedId, t])
 
   const providerOptions = React.useMemo(() => {
-    const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort()
+    const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort((a, b) => a.localeCompare(b))
     return values.map((value) => ({
       label: formatTypeLabel(value),
       value,
@@ -456,8 +476,8 @@ export default function PaymentTransactionsPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('payment_gateways.transactions.searchPlaceholder', 'Search by payment, transaction, session, or gateway id')}
-          perspective={{ tableId: 'payment_gateways.transactions.list' }}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          perspective={{ tableId: extensionPoints.hosts.transactionsTable.tableId }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
           onRowClick={(row) => setSelectedId((current) => current === row.id ? null : row.id)}
           rowActions={(row) => (
@@ -675,7 +695,7 @@ export default function PaymentTransactionsPage() {
                         className="p-4"
                       />
                       <InjectionSpot
-                        spotId="admin.page:payment-gateways/transactions:after"
+                        spotId={extensionPoints.hosts.transactionsAfter.spotId}
                         context={{ selectedPaymentId: detail.transaction.paymentId }}
                       />
                     </div>

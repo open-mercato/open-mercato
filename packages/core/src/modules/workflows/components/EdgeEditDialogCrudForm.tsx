@@ -1,6 +1,6 @@
 'use client'
 
-import { Edge } from '@xyflow/react'
+import type { Edge } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -241,9 +241,8 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
             extraActions={
               <Button
                 type="button"
-                variant="outline"
+                variant="destructive"
                 onClick={handleDelete}
-                className="text-red-600 border-red-200 hover:bg-red-50"
               >
                 <Trash2 className="size-4 mr-2" />
                 Delete Transition

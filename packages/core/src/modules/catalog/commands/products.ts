@@ -27,6 +27,7 @@ import {
   buildCustomFieldResetMap,
 } from "@open-mercato/shared/lib/commands/customFieldSnapshots";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
+import { resolveRedoSnapshot, restoreCreatedRow } from "@open-mercato/shared/lib/commands/redo";
 import { E } from "#generated/entities.ids.generated";
 import { slugifyTagLabel } from "@open-mercato/shared/lib/utils";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
@@ -51,6 +52,8 @@ import {
   type ProductUpdateInput,
 } from "../data/validators";
 import type {
+  CatalogExciseCategory,
+  CatalogHazmatPackingGroup,
   CatalogProductOptionSchema,
   CatalogProductType,
 } from "../data/types";
@@ -104,6 +107,32 @@ type ProductSnapshot = {
   weightValue: string | null;
   weightUnit: string | null;
   dimensions: Record<string, unknown> | null;
+  countryOfOriginCode: string | null;
+  pkwiuCode: string | null;
+  cnCode: string | null;
+  hsCode: string | null;
+  taxClassificationCode: string | null;
+  gtuCodes: string[] | null;
+  ageMin: number | null;
+  isExciseGood: boolean;
+  exciseCategory: CatalogExciseCategory | null;
+  requiresPrescription: boolean;
+  hazmatClass: string | null;
+  unNumber: string | null;
+  hazmatPackingGroup: CatalogHazmatPackingGroup | null;
+  containsLithiumBattery: boolean;
+  launchAt: string | null;
+  endOfLifeAt: string | null;
+  availableFrom: string | null;
+  availableUntil: string | null;
+  minOrderQty: number | null;
+  maxOrderQty: number | null;
+  orderQtyIncrement: number | null;
+  requiresShipping: boolean;
+  isQuoteOnly: boolean;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  canonicalUrl: string | null;
   optionSchemaId: string | null;
   customFieldsetCode: string | null;
   metadata: Record<string, unknown> | null;
@@ -1153,6 +1182,36 @@ async function loadProductSnapshot(
     weightValue,
     weightUnit,
     dimensions,
+    countryOfOriginCode: record.countryOfOriginCode ?? null,
+    pkwiuCode: record.pkwiuCode ?? null,
+    cnCode: record.cnCode ?? null,
+    hsCode: record.hsCode ?? null,
+    taxClassificationCode: record.taxClassificationCode ?? null,
+    gtuCodes: record.gtuCodes?.length ? [...record.gtuCodes] : null,
+    ageMin: record.ageMin ?? null,
+    isExciseGood: record.isExciseGood ?? false,
+    exciseCategory: record.exciseCategory ?? null,
+    requiresPrescription: record.requiresPrescription ?? false,
+    hazmatClass: record.hazmatClass ?? null,
+    unNumber: record.unNumber ?? null,
+    hazmatPackingGroup: record.hazmatPackingGroup ?? null,
+    containsLithiumBattery: record.containsLithiumBattery ?? false,
+    launchAt: record.launchAt ? record.launchAt.toISOString() : null,
+    endOfLifeAt: record.endOfLifeAt ? record.endOfLifeAt.toISOString() : null,
+    availableFrom: record.availableFrom
+      ? record.availableFrom.toISOString()
+      : null,
+    availableUntil: record.availableUntil
+      ? record.availableUntil.toISOString()
+      : null,
+    minOrderQty: record.minOrderQty ?? null,
+    maxOrderQty: record.maxOrderQty ?? null,
+    orderQtyIncrement: record.orderQtyIncrement ?? null,
+    requiresShipping: record.requiresShipping ?? true,
+    isQuoteOnly: record.isQuoteOnly ?? false,
+    seoTitle: record.seoTitle ?? null,
+    seoDescription: record.seoDescription ?? null,
+    canonicalUrl: record.canonicalUrl ?? null,
     customFieldsetCode: record.customFieldsetCode ?? null,
     metadata,
     isConfigurable: record.isConfigurable,
@@ -1164,6 +1223,75 @@ async function loadProductSnapshot(
     tags,
     categoryIds,
     custom: Object.keys(custom).length ? custom : null,
+  };
+}
+
+function productSeedFromSnapshot(
+  snapshot: ProductSnapshot,
+): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    title: snapshot.title,
+    subtitle: snapshot.subtitle ?? null,
+    description: snapshot.description ?? null,
+    sku: snapshot.sku ?? null,
+    handle: snapshot.handle ?? null,
+    taxRateId: snapshot.taxRateId ?? null,
+    taxRate: snapshot.taxRate ?? null,
+    productType: snapshot.productType ?? "simple",
+    statusEntryId: snapshot.statusEntryId ?? null,
+    primaryCurrencyCode: snapshot.primaryCurrencyCode ?? null,
+    defaultUnit: snapshot.defaultUnit ?? null,
+    defaultSalesUnit: snapshot.defaultSalesUnit ?? null,
+    defaultSalesUnitQuantity: snapshot.defaultSalesUnitQuantity ?? "1",
+    uomRoundingScale: snapshot.uomRoundingScale,
+    uomRoundingMode: snapshot.uomRoundingMode,
+    unitPriceEnabled: snapshot.unitPriceEnabled,
+    unitPriceReferenceUnit: snapshot.unitPriceReferenceUnit ?? null,
+    unitPriceBaseQuantity: snapshot.unitPriceBaseQuantity ?? null,
+    defaultMediaId: snapshot.defaultMediaId ?? null,
+    defaultMediaUrl: snapshot.defaultMediaUrl ?? null,
+    weightValue: snapshot.weightValue ?? null,
+    weightUnit: snapshot.weightUnit ?? null,
+    dimensions: snapshot.dimensions ? cloneJson(snapshot.dimensions) : null,
+    countryOfOriginCode: snapshot.countryOfOriginCode ?? null,
+    pkwiuCode: snapshot.pkwiuCode ?? null,
+    cnCode: snapshot.cnCode ?? null,
+    hsCode: snapshot.hsCode ?? null,
+    taxClassificationCode: snapshot.taxClassificationCode ?? null,
+    gtuCodes: snapshot.gtuCodes ? [...snapshot.gtuCodes] : null,
+    ageMin: snapshot.ageMin ?? null,
+    isExciseGood: snapshot.isExciseGood ?? false,
+    exciseCategory: snapshot.exciseCategory ?? null,
+    requiresPrescription: snapshot.requiresPrescription ?? false,
+    hazmatClass: snapshot.hazmatClass ?? null,
+    unNumber: snapshot.unNumber ?? null,
+    hazmatPackingGroup: snapshot.hazmatPackingGroup ?? null,
+    containsLithiumBattery: snapshot.containsLithiumBattery ?? false,
+    launchAt: snapshot.launchAt ? new Date(snapshot.launchAt) : null,
+    endOfLifeAt: snapshot.endOfLifeAt ? new Date(snapshot.endOfLifeAt) : null,
+    availableFrom: snapshot.availableFrom
+      ? new Date(snapshot.availableFrom)
+      : null,
+    availableUntil: snapshot.availableUntil
+      ? new Date(snapshot.availableUntil)
+      : null,
+    minOrderQty: snapshot.minOrderQty ?? null,
+    maxOrderQty: snapshot.maxOrderQty ?? null,
+    orderQtyIncrement: snapshot.orderQtyIncrement ?? null,
+    requiresShipping: snapshot.requiresShipping ?? true,
+    isQuoteOnly: snapshot.isQuoteOnly ?? false,
+    seoTitle: snapshot.seoTitle ?? null,
+    seoDescription: snapshot.seoDescription ?? null,
+    canonicalUrl: snapshot.canonicalUrl ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    customFieldsetCode: snapshot.customFieldsetCode ?? null,
+    isConfigurable: snapshot.isConfigurable,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
   };
 }
 
@@ -1199,6 +1327,38 @@ function applyProductSnapshot(
   record.dimensions = snapshot.dimensions
     ? cloneJson(snapshot.dimensions)
     : null;
+  record.countryOfOriginCode = snapshot.countryOfOriginCode ?? null;
+  record.pkwiuCode = snapshot.pkwiuCode ?? null;
+  record.cnCode = snapshot.cnCode ?? null;
+  record.hsCode = snapshot.hsCode ?? null;
+  record.taxClassificationCode = snapshot.taxClassificationCode ?? null;
+  record.gtuCodes = snapshot.gtuCodes ? [...snapshot.gtuCodes] : null;
+  record.ageMin = snapshot.ageMin ?? null;
+  record.isExciseGood = snapshot.isExciseGood ?? false;
+  record.exciseCategory = snapshot.exciseCategory ?? null;
+  record.requiresPrescription = snapshot.requiresPrescription ?? false;
+  record.hazmatClass = snapshot.hazmatClass ?? null;
+  record.unNumber = snapshot.unNumber ?? null;
+  record.hazmatPackingGroup = snapshot.hazmatPackingGroup ?? null;
+  record.containsLithiumBattery = snapshot.containsLithiumBattery ?? false;
+  record.launchAt = snapshot.launchAt ? new Date(snapshot.launchAt) : null;
+  record.endOfLifeAt = snapshot.endOfLifeAt
+    ? new Date(snapshot.endOfLifeAt)
+    : null;
+  record.availableFrom = snapshot.availableFrom
+    ? new Date(snapshot.availableFrom)
+    : null;
+  record.availableUntil = snapshot.availableUntil
+    ? new Date(snapshot.availableUntil)
+    : null;
+  record.minOrderQty = snapshot.minOrderQty ?? null;
+  record.maxOrderQty = snapshot.maxOrderQty ?? null;
+  record.orderQtyIncrement = snapshot.orderQtyIncrement ?? null;
+  record.requiresShipping = snapshot.requiresShipping ?? true;
+  record.isQuoteOnly = snapshot.isQuoteOnly ?? false;
+  record.seoTitle = snapshot.seoTitle ?? null;
+  record.seoDescription = snapshot.seoDescription ?? null;
+  record.canonicalUrl = snapshot.canonicalUrl ?? null;
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null;
   record.customFieldsetCode = snapshot.customFieldsetCode ?? null;
   record.optionSchemaTemplate = snapshot.optionSchemaId
@@ -1292,6 +1452,32 @@ const createProductCommand: CommandHandler<
       weightValue,
       weightUnit,
       dimensions,
+      countryOfOriginCode: parsed.countryOfOriginCode ?? null,
+      pkwiuCode: parsed.pkwiuCode ?? null,
+      cnCode: parsed.cnCode ?? null,
+      hsCode: parsed.hsCode ?? null,
+      taxClassificationCode: parsed.taxClassificationCode ?? null,
+      gtuCodes: parsed.gtuCodes ?? null,
+      ageMin: parsed.ageMin ?? null,
+      isExciseGood: parsed.isExciseGood ?? false,
+      exciseCategory: parsed.exciseCategory ?? null,
+      requiresPrescription: parsed.requiresPrescription ?? false,
+      hazmatClass: parsed.hazmatClass ?? null,
+      unNumber: parsed.unNumber ?? null,
+      hazmatPackingGroup: parsed.hazmatPackingGroup ?? null,
+      containsLithiumBattery: parsed.containsLithiumBattery ?? false,
+      launchAt: parsed.launchAt ?? null,
+      endOfLifeAt: parsed.endOfLifeAt ?? null,
+      availableFrom: parsed.availableFrom ?? null,
+      availableUntil: parsed.availableUntil ?? null,
+      minOrderQty: parsed.minOrderQty ?? null,
+      maxOrderQty: parsed.maxOrderQty ?? null,
+      orderQtyIncrement: parsed.orderQtyIncrement ?? null,
+      requiresShipping: parsed.requiresShipping ?? true,
+      isQuoteOnly: parsed.isQuoteOnly ?? false,
+      seoTitle: parsed.seoTitle ?? null,
+      seoDescription: parsed.seoDescription ?? null,
+      canonicalUrl: parsed.canonicalUrl ?? null,
       metadata,
       customFieldsetCode: parsed.customFieldsetCode ?? null,
       isConfigurable: parsed.isConfigurable ?? false,
@@ -1409,6 +1595,53 @@ const createProductCommand: CommandHandler<
       product: record,
     });
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ProductSnapshot>(logEntry);
+    if (!after) {
+      throw new CrudHttpError(400, {
+        error: "[internal] redo snapshot unavailable for product create",
+      });
+    }
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const record = await restoreCreatedRow(
+      em,
+      CatalogProduct,
+      after.id,
+      () => productSeedFromSnapshot(after),
+    );
+    applyProductSnapshot(em, record, after);
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, after.offers),
+          () => syncCategoryAssignments(em, record, after.categoryIds),
+          () => syncProductTags(em, record, after.tags),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    if (after.custom && Object.keys(after.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.catalog.catalog_product,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: after.custom,
+      });
+    }
+    await emitProductCrudChange({
+      dataEngine,
+      action: "created",
+      product: record,
+    });
+    return { productId: record.id };
+  },
 };
 
 const updateProductCommand: CommandHandler<
@@ -1464,6 +1697,75 @@ const updateProductCommand: CommandHandler<
     ensureTenantScope(ctx, tenantId);
     ensureOrganizationScope(ctx, organizationId);
     ensureSameScope(record, organizationId, tenantId);
+    // Re-validate range constraints against the merged record state: a partial
+    // update may carry only one half of a (min, max) or (from, until) pair
+    // while the other half is stored — payload-level zod cannot see it.
+    const mergedRangeViolation = (() => {
+      const minOrderQty =
+        parsed.minOrderQty !== undefined
+          ? (parsed.minOrderQty ?? null)
+          : (record.minOrderQty ?? null);
+      const maxOrderQty =
+        parsed.maxOrderQty !== undefined
+          ? (parsed.maxOrderQty ?? null)
+          : (record.maxOrderQty ?? null);
+      if (minOrderQty != null && maxOrderQty != null && maxOrderQty < minOrderQty) {
+        return {
+          field: "maxOrderQty",
+          key: "catalog.products.validation.orderQtyRange",
+          fallback: "Maximum order quantity cannot be lower than the minimum.",
+        };
+      }
+      const launchAt =
+        parsed.launchAt !== undefined
+          ? (parsed.launchAt ?? null)
+          : (record.launchAt ?? null);
+      const endOfLifeAt =
+        parsed.endOfLifeAt !== undefined
+          ? (parsed.endOfLifeAt ?? null)
+          : (record.endOfLifeAt ?? null);
+      if (launchAt && endOfLifeAt && endOfLifeAt < launchAt) {
+        return {
+          field: "endOfLifeAt",
+          key: "catalog.products.validation.lifecycleDateRange",
+          fallback: "End of life cannot be before the launch date.",
+        };
+      }
+      const availableFrom =
+        parsed.availableFrom !== undefined
+          ? (parsed.availableFrom ?? null)
+          : (record.availableFrom ?? null);
+      const availableUntil =
+        parsed.availableUntil !== undefined
+          ? (parsed.availableUntil ?? null)
+          : (record.availableUntil ?? null);
+      if (availableFrom && availableUntil && availableUntil < availableFrom) {
+        return {
+          field: "availableUntil",
+          key: "catalog.products.validation.availabilityDateRange",
+          fallback: "Available until cannot be before available from.",
+        };
+      }
+      return null;
+    })();
+    if (mergedRangeViolation) {
+      const message = translate(
+        mergedRangeViolation.key,
+        mergedRangeViolation.fallback,
+      );
+      throw new CrudHttpError(400, {
+        error: message,
+        fieldErrors: { [mergedRangeViolation.field]: message },
+        details: [
+          {
+            path: [mergedRangeViolation.field],
+            message,
+            code: "invalid",
+            origin: "validation",
+          },
+        ],
+      });
+    }
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     const lookupEm = em.fork();
     const taxRateProvided =
@@ -1630,6 +1932,55 @@ const updateProductCommand: CommandHandler<
     if (parsed.isConfigurable !== undefined)
       record.isConfigurable = parsed.isConfigurable;
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive;
+    if (parsed.countryOfOriginCode !== undefined)
+      record.countryOfOriginCode = parsed.countryOfOriginCode ?? null;
+    if (parsed.pkwiuCode !== undefined)
+      record.pkwiuCode = parsed.pkwiuCode ?? null;
+    if (parsed.cnCode !== undefined) record.cnCode = parsed.cnCode ?? null;
+    if (parsed.hsCode !== undefined) record.hsCode = parsed.hsCode ?? null;
+    if (parsed.taxClassificationCode !== undefined)
+      record.taxClassificationCode = parsed.taxClassificationCode ?? null;
+    if (parsed.gtuCodes !== undefined)
+      record.gtuCodes = parsed.gtuCodes ?? null;
+    if (parsed.ageMin !== undefined) record.ageMin = parsed.ageMin ?? null;
+    if (parsed.isExciseGood !== undefined)
+      record.isExciseGood = parsed.isExciseGood;
+    if (parsed.exciseCategory !== undefined)
+      record.exciseCategory = parsed.exciseCategory ?? null;
+    if (parsed.requiresPrescription !== undefined)
+      record.requiresPrescription = parsed.requiresPrescription;
+    if (parsed.hazmatClass !== undefined)
+      record.hazmatClass = parsed.hazmatClass ?? null;
+    if (parsed.unNumber !== undefined)
+      record.unNumber = parsed.unNumber ?? null;
+    if (parsed.hazmatPackingGroup !== undefined)
+      record.hazmatPackingGroup = parsed.hazmatPackingGroup ?? null;
+    if (parsed.containsLithiumBattery !== undefined)
+      record.containsLithiumBattery = parsed.containsLithiumBattery;
+    if (parsed.launchAt !== undefined)
+      record.launchAt = parsed.launchAt ?? null;
+    if (parsed.endOfLifeAt !== undefined)
+      record.endOfLifeAt = parsed.endOfLifeAt ?? null;
+    if (parsed.availableFrom !== undefined)
+      record.availableFrom = parsed.availableFrom ?? null;
+    if (parsed.availableUntil !== undefined)
+      record.availableUntil = parsed.availableUntil ?? null;
+    if (parsed.minOrderQty !== undefined)
+      record.minOrderQty = parsed.minOrderQty ?? null;
+    if (parsed.maxOrderQty !== undefined)
+      record.maxOrderQty = parsed.maxOrderQty ?? null;
+    if (parsed.orderQtyIncrement !== undefined)
+      record.orderQtyIncrement = parsed.orderQtyIncrement ?? null;
+    if (parsed.requiresShipping !== undefined)
+      record.requiresShipping = parsed.requiresShipping;
+    if (parsed.isQuoteOnly !== undefined)
+      record.isQuoteOnly = parsed.isQuoteOnly;
+    if (parsed.seoTitle !== undefined)
+      record.seoTitle = parsed.seoTitle ?? null;
+    if (parsed.seoDescription !== undefined)
+      record.seoDescription = parsed.seoDescription ?? null;
+    if (parsed.canonicalUrl !== undefined)
+      record.canonicalUrl = parsed.canonicalUrl ?? null;
     try {
       await withAtomicFlush(
         em,
@@ -1670,6 +2021,19 @@ const updateProductCommand: CommandHandler<
     const after = snapshots.after as ProductSnapshot | undefined;
     if (!before || !after) return null;
     const { translate } = await resolveTranslations();
+    // buildChanges compares with strict !== — array fields need a serialized
+    // comparison or every update would emit a phantom gtuCodes diff.
+    const beforeGtuCodes = (before.gtuCodes ?? []).join(",");
+    const afterGtuCodes = (after.gtuCodes ?? []).join(",");
+    const gtuCodesChange =
+      beforeGtuCodes !== afterGtuCodes
+        ? {
+            gtuCodes: {
+              from: before.gtuCodes ?? null,
+              to: after.gtuCodes ?? null,
+            },
+          }
+        : null;
     return {
       actionLabel: translate(
         "catalog.audit.products.update",
@@ -1679,7 +2043,8 @@ const updateProductCommand: CommandHandler<
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
-      changes: buildChanges(before, after, [
+      changes: {
+        ...buildChanges(before, after, [
         "title",
         "sku",
         "productType",
@@ -1692,7 +2057,34 @@ const updateProductCommand: CommandHandler<
         "unitPriceReferenceUnit",
         "unitPriceBaseQuantity",
         "isActive",
-      ]),
+        "countryOfOriginCode",
+        "pkwiuCode",
+        "cnCode",
+        "hsCode",
+        "taxClassificationCode",
+        "ageMin",
+        "isExciseGood",
+        "exciseCategory",
+        "requiresPrescription",
+        "hazmatClass",
+        "unNumber",
+        "hazmatPackingGroup",
+        "containsLithiumBattery",
+        "launchAt",
+        "endOfLifeAt",
+        "availableFrom",
+        "availableUntil",
+        "minOrderQty",
+        "maxOrderQty",
+        "orderQtyIncrement",
+        "requiresShipping",
+        "isQuoteOnly",
+        "seoTitle",
+        "seoDescription",
+        "canonicalUrl",
+        ]),
+        ...gtuCodesChange,
+      },
       snapshotBefore: before,
       snapshotAfter: after,
       payload: {

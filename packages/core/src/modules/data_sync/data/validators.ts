@@ -7,6 +7,9 @@ export const runSyncSchema = z.object({
   fullSync: z.boolean().default(false),
   batchSize: z.number().int().min(1).max(1000).default(100),
   triggeredBy: z.string().optional(),
+  // Adapter-declared run parameters. Validated/coerced against the adapter's
+  // `runParameters` declaration in the run route; here we only accept a record.
+  parameters: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type RunSyncInput = z.infer<typeof runSyncSchema>
@@ -28,6 +31,7 @@ export const listSyncRunsQuerySchema = z.object({
   entityType: z.string().optional(),
   direction: z.enum(['import', 'export']).optional(),
   status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled', 'paused']).optional(),
+  search: z.string().trim().min(1).max(200).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 })

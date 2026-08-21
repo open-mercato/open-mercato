@@ -1,9 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -23,6 +25,11 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { SALES_DOCUMENT_NUMBER_COLUMN_META } from './salesDocumentsColumns'
+import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type SalesDocumentKind = 'order' | 'quote'
 
@@ -48,6 +55,7 @@ type ApiDocument = {
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
   channelId?: string | null
+  channelName?: string | null
   lineItemCount?: number | null
   grandTotalNetAmount?: number | null
   grandTotalGrossAmount?: number | null
@@ -63,6 +71,7 @@ type DocumentsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type SalesDocumentRow = {
@@ -72,6 +81,7 @@ type SalesDocumentRow = {
   customerName?: string | null
   customerEmail?: string | null
   channelId?: string | null
+  channelName?: string | null
   lineItemCount?: number | null
   totalNet?: number | null
   totalGross?: number | null
@@ -81,6 +91,20 @@ type SalesDocumentRow = {
 }
 
 const PAGE_SIZE = 20
+
+// Not a uuid on purpose: the API drops non-uuid entries from channelIds, so a leak of this sentinel
+// into the id list narrows the filter instead of erroring.
+const UNASSIGNED_CHANNEL_VALUE = '__unassigned__'
+
+// Perspectives persist filterValues, so snapshots saved while this filter was a single-value select
+// hold a bare string. Without this the multi-select would read it as an unknown shape and silently
+// clear the user's saved filter.
+function normalizeChannelSelection(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  return raw
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry || '').trim()))
+    .filter((entry) => entry.length > 0)
+}
 
 function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined, fallback?: string | null) {
   if (!snapshot) return fallback ?? null
@@ -142,6 +166,7 @@ function normalizeNumberInput(value: unknown): number | null {
 
 export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -149,6 +174,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -170,9 +196,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     'Review documents with customer context, totals, and channels.'
   )
 
-  const fetchChannelOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
-    const params = new URLSearchParams({ page: '1', pageSize: '50' })
-    if (query && query.trim()) params.set('search', query.trim())
+  const fetchChannelOptionsBy = React.useCallback(async (params: URLSearchParams): Promise<FilterOption[]> => {
     try {
       const call = await apiCall<{ items?: unknown[] }>(`/api/sales/channels?${params.toString()}`)
       if (!call.ok) return []
@@ -189,6 +213,32 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       return []
     }
   }, [])
+
+  const fetchChannelOptions = React.useCallback(
+    (query?: string) => {
+      const params = new URLSearchParams({ page: '1', pageSize: '50' })
+      if (query && query.trim()) params.set('search', query.trim())
+      return fetchChannelOptionsBy(params)
+    },
+    [fetchChannelOptionsBy]
+  )
+
+  // A selected channel outside the first options page — restored from a perspective, or simply the
+  // 51st channel — would otherwise render as a bare uuid in the filter chip and the selected tag,
+  // which is the same defect this change removes from the column. The route supports `ids=`, so
+  // fetch exactly the selected ones and merge them in. See
+  // `.ai/lessons/async-edit-selects-must-be-hydrated-as-value-plus.md`.
+  const seedChannelOptionsForIds = React.useCallback(
+    async (ids: string[]) => {
+      const missing = ids.filter((id) => id !== UNASSIGNED_CHANNEL_VALUE)
+      if (!missing.length) return
+      const params = new URLSearchParams({ page: '1', pageSize: String(missing.length) })
+      params.set('ids', missing.join(','))
+      const opts = await fetchChannelOptionsBy(params)
+      if (opts.length) setChannelOptions((prev) => mergeOptions(prev, opts))
+    },
+    [fetchChannelOptionsBy]
+  )
 
   const fetchTagOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
     const params = new URLSearchParams({ page: '1', pageSize: '50' })
@@ -256,7 +306,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false })
       setStatusMap(createDictionaryMap(entries))
     } catch (err) {
-      console.error('sales.documents.statuses.load', err)
+      logger.error('sales.documents.statuses.load', { err })
       setStatusMap({})
     }
   }, [])
@@ -268,6 +318,32 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       return opts
     },
     [fetchChannelOptions]
+  )
+
+  const unassignedChannelOption = React.useMemo<FilterOption>(
+    () => ({
+      value: UNASSIGNED_CHANNEL_VALUE,
+      label: t('sales.documents.list.filters.channelUnassigned', '(No channel)'),
+    }),
+    [t]
+  )
+
+  // The sentinel is offered alongside the real channels so "these channels or unassigned" is one
+  // selection. It is stripped back out when the query is built — the API takes it as a separate
+  // channelIdsEmpty flag, not as an id.
+  const channelFilterOptions = React.useMemo<FilterOption[]>(
+    () => [unassignedChannelOption, ...channelOptions],
+    [channelOptions, unassignedChannelOption]
+  )
+
+  const loadChannelFilterOptions = React.useCallback(
+    async (query?: string) => {
+      const opts = await loadChannelOptions(query)
+      // Only offer the sentinel when the user is browsing rather than searching — typing "web"
+      // should not suggest "(No channel)".
+      return query && query.trim() ? opts : [unassignedChannelOption, ...opts]
+    },
+    [loadChannelOptions, unassignedChannelOption]
   )
 
   const loadTagOptions = React.useCallback(
@@ -289,20 +365,25 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   )
 
   React.useEffect(() => {
-    loadChannelOptions().catch(() => {})
+    if (channelsEnabled) loadChannelOptions().catch(() => {})
     loadTagOptions().catch(() => {})
     loadCustomerOptions().catch(() => {})
     loadStatusMap().catch(() => setStatusMap({}))
-  }, [loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion])
+  }, [channelsEnabled, loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion])
 
   const filters = React.useMemo<FilterDef[]>(() => [
-    {
+    ...(channelsEnabled ? [{
       id: 'channelId',
       label: t('sales.documents.list.filters.channel', 'Channel'),
-      type: 'select',
-      options: channelOptions,
-      loadOptions: loadChannelOptions,
-    },
+      type: 'tags',
+      options: channelFilterOptions,
+      loadOptions: loadChannelFilterOptions,
+      placeholder: t('sales.documents.list.filters.channelPlaceholder', 'Search channels'),
+      formatValue: (val: string) =>
+        val === UNASSIGNED_CHANNEL_VALUE
+          ? t('sales.documents.list.filters.channelUnassigned', '(No channel)')
+          : channelOptions.find((opt) => opt.value === val)?.label ?? val,
+    } satisfies FilterDef] : []),
     {
       id: 'date',
       label: t('sales.documents.list.filters.date', 'Date'),
@@ -359,7 +440,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
       formatDescription: (val: string) => tagOptions.find((o) => o.value === val)?.description ?? null,
     },
-  ], [channelOptions, loadChannelOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
+  ], [channelsEnabled, channelFilterOptions, channelOptions, loadChannelFilterOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -371,8 +452,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       params.set('sortField', sort.id)
       params.set('sortDir', sort.desc ? 'desc' : 'asc')
     }
-    const channelId = typeof filterValues.channelId === 'string' ? filterValues.channelId : ''
-    if (channelId) params.set('channelId', channelId)
+    const channelSelection = normalizeChannelSelection(filterValues.channelId)
+    const channelIds = channelSelection.filter((value) => value !== UNASSIGNED_CHANNEL_VALUE)
+    if (channelIds.length > 0) params.set('channelIds', channelIds.join(','))
+    if (channelSelection.includes(UNASSIGNED_CHANNEL_VALUE)) params.set('channelIdsEmpty', 'true')
     const customerIds = Array.isArray(filterValues.customerId)
       ? filterValues.customerId
           .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
@@ -461,6 +544,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         customerName,
         customerEmail,
         channelId: doc.channelId ?? null,
+        channelName: doc.channelName ?? null,
         lineItemCount: doc.lineItemCount ?? null,
         totalNet,
         totalGross,
@@ -482,6 +566,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         setRows([])
         setTotal(0)
         setTotalPages(1)
+        setTotalIsCapped(false)
         return
       }
       const payload = call.result ?? {}
@@ -493,9 +578,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         ? payload.totalPages
         : Math.max(1, Math.ceil(count / PAGE_SIZE))
       setTotalPages(pages)
+      setTotalIsCapped(payload.totalIsCapped === true)
       setCacheStatus(call.cacheStatus ?? null)
     } catch (err) {
-      console.error('sales.documents.list', err)
+      logger.error('sales.documents.list', { err })
       flash(t('sales.documents.list.errors.load', 'Failed to load documents.'), 'error')
     } finally {
       setLoading(false)
@@ -506,10 +592,22 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     void loadDocuments()
   }, [loadDocuments, reloadToken, scopeVersion])
 
+  // Normalize at the hydration boundary, not only where the query string is built: a perspective
+  // saved while this filter was a single-value select restores `channelId` as a bare string, and
+  // the `tags` control renders nothing for a non-array value. Storing the normalized shape keeps
+  // the control, the active-filter chip and the query builder all reading one shape — otherwise the
+  // list is filtered while the field looks empty, and the next channel the user picks replaces the
+  // restored one instead of joining it.
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
-    setFilterValues(values)
+    if (values.channelId === undefined) {
+      setFilterValues(values)
+    } else {
+      const channelSelection = normalizeChannelSelection(values.channelId)
+      setFilterValues({ ...values, channelId: channelSelection })
+      void seedChannelOptionsForIds(channelSelection)
+    }
     setPage(1)
-  }, [])
+  }, [seedChannelOptionsForIds])
 
   const handleFiltersClear = React.useCallback(() => {
     setFilterValues({})
@@ -560,7 +658,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           handleRefresh()
         }
       } catch (err) {
-        console.error('sales.documents.delete', err)
+        logger.error('sales.documents.delete', { err })
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
     },
@@ -594,7 +692,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           ) : null}
         </div>
       ),
-      meta: { sticky: true },
+      meta: SALES_DOCUMENT_NUMBER_COLUMN_META,
     },
     {
       accessorKey: 'customerName',
@@ -611,19 +709,20 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       ),
       enableSorting: false,
     },
-    {
+    ...(channelsEnabled ? [{
       accessorKey: 'channelId',
       header: t('sales.documents.list.table.channel', 'Channel'),
       cell: ({ row }) => {
         const channelId = row.original.channelId
         if (!channelId) return <span className="text-xs text-muted-foreground">{t('sales.documents.list.table.unassigned', 'Unassigned')}</span>
-        const channel = channelOptions.find((opt) => opt.value === channelId)
+        // Server-resolved, so this no longer depends on the channel being inside the options page.
+        // The uuid remains only for a channel the list response could not resolve.
         return (
-          <span className="text-sm">{channel?.label ?? channelId}</span>
+          <span className="text-sm">{row.original.channelName ?? channelId}</span>
         )
       },
       enableSorting: false,
-    },
+    } satisfies ColumnDef<SalesDocumentRow>] : []),
     {
       id: 'lineItemCount',
       accessorKey: 'lineItemCount',
@@ -657,7 +756,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [channelOptions, kind, statusMap, t])
+  ], [channelsEnabled, kind, statusMap, t])
 
   const emptyLabel = kind === 'order'
     ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')
@@ -667,6 +766,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     <Page>
       <PageBody>
         <DataTable<SalesDocumentRow>
+          stickyFirstColumn
           stickyActionsColumn
           title={(
             <div className="flex flex-col">
@@ -704,6 +804,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
             cacheStatus,
           }}
@@ -731,7 +832,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
               ]}
             />
           )}
-          perspective={{ tableId: kind === 'order' ? 'sales.orders' : 'sales.quotes' }}
+          perspective={{
+            tableId: kind === 'order'
+              ? extensionPoints.hosts.ordersTable.tableId
+              : extensionPoints.hosts.quotesTable.tableId,
+          }}
           onRowClick={handleRowClick}
           emptyState={
             <div className="py-10 text-center text-sm text-muted-foreground">

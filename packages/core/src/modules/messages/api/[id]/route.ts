@@ -1,21 +1,29 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
+import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import { hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
   messageDetailResponseSchema,
   okResponseSchema,
   updateDraftSchema as updateDraftOpenApiSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'api' })
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -30,6 +38,36 @@ type MessageObjectPreviewPayload = {
   statusColor?: string
   metadata?: Record<string, string>
 } | null
+
+type RbacServiceLike = {
+  getGrantedFeatures?: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<string[]>
+}
+
+/**
+ * Feature list for the enricher ACL gate, resolved from RBAC.
+ *
+ * Mirrors `customers/api/interactions/route.ts`. Returning `undefined` on
+ * failure is deliberate — the runner then treats every feature-gated enricher
+ * as denied, which is the safe direction.
+ */
+async function resolveGrantedFeatures(
+  container: { resolve: (name: string) => unknown },
+  scope: { tenantId: string; organizationId: string | null; userId: string },
+): Promise<string[] | undefined> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.getGrantedFeatures) return undefined
+    return await rbac.getGrantedFeatures(scope.userId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+  } catch {
+    return undefined
+  }
+}
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
@@ -85,10 +123,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
           organizationId: scope.organizationId,
         })
       } catch (error) {
-        console.error(
-          `[messages] Failed to load preview for ${item.entityModule}:${item.entityType}:${item.entityId}`,
-          error,
-        )
+        logger.error('Failed to load preview', { entityModule: item.entityModule, entityType: item.entityType, entityId: item.entityId, err: error })
         return null
       }
     }),
@@ -120,6 +155,19 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const actorVisibleThreadMessages = threadMessages.filter((threadMessage) => (
     threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
   ))
+
+  const actorRecipientStatusByMessageId = new Map<string, string>()
+  for (const row of visibleRecipientRows) {
+    actorRecipientStatusByMessageId.set(row.messageId, row.status)
+  }
+  if (recipient) {
+    actorRecipientStatusByMessageId.set(params.id, autoMarkRead ? 'read' : recipient.status)
+  }
+  const actorRecipientStatuses = Array.from(actorRecipientStatusByMessageId.values())
+  const conversationArchived = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'archived')
+  const conversationAllUnread = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'unread')
 
   const threadSenderIds = actorVisibleThreadMessages
     .map((threadMessage) => threadMessage.senderUserId)
@@ -173,11 +221,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     })
   }
 
-  return Response.json({
+  const detail: Record<string, unknown> = {
     id: message.id,
+    updatedAt: message.updatedAt ?? null,
     type: message.type,
     isDraft: message.isDraft,
     canEditDraft: message.isDraft && message.senderUserId === scope.userId,
+    canArchive: Boolean(recipient),
+    isArchived: recipient?.status === 'archived',
     visibility: message.visibility,
     sourceEntityType: message.sourceEntityType,
     sourceEntityId: message.sourceEntityId,
@@ -237,13 +288,38 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         senderUserId: threadMessage.senderUserId,
         senderName: threadSenderName,
         senderEmail: sender?.email ?? null,
+        externalName: threadMessage.externalName ?? null,
+        externalEmail: threadMessage.externalEmail ?? null,
+        sourceEntityType: threadMessage.sourceEntityType ?? null,
         body: threadMessage.body,
         bodyFormat: threadMessage.bodyFormat,
         sentAt: threadMessage.sentAt,
       }
     }),
     isRead: recipient ? (autoMarkRead || recipient.status !== 'unread') : true,
+    conversationArchived,
+    conversationAllUnread,
+  }
+
+  // Mirrors `enrichSingleRecord` in `shared/lib/crud/factory.ts`, which every
+  // `makeCrudRoute` host gets for free: same `_meta` envelope, and no blanket
+  // catch so a `critical: true` enricher still surfaces as an HTTP error.
+  // Non-critical failures never escape the runner — it merges `fallback` and
+  // records the id in `_meta.enricherErrors`.
+  const enriched = await applyResponseEnricherToRecord(detail, 'messages.message', {
+    organizationId: scope.organizationId ?? '',
+    tenantId: scope.tenantId,
+    userId: scope.userId,
+    em,
+    container: ctx.container,
+    userFeatures: await resolveGrantedFeatures(ctx.container, scope),
   })
+
+  if (enriched._meta.enrichedBy.length > 0 || enriched._meta.enricherErrors?.length) {
+    return Response.json({ ...enriched.record, _meta: enriched._meta })
+  }
+
+  return Response.json(enriched.record)
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
@@ -275,7 +351,38 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   try {
+    // Reject stale draft edits/sends before mutating: compare the client's
+    // expected version (extension header) against the loaded draft.
+    enforceCommandOptimisticLock({
+      resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
+      resourceId: message.id,
+      current: message.updatedAt,
+      request: req,
+    })
+
     const { logEntry } = await commandBus.execute('messages.messages.update_draft', {
       input: {
         ...input,
@@ -299,8 +406,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       resourceKind: 'messages.message',
       resourceId: message.id,
     })
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: message.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
     return response
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return Response.json(error.body, { status: error.status })
+    }
     if (error instanceof Error) {
       if (error.message === 'Message type cannot be created by users') {
         return Response.json({ error: error.message }, { status: 400 })
@@ -336,7 +456,59 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
+  const isSender = message.senderUserId === scope.userId
+  // Only look the recipient row up when the actor is not the sender: deleting one's own
+  // message is the common path, and the lookup is a decryption-aware query.
+  const isRecipient = isSender
+    ? false
+    : Boolean(await findOneWithDecryption(
+      em,
+      MessageRecipient,
+      {
+        messageId: params.id,
+        recipientUserId: scope.userId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    ))
+
+  if (!isSender && !isRecipient) {
+    return Response.json({ error: 'Access denied' }, { status: 403 })
+  }
+
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   try {
+    // Reject a stale delete before mutating: a tab that loaded an older version
+    // of the message must refresh rather than silently delete a changed record.
+    enforceCommandOptimisticLock({
+      resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
+      resourceId: message.id,
+      current: message.updatedAt,
+      request: req,
+    })
+
     const { logEntry } = await commandBus.execute('messages.messages.delete_for_actor', {
       input: {
         messageId: params.id,
@@ -359,8 +531,21 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
       resourceKind: 'messages.message',
       resourceId: params.id,
     })
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: params.id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
     return response
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return Response.json(error.body, { status: error.status })
+    }
     if (error instanceof Error && error.message === 'Access denied') {
       return Response.json({ error: 'Access denied' }, { status: 403 })
     }
@@ -395,7 +580,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
-        { status: 409, description: 'Only drafts can be edited', schema: errorResponseSchema },
+        { status: 409, description: 'Only drafts can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
       ],
     },
     DELETE: {
@@ -406,6 +591,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
+        { status: 409, description: 'Message was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
       ],
     },
   },

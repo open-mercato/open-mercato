@@ -1,23 +1,19 @@
 import { NextResponse } from 'next/server'
-import { modules } from '@/.mercato/generated/modules.generated'
-import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
-import { buildOpenApiDocument, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { APP_VERSION } from '@open-mercato/shared/lib/version'
+import { modules } from '@/.mercato/generated/modules.runtime.generated'
+import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
+import {
+  API_DOCS_CALLER_SCOPED_HEADERS,
+  buildApiDocsOpenApiDocument,
+  shouldExposeAccessControlMetadata,
+} from '@open-mercato/core/modules/api_docs/lib/document'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
-  const { t } = await resolveTranslations()
-  const baseUrl = resolveApiDocsBaseUrl()
-  const rawDoc = buildOpenApiDocument(modules, {
-    title: t('api.docs.title', 'Open Mercato API'),
-    version: APP_VERSION,
-    description: t('api.docs.description', 'Auto-generated OpenAPI definition for all enabled modules.'),
-    servers: [{ url: baseUrl, description: t('api.docs.serverDescription', 'Default environment') }],
-    baseUrlForExamples: baseUrl,
-    defaultSecurity: ['bearerAuth'],
+export async function GET(req: Request) {
+  const doc = await buildApiDocsOpenApiDocument({
+    modules,
+    apiRoutes,
+    includeAccessControlMetadata: await shouldExposeAccessControlMetadata(req),
   })
-  const doc = sanitizeOpenApiDocument(rawDoc)
-  return NextResponse.json(doc)
+  return NextResponse.json(doc, { headers: API_DOCS_CALLER_SCOPED_HEADERS })
 }

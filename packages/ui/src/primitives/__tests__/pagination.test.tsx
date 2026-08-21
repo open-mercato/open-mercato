@@ -60,6 +60,37 @@ describe('Pagination', () => {
     expect(nav.getAttribute('aria-label')).toBe('Pagination')
   })
 
+  // The info text, page buttons, and page-size select together need ~600px of
+  // min-content (info and the select are shrink-0). Without flex-wrap the row
+  // cannot compress on a phone-width container, overflows its card, and drags
+  // the whole page into horizontal scroll. Every level that holds a fixed-width,
+  // shrink-0 button run must be allowed to wrap: the root row, the controls
+  // group (first/prev/pages/next/last ≈ 392px at 6 pages — wider than a phone
+  // on its own), and the page-number list itself (so a long run wraps instead
+  // of overflowing). Wrapping just the outer row leaves the ~392px controls
+  // group on a single unbreakable line that still overflows.
+  it('lets every fixed-width control row wrap on narrow containers', () => {
+    const { container } = render(
+      <Pagination
+        page={3}
+        pageSize={20}
+        total={120}
+        onPageChange={() => {}}
+        onPageSizeChange={() => {}}
+      />,
+    )
+    const tokensOf = (selector: string) => {
+      const el = container.querySelector(selector) as HTMLElement | null
+      expect(el).not.toBeNull()
+      return (el!.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)
+    }
+    expect(tokensOf('[data-slot="pagination"]')).toEqual(
+      expect.arrayContaining(['flex-wrap', 'justify-between']),
+    )
+    expect(tokensOf('[data-slot="pagination-controls"]')).toContain('flex-wrap')
+    expect(tokensOf('[data-slot="pagination-pages"]')).toContain('flex-wrap')
+  })
+
   it('renders "Page X of Y" info by default', () => {
     const { container } = render(
       <Pagination page={2} pageSize={10} total={100} onPageChange={() => {}} />,
@@ -264,5 +295,59 @@ describe('Pagination', () => {
       <Pagination ref={ref} page={1} pageSize={10} total={100} onPageChange={() => {}} />,
     )
     expect(ref.current?.getAttribute('data-slot')).toBe('pagination')
+  })
+})
+
+describe('Pagination with a capped total (totalIsCapped)', () => {
+  // 100 rows / pageSize 10 → a floor of 10 pages; the real set is larger.
+  const capped = { page: 1, pageSize: 10, total: 100, totalIsCapped: true, onPageChange: () => {} }
+
+  it('renders the capped page info with a trailing plus', () => {
+    const { container } = render(<Pagination {...capped} />)
+    const info = container.querySelector('[data-slot="pagination-info"]')
+    expect(info?.textContent).toBe('Page 1 of 10+')
+  })
+
+  it('suppresses the last-page jump — it would present the floor as the end of the data', () => {
+    const { container } = render(<Pagination {...capped} />)
+    expect(container.querySelector('[data-slot="pagination-last"]')).toBeNull()
+    expect(container.querySelector('[data-slot="pagination-first"]')).not.toBeNull()
+  })
+
+  it('keeps Next enabled past the floor while hasNextPage is true', () => {
+    const onPageChange = jest.fn()
+    const { container } = render(
+      <Pagination {...capped} page={10} hasNextPage onPageChange={onPageChange} />,
+    )
+    const next = container.querySelector('[data-slot="pagination-next"]') as HTMLButtonElement
+    expect(next.disabled).toBe(false)
+    fireEvent.click(next)
+    expect(onPageChange).toHaveBeenCalledWith(11)
+  })
+
+  it('disables Next at the floor when hasNextPage reports a short page', () => {
+    const { container } = render(<Pagination {...capped} page={10} hasNextPage={false} />)
+    const next = container.querySelector('[data-slot="pagination-next"]') as HTMLButtonElement
+    expect(next.disabled).toBe(true)
+  })
+
+  it('never clamps a deep-linked page down to the floor', () => {
+    const { container } = render(<Pagination {...capped} page={37} hasNextPage />)
+    const current = container.querySelector('[data-slot="pagination-page"][data-state="on"]')
+    expect(current?.textContent).toBe('37')
+    const info = container.querySelector('[data-slot="pagination-info"]')
+    expect(info?.textContent).toBe('Page 37 of 37+')
+  })
+
+  it('keeps exact-total behavior byte-identical when the flag is absent', () => {
+    const onPageChange = jest.fn()
+    const { container } = render(
+      <Pagination page={10} pageSize={10} total={100} onPageChange={onPageChange} />,
+    )
+    const next = container.querySelector('[data-slot="pagination-next"]') as HTMLButtonElement
+    expect(next.disabled).toBe(true)
+    expect(container.querySelector('[data-slot="pagination-last"]')).not.toBeNull()
+    const info = container.querySelector('[data-slot="pagination-info"]')
+    expect(info?.textContent).toBe('Page 10 of 10')
   })
 })

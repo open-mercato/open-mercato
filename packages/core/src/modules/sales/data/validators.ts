@@ -434,6 +434,8 @@ export const RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE =
   'Return adjustments must use a non-positive amountNet (returns reduce the total).'
 export const RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE =
   'Return adjustments must use a non-positive amountGross (returns reduce the total).'
+export const RETURN_ADJUSTMENT_ZERO_MESSAGE =
+  'Return adjustments must use a non-zero amount. Create the return through the Returns tab instead of recording a zero-value Return adjustment.'
 export const DISCOUNT_ADJUSTMENT_NEGATIVE_NET_MESSAGE =
   'Discount adjustments must use a non-negative amountNet (discounts reduce the total).'
 export const DISCOUNT_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE =
@@ -482,19 +484,32 @@ export const enforceAdjustmentSign = (
 ) => {
   if (!value.kind) return
   if (value.kind === 'return') {
-    if (typeof value.amountNet === 'number' && value.amountNet > 0) {
+    const netIsPositive = typeof value.amountNet === 'number' && value.amountNet > 0
+    const grossIsPositive = typeof value.amountGross === 'number' && value.amountGross > 0
+    if (netIsPositive) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE,
         path: ['amountNet'],
       })
     }
-    if (typeof value.amountGross === 'number' && value.amountGross > 0) {
+    if (grossIsPositive) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE,
         path: ['amountGross'],
       })
+    }
+    if (!netIsPositive && !grossIsPositive) {
+      const netIsNegative = typeof value.amountNet === 'number' && value.amountNet < 0
+      const grossIsNegative = typeof value.amountGross === 'number' && value.amountGross < 0
+      if (!netIsNegative && !grossIsNegative) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: RETURN_ADJUSTMENT_ZERO_MESSAGE,
+          path: ['amountNet'],
+        })
+      }
     }
     return
   }
@@ -609,6 +624,38 @@ export const quoteAdjustmentUpdateSchema = z
   })
   .merge(quoteAdjustmentCreateSchema.partial())
 
+export const ORDER_PAYMENT_LEDGER_FIELDS = [
+  'paidTotalAmount',
+  'refundedTotalAmount',
+  'outstandingAmount',
+] as const
+
+export type OrderPaymentLedgerField = (typeof ORDER_PAYMENT_LEDGER_FIELDS)[number]
+
+export const ORDER_PAYMENT_LEDGER_WARNING_CODE =
+  'sales.order.payment_ledger_input_deprecated' as const
+
+export type OrderPaymentLedgerWarning = {
+  code: typeof ORDER_PAYMENT_LEDGER_WARNING_CODE
+  fields: OrderPaymentLedgerField[]
+}
+
+export function resolveSuppliedOrderPaymentLedgerFields(value: unknown): OrderPaymentLedgerField[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return ORDER_PAYMENT_LEDGER_FIELDS.filter((field) =>
+    Object.prototype.hasOwnProperty.call(value, field),
+  )
+}
+
+const orderPaymentLedgerShape = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount: decimal().optional(),
+}
+
 const orderTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
@@ -619,9 +666,6 @@ const orderTotalsSchema = z.object({
   surchargeTotalAmount: decimal({ min: 0 }).optional(),
   grandTotalNetAmount: decimal({ min: 0 }).optional(),
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
-  paidTotalAmount: decimal({ min: 0 }).optional(),
-  refundedTotalAmount: decimal({ min: 0 }).optional(),
-  outstandingAmount: decimal().optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
 
@@ -634,6 +678,8 @@ const quoteTotalsSchema = z.object({
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
+
+export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
 
 export const orderCreateSchema = scoped.extend({
   orderNumber: z.string().trim().min(1).max(191).optional(),
@@ -671,10 +717,16 @@ export const orderCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
-  lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  lines: z
+    .array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
+      error: SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
+    })
+    .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
   ...orderTotalsSchema.shape,
+  ...orderPaymentLedgerShape,
 })
 
 export const orderUpdateSchema = z
@@ -710,6 +762,7 @@ export const quoteCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(quoteLineCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
     .optional(),
@@ -803,11 +856,23 @@ const returnLineQuantitySchema = z.coerce
   .min(1, 'Return quantity must be at least 1.')
   .max(MAX_QUANTITY, 'Quantity is too large.')
 
+export const RETURN_DATE_IN_FUTURE_MESSAGE = 'Return date cannot be in the future.'
+
+// A return records when goods physically came back to the seller, so a future
+// date is not yet a fact. Evaluate "now" at parse time (not module-load time)
+// so a long-running server never rejects legitimate same-day returns.
+const returnedAtSchema = z.coerce
+  .date()
+  .refine((value) => value.getTime() <= Date.now(), {
+    message: RETURN_DATE_IN_FUTURE_MESSAGE,
+  })
+  .optional()
+
 export const returnCreateSchema = scoped.extend({
   orderId: uuid(),
   reason: z.string().trim().max(4000).optional(),
   notes: z.string().trim().max(4000).optional(),
-  returnedAt: z.coerce.date().optional(),
+  returnedAt: returnedAtSchema,
   lines: z
     .array(
       z.object({
@@ -816,6 +881,19 @@ export const returnCreateSchema = scoped.extend({
       })
     )
     .min(1),
+})
+
+export const returnUpdateSchema = scoped.extend({
+  id: uuid(),
+  orderId: uuid(),
+  reason: z.string().trim().max(4000).optional(),
+  notes: z.string().trim().max(4000).optional(),
+  returnedAt: returnedAtSchema,
+})
+
+export const returnDeleteSchema = scoped.extend({
+  id: uuid(),
+  orderId: uuid(),
 })
 
 export const invoiceCreateSchema = scoped.extend({
@@ -1006,8 +1084,23 @@ export type PaymentMethodCreateInput = z.infer<typeof paymentMethodCreateSchema>
 export type PaymentMethodUpdateInput = z.infer<typeof paymentMethodUpdateSchema>
 export type TaxRateCreateInput = z.infer<typeof taxRateCreateSchema>
 export type TaxRateUpdateInput = z.infer<typeof taxRateUpdateSchema>
-export type OrderCreateInput = z.infer<typeof orderCreateSchema>
-export type OrderUpdateInput = z.infer<typeof orderUpdateSchema>
+export type DeprecatedOrderPaymentLedgerInput = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount?: number
+}
+
+export type OrderCreateInput = Omit<
+  z.infer<typeof orderCreateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
+export type OrderUpdateInput = Omit<
+  z.infer<typeof orderUpdateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
 export type OrderLineCreateInput = z.infer<typeof orderLineCreateSchema>
 export type OrderLineUpdateInput = z.infer<typeof orderLineUpdateSchema>
 export type OrderAdjustmentCreateInput = z.infer<typeof orderAdjustmentCreateSchema>
@@ -1021,6 +1114,8 @@ export type QuoteAdjustmentUpdateInput = z.infer<typeof quoteAdjustmentUpdateSch
 export type ShipmentCreateInput = z.infer<typeof shipmentCreateSchema>
 export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>
 export type ReturnCreateInput = z.infer<typeof returnCreateSchema>
+export type ReturnUpdateInput = z.infer<typeof returnUpdateSchema>
+export type ReturnDeleteInput = z.infer<typeof returnDeleteSchema>
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>

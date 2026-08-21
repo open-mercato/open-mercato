@@ -3,17 +3,23 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   detectAttachmentMimeType,
   hasDangerousExecutableExtension,
   isActiveContentAttachment,
 } from '@open-mercato/core/modules/attachments/lib/security'
 import {
+  isMultipartUploadLimitError,
   isMultipartRequestWithinUploadLimit,
+  parseMultipartFormDataWithinUploadLimit,
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '@open-mercato/core/modules/attachments/lib/upload-limits'
+import { isS3KeyScopedToTenant } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
+import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
+import { reconcileTenantS3Objects } from '../../../../lib/quota-accounting'
 import { randomUUID } from 'crypto'
 
 export const metadata = {
@@ -32,11 +38,6 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload'
 }
 
-function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
-  const parts = key.split('/')
-  return parts.length >= 3 && parts[1] === `org_${orgId}` && parts[2] === `tenant_${tenantId}`
-}
-
 async function resolveDriver(
   tenantId: string,
   orgId: string,
@@ -47,7 +48,7 @@ async function resolveDriver(
   }
   const creds = await credentialsService.resolve('storage_s3', { tenantId, organizationId: orgId })
   if (!creds) return null
-  return new S3StorageDriver(creds)
+  return new S3StorageDriver({ ...creds, organizationId: orgId, tenantId })
 }
 
 async function readTenantStorageUsageBytes(
@@ -61,7 +62,7 @@ async function readTenantStorageUsageBytes(
   do {
     const page = await driver.listObjects('', 1000, continuationToken)
     for (const file of page.files) {
-      if (isKeyScoped(file.key, orgId, tenantId)) {
+      if (isS3KeyScopedToTenant(file.key, orgId, tenantId)) {
         totalBytes += file.size
       }
     }
@@ -72,66 +73,146 @@ async function readTenantStorageUsageBytes(
 }
 
 export async function POST(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('storage_s3.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
   }
 
   const contentType = req.headers.get('content-type') ?? ''
   if (!contentType.includes('multipart/form-data')) {
-    return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.multipartRequired', 'Expected multipart/form-data') }, { status: 400 })
   }
 
-  const form = await req.formData()
+  let form: FormData
+  try {
+    form = await parseMultipartFormDataWithinUploadLimit(req)
+  } catch (error) {
+    if (isMultipartUploadLimitError(error)) {
+      return NextResponse.json({ error: t('storage_s3.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
+    }
+    throw error
+  }
   const file = form.get('file') as File | null
   if (!file) {
-    return NextResponse.json({ error: 'file field is required' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.fileRequired', 'file field is required') }, { status: 400 })
   }
 
   const keyOverride = form.get('key') ? String(form.get('key')) : null
 
-  if (keyOverride !== null && !isKeyScoped(keyOverride, auth.orgId, auth.tenantId)) {
+  if (keyOverride !== null && !isS3KeyScopedToTenant(keyOverride, auth.orgId, auth.tenantId)) {
     return NextResponse.json(
-      { error: 'Access denied: key override is not scoped to this tenant.' },
+      { error: t('storage_s3.errors.keyOverrideAccessDenied', 'Access denied: key override is not scoped to this tenant.') },
       { status: 403 },
     )
   }
 
   if (hasDangerousExecutableExtension(file.name)) {
-    return NextResponse.json({ error: 'Executable file types are not allowed as attachments.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.') }, { status: 400 })
   }
 
   const effectiveMaxBytes = resolveAttachmentMaxBytes()
   if (file.size > effectiveMaxBytes) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
   }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
-    return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
   const safeName = sanitizeFileName(file.name)
   const trustedMimeType = detectAttachmentMimeType(buffer, safeName, file.type || null)
   if (isActiveContentAttachment(buffer, safeName, trustedMimeType)) {
-    return NextResponse.json({ error: 'Active content uploads are not allowed.' }, { status: 400 })
-  }
-
-  const tenantUsageBytes = await readTenantStorageUsageBytes(driver, auth.tenantId, auth.orgId)
-  if (willExceedAttachmentTenantQuota(tenantUsageBytes, buffer.length)) {
-    return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
+    return NextResponse.json({ error: t('storage_s3.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
   }
 
   const key =
     keyOverride ??
     `uploads/org_${auth.orgId}/tenant_${auth.tenantId}/${Date.now()}_${randomUUID().slice(0, 8)}_${safeName}`
 
-  await driver.putObject(key, buffer, trustedMimeType)
+  const { resolve } = await createRequestContainer()
+  let attachmentQuotaService: AttachmentQuotaService | null = null
+  let recoveryScheduler: ((
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>) | null = null
+  try {
+    attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
+    recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as (
+      payload: { reservationId: string; tenantId: string; organizationId: string },
+      delayMs: number,
+    ) => Promise<void>
+  } catch {
+    // Backward-compatible fallback below when the attachments quota service is not registered.
+  }
+  let reservation: { id: string; leaseToken: string; expiresAt: Date } | null = null
+  if (attachmentQuotaService) {
+    try {
+      await reconcileTenantS3Objects({
+        driver,
+        quotaService: attachmentQuotaService,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+      })
+      reservation = await attachmentQuotaService.reserve({
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        bytes: buffer.length,
+        source: 'storage_s3_upload',
+        storageDriver: 's3',
+        storagePath: key,
+      })
+      if (!recoveryScheduler) throw new Error('[internal] Storage quota recovery is unavailable.')
+      await recoveryScheduler({
+        reservationId: reservation.id,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+      }, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
+      await attachmentQuotaService.beginStorage(reservation.id, reservation.leaseToken)
+    } catch (error) {
+      if (reservation) {
+        await attachmentQuotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
+        reservation = null
+      }
+      const code = (error as { code?: unknown })?.code
+      if (code === 'quota_exceeded') {
+        return NextResponse.json({ error: t('storage_s3.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.') }, { status: 413 })
+      }
+      if (code === 'quota_target_exists') {
+        return NextResponse.json({ error: t('storage_s3.errors.quotaTargetExists', 'The target storage key already exists.') }, { status: 409 })
+      }
+      return NextResponse.json({ error: t('storage_s3.errors.quotaUnavailable', 'Storage quota accounting is unavailable.') }, { status: 500 })
+    }
+  } else {
+    const tenantUsageBytes = await readTenantStorageUsageBytes(driver, auth.tenantId, auth.orgId)
+    if (willExceedAttachmentTenantQuota(tenantUsageBytes, buffer.length)) {
+      return NextResponse.json({ error: t('storage_s3.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.') }, { status: 413 })
+    }
+  }
+
+  try {
+    await driver.putObject(key, buffer, trustedMimeType)
+    if (reservation) {
+      await attachmentQuotaService!.markStored(reservation.id, reservation.leaseToken)
+      await attachmentQuotaService!.completeStandalone(reservation.id, reservation.leaseToken, buffer.length)
+    }
+  } catch (error) {
+    if (reservation) {
+      try {
+        await driver.deleteStrict('', key)
+        await attachmentQuotaService!.release(reservation.id, reservation.leaseToken)
+      } catch {
+        // Retain the reservation when object absence cannot be proven.
+      }
+    }
+    return NextResponse.json({ error: t('storage_s3.errors.persistFailed', 'Failed to persist attachment.') }, { status: 500 })
+  }
 
   return NextResponse.json({
     key,

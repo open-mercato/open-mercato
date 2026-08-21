@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -14,6 +14,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type ScheduleRow = {
   id: string
@@ -38,6 +39,7 @@ type SchedulesResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 function mapApiItem(item: Record<string, unknown>): ScheduleRow | null {
@@ -81,6 +83,7 @@ export default function SchedulerPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
@@ -103,6 +106,7 @@ export default function SchedulerPage() {
       setRows(mapped)
       setTotal(result?.total ?? 0)
       setTotalPages(result?.totalPages ?? 1)
+      setTotalIsCapped(result?.totalIsCapped === true)
     } catch (error) {
       flash(t('scheduler.error.fetch_failed', 'Failed to load schedules'), 'error')
       setRows([])
@@ -196,7 +200,7 @@ export default function SchedulerPage() {
             : row.original.targetCommand
           return (
             <div className="flex flex-col">
-              <span className="text-xs text-gray-500 capitalize">{row.original.targetType}</span>
+              <span className="text-xs text-muted-foreground capitalize">{row.original.targetType}</span>
               <span className="text-sm">{target || '-'}</span>
             </div>
           )
@@ -274,7 +278,14 @@ export default function SchedulerPage() {
           data={rows}
           onRowClick={(row) => router.push(`/backend/config/scheduled-jobs/${row.id}`)}
           rowActions={(row) => <RowActions items={rowActions(row)} />}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('scheduler.title', 'Scheduled Jobs')}
+              createHref="/backend/config/scheduled-jobs/new"
+              createLabel={t('scheduler.action.create', 'New Schedule')}
+            />
+          )}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}

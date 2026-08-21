@@ -52,10 +52,28 @@ export type CustomFieldDefLike = {
   configJson?: any
 }
 
-// Evaluate a single rule against a value
-function evalRule(rule: ValidationRule, value: any, kind: string): string | null {
-  const isEmpty = (v: any) => v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)
+const isEmpty = (v: any) => v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)
 
+// Evaluate a single rule against a value. Multi-value fields (e.g. `text` with
+// `multi: true`) carry array values; every rule except `required` is applied to
+// each element so a regex like `^[a-z0-9_-]+$` is checked per tag instead of the
+// comma-joined string representation.
+function evalRule(rule: ValidationRule, value: any, kind: string): string | null {
+  if (rule.rule === 'required') {
+    return isEmpty(value) ? rule.message : null
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const msg = evalScalarRule(rule, item, kind)
+      if (msg) return msg
+    }
+    return null
+  }
+  return evalScalarRule(rule, value, kind)
+}
+
+// Evaluate a single rule against a scalar (non-array) value.
+function evalScalarRule(rule: ValidationRule, value: any, kind: string): string | null {
   switch (rule.rule) {
     case 'required':
       return isEmpty(value) ? rule.message : null

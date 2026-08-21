@@ -245,6 +245,10 @@
   "checkout.linkTemplateForm.messages.tabs.cancel": "Anulowanie",
   "checkout.linkTemplateForm.messages.tabs.error": "Błąd",
   "checkout.linkTemplateForm.messages.tabs.success": "Sukces",
+  "checkout.linkTemplateForm.notFound.link.description": "Ten link płatności już nie istnieje. Mógł zostać usunięty w innej karcie lub przez innego użytkownika.",
+  "checkout.linkTemplateForm.notFound.link.title": "Nie znaleziono linku płatności",
+  "checkout.linkTemplateForm.notFound.template.description": "Ten szablon już nie istnieje. Mógł zostać usunięty w innej karcie lub przez innego użytkownika.",
+  "checkout.linkTemplateForm.notFound.template.title": "Nie znaleziono szablonu",
   "checkout.linkTemplateForm.payment.fields.gatewayProvider": "Dostawca bramki",
   "checkout.linkTemplateForm.payment.placeholders.provider": "Wybierz dostawcę…",
   "checkout.linkTemplateForm.payment.providerUnavailableSuffix": "(najpierw skonfiguruj w Integracjach)",
@@ -322,6 +326,7 @@
   "checkout.payPage.errors.loadMessage": "Nie udało się załadować tej strony płatności. Spróbuj ponownie.",
   "checkout.payPage.errors.loadTitle": "Nie udało się załadować linku płatności",
   "checkout.payPage.errors.password": "Nie udało się zweryfikować hasła. Spróbuj ponownie.",
+  "checkout.payPage.errors.sessionStart": "Nie udało się uruchomić sesji płatności. Spróbuj ponownie.",
   "checkout.payPage.errors.submit": "Nie udało się rozpocząć płatności. Spróbuj ponownie.",
   "checkout.payPage.fields.booleanFalse": "Nie",
   "checkout.payPage.fields.booleanTrue": "Tak",
@@ -375,6 +380,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Wybierz opcję płatności, aby kontynuować.",
   "checkout.payPage.validation.requiredField": "Uzupełnij pole {field}.",
   "checkout.payPage.validation.thisField": "to pole",
+  "checkout.search.subtitle.linkTemplate": "Szablon linku",
   "checkout.statusPage.backToPayment": "Wróć do strony płatności",
   "checkout.statusPage.cancel.cancelled": "Płatność anulowana",
   "checkout.statusPage.cancel.failed": "Płatność nieudana",
@@ -453,5 +459,6 @@
   "checkout.widgets.gatewayTransactionLink.labels.link": "Link",
   "checkout.widgets.gatewayTransactionLink.labels.transactionId": "ID transakcji",
   "checkout.widgets.gatewayTransactionLink.title": "Transakcja checkout",
-  "checkout.widgets.paymentGatewayToolbarLink.action": "Utwórz link płatniczy"
+  "checkout.widgets.paymentGatewayToolbarLink.action": "Utwórz link płatniczy",
+  "notifications.categories.checkout": "Zamówienie"
 }

@@ -2,7 +2,7 @@
  * `customers.list_deals` + `customers.get_deal` (Phase 1 WS-C, Step 3.9).
  * `customers.update_deal_stage` mutation tool (Phase 3 WS-C, Step 5.13).
  *
- * Phase 3a of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3a of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * `customers.list_deals` is now an API-backed wrapper over
  * `GET /api/customers/deals`. Tool name, schema, requiredFeatures, and output
  * shape are unchanged.
@@ -99,7 +99,7 @@ const listDealsTool = defineApiBackedAiTool<ListDealsInput, ListDealsApiResponse
   name: 'customers.list_deals',
   displayName: 'List deals',
   description:
-    'Search / list deals for the caller tenant + organization. Optional filters include linked person / company / pipeline stage.',
+    'Search / list deals for the caller tenant + organization. Optional filters include linked person / company / pipeline stage. Returns { items, total, totalIsCapped, limit, offset }. When totalIsCapped is true, total is a floor ("at least N", render it as "N+"), and pagination is exhausted only when a page returns fewer than limit items — never when offset reaches total.',
   inputSchema: listDealsInput,
   requiredFeatures: ['customers.deals.view'],
   toOperation: (input, ctx) => {
@@ -155,6 +155,9 @@ const listDealsTool = defineApiBackedAiTool<ListDealsInput, ListDealsApiResponse
         }
       }),
       total: typeof data.total === 'number' ? data.total : 0,
+      // A capped count reports a floor: phrase the total as "at least N" and
+      // never treat it as proof that pagination is exhausted.
+      totalIsCapped: (data as { totalIsCapped?: boolean }).totalIsCapped === true,
       limit,
       offset,
     }

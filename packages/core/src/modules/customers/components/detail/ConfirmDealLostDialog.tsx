@@ -9,6 +9,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type LossReasonOption = {
   id: string
@@ -40,18 +43,28 @@ export function ConfirmDealLostDialog({
   const [lossReasons, setLossReasons] = React.useState<LossReasonOption[]>([])
   const [reasonListOpen, setReasonListOpen] = React.useState(false)
   const [error, setError] = React.useState('')
+  const [dictionaryLoadFailed, setDictionaryLoadFailed] = React.useState(false)
+  const [isLoadingReasons, setIsLoadingReasons] = React.useState(false)
   const [isConfirming, setIsConfirming] = React.useState(false)
 
   React.useEffect(() => {
     if (!open) return
     let cancelled = false
+    setIsLoadingReasons(true)
+    setDictionaryLoadFailed(false)
     loadDictionaryEntriesByKey('sales.deal_loss_reason')
       .then((items) => {
         if (!cancelled) setLossReasons(items)
       })
       .catch((loadError) => {
-        console.error('customers.deals.detail.lossReasons failed', loadError)
-        if (!cancelled) setLossReasons([])
+        logger.error('customers.deals.detail.lossReasons failed', { loadError })
+        if (!cancelled) {
+          setLossReasons([])
+          setDictionaryLoadFailed(true)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingReasons(false)
       })
     return () => {
       cancelled = true
@@ -64,14 +77,35 @@ export function ConfirmDealLostDialog({
     setLossNotes('')
     setReasonListOpen(false)
     setError('')
+    setDictionaryLoadFailed(false)
+    setIsConfirming(false)
   }, [open])
 
   const selectedLossReason = React.useMemo(
     () => lossReasons.find((reason) => reason.id === lossReasonId) ?? null,
     [lossReasonId, lossReasons],
   )
+  const hasLossReasons = lossReasons.length > 0
+  const reasonUnavailable = !isLoadingReasons && !hasLossReasons
+  const unavailableReasonText = dictionaryLoadFailed
+    ? t('customers.deals.detail.lost.reasonLoadError', 'Loss reasons could not be loaded.')
+    : t('customers.deals.detail.lost.reasonUnavailable', 'No loss reasons are configured.')
+  const reasonHelpText = React.useMemo(() => {
+    if (selectedLossReason?.description) return selectedLossReason.description
+    if (isLoadingReasons) {
+      return t('customers.deals.detail.lost.reasonLoading', 'Loading loss reasons...')
+    }
+    if (reasonUnavailable) {
+      return unavailableReasonText
+    }
+    return t('customers.deals.detail.lost.reasonHelp', 'Choose the closest reason from the dictionary.')
+  }, [isLoadingReasons, reasonUnavailable, selectedLossReason?.description, t, unavailableReasonText])
 
   const handleConfirm = React.useCallback(async () => {
+    if (isLoadingReasons || reasonUnavailable) {
+      setError(unavailableReasonText)
+      return
+    }
     if (!lossReasonId) {
       setError(t('customers.deals.detail.lost.reasonRequired', 'Please select a loss reason'))
       return
@@ -85,17 +119,22 @@ export function ConfirmDealLostDialog({
     } finally {
       setIsConfirming(false)
     }
-  }, [lossNotes, lossReasonId, onConfirm, t])
+  }, [isLoadingReasons, lossNotes, lossReasonId, onConfirm, reasonUnavailable, t, unavailableReasonText])
+
+  const confirmDisabled = isConfirming || isLoadingReasons || reasonUnavailable || !lossReasonId
 
   const handleKeyDown = useDialogKeyHandler({
     onConfirm: () => void handleConfirm(),
-    disabled: isConfirming,
+    disabled: confirmDisabled,
   })
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-[560px]" onKeyDown={handleKeyDown}>
-        <div className="overflow-hidden rounded-lg bg-card">
+      <DialogContent
+        className="flex max-h-[min(90vh,720px)] flex-col overflow-hidden p-0 sm:max-w-[560px]"
+        onKeyDown={handleKeyDown}
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-card">
           <DialogHeader className="border-b border-border/70 px-7 py-5">
             <div className="flex items-start gap-4">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
@@ -114,9 +153,8 @@ export function ConfirmDealLostDialog({
             </div>
           </DialogHeader>
 
-          <div className="space-y-6 px-7 py-6">
-            <Alert variant="warning" className="rounded-md">
-              <AlertTriangle className="size-4" />
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-7 py-6">
+            <Alert status="warning" className="rounded-md">
               <AlertTitle>
                 {t('customers.deals.detail.lost.warningTitle', 'This action closes the deal')}
               </AlertTitle>
@@ -139,10 +177,13 @@ export function ConfirmDealLostDialog({
                 >
                   <div className="min-w-0">
                     <div className="truncate text-base font-semibold text-foreground">
-                      {selectedLossReason?.label ?? t('customers.deals.detail.lost.reasonPlaceholder', 'Select loss reason')}
+                      {selectedLossReason?.label
+                        ?? (isLoadingReasons
+                          ? t('customers.deals.detail.lost.reasonLoadingShort', 'Loading...')
+                          : t('customers.deals.detail.lost.reasonPlaceholder', 'Select loss reason'))}
                     </div>
                     <div className="truncate text-sm text-muted-foreground">
-                      {selectedLossReason?.description ?? t('customers.deals.detail.lost.reasonHelp', 'Choose the closest reason from the dictionary.')}
+                      {reasonHelpText}
                     </div>
                   </div>
                   <ChevronDown className="ml-3 size-4 shrink-0 text-muted-foreground" />
@@ -150,7 +191,7 @@ export function ConfirmDealLostDialog({
 
                 {reasonListOpen ? (
                   <div className="overflow-hidden rounded-md border border-border/80 bg-background">
-                    {lossReasons.map((reason, index) => {
+                    {hasLossReasons ? lossReasons.map((reason, index) => {
                       const isSelected = reason.id === lossReasonId
                       return (
                         <Button
@@ -179,10 +220,19 @@ export function ConfirmDealLostDialog({
                           ) : null}
                         </Button>
                       )
-                    })}
+                    }) : (
+                      <div className="px-4 py-3 text-sm text-muted-foreground">
+                        {unavailableReasonText}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>
+              {reasonUnavailable ? (
+                <p className="text-xs text-destructive">
+                  {unavailableReasonText}
+                </p>
+              ) : null}
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
             </div>
 
@@ -204,7 +254,12 @@ export function ConfirmDealLostDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               {t('customers.deals.detail.lost.cancel', 'Cancel')}
             </Button>
-            <Button type="button" variant="destructive" onClick={() => { void handleConfirm() }}>
+            <Button
+              type="button"
+              variant="destructive-solid"
+              disabled={confirmDisabled}
+              onClick={() => { void handleConfirm() }}
+            >
               {t('customers.deals.detail.lost.confirm', 'Mark as Lost')}
             </Button>
           </DialogFooter>

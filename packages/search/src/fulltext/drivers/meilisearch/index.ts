@@ -296,14 +296,20 @@ export function createMeilisearchDriver(
       }
     },
 
-    async purge(entityId: EntityId, tenantId: string): Promise<void> {
+    async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
       const meiliClient = getClient()
       const indexName = buildIndexName(tenantId)
+      const normalizedOrganizationId =
+        typeof organizationId === 'string' && organizationId.trim().length > 0 ? organizationId.trim() : null
+      const filter =
+        normalizedOrganizationId !== null
+          ? `_entityId = "${escapeFilterValue(entityId)}" AND _organizationId = "${escapeFilterValue(normalizedOrganizationId)}"`
+          : `_entityId = "${escapeFilterValue(entityId)}"`
 
       try {
         const index = meiliClient.index(indexName)
         await index.deleteDocuments({
-          filter: `_entityId = "${entityId}"`,
+          filter,
         })
       } catch (error: unknown) {
         const meilisearchError = error as { code?: string }

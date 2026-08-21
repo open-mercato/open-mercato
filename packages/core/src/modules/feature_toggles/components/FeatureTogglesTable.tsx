@@ -6,7 +6,8 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import * as React from 'react'
 import type { FilterDef, FilterValues } from "@open-mercato/ui/backend/FilterBar"
 import { useMutation } from '@tanstack/react-query'
@@ -15,6 +16,7 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { Badge } from "@open-mercato/ui/primitives/badge";
 import Link from "next/link";
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog';
+import { ListEmptyState } from "@open-mercato/ui/backend/filters/ListEmptyState";
 import { FeatureToggleType } from "../data/entities";
 
 type Row = {
@@ -79,7 +81,7 @@ export function FeatureTogglesTable() {
   const { data: featureTogglesData, isLoading } = useQuery({
     queryKey: ['feature_toggles', queryParams],
     queryFn: async () => {
-      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; page: number; pageSize: number; isSuperAdmin?: boolean }>(
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; page: number; pageSize: number; isSuperAdmin?: boolean }>(
         `/api/feature_toggles/global${queryParams ? `?${queryParams}` : ''}`,
       )
       if (!call.ok) {
@@ -201,6 +203,13 @@ export function FeatureTogglesTable() {
       columns={columns}
       data={featureTogglesData?.items ?? []}
       isLoading={isLoading}
+      emptyState={(
+        <ListEmptyState
+          entityName={t('feature_toggles.global.help.title', 'Feature Toggles')}
+          createHref="/backend/feature-toggles/global/create"
+          createLabel={t('common.create', 'Create')}
+        />
+      )}
       filters={filters}
       filterValues={filterValues}
       onFiltersApply={handleFiltersApply}
@@ -213,6 +222,7 @@ export function FeatureTogglesTable() {
         pageSize: featureTogglesData?.pageSize ?? 25,
         total: featureTogglesData?.total ?? 0,
         totalPages: featureTogglesData?.totalPages ?? 0,
+        totalIsCapped: featureTogglesData?.totalIsCapped === true,
         onPageChange: handlePageChange,
       }}
       rowActions={(row) => (

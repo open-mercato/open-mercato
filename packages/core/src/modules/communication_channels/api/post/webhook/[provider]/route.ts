@@ -11,6 +11,10 @@ import {
 import type { InboundMessage } from '../../../../lib/adapter'
 import type { InboundProcessorPayload } from '../../../../workers/inbound-processor'
 import type { ReactionInboundJob } from '../../../../lib/reaction-processor-types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
+
+const logger = createLogger('communication_channels').child({ component: 'inbound-webhook' })
 
 /**
  * Inbound webhook endpoint for the communication_channels hub.
@@ -57,7 +61,15 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
     )
   }
 
-  const rawBody = await req.text()
+  let rawBody: string
+  try {
+    rawBody = await readBoundedRequestBody(req)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 })
+    }
+    throw error
+  }
   const headers: Record<string, string> = {}
   req.headers.forEach((value, key) => {
     headers[key] = value
@@ -201,9 +213,9 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
   } catch (error: unknown) {
     // Do not echo adapter/verification internals to an unauthenticated caller;
     // log the detail server-side and return a fixed, minimal message.
-    console.warn(
-      '[communication_channels] inbound webhook verification failed:',
-      error instanceof Error ? error.message : error,
+    logger.warn(
+      'inbound webhook verification failed',
+      { err: error },
     )
     return NextResponse.json({ error: 'verification_failed' }, { status: 401 })
   }
@@ -219,6 +231,7 @@ export const openApi = {
       responses: [
         { status: 202, description: 'Webhook accepted for async processing' },
         { status: 401, description: 'Signature verification failed against every candidate channel' },
+        { status: 413, description: 'Webhook payload too large' },
         { status: 404, description: 'Unknown provider' },
       ],
     },

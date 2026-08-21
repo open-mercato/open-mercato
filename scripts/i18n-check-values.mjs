@@ -34,7 +34,7 @@ const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPa
 const ROOT = path.resolve(path.dirname(__filename_), '..')
 
 const REFERENCE_LOCALE = 'en'
-const TARGET_LOCALES = ['pl', 'es', 'de']
+const TARGET_LOCALES = ['pl', 'es', 'de', 'ko']
 const ALLOWLIST_PATH = path.join(ROOT, 'scripts', 'i18n-values-allowlist.json')
 
 const red = (s) => `\x1b[31m${s}\x1b[0m`
@@ -108,7 +108,7 @@ function main() {
     cwd: ROOT,
     ignore: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/create-app/template/**'],
     absolute: true,
-  }).sort()
+  }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
   const locales = opts.localesFilter && opts.localesFilter.length > 0
     ? opts.localesFilter.filter((l) => l !== REFERENCE_LOCALE)

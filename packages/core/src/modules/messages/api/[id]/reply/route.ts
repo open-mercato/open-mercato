@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { replyMessageSchema } from '../../../data/validators'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
 import {
   errorResponseSchema,
   forwardResponseSchema,
@@ -21,6 +22,28 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const input = replyMessageSchema.parse(body)
   if (input.sendViaEmail && !(await canUseMessageEmailFeature(ctx, scope))) {
     return Response.json({ error: 'Missing feature: messages.email' }, { status: 403 })
+  }
+
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: null,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
   }
 
   let commandResult
@@ -65,6 +88,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   attachOperationMetadataHeader(response, commandResult.logEntry, {
     resourceKind: 'messages.message',
     resourceId: messageId,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: messageId,
+    operation: 'create',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }

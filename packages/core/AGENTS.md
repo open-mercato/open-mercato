@@ -112,9 +112,11 @@ Granting the feature to a customer role is sufficient for the entry to appear �
 
 All API route files MUST export an `openApi` object for automatic API documentation generation.
 
-For custom write routes that do not use `makeCrudRoute` (`POST`/`PUT`/`PATCH`/`DELETE`), MUST wire the mutation guard contract:
-- call `validateCrudMutationGuard` before mutation logic
-- call `runCrudMutationGuardAfterSuccess` after successful mutation when requested
+For custom write routes that do not use `makeCrudRoute` (`POST`/`PUT`/`PATCH`/`DELETE`), MUST wire the mutation guard registry:
+- map the route to the closest registry operation (`create`, `update`, or `delete`; state-changing action endpoints usually use `update`)
+- collect registered guards with `getAllMutationGuardInstances()` and append `bridgeLegacyGuard(container)` when present
+- call `runMutationGuards(...)` from `@open-mercato/shared/lib/crud/mutation-guard-registry` before mutation logic, passing the caller's granted features as `{ userFeatures }`
+- return `guardResult.errorBody` / `guardResult.errorStatus` when blocked, merge `guardResult.modifiedPayload` back into validated input when present, and run each returned `afterSuccessCallbacks` item after a successful mutation, catching/logging callback failures so committed writes still return successfully
 
 ### CRUD Routes
 
@@ -150,6 +152,23 @@ makeCrudRoute({
   indexer: { entityType: 'my_module:my_entity' },
 })
 ```
+
+#### Trimming the list projection (`list.fields` function form)
+
+`list.fields` accepts a static array **or** a function `(query, ctx) => string[]` resolved per request on the Query Engine path. Use the function form to drop large detail-only columns (encrypted JSONB snapshots, payload blobs) from grid listings while still selecting them for single-record fetches — those columns are otherwise fetched and decrypted **per row** on every list page even when no grid column renders them.
+
+```typescript
+list: {
+  entityId: E.sales.sales_order,
+  // Detail page reuses this list route with `?id=`, so it needs the full projection;
+  // grid listings (no id) get the trimmed one.
+  fields: (query) => (typeof query.id === 'string' && query.id.length ? allFields : gridFields),
+}
+```
+
+- The array form is unchanged and fully backward compatible — use it whenever the projection is static.
+- Keep response keys stable: dropped columns must still serialize (e.g. `null` via `transformItem`) so the OpenAPI schema (already `nullable().optional()`) is preserved.
+- Only narrow columns the grid never renders; keep any column a list column derives a value from (e.g. `customer_snapshot` for the customer name/email column). Reference: `src/modules/sales/api/documents/factory.ts` (#2233). Full docs: [`apps/docs/docs/framework/api/crud-factory.mdx`](../../apps/docs/docs/framework/api/crud-factory.mdx) → "Per-request projection".
 
 ### Custom Entities CRUD
 
@@ -219,6 +238,18 @@ export default setup
 3. Access entity IDs with optional chaining: `(E as any).catalog?.catalog_product`
 4. Use `getEntityIds()` at runtime (not import-time) for cross-module lookups
 5. Integration provider packages that need bootstrap credentials or mappings SHOULD preconfigure themselves from env inside the provider module via `setup.ts` and provider-local helpers/CLI. Do not add provider-specific env bootstrapping to core setup orchestration.
+
+### Cross-Module Coupling
+
+When one module needs another, pick the sanctioned mechanism by use-case:
+
+- **Events** for write side-effects — the source module emits (`createModuleEvents`), the other module subscribes (`subscribers/`). See § Events.
+- **Widget injection + response enrichers** for read/UI — render another module's data without importing it. See § Widget Injection, § Response Enrichers.
+- **FK-id + snapshot** for data — reference by UUID and denormalize a snapshot so reads survive the source module being absent or changed. See § Database Entities, § Extensions.
+
+Optional integration (e.g. CRM deals optionally adjusting WMS stock): the **optional consumer** owns the glue (subscriber / enricher / widget) and resolves the peer's service inside a `try/catch` — a per-module local `tryResolve` helper that wraps `container.resolve()` and returns `undefined` when the peer is absent (see `inbox_ops/subscribers/extractionWorker.ts`, `shipping_carriers/api/webhook/[provider]/route.ts`) — then no-ops or degrades gracefully. Never declare a hard `requires` on an optional peer and never call an unconditional `container.resolve(...)` for it. The upstream/depended-on module MUST NOT import, resolve, or hard-require the consumer — inverting that direction breaks the upstream module's isomorphism.
+
+The cross-module ORM-relation and direct-business-logic-import bans already live at line 24 and root `AGENTS.md` § Architecture — do not restate them. Verify absent-module behavior with `packages/core/src/__tests__/module-decoupling.test.ts` (§ Testing with Disabled Modules).
 
 ### ACL Grant Sync
 
@@ -471,9 +502,9 @@ When extending another module's data, add a separate extension entity — never 
 - RBAC is two-layered: Role ACLs and User ACLs per tenant
 - Features declared per module in `acl.ts`, naming: `<module>.<action>`
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
-- Special flags: `isSuperAdmin` (all features), organization visibility list
-- Treat wildcard grants as part of the ACL contract: `module.*` and `*` satisfy matching concrete features.
-- When a runtime helper evaluates raw granted feature arrays directly (for example nav builders, notification handlers, mutation guards, command interceptors, or AI tools), MUST use the shared wildcard-aware matcher instead of exact string comparisons.
+- Special flags: `isSuperAdmin` (all active features), organization visibility list
+- Policy order: invalid scope and nulled/disabled features deny before super-admin or wildcard grants.
+- For loaded ACL snapshots use shared `authorizeFeatures`; browser payloads use realm `getEffectiveFeatures` (concrete IDs only).
 
 ```typescript
 // acl.ts
@@ -506,7 +537,7 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 
 ## Entity Update Safety — `withAtomicFlush`
 
-MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, multiple `em.flush()` calls without transaction wrapping risk partial commits. See [SPEC-018](../../.ai/specs/SPEC-018-2026-02-05-safe-entity-flush.md) for the full analysis.
+MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, multiple `em.flush()` calls without transaction wrapping risk partial commits. See [SPEC-018](../../.ai/specs/implemented/SPEC-018-2026-02-05-safe-entity-flush.md) for the full analysis.
 
 ### Rules
 
@@ -551,6 +582,37 @@ await withAtomicFlush(em, [
 // Side effects AFTER the atomic flush
 await emitCrudSideEffects({ ... })
 ```
+
+### Preferred: `runCrudCommandWrite` for entity + custom fields + side effects
+
+For commands that write an entity, optionally write custom fields, and emit CRUD/index side effects in one logical operation, prefer `runCrudCommandWrite` over composing `withAtomicFlush` + `setCustomFieldsIfAny` + `emitCrudSideEffects` by hand. The helper owns the EM fork, the atomic flush boundary, the custom-field write, and the side-effect queue in the only correct order, and fails closed if any earlier step throws.
+
+```typescript
+import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
+
+await runCrudCommandWrite({
+  ctx,
+  entityId: 'my_module:my_entity',
+  action: 'updated',
+  scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+  customFields: custom,
+  events: myCrudEvents,
+  indexer: myCrudIndexer,
+  sideEffect: () => ({
+    entity: record,
+    identifiers: { id: record.id, tenantId: record.tenantId, organizationId: record.organizationId },
+  }),
+  phases: [
+    () => {
+      record.name = parsed.name
+      record.status = parsed.status
+    },
+    () => syncEntityTags(em, record, parsed.tags),
+  ],
+})
+```
+
+Reference migration: `customers.deals.update` in `packages/core/src/modules/customers/commands/deals.ts`. Keep `withAtomicFlush` for cases the helper doesn't fit (multiple separate transactions per command, etc.).
 
 ## Profiling
 
@@ -658,3 +720,11 @@ When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is enabled, the factor
 ## Upgrade Actions
 
 Declare once per version in `src/modules/configs/lib/upgrade-actions.ts`. Keep them idempotent, reuse module helpers. Access guarded by `configs.manage`.
+
+## Module Config (tenant scope)
+
+`ModuleConfigService` (`src/modules/configs/lib/module-config-service.ts`) stores per-module key/value config in `module_configs`. Every method accepts an **optional** `scope: { tenantId?; organizationId? }`:
+
+- **Reads** with a `tenantId` resolve scoped row → global row (`tenant_id IS NULL`) → not found; the returned record carries `source: 'tenant' | 'instance'`. Reads without a scope read the global row (unchanged legacy behavior).
+- **Writes** with a `tenantId` create/update only that tenant's row and never touch the global row; writes without a scope update the global/instance row.
+- Always derive `tenantId` from the authenticated context, never from request input. Omit `scope` for genuinely instance-global config so existing callers are unaffected (the no-scope path is byte-for-byte the prior behavior). `module_configs` uses partial unique indexes (global `WHERE tenant_id IS NULL`, scoped `WHERE tenant_id IS NOT NULL`) — never reintroduce a single `(module_id, name)` unique constraint.

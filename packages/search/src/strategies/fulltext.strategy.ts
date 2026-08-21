@@ -75,11 +75,11 @@ export class FullTextSearchStrategy implements SearchStrategy {
     return this.driver.bulkIndex(docs)
   }
 
-  async purge(entityId: EntityId, tenantId: string): Promise<void> {
+  async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
     if (!this.driver.purge) {
       return
     }
-    return this.driver.purge(entityId, tenantId)
+    return this.driver.purge(entityId, tenantId, organizationId)
   }
 
   // Additional methods exposed for enrichment and admin purposes

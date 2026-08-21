@@ -13,7 +13,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { PackageResolver, ModuleEntry } from '../../resolver'
-import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
+import {
+  generateModuleRegistries,
+  generateModuleRegistry,
+  generateModuleRegistryApp,
+  generateModuleRegistryCli,
+} from '../module-registry'
 import { generateModuleDi } from '../module-di'
 import { generateModuleEntities } from '../module-entities'
 import { generateEntityIds } from '../entity-ids'
@@ -691,6 +696,7 @@ describe('generator output compatibility', () => {
     'message-types.generated.ts',
     'messages.client.generated.ts',
     'modules.generated.ts',
+    'modules.i18n.generated.ts',
     'modules.runtime.generated.ts',
     'notification-handlers.generated.ts',
     'notifications.client.generated.ts',
@@ -720,6 +726,7 @@ describe('generator output compatibility', () => {
       'entities.ids.generated.ts',
       'entity-fields-registry.ts',
       'modules.app.generated.ts',
+      'modules.bootstrap.generated.ts',
       'modules.cli.generated.ts',
       'enabled-module-ids.generated.ts',
     ]))
@@ -747,6 +754,37 @@ describe('generator output compatibility', () => {
 
     const secondRun = captureGeneratedFiles()
     expect(secondRun).toEqual(firstRun)
+  })
+
+  it('shares one discovery snapshot across all registry renderers without changing output', async () => {
+    const enabled = scaffoldFixture()
+    const baselineResolver = createMockResolver(enabled)
+
+    await generateModuleRegistry({ resolver: baselineResolver, quiet: true })
+    await generateModuleRegistryApp({ resolver: baselineResolver, quiet: true })
+    await generateModuleRegistryCli({ resolver: baselineResolver, quiet: true })
+    const baseline = captureGeneratedFiles()
+
+    fs.rmSync(outputDir, { recursive: true, force: true })
+    fs.mkdirSync(outputDir, { recursive: true })
+
+    const delegate = createMockResolver(enabled)
+    const loadEnabledModules = jest.fn(delegate.loadEnabledModules)
+    const getModulePaths = jest.fn(delegate.getModulePaths)
+    const getModuleImportBase = jest.fn(delegate.getModuleImportBase)
+    const resolver: PackageResolver = {
+      ...delegate,
+      loadEnabledModules,
+      getModulePaths,
+      getModuleImportBase,
+    }
+
+    await generateModuleRegistries({ resolver, quiet: true })
+
+    expect(captureGeneratedFiles()).toEqual(baseline)
+    expect(loadEnabledModules).toHaveBeenCalledTimes(1)
+    expect(getModulePaths).toHaveBeenCalledTimes(enabled.length)
+    expect(getModuleImportBase).toHaveBeenCalledTimes(enabled.length)
   })
 
   it('includes app-level workers with variable-referenced queue names in generated output', async () => {
@@ -791,12 +829,12 @@ describe('generator output compatibility', () => {
 
     const content = readGenerated('bootstrap-registrations.generated.ts')
     expect(content).not.toBeNull()
-    expect(content).toContain(`import { backendRoutes } from "./backend-routes.generated"`)
+    expect(content).toContain(`import { backendRouteFacades } from "./backend-route-shards.generated"`)
     expect(content).toContain(`import { frontendRoutes } from "./frontend-routes.generated"`)
     expect(content).toContain(
       `import { registerBackendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'`,
     )
-    expect(content).toMatch(/export function runBootstrapRegistrations\(\): void \{[\s\S]*registerBackendRouteManifests\(backendRoutes\)[\s\S]*\}/)
+    expect(content).toMatch(/export function runBootstrapRegistrations\(\): void \{[\s\S]*registerBackendRouteManifests\(backendRouteFacades\)[\s\S]*\}/)
     expect(content).toMatch(/export function runBootstrapRegistrations\(\): void \{[\s\S]*registerFrontendRouteManifests\(frontendRoutes\)[\s\S]*\}/)
   })
 
@@ -808,6 +846,6 @@ describe('generator output compatibility', () => {
 
     const content = readGenerated('bootstrap-registrations.generated.ts')
     expect(content).not.toBeNull()
-    expect(content).toContain(`registerBackendRouteManifests(backendRoutes)`)
+    expect(content).toContain(`registerBackendRouteManifests(backendRouteFacades)`)
   })
 })

@@ -3,11 +3,12 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { MarkdownPreview } from '@open-mercato/ui/backend/markdown/MarkdownContent'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -16,14 +17,16 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Users } from 'lucide-react'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const PAGE_SIZE = 50
-const MARKDOWN_CLASSNAME =
-  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
 
 type TeamRow = {
   id: string
@@ -38,6 +41,7 @@ type TeamsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function StaffTeamsPage() {
@@ -49,6 +53,7 @@ export default function StaffTeamsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
@@ -93,11 +98,9 @@ export default function StaffTeamsPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <MarkdownPreview
-              className={`${MARKDOWN_CLASSNAME} text-xs text-muted-foreground line-clamp-2`}
-            >
-              {row.original.description}
-            </MarkdownPreview>
+            <span className="text-xs text-muted-foreground line-clamp-2">
+              {markdownToPlainText(row.original.description)}
+            </span>
           ) : null}
         </div>
       ),
@@ -108,9 +111,9 @@ export default function StaffTeamsPage() {
       meta: { priority: 4 },
       cell: ({ row }) => row.original.description
         ? (
-          <MarkdownPreview className={MARKDOWN_CLASSNAME}>
-            {row.original.description}
-          </MarkdownPreview>
+          <span className="text-xs text-muted-foreground line-clamp-2">
+            {markdownToPlainText(row.original.description)}
+          </span>
         )
         : <span className="text-xs text-muted-foreground">-</span>,
     },
@@ -175,8 +178,9 @@ export default function StaffTeamsPage() {
       setRows(items.map(mapApiTeam))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
     } catch (error) {
-      console.error('staff.teams.list', error)
+      logger.error('staff.teams.list', { err: error })
       flash(labels.errors.load, 'error')
     } finally {
       setIsLoading(false)
@@ -217,7 +221,7 @@ export default function StaffTeamsPage() {
       handleRefresh()
     } catch (error) {
       if (surfaceRecordConflict(error, t)) { handleRefresh(); return }
-      console.error('staff.teams.delete', error)
+      logger.error('staff.teams.delete', { err: error })
       flash(labels.errors.delete, 'error')
     }
   }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted, t])
@@ -233,7 +237,13 @@ export default function StaffTeamsPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
+          emptyState={(
+            <ListEmptyState
+              entityName={labels.title}
+              createHref="/backend/staff/teams/create"
+              createLabel={labels.actions.add}
+            />
+          )}
           actions={(
             <Button asChild size="sm">
               <Link href="/backend/staff/teams/create">
@@ -254,6 +264,7 @@ export default function StaffTeamsPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           rowActions={(row) => (

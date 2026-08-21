@@ -1,10 +1,30 @@
 import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
+import { clearSearchTokenPresenceCache } from '../../search/availability'
+import { clearEncryptedLikeFieldsCache } from '../engine'
+
+// The token-presence answer is cached process-wide (TTL); without clearing it,
+// probe-count assertions would observe hits from earlier tests in this file.
+beforeEach(() => {
+  clearSearchTokenPresenceCache()
+  clearEncryptedLikeFieldsCache()
+})
 
 // Mock modules with one entity extension
 const mockModules = [
   { id: 'auth', entityExtensions: [ { base: 'auth:user', extension: 'my_module:user_profile', join: { baseKey: 'id', extensionKey: 'user_id' } } ] },
+  {
+    id: 'example',
+    entityExtensions: [
+      // Declares `table` explicitly; the derived plural now agrees with it.
+      { base: 'customers:customer_entity', extension: 'example:example_customer_priority', join: { baseKey: 'id', extensionKey: 'customer_id' }, table: 'example_customer_priorities' },
+      // No `table`: exercises the derived-plural fallback.
+      { base: 'auth:role', extension: 'example:example_role_policy', join: { baseKey: 'id', extensionKey: 'role_id' } },
+      // `table` is not a bare identifier, so the engine must refuse it.
+      { base: 'auth:session', extension: 'example:example_session_note', join: { baseKey: 'id', extensionKey: 'session_id' }, table: 'notes"; drop table users --' },
+    ],
+  },
 ]
 
 // Register modules for the registration-based pattern
@@ -158,7 +178,14 @@ function createFakeKysely(overrides?: FakeData) {
           return infoRows.find((row: any) => !targetTable || row.table_name === targetTable)
         }
         if (localOps.selects.some((s: any) => s && typeof s === 'object' && (s.__isCount || String(s?.alias || '') === 'count'))) {
-          return { count: '0' }
+          // An aggregate over a recorded subquery (the capped-count probe) counts
+          // the subquery's source rows bounded by its LIMIT, mirroring Postgres.
+          if (localOps.subquery) {
+            const sourceRows = (data[localOps.subquery.table] || []).length
+            const innerLimit = localOps.subquery.limits
+            return { count: String(innerLimit ? Math.min(sourceRows, innerLimit) : sourceRows) }
+          }
+          return { count: String((data[localOps.table] || []).length) }
         }
         const rows = data[localOps.table] || []
         if (rows.length === 0) return { count: '0' }
@@ -170,6 +197,22 @@ function createFakeKysely(overrides?: FakeData) {
   }
 
   function builderFor(tableArg: any): any {
+    if (tableArg && typeof tableArg === 'object' && tableArg._ops) {
+      // selectFrom(subquery.as(alias)) — the capped-count probe shape.
+      const ops = {
+        table: '__subquery__',
+        alias: tableArg._ops.alias ?? null,
+        subquery: tableArg._ops,
+        wheres: [] as any[],
+        joins: [] as any[],
+        selects: [] as any[],
+        orderBys: [] as any[],
+        groups: [] as any[],
+        limits: 0,
+        offsets: 0,
+      }
+      return makeBuilder(ops, true)
+    }
     const parsed = parseTableSpec(tableArg)
     const ops = {
       table: parsed.table,
@@ -355,6 +398,8 @@ describe('BasicQueryEngine (Kysely)', () => {
     const fakeDb = createFakeKysely({
       customer_entities: [],
       customer_people: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
       'information_schema.columns': [
         { table_name: 'customer_entities', column_name: 'tenant_id' },
         { table_name: 'customer_people', column_name: 'id' },
@@ -362,8 +407,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
-    jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('customers:customer_entity', {
@@ -409,7 +452,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(false)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('customers:customer_entity', {
@@ -445,10 +487,10 @@ describe('BasicQueryEngine (Kysely)', () => {
   test('uses search tokens for index document fields on base entities', async () => {
     const fakeDb = createFakeKysely({
       todos: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    const tableExistsSpy = jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
-    const hasSearchTokensSpy = jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('example:todo', {
@@ -461,12 +503,15 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(tableExistsSpy).toHaveBeenCalledWith('search_tokens')
-    expect(hasSearchTokensSpy).toHaveBeenCalledWith(
-      'example:todo',
-      't1',
-      expect.objectContaining({ ids: ['org1'] }),
-    )
+    const calls = fakeDb._calls as Array<{ _ops: { table: string; wheres: unknown[][] } }>
+    const tableProbe = calls.find((call) =>
+      call._ops.table === 'information_schema.tables' &&
+      call._ops.wheres.some((where) => where[0] === 'table_name' && where[2] === 'search_tokens'))
+    expect(tableProbe).toBeTruthy()
+    const tokenProbe = calls.find((call) =>
+      call._ops.table === 'search_tokens' &&
+      call._ops.wheres.some((where) => where[0] === 'entity_type' && where[2] === 'example:todo'))
+    expect(tokenProbe).toBeTruthy()
     expect(applySearchTokensSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -475,6 +520,36 @@ describe('BasicQueryEngine (Kysely)', () => {
         recordIdColumn: 'todos.id',
       }),
     )
+  })
+
+  test('bypasses search-token filtering when automatic scope is explicitly disabled', async () => {
+    const fakeDb = createFakeKysely({
+      todos: [],
+      'information_schema.tables': [
+        { table_name: 'search_tokens' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'todos', column_name: 'search_text' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('example:todo', {
+      tenantId: 't1',
+      fields: ['id'],
+      omitAutomaticTenantOrgScope: true,
+      filters: {
+        search_text: { $ilike: '%avision%' },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const calls = fakeDb._calls as Array<{ _ops: { table: string } }>
+    expect(calls.some((call) => call._ops.table === 'search_tokens')).toBe(false)
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === 'todos')
+    expect(baseCall?._ops.wheres).toContainEqual(['todos.search_text', 'ilike', '%avision%'])
   })
 
   test('join filters use whereExists with configured alias', async () => {
@@ -642,9 +717,257 @@ describe('BasicQueryEngine (Kysely)', () => {
     })
 
     expect(result.items.map((item: any) => item.display_name)).toEqual(['Charlie', 'Dave'])
-    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'customer_entities')
-    expect(baseCall._ops.orderBys).toEqual([])
-    expect(baseCall._ops.limits).toBe(0)
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    expect(baseCalls.length).toBe(3)
+    // qFull ('full' projection) is built first (used for phase 2), then the
+    // 'count' projection (the bounded count probe), then 'sortKeys' (phase 1).
+    const [phase2Call, , phase1Call] = baseCalls
+    // Phase 1 (slim id+sort-column scan): no SQL order/limit — the full candidate
+    // set is fetched, decrypted, and sorted in memory.
+    expect(phase1Call._ops.orderBys).toEqual([])
+    expect(phase1Call._ops.limits).toBe(0)
+    // Phase 2 (full-row fetch for the page's ids): filtered by `id in [...]`, no
+    // SQL order/limit needed since the id list already bounds it to the page.
+    expect(phase2Call._ops.orderBys).toEqual([])
+    expect(phase2Call._ops.limits).toBe(0)
+    expect(phase2Call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'customer_entities.id' && w[1] === 'in')).toBe(true)
+  })
+
+  test('sorts encrypted base fields in all-organization scope', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+        { id: '2', tenant_id: 't1', organization_id: 'org2', display_name: 'cipher-a' },
+        { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Combocompany',
+      '2': 'Aardvark Solutions',
+      '3': 'Beta Corp',
+    }
+    const orgById: Record<string, string> = {
+      '1': 'org1',
+      '2': 'org2',
+      '3': 'org1',
+    }
+    const encryptedFieldLookups: Array<string | null | undefined> = []
+    const decryptScopes: Array<string | null> = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async (_entityId, _tenantId, organizationId) => {
+          encryptedFieldLookups.push(organizationId)
+          return organizationId == null ? ['display_name'] : []
+        },
+        decryptEntityPayload: async (_entityId, payload, _tenantId, organizationId) => {
+          decryptScopes.push(organizationId ?? null)
+          const id = String(payload.id)
+          return organizationId === orgById[id] ? { display_name: namesById[id] } : {}
+        },
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationIds: ['org1', 'org2'],
+      fields: ['id', 'display_name', 'organization_id'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 3 },
+    })
+
+    expect(encryptedFieldLookups).toEqual([null])
+    expect(decryptScopes.slice(0, 3)).toEqual(['org1', 'org2', 'org1'])
+    expect(decryptScopes).toEqual(expect.arrayContaining(['org1', 'org2']))
+    expect(result.items.map((item: any) => item.display_name)).toEqual([
+      'Aardvark Solutions',
+      'Beta Corp',
+      'Combocompany',
+    ])
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    const [phase2Call, phase1Call] = baseCalls
+    expect(phase1Call._ops.orderBys).toEqual([])
+    expect(phase2Call._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'customer_entities.id' && w[1] === 'in')).toBe(true)
+  })
+
+  test('paginates encrypted-sorted results correctly on page 1 and the tail page', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+        { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+        { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+        { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+        { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'organization_id' },
+        { table_name: 'customer_entities', column_name: 'deleted_at' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const namesById: Record<string, string> = {
+      '1': 'Alice', '2': 'Bob', '3': 'Charlie', '4': 'Dave', '5': 'Eve',
+    }
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async (_entityId, payload) => ({
+          display_name: namesById[String(payload.id)],
+        }),
+      }),
+    )
+
+    const page1 = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 2 },
+    })
+    expect(page1.items.map((item: any) => item.display_name)).toEqual(['Alice', 'Bob'])
+
+    const page3 = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 3, pageSize: 2 },
+    })
+    expect(page3.items.map((item: any) => item.display_name)).toEqual(['Eve'])
+  })
+
+  describe('OM_ENCRYPTED_SORT_MAX_ROWS cap', () => {
+    const originalEnv = process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+
+    afterEach(() => {
+      if (originalEnv === undefined) delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+      else process.env.OM_ENCRYPTED_SORT_MAX_ROWS = originalEnv
+    })
+
+    function buildFixture() {
+      const fakeDb = createFakeKysely({
+        customer_entities: [
+          { id: '3', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-c' },
+          { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+          { id: '5', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-e' },
+          { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+          { id: '4', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-d' },
+        ],
+        'information_schema.columns': [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+      })
+      const namesById: Record<string, string> = {
+        '1': 'Alice', '2': 'Bob', '3': 'Charlie', '4': 'Dave', '5': 'Eve',
+      }
+      const engine = new BasicQueryEngine(
+        {} as any,
+        () => fakeDb as any,
+        () => ({
+          isEnabled: () => true,
+          getEncryptedFieldNames: async () => ['display_name'],
+          decryptEntityPayload: async (_entityId, payload) => ({
+            display_name: namesById[String(payload.id)],
+          }),
+        }),
+      )
+      return { fakeDb, engine }
+    }
+
+    test('unset: no limit on the phase-1 scan, no warning', async () => {
+      delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+      const { fakeDb, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id', 'display_name'],
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toBeUndefined()
+      const [, , phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+      expect(phase1Call._ops.limits).toBe(0)
+    })
+
+    test('set but not exceeded: no warning, identical results to uncapped', async () => {
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '10'
+      const { fakeDb, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id', 'display_name'],
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toBeUndefined()
+      expect(result.items.map((item: any) => item.display_name)).toEqual(['Alice', 'Bob'])
+    })
+
+    test('set and exceeded: caps + orders the phase-1 scan and attaches a warning', async () => {
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '3'
+      const { fakeDb, engine } = buildFixture()
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id', 'display_name'],
+        sort: [{ field: 'display_name', dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 2 },
+      })
+      expect(result.meta?.encryptedSortRowCapWarning).toEqual({
+        entity: 'customers:customer_entity',
+        sortFields: ['display_name'],
+        maxRows: 3,
+        totalMatched: 5,
+      })
+      const [, , phase1Call] = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+      // cap + 1 probe: truncation is detected from the candidate scan itself,
+      // not by comparing against a (possibly capped) total.
+      expect(phase1Call._ops.limits).toBe(4)
+      expect(phase1Call._ops.orderBys).toEqual([['customer_entities.id', 'asc']])
+    })
+
+    test('still warns when the list count itself is capped below the matched set', async () => {
+      // The old detection compared `total > sortCap`; with OM_LIST_COUNT_CAP at or
+      // below the sort cap that comparison can never fire. The probe must warn anyway.
+      process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '3'
+      process.env.OM_LIST_COUNT_CAP = '3'
+      try {
+        const { engine } = buildFixture()
+        const result = await engine.query('customers:customer_entity', {
+          tenantId: 't1',
+          organizationId: 'org1',
+          fields: ['id', 'display_name'],
+          sort: [{ field: 'display_name', dir: SortDir.Asc }],
+          page: { page: 1, pageSize: 2 },
+        })
+        expect(result.total).toBe(3)
+        expect(result.meta?.listCountCapWarning).toEqual({ entity: 'customers:customer_entity', cap: 3 })
+        expect(result.meta?.encryptedSortRowCapWarning).toMatchObject({
+          entity: 'customers:customer_entity',
+          maxRows: 3,
+        })
+      } finally {
+        delete process.env.OM_LIST_COUNT_CAP
+      }
+    })
   })
 
   test('keeps SQL ordering and pagination for unencrypted base fields', async () => {
@@ -681,5 +1004,414 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
     expect(baseCall._ops.limits).toBe(10)
     expect(baseCall._ops.offsets).toBe(10)
+  })
+
+  describe('OM_LIST_COUNT_CAP boundary', () => {
+    const originalCap = process.env.OM_LIST_COUNT_CAP
+    afterEach(() => {
+      if (originalCap === undefined) delete process.env.OM_LIST_COUNT_CAP
+      else process.env.OM_LIST_COUNT_CAP = originalCap
+    })
+
+    function buildFixture(rowCount: number) {
+      const rows = Array.from({ length: rowCount }, (_, i) => ({
+        id: String(i + 1), tenant_id: 't1', organization_id: 'org1', display_name: `Row ${i + 1}`,
+      }))
+      const fakeDb = createFakeKysely({
+        customer_entities: rows,
+        'information_schema.columns': [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+      })
+      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+      return { fakeDb, engine }
+    }
+
+    const query = (engine: BasicQueryEngine) => engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      page: { page: 1, pageSize: 2 },
+    })
+
+    test('cap - 1 matching rows: exact total, no flag', async () => {
+      process.env.OM_LIST_COUNT_CAP = '5'
+      const { engine } = buildFixture(4)
+      const result = await query(engine)
+      expect(result.total).toBe(4)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+    })
+
+    test('exactly cap matching rows: exact total, no flag — a genuine total of cap is not mislabeled', async () => {
+      process.env.OM_LIST_COUNT_CAP = '5'
+      const { engine } = buildFixture(5)
+      const result = await query(engine)
+      expect(result.total).toBe(5)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+    })
+
+    test('cap + 1 matching rows: total reports cap (not the probe value) with the warning', async () => {
+      process.env.OM_LIST_COUNT_CAP = '5'
+      const { engine } = buildFixture(6)
+      const result = await query(engine)
+      expect(result.total).toBe(5)
+      expect(result.meta?.listCountCapWarning).toEqual({ entity: 'customers:customer_entity', cap: 5 })
+    })
+
+    test('OM_LIST_COUNT_CAP=0: exact totals however large the set', async () => {
+      process.env.OM_LIST_COUNT_CAP = '0'
+      const { engine } = buildFixture(7)
+      const result = await query(engine)
+      expect(result.total).toBe(7)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+    })
+
+    test('unparseable value falls back to the default cap rather than disabling it', async () => {
+      process.env.OM_LIST_COUNT_CAP = 'not-a-number'
+      const { fakeDb, engine } = buildFixture(3)
+      const result = await query(engine)
+      expect(result.total).toBe(3)
+      const outer = fakeDb._calls.find((call: any) => call._ops.table === '__subquery__')
+      expect(outer._ops.subquery.limits).toBe(10_001)
+    })
+  })
+
+  // A tiebreak sort is only worth configuring if the engine actually emits it.
+  // `list.tiebreakSortField` (used by the sales line routes to keep lines with an
+  // equal `line_number` in a repeatable order) is the first caller to pass more
+  // than one sort element, so pin that every element reaches ORDER BY in order —
+  // dropping sort[1] would silently restore the non-determinism it exists to fix.
+  test('emits every sort element as an ORDER BY column, in order', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'b', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Asc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'asc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
+  })
+
+  test('keeps each sort element on its own direction', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 1 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Desc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'desc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
+  })
+
+  describe('search_tokens coverage probe (#4723 parity)', () => {
+    type ProbeDbLog = { _calls: Array<{ _ops: { table: string } }> }
+
+    const countProbes = (fakeDb: ProbeDbLog): number =>
+      fakeDb._calls.filter((call) => call._ops.table === 'search_tokens').length
+
+    const buildEngine = (fakeDb: unknown): BasicQueryEngine => new BasicQueryEngine(
+      {} as ConstructorParameters<typeof BasicQueryEngine>[0],
+      (() => fakeDb) as unknown as NonNullable<ConstructorParameters<typeof BasicQueryEngine>[1]>,
+    )
+
+    const buildDb = () => createFakeKysely({
+      users: [],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
+    })
+
+    test('is skipped when the query carries no like/ilike filter', async () => {
+      const fakeDb = buildDb()
+      const engine = buildEngine(fakeDb)
+
+      await engine.query('auth:user', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        filters: { is_active: { $eq: true } },
+      })
+
+      expect(countProbes(fakeDb)).toBe(0)
+    })
+
+    test('still runs when the query actually searches', async () => {
+      const fakeDb = buildDb()
+      const engine = buildEngine(fakeDb)
+
+      await engine.query('auth:user', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        filters: { email: { $ilike: '%abc%' } },
+      })
+
+      expect(countProbes(fakeDb)).toBeGreaterThan(0)
+    })
+  })
+})
+
+describe('BasicQueryEngine entity-extension joins', () => {
+  function extensionJoins(fakeDb: any, baseTable: string): any[] {
+    const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === baseTable)
+    expect(baseCall).toBeTruthy()
+    return baseCall._ops.joins.filter((entry: any) => Object.keys(entry.aliasObj)[0].startsWith('ext_'))
+  }
+
+  async function joinFor(entity: string, baseTable: string): Promise<any> {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query(entity, {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      includeExtensions: true,
+    })
+    const joins = extensionJoins(fakeDb, baseTable)
+    expect(joins).toHaveLength(1)
+    return joins[0]
+  }
+
+  test('prefers a declared table over the derived plural', async () => {
+    const join = await joinFor('customers:customer_entity', 'customer_entities')
+    expect(join.aliasObj).toEqual({ ext_example_customer_priority: 'example_customer_priorities' })
+    expect(join.conditions).toEqual([
+      {
+        method: 'on',
+        args: ['ext_example_customer_priority.customer_id', '=', 'customer_entities.id'],
+      },
+    ])
+  })
+
+  test('falls back to the derived plural when no table is declared', async () => {
+    // `policy` ends in `y`, so the correct plural is `policies`. This previously asserted
+    // `policys`, pinning a separate inline `+s` pluralizer that the extension-join path used
+    // instead of the file's own `pluralizeBaseName` — the very bug that made
+    // `example_customer_priority` derive `example_customer_prioritys` and forced the
+    // `table` override into existence.
+    const join = await joinFor('auth:role', 'roles')
+    expect(join.aliasObj).toEqual({ ext_example_role_policy: 'example_role_policies' })
+    expect(join.conditions).toEqual([
+      { method: 'on', args: ['ext_example_role_policy.role_id', '=', 'roles.id'] },
+    ])
+  })
+
+  test('ignores a declared table that is not a bare identifier', async () => {
+    const join = await joinFor('auth:session', 'sessions')
+    expect(join.aliasObj).toEqual({ ext_example_session_note: 'example_session_notes' })
+  })
+})
+
+describe('BasicQueryEngine like/ilike routing by column encryption', () => {
+  // The gate is opt-in: OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS defaults to false and the
+  // legacy rewrite-everything behavior stays. These cases flip it on; the last one pins the
+  // default off.
+  beforeEach(() => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
+  })
+  afterEach(() => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  })
+
+  // The token rewrite exists because ILIKE against ciphertext cannot match. On a plaintext
+  // column SQL ILIKE is exact, and the rewrite silently changes the result set: tokenization
+  // splits on non-alphanumerics and drops tokens shorter than minTokenLength, so a
+  // document-number search like "ZK 1/2026" degrades to the tokens {202, 2026} and matches
+  // every record from that year instead of the one document.
+  const fakeDbWithTokens = () => createFakeKysely({
+    customer_entities: [],
+    search_tokens: [{ one: 1 }],
+    'information_schema.tables': [{ table_name: 'search_tokens' }],
+    'information_schema.columns': [
+      { table_name: 'customer_entities', column_name: 'tenant_id' },
+      { table_name: 'customer_entities', column_name: 'display_name' },
+    ],
+  })
+
+  test('a plaintext base column keeps exact SQL ILIKE even when tokens are available', async () => {
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%ZK 1/2026%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    expect(baseCall).toBeTruthy()
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%ZK 1/2026%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+
+  test('an encrypted base column still routes through search tokens', async () => {
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDbWithTokens() as any,
+      () => ({ getEncryptedFieldNames: async () => ['display_name'] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('no service + encryption disabled: nothing is ciphertext, ILIKE stays exact', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    try {
+      const fakeDb = fakeDbWithTokens()
+      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+      const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+      await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        filters: { display_name: { $ilike: '%avision%' } },
+        page: { page: 1, pageSize: 10 },
+      })
+
+      expect(applySearchTokensSpy).not.toHaveBeenCalled()
+      const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+      const ilikeWhere = baseCall._ops.wheres.some(
+        (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%avision%',
+      )
+      expect(ilikeWhere).toBe(true)
+    } finally {
+      delete process.env.TENANT_DATA_ENCRYPTION
+    }
+  })
+
+  test('no service + encryption enabled: the map is unknown, the token rewrite is kept', async () => {
+    // A swallowed DI failure looks exactly like "no service". Guessing "plaintext" here would
+    // run ILIKE against ciphertext (zero rows, silently) -- so the gate stays inert instead.
+    const engine = new BasicQueryEngine({} as any, () => fakeDbWithTokens() as any)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('a camelCase encryption-map entry still routes its column through tokens', async () => {
+    // Encryption maps may declare `displayName` while the filter carries the column name
+    // `display_name` (TenantDataEncryptionService resolves both). A raw name comparison would
+    // misread that ciphertext column as plaintext and run ILIKE against ciphertext -- zero rows,
+    // silently. The gate must match across name shapes.
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDbWithTokens() as any,
+      () => ({ getEncryptedFieldNames: async () => ['displayName'] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('with the flag off (default) the token rewrite is kept even for plaintext columns', () => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    return engine
+      .query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        filters: { display_name: { $ilike: '%avision%' } },
+        page: { page: 1, pageSize: 10 },
+      })
+      .then(() => {
+        expect(applySearchTokensSpy).toHaveBeenCalled()
+      })
   })
 })

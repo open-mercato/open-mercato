@@ -24,6 +24,7 @@ import {
   requireProduct,
 } from './shared'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 
 type OfferSnapshot = {
@@ -89,6 +90,24 @@ async function loadOfferSnapshot(em: EntityManager, id: string): Promise<OfferSn
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
+  }
+}
+
+function offerSeedFromSnapshot(snapshot: OfferSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    product: snapshot.productId,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    channelId: snapshot.channelId,
+    title: snapshot.title,
+    description: snapshot.description ?? null,
+    defaultMediaId: snapshot.defaultMediaId ?? null,
+    defaultMediaUrl: snapshot.defaultMediaUrl ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
   }
 }
 
@@ -204,6 +223,31 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
       })
     }
   },
+  redo: makeCreateRedo<CatalogOffer, OfferSnapshot, OfferCreateInput, { offerId: string }>({
+    entityClass: CatalogOffer,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: offerSeedFromSnapshot,
+    buildResult: (entity) => ({ offerId: entity.id }),
+    afterRestore: async ({ ctx, entity, snapshot }) => {
+      if (snapshot.custom && Object.keys(snapshot.custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_offer,
+          recordId: entity.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          values: snapshot.custom,
+        })
+      }
+      await emitCatalogQueryIndexEvent(ctx, {
+        entityType: E.catalog.catalog_offer,
+        recordId: entity.id,
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+        action: 'created',
+      })
+    },
+  }),
 }
 
 const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> = {

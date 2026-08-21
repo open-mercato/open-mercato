@@ -191,6 +191,7 @@
   "resources.errors.unauthorized": "Nicht autorisiert",
   "resources.nav.group": "Ressourcenplanung",
   "resources.resourceTypes.actions.add": "Ressourcentyp hinzufügen",
+  "resources.resourceTypes.actions.backToList": "Zurück zu Ressourcentypen",
   "resources.resourceTypes.actions.delete": "Löschen",
   "resources.resourceTypes.actions.deleteConfirm": "Ressourcentyp \"{{name}}\" löschen?",
   "resources.resourceTypes.actions.edit": "Bearbeiten",

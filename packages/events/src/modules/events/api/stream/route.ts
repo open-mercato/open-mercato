@@ -9,8 +9,14 @@
  */
 
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
-import { registerCrossProcessEventListener, registerGlobalEventTap } from '../../../../bus'
+import {
+  CROSS_PROCESS_EVENT_INSTANCE_ID,
+  registerCrossProcessEventListener,
+  registerGlobalEventTap,
+} from '../../../../bus'
+import type { EmitOptions } from '../../../../types'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -18,6 +24,8 @@ export const metadata = {
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4096
+
+const logger = createLogger('events').child({ component: 'stream' })
 
 type SseConnection = {
   tenantId: string
@@ -40,19 +48,36 @@ function collectStringValues(input: unknown): string[] {
   return values
 }
 
-function normalizeAudience(data: Record<string, unknown>): {
+function normalizeAudience(data: Record<string, unknown>, options?: EmitOptions): {
   tenantId: string | null
   organizationScopes: string[]
   recipientUserScopes: string[]
   recipientRoleScopes: string[]
 } {
-  const tenantId = typeof data.tenantId === 'string' ? data.tenantId : null
+  const hasTrustedScope = options != null
+    && Object.prototype.hasOwnProperty.call(options, 'tenantId')
+  const trustedTenantId = typeof options?.tenantId === 'string' && options.tenantId.trim().length > 0
+    ? options.tenantId.trim()
+    : null
+  const tenantId = hasTrustedScope
+    ? trustedTenantId
+    : (typeof data.tenantId === 'string' ? data.tenantId : null)
   const organizationScopes = new Set<string>()
-  if (typeof data.organizationId === 'string' && data.organizationId.trim().length > 0) {
-    organizationScopes.add(data.organizationId.trim())
-  }
-  for (const organizationId of collectStringValues(data.organizationIds)) {
-    organizationScopes.add(organizationId)
+  const trustedOrganizationId = typeof options?.organizationId === 'string' && options.organizationId.trim().length > 0
+    ? options.organizationId.trim()
+    : null
+  if (hasTrustedScope) {
+    if (trustedOrganizationId) organizationScopes.add(trustedOrganizationId)
+    for (const organizationId of collectStringValues(options?.organizationIds)) {
+      organizationScopes.add(organizationId)
+    }
+  } else {
+    if (typeof data.organizationId === 'string' && data.organizationId.trim().length > 0) {
+      organizationScopes.add(data.organizationId.trim())
+    }
+    for (const organizationId of collectStringValues(data.organizationIds)) {
+      organizationScopes.add(organizationId)
+    }
   }
 
   const recipientUserScopes = new Set<string>()
@@ -109,13 +134,17 @@ const connections = new Set<SseConnection>()
 
 let globalTapRegistered = false
 
-async function broadcastEventToConnections(eventName: string, payload: Record<string, unknown>): Promise<void> {
+async function broadcastEventToConnections(
+  eventName: string,
+  payload: Record<string, unknown>,
+  options?: EmitOptions,
+): Promise<void> {
   if (!eventName || connections.size === 0) return
 
   if (!isBroadcastEvent(eventName)) return
 
   const data = payload ?? {}
-  const audience = normalizeAudience(data)
+  const audience = normalizeAudience(data, options)
 
   const organizationId = audience.organizationScopes[0] ?? ''
   let ssePayload = buildSsePayload(eventName, data, organizationId)
@@ -123,7 +152,7 @@ async function broadcastEventToConnections(eventName: string, payload: Record<st
   if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
     ssePayload = buildTruncatedPayload(eventName, data, organizationId)
     if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
-      console.warn(`[events:stream] Event ${eventName} payload exceeds ${MAX_PAYLOAD_BYTES} bytes, skipping`)
+      logger.warn('Event payload exceeds size limit, skipping', { event: eventName, maxBytes: MAX_PAYLOAD_BYTES })
       return
     }
   }
@@ -177,15 +206,21 @@ function ensureGlobalTapSubscription(): void {
   if (globalTapRegistered) return
   globalTapRegistered = true
 
-  registerGlobalEventTap(async (eventName, payload) => {
-    await broadcastEventToConnections(eventName, (payload ?? {}) as Record<string, unknown>)
+  registerGlobalEventTap(async (eventName, payload, options) => {
+    await broadcastEventToConnections(eventName, (payload ?? {}) as Record<string, unknown>, options)
   })
 
   registerCrossProcessEventListener(async (envelope) => {
-    if (envelope.originPid === process.pid) return
+    // Every envelope this process publishes carries originInstanceId, so an
+    // envelope without one can only come from an older process during a
+    // rolling deploy and is always foreign. Falling back to originPid would
+    // discard it whenever both containers run under the same pid — commonly
+    // pid 1 — silently dropping browser events across the upgrade window.
+    if (envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID) return
     await broadcastEventToConnections(
       envelope.event,
       (envelope.payload ?? {}) as Record<string, unknown>,
+      envelope.options,
     )
   })
 }

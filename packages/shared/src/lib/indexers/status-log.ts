@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import type { IndexerErrorSource } from './error-log'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'indexers' })
 
 export type IndexerLogLevel = 'info' | 'warn'
 
@@ -55,6 +58,21 @@ function pickDb(deps: RecordIndexerLogDeps): Kysely<any> | null {
   return null
 }
 
+/**
+ * Indexer status logging is best-effort observability and must never ride on —
+ * or be noisy about — the caller's transaction lifecycle. When index maintenance
+ * runs inline on a request `em` (e.g. an inline force reindex that emits the
+ * vector-purge subscriber), the captured Kysely can be a transaction handle that
+ * has already committed/rolled back, so a follow-up read/write throws
+ * "Transaction is already committed". Treat that class of error as a quiet skip
+ * rather than an error the operator must triage. A fresh-EM path (the events
+ * worker) never hits this; this guard only de-noises the inline path.
+ */
+function isInactiveTransactionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  return /transaction is already (committed|rolled back)/i.test(message)
+}
+
 async function pruneExcessLogs(db: Kysely<any>, source: IndexerErrorSource): Promise<void> {
   const rows = await db
     .selectFrom('indexer_status_logs' as any)
@@ -81,7 +99,7 @@ export async function recordIndexerLog(
 ): Promise<void> {
   const db = pickDb(deps)
   if (!db) {
-    console.warn('[indexers] Unable to record indexer log (missing db connection)', {
+    logger.warn('Unable to record indexer log (missing db connection)', {
       source: input.source,
       handler: input.handler,
     })
@@ -110,13 +128,19 @@ export async function recordIndexerLog(
       } as any)
       .execute()
   } catch (error) {
-    console.error('[indexers] Failed to persist indexer log', error)
+    // A committed/rolled-back caller transaction is an expected, harmless
+    // condition for best-effort logging — skip quietly instead of surfacing it.
+    if (!isInactiveTransactionError(error)) {
+      logger.error('Failed to persist indexer log', { err: error })
+    }
     return
   }
 
   try {
     await pruneExcessLogs(db, input.source)
   } catch (pruneError) {
-    console.warn('[indexers] Failed to prune indexer logs', pruneError)
+    if (!isInactiveTransactionError(pruneError)) {
+      logger.warn('Failed to prune indexer logs', { err: pruneError })
+    }
   }
 }

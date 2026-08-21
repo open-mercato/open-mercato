@@ -2343,6 +2343,16 @@
         },
         {
           "columnNames": [
+            "document_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_document_tag_assignments_document_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "tag_id",
             "document_id",
             "document_kind"

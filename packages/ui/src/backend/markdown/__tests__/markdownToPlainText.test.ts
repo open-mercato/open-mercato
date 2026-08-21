@@ -26,4 +26,17 @@ describe('markdownToPlainText', () => {
     const input = '> quoted text\n\n~~gone~~\n\n| a | b |\n| - | - |\n| 1 | 2 |'
     expect(markdownToPlainText(input)).toBe('quoted text gone a b - - 1 2')
   })
+
+  it('strips legacy HTML tags and separates block content', () => {
+    expect(markdownToPlainText('<span style="font-weight:bold">Backend</span> and frontend')).toBe(
+      'Backend and frontend',
+    )
+    expect(markdownToPlainText('<p>Hello</p><p>World</p>')).toBe('Hello World')
+  })
+
+  it('decodes named, decimal, and hex HTML entities', () => {
+    expect(markdownToPlainText('Tom &amp; Jerry')).toBe('Tom & Jerry')
+    expect(markdownToPlainText('it&#39;s &#x2014; done')).toBe("it's — done")
+    expect(markdownToPlainText('a&nbsp;b')).toBe('a b')
+  })
 })

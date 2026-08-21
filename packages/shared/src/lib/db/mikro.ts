@@ -4,6 +4,9 @@ import { MikroORM } from '@mikro-orm/core'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { getSslConfig } from './ssl'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'orm' })
 
 export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
 
@@ -22,7 +25,7 @@ function setRegisteredEntities(entities: any[]): void {
 
 export function registerOrmEntities(entities: any[]) {
   if (getRegisteredEntities() !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] ORM entities re-registered (this may occur during HMR)')
+    logger.debug('ORM entities re-registered (this may occur during HMR)')
   }
   setRegisteredEntities(entities)
 }
@@ -33,6 +36,83 @@ export function getOrmEntities(): any[] {
     throw new Error('[Bootstrap] ORM entities not registered. Call registerOrmEntities() at bootstrap.')
   }
   return entities
+}
+
+export type ResolvedPoolConfig = {
+  poolMin: number
+  poolMax: number
+  poolIdleTimeout: number
+  poolAcquireTimeout: number
+  idleSessionTimeoutMs: number | undefined
+  idleInTransactionTimeoutMs: number | undefined
+  statementTimeoutMs: number | undefined
+  lockTimeoutMs: number | undefined
+}
+
+// Parse an optional positive-millisecond env var. Returns undefined when unset,
+// non-numeric, or non-positive so callers treat "no value" as "no timeout".
+function parsePositiveIntEnv(raw: string | undefined): number | undefined {
+  const parsed = parseInt(raw || '')
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+export function resolvePoolConfig(env: NodeJS.ProcessEnv = process.env): ResolvedPoolConfig {
+  const idleSessionTimeoutEnv = parseInt(env.DB_IDLE_SESSION_TIMEOUT_MS || '')
+  const idleInTxTimeoutEnv = parseInt(env.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS || '')
+  return {
+    poolMin: parseInt(env.DB_POOL_MIN || '2'),
+    poolMax: parseInt(env.DB_POOL_MAX || '20'),
+    poolIdleTimeout: parseInt(env.DB_POOL_IDLE_TIMEOUT || '3000'),
+    poolAcquireTimeout: parseInt(env.DB_POOL_ACQUIRE_TIMEOUT || '6000'),
+    idleSessionTimeoutMs: Number.isFinite(idleSessionTimeoutEnv)
+      ? idleSessionTimeoutEnv
+      : env.NODE_ENV === 'production'
+        ? undefined
+        : 600_000,
+    // Finite default in every environment (including production) so a leaked or idle
+    // open transaction cannot pin a pool connection indefinitely and exhaust the pool.
+    // Mirrors the long-standing dev value; override (incl. 0 to disable) via env.
+    idleInTransactionTimeoutMs: Number.isFinite(idleInTxTimeoutEnv) ? idleInTxTimeoutEnv : 120_000,
+    // Opt-in guards against runaway statements and lock waits. No timeout when unset.
+    statementTimeoutMs: parsePositiveIntEnv(env.DB_STATEMENT_TIMEOUT_MS),
+    lockTimeoutMs: parsePositiveIntEnv(env.DB_LOCK_TIMEOUT_MS),
+  }
+}
+
+type PoolLike = {
+  on(event: 'error', listener: (err: unknown) => void): unknown
+  on(event: 'connect', listener: (client: { on(event: 'error', listener: (err: unknown) => void): unknown }) => void): unknown
+  options?: Record<string, unknown>
+}
+
+// Postgres can terminate a connection at any moment (admin termination, network
+// drop, and — most relevantly for long-running daemons — the
+// `idle_in_transaction_session_timeout` configured above, FATAL 25P03). Where
+// node-postgres surfaces that depends on the client's state:
+// - IDLE (checked into the pool): pg-pool re-emits on the pool's 'error' event.
+// - CHECKED OUT (e.g. a connection pinned by an open transaction while the app
+//   awaits non-DB work): pg-pool removes its idle listener, so the FATAL emits
+//   on the Client itself.
+// Either way an unlistened 'error' event crashes the whole process ("Scheduler
+// polling engine exited unexpectedly with exit code 1"). Swallow both: the pool
+// discards the dead client, and any in-flight transaction still fails normally
+// on its next query/commit against the dead connection.
+// The per-client listener is deliberately attached once on 'connect' and never
+// removed: it is a last-resort sink whose only job is to guarantee the 'error'
+// event always has a listener, in every client state. It is not error handling
+// and must not be "cleaned up" — removing it reintroduces the process crash.
+// A reaped IDLE client therefore logs twice (once here, once via the pool-level
+// handler that pg-pool's own idle listener re-emits); the pool-level line is the
+// one that identifies the client as idle.
+export function attachPoolErrorHandlers(pool: PoolLike): void {
+  pool.on('error', (err: unknown) => {
+    logger.warn('Idle pg pool client error (connection reaped/terminated)', { err })
+  })
+  pool.on('connect', (client) => {
+    client.on('error', (err: unknown) => {
+      logger.warn('pg client error (connection reaped/terminated)', { err })
+    })
+  })
 }
 
 export async function getOrm() {
@@ -47,22 +127,16 @@ export async function getOrm() {
   }
 
   // Parse connection pool settings from environment
-  const poolMin = parseInt(process.env.DB_POOL_MIN || '2')
-  const poolMax = parseInt(process.env.DB_POOL_MAX || '20')
-  const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '3000')
-  const poolAcquireTimeout = parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '6000')
-  const idleSessionTimeoutEnv = parseInt(process.env.DB_IDLE_SESSION_TIMEOUT_MS || '')
-  const idleInTxTimeoutEnv = parseInt(process.env.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS || '')
-  const idleSessionTimeoutMs = Number.isFinite(idleSessionTimeoutEnv)
-    ? idleSessionTimeoutEnv
-    : process.env.NODE_ENV === 'production'
-      ? undefined
-      : 600_000
-  const idleInTransactionTimeoutMs = Number.isFinite(idleInTxTimeoutEnv)
-    ? idleInTxTimeoutEnv
-    : process.env.NODE_ENV === 'production'
-      ? undefined
-      : 120_000
+  const {
+    poolMin,
+    poolMax,
+    poolIdleTimeout,
+    poolAcquireTimeout,
+    idleSessionTimeoutMs,
+    idleInTransactionTimeoutMs,
+    statementTimeoutMs,
+    lockTimeoutMs,
+  } = resolvePoolConfig()
   const connectionOptions =
     idleSessionTimeoutMs && idleSessionTimeoutMs > 0
       ? `-c idle_session_timeout=${idleSessionTimeoutMs}`
@@ -71,13 +145,15 @@ export async function getOrm() {
   const sslConfig = getSslConfig()
 
   if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
-    console.log('[orm] pool config', {
+    logger.info('Pool config', {
       poolMin,
       poolMax,
       poolIdleTimeout,
       poolAcquireTimeout,
       idleSessionTimeoutMs,
       idleInTransactionTimeoutMs,
+      statementTimeoutMs,
+      lockTimeoutMs,
       nodeEnv: process.env.NODE_ENV,
     })
   }
@@ -107,11 +183,14 @@ export async function getOrm() {
     driverOptions: {
       connectionTimeoutMillis: poolAcquireTimeout,
       idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
+      statement_timeout: statementTimeoutMs,
+      lock_timeout: lockTimeoutMs,
       options: connectionOptions,
       ssl: sslConfig,
-      onPoolCreated: (pool: any) => {
+      onPoolCreated: (pool: PoolLike) => {
+        attachPoolErrorHandlers(pool)
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
-          console.log('[orm] pg pool created with options', {
+          logger.info('pg pool created with options', {
             max: pool.options?.max,
             min: pool.options?.min,
             idleTimeoutMillis: pool.options?.idleTimeoutMillis,

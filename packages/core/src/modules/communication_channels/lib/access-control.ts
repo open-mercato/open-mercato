@@ -1,4 +1,4 @@
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 /**
  * Per-user channel access control — service-layer authorization helpers.
@@ -16,6 +16,48 @@ import { hasFeature } from '@open-mercato/shared/security/features'
  */
 
 export const ADMIN_FEATURE = 'communication_channels.admin'
+
+/**
+ * Org-scoping fragment for reading/managing channels.
+ *
+ * Tenant-wide channels are stored with `organization_id IS NULL` (the
+ * tenant-scoped push providers FCM/APNs/Expo do this deliberately — see
+ * `connect-credential-channel.ts`). They are visible and manageable from ANY
+ * org in the tenant, so a read scoped to the caller's selected org must also
+ * match the NULL rows; otherwise a channel connected while an admin had a
+ * non-null org would be invisible to every listing/detail query (and vice
+ * versa). Org-scoped channels (`organization_id = <org>`) stay scoped to their
+ * org.
+ *
+ * Spread the result into a MikroORM `where` object alongside `tenantId` etc.
+ */
+export function channelOrgScopeWhere(
+  orgId: string | null | undefined,
+): Record<string, unknown> {
+  return orgId
+    ? { $or: [{ organizationId: orgId }, { organizationId: null }] }
+    : { organizationId: null }
+}
+
+/**
+ * Same NULL-inclusive org scoping, expressed over a resolved
+ * `OrganizationScopeFilter` (`resolveOrganizationScopeFilter`) rather than a
+ * single org id.
+ *
+ * Read routes scope on the caller's *selected* organization (the
+ * `om_selected_org` cookie the top-bar switcher writes), not on the org baked
+ * into the session token (#5012) — that resolution yields a list of org ids, or
+ * `undefined` when the caller is unrestricted (super-admin viewing all orgs).
+ * An unrestricted caller sees every channel in the tenant, so the fragment is
+ * empty; a restricted one gets their orgs plus the tenant-wide (`NULL`) rows.
+ */
+export function channelOrgScopeWhereFromFilter(
+  filter: { organizationIds: string[] | undefined } | null | undefined,
+): Record<string, unknown> {
+  const organizationIds = filter?.organizationIds
+  if (!organizationIds || organizationIds.length === 0) return {}
+  return { $or: [{ organizationId: { $in: organizationIds } }, { organizationId: null }] }
+}
 
 /**
  * Throws when the caller may not access a specific channel. Returns silently
@@ -67,7 +109,7 @@ export function assertCanAccessChannel(
  *   - **Tenant-wide / shared channel** (`userId == null`, e.g. WhatsApp
  *     Business / Slack workspaces): requires the route's `elevatedFeature`
  *     (`communication_channels.manage`, `…channel.push.manage`, or
- *     `…channel.import_history`). Wildcard-aware via {@link hasFeature}.
+ *     `…channel.import_history`). Evaluated by the shared feature policy.
  *
  * Throws `ChannelAccessDeniedError` (route handlers map it to 404, masking
  * existence) when the caller may not manage the channel.
@@ -94,7 +136,7 @@ export function assertCanManageChannel(
   }
   // Tenant-wide / shared channel — requires the elevated management feature.
   const grantedFeatures = Array.isArray(userFeatures) ? userFeatures : []
-  if (!hasFeature(grantedFeatures, elevatedFeature)) {
+  if (!authorizeFeatures([elevatedFeature], { grantedFeatures })) {
     throw new ChannelAccessDeniedError(`Managing a shared channel requires '${elevatedFeature}'`)
   }
 }

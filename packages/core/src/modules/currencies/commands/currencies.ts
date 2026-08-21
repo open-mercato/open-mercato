@@ -2,9 +2,10 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Currency, ExchangeRate } from '../data/entities'
 import {
@@ -17,6 +18,7 @@ import {
 } from '../data/validators'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
 
 const currencyCrudEvents: CrudEventsConfig = {
   module: 'currencies',
@@ -47,9 +49,17 @@ type CurrencySnapshot = {
 
 type CurrencyUndoPayload = UndoPayload<CurrencySnapshot>
 
-async function loadCurrencySnapshot(em: EntityManager, id: string): Promise<CurrencySnapshot | null> {
-  const record = await em.findOne(Currency, { id })
+async function loadCurrencySnapshot(
+  em: EntityManager,
+  id: string,
+  ctx: Parameters<typeof buildCurrencyCommandWhere>[0],
+): Promise<CurrencySnapshot | null> {
+  const record = await em.findOne(
+    Currency,
+    buildCurrencyCommandWhere<Currency>(ctx, { id }),
+  )
   if (!record) return null
+  ensureCurrencyCommandScope(ctx, record)
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -90,6 +100,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
   id: 'currencies.currencies.create',
   async execute(input, ctx) {
     const parsed = currencyCreateSchema.parse(input)
+    ensureCurrencyCommandScope(ctx, parsed)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -101,7 +112,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
       deletedAt: null,
     })
     if (existing) {
-      throw new CrudHttpError(400, { error: 'Currency code already exists for this organization.' })
+      throw conflict('Currency code already exists for this organization.')
     }
 
     const now = new Date()
@@ -123,16 +134,23 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
 
     // Demote any existing base currency and insert the new record in one
     // transaction; a partial commit would leave zero or two base currencies.
-    await withAtomicFlush(
-      em,
-      [
-        () =>
-          record.isBase
-            ? enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
-            : undefined,
-      ],
-      { transaction: true },
-    )
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () =>
+            record.isBase
+              ? enforceBaseCurrency(em, record.id, record.organizationId, record.tenantId)
+              : undefined,
+        ],
+        { transaction: true },
+      )
+    } catch (err) {
+      if (isUniqueViolation(err, 'currencies_code_scope_unique')) {
+        throw conflict('Currency code already exists for this organization.')
+      }
+      throw err
+    }
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -151,7 +169,7 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadCurrencySnapshot(em, result.currencyId)
+    return loadCurrencySnapshot(em, result.currencyId, ctx)
   },
   buildLog: async ({ snapshots }) => {
     const after = snapshots.after as CurrencySnapshot | undefined
@@ -178,6 +196,17 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, { currencyId: s
     record.isActive = false
     await em.flush()
   },
+  redo: makeCreateRedo<Currency, CurrencySnapshot, CurrencyCreateInput, { currencyId: string }>({
+    entityClass: Currency,
+    buildResult: (entity) => ({ currencyId: entity.id }),
+    events: currencyCrudEvents,
+    afterRestore: async ({ em, entity }) => {
+      if (entity.isBase) {
+        await enforceBaseCurrency(em, entity.id, entity.organizationId, entity.tenantId)
+        await em.flush()
+      }
+    },
+  }),
 }
 
 const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: string }> = {
@@ -185,7 +214,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
     const em = ctx.container.resolve('em') as EntityManager
-    const before = await loadCurrencySnapshot(em, input.id)
+    const before = await loadCurrencySnapshot(em, input.id, ctx)
     return { before }
   },
   async execute(input, ctx) {
@@ -193,10 +222,14 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
     requireId(parsed.id, 'Currency ID is required')
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(Currency, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(
+      Currency,
+      buildCurrencyCommandWhere<Currency>(ctx, { id: parsed.id }),
+    )
     if (!record) {
       throw new CrudHttpError(404, { error: 'Currency not found' })
     }
+    ensureCurrencyCommandScope(ctx, record)
 
     // Check code uniqueness if changing code
     if (parsed.code && parsed.code !== record.code) {
@@ -208,7 +241,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
         deletedAt: null,
       })
       if (existing) {
-        throw new CrudHttpError(400, { error: 'Currency code already exists for this organization.' })
+        throw conflict('Currency code already exists for this organization.')
       }
     }
 
@@ -270,7 +303,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadCurrencySnapshot(em, result.currencyId)
+    return loadCurrencySnapshot(em, result.currencyId, ctx)
   },
   buildLog: async ({ snapshots, result }) => {
     const before = snapshots.before as CurrencySnapshot | undefined
@@ -315,7 +348,7 @@ const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: s
   async prepare(input, ctx) {
     requireId(input.id, 'Currency ID is required')
     const em = ctx.container.resolve('em') as EntityManager
-    const before = await loadCurrencySnapshot(em, input.id)
+    const before = await loadCurrencySnapshot(em, input.id, ctx)
     return { before }
   },
   async execute(input, ctx) {
@@ -323,10 +356,14 @@ const deleteCurrencyCommand: CommandHandler<CurrencyDeleteInput, { currencyId: s
     requireId(parsed.id, 'Currency ID is required')
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(Currency, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(
+      Currency,
+      buildCurrencyCommandWhere<Currency>(ctx, { id: parsed.id }),
+    )
     if (!record) {
       throw new CrudHttpError(404, { error: 'Currency not found' })
     }
+    ensureCurrencyCommandScope(ctx, record)
 
     // Prevent deleting base currency
     if (record.isBase) {

@@ -109,9 +109,6 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
         });
         userBToken = await getAuthToken(request, userBEmail, userBPassword);
 
-        // -- Setup: derive User A's actual user ID from their token ----------
-        const userAScope = getTokenScope(userAToken);
-
         // -- Setup: create a Person entity as the interaction target ---------
         personId = await createPersonFixture(request, adminToken, {
           firstName: 'EmailVis',
@@ -125,14 +122,13 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           'POST',
           '/api/customers/interactions',
           {
-            token: adminToken,
+            token: userAToken,
             data: {
               entityId: personId,
               interactionType: 'email',
               title: `Private email subject ${stamp}`,
               body: 'Private body',
               visibility: 'private',
-              authorUserId: userAScope.userId,
               status: 'planned',
             },
           },
@@ -234,14 +230,13 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           'POST',
           '/api/customers/interactions',
           {
-            token: adminToken,
+            token: userAToken,
             data: {
               entityId: personId,
               interactionType: 'email',
               title: `Shared email subject ${stamp}`,
               body: 'Shared body',
               visibility: 'shared',
-              authorUserId: userAScope.userId,
               status: 'planned',
             },
           },
@@ -372,14 +367,13 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
           'POST',
           '/api/customers/interactions',
           {
-            token: adminToken,
+            token: userAToken,
             data: {
               entityId: companyId,
               interactionType: 'email',
               title: `Company private email ${stamp}`,
               body: 'Company private body',
               visibility: 'private',
-              authorUserId: userAScope.userId,
               status: 'planned',
             },
           },

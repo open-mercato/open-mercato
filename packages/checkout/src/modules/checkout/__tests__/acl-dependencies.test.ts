@@ -6,6 +6,7 @@ import {
   type FeatureDescriptor,
 } from '@open-mercato/shared/security/aclDependencies'
 import { features as checkoutFeatures } from '../acl'
+import { setup } from '../setup'
 import { features as salesFeatures } from '@open-mercato/core/modules/sales/acl'
 import { features as customersFeatures } from '@open-mercato/core/modules/customers/acl'
 
@@ -57,5 +58,20 @@ describe('checkout ACL dependency declarations', () => {
       (feature) => feature.id === 'checkout.viewPii',
     )
     expect(viewPii?.dependsOn).toContain('customers.people.view')
+  })
+
+  test('employee default role gets read-only checkout access without PII', () => {
+    const employeeFeatures = (setup.defaultRoleFeatures?.employee ?? []) as string[]
+
+    expect(employeeFeatures).toEqual(expect.arrayContaining(['checkout.view']))
+    for (const restricted of [
+      'checkout.create',
+      'checkout.edit',
+      'checkout.delete',
+      'checkout.export',
+      'checkout.viewPii',
+    ]) {
+      expect(employeeFeatures).not.toContain(restricted)
+    }
   })
 })

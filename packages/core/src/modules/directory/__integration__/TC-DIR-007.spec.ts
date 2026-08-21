@@ -56,7 +56,10 @@ test.describe('TC-DIR-007: Public organization lookup by slug', () => {
     expect(body.organization?.id, 'organization.id should match the fixture').toBe(orgId);
     expect(body.organization?.name, 'organization.name should be returned').toBe(orgName);
     expect(body.organization?.slug, 'organization.slug should be returned').toBe(slug);
-    expect(body.organization?.tenantId, 'organization.tenantId should match the creating tenant').toBe(tenantId);
+    expect(
+      body.organization?.tenantId,
+      'organization.tenantId must NOT be exposed by the public lookup',
+    ).toBeUndefined();
   });
 
   test('returns 404 for a slug that does not resolve to any organization', async ({ request }) => {

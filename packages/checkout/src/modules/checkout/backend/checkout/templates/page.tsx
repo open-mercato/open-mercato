@@ -1,8 +1,9 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -10,6 +11,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type TemplateRow = {
   id: string
@@ -24,6 +26,7 @@ type ListResponse = {
   items: TemplateRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -41,6 +44,7 @@ export default function CheckoutTemplatesPage() {
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
@@ -67,6 +71,7 @@ export default function CheckoutTemplatesPage() {
     setRows(result.items ?? [])
     setTotal(result.total ?? 0)
     setTotalPages(result.totalPages ?? 1)
+    setTotalIsCapped(result?.totalIsCapped === true)
     setLoading(false)
   }, [filters.pricingMode, page, search])
 
@@ -119,8 +124,8 @@ export default function CheckoutTemplatesPage() {
           filterValues={filters}
           onFiltersApply={(next) => { setFilters(next); setPage(1) }}
           onFiltersClear={() => { setFilters({}); setPage(1) }}
-          pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
-          perspective={{ tableId: 'checkout-templates' }}
+          pagination={{ page, pageSize: 25, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          perspective={{ tableId: extensionPoints.hosts.templatesTable.tableId }}
           actions={(
             <Button asChild>
               <Link href="/backend/checkout/templates/create">
@@ -128,6 +133,13 @@ export default function CheckoutTemplatesPage() {
                 {t('checkout.admin.templates.actions.create')}
               </Link>
             </Button>
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('checkout.admin.templates.title')}
+              createHref="/backend/checkout/templates/create"
+              createLabel={t('checkout.admin.templates.actions.create')}
+            />
           )}
           rowActions={(row) => (
             <RowActions items={[

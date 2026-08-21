@@ -6,6 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { StaffTeamMember, StaffTimeProject, StaffTimeProjectMember, type StaffTimeProjectStatus, type StaffTimeProjectMemberStatus } from '../data/entities'
 
@@ -26,7 +27,20 @@ import {
   type StaffTimeProjectMemberUpdateInput,
 } from '../data/validators'
 import { staffTimeProjectCrudEvents, staffTimeProjectMemberCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
+  ensureOrganizationScope,
+  ensureTenantScope,
+  extractUndoPayload,
+  scopeForDecryption,
+  scopedStaffSnapshotWhere,
+  staffSnapshotDecryptionScope,
+  staffSnapshotScopeFromContext,
+  staffSnapshotScopeFromSnapshot,
+  type StaffSnapshotScope,
+} from './shared'
 
 function isUniqueViolation(error: unknown): boolean {
   if (error instanceof UniqueConstraintViolationException) return true
@@ -78,8 +92,14 @@ type TimeProjectMemberUndoPayload = {
   after?: TimeProjectMemberSnapshot | null
 }
 
-async function loadTimeProjectSnapshot(em: EntityManager, id: string): Promise<TimeProjectSnapshot | null> {
-  const project = await findOneWithDecryption(em, StaffTimeProject, { id }, undefined, { tenantId: null, organizationId: null })
+async function loadTimeProjectSnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<TimeProjectSnapshot | null> {
+  const project = await findOneWithDecryption(
+    em,
+    StaffTimeProject,
+    scopedStaffSnapshotWhere(id, scope),
+    undefined,
+    staffSnapshotDecryptionScope(scope),
+  )
   if (!project) return null
   return {
     id: project.id,
@@ -99,8 +119,14 @@ async function loadTimeProjectSnapshot(em: EntityManager, id: string): Promise<T
   }
 }
 
-async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string): Promise<TimeProjectMemberSnapshot | null> {
-  const member = await findOneWithDecryption(em, StaffTimeProjectMember, { id }, undefined, { tenantId: null, organizationId: null })
+async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<TimeProjectMemberSnapshot | null> {
+  const member = await findOneWithDecryption(
+    em,
+    StaffTimeProjectMember,
+    scopedStaffSnapshotWhere(id, scope),
+    undefined,
+    staffSnapshotDecryptionScope(scope),
+  )
   if (!member) return null
   return {
     id: member.id,
@@ -117,12 +143,52 @@ async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string): Pro
   }
 }
 
+function timeProjectSeedFromSnapshot(snapshot: TimeProjectSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    name: snapshot.name,
+    customerId: snapshot.customerId ?? null,
+    code: snapshot.code,
+    description: snapshot.description ?? null,
+    projectType: snapshot.projectType ?? null,
+    color: snapshot.color ?? null,
+    status: (snapshot.status ?? 'active') as StaffTimeProjectStatus,
+    ownerUserId: snapshot.ownerUserId ?? null,
+    costCenter: snapshot.costCenter ?? null,
+    startDate: snapshot.startDate ? new Date(snapshot.startDate) : null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
+function timeProjectMemberSeedFromSnapshot(snapshot: TimeProjectMemberSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    timeProjectId: snapshot.timeProjectId,
+    staffMemberId: snapshot.staffMemberId,
+    role: snapshot.role ?? null,
+    status: (snapshot.status ?? 'active') as StaffTimeProjectMemberStatus,
+    showInGrid: snapshot.showInGrid ?? false,
+    assignedStartDate: new Date(snapshot.assignedStartDate),
+    assignedEndDate: snapshot.assignedEndDate ? new Date(snapshot.assignedEndDate) : null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
 const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { timeProjectId: string }> = {
   id: 'staff.timesheets.time_projects.create',
   async execute(rawInput, ctx) {
     const parsed = staffTimeProjectCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
@@ -174,13 +240,13 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId)
+    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     return { snapshot }
   },
   buildLog: async ({ result, ctx }) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId)
+    const snapshot = await loadTimeProjectSnapshot(em, result.timeProjectId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const { translate } = await resolveTranslations()
     return {
@@ -202,7 +268,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const project = await em.findOne(StaffTimeProject, { id: after.id })
+    const project = await em.findOne(StaffTimeProject, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (project) {
       project.deletedAt = new Date()
       await em.flush()
@@ -220,6 +286,14 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
       })
     }
   },
+  redo: makeCreateRedo<StaffTimeProject, TimeProjectSnapshot, StaffTimeProjectCreateInput, { timeProjectId: string }>({
+    entityClass: StaffTimeProject,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: timeProjectSeedFromSnapshot,
+    buildResult: (entity) => ({ timeProjectId: entity.id }),
+    events: staffTimeProjectCrudEvents,
+    indexer: timeProjectCrudIndexer,
+  }),
 }
 
 const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { timeProjectId: string }> = {
@@ -227,19 +301,20 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
   async prepare(rawInput, ctx) {
     const parsed = staffTimeProjectUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeProjectSnapshot(em, parsed.id)
+    const snapshot = await loadTimeProjectSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
   async execute(rawInput, ctx) {
     const parsed = staffTimeProjectUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const project = await findOneWithDecryption(
       em,
       StaffTimeProject,
-      { id: parsed.id, deletedAt: null },
+      applyScopeToWhere<StaffTimeProject>({ id: parsed.id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!project) throw new CrudHttpError(404, { error: 'Time project not found.' })
     ensureTenantScope(ctx, project.tenantId)
@@ -288,7 +363,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     const before = snapshots.before as TimeProjectSnapshot | undefined
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadTimeProjectSnapshot(em, before.id)
+    const after = await loadTimeProjectSnapshot(em, before.id, staffSnapshotScopeFromSnapshot(before))
     if (!after) return null
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
       'name',
@@ -326,7 +401,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const project = await em.findOne(StaffTimeProject, { id: before.id })
+    const project = await em.findOne(StaffTimeProject, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!project) return
     project.name = before.name
     project.customerId = before.customerId ?? null
@@ -363,7 +438,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeProjectSnapshot(em, id)
+    const snapshot = await loadTimeProjectSnapshot(em, id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
@@ -371,12 +446,13 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const project = await findOneWithDecryption(
       em,
       StaffTimeProject,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTimeProject>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!project) throw new CrudHttpError(404, { error: 'Time project not found.' })
     ensureTenantScope(ctx, project.tenantId)
@@ -423,7 +499,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let project = await em.findOne(StaffTimeProject, { id: before.id })
+    let project = await em.findOne(StaffTimeProject, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!project) {
       project = em.create(StaffTimeProject, {
         id: before.id,
@@ -479,6 +555,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     const parsed = staffTimeProjectMemberAssignSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -486,7 +563,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     // Without this check a foreign or stale UUID would produce a dangling reference.
     const projectExists = await em.findOne(
       StaffTimeProject,
-      { id: parsed.timeProjectId, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      applyScopeToWhere<StaffTimeProject>({ id: parsed.timeProjectId, deletedAt: null }, scope),
       { fields: ['id'] },
     )
     if (!projectExists) {
@@ -500,7 +577,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     }
     const memberExists = await em.findOne(
       StaffTeamMember,
-      { id: parsed.staffMemberId, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      applyScopeToWhere<StaffTeamMember>({ id: parsed.staffMemberId, deletedAt: null }, scope),
       { fields: ['id'] },
     )
     if (!memberExists) {
@@ -544,13 +621,13 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId)
+    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     return { snapshot }
   },
   buildLog: async ({ result, ctx }) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId)
+    const snapshot = await loadTimeProjectMemberSnapshot(em, result.timeProjectMemberId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const { translate } = await resolveTranslations()
     return {
@@ -572,7 +649,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await em.findOne(StaffTimeProjectMember, { id: after.id })
+    const member = await em.findOne(StaffTimeProjectMember, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (member) {
       member.deletedAt = new Date()
       await em.flush()
@@ -586,6 +663,14 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
       })
     }
   },
+  redo: makeCreateRedo<StaffTimeProjectMember, TimeProjectMemberSnapshot, StaffTimeProjectMemberAssignInput, { timeProjectMemberId: string }>({
+    entityClass: StaffTimeProjectMember,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: timeProjectMemberSeedFromSnapshot,
+    buildResult: (entity) => ({ timeProjectMemberId: entity.id }),
+    events: staffTimeProjectMemberCrudEvents,
+    indexer: timeProjectMemberCrudIndexer,
+  }),
 }
 
 const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timeProjectMemberId: string }> = {
@@ -594,7 +679,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project member id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeProjectMemberSnapshot(em, id)
+    const snapshot = await loadTimeProjectMemberSnapshot(em, id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
@@ -602,12 +687,13 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project member id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const member = await findOneWithDecryption(
       em,
       StaffTimeProjectMember,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTimeProjectMember>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!member) throw new CrudHttpError(404, { error: 'Time project member not found.' })
     ensureTenantScope(ctx, member.tenantId)
@@ -651,7 +737,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let member = await em.findOne(StaffTimeProjectMember, { id: before.id })
+    let member = await em.findOne(StaffTimeProjectMember, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!member) {
       member = em.create(StaffTimeProjectMember, {
         id: before.id,

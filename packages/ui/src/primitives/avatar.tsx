@@ -279,12 +279,18 @@ export type AvatarStackProps = {
   max?: number
   size?: VariantProps<typeof avatarVariants>['size']
   className?: string
+  /**
+   * Additional hidden items not represented by `children` — e.g. a server-truncated list that
+   * already returned only the top N owners. Added to the children-derived overflow so the
+   * "+N" badge reflects the true number of omitted items, not just the ones dropped locally.
+   */
+  overflowCount?: number
 }
 
-export function AvatarStack({ children, max = 4, size = 'md', className }: AvatarStackProps) {
+export function AvatarStack({ children, max = 4, size = 'md', className, overflowCount = 0 }: AvatarStackProps) {
   const items = React.Children.toArray(children)
   const visible = items.slice(0, max)
-  const overflow = items.length - max
+  const overflow = Math.max(0, items.length - max) + Math.max(0, overflowCount)
 
   return (
     <div

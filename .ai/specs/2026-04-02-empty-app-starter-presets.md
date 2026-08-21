@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Codex |
 | **Created** | 2026-04-02 |
-| **Related** | [2026-03-02-ready-apps-framework.md](./2026-03-02-ready-apps-framework.md), [SPEC-067-2026-03-17-cli-standalone-app-support.md](./SPEC-067-2026-03-17-cli-standalone-app-support.md), [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md) |
+| **Related** | [2026-03-02-ready-apps-framework.md](./implemented/2026-03-02-ready-apps-framework.md), [SPEC-067-2026-03-17-cli-standalone-app-support.md](./implemented/SPEC-067-2026-03-17-cli-standalone-app-support.md), [BACKWARD_COMPATIBILITY.md](../../BACKWARD_COMPATIBILITY.md) |
 
 ## TLDR
 

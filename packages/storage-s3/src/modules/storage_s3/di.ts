@@ -6,7 +6,12 @@ import {
 } from '@open-mercato/core/modules/attachments/lib/drivers'
 import { S3StorageDriver } from './lib/s3-driver'
 import { createStorageService } from './lib/storage-service'
+import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 import { s3HealthCheck } from './lib/health'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { scheduleStorageS3QuotaRecovery } from './lib/quota-recovery-queue'
+
+const logger = createLogger('storage_s3')
 
 type IntegrationCredentialsService = {
   resolve(integrationId: string, scope: { tenantId: string; organizationId: string }): Promise<Record<string, unknown> | null>
@@ -15,7 +20,7 @@ type IntegrationCredentialsService = {
 // Module-level registration — runs at import time, before any DI container is built.
 // This avoids the singleton-proxy resolution issue when registering via DI.
 registerExternalStorageDriver('s3', (config: Record<string, unknown>) => {
-  console.log('[storage-s3] Creating S3StorageDriver with config:', {
+  logger.debug('Creating S3StorageDriver', {
     bucket: config.bucket,
     region: config.region,
     endpoint: config.endpoint,
@@ -30,16 +35,23 @@ export function register(container: AppContainer) {
   // Register the credential enhancer via DI so it can access the request-scoped
   // integrationCredentialsService to inject marketplace credentials at upload time.
   registerExternalCredentialEnhancer('s3', async (config, scope) => {
-    if (config.credentialsEnvPrefix || config.accessKeyId || config.authMode) return config
+    const scopedConfig = {
+      ...config,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }
+    if (config.credentialsEnvPrefix || config.accessKeyId || config.authMode) return scopedConfig
     try {
       const credsSvc = container.resolve('integrationCredentialsService') as IntegrationCredentialsService
       const creds = await credsSvc.resolve('storage_s3', scope)
       if (!creds) {
-        console.log('[storage-s3] No marketplace credentials found for scope', scope)
-        return config
+        logger.debug('No marketplace credentials found for scope', { tenantId: scope.tenantId, organizationId: scope.organizationId })
+        return scopedConfig
       }
-      console.log('[storage-s3] Injecting marketplace credentials into S3 driver config')
+      logger.debug('Injecting marketplace credentials into S3 driver config')
       return {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
         authMode: creds.authMode,
         bucket: config.bucket ?? (creds.bucket ? String(creds.bucket) : undefined),
         region: config.region ?? (creds.region ? String(creds.region) : undefined),
@@ -50,21 +62,29 @@ export function register(container: AppContainer) {
         sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
       }
     } catch (err) {
-      console.warn('[storage-s3] Credential enhancer failed, using partition config as-is:', err)
-      return config
+      logger.warn('Credential enhancer failed, using scoped partition config', { err })
+      return scopedConfig
     }
   })
 
   container.register({
     s3HealthCheck: asValue(s3HealthCheck),
+    storageS3QuotaRecoveryScheduler: asValue(scheduleStorageS3QuotaRecovery),
     storageService: asFunction(
-      ({ integrationCredentialsService }: { integrationCredentialsService: IntegrationCredentialsService }) => {
+      ({ integrationCredentialsService, attachmentQuotaService, storageS3QuotaRecoveryScheduler }: {
+        integrationCredentialsService: IntegrationCredentialsService
+        attachmentQuotaService: AttachmentQuotaService
+        storageS3QuotaRecoveryScheduler: (
+          payload: { reservationId: string; tenantId: string; organizationId: string },
+          delayMs: number,
+        ) => Promise<void>
+      }) => {
         // StorageService factory — builds the service lazily using credentials
         // resolved from the Integration Marketplace per request.
         return {
           async _resolveService(scope: { tenantId: string; organizationId: string }) {
             const creds = await integrationCredentialsService.resolve('storage_s3', scope)
-            if (!creds) throw new Error('S3 storage integration is not configured for this tenant.')
+            if (!creds) throw new Error('[internal] S3 storage integration is not configured for this tenant.')
             return createStorageService({
               authMode: creds.authMode === 'ambient' || creds.authMode === 'access_keys'
                 ? (creds.authMode as 'ambient' | 'access_keys')
@@ -76,6 +96,10 @@ export function register(container: AppContainer) {
               accessKeyId: creds.accessKeyId ? String(creds.accessKeyId) : undefined,
               secretAccessKey: creds.secretAccessKey ? String(creds.secretAccessKey) : undefined,
               sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
+              quotaService: attachmentQuotaService,
+              quotaRecoveryScheduler: storageS3QuotaRecoveryScheduler,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
               // Credentials are resolved from the Integration Marketplace (encrypted at rest)
               // and injected directly rather than via env prefix for the standalone service.
             } as Parameters<typeof createStorageService>[0])

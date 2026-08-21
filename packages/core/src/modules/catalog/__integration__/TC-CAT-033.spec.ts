@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, request as playwrightRequest, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture,
@@ -25,7 +25,7 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const USER_PASSWORD = 'Valid1!Pass'
 
 test.describe('TC-CAT-033: Price-kinds RBAC enforcement', () => {
-  test('forbids every method for a user without catalog.settings.manage', async ({ request }) => {
+  test('forbids every method for a user without catalog.settings.manage', async ({ request, baseURL }) => {
     const suffix = Date.now()
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId } = getTokenContext(adminToken)
@@ -76,8 +76,13 @@ test.describe('TC-CAT-033: Price-kinds RBAC enforcement', () => {
       expect(deleteRes.status(), 'DELETE without the feature must be forbidden').toBe(403)
 
       // No bearer token at all → unauthenticated, not merely forbidden.
-      const unauthRes = await request.fetch(`${BASE_URL}${PRICE_KINDS_PATH}`, { method: 'GET' })
-      expect(unauthRes.status(), 'unauthenticated request must be 401').toBe(401)
+      const anonymous = await playwrightRequest.newContext({ baseURL: baseURL ?? BASE_URL })
+      try {
+        const unauthRes = await anonymous.fetch(PRICE_KINDS_PATH, { method: 'GET' })
+        expect(unauthRes.status(), 'unauthenticated request must be 401').toBe(401)
+      } finally {
+        await anonymous.dispose()
+      }
     } finally {
       await deleteUserIfExists(request, adminToken, userId)
       await deleteRoleIfExists(request, adminToken, roleId)

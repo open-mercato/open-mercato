@@ -1,7 +1,6 @@
 /** @jest-environment node */
 import { GET } from '@open-mercato/core/modules/auth/api/admin/nav'
 import * as backendChrome from '@open-mercato/core/modules/auth/lib/backendChrome'
-import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
 
 type AuthContext = {
   sub: string
@@ -38,6 +37,7 @@ type SidebarItem = {
   defaultTitle: string
   enabled: boolean
   hidden?: boolean
+  order?: number
   children?: SidebarItem[]
 }
 
@@ -52,17 +52,18 @@ const mockGetAuthFromRequest = jest.fn<Promise<AuthContext | null>, [Request]>()
 const mockGetBackendRouteManifests = jest.fn<BackendRouteManifest[], []>()
 const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
-const mockLoadAcl = jest.fn<Promise<{ isSuperAdmin: boolean; features: string[] }>, [string, { tenantId: string | null; organizationId: string | null }]>()
+const mockGetEffectiveFeatures = jest.fn<Promise<string[]>, [string, { tenantId: string | null; organizationId: string | null }]>()
 const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { tenantId: string | null; organizationId: string | null }]>()
-const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[] }]>()
+const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[]; ttl?: number }]>()
 const mockCacheGet = jest.fn<Promise<null>, [string]>()
 const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[]) => groups)
-const mockLoadSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
+const mockFindSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
 const mockLoadFirstRoleSidebarPreference = jest.fn<Promise<null>, [unknown, { roleIds: string[]; tenantId: string | null; locale: string }]>()
 const mockResolveFeatureCheckContext = jest.fn<
-  Promise<{ organizationId: string | null; scope: { tenantId: string | null }; allowedOrganizationIds: string[] | null }>,
+  Promise<{ organizationId: string | null; scope: { tenantId: string | null; selectedId: string | null }; allowedOrganizationIds: string[] | null }>,
   [unknown]
 >()
+const mockGetSelectedOrganizationFromRequest = jest.fn<string | null, [Request]>()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (req: Request) => mockGetAuthFromRequest(req),
@@ -83,7 +84,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
         return { find: mockEmFind }
       }
       if (key === 'rbacService') {
-        return { loadAcl: mockLoadAcl, userHasAllFeatures: mockUserHasAllFeatures }
+        return {
+          getEffectiveFeatures: mockGetEffectiveFeatures,
+          userHasAllFeatures: mockUserHasAllFeatures,
+        }
       }
       if (key === 'cache') {
         return { get: mockCacheGet, set: mockCacheSet }
@@ -95,13 +99,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', () => ({
   applySidebarPreference: <T extends SidebarGroup>(groups: T[]) => mockApplySidebarPreference(groups),
-  loadSidebarPreference: (em: unknown, scope: { userId: string; tenantId: string | null; organizationId: string | null; locale: string }) =>
-    mockLoadSidebarPreference(em, scope),
+  findSidebarPreference: (em: unknown, scope: { userId: string; tenantId: string | null; organizationId: string | null; locale: string }) =>
+    mockFindSidebarPreference(em, scope),
   loadFirstRoleSidebarPreference: (em: unknown, scope: { roleIds: string[]; tenantId: string | null; locale: string }) =>
     mockLoadFirstRoleSidebarPreference(em, scope),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  getSelectedOrganizationFromRequest: (req: Request) => mockGetSelectedOrganizationFromRequest(req),
   resolveFeatureCheckContext: (args: unknown) => mockResolveFeatureCheckContext(args),
 }))
 
@@ -146,7 +151,6 @@ function findUserEntitiesItem(groups: SidebarGroup[]): SidebarItem | undefined {
 describe('GET /api/auth/admin/nav', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    jest.spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules').mockImplementation((granted) => [...granted])
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',
@@ -157,18 +161,19 @@ describe('GET /api/auth/admin/nav', () => {
       locale: 'pl',
       translate: (_key: string, fallback?: string) => fallback ?? '',
     })
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: true,
-      features: [],
-    })
+    mockGetEffectiveFeatures.mockResolvedValue([
+      'auth.users.view',
+      'customer_accounts.view',
+    ])
     mockUserHasAllFeatures.mockResolvedValue(true)
-    mockLoadSidebarPreference.mockResolvedValue(null)
+    mockFindSidebarPreference.mockResolvedValue(null)
     mockLoadFirstRoleSidebarPreference.mockResolvedValue(null)
     mockCacheGet.mockResolvedValue(null)
     mockCacheSet.mockResolvedValue(undefined)
+    mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
     mockResolveFeatureCheckContext.mockResolvedValue({
       organizationId: 'org-1',
-      scope: { tenantId: 'tenant-1' },
+      scope: { tenantId: 'tenant-1', selectedId: 'org-1' },
       allowedOrganizationIds: ['org-1'],
     })
   })
@@ -239,11 +244,8 @@ describe('GET /api/auth/admin/nav', () => {
     expect(hrefs).not.toContain('/backend/entities/user/assets/records')
   })
 
-  it('includes wildcard-granted customer portal settings routes', async () => {
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: ['customer_accounts.*'],
-    })
+  it('includes customer portal settings routes from concrete effective features', async () => {
+    mockGetEffectiveFeatures.mockResolvedValue(['customer_accounts.view'])
     mockGetBackendRouteManifests.mockReturnValue([
       {
         moduleId: 'customer_accounts',
@@ -280,6 +282,107 @@ describe('GET /api/auth/admin/nav', () => {
     expect(groups.find((group) => group.id === 'Dashboard')?.items.map((item) => item.href)).toContain('/backend/dashboard')
   })
 
+  it('orders items inside a group by the declared pageOrder, not by module registration order', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'later_page',
+        pattern: '/backend/later/page-b',
+        title: 'Beta page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 71,
+      },
+      {
+        moduleId: 'earlier_page',
+        pattern: '/backend/earlier/page-a',
+        title: 'Alpha page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 70,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const sharedGroup = groups.find((group) => group.id === 'shared.nav.group')
+
+    expect(sharedGroup?.items.map((item) => item.href)).toEqual([
+      '/backend/earlier/page-a',
+      '/backend/later/page-b',
+    ])
+  })
+
+  it('serializes the declared order on nav items and their children', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms',
+        title: 'Warehouse',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 95,
+      },
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms/zones',
+        title: 'Zones',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 120,
+      },
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms/inventory',
+        title: 'Inventory',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 100,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const warehouse = groups.find((group) => group.id === 'wms.nav.group')?.items[0]
+
+    expect(warehouse?.order).toBe(95)
+    expect(warehouse?.children?.map((child) => [child.href, child.order])).toEqual([
+      ['/backend/wms/inventory', 100],
+      ['/backend/wms/zones', 120],
+    ])
+  })
+
+  it('serializes the weight it sorted by when pagePriority and pageOrder disagree', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'trailing_page',
+        pattern: '/backend/trailing/page',
+        title: 'Trailing page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 5,
+        priority: 50,
+      },
+      {
+        moduleId: 'leading_page',
+        pattern: '/backend/leading/page',
+        title: 'Leading page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 20,
+        priority: 1,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const sharedItems = groups.find((group) => group.id === 'shared.nav.group')?.items
+
+    expect(sharedItems?.map((item) => [item.href, item.order])).toEqual([
+      ['/backend/leading/page', 1],
+      ['/backend/trailing/page', 50],
+    ])
+  })
+
   it('returns the extended backend chrome payload fields for client hydration', async () => {
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -287,10 +390,10 @@ describe('GET /api/auth/admin/nav', () => {
       orgId: 'org-1',
       roles: ['admin'],
     })
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: ['customer_accounts.*', 'auth.*'],
-    })
+    mockGetEffectiveFeatures.mockResolvedValue([
+      'customer_accounts.view',
+      'auth.users.view',
+    ])
     mockGetBackendRouteManifests.mockReturnValue([
       {
         moduleId: 'auth',
@@ -319,25 +422,24 @@ describe('GET /api/auth/admin/nav', () => {
     expect(payload.settingsPathPrefixes).toContain('/backend/settings/auth')
     expect(payload.profileSections.length).toBeGreaterThan(0)
     expect(payload.profilePathPrefixes).toContain('/backend/profile/')
-    expect(payload.grantedFeatures).toEqual(expect.arrayContaining(['customer_accounts.*', 'auth.*']))
+    expect(payload.grantedFeatures).toEqual(expect.arrayContaining([
+      'customer_accounts.view',
+      'auth.users.view',
+    ]))
     expect(payload.roles).toEqual(['admin'])
   })
 
-  it('filters disabled-module grants before hydrating the backend chrome payload', async () => {
-    const filterSpy = jest
-      .spyOn(enabledModulesRegistry, 'filterGrantsByEnabledModules')
-      .mockImplementation((granted) => granted.filter((feature) => !feature.startsWith('search.')))
-
+  it('hydrates the backend chrome payload from concrete effective features', async () => {
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',
       orgId: 'org-1',
       roles: ['admin'],
     })
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: ['customer_accounts.*', 'search.global', 'auth.*'],
-    })
+    mockGetEffectiveFeatures.mockResolvedValue([
+      'customer_accounts.view',
+      'auth.users.view',
+    ])
     mockGetBackendRouteManifests.mockReturnValue([
       {
         moduleId: 'auth',
@@ -355,8 +457,10 @@ describe('GET /api/auth/admin/nav', () => {
     expect(response.status).toBe(200)
     const payload = (await response.json()) as { grantedFeatures: string[] }
 
-    expect(payload.grantedFeatures).toEqual(['customer_accounts.*', 'auth.*'])
-    expect(filterSpy).toHaveBeenCalledWith(['customer_accounts.*', 'search.global', 'auth.*'])
+    expect(payload.grantedFeatures).toEqual([
+      'customer_accounts.view',
+      'auth.users.view',
+    ])
   })
 
   it('passes the request through every scope resolution during hydrated nav generation', async () => {
@@ -381,11 +485,45 @@ describe('GET /api/auth/admin/nav', () => {
     }
   })
 
-  it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {
-    mockLoadAcl.mockResolvedValue({
-      isSuperAdmin: false,
-      features: [],
+  it('uses a versioned cache key that distinguishes concrete and all-organization cookie selections', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([])
+    mockResolveFeatureCheckContext.mockImplementation(async (args) => {
+      const scopeArgs = args as { selectedId?: string | null; request?: Request }
+      const cookieSelection = scopeArgs.request?.headers.get('cookie')?.match(/(?:^|;\s*)om_selected_org=([^;]+)/)?.[1]
+      const requestedSelection = scopeArgs.selectedId === undefined
+        ? cookieSelection ? decodeURIComponent(cookieSelection) : null
+        : scopeArgs.selectedId
+      return {
+        organizationId: 'org-1',
+        scope: {
+          tenantId: 'tenant-1',
+          selectedId: requestedSelection === '__all__' ? null : requestedSelection ?? 'org-1',
+        },
+        allowedOrganizationIds: ['org-1'],
+      }
     })
+    setupCustomEntities([])
+
+    await GET(new Request('http://localhost/api/auth/admin/nav', {
+      headers: { cookie: 'om_selected_org=org-1' },
+    }))
+    const concreteSelectionKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    expect(concreteSelectionKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
+    expect(concreteSelectionKey).not.toContain('nav:sidebar:v6:')
+
+    mockCacheGet.mockClear()
+    setupCustomEntities([])
+
+    await GET(new Request('http://localhost/api/auth/admin/nav', {
+      headers: { cookie: 'om_selected_org=__all__' },
+    }))
+    const allOrganizationsKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    expect(allOrganizationsKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
+    expect(allOrganizationsKey).not.toBe(concreteSelectionKey)
+  })
+
+  it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {
+    mockGetEffectiveFeatures.mockResolvedValue([])
     mockUserHasAllFeatures.mockImplementation(async (_userId, required) => {
       return required.every((feature) => feature === 'customer_accounts.view')
     })
@@ -407,6 +545,48 @@ describe('GET /api/auth/admin/nav', () => {
 
     expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
     expect(mockUserHasAllFeatures).toHaveBeenCalled()
+  })
+
+  describe('cache key survives a deploy that changes the module surface', () => {
+    async function cacheKeyForRoutes(routes: BackendRouteManifest[]): Promise<string> {
+      mockGetBackendRouteManifests.mockReturnValue(routes)
+      setupCustomEntities([])
+      const response = await GET(makeRequest())
+      expect(response.status).toBe(200)
+      const [key] = mockCacheSet.mock.calls[mockCacheSet.mock.calls.length - 1]
+      return key
+    }
+
+    const dashboardRoute: BackendRouteManifest = {
+      moduleId: 'dashboard',
+      pattern: '/backend/dashboard',
+      title: 'Dashboard',
+      group: 'Dashboard',
+      order: 1,
+    }
+
+    it('reads and writes the same key within one deploy', async () => {
+      const writtenKey = await cacheKeyForRoutes([dashboardRoute])
+
+      expect(mockCacheGet).toHaveBeenCalledWith(writtenKey)
+    })
+
+    it('writes a different key once a new module contributes backend routes', async () => {
+      const before = await cacheKeyForRoutes([dashboardRoute])
+      const after = await cacheKeyForRoutes([
+        dashboardRoute,
+        { moduleId: 'search', pattern: '/backend/search', title: 'Search', group: 'Search', order: 2 },
+      ])
+
+      expect(after).not.toBe(before)
+    })
+
+    it('bounds any surface change the fingerprint cannot see with a TTL', async () => {
+      await cacheKeyForRoutes([dashboardRoute])
+
+      const [, , options] = mockCacheSet.mock.calls[mockCacheSet.mock.calls.length - 1]
+      expect(options.ttl).toBe(30 * 60 * 1000)
+    })
   })
 
   it('returns 401 when not authenticated', async () => {

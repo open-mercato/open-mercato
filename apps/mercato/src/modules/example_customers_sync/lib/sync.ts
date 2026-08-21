@@ -2,7 +2,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely } from 'kysely'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import '@open-mercato/core/modules/customers/commands/index'
 import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -622,6 +621,11 @@ export async function syncExampleTodoToCanonicalInteraction(
     mapping = await ensureMappingForLegacyExampleTodo(container, scope, payload.todoId)
   }
   if (!mapping) return
+  if (
+    mapping.tenantId !== scope.tenantId
+    || mapping.organizationId !== scope.organizationId
+    || mapping.todoId !== payload.todoId
+  ) return
 
   try {
     const commandBus = container.resolve('commandBus') as CommandBus

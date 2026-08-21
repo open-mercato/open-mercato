@@ -173,7 +173,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
       })
-      const deTab = managerCard.getByRole('button', { name: 'DE' })
+      const deTab = managerCard.getByRole('tab', { name: 'DE' })
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 
@@ -226,7 +226,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
       })
-      const deTab = managerCard.getByRole('button', { name: 'DE' })
+      const deTab = managerCard.getByRole('tab', { name: 'DE' })
       await deTab.click()
       await expect(deTab).toHaveAttribute('data-state', 'active')
 

@@ -15,7 +15,7 @@ import {
 /**
  * TC-LOCK-OSS-024 — sales QUOTE header edit + delete (SAL-02).
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md +
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md +
  *       .ai/specs/2026-05-28-optimistic-locking-coverage-completion.md
  *
  * The quote detail page `/backend/sales/quotes/<id>` re-uses the shared sales
@@ -160,7 +160,11 @@ test.describe('TC-LOCK-OSS-024: sales quote header edit + delete conflict bar (S
       const created = await request.fetch(resolveApiUrl(ORDERS_API_BASE), {
         method: 'POST',
         headers: authHeaders(token),
-        data: { currencyCode: 'USD' },
+        // A sales order must contain at least one line (issue #4021).
+        data: {
+          currencyCode: 'USD',
+          lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }],
+        },
       })
       expect(created.ok(), `POST ${ORDERS_API_BASE} should succeed`).toBeTruthy()
       orderId = ((await created.json()) as { id?: string }).id ?? null

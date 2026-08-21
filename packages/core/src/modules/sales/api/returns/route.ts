@@ -5,7 +5,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { withScopedPayload } from '../utils'
 import { SalesReturn, SalesReturnLine } from '../../data/entities'
-import { returnCreateSchema } from '../../data/validators'
+import { returnCreateSchema, returnUpdateSchema, returnDeleteSchema } from '../../data/validators'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/sales_return'
 import { createPagedListResponseSchema } from '../openapi'
@@ -27,6 +28,8 @@ const listSchema = z
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.returns.view'] },
   POST: { requireAuth: true, requireFeatures: ['sales.returns.create'] },
+  PUT: { requireAuth: true, requireFeatures: ['sales.returns.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['sales.returns.manage'] },
 }
 
 const toNumber = (value: unknown): number => {
@@ -91,6 +94,31 @@ const crud = makeCrudRoute({
       response: ({ result }) => ({ id: result?.returnId ?? null }),
       status: 201,
     },
+    update: {
+      commandId: 'sales.returns.update',
+      schema: rawBodySchema,
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base } = splitCustomFieldPayload(scoped)
+        return returnUpdateSchema.parse(base)
+      },
+      response: () => ({ ok: true }),
+    },
+    delete: {
+      commandId: 'sales.returns.delete',
+      schema: rawBodySchema,
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const merged = { ...(raw?.body ?? {}), ...(raw?.query ?? {}) }
+        const payload = returnDeleteSchema.parse(withScopedPayload(merged, ctx, translate))
+        if (!payload.id || !payload.orderId) {
+          throw new CrudHttpError(400, { error: translate('sales.returns.notFound', 'Return not found.') })
+        }
+        return payload
+      },
+      response: () => ({ ok: true }),
+    },
   },
   hooks: {
     afterList: async (payload, ctx) => {
@@ -131,10 +159,10 @@ const crud = makeCrudRoute({
   },
 })
 
-const { GET, POST } = crud
+const { GET, POST, PUT, DELETE } = crud
 
 export const metadata = routeMetadata
-export { GET, POST }
+export { GET, POST, PUT, DELETE }
 
 const returnSchema = z
   .object({
@@ -166,6 +194,16 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Create return',
       requestBody: { schema: returnCreateSchema },
       responses: [{ status: 201, description: 'Return created', schema: z.object({ id: z.string().uuid().nullable() }) }],
+    },
+    PUT: {
+      summary: 'Update return',
+      requestBody: { schema: returnUpdateSchema },
+      responses: [{ status: 200, description: 'Return updated', schema: z.object({ ok: z.boolean() }) }],
+    },
+    DELETE: {
+      summary: 'Delete return',
+      requestBody: { schema: returnDeleteSchema },
+      responses: [{ status: 200, description: 'Return deleted', schema: z.object({ ok: z.boolean() }) }],
     },
   },
 }

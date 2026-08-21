@@ -20,6 +20,7 @@ const listSchema = z
     country: z.string().optional(),
     region: z.string().optional(),
     channelId: z.string().uuid().optional(),
+    id: z.string().uuid().optional(),
     isCompound: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -85,6 +86,9 @@ function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown
   }
   if (query.channelId) {
     filters.channel_id = query.channelId
+  }
+  if (query.id) {
+    filters.id = { $eq: query.id }
   }
   const isCompound = parseBooleanToken(query.isCompound)
   if (isCompound !== null) filters.is_compound = isCompound

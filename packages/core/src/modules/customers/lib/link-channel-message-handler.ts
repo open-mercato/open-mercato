@@ -3,6 +3,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { CustomerEntity, CustomerInteraction } from '../data/entities'
 import { findPeopleByAddresses, normalizeAddresses } from './findPeopleByAddresses'
 import { emitCustomersEvent } from '../events'
+import { INTERACTION_STATUS_COMPLETED } from './interactionStatus'
 
 /**
  * Shared implementation for the link-channel-message subscribers.
@@ -481,11 +482,9 @@ async function persistInteractions(
       // scheduled work. Without an explicit status the entity default
       // ('planned') combined with a past `occurredAt` makes the activity
       // timeline render the email as "overdue", which is the wrong UX.
-      // The canonical "completed" value is `'done'` per
-      // `validators.ts:interactionStatusValues = ['planned', 'done', 'canceled']`
-      // — `'completed'` is a legacy spelling that the enricher accepts
-      // defensively but the activity timeline `isOverdue` predicate does NOT.
-      status: 'done',
+      // The canonical terminal-success value is `INTERACTION_STATUS_COMPLETED`
+      // ('done'); see `lib/interactionStatus.ts` for the open/terminal semantics.
+      status: INTERACTION_STATUS_COMPLETED,
       externalMessageId: data.linkId,
       visibility: data.visibility,
       channelProviderKey: data.channelProviderKey,

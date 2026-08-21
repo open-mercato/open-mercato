@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { generateUniqueCurrencyCode } from '@open-mercato/core/helpers/integration/currenciesFixtures';
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
@@ -36,10 +37,7 @@ type CurrencyRow = {
   isActive: boolean;
 };
 
-const randomCode = (): string => {
-  const letter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  return `Q${letter()}${letter()}`;
-};
+const randomCode = generateUniqueCurrencyCode;
 
 function readUndoToken(res: APIResponse): string {
   const header = res.headers()['x-om-operation'] ?? '';

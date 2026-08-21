@@ -39,11 +39,50 @@ export function resolveAttachmentMaxBytes(fieldMaxAttachmentSizeMb?: number | nu
   return Math.min(defaultMaxBytes, Math.floor(fieldMaxAttachmentSizeMb * 1024 * 1024))
 }
 
+export function resolveAttachmentMultipartMaxBytes(): number {
+  return resolveDefaultAttachmentMaxUploadBytes() + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES
+}
+
 export function isMultipartRequestWithinUploadLimit(contentLengthHeader: string | null): boolean {
   if (!contentLengthHeader) return true
   const contentLength = Number(contentLengthHeader)
-  if (!Number.isFinite(contentLength) || contentLength <= 0) return true
-  return contentLength <= (resolveDefaultAttachmentMaxUploadBytes() + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES)
+  if (!Number.isSafeInteger(contentLength) || contentLength <= 0) return false
+  return contentLength <= resolveAttachmentMultipartMaxBytes()
+}
+
+export class MultipartUploadLimitError extends Error {
+  constructor() {
+    super('Multipart request exceeds the maximum upload size.')
+    this.name = 'MultipartUploadLimitError'
+  }
+}
+
+export function isMultipartUploadLimitError(error: unknown): error is MultipartUploadLimitError {
+  return error instanceof MultipartUploadLimitError
+}
+
+export async function parseMultipartFormDataWithinUploadLimit(request: Request): Promise<FormData> {
+  if (!isMultipartRequestWithinUploadLimit(request.headers.get('content-length'))) {
+    throw new MultipartUploadLimitError()
+  }
+
+  if (!request.body) return request.formData()
+
+  const maxBytes = resolveDefaultAttachmentMaxUploadBytes() + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES
+  let consumedBytes = 0
+  const boundedBody = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      consumedBytes += chunk.byteLength
+      if (consumedBytes > maxBytes) {
+        controller.error(new MultipartUploadLimitError())
+        return
+      }
+      controller.enqueue(chunk)
+    },
+  }))
+  const contentType = request.headers.get('content-type')
+  const headers = contentType ? { 'content-type': contentType } : undefined
+  return new Response(boundedBody, { headers }).formData()
 }
 
 export function willExceedAttachmentTenantQuota(currentUsageBytes: number, incomingFileBytes: number): boolean {

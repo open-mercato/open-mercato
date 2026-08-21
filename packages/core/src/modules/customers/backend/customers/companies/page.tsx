@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -44,6 +46,7 @@ import { useAutoDiscoveredFields } from '@open-mercato/ui/backend/utils/useAutoD
 import { useAdvancedFilterTree } from '@open-mercato/ui/backend/hooks/useAdvancedFilter'
 import { AdvancedFilterPanel } from '@open-mercato/ui/backend/filters/AdvancedFilterPanel'
 import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilterChips'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
@@ -115,6 +118,7 @@ type CompaniesResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type DictionaryKindKey = CustomerDictionaryKind
@@ -195,6 +199,7 @@ export default function CustomersCompaniesPage() {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -419,6 +424,7 @@ export default function CustomersCompaniesPage() {
         setRows(items.map((item) => mapApiItem(item as Record<string, unknown>)).filter((row): row is CompanyRow => !!row))
         setTotal(typeof payload.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -887,7 +893,7 @@ export default function CustomersCompaniesPage() {
           searchPlaceholder={t('customers.companies.list.searchPlaceholder')}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           onRowClick={(row) => router.push(`/backend/customers/companies-v2/${row.id}`)}
-          perspective={{ tableId: 'customers.companies.list' }}
+          perspective={{ tableId: extensionPoints.hosts.companiesTable.tableId }}
           sortable
           manualSorting
           sorting={sorting}
@@ -938,7 +944,7 @@ export default function CustomersCompaniesPage() {
           }}
           activeFilterChips={(
             <ActiveFilterChips
-              tree={filterPanel.tree}
+              tree={filterPanel.appliedTree}
               fields={advancedFilterFields}
               popoverOpen={filtersOpen}
               onRemoveNode={(id) => filterPanel.dispatch({ type: 'removeNode', nodeId: id })}
@@ -952,8 +958,15 @@ export default function CustomersCompaniesPage() {
             onClearAll: handleAdvancedFilterClear,
             onRemoveLast: () => filterPanel.dispatch({ type: 'removeLast' }),
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customers.companies.entityPlural', 'companies')}
+              createHref="/backend/customers/companies/create"
+              createLabel={t('customers.companies.list.actions.new')}
+            />
+          )}
           virtualized
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
           isLoading={isLoading}
         />
         <AdvancedFilterPanel

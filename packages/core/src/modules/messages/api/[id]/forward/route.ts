@@ -2,6 +2,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { forwardMessageSchema } from '../../../data/validators'
 import { attachOperationMetadataHeader, OperationLogEntryLike } from '../../../lib/operationMetadata'
 import { canUseMessageEmailFeature, parseRequestBodySafe, resolveMessageContext } from '../../../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { forwardResponseSchema, forwardMessageSchema as forwardSchema } from '../../openapi'
 import { MessageCommandExecuteResult } from '../../../commands/shared'
@@ -17,6 +18,28 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const input = forwardMessageSchema.parse(body)
   if (input.sendViaEmail && !(await canUseMessageEmailFeature(ctx, scope))) {
     return Response.json({ error: 'Missing feature: messages.email' }, { status: 403 })
+  }
+
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: null,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
   }
 
   let commandResult: { result: MessageCommandExecuteResult; logEntry: unknown }
@@ -61,6 +84,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   attachOperationMetadataHeader(response, commandResult.logEntry as OperationLogEntryLike, {
     resourceKind: 'messages.message',
     resourceId: newMessageId,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: newMessageId,
+    operation: 'create',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }

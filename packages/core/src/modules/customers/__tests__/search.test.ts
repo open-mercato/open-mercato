@@ -1,3 +1,16 @@
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    locale: 'en',
+    t: (key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>) => {
+      const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : key
+      const values = typeof fallbackOrParams === 'object' && fallbackOrParams ? fallbackOrParams : params
+      let out = fallback
+      if (values) for (const [name, value] of Object.entries(values)) out = out.replace(new RegExp(`{{${name}}}`, 'g'), String(value))
+      return out
+    },
+  }),
+}))
+
 import { searchConfig } from '../search'
 
 describe('customers search config', () => {
@@ -41,5 +54,27 @@ describe('customers search config', () => {
       }),
     )
     expect(query.mock.calls[0]?.[1]).not.toHaveProperty('customFieldSources')
+  })
+
+  test('person search results link to the v2 detail page (#2843)', async () => {
+    const personConfig = searchConfig.entities.find((entity) => entity.entityId === 'customers:customer_person_profile')
+    const ctx = { record: { entity_id: 'entity-1' } } as any
+
+    const url = await personConfig!.resolveUrl!(ctx)
+    expect(url).toBe('/backend/customers/people-v2/entity-1')
+
+    const links = await personConfig!.resolveLinks!(ctx)
+    expect(links?.[0]?.href).toContain('/backend/customers/people-v2/entity-1')
+  })
+
+  test('company search results link to the v2 detail page (#2843)', async () => {
+    const companyConfig = searchConfig.entities.find((entity) => entity.entityId === 'customers:customer_company_profile')
+    const ctx = { record: { entity_id: 'entity-2' } } as any
+
+    const url = await companyConfig!.resolveUrl!(ctx)
+    expect(url).toBe('/backend/customers/companies-v2/entity-2')
+
+    const links = await companyConfig!.resolveLinks!(ctx)
+    expect(links?.[0]?.href).toContain('/backend/customers/companies-v2/entity-2')
   })
 })

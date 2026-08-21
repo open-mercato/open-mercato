@@ -73,6 +73,7 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [Separator](#separator)
 - [Tabs](#tabs)
 - [Table](#table)
+- [Utility primitives (brief reference)](#utility-primitives-brief-reference)
 
 ---
 
@@ -83,7 +84,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 ```
 
 **Variants**:
-- `default` (primary CTA) · `destructive` (danger filled)
+- `default` (primary CTA) · `destructive` (danger, quiet: red text + red border on the page surface)
+- `destructive-solid` (danger filled — point-of-no-return confirmations only)
 - `destructive-outline` · `destructive-soft` · `destructive-ghost` (danger family)
 - `outline` · `secondary` · `ghost` · `muted` · `link`
 
@@ -114,7 +116,20 @@ All sizes share `rounded-md`. Same-row buttons MUST share `size`.
 
 **Anti-patterns:** `<Button className="h-9">` (redundant, hides contract from grep), `<Button size="sm">` next to `size="icon"`, raw `<Link>` styled as a button.
 
-> Use the destructive family for danger actions: `destructive` for primary delete CTAs, `destructive-outline` for confirmation dialogs, `destructive-soft` for inline destructive chips, `destructive-ghost` for low-emphasis menu items.
+### Destructive loudness (MUST)
+
+`destructive` is **quiet by default** — red text and a red border on the page surface. A screen full of solid red buttons trains users to ignore red, so the fill is reserved for the one moment it has to be unmissable.
+
+| Control | Variant | Why |
+|---|---|---|
+| Delete / Remove / Discard trigger (row action, toolbar, form header, edit-dialog footer) | `destructive` | Opening a confirmation is reversible — Escape gets you out. |
+| The confirm button inside a confirmation dialog | `destructive-solid` | The single point of no return. `ConfirmDialog` with `variant="destructive"` already resolves to this — do not hand-roll it. |
+| Inline destructive chip | `destructive-soft` | Low-emphasis surface treatment. |
+| Low-emphasis destructive menu item | `destructive-ghost` | No border/fill in a list context. |
+
+MUST NOT put `destructive-solid` on a button that only *opens* a dialog, and MUST NOT leave a final confirmation on the quiet `destructive`. Status and validation copy is not a destructive action — that takes `text-status-error-text`, never `text-destructive` (see [`ds-rules.md`](ds-rules.md)).
+
+`destructive-outline` remains as an alias of the quiet treatment for call sites that predate the policy; new code uses `destructive`.
 
 ---
 
@@ -2165,6 +2180,121 @@ Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Descript
 
 ---
 
+## Empty-state decision guide
+
+The DS standardizes empty/not-found/no-access states (issue #772). Pick the component by **why** the view is empty:
+
+| Situation | Component | Import |
+|---|---|---|
+| List has **no records yet** (no search/filter) | `ListEmptyState` | `@open-mercato/ui/backend/filters/ListEmptyState` |
+| List has **no results after a search** | `SearchEmptyResults` (auto-rendered by `DataTable`) | `@open-mercato/ui/backend/filters/SearchEmptyResults` |
+| List has **no results after filters** | `FilteredEmptyResults` (auto-rendered by `DataTable` via `filterAwareEmptyState`) | `@open-mercato/ui/backend/filters/FilteredEmptyResults` |
+| **Record not found** on a detail/edit page | `RecordNotFoundState` | `@open-mercato/ui/backend/detail` |
+| **No access** (forbidden) | `AccessDeniedMessage` | `@open-mercato/ui/backend/detail` |
+| A **section/tab** is empty but healthy | `TabEmptyState` | `@open-mercato/ui/backend/detail` |
+| Low-level building block for any of the above | `EmptyState` | `@open-mercato/ui/primitives/empty-state` |
+
+`DataTable` resolves its empty branch automatically in this order: **active filters → active search → custom `emptyState` node → standardized default**. So a list only needs to pass `emptyState={<ListEmptyState …/>}` for the zero-records case; search/filter states are handled for you.
+
+## ListEmptyState
+
+```typescript
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+```
+
+Standardized **zero-records** empty state for list views — pass it to a `DataTable`'s `emptyState` prop. Renders a neutral icon, a generated title (`No {entity} yet`), a short description, and a primary "create" action.
+
+```tsx
+<DataTable
+  emptyState={(
+    <ListEmptyState
+      entityName={t('customers.companies.entityPlural', 'companies')}
+      createHref="/backend/customers/companies/create"
+      createLabel={t('customers.companies.list.actions.new')}
+    />
+  )}
+  // …
+/>
+```
+
+### Props
+
+| Prop | Type | Notes |
+|---|---|---|
+| `entityName` | `string` | Plural label; builds the default title `No {entity} yet`. Falls back to a generic word. |
+| `title` / `description` | `string` | Override the generated copy. |
+| `createHref` | `string` | Renders a primary "create" **link** (real `<a>`). |
+| `onCreate` | `() => void` | Renders a primary "create" **button** (for dialog-based create). |
+| `createLabel` | `string` | Label for the create action (defaults to a generic "Create"). |
+| `icon` | `React.ReactNode` | Optional leading icon (defaults to a neutral inbox glyph). |
+
+### MUST rules
+
+- Reuse the list's **existing** create href + label + entity/title i18n keys — do not invent new copy per list.
+- Omit `createHref`/`onCreate` for lists with no create flow (read-only/log/run/embedded sub-tables); `DataTable`'s standardized default already covers them — do NOT force a dead "Create" CTA.
+- Use `onCreate` (not `createHref`) when the list creates via a dialog.
+
+## RecordNotFoundState
+
+```typescript
+import { RecordNotFoundState, type RecordNotFoundStateProps } from '@open-mercato/ui/backend/detail'
+```
+
+The **default not-found state for backend detail/edit pages**. When a record id resolves to nothing,
+render this instead of a `CrudForm`/detail layout. It composes `EmptyState` (`variant='subtle'`) into
+a page-centered, neutral state — a missing record is **not** an error, so it must never be shown
+through the destructive `ErrorMessage`. Keep `ErrorMessage` for genuine load/validation failures.
+
+### Quick usage
+
+```tsx
+if (isNotFound) {
+  return (
+    <Page>
+      <PageBody>
+        <RecordNotFoundState
+          label={t('customers.companies.detail.error.notFound', 'Company not found.')}
+          backHref="/backend/customers/companies"
+          backLabel={t('customers.companies.backToList', 'Back to companies')}
+        />
+      </PageBody>
+    </Page>
+  )
+}
+```
+
+### Props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `label` | `string` | — | Required. The title (e.g. "Company not found."). Pass an already-translated string. |
+| `description` | `string` | — | Optional muted line under the title. |
+| `backHref` | `string` | — | When set, renders a default "back" link (`<Button asChild variant="outline">` wrapping a `next/link`, so it stays a real `<a>` / `role="link"`). |
+| `backLabel` | `string` | `t('ui.recordNotFound.backToList', 'Back to list')` | Label for the default back link. |
+| `action` | `React.ReactNode` | — | Custom recovery action; replaces the default back link entirely. |
+| `icon` | `React.ReactNode` | `<SearchX className="h-6 w-6" />` | Optional leading icon, wrapped in EmptyState's round muted box. |
+| `className` | `string` | — | Applied to the outer centering wrapper (`min-h-[50vh]`). |
+
+### MUST rules
+
+- Use it for the dedicated `notFound` page state on record-backed backend detail/edit pages — keep it
+  separate from a generic `error` state (which still uses `ErrorMessage`).
+- Always pass a `backHref` (or a custom `action`) so the user has a recovery path; do not render a
+  dead-end not-found.
+- Pass `label`/`backLabel` through `useT()` — the component only defaults the back label.
+- Portal / public (frontend) pages have no backend "back to list": use `EmptyState`
+  (`variant='subtle'`, `size='lg'`) directly there instead of this backend component.
+
+### Anti-patterns
+
+- Rendering not-found through `ErrorMessage` (red `role="alert"` box) → use `RecordNotFoundState`.
+- Ad hoc `<div className="text-destructive">…not found…</div>` or `<Alert variant="destructive">` for a
+  missing record → neutral `RecordNotFoundState` / `EmptyState`.
+- `throw new Error('… not found')` inside the loader and folding it into the generic `error` state →
+  set a dedicated `isNotFound` flag and render `RecordNotFoundState`.
+
+---
+
 ## Skeleton
 
 ```typescript
@@ -2265,7 +2395,7 @@ Tokens map to the Figma `state/{x}/*` variable family — `status-{x}-icon` ↔ 
 | `stroke` | White bg, neutral text, soft border + drop shadow | `bg-background text-foreground border-border shadow-lg` | Rounded badge with `bg-status-{x}-icon` + white icon |
 | `filled` | Saturated bg, white text | `bg-status-{x}-icon text-white border-transparent` | Plain white icon (no badge wrap) |
 
-`feature` status maps to `--brand-violet` tokens instead of `--status-*` because there is no dedicated `feature` token set in `globals.css`.
+`feature` status maps to the `--status-neutral-*` token family (Figma `state/faded/*` gray) — there is no dedicated `feature` token set in `globals.css`, and it deliberately does NOT use `--brand-violet` (see MUST rules below).
 
 ### Size (3)
 
@@ -4044,8 +4174,8 @@ Both share the underlying Radix Dialog, the same `Cmd/Ctrl+Enter` submit + `Esca
 
 | `side` | Slot | Default size | Use case |
 |---|---|---|---|
-| `right` (default) | `inset-y-0 right-0` | `w-full max-w-md` (~420px) | Detail panes, edit forms — the most common case |
-| `left` | `inset-y-0 left-0` | `w-full max-w-md` | Navigation drawers, mobile menus |
+| `right` (default) | `inset-y-0 right-0` | `w-full max-w-[400px]` (Figma: 400px) | Detail panes, edit forms — the most common case |
+| `left` | `inset-y-0 left-0` | `w-full max-w-[400px]` | Navigation drawers, mobile menus |
 | `top` | `inset-x-0 top-0` | `max-h-[80vh]` | Notification banners, quick filters |
 | `bottom` | `inset-x-0 bottom-0` | `max-h-[80vh]` | Mobile action sheets, command palette |
 
@@ -4154,7 +4284,7 @@ Matches Figma `Drawer Footer [1.1]` variants 1–6.
 - **Overlay:** `bg-foreground/40 backdrop-blur-sm` — page chrome stays visible-but-dimmed behind the drawer.
 - **Content panel:** `bg-background shadow-2xl` + rounded corners on the inner (viewport-facing) edges only. Per Figma there is NO border on the seam — the rounded corners + the shadow do the visual separation work. Resulting classes by side: `rounded-l-2xl` (right), `rounded-r-2xl` (left), `rounded-b-2xl` (top), `rounded-t-2xl` (bottom).
 - **No chrome dividers** between Header / Body / Footer. Section separators inside the body (e.g. "ELIGIBILITY CRITERIA" labels) come from content composition, not from the Drawer primitive.
-- Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
+- Default `max-w-[400px]` (Figma Drawer width) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
 - Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground, hover bg `muted/40`). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
 
 ---
@@ -5537,3 +5667,18 @@ All accept native HTML attributes. Style only via `className`.
 ### Accessibility
 - Use `TableCaption` to describe the table for screen readers
 - For sortable columns, render the sort affordance inside `TableHead` with `aria-sort`
+
+---
+
+## Utility primitives (brief reference)
+
+Small primitives that need no full section — listed here so nothing shipped is undocumented.
+
+| Primitive | Import | What it is | Rules |
+|---|---|---|---|
+| `Card` (+ `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` / `CardContent` / `CardFooter`) | `@open-mercato/ui/primitives/card` | Generic surface container: `bg-card rounded-xl border shadow-sm`, `gap-6`, `px-6` sections | Use for standalone content cards; do NOT hand-roll `<div className="rounded-xl border bg-card">` |
+| `Popover` (+ `PopoverTrigger` / `PopoverContent` / `PopoverAnchor` / `PopoverClose`) | `@open-mercato/ui/primitives/popover` | Radix popover portal at `z-popover`, `bg-popover` surface, `min-w-[280px]` | Base for custom floating panels; prefer higher-level `Select`/`Tooltip`/`CompactSelect` when they fit |
+| `Label` | `@open-mercato/ui/primitives/label` | Radix label: `text-sm font-medium`, disabled propagation via `peer-disabled`/`group-data-[disabled]` | Every standalone input needs one (or use `FormField`, which renders it) |
+| `DataLoader` | `@open-mercato/ui/primitives/DataLoader` | `isLoading`-gated wrapper rendering a centered `Spinner` before children | For simple section-level loading; full pages prefer `LoadingMessage` |
+| `Calendar` | `@open-mercato/ui/primitives/calendar` | Internal engine for `DatePicker`/`DateRangePicker` (incl. month/year grid navigation) | INTERNAL — consume via `DatePicker`/`DateRangePicker`, do not embed directly |
+| `Notice` / `ErrorNotice` | — | DEPRECATED shells kept for BC only; migration to `Alert` is complete and guard-tested | NEVER import in new code — use `Alert` |

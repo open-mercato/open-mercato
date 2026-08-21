@@ -13,9 +13,9 @@ Performs a thorough pre-implementation analysis of a specification to catch issu
 
 1. Read the target spec file(s) fully from `.ai/specs/` or `.ai/specs/enterprise/`.
 2. Read `BACKWARD_COMPATIBILITY.md` — the 13 contract surface categories.
-3. Read `.ai/lessons.md` for known pitfalls.
+3. Scan the tagged `.ai/lessons.md` index by affected module/area/topic and open only matching lesson records.
 4. Using the Task Router in `AGENTS.md`, identify all relevant AGENTS.md guides for affected modules/packages.
-5. Read the code-review checklist at `.ai/skills/om-code-review/references/review-checklist.md`.
+5. Read the code-review checklist at `.agents/skills/om-code-review/references/review-checklist.md`.
 6. Identify all existing modules, entities, events, and API routes that the spec touches (use Explore subagents for large scopes).
 
 ### Phase 2 — Backward Compatibility Audit
@@ -79,7 +79,7 @@ Check that the spec's proposed implementation follows all relevant AGENTS.md rul
 - **Encryption maps mechanism — every PII / GDPR-relevant column the spec adds (names, addresses, contacts, free-text notes about people, integration credentials, secrets, document numbers) MUST be declared in a module-level `<module>/encryption.ts` exporting `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`). Reads MUST go through `findWithDecryption` / `findOneWithDecryption` (5-arg `(em, entity, where, options?, scope?)`). Equality-lookup columns declare a sibling `hashField`. Hand-rolled AES, `crypto.subtle`, custom KMS, or "encrypt later" stubs are violations. See `packages/core/AGENTS.md` → Encryption + `apps/docs/docs/user-guide/encryption.mdx`.**
 
 **API & UI canonical mechanisms** (no DIY substitutes):
-- **CRUD APIs use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })`. Custom write routes call `validateCrudMutationGuard` before + `runCrudMutationGuardAfterSuccess` after.** See `packages/core/AGENTS.md` → API Routes / CRUD Factory.
+- **CRUD APIs use `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })`. Custom write routes use the mutation guard registry: map the route to `create`/`update`/`delete` (action endpoints usually `update`), collect registered guards, append `bridgeLegacyGuard(container)` when present, call `runMutationGuards(...)` with `{ userFeatures }` before mutation, merge `modifiedPayload`, and run returned `afterSuccessCallbacks` after while catching/logging callback failures.** See `packages/core/AGENTS.md` → API Routes / CRUD Factory.
 - **API route files export per-method `metadata`** (`requireAuth` / `requireFeatures`) — flag any top-level `export const requireAuth`.
 - **Backend forms use `<CrudForm>`** with `createCrud` / `updateCrud` / `deleteCrud` and `createCrudFormError`; lists use `<DataTable>` with stable `entityId` + `extensionTableId`. No raw `<form>`, no raw `fetch`. See `packages/ui/AGENTS.md`.
 - **HTTP via `apiCall` / `apiCallOrThrow`** from `@open-mercato/ui/backend/utils/apiCall`. Non-`CrudForm` writes wrapped in `useGuardedMutation`.
@@ -246,4 +246,4 @@ Launch parallel Explore agents for independent code areas (events, API routes, w
 - MUST propose concrete fixes for every violation and gap
 - MUST NOT modify any code — this skill is analysis only
 - MUST NOT modify the spec directly — propose changes in the report for user review
-- MUST check `.ai/lessons.md` for known pitfalls relevant to the spec's domain
+- MUST scan `.ai/lessons.md` and open only lesson records whose module/area/topic tags match the spec

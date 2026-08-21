@@ -61,6 +61,7 @@ describe('inbox_ops settings optimistic locking', () => {
     jest.clearAllMocks()
     delete process.env.OM_OPTIMISTIC_LOCK
     mockSettings.updatedAt = new Date(CURRENT_VERSION)
+    ;(mockSettings as { webhookSecret?: string | null }).webhookSecret = null
     mockFindOneWithDecryption.mockResolvedValue(mockSettings)
   })
 
@@ -84,5 +85,39 @@ describe('inbox_ops settings optimistic locking', () => {
   it('is a no-op (no 409) without the expected-version header', async () => {
     const res = await PATCH(patchRequest(null))
     expect(res.status).toBe(200)
+  })
+
+  it('sets the per-tenant webhook secret and never echoes the value (issue #2698)', async () => {
+    const secret = 'a-strong-per-tenant-secret-1234'
+    const req = new Request('http://localhost/api/inbox_ops/settings', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ webhookSecret: secret }),
+    })
+
+    const res = await PATCH(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect((mockSettings as { webhookSecret?: string | null }).webhookSecret).toBe(secret)
+    expect(body.settings.webhookSecretSet).toBe(true)
+    expect(JSON.stringify(body)).not.toContain(secret)
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('clears the per-tenant webhook secret when null is provided', async () => {
+    ;(mockSettings as { webhookSecret?: string | null }).webhookSecret = 'existing-secret-value-000'
+    const req = new Request('http://localhost/api/inbox_ops/settings', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ webhookSecret: null }),
+    })
+
+    const res = await PATCH(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect((mockSettings as { webhookSecret?: string | null }).webhookSecret).toBeNull()
+    expect(body.settings.webhookSecretSet).toBe(false)
   })
 })

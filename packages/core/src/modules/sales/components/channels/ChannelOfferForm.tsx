@@ -11,6 +11,7 @@ import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@ope
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
@@ -26,6 +27,9 @@ import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-
 import { E } from '#generated/entities.ids.generated'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type PriceKindSummary = {
   id: string
@@ -136,6 +140,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     : null)
   const [loading, setLoading] = React.useState(mode === 'edit')
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [mediaOptions, setMediaOptions] = React.useState<MediaOption[]>([])
   const attachmentCache = React.useRef<Map<string, MediaOption[]>>(new Map())
@@ -214,7 +219,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           setVariantPreviews(variants)
         }
       } catch (err) {
-        console.error('sales.channels.offer.initialHydrate', err)
+        logger.error('sales.channels.offer.initialHydrate', { err })
       }
     }
     void hydrateExistingProduct()
@@ -273,12 +278,12 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
             setPriceKinds(mapItems(items))
             return
           } catch (err) {
-            console.error('sales.channels.price-kinds.fetch', { endpoint, err })
+            logger.error('sales.channels.price-kinds.fetch', { endpoint, err })
           }
         }
         setPriceKinds([])
       } catch (err) {
-        console.error('catalog.price-kinds.list', err)
+        logger.error('catalog.price-kinds.list', { err })
       }
     }
     void loadKinds()
@@ -291,6 +296,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     async function loadOffer() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<OfferResponse>(
           `/api/catalog/offers?id=${encodeURIComponent(offerKey)}&pageSize=1`,
@@ -298,7 +304,10 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           { errorMessage: t('sales.channels.offers.errors.loadOffer', 'Failed to load offer.') },
         )
         const offer = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!offer) throw new Error(t('sales.channels.offers.errors.notFound', 'Offer not found.'))
+        if (!offer) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const values = mapOfferToFormValues(offer, lockedChannelId)
         const pricePayload = await readApiResultOrThrow<PriceResponse>(
           `/api/catalog/prices?offerId=${encodeURIComponent(offer.id as string)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
@@ -334,7 +343,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
             })
             attachmentCache.current.set(productId, preloadedMedia)
           } catch (err) {
-            console.error('sales.channels.offer.media.preload', err)
+            logger.error('sales.channels.offer.media.preload', { err })
           }
         }
         if (!cancelled) {
@@ -344,7 +353,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           setMediaOptions(preloadedMedia)
         }
       } catch (err) {
-        console.error('sales.channels.offer.load', err)
+        logger.error('sales.channels.offer.load', { err })
         if (!cancelled) setError(t('sales.channels.offers.errors.loadOffer', 'Failed to load offer.'))
       } finally {
         if (!cancelled) setLoading(false)
@@ -455,7 +464,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       return true
     } catch (err) {
       if (surfaceRecordConflict(err, t)) return false
-      console.error('sales.channels.pricing.remove', err)
+      logger.error('sales.channels.pricing.remove', { err })
       flash(t('sales.channels.offers.errors.removePrice', 'Failed to remove price override.'), 'error')
       return false
     }
@@ -674,13 +683,19 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     router.push(buildChannelOffersHref(targetChannel))
   }, [initialValues?.channelId, lockedChannelId, offerId, router, t])
 
+  if (isNotFound) {
+    return (
+      <RecordNotFoundState
+        label={t('sales.channels.offers.errors.notFound', 'Offer not found.')}
+        backHref={channelOffersHref}
+        backLabel={t('sales.channels.offers.actions.backToList', 'Back to offers')}
+      />
+    )
+  }
+
   return (
     <div>
-      {error ? (
-        <div className="mb-4 rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      {error ? <ErrorMessage label={error} className="mb-4" /> : null}
       <CrudForm<OfferFormValues>
         title={mode === 'create'
           ? t('sales.channels.offers.form.createTitle', 'Create offer')
@@ -854,7 +869,7 @@ async function syncPriceOverrides(params: {
         () => deleteCrud('catalog/prices', id),
       )
     } catch (err) {
-      console.error('catalog.prices.delete', err)
+      logger.error('catalog.prices.delete', { err })
     }
   }
 }
@@ -891,7 +906,7 @@ function ChannelSelectInput({
           code: typeof item.code === 'string' ? item.code : null,
         })))
       } catch (err) {
-        console.error('sales.channels.options', err)
+        logger.error('sales.channels.options', { err })
       }
     }
     void load()
@@ -920,7 +935,7 @@ function ChannelSelectInput({
           return [...prev, entry]
         })
       } catch (err) {
-        console.error('sales.channels.lookup', err)
+        logger.error('sales.channels.lookup', { err })
       }
     }
     void loadSingle()
@@ -1016,7 +1031,7 @@ function ProductSelectInput({
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
-        console.error('catalog.products.lookup', err)
+        logger.error('catalog.products.lookup', { err })
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -1346,7 +1361,7 @@ function OfferFormWatchers({
           setVariantPreviews(variants)
         }
       } catch (err) {
-        console.error('sales.channels.offer.watchers', err)
+        logger.error('sales.channels.offer.watchers', { err })
       }
     }
     void load()
@@ -1527,7 +1542,7 @@ async function loadProductMedia(productId: string): Promise<MediaOption[]> {
       return normalize(primary.result.items)
     }
   } catch (err) {
-    console.error('catalog.product-media.lookup', err)
+    logger.error('catalog.product-media.lookup', { err })
   }
   try {
     const fallback = await apiCall<AttachmentsResponse>(
@@ -1539,7 +1554,7 @@ async function loadProductMedia(productId: string): Promise<MediaOption[]> {
       return normalize(fallback.result.items)
     }
   } catch (err) {
-    console.error('attachments.lookup', err)
+    logger.error('attachments.lookup', { err })
   }
   return []
 }
@@ -1659,7 +1674,7 @@ async function resolveVariantThumbnail(
       return info
     }
   } catch (err) {
-    console.error('sales.channels.offer.variantMedia', err)
+    logger.error('sales.channels.offer.variantMedia', { err })
   }
   const empty: VariantThumbnailInfo = { attachmentId: null, thumbnailUrl: null, fileName: null }
   cache.current.set(variantId, empty)

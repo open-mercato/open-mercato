@@ -2,8 +2,12 @@ import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { updateEnforcementPolicySchema } from '../data/validators'
-import type { MfaEnforcementService } from '../services/MfaEnforcementService'
+import type {
+  MfaEnforcementAuthScope,
+  MfaEnforcementService,
+} from '../services/MfaEnforcementService'
 
 export const commandId = 'security.enforcement.update'
 
@@ -37,8 +41,14 @@ registerCommand({
     }
 
     const enforcementService = ctx.container.resolve<MfaEnforcementService>('mfaEnforcementService')
+    const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
+    const scope: MfaEnforcementAuthScope = {
+      tenantId: (ctx.auth.tenantId as string | null | undefined) ?? null,
+      organizationId: (ctx.auth.orgId as string | null | undefined) ?? null,
+      isSuperAdmin,
+    }
     try {
-      await enforcementService.updatePolicy(parsed.data.id, parsed.data.data, ctx.auth.sub)
+      await enforcementService.updatePolicy(parsed.data.id, parsed.data.data, ctx.auth.sub, scope)
       return { ok: true as const }
     } catch (error) {
       if (isEnforcementServiceError(error)) {

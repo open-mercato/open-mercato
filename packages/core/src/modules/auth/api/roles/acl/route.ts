@@ -5,8 +5,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
@@ -16,8 +16,11 @@ import {
   assertActorCanModifySuperAdminRoleTarget,
   normalizeGrantFeatureList,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
-
-type TaggableCache = { deleteByTags?: (tags: string[]) => Promise<void> | void }
+import {
+  AUTH_ROLE_ACL_UPDATE_COMMAND_ID,
+  type AclUpdateResult,
+  type RoleAclUpdateInput,
+} from '@open-mercato/core/modules/auth/commands/acl'
 
 const getSchema = z.object({
   roleId: z.string().uuid(),
@@ -175,7 +178,7 @@ export async function PUT(req: Request) {
     }
   }
 
-  let acl = await em.findOne(RoleAcl, { role, tenantId: targetTenantId })
+  const acl = await em.findOne(RoleAcl, { role, tenantId: targetTenantId })
   // Optimistic lock: refuse a stale ACL overwrite so two admins editing the same
   // role's features in parallel cannot silently clobber each other (#2055). The
   // check is strictly additive — when the client sends no expected-version header
@@ -183,7 +186,7 @@ export async function PUT(req: Request) {
   // no prior version to conflict with).
   if (acl) {
     try {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: 'auth.role_acl',
         resourceId: acl.id,
         current: acl.updatedAt ?? null,
@@ -193,18 +196,11 @@ export async function PUT(req: Request) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       throw err
     }
-  } else {
-    acl = em.create(RoleAcl, {
-      role,
-      tenantId: targetTenantId,
-      createdAt: new Date(),
-      isSuperAdmin: false,
-    })
   }
 
-  const existingIsSuperAdmin = !!acl.isSuperAdmin
-  const existingFeatures = normalizeGrantFeatureList(acl.featuresJson)
-  const existingOrganizations = normalizeOrganizations(acl.organizationsJson)
+  const existingIsSuperAdmin = !!acl?.isSuperAdmin
+  const existingFeatures = normalizeGrantFeatureList(acl?.featuresJson)
+  const existingOrganizations = normalizeOrganizations(acl?.organizationsJson)
   const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? existingIsSuperAdmin
   const requestedFeatures = parsed.data.features === undefined
     ? existingFeatures
@@ -229,32 +225,39 @@ export async function PUT(req: Request) {
     throw err
   }
 
-  // Persist the ACL mutation inside a transaction so the role-permission write
-  // commits atomically (proper ACL-edit transaction handling).
-  const aclToPersist = acl
-  await withAtomicFlush(
-    em,
-    [
-      () => {
-        aclToPersist.organizationsJson = requestedOrganizations
-        aclToPersist.isSuperAdmin = requestedIsSuperAdmin
-        aclToPersist.featuresJson = requestedFeatures
-        em.persist(aclToPersist)
-      },
-    ],
-    { transaction: true },
-  )
-
-  // Invalidate cache for all users in this tenant since role ACL changed
-  if (targetTenantId) {
-    await rbacService.invalidateTenantCache(targetTenantId)
-    // Sidebar nav caches depend on RBAC; invalidate tenant scope nav caches
-    try {
-      const cache = container.resolve('cache') as TaggableCache | undefined
-      if (cache?.deleteByTags) await cache.deleteByTags([`rbac:tenant:${targetTenantId}`])
-    } catch {}
+  // Route the write through the command bus so the permission change lands in
+  // the action log. The command owns the transactional write and the RBAC cache
+  // invalidation that used to live here.
+  const commandBus = container.resolve('commandBus') as CommandBus
+  // A super admin may edit a role in another tenant. The actor's organization
+  // belongs to *their* tenant, and the command bus resolves the log row's
+  // organization as `metadata.organizationId ?? ctx.selectedOrganizationId ??
+  // ctx.auth.orgId` — a `??` chain, so a handler cannot express "explicitly no
+  // organization" on its own. Strip the organization from the context instead,
+  // otherwise the entry is stamped (target tenant, actor's foreign organization)
+  // and `ActionLogService` — which filters organization with strict equality —
+  // can never surface it for anyone.
+  const isForeignTenant = targetTenantId !== (auth.tenantId ?? null)
+  const actorOrgId = isForeignTenant ? null : auth.orgId ?? null
+  const commandCtx: CommandRuntimeContext = {
+    container,
+    auth: isForeignTenant ? { ...auth, orgId: null } : auth,
+    organizationScope: null,
+    selectedOrganizationId: actorOrgId,
+    organizationIds: actorOrgId ? [actorOrgId] : null,
+    request: req,
   }
-  
+  await commandBus.execute<RoleAclUpdateInput, AclUpdateResult>(AUTH_ROLE_ACL_UPDATE_COMMAND_ID, {
+    input: {
+      roleId: String(role.id),
+      tenantId: targetTenantId,
+      isSuperAdmin: requestedIsSuperAdmin,
+      features: requestedFeatures,
+      organizations: requestedOrganizations,
+    },
+    ctx: commandCtx,
+  })
+
   return NextResponse.json({
     ok: true,
     sanitized: false,

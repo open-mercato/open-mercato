@@ -14,14 +14,22 @@ import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accoun
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { validateUserState } from './customerAuth'
 import type { CustomerAuthContext } from './customerAuth'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'customer-auth-server' })
 
 export type { CustomerAuthContext }
 
-async function assertSessionStillActive(sessionId: string): Promise<boolean> {
+async function assertSessionStillActive(input: {
+  sessionId: string
+  userId: string
+  tenantId: string
+  organizationId: string
+}): Promise<boolean> {
   try {
     const container = await createRequestContainer()
     const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
-    const session = await service.findActiveSessionById(sessionId)
+    const session = await service.findActiveSessionForClaims(input)
     return session !== null
   } catch {
     return false
@@ -57,34 +65,42 @@ export async function getCustomerAuthFromCookies(
     const sid = typeof payload.sid === 'string' ? payload.sid : ''
     if (!sid) return null
     const tenantId = String(payload.tenantId)
+    const userId = String(payload.sub)
+    const organizationId = String(payload.orgId)
     if (options?.expectedTenantId && options.expectedTenantId !== tenantId) {
       // Cross-host JWT replay defense. See spec rev 5 Customer Authentication
       // section: the host-resolved tenant is the authoritative scope; mismatched
       // JWTs are rejected as if unauthenticated.
       return null
     }
-    const stillActive = await assertSessionStillActive(sid)
+    const stillActive = await assertSessionStillActive({
+      sessionId: sid,
+      userId,
+      tenantId,
+      organizationId,
+    })
     if (!stillActive) return null
 
     const userState = await validateUserState(
-      String(payload.sub),
+      userId,
       tenantId,
-      String(payload.orgId),
+      organizationId,
       payload.iat,
     )
     if (!userState.valid) return null
 
     return {
-      sub: String(payload.sub),
+      sub: userId,
       sid,
       type: 'customer',
       tenantId,
-      orgId: String(payload.orgId),
+      orgId: organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
       personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
       resolvedFeatures: userState.resolvedFeatures,
+      isPortalAdmin: userState.isPortalAdmin,
     }
   } catch {
     // Invalid or expired JWT — treat as unauthenticated
@@ -114,7 +130,7 @@ export async function getCustomerAuthForHost(
     if (!resolved || resolved.status !== 'active') return null
     return getCustomerAuthFromCookies({ expectedTenantId: resolved.tenantId })
   } catch (err) {
-    console.warn('[customer_accounts] getCustomerAuthForHost: domain resolve failed; falling back to platform cookie', err)
+    logger.warn('Domain resolve failed; falling back to platform cookie', { err })
     return getCustomerAuthFromCookies()
   }
 }

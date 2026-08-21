@@ -1,10 +1,10 @@
 "use client"
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { E } from '#generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
-import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import {
   buildOrganizationTreeOptions,
   type OrganizationTreeNode,
@@ -17,6 +17,7 @@ import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 
 type TreeResponse = {
   items: OrganizationTreeNode[]
@@ -46,9 +47,11 @@ const TREE_PADDING = 12
 export default function EditOrganizationPage({ params }: { params?: { id?: string } }) {
   const orgId = params?.id
   const t = useT()
+  const pathname = usePathname()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [tenantId, setTenantId] = React.useState<string | null>(null)
+  const [tenantName, setTenantName] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -130,6 +133,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
         }
         const resolvedTenantId = record.tenantId || null
         setTenantId(resolvedTenantId)
+        setTenantName(record.tenantName ?? null)
         const baseTree = await loadParentTree(resolvedTenantId, record.descendantIds ?? [])
         const fullTree = buildOrganizationTreeOptions(baseTree)
         const nodeMap = new Map(fullTree.map((opt) => [opt.value, opt]))
@@ -196,18 +200,13 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
         id: 'tenantId',
         label: t('directory.organizations.form.field.tenant', 'Tenant'),
         type: 'custom',
-        component: ({ value, setValue }) => (
-          <TenantSelect
-            id="tenantId"
-            value={typeof value === 'string' ? value : tenantId}
-            onChange={(next) => {
-              const normalized = next ?? null
-              setTenantId(normalized)
-              setValue(normalized)
-            }}
-            includeEmptyOption={false}
-            className="w-full h-9 rounded border px-2 text-sm"
-          />
+        component: () => (
+          <div>
+            <p className="text-sm">{tenantName ?? '—'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('directory.organizations.form.field.tenantReadonlyDescription', 'Tenant cannot be changed for an existing organization.')}
+            </p>
+          </div>
         ),
       } as CrudField,
     ] : []),
@@ -257,7 +256,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
       },
     },
     { id: 'isActive', label: t('directory.organizations.form.field.isActive', 'Active'), type: 'checkbox' },
-  ], [actorIsSuperAdmin, childSummary, parentTree, t, tenantId])
+  ], [actorIsSuperAdmin, childSummary, parentTree, t, tenantId, tenantName])
 
   const detailFields = React.useMemo(() => (
     actorIsSuperAdmin
@@ -269,6 +268,20 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     { id: 'details', title: t('directory.organizations.form.group.details', 'Details'), column: 1, fields: detailFields },
     { id: 'custom', title: t('directory.organizations.form.group.customFields', 'Custom Data'), column: 2, kind: 'customFields' },
   ]), [detailFields, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `directory.organization` + id
+  // explicitly. The resourceKind mirrors the CrudForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same organization.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'directory.organization',
+      resourceId: orgId || null,
+      updatedAt: typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+      data: initialValues,
+      path: pathname,
+    }),
+  )
 
   if (!orgId) {
     return (

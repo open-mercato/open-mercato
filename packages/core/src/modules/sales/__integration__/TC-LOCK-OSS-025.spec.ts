@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import {
   createSalesOrderFixture,
   createOrderLineFixture,
+  createShipmentFixture,
 } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -82,10 +83,11 @@ async function postWithOrderLock(
 }
 
 /** Read the id of the most recently created order line for an order. */
-async function fetchAnyOrderLineId(
+async function fetchOrderLineIdByName(
   request: APIRequestContext,
   token: string,
   orderId: string,
+  lineName: string,
 ): Promise<string> {
   const response = await request.fetch(
     resolveUrl(`${ORDER_LINES_BASE}?orderId=${encodeURIComponent(orderId)}&pageSize=100`),
@@ -93,8 +95,17 @@ async function fetchAnyOrderLineId(
   )
   expect(response.status(), 'GET /api/sales/order-lines should return 200').toBe(200)
   const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
-  const lineId = body.items?.find((item) => typeof item?.id === 'string')?.id
-  expect(typeof lineId, 'order should have at least one line to return').toBe('string')
+  // Select the line this test added by its exact name. The order also carries the
+  // zero-priced seed line the fixture creates (issue #4021), and that line has
+  // quantity 1 — shipping the test's quantity 2 against it fails the remaining-
+  // quantity guard with a 400. The previous heuristic tried to skip the seed line
+  // by comparing its name to the literal 'QA seed line', but the fixture names it
+  // `QA seed line ${Date.now()}`, so the comparison never matched and selection
+  // fell through to whichever line the list happened to return first. The list has
+  // no tie-breaking order, which is why this passed on the ephemeral lane and
+  // failed on the standalone one for the same commit.
+  const lineId = body.items?.find((item) => typeof item?.id === 'string' && item?.name === lineName)?.id
+  expect(typeof lineId, `order should expose the created line ${lineName}`).toBe('string')
   return lineId as string
 }
 
@@ -193,11 +204,15 @@ test.describe('TC-LOCK-OSS-025: order adjustments + returns document-aggregate c
       const t0 = await readUpdatedAt(request, token, ORDERS_BASE, orderId)
       expect(t0).toMatch(/^\d{4}-\d{2}-\d{2}T/)
 
+      const returnLineName = `QA OSS-025 return line ${Date.now()}`
       await createOrderLineFixture(request, token, orderId, {
-        name: `QA OSS-025 return line ${Date.now()}`,
+        name: returnLineName,
         quantity: 2,
       })
-      const orderLineId = await fetchAnyOrderLineId(request, token, orderId)
+      const orderLineId = await fetchOrderLineIdByName(request, token, orderId, returnLineName)
+      // The return guard (issue #3034) requires the line to have been shipped.
+      // Ship before capturing t1 so the fresh header reflects the latest order state.
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
       const t1 = await readUpdatedAt(request, token, ORDERS_BASE, orderId)
       expect(t1, "adding a line should advance the parent order's updated_at").not.toBe(t0)
 

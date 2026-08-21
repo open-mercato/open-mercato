@@ -3,7 +3,12 @@ import { z } from 'zod'
 import { EnforcementScope } from '../../../data/entities'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
 import { securityApiError } from '../../i18n'
-import { mapEnforcementError, resolveEnforcementContext } from '../_shared'
+import {
+  assertActorOwnsEnforcementScope,
+  mapEnforcementError,
+  resolveActorContext,
+  resolveEnforcementContext,
+} from '../_shared'
 
 const complianceQuerySchema = z.object({
   scope: z.nativeEnum(EnforcementScope).default(EnforcementScope.PLATFORM),
@@ -37,9 +42,12 @@ export async function GET(req: Request) {
   }
 
   try {
+    await assertActorOwnsEnforcementScope(context, parsedQuery.data.scope, parsedQuery.data.scopeId)
+    const actor = await resolveActorContext(context)
     const report = await context.enforcementService.getComplianceReport(
       parsedQuery.data.scope,
       parsedQuery.data.scopeId,
+      actor,
     )
     return NextResponse.json({
       scope: parsedQuery.data.scope,
@@ -63,6 +71,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid query parameters', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'Not authorized for the requested scope', schema: securityErrorSchema },
       ],
     },
   },

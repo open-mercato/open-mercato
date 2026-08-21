@@ -1,18 +1,29 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import {
+  buildCollectionTags,
+  debugCrudCache,
+  isCrudCacheEnabled,
+  normalizeTagSegment,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
-import { composeMessageSchema, listMessagesSchema } from '../data/validators'
+import { composeMessageSchema, listMessagesSchema, type ListMessagesInput } from '../data/validators'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { applyMessageParticipantScope } from '../lib/participantScope'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
@@ -27,6 +38,8 @@ type MessageCommandExecuteResultWithThreadId = MessageCommandExecuteResult & {
 }
 
 const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
+const MESSAGE_LIST_CACHE_TTL_MS = 30_000
+const MESSAGE_LIST_RESOURCE = 'messages.message'
 
 function getDb(em: EntityManager): Kysely<any> {
   return em.getKysely<any>()
@@ -50,6 +63,59 @@ type RecipientCountRow = {
   count: string | number
 }
 
+type MessageListPayload = {
+  items: Array<Record<string, unknown>>
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+type MessageListScope = Awaited<ReturnType<typeof resolveMessageContext>>['scope']
+
+function normalizeCacheFilterValue(value: unknown): unknown {
+  if (value === undefined) return null
+  if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) return value.map(normalizeCacheFilterValue)
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, entryValue]) => [key, normalizeCacheFilterValue(entryValue)])
+  }
+  return value
+}
+
+function buildMessageListFilterSignature(input: ListMessagesInput): string {
+  const canonicalInput = Object.entries(input)
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+    .map(([key, value]) => [key, normalizeCacheFilterValue(value)])
+
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalInput))
+    .digest('hex')
+    .slice(0, 32)
+}
+
+function buildMessageListCacheKey(scope: MessageListScope, input: ListMessagesInput): string {
+  return [
+    'messages:list:v1',
+    `tenant:${normalizeTagSegment(scope.tenantId)}`,
+    `org:${normalizeTagSegment(scope.organizationId)}`,
+    `user:${normalizeTagSegment(scope.userId)}`,
+    `filters:${buildMessageListFilterSignature(input)}`,
+  ].join('|')
+}
+
+function isMessageListPayload(value: unknown): value is MessageListPayload {
+  if (!value || typeof value !== 'object') return false
+  const payload = value as Partial<MessageListPayload>
+  return Array.isArray(payload.items)
+    && typeof payload.page === 'number'
+    && typeof payload.pageSize === 'number'
+    && typeof payload.total === 'number'
+    && typeof payload.totalPages === 'number'
+}
+
 export const metadata = {
   GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['messages.compose'] },
@@ -57,10 +123,26 @@ export const metadata = {
 
 export async function GET(req: Request) {
   const { ctx, scope } = await resolveMessageContext(req)
-  const em = ctx.container.resolve('em') as EntityManager
   const url = new URL(req.url)
   const params = Object.fromEntries(url.searchParams)
   const input = listMessagesSchema.parse(params)
+
+  const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
+  const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
+  if (cache && cacheKey) {
+    try {
+      const cached = await runWithCacheTenant(scope.tenantId, () => cache.get(cacheKey))
+      if (isMessageListPayload(cached)) {
+        return Response.json(cached)
+      }
+    } catch (error) {
+      debugCrudCache('messages-list-cache-read-failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  const em = ctx.container.resolve('em') as EntityManager
   const db = getDb(em) as any
 
   const searchIds = input.search
@@ -119,11 +201,9 @@ export async function GET(req: Request) {
         joinRecipient()
         break
       case 'all':
-        joinRecipient()
-        q = q.where((eb: any) => eb.or([
-          eb('m.sender_user_id', '=', scope.userId),
-          eb('r.message_id', 'is not', null),
-        ]))
+        // Sender-OR-recipient participant scope shared with the
+        // communication_channels message enricher — see participantScope.ts (#4133).
+        q = applyMessageParticipantScope(q, scope.userId)
         break
       default: {
         const unsupportedFolder: never = input.folder
@@ -136,7 +216,7 @@ export async function GET(req: Request) {
     if (input.visibility) q = q.where('m.visibility', '=', input.visibility)
     if (input.sourceEntityType) q = q.where('m.source_entity_type', '=', input.sourceEntityType)
     if (input.sourceEntityId) q = q.where('m.source_entity_id', '=', input.sourceEntityId)
-    if (input.externalEmail) q = q.where('m.external_email_hash', '=', hashForLookup(input.externalEmail))
+    if (input.externalEmail) q = q.where('m.external_email_hash', 'in', lookupHashCandidates(input.externalEmail))
     if (input.senderId) q = q.where('m.sender_user_id', '=', input.senderId)
 
     if (input.search) {
@@ -188,6 +268,14 @@ export async function GET(req: Request) {
     return q
   }
 
+  // Audited for #3386 rollout (P3): sort is on m.sent_at (a plain timestamp —
+  // not in the messages:message encryption map whose encrypted fields are:
+  // subject, body, external_email, external_name, action_data, action_result).
+  // The handler already uses the correct two-phase shape: Kysely SQL
+  // ORDER BY + LIMIT/OFFSET produces a bounded page of IDs, then
+  // findWithDecryption is called only for those IDs — never for the full
+  // result set. The #3278 unbounded-decrypt hazard does not apply here.
+  // Covered by __tests__/list.test.ts.
   const countResult = await buildBaseQuery()
     .select(sql<number>`count(*)`.as('count'))
     .executeTakeFirst() as { count: string | number } | undefined
@@ -282,7 +370,7 @@ export async function GET(req: Request) {
     senderMetaById.set(user.id, { name, email: user.email ?? null })
   })
 
-  return Response.json({
+  const payload: MessageListPayload = {
     items: typedRows
       .map((row) => {
         const message = messagesById.get(row.id)
@@ -329,7 +417,28 @@ export async function GET(req: Request) {
     pageSize: input.pageSize,
     total,
     totalPages: Math.ceil(total / input.pageSize),
-  })
+  }
+
+  if (cache && cacheKey) {
+    try {
+      await runWithCacheTenant(scope.tenantId, () =>
+        cache.set(cacheKey, payload, {
+          ttl: MESSAGE_LIST_CACHE_TTL_MS,
+          tags: buildCollectionTags(
+            MESSAGE_LIST_RESOURCE,
+            scope.tenantId,
+            [scope.organizationId],
+          ),
+        }),
+      )
+    } catch (error) {
+      debugCrudCache('messages-list-cache-write-failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  return Response.json(payload)
 }
 
 export async function POST(req: Request) {
@@ -349,6 +458,28 @@ export async function POST(req: Request) {
     if (objectValidationError) {
       return Response.json({ error: objectValidationError }, { status: 400 })
     }
+  }
+
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: null,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
   }
 
   const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
@@ -374,6 +505,16 @@ export async function POST(req: Request) {
   attachOperationMetadataHeader(response, logEntry, {
     resourceKind: 'messages.message',
     resourceId: messageId,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: messageId,
+    operation: 'create',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }

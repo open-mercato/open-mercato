@@ -39,6 +39,8 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - `mercato db generate` – generate per-module migrations.
   - `mercato db migrate` – apply pending migrations.
   - `mercato db greenfield --yes` – destructive reset and regenerate schema.
+- **Deployment**
+  - [`mercato deploy railway`](/deployment/railway) – provision or update a Railway project using Git or local source, with managed PostgreSQL, Redis, an optional worker, and tracked deployment state.
 - **Auth module**
   - [`mercato auth seed-roles`](./auth-seed-roles)
   - [`mercato auth sync-role-acls`](./auth-sync-role-acls)

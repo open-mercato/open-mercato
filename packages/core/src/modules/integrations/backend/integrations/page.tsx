@@ -9,6 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -44,7 +45,7 @@ type IntegrationItem = {
   hasCredentials: boolean
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationAnalytics
-  updatedAt?: string | null
+  stateUpdatedAt?: string | null
 }
 
 type BundleItem = {
@@ -145,6 +146,9 @@ export default function IntegrationsMarketplacePage() {
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'integrations.marketplace',
+  })
 
   React.useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchInput.trim()), 300)
@@ -182,14 +186,22 @@ export default function IntegrationsMarketplacePage() {
   const load = React.useCallback(async () => {
     setIsLoading(true)
     const fallback: ListResponse = { items: [], bundles: [], total: 0, page: 1, pageSize: 100, totalPages: 1 }
-    const call = await apiCall<ListResponse>(`/api/integrations${listQuery}`, undefined, { fallback })
-    if (!call.ok) {
+    try {
+      const call = await apiCall<ListResponse>(`/api/integrations${listQuery}`, undefined, { fallback })
+      if (!call.ok) {
+        flash(t('integrations.marketplace.loadError'), 'error')
+        setIsLoading(false)
+        return
+      }
+      setData(call.result ?? fallback)
+      setIsLoading(false)
+    } catch {
+      // apiFetch throws on 401/403 even when its own redirect is suppressed
+      // (e.g. a guarded repeat 401) — without this catch the page would spin
+      // forever instead of surfacing the load error.
       flash(t('integrations.marketplace.loadError'), 'error')
       setIsLoading(false)
-      return
     }
-    setData(call.result ?? fallback)
-    setIsLoading(false)
   }, [listQuery, t])
 
   React.useEffect(() => {
@@ -202,30 +214,50 @@ export default function IntegrationsMarketplacePage() {
 
   const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))
-    const call = await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(updatedAt),
-      () => apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isEnabled: enabled }),
-      }, { fallback: null }),
-    )
-
-    if (!call.ok) {
-      flash(t('integrations.detail.stateError'), 'error')
-    } else {
-      setData((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          items: prev.items.map((item) =>
-            item.id === integrationId ? { ...item, isEnabled: enabled } : item,
-          ),
-        }
+    try {
+      const call = await runMutation({
+        mutationPayload: { integrationId, isEnabled: enabled },
+        context: {
+          formId: 'integrations.marketplace',
+          operation: 'update',
+          actionId: 'toggle-state',
+          resourceKind: 'integrations.integration',
+          resourceId: integrationId,
+          integrationId,
+          retryLastMutation,
+        },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCall<{ updatedAt?: string | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled: enabled }),
+          }, { fallback: null }),
+        ),
       })
+
+      if (!call.ok) {
+        flash(t('integrations.detail.stateError'), 'error')
+      } else {
+        const nextUpdatedAt = call.result?.updatedAt ?? null
+        setData((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            items: prev.items.map((item) =>
+              item.id === integrationId
+                ? { ...item, isEnabled: enabled, stateUpdatedAt: nextUpdatedAt ?? item.stateUpdatedAt }
+                : item,
+            ),
+          }
+        })
+      }
+    } catch {
+      flash(t('integrations.detail.stateError'), 'error')
+    } finally {
+      setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
     }
-    setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
-  }, [t])
+  }, [retryLastMutation, runMutation, t])
 
   const grouped = React.useMemo(() => {
     if (!data) return { bundles: [] as Array<BundleItem & { integrations: IntegrationItem[] }>, standalone: [] as IntegrationItem[] }
@@ -444,7 +476,7 @@ export default function IntegrationsMarketplacePage() {
                         <Switch
                           checked={item.isEnabled}
                           disabled={togglingIds.has(item.id)}
-                          onCheckedChange={(checked) => void handleToggle(item.id, checked, item.updatedAt)}
+                          onCheckedChange={(checked) => void handleToggle(item.id, checked, item.stateUpdatedAt)}
                           className="shrink-0"
                         />
                       </div>
@@ -482,7 +514,7 @@ export default function IntegrationsMarketplacePage() {
                       <Switch
                         checked={item.isEnabled}
                         disabled={togglingIds.has(item.id)}
-                        onCheckedChange={(checked) => void handleToggle(item.id, checked)}
+                        onCheckedChange={(checked) => void handleToggle(item.id, checked, item.stateUpdatedAt)}
                         className="shrink-0"
                       />
                     </div>

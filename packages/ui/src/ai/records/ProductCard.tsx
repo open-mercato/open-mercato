@@ -5,24 +5,7 @@ import { Package, Tag as TagIcon } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { ProductRecordPayload } from './types'
-
-function formatPrice(price: string | number | null | undefined, currency?: string | null): string | null {
-  if (price === null || price === undefined || price === '') return null
-  const value = typeof price === 'number' ? price : Number(price)
-  if (!Number.isFinite(value)) {
-    return typeof price === 'string' ? price : null
-  }
-  const code = currency && currency.length === 3 ? currency.toUpperCase() : undefined
-  try {
-    if (code) {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(value)
-    }
-  } catch {
-    // fall through
-  }
-  const formatted = new Intl.NumberFormat().format(value)
-  return code ? `${formatted} ${code}` : formatted
-}
+import { formatCurrency } from '../../utils/format'
 
 export interface ProductCardProps extends ProductRecordPayload {}
 
@@ -31,7 +14,7 @@ export function ProductCard(props: ProductCardProps) {
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
-  const price = formatPrice(props.price, props.currency)
+  const price = formatCurrency(props.price, props.currency)
 
   const leading = props.imageUrl ? (
     <div className="relative size-12 overflow-hidden rounded-md border border-border bg-muted">

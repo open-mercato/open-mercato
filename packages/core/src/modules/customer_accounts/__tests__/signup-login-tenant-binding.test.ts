@@ -89,6 +89,23 @@ describe('customer_accounts login — emailVerifiedAt gate blocks unverified acc
     expect(source).toMatch(gateBlockPattern)
     expect(source).not.toMatch(/Please verify your email/i)
   })
+
+  test('inactive and locked branches pay the bcrypt floor so they are not a timing oracle (#2694)', () => {
+    expect(source).toMatch(/from\s+['"]bcryptjs['"]/)
+    expect(source).toMatch(/TIMING_EQUALIZATION_HASH\s*=\s*['"]\$2[aby]\$10\$/)
+
+    const inactiveBranch = source.match(/if\s*\(\s*!\s*user\.isActive\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)?.[1] ?? ''
+    expect(inactiveBranch).toMatch(/await\s+bcryptCompare\s*\(\s*password\s*,\s*TIMING_EQUALIZATION_HASH\s*\)/)
+
+    const lockoutBranch = source.match(/checkLockout\(user\)\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)?.[1] ?? ''
+    expect(lockoutBranch).toMatch(/await\s+bcryptCompare\s*\(\s*password\s*,\s*TIMING_EQUALIZATION_HASH\s*\)/)
+  })
+
+  test('inactive and locked branches return the generic 401 body, never a distinct status or message (#2694)', () => {
+    expect(source).not.toMatch(/Account is deactivated/)
+    expect(source).not.toMatch(/Account is temporarily locked/)
+    expect(source).not.toMatch(/status:\s*423/)
+  })
 })
 
 describe('customer_accounts admin create — admin-vouched users are marked verified', () => {

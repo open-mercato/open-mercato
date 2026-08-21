@@ -23,7 +23,7 @@ export const metadata: WorkerMeta = {
 export default async function handle(job: QueuedJob<PollerJobPayload>, ctx: HandlerContext): Promise<void> {
   const service = ctx.resolve<ShippingCarrierService>('shippingCarrierService')
   for (const shipmentId of job.payload.shipmentIds) {
-    await service.getTracking({
+    await service.refreshTracking({
       providerKey: job.payload.providerKey,
       shipmentId,
       organizationId: job.payload.scope.organizationId,

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation.js'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
@@ -31,20 +31,40 @@ type ProviderListCellProps = {
   onOpenProvider: (providerType: string) => void
 }
 
-function ProviderListCell({ row, onOpenProvider }: ProviderListCellProps) {
+type ProviderRowItemProps = {
+  provider: MfaProvider
+  configuredCount: number
+  onOpenProvider: (providerType: string) => void
+}
+
+// Always receives a provider so useProviderListComponent runs unconditionally,
+// keeping the hook count stable. The recovery_codes / missing-provider branches
+// live in the parent (ProviderListCell), which now calls no hooks at all.
+export function ProviderRowItem({ provider, configuredCount, onOpenProvider }: ProviderRowItemProps) {
+  const ListComponent = useProviderListComponent(provider)
+
+  return (
+    <ListComponent
+      provider={provider}
+      configuredCount={configuredCount}
+      onClick={() => onOpenProvider(provider.type)}
+    />
+  )
+}
+
+export function ProviderListCell({ row, onOpenProvider }: ProviderListCellProps) {
   if (row.kind === 'recovery_codes') {
     return <RecoveryCodesListItem onClick={() => onOpenProvider('recovery_codes')} />
   }
 
   const provider = row.provider
   if (!provider) return null
-  const ListComponent = useProviderListComponent(provider)
 
   return (
-    <ListComponent
+    <ProviderRowItem
       provider={provider}
       configuredCount={row.configuredCount ?? 0}
-      onClick={() => onOpenProvider(provider.type)}
+      onOpenProvider={onOpenProvider}
     />
   )
 }

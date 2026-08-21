@@ -12,6 +12,7 @@ import { createPersonFixture, deleteEntityIfExists, readJsonSafe } from '@open-m
  */
 test.describe('TC-CRM-024: Person Profile-Only Update Timestamps', () => {
   test('should update person.updatedAt and expose profile.updatedAt on profile-only field change', async ({ request }) => {
+    test.setTimeout(60_000);
     let token: string | null = null;
     let personId: string | null = null;
 

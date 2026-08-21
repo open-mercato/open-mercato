@@ -13,11 +13,12 @@ Lookup reference for DS Guardian. No prose — just tables.
 | `text-red-500` | `text-status-error-icon` | Regex 1:1 |
 | `bg-red-50` | `bg-status-error-bg` | Regex 1:1 |
 | `bg-red-100` | `bg-status-error-bg` | Regex 1:1 |
-| `bg-red-600` | `bg-destructive` | Manual — solid button bg |
+| `bg-red-600` | `bg-status-error-solid` (chips/dots) or `Button variant="destructive-solid"` (confirm only) | Manual — see Destructive loudness policy in component-guide.md |
 | `border-red-200` | `border-status-error-border` | Regex 1:1 |
 | `border-red-300` | `border-status-error-border` | Regex 1:1 |
 | `border-red-500` | `border-status-error-border` | Regex 1:1 |
 | `text-destructive` | Keep | Already a token |
+| `bg-emerald-500` / solid status fills | `bg-status-{x}-solid` + `text-status-{x}-solid-foreground` | New solid role — all pairs hold WCAG AA |
 
 ## Color Mapping: Success (green + emerald)
 
@@ -136,17 +137,52 @@ Used by SocialButton / FancyButton / brand surfaces. NEVER hardcode brand hex va
 | `bg-black` (Apple / X) | `bg-brand-apple` / `bg-brand-x` |
 | `bg-white border-[#dadce0]` (Google) | `bg-background border-brand-google-stroke` |
 | `bg-[#BC9AFF]` (FancyButton violet) | `bg-brand-violet` |
-| `bg-[#D4F372]` (FancyButton lime) | `bg-brand-lime` |
+| `bg-[#B4F372]` (FancyButton lime) | `bg-brand-lime` |
 
 Tokens (theme-invariant — same value light & dark):
 - `--brand-violet`, `--brand-lime`, `--brand-apple`, `--brand-github`, `--brand-x`, `--brand-google-stroke`, `--brand-facebook`, `--brand-dropbox`, `--brand-linkedin`
+
+## Color Mapping: Pink (categorical accent)
+
+`--status-pink-*` is a **category accent** (pipeline stages, Tag variants), NOT a semantic state.
+
+| Current | Replace with | Notes |
+|---------|-------------|-------|
+| `text-pink-600` / `text-pink-700` (stage/category context) | `text-status-pink-text` | Regex 1:1 |
+| `bg-pink-50` / `bg-pink-100` (stage/category context) | `bg-status-pink-bg` | Regex 1:1 |
+| `border-pink-200` / `border-pink-300` | `border-status-pink-border` | Regex 1:1 |
+| `bg-pink-500` (solid dot/icon) | `bg-status-pink-icon` | Manual |
+| `status-pink-*` used for error/success semantics | `status-error-*` / `status-success-*` | Manual — pink never carries outcome semantics |
+
+## Z-Index Mapping
+
+| Current | Replace with |
+|---------|-------------|
+| `z-[55]` (stacked modal) | `z-modal-elevated` |
+| `z-[9999]`, `z-[1000]`, `z-[100]` | Semantic token from the scale (`z-top` = 100 max) |
+| `z-50` on toast/flash | `z-toast` |
+| `z-40`/`z-50` on modal/drawer | `z-modal` |
+
+## Legacy Alert `variant` → `status` (MIGRATE target)
+
+The `variant` prop is deprecated BC — migrate to `status` (+ optional `style`/`size`):
+
+| Current | Replace with |
+|---------|-------------|
+| `<Alert variant="destructive">` | `<Alert status="error">` |
+| `<Alert variant="success">` | `<Alert status="success">` |
+| `<Alert variant="warning">` | `<Alert status="warning">` |
+| `<Alert variant="info">` | `<Alert status="information">` |
+| `<Alert variant="default">` | `<Alert>` (information is the default) |
+
+Style guidance: default `light` matches the Figma tinted look; use `lighter` for the softer pre-Figma appearance; `stroke` for floating cards; `filled` for high-contrast call-outs. See `.ai/ui-components.md` § Alert.
 
 ## Color Mapping: DO NOT MIGRATE
 
 | Pattern | Reason |
 |---------|--------|
 | `text-destructive`, `bg-destructive` | Already semantic tokens |
-| `--chart-*` colors | Chart/data viz, not status |
+| `--chart-*` colors | Chart/data viz, not status — named palette (`chart-blue` … `chart-orange`) is the sanctioned series order |
 | `text-muted-foreground` | Already semantic |
 | `bg-muted`, `bg-accent` | Already semantic |
 | Brand colors, gradient stops | Decorative, not status |
@@ -172,17 +208,19 @@ Tokens (theme-invariant — same value light & dark):
 | `tracking-widest` | `tracking-wider` |
 | `tracking-[0.15em]` | `tracking-wider` |
 
-## Component Mapping
+## Component Mapping (HISTORICAL — migration complete)
+
+Notice/ErrorNotice → Alert migration finished 2026-06; a guard test enforces the BC allowlist. Kept for reference when stragglers appear:
 
 | Old | New | Notes |
 |-----|-----|-------|
-| `<Notice variant="error">` | `<Alert variant="destructive">` | Name aligned with Button |
-| `<Notice variant="info">` | `<Alert variant="info">` | No change |
-| `<Notice variant="warning">` | `<Alert variant="warning">` | No change |
-| `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>...</AlertTitle><AlertDescription>...</AlertDescription></Alert>` | Explicit composition |
+| `<Notice variant="error">` | `<Alert status="error">` | Current status API, not legacy `variant` |
+| `<Notice variant="info">` | `<Alert status="information">` | |
+| `<Notice variant="warning">` | `<Alert status="warning">` | |
+| `<ErrorNotice />` | `<Alert status="error"><AlertTitle>...</AlertTitle><AlertDescription>...</AlertDescription></Alert>` | Explicit composition |
 | `title="..."` (Notice prop) | `<AlertTitle>...</AlertTitle>` | Composition pattern |
 | `message="..."` (Notice prop) | `<AlertDescription>...</AlertDescription>` | Composition pattern |
-| `action={<Button>}` (Notice prop) | `<AlertAction><Button></AlertAction>` | Explicit slot |
+| `action={<Button>}` (Notice prop) | `action={<LinkButton>...</LinkButton>}` prop on `Alert` | Inline action slot |
 
 ## Raw HTML → DS Primitive (form controls)
 

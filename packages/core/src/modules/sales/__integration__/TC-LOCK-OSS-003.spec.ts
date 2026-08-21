@@ -5,7 +5,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 /**
  * TC-LOCK-OSS-003: OSS opt-in optimistic locking on sales.order
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  *
  * Mirrors TC-LOCK-OSS-001/002 but for `sales.order`. Verifies that when
  * `OM_OPTIMISTIC_LOCK` covers `sales.order`:

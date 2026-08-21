@@ -59,7 +59,13 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async isAvailable(): Promise<boolean> {
-    return this.embeddingService.available
+    if (!this.embeddingService.available) return false
+    // A configured embedding provider says nothing about the vector store. When the
+    // store cannot serve writes (pgvector extension missing), reporting availability
+    // here makes SearchService call ensureReady() for every record and fail the whole
+    // index/delete operation. Drivers without a probe keep the previous behavior.
+    if (!this.vectorDriver.isHealthy) return true
+    return this.vectorDriver.isHealthy()
   }
 
   async ensureReady(): Promise<void> {
@@ -157,10 +163,10 @@ export class VectorSearchStrategy implements SearchStrategy {
     await this.vectorDriver.delete(entityId, recordId, tenantId)
   }
 
-  async purge(entityId: EntityId, tenantId: string): Promise<void> {
+  async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
     await this.ensureReady()
     if (this.vectorDriver.purge) {
-      await this.vectorDriver.purge(entityId, tenantId)
+      await this.vectorDriver.purge(entityId, tenantId, organizationId)
     }
   }
 

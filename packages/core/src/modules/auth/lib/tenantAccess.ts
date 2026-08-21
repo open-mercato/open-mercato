@@ -1,5 +1,8 @@
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'tenant-access' })
 
 type TenantGuardCtx = {
   auth: {
@@ -47,7 +50,7 @@ export async function resolveIsSuperAdmin(ctx: TenantGuardCtx): Promise<boolean>
     cacheStore[SUPER_ADMIN_SYMBOL] = value
     return value
   } catch (error) {
-    console.error('auth.tenantGuard: failed to resolve rbac', error)
+    logger.error('Failed to resolve rbac', { err: error })
     cacheStore[SUPER_ADMIN_SYMBOL] = false
     return false
   }
@@ -74,3 +77,11 @@ export async function enforceTenantSelection(ctx: TenantGuardCtx, requested: unk
   if (normalized === actorTenant) return actorTenant
   throw forbidden('Not authorized to target this tenant.')
 }
+
+export async function requireSuperAdmin(ctx: TenantGuardCtx): Promise<void> {
+  const isSuperAdmin = await resolveIsSuperAdmin(ctx)
+  if (!isSuperAdmin) {
+    throw forbidden('Forbidden')
+  }
+}
+

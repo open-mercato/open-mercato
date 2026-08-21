@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customer_accounts/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Globe, Settings } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -19,6 +20,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type UserRow = {
@@ -39,6 +41,7 @@ type UsersResponse = {
   items?: UserRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null | undefined, fallback: string): string {
@@ -190,20 +193,19 @@ function CreateUserDialog({
                 {roleOptions.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
                   return (
-                    <button
+                    <Button
                       key={role.id}
                       type="button"
+                      size="2xs"
+                      variant={isSelected ? 'secondary' : 'outline'}
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedRoleIds((prev) =>
                         prev.includes(role.id) ? prev.filter((rid) => rid !== role.id) : [...prev, role.id],
                       )}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                      }`}
+                      className="rounded-full"
                     >
                       {role.label}
-                    </button>
+                    </Button>
                   )
                 })}
               </div>
@@ -234,6 +236,7 @@ export default function CustomerAccountsPage() {
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -313,6 +316,7 @@ export default function CustomerAccountsPage() {
         setRows(items)
         setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload?.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : t('customer_accounts.admin.error.loadUsers', 'Failed to load customer users')
@@ -499,7 +503,7 @@ export default function CustomerAccountsPage() {
                 })}
               </p>
               <p className="mt-0.5 text-xs text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / password123')}
+                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / Password123!')}
               </p>
             </div>
             <div className="flex shrink-0 flex-col gap-2">
@@ -545,7 +549,14 @@ export default function CustomerAccountsPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          perspective={{ tableId: 'customer_accounts.admin.users' }}
+          perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customer_accounts.admin.title', 'Users')}
+              onCreate={() => setCreateDialogOpen(true)}
+              createLabel={t('customer_accounts.admin.actions.createUser', 'Create User')}
+            />
+          )}
           onRowClick={(row) => router.push(`/backend/customer_accounts/users/${row.id}`)}
           rowActions={(row) => (
             <RowActions
@@ -571,7 +582,7 @@ export default function CustomerAccountsPage() {
               ]}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
         <CreateUserDialog

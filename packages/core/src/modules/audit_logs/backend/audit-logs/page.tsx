@@ -4,11 +4,15 @@ import React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from '../../components/AuditLogsActions'
 import { AuditLogsActions } from '../../components/AuditLogsActions'
 import type { AccessLogItem } from '../../components/AccessLogsTable'
 import { AccessLogsTable } from '../../components/AccessLogsTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'audit-logs-page' })
 
 type ActionLogResponse = {
   items: ActionLogItem[]
@@ -17,6 +21,7 @@ type ActionLogResponse = {
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type AccessLogResponse = {
@@ -26,6 +31,7 @@ type AccessLogResponse = {
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type TabOption = 'actions' | 'access'
@@ -44,11 +50,13 @@ export default function AuditLogsPage() {
   const [actionsPageSize, setActionsPageSize] = React.useState(DEFAULT_PAGE_SIZE)
   const [actionsTotal, setActionsTotal] = React.useState(0)
   const [actionsTotalPages, setActionsTotalPages] = React.useState(1)
+  const [actionsTotalIsCapped, setActionsTotalIsCapped] = React.useState(false)
   const actionsPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
   const [accessPage, setAccessPage] = React.useState(1)
   const [accessPageSize, setAccessPageSize] = React.useState(DEFAULT_PAGE_SIZE)
   const [accessTotal, setAccessTotal] = React.useState(0)
   const [accessTotalPages, setAccessTotalPages] = React.useState(1)
+  const [accessTotalIsCapped, setAccessTotalIsCapped] = React.useState(false)
   const accessPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
 
   const fetchActions = React.useCallback(async (page: number, pageSize: number) => {
@@ -91,6 +99,7 @@ export default function AuditLogsPage() {
     })
     setActionsTotal(actionsRes.total ?? (actionsRes.items?.length ?? 0))
     setActionsTotalPages(actionsRes.totalPages ?? 1)
+    setActionsTotalIsCapped(actionsRes.totalIsCapped === true)
     setAccessLogs(accessRes.items ?? [])
     const resolvedPage = accessRes.page ?? accessPageNum
     const resolvedPageSize = accessRes.pageSize ?? accessPageSizeNum
@@ -107,6 +116,7 @@ export default function AuditLogsPage() {
     })
     setAccessTotal(resolvedTotal)
     setAccessTotalPages(resolvedTotalPages)
+    setAccessTotalIsCapped(accessRes.totalIsCapped === true)
   }, [fetchActions, fetchAccess])
 
   const loadWithState = React.useCallback(async (
@@ -118,7 +128,7 @@ export default function AuditLogsPage() {
     try {
       await loadAll(actionPage, actionPageSize, accessPageNum, accessPageSizeNum)
     } catch (err) {
-      console.error('Failed to load audit logs', err)
+      logger.error('Failed to load audit logs', { err })
       setError(t('audit_logs.error.load'))
     } finally {
       setLoading(false)
@@ -142,11 +152,11 @@ export default function AuditLogsPage() {
     </Button>
   ), [loadWithState, actionsPage, actionsPageSize, accessPage, accessPageSize, loading, t])
 
-  const handleUndoError = React.useCallback(() => {
-    setError(t('audit_logs.error.undo'))
+  const handleUndoError = React.useCallback((reason?: string) => {
+    setError(reason || t('audit_logs.error.undo'))
   }, [t])
-  const handleRedoError = React.useCallback(() => {
-    setError(t('audit_logs.error.redo'))
+  const handleRedoError = React.useCallback((reason?: string) => {
+    setError(reason || t('audit_logs.error.redo'))
   }, [t])
 
   const handleActionsPageChange = React.useCallback((nextPage: number) => {
@@ -179,28 +189,17 @@ export default function AuditLogsPage() {
   return (
     <Page>
       <PageBody>
-        <div className="mb-6 border-b border-border">
-      <nav className="flex items-center gap-6 text-sm" role="tablist" aria-label={t('audit_logs.tabs.label')}>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'actions'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-              onClick={() => setTab('actions')}
-            >
-              {t('audit_logs.actions.title')}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'access'}
-              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-accent-indigo text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-              onClick={() => setTab('access')}
-            >
-              {t('audit_logs.access.title')}
-            </button>
-          </nav>
-        </div>
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as TabOption)}
+          variant="underline"
+          className="mb-6"
+        >
+          <TabsList className="w-full flex-wrap" aria-label={t('audit_logs.tabs.label')}>
+            <TabsTrigger value="actions">{t('audit_logs.actions.title')}</TabsTrigger>
+            <TabsTrigger value="access">{t('audit_logs.access.title')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {error && <div className="mb-4 rounded-md border border-status-error-border bg-status-error-bg p-3 text-sm text-status-error-text">{error}</div>}
 
@@ -217,6 +216,7 @@ export default function AuditLogsPage() {
               pageSize: actionsPageSize,
               total: actionsTotal,
               totalPages: actionsTotalPages,
+              totalIsCapped: actionsTotalIsCapped,
               onPageChange: handleActionsPageChange,
             }}
           />
@@ -232,6 +232,7 @@ export default function AuditLogsPage() {
               pageSize: accessPageSize,
               total: accessTotal,
               totalPages: accessTotalPages,
+              totalIsCapped: accessTotalIsCapped,
               onPageChange: handleAccessPageChange,
             }}
           />

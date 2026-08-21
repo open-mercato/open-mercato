@@ -1,3 +1,11 @@
+const mockLoggerError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({
+    child: () => ({ error: mockLoggerError }),
+  }),
+}))
+
 import { resolveMfaEnrollmentRedirect } from '../enforcement-redirect'
 
 type ResolveArgs = Parameters<typeof resolveMfaEnrollmentRedirect>[0]
@@ -26,6 +34,7 @@ function buildArgs(overrides?: Partial<ResolveArgs>): ResolveArgs {
 describe('resolveMfaEnrollmentRedirect', () => {
   beforeEach(() => {
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
+    mockLoggerError.mockClear()
   })
 
   test('returns redirect immediately when deadline is not set', async () => {
@@ -58,7 +67,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     expect(redirect).toBeNull()
   })
 
-  test('returns null when enforcement service is unavailable', async () => {
+  test('redirects when enforcement service is unavailable for a tenant user', async () => {
     const redirect = await resolveMfaEnrollmentRedirect(
       buildArgs({
         container: {
@@ -66,6 +75,89 @@ describe('resolveMfaEnrollmentRedirect', () => {
         },
       }),
     )
+    expect(redirect).toBe(
+      '/backend/profile/security/mfa?redirect=%2Fbackend%2Fcustomers%2Fpeople&reason=mfa_enrollment_required',
+    )
+  })
+
+  test('logs a diagnostic shape when the enforcement service is malformed', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({ configured: true }),
+        },
+      }),
+    )
+
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Unable to resolve MFA enforcement service; redirecting to enrollment',
+      { err: expect.any(TypeError) },
+    )
+    const error = mockLoggerError.mock.calls[0]?.[1]?.err
+    expect(error).toBeInstanceOf(TypeError)
+    expect((error as TypeError).message).toContain('object with keys: configured')
+  })
+
+  test('redirects when resolving the enforcement service throws', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => {
+            throw new Error('unavailable')
+          },
+        },
+      }),
+    )
+
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+  })
+
+  test('redirects when the compliance check throws for a tenant user', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => {
+              throw new Error('compliance unavailable')
+            },
+          }),
+        },
+      }),
+    )
+
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+  })
+
+  test('does not fail closed for a tenant-less user', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        auth: {
+          ...buildArgs().auth,
+          tenantId: null,
+        },
+        container: {
+          resolve: () => null,
+        },
+      }),
+    )
+
+    expect(redirect).toBeNull()
+  })
+
+  test('does not fail closed for an empty tenant id', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        auth: {
+          ...buildArgs().auth,
+          tenantId: '',
+        },
+        container: {
+          resolve: () => null,
+        },
+      }),
+    )
+
     expect(redirect).toBeNull()
   })
 

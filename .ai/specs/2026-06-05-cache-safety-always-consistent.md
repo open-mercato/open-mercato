@@ -1,6 +1,6 @@
 # OM_CACHE_SAFETY_ALWAYS_CONSISTENT — opt-in synchronous read-projection consistency
 
-- **Status:** Draft (pending implementation)
+- **Status:** In implementation (PR #3236)
 - **Date:** 2026-06-05
 - **Scope:** OSS
 - **Follow-up to:** PR #2549 (`fix(test): stabilize CF multi-select edit specs` — made the query-index *projection row* synchronous on write, left the heavy tail deferred)
@@ -98,6 +98,8 @@ packages/shared/src/lib/data/consistency.ts
 
 Coverage refresh is throttled (`shouldTriggerCoverageRefresh`, 5-min window, `engine.ts:40-48`) and intentionally eventually-consistent. **Decision:** when the flag is ON, run the coverage `COUNT` **inline and bypass the throttle for that write** so the badge count is converged on return. Document this as the most expensive part of the ON path. (Alternative considered: leave coverage eventual even when ON — rejected, because it would make "always consistent" misleading. Implementer may gate this sub-behavior behind the same flag with a code comment if COUNT cost proves prohibitive in bulk paths; if so, document the carve-out.)
 
+**Update (2026-07-05):** `query_index/subscribers/delete_one.ts` now has its own **independent** local throttle (`lastDeleteCoverageRefreshAt`, 5-min window, mirroring `shouldTriggerCoverageRefresh` rather than sharing its Map) so per-record deletes stop firing an unthrottled recount. An explicit `coverageDelayMs` on the payload already bypasses this local throttle (mirroring the shared engine's `scheduleCoverageRefresh` contract), and `suppressCoverage: true` skips the recount entirely — both are the levers a future ON-path implementation should use here, **in addition to** bypassing the shared engine's throttle at the `emitOrmEntityEvent` call site. Missing the `delete_one.ts`-local bypass would leave delete-triggered coverage recomputes throttled even with the flag ON.
+
 ### 4.6 Error propagation chain (must all be reversed when ON)
 
 For the flag to surface failures, propagation must be added at **each** swallow point — otherwise the awaited tail still fails silently and the flag is a no-op:
@@ -154,11 +156,16 @@ Unit (Jest):
 - `parseAlwaysConsistentEnv` grammar (on/off/default-off) — `packages/shared/src/lib/data/__tests__/consistency.test.ts`.
 - `query_index` indexer: with an injected `trx`, `upsertIndexRow`/`markDeleted` reuse it and do **not** open a new transaction (`packages/core/src/modules/query_index/__tests__/indexer.test.ts`).
 - Subscriber branch: flag OFF defers tail (existing behavior), flag ON awaits + wraps in one transaction; error rethrows when ON, swallowed when OFF.
+- Query-index custom-field projection: a singleton value for a `multi: true` definition remains an array, so edit forms hydrate the same shape for one or many values (`packages/core/src/modules/query_index/__tests__/indexer.test.ts`).
+- CRUD bridge ownership: data-engine domain events are marked as query-index-managed, including `skipReindex`, and the legacy DI bridge skips them so one logical write produces one query-index attempt/error log (`packages/shared/src/lib/data/__tests__/engine.bulk-suppress.test.ts`, `packages/core/src/modules/query_index/__tests__/di.test.ts`).
+- Always-consistent delete coverage: `suppressCoverage: true` remains authoritative and does not emit a full coverage refresh in the ON branch (`packages/core/src/modules/query_index/__tests__/delete-one-coverage.test.ts`).
 
 Integration (Playwright, per-module under `__integration__/`):
 - `OM_CACHE_SAFETY_ALWAYS_CONSISTENT=on`: create a record, **immediately** query the fulltext/search endpoint (not the projection) and assert tokens are present with **no** `expect.poll` — proving the token tail converged synchronously. (Reuse the surface from `TC-CRM-CF-MULTI-EDIT-001` / `TC-CAT-CF-MULTI-EDIT-001` but extend to the token/search read.)
 - `OM_CACHE_SAFETY_ALWAYS_CONSISTENT=on`: delete a record, immediately read coverage and assert the `COUNT` reflects the delete without polling.
 - Flag OFF: existing specs remain green unchanged (BC proof).
+- Flag OFF and ON: `TC-EXAMPLE-001` creates a todo with one label, verifies immediate projection shape, reopens the edit form, replaces the visible tag, and proves the old/new token-search behavior.
+- Flag ON: `TC-EXAMPLE-002` injects a deterministic `search_tokens` failure and verifies HTTP 500, a visible form error with no success toast, no index/token row, no search hit, and exactly one `indexer_error_logs` row.
 - Self-contained fixtures created/torn down in-test (no seeded-data reliance) per `.ai/qa/AGENTS.md`.
 
 ## 10. Implementation phases
@@ -174,3 +181,20 @@ Integration (Playwright, per-module under `__integration__/`):
 ## 11. Changelog
 
 - _Unreleased_ — Spec drafted (follow-up to PR #2549).
+
+- 2026-06-18 - Implemented `OM_CACHE_SAFETY_ALWAYS_CONSISTENT`: flag helper, transaction-threaded query-index tail, flag-gated error propagation, docs/env updates, and focused unit coverage.
+- 2026-07-27 - Addressed PR #3236 UI QA: preserved singleton multi-value projection cardinality, removed duplicate domain-bridge indexing without exposing the ownership marker to client payloads, restored `suppressCoverage` in the ON delete branch, and added browser regressions for label replacement and deterministic index failure handling.
+- 2026-07-28 - Reconciled the ON delete path with metadata-driven global-entity scoping from `develop`, added an ID-only global-entity coverage regression, and made the new shared consistency helper an explicit package export for standalone consumers.
+- 2026-08-03 - Merged the current `develop` into PR #3236, preserving entity-scoped search blocklists, fail-closed query-index encryption, and transaction-threaded projection writes. Re-ran `TC-EXAMPLE-001` with the flag OFF and ON plus `TC-EXAMPLE-002` with the flag ON in fresh ephemeral environments; all three browser checks passed with screenshots and no flaky retries.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| 1. Flag helper | Done | 2026-06-18 | Added shared parser/memoized helper and unit tests. |
+| 2. Indexer `trx` threading | Done | 2026-06-18 | Threaded optional executor through projection, search tokens, and coverage delta writes. |
+| 3. Subscriber inline+transaction path | Done | 2026-06-18 | Added flag-gated inline paths for upsert/delete with one Kysely transaction for index state. |
+| 4. Engine + bus + command-bus error propagation | Done | 2026-06-18 | Added opt-in event handler rethrow and flag-gated propagation through data/command side effects. |
+| 5. Coverage inline | Done | 2026-06-18 | Flag ON bypasses the engine throttle and awaits coverage refresh. |
+| 6. Docs/skills parity | Done | 2026-06-18 | Updated env examples and monorepo/standalone agent guidance from planned to implemented behavior. |
+| 7. Coverage + validation | Partial | 2026-08-03 | Added unit regressions for singleton multi fields, single-delivery bridge ownership, and ON delete coverage suppression. After merging current `develop`, focused query-index/shared/events suites passed (86 tests total), `yarn build:packages`, `yarn generate`, `yarn typecheck`, and `yarn build:app` passed, and module-local Playwright scenarios `TC-EXAMPLE-001/002` passed OFF/ON (3 checks, screenshots, no flaky retries). The repository-wide Jest gate remains blocked only by two `develop` Railway CLI assertions that assume POSIX permissions/path separators on Windows; `yarn template:sync` also reports pre-existing drift outside this PR. |

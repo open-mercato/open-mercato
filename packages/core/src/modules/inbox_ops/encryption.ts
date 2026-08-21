@@ -8,6 +8,15 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
 // the inbound-webhook lookups, which is out of scope for this fix.
 export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
   {
+    // `webhook_secret` is a tenant-scoped signing credential, never used in a
+    // WHERE/ILIKE lookup (it is loaded via the settings row, then compared with
+    // timingSafeEqual), so it is safe — and required — to encrypt at rest.
+    entityId: 'inbox_ops:inbox_settings',
+    fields: [
+      { field: 'webhook_secret' },
+    ],
+  },
+  {
     entityId: 'inbox_ops:inbox_email',
     fields: [
       { field: 'subject' },

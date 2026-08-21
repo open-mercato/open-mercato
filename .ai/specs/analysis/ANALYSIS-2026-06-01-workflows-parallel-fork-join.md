@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Parallel Fork / Join for the Workflows Engine
 
-> Target spec: `.ai/specs/2026-06-01-workflows-parallel-fork-join.md`
+> Target spec: `.ai/specs/implemented/2026-06-01-workflows-parallel-fork-join.md`
 > Analysis date: 2026-06-02 · Scope: OSS · Module: `packages/core/src/modules/workflows/`
 > Method: full spec read + `BACKWARD_COMPATIBILITY.md` (13 surfaces) + `.ai/lessons.md` + workflows/core AGENTS.md + code verification via Explore agents.
 

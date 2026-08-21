@@ -139,6 +139,15 @@ export async function incrementReindexProgress(params: {
   return false
 }
 
+export async function hasActiveReindexProgress(params: {
+  em: EntityManager
+  type: ReindexProgressType
+  tenantId: string
+  organizationId?: string | null
+}): Promise<boolean> {
+  return (await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)) != null
+}
+
 export async function completeReindexProgress(params: {
   em: EntityManager
   progressService: ProgressService

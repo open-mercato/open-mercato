@@ -118,6 +118,8 @@ type VectorDriverStatus = {
   name: string
   configured: boolean
   implemented: boolean
+  available?: boolean | null
+  unavailableReason?: string | null
   envVars: VectorDriverEnvVar[]
 }
 
@@ -212,6 +214,17 @@ export function SearchSettingsPageClient() {
       // Silently ignore errors during polling
     }
   }, [])
+
+  const hasActiveReindexLock = Boolean(settings?.fulltextReindexLock || settings?.vectorReindexLock)
+  React.useEffect(() => {
+    if (!hasActiveReindexLock) return
+
+    const interval = setInterval(() => {
+      void refreshStatsOnly()
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [hasActiveReindexLock, refreshStatsOnly])
 
   // Lightweight embedding stats refresh
   const refreshEmbeddingStatsOnly = React.useCallback(async () => {

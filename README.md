@@ -194,6 +194,24 @@ yarn dev --database-name=review_1720 --no-update-env
 
 Without the flag, behavior is unchanged (no prompt, no `.env` mutation). See the [installation guides](https://docs.openmercato.com/installation/monorepo) and [`yarn setup`](https://docs.openmercato.com/installation/setup) for details.
 
+#### Reducing dev-mode memory usage
+
+`yarn dev` watches every workspace package by default, and the watcher's memory footprint scales with how many packages it tracks. On smaller machines you can narrow the watch scope so only the packages you actually touch stay live — the active mode is printed with an emoji at startup:
+
+```bash
+# Watch only packages you've touched recently (git working tree + branch diff)
+yarn dev --watch=auto-optimized
+OM_WATCH_SCOPE=auto-optimized yarn dev
+
+# Watch only an explicit set of packages
+OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev
+
+# Watch only the most frequently changed packages (default cap: 6)
+yarn dev --watch=popular
+```
+
+Set `OM_WATCH_SCOPE=all` (or `--watch=all`) to restore watching every package. See [Choosing which packages the watcher tracks](https://docs.openmercato.com/appendix/troubleshooting) for the full reference, including `OM_WATCH_POPULAR_LIMIT` and the `git`-detection toggles.
+
 ---
 
 ### Detailed guides (prerequisites, native services, troubleshooting)
@@ -226,6 +244,22 @@ Each guide below is self-contained and covers all prerequisites, infrastructure 
     </td>
   </tr>
 </table>
+
+---
+
+### 🤖 Learn AI Engineering like we do!
+
+All of our experience building this enterprise-grade ERP is distilled into **[open-mercato/skills](https://github.com/open-mercato/skills)** — re-usable, **technology-agnostic** agent skills for autonomous PR creation, code review, CI stabilization, spec writing, integration testing, and merge management.
+
+Stack-agnostic — install them all with one command:
+
+```bash
+npx skills add open-mercato/skills --skill '*'
+```
+
+[![Open Mercato Skills](https://img.shields.io/badge/GitHub-open--mercato%2Fskills-181717?logo=github)](https://github.com/open-mercato/skills)
+
+---
 
 ## Spec Driven Development
 
@@ -311,7 +345,7 @@ Use the global launcher to find every assistant you can access, or embed `<AiCha
 - [Getting started](https://docs.openmercato.com/framework/ai-assistant/overview)
 - [How to configure it](https://docs.openmercato.com/framework/ai-assistant/settings)
 - [User guide](https://docs.openmercato.com/user-guide/ai-assistant)
-- [Legacy MCP assistant docs](.ai/specs/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
+- [Legacy MCP assistant docs](.ai/specs/implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
 
 ## Data Encryption
 
@@ -325,6 +359,7 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 - `latest` is the stable npm channel published from `main`.
 - `develop` is the moving prerelease channel published from pushes to `develop`.
 - Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
+- PR package previews are opt-in. Run the `Package Previews` workflow manually with the PR number, or use the `om-auto-publish-pr` skill / `gh workflow run`, to publish pkg.pr.new previews without publishing to npm. Run `NPM Snapshot Preview` manually only when you need the legacy npm canary snapshot and standalone validation path.
 
 Examples:
 
@@ -389,13 +424,27 @@ We welcome contributions of all sizes—from fixes and docs updates to new modul
 
 Refer to [AGENTS.md](AGENTS.md) for deeper guidance on architecture and conventions when extending modules.
 
-Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
+## Sponsors
 
-<div align="center">
-  <a href="https://catchthetornado.com/">
-    <img src="./apps/mercato//public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
-  </a>
-</div>
+### Blacksmith
+
+<a href="https://www.blacksmith.sh/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-White-Large.png" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" />
+    <img src="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" alt="Blacksmith logo" width="240" />
+  </picture>
+</a>
+
+Open Mercato's continuous integration is powered by [Blacksmith](https://www.blacksmith.sh/), providing fast and reliable GitHub Actions runners for the project.
+
+### Catch The Tornado
+
+<a href="https://catchthetornado.com/">
+  <img src="./apps/mercato/public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
+</a>
+
+Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
 
 ## CLI Commands
 

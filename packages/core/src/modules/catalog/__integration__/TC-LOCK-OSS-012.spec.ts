@@ -30,7 +30,12 @@ test.describe('TC-LOCK-OSS-012: variant detail not-found state', () => {
 
       // A syntactically valid but non-existent variant id under a real product.
       const missingVariantId = '00000000-0000-4000-8000-000000000000'
-      await page.goto(`/backend/catalog/products/${productId}/variants/${missingVariantId}`)
+      const targetUrl = `/backend/catalog/products/${productId}/variants/${missingVariantId}`
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded' })
+        if (!/\/login(?:\?|$)/.test(page.url())) break
+        await login(page, 'admin')
+      }
 
       // The dedicated not-found state is visible…
       await expect(page.getByText('Variant not found.', { exact: false })).toBeVisible({ timeout: 10_000 })

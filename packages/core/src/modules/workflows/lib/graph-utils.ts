@@ -1,4 +1,4 @@
-import { Node, Edge } from '@xyflow/react'
+import type { Node, Edge } from '@xyflow/react'
 import type { WorkflowDefinition } from '../data/entities'
 
 /**
@@ -388,10 +388,15 @@ function calculateSmartLayout(
     const { id, level } = queue.shift()!
     const currentLevel = levels.get(id)
 
-    // Take the maximum level (longest path)
-    if (currentLevel === undefined || level > currentLevel) {
-      levels.set(id, level)
-    }
+    // Only propagate when this path improves the node's level (longest path).
+    // Without this guard a cyclic graph (renegotiation/revision loops) keeps
+    // re-enqueuing children forever and freezes the browser (script timeout).
+    if (currentLevel !== undefined && level <= currentLevel) continue
+    levels.set(id, level)
+
+    // Safety cap: in a DAG a node's level is bounded by the node count; a
+    // higher value means we are walking a cycle, so stop descending.
+    if (level > steps.length) continue
 
     const children = outgoing.get(id) || []
     for (const child of children) {
@@ -658,4 +663,24 @@ export function generateStepId(prefix: string = 'step'): string {
 export function generateTransitionId(fromStepId: string, toStepId: string): string {
   const id = `e_${fromStepId}_${toStepId}`
   return sanitizeId(id)
+}
+
+/**
+ * Append a new edge to the list, skipping duplicate connections.
+ *
+ * A plain-data replacement for React Flow's `addEdge` so the visual editor
+ * page does not pull the `@xyflow/react` runtime out of its lazy boundary
+ * (#3169). Mirrors `addEdge`'s dedup rule: an edge is dropped when one with
+ * the same source/target endpoints (and handles) already exists.
+ */
+export function appendWorkflowEdge(edges: Edge[], edge: Edge): Edge[] {
+  const isDuplicate = edges.some(
+    (existing) =>
+      existing.source === edge.source &&
+      existing.target === edge.target &&
+      // Match addEdge: empty-string and nullish handles are equivalent.
+      (existing.sourceHandle || null) === (edge.sourceHandle || null) &&
+      (existing.targetHandle || null) === (edge.targetHandle || null),
+  )
+  return isDuplicate ? edges : [...edges, edge]
 }

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   createOrganizationFixture,
@@ -32,7 +33,7 @@ const PAYMENT_FEATURES = [
   'payment_gateways.capture',
   'payment_gateways.refund',
 ]
-const unique = () => `${Date.now()}-${Math.floor(Math.random() * 1_000_000_000)}`
+const unique = () => `${Date.now()}-${randomUUID().slice(0, 12)}`
 
 test.describe('TC-PGWY-016: Cross-organization isolation', () => {
   test('denies a different-org user read/mutation access to a transaction', async ({ request }) => {

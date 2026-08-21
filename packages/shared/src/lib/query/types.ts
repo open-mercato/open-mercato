@@ -108,11 +108,10 @@ export type QueryOptions = {
    * and MUST fail closed when the authenticated principal lacks a resolvable tenant/org, otherwise
    * queries return cross-tenant rows.
    *
-   * When this flag is set, the hybrid query engine delegates to the basic engine, which means
-   * custom-field (`cf:*`) filters/sorts, `search_tokens` fulltext filtering, and vector-search
-   * branches are BYPASSED. Only use this on entities whose scoping does not match the standard
-   * `organization_id = X AND tenant_id = Y` shape and which do not rely on custom-field/search
-   * features.
+   * When this flag is set, the hybrid query engine delegates to the basic engine. The basic engine
+   * still applies `cf:*` filters/sorts, but `search_tokens` fulltext filtering, the JSONB index read
+   * path, and the vector-search branch are BYPASSED. Only use this on entities whose scoping does
+   * not match the standard `organization_id = X AND tenant_id = Y` shape.
    */
   omitAutomaticTenantOrgScope?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
@@ -125,6 +124,16 @@ export type QueryOptions = {
   // Used by the search indexing pipeline to prevent feedback loops where indexing triggers
   // re-indexing indefinitely.
   skipAutoReindex?: boolean
+  /**
+   * Force routing this query to custom-entity doc storage (`custom_entities_storage`)
+   * instead of classifying the entity automatically. Automatic classification routes
+   * ids backed by a registered ORM table to that base table, so surfaces that manage
+   * doc records for ids that are ALSO table-backed (e.g. the entities records browser
+   * reading a module-declared custom entity such as `example:todo`) must set this flag.
+   * Honored by the hybrid query engine only; `BasicQueryEngine` has no doc-storage
+   * reader and ignores it.
+   */
+  forceCustomEntityStorage?: boolean
   // Optional UMES query extensions context. When provided, the engine will
   // emit sync lifecycle events and apply query-level enrichers.
   extensions?: QueryExtensionsConfig
@@ -138,8 +147,31 @@ export type PartialIndexWarning = {
   scope?: 'scoped' | 'global'
 }
 
+export type EncryptedSortRowCapWarning = {
+  entity: EntityId
+  sortFields: string[]
+  maxRows: number
+  /**
+   * Exact when `meta.listCountCapWarning` is absent; a floor when it is
+   * present (the list total itself was bounded at the cap).
+   */
+  totalMatched: number
+}
+
+/**
+ * Present when the list COUNT was bounded at `cap` matching rows
+ * (`OM_LIST_COUNT_CAP`): `total` is a floor, not an exact value. Surfaced on
+ * CRUD list payloads as `totalIsCapped: true`.
+ */
+export type ListCountCapWarning = {
+  entity: EntityId
+  cap: number
+}
+
 export type QueryResultMeta = {
   partialIndexWarning?: PartialIndexWarning
+  encryptedSortRowCapWarning?: EncryptedSortRowCapWarning
+  listCountCapWarning?: ListCountCapWarning
 }
 
 export type QueryResult<T = any> = {

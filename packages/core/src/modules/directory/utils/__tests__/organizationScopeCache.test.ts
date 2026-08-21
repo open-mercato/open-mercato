@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { getCurrentCacheTenant } from '@open-mercato/cache'
 import {
   resolveOrganizationScopeForRequest,
   invalidateOrganizationScopeCacheForTenant,
@@ -30,13 +31,16 @@ function createMockRbac() {
 
 function createMemoryCache() {
   const store = new Map<string, { value: unknown; tags: string[] }>()
+  const deleteContexts: Array<string | null> = []
   return {
     store,
+    deleteContexts,
     get: jest.fn(async (key: string) => store.get(key)?.value ?? null),
     set: jest.fn(async (key: string, value: unknown, opts?: { tags?: string[] }) => {
       store.set(key, { value, tags: opts?.tags ?? [] })
     }),
     deleteByTags: jest.fn(async (tags: string[]) => {
+      deleteContexts.push(getCurrentCacheTenant())
       let removed = 0
       for (const [key, entry] of store.entries()) {
         if (entry.tags.some((tag) => tags.includes(tag))) {
@@ -96,6 +100,38 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(1)
   })
 
+  it('memoizes resolution per request, deduping the double resolution (issue #2259)', async () => {
+    // TTL off: the cross-request cache is disabled, so any dedupe must come from
+    // the per-request memo keyed on the shared Request instance.
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '0'
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac()
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const request = {} as unknown as Request
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: auth(), request })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: auth(), request })
+
+    expect(first).toBe(second)
+    expect(cache.set).not.toHaveBeenCalled()
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(1)
+    expect((em.find as jest.Mock).mock.calls.length).toBe(1)
+  })
+
+  it('does not share the per-request memo across distinct requests (issue #2259)', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '0'
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac()
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+
+    await resolveOrganizationScopeForRequest({ container, auth: auth(), request: {} as unknown as Request })
+    await resolveOrganizationScopeForRequest({ container, auth: auth(), request: {} as unknown as Request })
+
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(2)
+  })
+
   it('does not cache when OM_ORG_SCOPE_CACHE_TTL_MS=0', async () => {
     process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '0'
     const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
@@ -120,6 +156,7 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     expect(cache.store.size).toBe(1)
     await invalidateOrganizationScopeCacheForTenant(container, 'tenant-1')
     expect(cache.store.size).toBe(0)
+    expect(cache.deleteContexts).toEqual(['tenant-1'])
   })
 
   it('invalidateOrganizationScopeCacheForUser drops only that user', async () => {
@@ -135,8 +172,13 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
       auth: { ...auth(), sub: '00000000-0000-4000-8000-000000000002' } as AuthContext,
     })
     expect(cache.store.size).toBe(2)
-    await invalidateOrganizationScopeCacheForUser(container, '00000000-0000-4000-8000-000000000001')
+    await invalidateOrganizationScopeCacheForUser(
+      container,
+      '00000000-0000-4000-8000-000000000001',
+      'tenant-1',
+    )
     expect(cache.store.size).toBe(1)
+    expect(cache.deleteContexts).toEqual(['tenant-1'])
   })
 
   it('falls back to uncached resolution when cache is not registered', async () => {

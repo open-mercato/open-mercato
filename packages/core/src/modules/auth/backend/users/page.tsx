@@ -1,12 +1,15 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -17,6 +20,7 @@ import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type Organiz
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type Row = {
   id: string
@@ -27,6 +31,7 @@ type Row = {
   tenantId: string | null
   tenantName?: string | null
   roles: string[]
+  isConfirmed?: boolean
   updatedAt?: string | null
 }
 
@@ -346,7 +351,7 @@ export default function UsersListPage() {
   const { data: usersData, isLoading } = useQuery({
     queryKey: ['users', params, scopeVersion],
     queryFn: async () => {
-      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>(
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; isSuperAdmin?: boolean }>(
         `/api/auth/users?${params}`,
       )
       if (!call.ok) {
@@ -359,6 +364,7 @@ export default function UsersListPage() {
   const rows = usersData?.items || []
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
+  const totalIsCapped = usersData?.totalIsCapped === true
   const isSuperAdmin = !!usersData?.isSuperAdmin
   const rowsWithOrgNames: Row[] = React.useMemo(() => rows.map(row => ({
     ...row,
@@ -375,6 +381,15 @@ export default function UsersListPage() {
       { accessorKey: 'name', header: t('auth.users.list.columns.name', 'Display name') },
       { accessorKey: 'organizationName', header: 'Organization' },
       { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => (row.original.roles || []).join(', ') },
+      {
+        accessorKey: 'isConfirmed',
+        header: t('auth.users.list.columns.status', 'Status'),
+        cell: ({ row }) => (
+          row.original.isConfirmed === false
+            ? <Badge variant="neutral" dot>{t('auth.users.list.status.deactivated', 'Deactivated')}</Badge>
+            : <Badge variant="success" dot>{t('auth.users.list.status.active', 'Active')}</Badge>
+        ),
+      },
     ]
     if (showTenantColumn) {
       base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })
@@ -427,7 +442,14 @@ export default function UsersListPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
-          perspective={{ tableId: 'auth.users.list' }}
+          perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('auth.users.list.title', 'Users')}
+              createHref="/backend/users/create"
+              createLabel={t('common.create', 'Create')}
+            />
+          )}
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/users/${row.id}/edit` },
@@ -435,7 +457,7 @@ export default function UsersListPage() {
               { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

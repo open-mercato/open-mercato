@@ -4,6 +4,7 @@ import type { SyncCrudEventResult } from '../lib/crud/sync-event-types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 import type { IntegrationBundle, IntegrationDefinition } from './integrations/types'
+import { createLogger } from '../lib/logger'
 import {
   applyApiOverridesToManifests,
   applyModuleOverridesToModules,
@@ -11,6 +12,8 @@ import {
   composeApiRouteOverrides,
   composePageRouteOverrides,
 } from './overrides'
+
+const logger = createLogger('shared').child({ component: 'cli-registry' })
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -56,6 +59,8 @@ export type PageMetadata = {
   // Ordering and visuals
   order?: number
   pageOrder?: number
+  priority?: number
+  pagePriority?: number
   icon?: ReactNode
   navHidden?: boolean
   // Dynamic flags
@@ -123,6 +128,8 @@ export type ModuleRoute = {
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 
+export type ModuleRouteMetadata = Omit<ModuleRoute, 'Component'>
+
 export type ModuleApiLegacy = {
   method: HttpMethod
   path: string
@@ -174,6 +181,7 @@ export type ModuleCli = {
 
 export type ModuleSubscriber = {
   id: string
+  moduleId?: string
   event: string
   persistent?: boolean
   sync?: boolean
@@ -183,8 +191,19 @@ export type ModuleSubscriber = {
 
 export type ModuleWorker = {
   id: string
+  moduleId?: string
   queue: string
   concurrency: number
+  lockDuration?: number
+  maxStalledCount?: number
+  /**
+   * Reports a job the queue abandoned without running the handler.
+   *
+   * Present only for workers whose metadata declares it; the generator emits it as a lazy import
+   * beside the handler, because the registry serializes metadata as literals and a function cannot
+   * survive that.
+   */
+  onJobAbandoned?: (payload: unknown, info: { jobId: string | null; reason: string }) => void | Promise<void>
   handler: ModuleWorkerHandler
 }
 
@@ -214,6 +233,7 @@ export type ModuleInjectionWidgetEntry = {
   moduleId: string
   key: string
   source: 'app' | 'package'
+  widgetId?: string
   loader: () => Promise<InjectionAnyWidgetModule<any, any>>
 }
 
@@ -312,12 +332,10 @@ export function matchRoutePattern(pattern: string, pathname: string): RouteMatch
       const key = mCatchAll[1]
       if (i >= uSegs.length) return undefined
       params[key] = uSegs.slice(i)
-      i = uSegs.length
-      return i === uSegs.length ? params : undefined
+      return params
     } else if (mOptCatch) {
       const key = mOptCatch[1]
       params[key] = i < uSegs.length ? uSegs.slice(i) : []
-      i = uSegs.length
       return params
     } else if (mDyn) {
       if (i >= uSegs.length) return undefined
@@ -400,6 +418,8 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
   }
 }
 
+export { resolvePageRouteMetadata } from './pageRouteMetadata'
+
 let _backendRouteManifests: BackendRouteManifestEntry[] | null = null
 
 export function registerBackendRouteManifests(routes: BackendRouteManifestEntry[]) {
@@ -446,12 +466,18 @@ export function getApiRouteManifests(): ApiRouteManifestEntry[] {
   return _apiRouteManifests ?? []
 }
 
-// CLI modules registry - shared between CLI and module workers
+// CLI modules registry - populated ONLY by the `mercato` bin (packages/cli/src/bin.ts
+// plus the `init` and `seed:defaults` commands). Runtime code MUST NOT read it: it
+// fails open (see getCliModules below), so outside a CLI process a reader gets an
+// empty list and silently does nothing. The events worker made exactly that mistake
+// and dropped every persistent subscriber. Runtime code uses the app registry
+// (`getModules` from ../lib/modules/registry) or a DI-resolved service.
+// Enforced by src/modules/__tests__/cli-registry-boundary.test.ts.
 let _cliModules: Module[] | null = null
 
 export function registerCliModules(modules: Module[]) {
   if (_cliModules !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] CLI modules re-registered (this may occur during HMR)')
+    logger.debug('CLI modules re-registered (this may occur during HMR)')
   }
   _cliModules = applyModuleOverridesToModules(modules)
 }
@@ -480,6 +506,7 @@ export function getDefaultEncryptionMaps(modules: Module[]): import('./encryptio
         moduleId: mod.id,
         map: {
           entityId: entry.entityId,
+          ...(entry.keyScope ? { keyScope: entry.keyScope } : {}),
           fields: entry.fields.map((field) => ({
             field: field.field,
             hashField: field.hashField ?? null,
@@ -533,5 +560,33 @@ export function createLazyModuleWorker(
     )
     const handler = await handlerPromise
     return handler(job, ctx)
+  }
+}
+
+/**
+ * Resolves a worker's `metadata.onJobAbandoned` on first use.
+ *
+ * The generator serializes worker metadata as literals, so a function declared there cannot be
+ * emitted inline the way `concurrency` or `lockDuration` are. It is emitted as this thunk instead —
+ * the same lazy-import treatment the handler already gets — and only for workers whose metadata
+ * declares the callback, so no other queue acquires one (and with it, a sweep) by accident.
+ */
+export function createLazyModuleWorkerAbandonHook(
+  loadModule: () => Promise<unknown>,
+  id: string
+): (payload: unknown, info: { jobId: string | null; reason: string }) => Promise<void> {
+  let hookPromise: Promise<((payload: unknown, info: { jobId: string | null; reason: string }) => unknown) | null> | null = null
+  return async (payload, info) => {
+    hookPromise ??= loadModule().then((loaded) => {
+      const metadata = (loaded as { metadata?: { onJobAbandoned?: unknown } } | null)?.metadata
+      return typeof metadata?.onJobAbandoned === 'function'
+        ? (metadata.onJobAbandoned as (payload: unknown, info: { jobId: string | null; reason: string }) => unknown)
+        : null
+    })
+    const hook = await hookPromise
+    if (!hook) {
+      throw new Error(`[registry] Worker "${id}" was registered with an abandoned-job hook but its metadata no longer declares one`)
+    }
+    await hook(payload, info)
   }
 }

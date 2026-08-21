@@ -76,49 +76,16 @@ import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
 import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
 import { AiIcon } from './AiIcon'
+import { readModelPickerValue, writeModelPickerValue } from './modelPickerStorage'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'AiChat' })
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
 const COMPACT_FOOTER_MAX_WIDTH = 640
-
-const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
-
-function readModelPickerValue(agentId: string): ModelPickerValue | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(`${MODEL_PICKER_STORAGE_PREFIX}${agentId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as unknown
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as Record<string, unknown>).providerId === 'string' &&
-      typeof (parsed as Record<string, unknown>).modelId === 'string'
-    ) {
-      const value = parsed as ModelPickerValue
-      return { providerId: value.providerId, modelId: value.modelId }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-function writeModelPickerValue(agentId: string, value: ModelPickerValue | null): void {
-  if (typeof window === 'undefined') return
-  try {
-    const key = `${MODEL_PICKER_STORAGE_PREFIX}${agentId}`
-    if (value === null) {
-      window.localStorage.removeItem(key)
-    } else {
-      window.localStorage.setItem(key, JSON.stringify({ providerId: value.providerId, modelId: value.modelId }))
-    }
-  } catch {
-    // Quota exceeded / privacy mode — silently ignore.
-  }
-}
 
 interface ModelsApiResponse {
   agentId: string
@@ -129,6 +96,25 @@ interface ModelsApiResponse {
   defaultProviderName?: string | null
   defaultModelName?: string | null
   providers: ModelPickerProvider[]
+  degraded?: boolean
+  degradedReason?: string | null
+}
+
+type AgentModelsStatus = 'loading' | 'ready' | 'failed'
+
+function readErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const { status } = error as { status?: unknown }
+  return typeof status === 'number' ? status : undefined
+}
+
+function logModelsFailure(status: number | undefined, details: Record<string, unknown>): void {
+  const message = 'Failed to load AI agent models'
+  if (status === 401 || status === 403) {
+    logger.warn(message, details)
+    return
+  }
+  logger.error(message, details)
 }
 
 function useAgentModels(agent: string): {
@@ -136,35 +122,57 @@ function useAgentModels(agent: string): {
   allowRuntimeOverride: boolean
   allowRuntimeModelOverride: boolean
   defaultLabel: string | null
-  loaded: boolean
+  status: AgentModelsStatus
+  degraded: boolean
 } {
   const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
   const [allowRuntimeOverride, setAllowRuntimeOverride] = React.useState(false)
   const [defaultLabel, setDefaultLabel] = React.useState<string | null>(null)
-  const [loaded, setLoaded] = React.useState(false)
+  const [status, setStatus] = React.useState<AgentModelsStatus>('loading')
+  const [degraded, setDegraded] = React.useState(false)
 
   React.useEffect(() => {
+    let cancelled = false
     const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
-    setLoaded(false)
+    setStatus('loading')
     setDefaultLabel(null)
-    void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
-      if (!result.ok || !result.result) {
-        setLoaded(true)
-        return
-      }
-      const effectiveAllowRuntimeOverride =
-        result.result.allowRuntimeOverride ?? result.result.allowRuntimeModelOverride ?? false
-      setAllowRuntimeOverride(effectiveAllowRuntimeOverride)
-      setProviders(result.result.providers)
-      setDefaultLabel(
-        result.result.defaultProviderName && result.result.defaultModelName
-          ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
-          : result.result.defaultProviderId && result.result.defaultModelId
-            ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
-            : null,
-      )
-      setLoaded(true)
-    })
+    setDegraded(false)
+    apiCall<ModelsApiResponse>(modelsUrl)
+      .then((result) => {
+        if (cancelled) return
+        if (!result.ok || !result.result) {
+          logModelsFailure(result.status, { agent, status: result.status })
+          setStatus('failed')
+          return
+        }
+        const effectiveAllowRuntimeOverride =
+          result.result.allowRuntimeOverride ?? result.result.allowRuntimeModelOverride ?? false
+        setAllowRuntimeOverride(effectiveAllowRuntimeOverride)
+        setProviders(result.result.providers)
+        if (result.result.degraded === true) {
+          setDegraded(true)
+          logger.warn('AI agent models response is degraded', {
+            agent,
+            degradedReason: result.result.degradedReason ?? null,
+          })
+        }
+        setDefaultLabel(
+          result.result.defaultProviderName && result.result.defaultModelName
+            ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
+            : result.result.defaultProviderId && result.result.defaultModelId
+              ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
+              : null,
+        )
+        setStatus('ready')
+      })
+      .catch((err) => {
+        if (cancelled) return
+        logModelsFailure(readErrorStatus(err), { agent, err })
+        setStatus('failed')
+      })
+    return () => {
+      cancelled = true
+    }
   }, [agent])
 
   return {
@@ -172,7 +180,8 @@ function useAgentModels(agent: string): {
     allowRuntimeOverride,
     allowRuntimeModelOverride: allowRuntimeOverride,
     defaultLabel,
-    loaded,
+    status,
+    degraded,
   }
 }
 
@@ -325,10 +334,10 @@ interface ServerEmittedUiPartRef {
   pendingActionId?: string
 }
 
-function mapErrorCodeToVariant(
+function mapErrorCodeToStatus(
   code: string | undefined,
-): 'destructive' | 'warning' {
-  if (!code) return 'destructive'
+): 'error' | 'warning' {
+  if (!code) return 'error'
   // Policy denies that describe a filtered tool or attachment surface a
   // warning alert; caller can still continue. Hard denials (agent_unknown,
   // agent_features_denied, unauthenticated, execution_mode_not_supported,
@@ -337,8 +346,37 @@ function mapErrorCodeToVariant(
     'tool_not_whitelisted',
     'tool_features_denied',
     'attachment_type_not_accepted',
+    // Content-safety rejections are soft: the user can rephrase and retry.
+    'moderation_blocked',
+    'moderation_unavailable',
   ])
-  return warningCodes.has(code) ? 'warning' : 'destructive'
+  return warningCodes.has(code) ? 'warning' : 'error'
+}
+
+/**
+ * Maps known error codes to a translated, user-safe message. For content-safety
+ * codes the raw server message is intentionally generic (no category oracle);
+ * the UI shows the friendly localized copy instead of the internal text.
+ */
+function resolveChatErrorMessage(
+  code: string | undefined,
+  fallback: string,
+  translate: (key: string, fallbackText?: string) => string,
+): string {
+  switch (code) {
+    case 'moderation_blocked':
+      return translate(
+        'ai_assistant.errors.moderationBlocked',
+        'Your message was blocked by the content safety filter. Please rephrase and try again.',
+      )
+    case 'moderation_unavailable':
+      return translate(
+        'ai_assistant.errors.moderationUnavailable',
+        'The content safety check is temporarily unavailable. Please try again in a moment.',
+      )
+    default:
+      return fallback
+  }
 }
 
 const MARKDOWN_TYPOGRAPHY_CLASS = cn(
@@ -432,7 +470,7 @@ function formatToolCaption(call: AiChatToolCallSnapshot): string {
 
 /**
  * Visible agent task plan rendered above raw tool-call rows. Phase 1
- * implementation of spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`:
+ * implementation of spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`:
  * compact, fixed-height rows with icon + label + status badge so the
  * panel does not jump while streaming. Source of truth is the
  * client-local `taskPlan` array on the assistant message.
@@ -972,10 +1010,7 @@ function AiUiPartRenderer({
     if (Component) return
     if (isReserved) return
     try {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[AiChat] No component registered for UI part "${part.componentId}".`,
-      )
+      logger.warn('No component registered for UI part', { componentId: part.componentId })
     } catch {
       // noop
     }
@@ -1220,7 +1255,8 @@ export function AiChat({
     allowRuntimeOverride,
     allowRuntimeModelOverride,
     defaultLabel: modelDefaultLabel,
-    loaded: modelProvidersLoaded,
+    status: modelProvidersStatus,
+    degraded: modelProvidersDegraded,
   } = useAgentModels(agent)
 
   const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
@@ -1228,7 +1264,7 @@ export function AiChat({
   )
 
   const effectiveModelPickerValue = React.useMemo(() => {
-    if (!modelProvidersLoaded || !allowRuntimeOverride || modelProviders.length === 0) {
+    if (modelProvidersStatus !== 'ready' || !allowRuntimeOverride || modelProviders.length === 0) {
       return null
     }
     if (modelPickerValue && isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
@@ -1239,7 +1275,7 @@ export function AiChat({
     allowRuntimeOverride,
     modelPickerValue,
     modelProviders,
-    modelProvidersLoaded,
+    modelProvidersStatus,
   ])
 
   React.useEffect(() => {
@@ -1247,7 +1283,11 @@ export function AiChat({
   }, [agent])
 
   React.useEffect(() => {
-    if (!modelProvidersLoaded) return
+    if (modelProvidersStatus !== 'ready') return
+    // A degraded response lost part of its tenant-scoped narrowing, so it is not an
+    // authoritative view of what this agent offers — dropping the user's stored
+    // selection against it would lose a still-valid choice.
+    if (modelProvidersDegraded) return
     if (!allowRuntimeModelOverride || modelProviders.length === 0) {
       if (modelPickerValue !== null) {
         setModelPickerValue(null)
@@ -1264,7 +1304,8 @@ export function AiChat({
     allowRuntimeModelOverride,
     modelPickerValue,
     modelProviders,
-    modelProvidersLoaded,
+    modelProvidersDegraded,
+    modelProvidersStatus,
   ])
 
   const handleModelPickerChange = React.useCallback(
@@ -1577,7 +1618,7 @@ export function AiChat({
   const resolvedPlaceholder =
     placeholder ?? t('ai_assistant.chat.composerPlaceholder', 'Message the AI agent...')
 
-  const errorVariant = mapErrorCodeToVariant(chat.error?.code)
+  const errorStatus = mapErrorCodeToStatus(chat.error?.code)
 
   return (
     <section
@@ -1658,7 +1699,7 @@ export function AiChat({
       </div>
 
       {chat.error ? (
-        <Alert variant={errorVariant} data-ai-chat-error={chat.error.code ?? 'unknown'}>
+        <Alert status={errorStatus} data-ai-chat-error={chat.error.code ?? 'unknown'}>
           <AlertTitle>
             {t('ai_assistant.chat.errorTitle', 'Agent dispatch failed')}
           </AlertTitle>
@@ -1666,7 +1707,7 @@ export function AiChat({
             {chat.error.code ? (
               <span className="mr-2 font-mono text-xs">{chat.error.code}</span>
             ) : null}
-            {chat.error.message}
+            {resolveChatErrorMessage(chat.error.code, chat.error.message, t)}
           </AlertDescription>
         </Alert>
       ) : null}

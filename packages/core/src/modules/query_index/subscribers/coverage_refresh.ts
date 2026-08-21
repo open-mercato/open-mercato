@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { refreshCoverageSnapshot } from '../lib/coverage'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'coverage-refresh' })
 
 export const metadata = { event: 'query_index.coverage.refresh', persistent: false }
 
@@ -48,7 +52,7 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
     try {
       await refreshCoverageSnapshot(em, { entityType, tenantId, organizationId, withDeleted })
     } catch (err) {
-      console.warn('[query_index] Failed to refresh coverage snapshot', {
+      logger.warn('Failed to refresh coverage snapshot', {
         entityType,
         tenantId,
         organizationId,
@@ -67,6 +71,9 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
           payload,
         },
       )
+      if (isReadProjectionAlwaysConsistent()) {
+        throw err
+      }
     }
   }
 

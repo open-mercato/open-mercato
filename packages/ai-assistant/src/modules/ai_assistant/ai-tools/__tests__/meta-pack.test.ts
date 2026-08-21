@@ -12,6 +12,7 @@ import {
   resetAgentRegistryForTests,
   seedAgentRegistryForTests,
 } from '../../lib/agent-registry'
+import * as agentRegistry from '../../lib/agent-registry'
 import metaAiTools from '../meta-pack'
 
 function findTool(name: string) {
@@ -259,6 +260,34 @@ describe('meta.update_task_plan', () => {
   it('does not expose mutation capability', () => {
     expect(tool.isMutation).not.toBe(true)
     expect(tool.requiredFeatures).toEqual(['ai_assistant.view'])
+  })
+})
+
+describe('meta-pack registry bootstrap', () => {
+  let loadSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    resetAgentRegistryForTests()
+    loadSpy = jest
+      .spyOn(agentRegistry, 'loadAgentRegistry')
+      .mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    loadSpy.mockRestore()
+    resetAgentRegistryForTests()
+  })
+
+  it('lazy-loads the registry before listing agents (standalone MCP has no bootstrap)', async () => {
+    const tool = findTool('meta.list_agents')
+    await tool.handler({}, makeCtx() as any)
+    expect(loadSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('lazy-loads the registry before describing an agent', async () => {
+    const tool = findTool('meta.describe_agent')
+    await tool.handler({ agentId: 'whatever' }, makeCtx() as any)
+    expect(loadSpy).toHaveBeenCalledTimes(1)
   })
 })
 

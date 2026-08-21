@@ -1,8 +1,11 @@
 "use client"
 import * as React from 'react'
+import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widgets/extension-points'
+import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { filterCustomFieldDefs, useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
+import { filterCustomFieldDefs, useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -17,6 +20,15 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { useRecordsEntityGuard } from '@open-mercato/core/modules/entities/components/useRecordsEntityGuard'
+import {
+  RelationCell,
+  RelationDisplaysProvider,
+  useRecordListRelationDisplays,
+} from '@open-mercato/core/modules/entities/components/RecordListRelationCell'
 
 type RecordsResponse = {
   items: any[]
@@ -24,6 +36,7 @@ type RecordsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function toCsvUrl(base: string, params: URLSearchParams) {
@@ -44,6 +57,27 @@ function normalizeCell(v: any): string {
 }
 
 export default function RecordsPage({ params }: { params: { entityId?: string } }) {
+  const t = useT()
+  const entityId = decodeURIComponent(params?.entityId || '')
+  const guard = useRecordsEntityGuard(entityId)
+  if (guard !== 'allowed') {
+    return (
+      <Page>
+        <PageBody>
+          {guard === 'blocked' ? (
+            <ErrorMessage label={t('entities.userEntities.records.errors.systemEntity', 'This entity is system-managed. Records are available for custom entities only.')} />
+          ) : (
+            <LoadingMessage label={t('entities.userEntities.records.loading', 'Loading records...')} />
+          )}
+        </PageBody>
+      </Page>
+    )
+  }
+  return <RecordsPageInner params={params} />
+}
+
+function RecordsPageInner({ params }: { params: { entityId?: string } }) {
+  const t = useT()
   const entityId = decodeURIComponent(params?.entityId || '')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'id', desc: false }])
   const [page, setPage] = React.useState(1)
@@ -54,15 +88,42 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const [rawData, setRawData] = React.useState<any[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const deleteMutationContextId = `entities.user.records.${entityId}:single-delete`
+  const { runMutation: runDeleteMutation, retryLastMutation: retryDeleteMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: deleteMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const { data: cfDefs = [] } = useCustomFieldDefs(entityId, {
     enabled: Boolean(entityId),
     keyExtras: [scopeVersion],
   })
+  const relationDefinitions = React.useMemo(
+    () => filterCustomFieldDefs(cfDefs, 'list').filter(
+      (definition): definition is CustomFieldDefDto => definition.kind === 'relation',
+    ),
+    [cfDefs],
+  )
+  const relationDisplaysByField = useRecordListRelationDisplays(relationDefinitions, rawData)
 
-  // Fetch records whenever paging/sorting/filters change (do NOT refetch on cfDefs/search changes)
+  // Fields searched server-side: every visible column plus the base `id`.
+  const searchableFields = React.useMemo(() => {
+    const fields = (columns || [])
+      .map((col) => (col as any).accessorKey)
+      .filter((key): key is string => typeof key === 'string' && key.length > 0)
+    return Array.from(new Set(['id', ...fields]))
+  }, [columns])
+
+  // Fetch records whenever paging/sorting/filters/search change. Search is applied
+  // server-side (before pagination) so totals and exports stay consistent (#3229).
   React.useEffect(() => {
     let cancelled = false
     const run = async () => {
@@ -72,6 +133,11 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
         params.set('entityId', entityId)
         params.set('page', String(page))
         params.set('pageSize', String(pageSize))
+        const trimmedSearch = search.trim()
+        if (trimmedSearch) {
+          params.set('search', trimmedSearch)
+          if (searchableFields.length) params.set('searchFields', searchableFields.join(','))
+        }
         const s = sorting?.[0]
         if (s?.id) {
           params.set('sortField', String(s.id))
@@ -106,6 +172,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
           setRawData(j.items || [])
           setTotal(j.total)
           setTotalPages(j.totalPages)
+          setTotalIsCapped(j?.totalIsCapped === true)
         }
       } catch (e) {
         if (!cancelled) {
@@ -119,7 +186,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     }
     if (entityId) run()
     return () => { cancelled = true }
-  }, [entityId, page, pageSize, sorting, filterValues, scopeVersion])
+  }, [entityId, page, pageSize, sorting, filterValues, scopeVersion, search, searchableFields])
 
   // Build columns from custom field definitions only (no data round-trip)
   React.useEffect(() => {
@@ -131,7 +198,10 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
       meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
       cell: ({ getValue }: { getValue: () => unknown }) => {
         const v = getValue() as any
-        return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
+        if (d.kind === 'relation') {
+          return <RelationCell fieldKey={d.key} value={v} fallbackText={normalizeCell(v)} />
+        }
+        return <span className="inline-block max-w-60 truncate align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
       },
     }))
     // Ensure hidden 'id' column exists for sorting/state
@@ -140,15 +210,9 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     setColumns(cols)
   }, [cfDefs])
 
-  // Client-side quick search filtering without triggering server refetch
-  const data = React.useMemo(() => {
-    if (!search.trim()) return rawData
-    const q = search.trim().toLowerCase()
-    return (rawData || []).filter((row: any) => {
-      const values = Object.values(row || {})
-      return values.some((v) => normalizeCell(v).toLowerCase().includes(q))
-    })
-  }, [rawData, search])
+  // Search is server-side (see fetch effect); render the fetched page as-is so
+  // pagination totals and exports stay consistent with the active search (#3229).
+  const data = rawData
 
   const viewExportColumns = React.useMemo(() => {
     return (columns || [])
@@ -178,8 +242,13 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
       qp.set('sortField', String(sort.id))
       qp.set('sortDir', sort.desc ? 'desc' : 'asc')
     }
+    const trimmedSearch = search.trim()
+    if (trimmedSearch) {
+      qp.set('search', trimmedSearch)
+      if (searchableFields.length) qp.set('searchFields', searchableFields.join(','))
+    }
     return `/api/entities/records?${qp.toString()}`
-  }, [entityId, sorting])
+  }, [entityId, sorting, search, searchableFields])
 
   const exportConfig = React.useMemo(() => {
     const safeEntityId = entityId.replace(/[^a-z0-9_-]/gi, '_') || 'records'
@@ -328,68 +397,83 @@ export RECORD_ID="<record uuid>"`}</code></pre>
             </div>
           </div>
         </ContextHelp>
-        <DataTable
-          stickyActionsColumn
-          title={`Records: ${entityId}`}
-          entityId={entityId}
-          actions={actions}
-          columns={columns}
-          data={data}
-          perspective={{ tableId: `entities.user.records.${entityId}` }}
-          exporter={exportConfig}
-          filters={baseFilters}
-          filterValues={filterValues}
-          rowActions={(row) => (
-            <RowActions
-              items={[
-                { id: 'edit', label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
-                { id: 'delete', label: 'Delete', destructive: true, onSelect: async () => {
-                  try {
-                    const confirmed = await confirm({
-                      title: 'Delete this record?',
-                      variant: 'destructive',
-                    })
-                    if (!confirmed) return
-                    const deleteCall = await withScopedApiRequestHeaders(
-                      buildOptimisticLockHeader((row as any).updatedAt),
-                      () => apiCall(
-                        `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`,
-                        { method: 'DELETE' },
-                      ),
-                    )
-                    if (!deleteCall.ok) {
-                      await raiseCrudError(deleteCall.response, 'Failed to delete record')
+        <RelationDisplaysProvider displaysByField={relationDisplaysByField}>
+          <DataTable
+            stickyActionsColumn
+            title={`Records: ${entityId}`}
+            entityId={entityId}
+            actions={actions}
+            columns={columns}
+            data={data}
+            perspective={{
+              tableId: resolveExtensionPointPattern(extensionPoints.hosts.userRecordsTable.pattern, { entityId }),
+            }}
+            exporter={exportConfig}
+            filters={baseFilters}
+            filterValues={filterValues}
+            rowActions={(row) => (
+              <RowActions
+                items={[
+                  { id: 'edit', label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
+                  { id: 'delete', label: 'Delete', destructive: true, onSelect: async () => {
+                    const recordId = String((row as any).id)
+                    try {
+                      const confirmed = await confirm({
+                        title: 'Delete this record?',
+                        variant: 'destructive',
+                      })
+                      if (!confirmed) return
+                      await runDeleteMutation({
+                        operation: async () => {
+                          const deleteCall = await withScopedApiRequestHeaders(
+                            buildOptimisticLockHeader((row as any).updatedAt),
+                            () => apiCall(
+                              `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+                              { method: 'DELETE' },
+                            ),
+                          )
+                          if (!deleteCall.ok) {
+                            await raiseCrudError(deleteCall.response, 'Failed to delete record')
+                          }
+                        },
+                        context: {
+                          formId: deleteMutationContextId,
+                          resourceKind: 'entities.record',
+                          resourceId: recordId,
+                          retryLastMutation: retryDeleteMutation,
+                        },
+                      })
+                      const j = await readApiResultOrThrow<RecordsResponse>(
+                        `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`,
+                        undefined,
+                        {
+                          errorMessage: 'Failed to reload records',
+                          fallback: { items: [], total: 0, page, pageSize, totalPages: 1 },
+                        },
+                      )
+                      setRawData(j.items || [])
+                      setTotal(j.total || 0)
+                      setTotalPages(j.totalPages || 1)
+                      flash('Record has been removed', 'success')
+                    } catch (error) {
+                      const message = error instanceof Error ? error.message : 'Failed to delete record'
+                      flash(message, 'error')
                     }
-                    const j = await readApiResultOrThrow<RecordsResponse>(
-                      `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`,
-                      undefined,
-                      {
-                        errorMessage: 'Failed to reload records',
-                        fallback: { items: [], total: 0, page, pageSize, totalPages: 1 },
-                      },
-                    )
-                    setRawData(j.items || [])
-                    setTotal(j.total || 0)
-                    setTotalPages(j.totalPages || 1)
-                    flash('Record has been removed', 'success')
-                  } catch (error) {
-                    const message = error instanceof Error ? error.message : 'Failed to delete record'
-                    flash(message, 'error')
-                  }
-                } },
-              ]}
-            />
-          )}
-          sortable
-          sorting={sorting}
-          onSortingChange={setSorting}
-          searchValue={search}
-          onSearchChange={(v) => { setSearch(v); setPage(1) }}
-          onFiltersApply={(vals) => { setFilterValues(vals); setPage(1) }}
-          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
-          isLoading={loading}
-        />
+                  } },
+                ]}
+              />
+            )}
+            sortable
+            sorting={sorting}
+            onSortingChange={setSorting}
+            searchValue={search}
+            onSearchChange={(v) => { setSearch(v); setPage(1) }}
+            onFiltersApply={(vals) => { setFilterValues(vals); setPage(1) }}
+            onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+            pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
+            isLoading={loading}
+          />
+        </RelationDisplaysProvider>
       </PageBody>
       {ConfirmDialogElement}
     </Page>

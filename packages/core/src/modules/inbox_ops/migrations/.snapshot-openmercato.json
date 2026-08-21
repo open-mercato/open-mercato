@@ -1035,6 +1035,22 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "webhook_secret": {
+          "name": "webhook_secret",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",

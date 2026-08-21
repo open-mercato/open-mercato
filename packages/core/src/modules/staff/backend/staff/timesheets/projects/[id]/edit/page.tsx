@@ -9,7 +9,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
@@ -31,6 +31,7 @@ export default function TimesheetProjectEditPage({ params }: { params?: { id?: s
   const [initialValues, setInitialValues] = React.useState<ProjectFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   const formSchema = React.useMemo(() => createProjectFormSchema(), [])
   const fields = React.useMemo(() => createProjectFormFields(t), [t])
@@ -42,6 +43,7 @@ export default function TimesheetProjectEditPage({ params }: { params?: { id?: s
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
           `/api/staff/timesheets/time-projects?ids=${projectId}&pageSize=1`,
@@ -49,7 +51,10 @@ export default function TimesheetProjectEditPage({ params }: { params?: { id?: s
           { errorMessage: t('staff.timesheets.projects.errors.load', 'Failed to load project.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(t('staff.timesheets.projects.errors.notFound', 'Project not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         if (!cancelled) {
           setInitialValues({
             id: String(record.id ?? ''),
@@ -82,8 +87,22 @@ export default function TimesheetProjectEditPage({ params }: { params?: { id?: s
     return <Page><PageBody><LoadingMessage label={t('staff.timesheets.projects.loading', 'Loading project...')} /></PageBody></Page>
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.timesheets.projects.errors.notFound', 'Project not found.')}
+            backHref={LIST_HREF}
+            backLabel={t('staff.timesheets.projects.actions.backToList', 'Back to projects')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !initialValues) {
-    return <Page><PageBody><ErrorMessage label={error ?? t('staff.timesheets.projects.errors.notFound', 'Project not found.')} /></PageBody></Page>
+    return <Page><PageBody><ErrorMessage label={error ?? t('staff.timesheets.projects.errors.load', 'Failed to load project.')} /></PageBody></Page>
   }
 
   const detailHref = `/backend/staff/timesheets/projects/${projectId}`

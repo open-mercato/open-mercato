@@ -7,7 +7,6 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
-jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
 jest.mock('../injection/InjectionSpot', () => ({
   __esModule: true,
   InjectionSpot: () => null,
@@ -26,6 +25,58 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { CrudForm, type CrudField } from '../CrudForm'
 
 describe('CrudForm validation state', () => {
+  it('renders each custom field error through exactly one declared owner', async () => {
+    const fields: CrudField[] = [
+      {
+        id: 'wrapperOwned',
+        label: 'Wrapper owned',
+        type: 'custom',
+        required: true,
+        component: () => <input aria-label="Wrapper owned" />,
+      },
+      {
+        id: 'componentOwned',
+        label: 'Component owned',
+        type: 'custom',
+        required: true,
+        rendersOwnError: true,
+        component: ({ error }) => (
+          <div>{error ? <span data-testid="component-owned-error">{error}</span> : null}</div>
+        ),
+      },
+    ]
+
+    const { container, getByTestId } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.highlighted': 'Please fix the highlighted errors.',
+          'ui.forms.errors.required': 'This field is required',
+        },
+      },
+    )
+
+    const form = container.querySelector('form')
+    const wrapperOwnedField = container.querySelector('[data-crud-field-id="wrapperOwned"]')
+    const componentOwnedField = container.querySelector('[data-crud-field-id="componentOwned"]')
+
+    expect(form).not.toBeNull()
+    expect(wrapperOwnedField).not.toBeNull()
+    expect(componentOwnedField).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.submit(form as HTMLFormElement)
+    })
+
+    await waitFor(() => {
+      expect(wrapperOwnedField?.querySelector('.text-xs.text-status-error-text')).toHaveTextContent('This field is required')
+      expect(getByTestId('component-owned-error')).toHaveTextContent('This field is required')
+    })
+
+    expect(componentOwnedField?.querySelector('.text-xs.text-status-error-text')).toBeNull()
+  })
+
   it('clears corrected field errors immediately without dropping unrelated errors', async () => {
     const fields: CrudField[] = [
       { id: 'name', label: 'Name', type: 'text', required: true },
@@ -124,13 +175,13 @@ describe('CrudForm validation state', () => {
     })
   })
 
-  it('validates number fields on blur', async () => {
+  it('validates number fields on blur only after the user edited them', async () => {
     const fields: CrudField[] = [
       { id: 'title', label: 'Title', type: 'text' },
       { id: 'cf_priority', label: 'Priority', type: 'number', required: true },
     ]
 
-    const { container, findByText } = renderWithProviders(
+    const { container, findByText, queryByText } = renderWithProviders(
       <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
       {
         dict: {
@@ -143,8 +194,59 @@ describe('CrudForm validation state', () => {
     const priorityInput = container.querySelector('[data-crud-field-id="cf_priority"] input[type="number"]')
     expect(priorityInput).not.toBeNull()
 
+    // Blurring an untouched field must NOT flag the required error — tabbing
+    // through an empty form is not an error condition.
     await act(async () => {
       fireEvent.blur(priorityInput as HTMLInputElement)
+    })
+    expect(queryByText('This field is required')).toBeNull()
+
+    // After the user actually edits the field, clearing it and blurring flags it.
+    await act(async () => {
+      fireEvent.change(priorityInput as HTMLInputElement, { target: { value: '5' } })
+    })
+    await act(async () => {
+      fireEvent.change(priorityInput as HTMLInputElement, { target: { value: '' } })
+    })
+    await act(async () => {
+      fireEvent.blur(priorityInput as HTMLInputElement)
+    })
+
+    expect(await findByText('This field is required')).toBeInTheDocument()
+  })
+
+  it('does not run schema validation when an untouched required field blurs', async () => {
+    const fields: CrudField[] = [
+      { id: 'firstName', label: 'First name', type: 'text', required: true },
+    ]
+    const schema = z.object({
+      firstName: z.string().trim().min(1),
+    })
+
+    const { container, findByText, queryByText } = renderWithProviders(
+      <CrudForm title="Form" schema={schema} fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.required': 'This field is required',
+        },
+      },
+    )
+
+    const firstNameInput = container.querySelector('[data-crud-field-id="firstName"] input[type="text"]')
+    expect(firstNameInput).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.blur(firstNameInput as HTMLInputElement)
+    })
+
+    expect(queryByText('Invalid input: expected string, received undefined')).toBeNull()
+    expect(queryByText('This field is required')).toBeNull()
+
+    await act(async () => {
+      fireEvent.change(firstNameInput as HTMLInputElement, { target: { value: 'Jane' } })
+      fireEvent.change(firstNameInput as HTMLInputElement, { target: { value: '' } })
+      fireEvent.blur(firstNameInput as HTMLInputElement)
     })
 
     expect(await findByText('This field is required')).toBeInTheDocument()

@@ -6,6 +6,25 @@ import {
   runCommandInterceptorsAfterUndo,
 } from '../command-interceptor-runner'
 import type { CommandInterceptor, CommandInterceptorContext, CommandInterceptorUndoContext } from '../command-interceptor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  applyAclFeatureOverrides,
+  resetModuleContractOverridesForTests,
+} from '@open-mercato/shared/modules/overrides'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+
 
 const baseContext: CommandInterceptorContext = {
   commandId: 'customers.create-person',
@@ -44,6 +63,10 @@ describe('matchesCommandPattern', () => {
 })
 
 describe('runCommandInterceptorsBefore', () => {
+  afterEach(() => {
+    resetModuleContractOverridesForTests()
+  })
+
   it('returns ok when no interceptors match', async () => {
     const interceptor = makeInterceptor({
       id: 'i1',
@@ -87,6 +110,56 @@ describe('runCommandInterceptorsBefore', () => {
     expect(result.ok).toBe(false)
     expect(result.error?.message).toBe('Blocked')
     expect(i2.beforeExecute).not.toHaveBeenCalled()
+  })
+
+  // Issue #5045 — a rejection only carries transport information when the interceptor asks for it.
+  it('omits status and body when the rejection carries no status', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false, message: 'Blocked' }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error).toEqual({ message: 'Blocked' })
+  })
+
+  it('propagates the status and derives a body from the message', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false, message: 'Missing required fields', status: 422 }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error).toEqual({
+      message: 'Missing required fields',
+      status: 422,
+      body: { error: 'Missing required fields' },
+    })
+  })
+
+  it('propagates an explicit body alongside the status', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({
+        ok: false,
+        message: 'Blocked',
+        status: 422,
+        body: { error: 'Blocked', missingFields: ['vatId'] },
+      }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error?.body).toEqual({ error: 'Blocked', missingFields: ['vatId'] })
+  })
+
+  it('falls back to the generated message when a status-carrying rejection has none', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false, status: 422 }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error).toEqual({
+      message: 'Blocked by command interceptor: i1',
+      status: 422,
+      body: { error: 'Blocked by command interceptor: i1' },
+    })
   })
 
   it('accumulates modified input', async () => {
@@ -143,6 +216,26 @@ describe('runCommandInterceptorsBefore', () => {
     expect(withWildcard.ok).toBe(false)
     expect(withWildcard.error?.message).toBe('Blocked by wildcard')
   })
+
+  it('does not run an interceptor gated by a nulled ACL feature', async () => {
+    applyAclFeatureOverrides({ 'premium.audit': null })
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      features: ['premium.audit'],
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false }),
+    })
+
+    const result = await runCommandInterceptorsBefore(
+      [interceptor],
+      'customers.create-person',
+      {},
+      baseContext,
+      ['*', 'premium.audit'],
+    )
+
+    expect(result.ok).toBe(true)
+    expect(interceptor.beforeExecute).not.toHaveBeenCalled()
+  })
 })
 
 describe('runCommandInterceptorsAfter', () => {
@@ -161,11 +254,10 @@ describe('runCommandInterceptorsAfter', () => {
       id: 'i1',
       afterExecute: jest.fn().mockRejectedValue(new Error('boom')),
     })
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    loggerError.mockClear()
     const metadata = new Map<string, Record<string, unknown>>()
     await runCommandInterceptorsAfter([interceptor], 'customers.create-person', {}, {}, baseContext, [], metadata)
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(loggerError).toHaveBeenCalled()
   })
 })
 
@@ -194,6 +286,29 @@ describe('runCommandInterceptorsBeforeUndo', () => {
     expect(result.ok).toBe(false)
     expect(result.error?.message).toBe('Cannot undo')
   })
+
+  // Issue #5045 — the undo path shares the before-result contract, so it carries a status too.
+  it('omits status and body when the undo rejection carries no status', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeUndo: jest.fn().mockResolvedValue({ ok: false, message: 'Cannot undo' }),
+    })
+    const result = await runCommandInterceptorsBeforeUndo([interceptor], 'customers.create-person', undoContext, baseContext, [])
+    expect(result.error).toEqual({ message: 'Cannot undo' })
+  })
+
+  it('propagates the status and body of an undo rejection', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeUndo: jest.fn().mockResolvedValue({ ok: false, message: 'Cannot undo a settled invoice', status: 409 }),
+    })
+    const result = await runCommandInterceptorsBeforeUndo([interceptor], 'customers.create-person', undoContext, baseContext, [])
+    expect(result.error).toEqual({
+      message: 'Cannot undo a settled invoice',
+      status: 409,
+      body: { error: 'Cannot undo a settled invoice' },
+    })
+  })
 })
 
 describe('runCommandInterceptorsAfterUndo', () => {
@@ -208,10 +323,9 @@ describe('runCommandInterceptorsAfterUndo', () => {
       id: 'i1',
       afterUndo: jest.fn().mockRejectedValue(new Error('boom')),
     })
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    loggerError.mockClear()
     const metadata = new Map<string, Record<string, unknown>>()
     await runCommandInterceptorsAfterUndo([interceptor], 'customers.create-person', undoContext, baseContext, [], metadata)
-    expect(consoleSpy).toHaveBeenCalled()
-    consoleSpy.mockRestore()
+    expect(loggerError).toHaveBeenCalled()
   })
 })

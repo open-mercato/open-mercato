@@ -4,10 +4,22 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import {
+  checkAuthRateLimit,
+  customerInviteRateLimitConfig,
+  customerInviteIpRateLimitConfig,
+} from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
+import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'portal-users-invite' })
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -16,6 +28,15 @@ export async function POST(req: Request) {
   if (!auth) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
+
+  const rateLimitEmail = await readNormalizedEmailFromJsonRequest(req)
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req,
+    ipConfig: customerInviteIpRateLimitConfig,
+    compoundConfig: customerInviteRateLimitConfig,
+    compoundIdentifier: rateLimitEmail,
+  })
+  if (rateLimitError) return rateLimitError
 
   const container = await createRequestContainer()
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
@@ -50,7 +71,12 @@ export async function POST(req: Request) {
     ? await findWithDecryption(
         em,
         CustomerRole,
-        { id: { $in: requestedRoleIds }, tenantId: auth.tenantId, deletedAt: null } as any,
+        {
+          id: { $in: requestedRoleIds },
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          deletedAt: null,
+        } as any,
         undefined,
         { tenantId: auth.tenantId, organizationId: auth.orgId },
       )
@@ -68,7 +94,7 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const { invitation } = await customerInvitationService.createInvitation(
+  const { invitation, rawToken, rollbackState } = await customerInvitationService.createInvitation(
     parsed.data.email,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
     {
@@ -78,6 +104,34 @@ export async function POST(req: Request) {
       displayName: parsed.data.displayName || null,
     },
   )
+
+  try {
+    await sendCustomerInvitationEmail({
+      container,
+      organizationId: auth.orgId,
+      email: invitation.email,
+      rawToken,
+    })
+  } catch (error) {
+    logger.error('Invitation email failed', { err: error })
+    try {
+      await customerInvitationService.rollbackInvitation(invitation, rollbackState)
+    } catch (rollbackError) {
+      logger.error('Invitation rollback failed', { err: rollbackError })
+    }
+    return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
+  }
+
+  // Emit only after the email is sent, so a subscriber observing "invited" can
+  // assume the recipient was actually notified (no event fires on the 502 path).
+  void emitCustomerAccountsEvent('customer_accounts.user.invited', {
+    invitationId: invitation.id,
+    email: invitation.email,
+    customerEntityId: invitation.customerEntityId || null,
+    invitedByType: 'portal',
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }).catch(() => undefined)
 
   return NextResponse.json({
     ok: true,
@@ -109,6 +163,8 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions or non-assignable role', schema: errorSchema },
+    { status: 429, description: 'Too many invitation requests', schema: rateLimitErrorSchema },
+    { status: 502, description: 'Invitation email could not be sent', schema: errorSchema },
   ],
 }
 

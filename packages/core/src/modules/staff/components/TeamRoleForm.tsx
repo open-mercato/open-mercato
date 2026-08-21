@@ -97,7 +97,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
 
   const fields = React.useMemo<CrudField[]>(() => {
     const base: CrudField[] = []
-    if (teamOptions && teamOptions.length) {
+    if (teamOptions) {
       base.push({
         id: 'teamId',
         label: t('staff.teamRoles.form.fields.team', 'Team'),
@@ -111,7 +111,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
     }
     base.push(
       { id: 'name', label: t('staff.teamRoles.form.fields.name', 'Name'), type: 'text', required: true },
-      { id: 'description', label: t('staff.teamRoles.form.fields.description', 'Description'), type: 'richtext', editor: 'html' },
+      { id: 'description', label: t('staff.teamRoles.form.fields.description', 'Description'), type: 'richtext', editor: 'uiw' },
       {
         id: 'appearance',
         label: t('staff.teamRoles.form.appearance.label', 'Appearance'),
@@ -136,7 +136,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
   }, [appearanceLabels, t, teamOptions])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'details', fields: teamOptions && teamOptions.length ? ['teamId', 'name', 'description', 'appearance'] : ['name', 'description', 'appearance'] },
+    { id: 'details', fields: teamOptions ? ['teamId', 'name', 'description', 'appearance'] : ['name', 'description', 'appearance'] },
     { id: 'custom', title: t('entities.customFields.title', 'Custom Attributes'), column: 2, kind: 'customFields' },
   ], [t, teamOptions])
 

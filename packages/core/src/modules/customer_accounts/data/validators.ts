@@ -17,6 +17,7 @@ export const loginSchema = z.object({
   email: emailField,
   password: z.string().min(1).max(128),
   tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
 })
 
 export const emailVerifySchema = z.object({
@@ -80,6 +81,7 @@ export const updateRoleAclSchema = z.object({
 export const inviteUserSchema = z.object({
   email: emailField,
   customerEntityId: z.string().uuid().optional(),
+  personEntityId: z.string().uuid().optional(),
   roleIds: z.array(z.string().uuid()).min(1),
   displayName: displayNameField.optional(),
 })

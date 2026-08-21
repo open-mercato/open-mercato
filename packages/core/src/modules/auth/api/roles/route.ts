@@ -15,7 +15,42 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { assertActorCanModifySuperAdminRoleTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import { enforceRoleTenantAccess } from '@open-mercato/core/modules/auth/lib/roleTenantGuard'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import {
+  buildCollectionTags,
+  isCrudCacheEnabled,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const ROLES_LIST_CACHE_TTL_MS = 120_000
+const logger = createLogger('auth').child({ component: 'roles' })
+
+function buildRolesListCacheKey(scope: {
+  tenantId: string | null
+  isSuperAdmin: boolean
+  actorTenantId: string | null
+  tenantFilter: string | null
+  id?: string
+  page: number
+  pageSize: number
+  search?: string
+}): string {
+  const parts = [
+    'auth:roles:list',
+    `tenant:${scope.tenantId ?? 'null'}`,
+    `super:${scope.isSuperAdmin ? '1' : '0'}`,
+    `actor:${scope.actorTenantId ?? 'null'}`,
+    `filter:${scope.tenantFilter ?? 'null'}`,
+    `id:${scope.id ?? ''}`,
+    `page:${scope.page}`,
+    `size:${scope.pageSize}`,
+    `q:${scope.search ?? ''}`,
+  ]
+  return parts.join('|')
+}
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -84,7 +119,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'auth.roles.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, ctx }) =>
+        enforceRoleTenantAccess('create', parsed, { auth: ctx.auth, container: ctx.container }),
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
@@ -95,12 +131,19 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         if (ctx.request && typeof parsed.id === 'string' && parsed.id.length) {
           await assertCanModifySuperAdminRole(ctx.request, parsed.id)
         }
-        return parsed
+        return enforceRoleTenantAccess('update', parsed, { auth: ctx.auth, container: ctx.container })
       },
       response: () => ({ ok: true }),
     },
     delete: {
       commandId: 'auth.roles.delete',
+      mapInput: async ({ parsed, raw, ctx }) => {
+        const targetId = resolveDeleteTargetId(parsed, raw)
+        if (ctx.request && targetId) {
+          await assertCanModifySuperAdminRole(ctx.request, targetId)
+        }
+        return enforceRoleTenantAccess('delete', parsed, { auth: ctx.auth, container: ctx.container })
+      },
       response: () => ({ ok: true }),
     },
   },
@@ -128,11 +171,33 @@ export async function GET(req: Request) {
       isSuperAdmin = !!acl?.isSuperAdmin
     }
   } catch (err) {
-    console.error('roles: failed to resolve rbac', err)
+    logger.error('Failed to resolve rbac', { err })
   }
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   if (!isSuperAdmin && !actorTenantId) {
     return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+  }
+  const { id, page, pageSize, search, tenantId: requestedTenantId } = parsed.data
+  const tenantFilter = isSuperAdmin && requestedTenantId ? String(requestedTenantId) : null
+  const cacheTenantId = isSuperAdmin ? tenantFilter : actorTenantId
+  // An unfiltered super-admin response spans tenants and cannot be invalidated
+  // by any one tenant's collection tags, so keep that view uncached.
+  const cache = isCrudCacheEnabled() && cacheTenantId ? resolveCrudCache(container) : null
+  const cacheKey = cache
+    ? buildRolesListCacheKey({
+        tenantId: cacheTenantId,
+        isSuperAdmin,
+        actorTenantId,
+        tenantFilter,
+        id,
+        page,
+        pageSize,
+        search,
+      })
+    : null
+  if (cache && cacheKey) {
+    const cached = await runWithCacheTenant(cacheTenantId, () => cache.get(cacheKey))
+    if (cached) return NextResponse.json(cached)
   }
   let superAdminRoleIds: Set<string> | null = null
   if (!isSuperAdmin && actorTenantId) {
@@ -151,8 +216,6 @@ export async function GET(req: Request) {
       superAdminRoleIds = new Set()
     }
   }
-  const { id, page, pageSize, search, tenantId: requestedTenantId } = parsed.data
-  const tenantFilter = isSuperAdmin && requestedTenantId ? String(requestedTenantId) : null
   const filters: any[] = [{ deletedAt: null }]
   if (id) filters.push({ id })
   if (search) filters.push({ name: { $ilike: `%${escapeLikePattern(search)}%` } })
@@ -241,7 +304,28 @@ export async function GET(req: Request) {
     query: parsed.data,
     accessType: id ? 'read:item' : undefined,
   })
-  return NextResponse.json({ items, total: count, totalPages, isSuperAdmin })
+  const payload = { items, total: count, totalPages, isSuperAdmin }
+  if (cache && cacheKey) {
+    try {
+      await runWithCacheTenant(cacheTenantId, () =>
+        cache.set(cacheKey, payload, {
+          ttl: ROLES_LIST_CACHE_TTL_MS,
+          tags: [
+            // Roles are tenant-level (org:null) — flushed on auth.roles.* command writes.
+            ...buildCollectionTags('auth.role', cacheTenantId, [null]),
+            // usersCount derives from UserRole grants — auth.users.* command writes
+            // flush both tenant-level and record-organization collection tags.
+            ...buildCollectionTags('auth.user', cacheTenantId, [null]),
+            // Role-ACL feature changes flush rbac:tenant:<T> from the roles/acl route.
+            `rbac:tenant:${cacheTenantId ?? 'null'}`,
+          ],
+        }),
+      )
+    } catch (err) {
+      logger.warn('Failed to set roles list cache', { err })
+    }
+  }
+  return NextResponse.json(payload)
 }
 
 export const POST = crud.POST
@@ -276,6 +360,18 @@ async function assertCanModifySuperAdminRole(req: Request, targetRoleId: string)
   })
 }
 
+function resolveDeleteTargetId(parsed: unknown, raw: unknown): string | null {
+  const fromParsed = readId(parsed as Record<string, unknown> | null | undefined)
+  if (fromParsed) return fromParsed
+  const rawRecord = raw as { body?: Record<string, unknown>; query?: Record<string, unknown> } | null | undefined
+  return readId(rawRecord?.query) ?? readId(rawRecord?.body)
+}
+
+function readId(record: Record<string, unknown> | null | undefined): string | null {
+  const value = record?.id
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Authentication & Accounts',
   summary: 'Role management',
@@ -291,7 +387,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create role',
-      description: 'Creates a new role for the current tenant or globally when `tenantId` is omitted.',
+      description: 'Creates a new role anchored to the caller\'s tenant. Non-superadmins cannot target another tenant; supplying a foreign `tenantId` is rejected.',
       requestBody: {
         contentType: 'application/json',
         schema: roleCreateSchema,

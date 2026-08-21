@@ -1,26 +1,34 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { runWorker } from '@open-mercato/queue/worker'
+import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
-import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import {
   resolveAutoSpawnWorkersMode,
+  resolveLazySpawnMode,
   resolveLazyPollMs,
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
 import { startLazyWorkerSupervisor } from './lib/queue-worker-supervisor'
+import { applyEventsSingleDeliveryGuard } from './lib/events-single-delivery'
+import { createPerJobWorkerHandler } from './lib/worker-job-handler'
+import {
+  planWorkerConcurrency,
+  resolveWorkerConnectionBudget,
+  type WorkerConcurrencyPlan,
+} from './lib/worker-connection-budget'
 import {
   resolveAutoSpawnSchedulerMode,
   resolveLazySchedulerPollMs,
   resolveLazySchedulerRestart,
 } from './lib/auto-spawn-scheduler'
-import { startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
+import { probeEnabledSchedules, startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
 import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
@@ -32,7 +40,10 @@ import {
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
+import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
+import { quotePostgresIdentifier } from './lib/db/identifiers'
+import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -58,10 +69,40 @@ function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWor
   const allWorkers: ModuleWorker[] = []
   for (const mod of modules) {
     if (mod.workers) {
-      allWorkers.push(...mod.workers)
+      allWorkers.push(...mod.workers.map((worker) => ({
+        ...worker,
+        moduleId: worker.moduleId ?? mod.id,
+      })))
     }
   }
   return allWorkers
+}
+
+/**
+ * Picks the abandoned-job callback for a queue from its workers.
+ *
+ * The numeric queue options merge across a queue's workers with `Math.max`; two callbacks cannot
+ * merge, so the first declared one wins. Silence there would make a genuine wiring mistake — two
+ * handlers on one queue each expecting to report its abandoned jobs — look like it works while one of
+ * them never runs.
+ */
+export function resolveQueueAbandonHook(
+  queueName: string,
+  queueWorkers: Array<Pick<ModuleWorker, 'id' | 'onJobAbandoned'>>,
+  warn: (message: string) => void = console.warn,
+): ModuleWorker['onJobAbandoned'] {
+  const declaring = queueWorkers.filter((worker) => worker.onJobAbandoned)
+  if (declaring.length > 1) {
+    warn(
+      `[worker] Queue "${queueName}" has ${declaring.length} workers declaring onJobAbandoned `
+      + `(${declaring.map((worker) => worker.id).join(', ')}); using the first and ignoring the rest.`,
+    )
+  }
+  return declaring[0]?.onJobAbandoned
+}
+
+function shouldEmbedLocalSchedulerInSharedWorker(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBooleanToken(env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER) === true
 }
 
 export function padByCodePointWidth(value: string, targetWidth: number): string {
@@ -83,7 +124,12 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'TurbopackInternalError',
 ]
 
-const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'db', 'server', 'test'])
+// Next.js gives up on `.mercato/next/dev/lock` after 1000ms, so a dev server
+// that lost a startup race against a still-shutting-down sibling needs a
+// slightly longer pause before the retry can win the lock.
+const DEV_COLD_START_RETRY_DELAY_MS = 1500
+
+const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
@@ -247,17 +293,20 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 }
 
 function isTurbopackCacheCorruption(output: string): boolean {
-  return TURBOPACK_CORRUPTION_PATTERNS.every((pattern) => output.includes(pattern))
+  return TURBOPACK_CORRUPTION_PATTERNS.some((pattern) => output.includes(pattern))
 }
 
 function removeTurbopackDevCache(appDir: string): void {
   fs.rmSync(path.join(appDir, '.mercato', 'next', 'dev'), { recursive: true, force: true })
 }
 
-async function ensureEnvLoaded() {
+async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boolean } = {}) {
   if (envLoaded) return
   envLoaded = true
-  const quietDotenv = process.env.DOTENV_CONFIG_QUIET === '1' || process.env.DOTENV_CONFIG_QUIET === 'true'
+  const quietDotenv =
+    options.quiet === true ||
+    process.env.DOTENV_CONFIG_QUIET === '1' ||
+    process.env.DOTENV_CONFIG_QUIET === 'true'
 
   // Try to find and load .env from the app directory
   // First, try to find the app directory via resolver
@@ -268,7 +317,11 @@ async function ensureEnvLoaded() {
 
     // Load .env from app directory if it exists
     const envPath = path.join(appDir, '.env')
-    if (!fs.existsSync(envPath) && process.env.NODE_ENV !== 'production') {
+    if (
+      options.createIfMissing !== false &&
+      !fs.existsSync(envPath) &&
+      process.env.NODE_ENV !== 'production'
+    ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
         fs.copyFileSync(examplePath, envPath)
@@ -516,6 +569,46 @@ function formatQueueWorkerLabel(queueNames: string[]): string {
   return `Queue worker (${preview})`
 }
 
+/**
+ * Fit the requested per-queue worker concurrency to the worker process's DB
+ * connection budget and log the resolved plan. Since each job runs in its own
+ * request container (one pooled connection per in-flight job), the sum of worker
+ * concurrency is the worker's peak connection demand — it MUST stay within the
+ * pool so background jobs cannot starve the request/onboarding path that shares
+ * the same database.
+ */
+async function resolveWorkerBudgetPlan(
+  requestedByQueue: { queue: string; concurrency: number }[],
+): Promise<WorkerConcurrencyPlan> {
+  const { resolvePoolConfig } = await import('@open-mercato/shared/lib/db/mikro')
+  const poolMax = resolvePoolConfig(process.env).poolMax
+  const budget = resolveWorkerConnectionBudget(process.env, poolMax)
+  const plan = planWorkerConcurrency(requestedByQueue, budget)
+
+  console.log(
+    `[worker] DB connection budget: ${plan.budget} (pool max ${poolMax}); ` +
+      `requested Σconcurrency ${plan.totalRequested}, effective ${plan.totalEffective}`,
+  )
+  if (plan.clamped) {
+    const perQueue = plan.entries
+      .map((entry) => `${entry.queue}=${entry.effective}/${entry.requested}`)
+      .join(', ')
+    console.warn(
+      `[worker] Worker concurrency clamped to fit the DB connection budget (${plan.budget}): ${perQueue}. ` +
+        `Raise DB_POOL_MAX or set OM_WORKERS_DB_CONNECTION_BUDGET to change this. ` +
+        `Keep web_pool_max + worker_pool_max + overhead <= Postgres max_connections.`,
+    )
+  }
+  if (plan.belowQueueFloor) {
+    console.warn(
+      `[worker] DB connection budget (${plan.budget}) is smaller than the number of queues ` +
+        `(${requestedByQueue.length}); every queue runs at concurrency 1 and total demand ` +
+        `(${plan.totalEffective}) still exceeds the budget. Raise DB_POOL_MAX.`,
+    )
+  }
+  return plan
+}
+
 function lookupModuleCommand(
   allModules: Module[],
   moduleName: string,
@@ -642,40 +735,40 @@ async function runModuleCommand(
   return true
 }
 
-async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void> {
+async function runPostGenerateStructuralInvalidation(quiet: boolean): Promise<void> {
   try {
-    const [{ bootstrapFromAppRoot }, { createResolver }] = await Promise.all([
-      import('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
-      import('./lib/resolver'),
-    ])
+    const { createResolver } = await import('./lib/resolver')
     const resolver = createResolver()
     const appDir = resolver.getAppDir()
-    const data = await bootstrapFromAppRoot(appDir)
-    registerCliModules(data.modules)
-    const configsModule = data.modules.find((mod) => mod.id === 'configs')
-    const hasCacheCommand = configsModule?.cli?.some((command) => command.command === 'cache') ?? false
+    const hasConfigsModule = resolver.loadEnabledModules().some((module) => module.id === 'configs')
 
-    if (!hasCacheCommand) {
+    if (!hasConfigsModule) {
       if (!quiet) {
-        console.log('[generate] Skipping structural cache purge: "configs cache" is not available in this app.')
+        console.log('[generate] Skipping structural invalidation: the "configs" module is not enabled in this app.')
       }
       return
     }
 
+    const { runPostGenerateStructuralInvalidation: invalidate } = await import('./lib/post-generate-invalidation')
     if (!quiet) {
-      console.log('[generate] Purging structural cache for all tenants...')
+      console.log('[generate] Invalidating generated structure...')
     }
-    await runModuleCommand(data.modules, 'configs', 'cache', ['structural', '--all-tenants', '--quiet'], {
-      optional: true,
-      silentOptional: quiet,
-    })
+    const result = await invalidate(appDir)
     if (!quiet) {
-      console.log('[generate] Structural cache purge completed.')
+      if (result.cacheError) {
+        console.log(`[generate] Structural cache purge skipped: ${formatCliFailureMessage('configs', 'cache', result.cacheError)}`)
+      }
+      if (result.generatedFilesError) {
+        console.log(`[generate] Generated artifact refresh skipped: ${formatCliFailureMessage('generate', 'refresh', result.generatedFilesError)}`)
+      }
+      console.log(
+        `[generate] Structural invalidation completed (${result.cacheEntriesDeleted} cache entr${result.cacheEntriesDeleted === 1 ? 'y' : 'ies'}, ${result.generatedFilesTouched.length} generated artifact${result.generatedFilesTouched.length === 1 ? '' : 's'} refreshed).`,
+      )
     }
   } catch (error) {
     if (!quiet) {
       const message = formatCliFailureMessage('configs', 'cache', error)
-      console.log(`[generate] Skipping structural cache purge: ${message}`)
+      console.log(`[generate] Skipping structural invalidation: ${message}`)
     }
   }
 }
@@ -686,48 +779,96 @@ async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void
  * so the watcher embedded in the server lifecycle can reuse the same closure
  * without re-importing the closure-scoped version inside `buildBaseModules`.
  */
-async function runGeneratorSuite(quiet: boolean): Promise<void> {
+async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
   const { createResolver } = await import('./lib/resolver')
   const {
     generateEntityIds,
-    generateModuleRegistry,
-    generateModuleRegistryApp,
-    generateModuleRegistryCli,
+    generateModuleRegistries,
     generateModuleEntities,
     generateModuleDi,
     generateModulePackageSources,
     generateOpenApi,
   } = await import('./lib/generators')
   const resolver = createResolver()
-  await generateEntityIds({ resolver, quiet })
-  await generateModuleRegistry({ resolver, quiet })
-  await generateModuleRegistryApp({ resolver, quiet })
-  await generateModuleRegistryCli({ resolver, quiet })
-  await generateModuleEntities({ resolver, quiet })
-  await generateModuleDi({ resolver, quiet })
-  await generateModulePackageSources({ resolver, quiet })
-  await generateOpenApi({ resolver, quiet })
+  const results = [
+    await generateEntityIds({ resolver, quiet }),
+    ...(await generateModuleRegistries({ resolver, quiet })),
+    await generateModuleEntities({ resolver, quiet }),
+    await generateModuleDi({ resolver, quiet }),
+    await generateModulePackageSources({ resolver, quiet }),
+    await generateOpenApi({ resolver, quiet }),
+  ]
+  return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
+}
+
+async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Promise<void> {
+  const generatedFilesChanged = await runGeneratorSuite(quiet)
+  if (!generatedFilesChanged) {
+    if (!quiet) {
+      console.log('[generate] Generated outputs unchanged; skipping structural invalidation.')
+    }
+    return
+  }
+  await runPostGenerateStructuralInvalidation(quiet)
 }
 
 /**
- * Builds the structural-fingerprint function used by the in-process generate
- * watcher. Walks the same module roots the legacy `mercato generate watch`
- * CLI command tracked, so the polling semantics are byte-for-byte identical.
+ * Builds the event-gated structural fingerprint runtime used by generate
+ * watchers. Filesystem events mark the tree dirty; the existing full content
+ * checksum remains the final authority and the fallback when watching fails.
  */
-function createGenerateWatchChecksumFn(): () => Promise<string> {
-  return async () => {
-    const { createResolver } = await import('./lib/resolver')
-    const { calculateGenerateWatchStructureChecksum } = await import('./lib/generate-watch-structure')
+async function createGenerateWatchRuntime(quiet = false) {
+  const [
+    { createResolver },
+    { calculateGenerateWatchStructureChecksum },
+    { createGenerateWatchChangeSignal },
+    { resolveStandaloneSourceMirrorBase },
+  ] = await Promise.all([
+    import('./lib/resolver'),
+    import('./lib/generate-watch-structure'),
+    import('./lib/generate-watch-events'),
+    import('./lib/generators/scanner'),
+  ])
+
+  const collectWatchState = () => {
     const resolver = createResolver()
     const moduleRoots = []
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
       moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
     }
-    return calculateGenerateWatchStructureChecksum({
-      modulesFile: path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+    return {
+      modulesFile: resolver.getModulesConfigPath(),
       moduleRoots,
-    })
+    }
+  }
+
+  return {
+    computeStructureChecksum: async () => {
+      return calculateGenerateWatchStructureChecksum(collectWatchState())
+    },
+    changeSignal: createGenerateWatchChangeSignal({
+      onSkippedDirectory: quiet
+        ? undefined
+        : (directory) => console.log(`[generate:watch] Skipping missing watch directory: ${directory}`),
+      getWatchTargets: () => {
+        const state = collectWatchState()
+        const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
+          directory: path.dirname(state.modulesFile),
+          recursive: false,
+          fileName: path.basename(state.modulesFile),
+        }]
+        for (const roots of state.moduleRoots) {
+          targets.push({ directory: path.dirname(roots.appBase), recursive: true })
+          targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
+          const sourceMirror = resolveStandaloneSourceMirrorBase(roots.pkgBase)
+          if (sourceMirror) {
+            targets.push({ directory: path.dirname(sourceMirror), recursive: true })
+          }
+        }
+        return targets
+      },
+    }),
   }
 }
 
@@ -751,9 +892,12 @@ async function buildAllModules(): Promise<Module[]> {
 }
 
 export async function run(argv = process.argv) {
-  await ensureEnvLoaded()
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
+  await ensureEnvLoaded({
+    createIfMissing: first !== 'deploy' && first !== 'telemetry',
+    quiet: first === 'deploy' || first === 'telemetry',
+  })
   
   // Handle init command directly
   if (first === 'init') {
@@ -854,7 +998,7 @@ export async function run(argv = process.argv) {
             await client.query('BEGIN')
             try {
               for (const t of dropTargets) {
-                await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+                await client.query(`DROP TABLE IF EXISTS ${quotePostgresIdentifier(t)} CASCADE`)
                 dropped += 1
               }
               await client.query('COMMIT')
@@ -873,7 +1017,8 @@ export async function run(argv = process.argv) {
         const redisUrl = getRedisUrl()
         if (redisUrl) {
           const Redis = (await import('ioredis')).default
-          const redis = new Redis(redisUrl, {
+          const redis = new Redis({
+            ...parseRedisUrl(redisUrl),
             lazyConnect: true,
             connectTimeout: 3000,
             maxRetriesPerRequest: 1,
@@ -942,12 +1087,10 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
-      await generateModuleRegistry({ resolver, quiet: true })
-      await generateModuleRegistryApp({ resolver, quiet: true })
-      await generateModuleRegistryCli({ resolver, quiet: true })
+      await generateModuleRegistries({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
@@ -1025,6 +1168,11 @@ export async function run(argv = process.argv) {
         '--email', email,
         '--password', password,
         '--roles', roles,
+        // `mercato init` is the dev/demo bootstrap flow — it explicitly wants
+        // the derived admin@/employee@ demo accounts. Standalone callers of
+        // `mercato auth setup` must opt in themselves; without this flag the
+        // setup command no longer seeds those accounts by default.
+        '--include-demo-users',
       ]
       if (skipPasswordPolicy) {
         setupArgs.push('--skip-password-policy')
@@ -1215,6 +1363,20 @@ export async function run(argv = process.argv) {
     return exitCode
   }
 
+  // Handle telemetry command (bootstrap-free) — wires @open-mercato/telemetry
+  // into an app scaffolded before telemetry existed.
+  if (first === 'telemetry') {
+    if (second === 'init') {
+      const { runTelemetryInit } = await import('./lib/telemetry-init')
+      return runTelemetryInit(remaining.filter(Boolean))
+    }
+    console.log('Usage: yarn mercato telemetry init [--dry-run]')
+    console.log('  Wires @open-mercato/telemetry into this app (package.json, .env,')
+    console.log('  instrumentation.ts, next.config.ts, and the API dispatcher).')
+    console.log('  Idempotent and safe to re-run. Use --dry-run to preview changes.')
+    return second && second !== 'help' && second !== '--help' && second !== '-h' ? 1 : 0
+  }
+
   if (first === 'module') {
     try {
       const subcommand = second
@@ -1222,8 +1384,8 @@ export async function run(argv = process.argv) {
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
         console.log('Usage: yarn mercato module <add|enable|eject> ...')
-        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
-        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
+        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
         return 0
       }
@@ -1231,14 +1393,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'add') {
         const { createResolver } = await import('./lib/resolver')
         const { addOfficialModule } = await import('./lib/module-install')
-        const { packageSpec, eject, moduleId } = parseModuleInstallArgs(commandArgs)
+        const { packageSpec, eject, moduleId, allowThirdParty } = parseModuleInstallArgs(commandArgs)
 
         if (!packageSpec) {
-          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
-        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined)
+        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1249,14 +1411,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'enable') {
         const packageName = commandArgs.find((arg) => !arg.startsWith('-'))
         if (!packageName) {
-          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
         const { createResolver } = await import('./lib/resolver')
         const { enableOfficialModule } = await import('./lib/module-install')
-        const { moduleId, eject } = parseModuleInstallArgs(commandArgs)
-        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject)
+        const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
+        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1461,6 +1623,19 @@ export async function run(argv = process.argv) {
     } catch { /* @/cli may not exist in standalone apps — safe to ignore */ }
   }
   const all = modules.slice()
+
+  all.push({
+    id: 'deploy',
+    cli: [
+      {
+        command: 'railway',
+        run: async (args: string[]) => {
+          const { runRailwayDeploy } = await import('./lib/deploy/railway/index')
+          await runRailwayDeploy(args)
+        },
+      },
+    ],
+  } as Module)
   
   // Built-in CLI module: queue
   all.push({
@@ -1470,6 +1645,7 @@ export async function run(argv = process.argv) {
         command: 'worker',
         run: async (args: string[]) => {
           const isAllQueues = args.includes('--all')
+          const runSchedulerInWorker = isAllQueues && args.includes('--with-scheduler')
           const queueName = isAllQueues ? null : args[0]
 
           // Collect all discovered workers from modules
@@ -1498,13 +1674,34 @@ export async function run(argv = process.argv) {
             }
 
             const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-            const container = await createRequestContainer()
+
+            // Fit Σconcurrency to the worker's DB connection budget before
+            // starting any worker, so the per-job containers (one connection each)
+            // can never over-subscribe the pool the request path shares.
+            const requestedByQueue = discoveredQueues.map((queue) => {
+              const queueWorkers = allWorkers.filter((w) => w.queue === queue)
+              return {
+                queue,
+                concurrency: concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1),
+              }
+            })
+            const budgetPlan = await resolveWorkerBudgetPlan(requestedByQueue)
+            const effectiveByQueue = new Map(
+              budgetPlan.entries.map((entry) => [entry.queue, entry.effective]),
+            )
+
             console.log(`[worker] Starting workers for all queues: ${discoveredQueues.join(', ')}`)
 
             // Start all queue workers in background mode
             const workerPromises = discoveredQueues.map(async (queue) => {
               const queueWorkers = allWorkers.filter((w) => w.queue === queue)
-              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const concurrency =
+                effectiveByQueue.get(queue) ??
+                concurrencyOverride ??
+                Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
+              const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
+              const onJobAbandoned = resolveQueueAbandonHook(queue, queueWorkers)
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1513,16 +1710,35 @@ export async function run(argv = process.argv) {
                 queueName: queue,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
+                lockDuration,
+                maxStalledCount,
+                onJobAbandoned,
                 background: true,
-                handler: async (job, ctx) => {
-                  for (const worker of queueWorkers) {
-                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
-                  }
-                },
+                handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             })
 
             await Promise.all(workerPromises)
+
+            if (runSchedulerInWorker) {
+              const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+              if (queueStrategy !== 'local') {
+                throw new Error('[worker] --with-scheduler is supported only with QUEUE_STRATEGY=local.')
+              }
+              const schedulerContainer = await createRequestContainer()
+              const localScheduler = schedulerContainer.resolve('localSchedulerService') as {
+                start?: () => Promise<void>
+                stop?: () => Promise<void>
+              } | undefined
+              if (!localScheduler?.start || !localScheduler.stop) {
+                throw new Error('[worker] Local scheduler service is unavailable.')
+              }
+              await localScheduler.start()
+              registerWorkerShutdownHook(async () => {
+                await localScheduler.stop?.()
+              })
+              console.log('[worker] Local scheduler started in the shared worker process.')
+            }
 
             console.log('[worker] All workers started. Press Ctrl+C to stop')
 
@@ -1535,8 +1751,14 @@ export async function run(argv = process.argv) {
             if (queueWorkers.length > 0) {
               // Use discovered workers
               const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-              const container = await createRequestContainer()
-              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const requested = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              // Bound a single-queue run to the connection budget too, so it can
+              // never check out more pooled connections than the worker pool holds.
+              const budgetPlan = await resolveWorkerBudgetPlan([{ queue: queueName!, concurrency: requested }])
+              const concurrency = budgetPlan.entries[0]?.effective ?? requested
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
+              const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
+              const onJobAbandoned = resolveQueueAbandonHook(queueName!, queueWorkers)
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1545,11 +1767,10 @@ export async function run(argv = process.argv) {
                 queueName: queueName!,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
-                handler: async (job, ctx) => {
-                  for (const worker of queueWorkers) {
-                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
-                  }
-                },
+                lockDuration,
+                maxStalledCount,
+                onJobAbandoned,
+                handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {
               console.error(`No workers found for queue "${queueName}"`)
@@ -1661,8 +1882,7 @@ export async function run(argv = process.argv) {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await runGeneratorSuite(quiet)
-          await runPostGenerateStructuralCachePurge(quiet)
+          await runGeneratorSuiteWithStructuralInvalidation(quiet)
           console.log('All generators completed.')
         },
       },
@@ -1675,14 +1895,14 @@ export async function run(argv = process.argv) {
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
 
+          const generateWatchRuntime = await createGenerateWatchRuntime(quiet)
           const watcher = startInProcessGenerateWatcher({
             pollMs: intervalMs,
             skipInitial,
             quiet,
-            computeStructureChecksum: createGenerateWatchChecksumFn(),
+            ...generateWatchRuntime,
             runGenerators: async () => {
-              await runGeneratorSuite(true)
-              await runPostGenerateStructuralCachePurge(true)
+              await runGeneratorSuiteWithStructuralInvalidation(true)
             },
           })
 
@@ -1725,11 +1945,9 @@ export async function run(argv = process.argv) {
         command: 'registry',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateModulePackageSources, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } = await import('./lib/generators')
+          const { generateModulePackageSources, generateModuleRegistries } = await import('./lib/generators')
           const resolver = createResolver()
-          await generateModuleRegistry({ resolver, quiet: args.includes('--quiet') })
-          await generateModuleRegistryApp({ resolver, quiet: args.includes('--quiet') })
-          await generateModuleRegistryCli({ resolver, quiet: args.includes('--quiet') })
+          await generateModuleRegistries({ resolver, quiet: args.includes('--quiet') })
           await generateModulePackageSources({ resolver, quiet: args.includes('--quiet') })
         },
       },
@@ -1804,6 +2022,7 @@ export async function run(argv = process.argv) {
 
           let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
+          let didRetryFailedColdStart = false
           let stopping = false
           let devRestartPromiseResolve: ((result: DevServerRestartResult) => void) | null = null
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
@@ -1812,6 +2031,10 @@ export async function run(argv = process.argv) {
           let lastRestartReason: string | null = null
           const generateWatcherMode: GenerateWatcherMode = resolveGenerateWatcherMode(process.env)
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
+          // The CLI binary registers this primitive manifest before dispatching
+          // `server dev`. Direct `run()` callers keep the existing module-registry
+          // fallback for backward compatibility and focused unit tests.
+          const devSupervisorManifest = getRegisteredDevSupervisorManifest()
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1966,6 +2189,30 @@ export async function run(argv = process.argv) {
                   restarted.readyPromise.then(readyResolve)
                   return resolve(await restarted.exitPromise)
                 }
+                // A dev server that dies before it ever reported "ready in" lost a
+                // startup race rather than crashing on user code: a sibling instance
+                // still holding the dev lock, a port that is about to free up, or a
+                // bundler init hiccup on a cold cache. Those all clear on their own,
+                // which is why a second `yarn dev` usually succeeds — retry once here
+                // so the first run succeeds too.
+                if (
+                  !didRetryFailedColdStart
+                  && !reportedReady
+                  && !stopping
+                  && typeof code === 'number'
+                  && code !== 0
+                ) {
+                  didRetryFailedColdStart = true
+                  lastRestartReason = 'a failed cold start'
+                  writeDevSplashRuntimeRestarting(lastRestartReason)
+                  console.log(`[server] Next.js dev server exited before becoming ready (exit code ${code}). Retrying once...`)
+                  await new Promise((wake) => setTimeout(wake, DEV_COLD_START_RETRY_DELAY_MS))
+                  if (!stopping) {
+                    const restarted = startNextDev(runtimeEnv)
+                    restarted.readyPromise.then(readyResolve)
+                    return resolve(await restarted.exitPromise)
+                  }
+                }
                 resolve({
                   label: 'Next.js dev server',
                   code,
@@ -1980,10 +2227,31 @@ export async function run(argv = process.argv) {
             while (!stopping) {
               envReloader.reload()
               const runtimeEnv = buildServerProcessEnvironment(process.env)
+              // buildServerProcessEnvironment forces NODE_ENV=production, so the
+              // logging facade's dev defaults (pretty output, debug level) never
+              // apply to the spawned Next.js/worker/scheduler processes on their
+              // own — default them here for the dev command, respecting explicit
+              // user overrides.
+              if (runtimeEnv.OM_LOG_PRETTY === undefined) runtimeEnv.OM_LOG_PRETTY = '1'
+              if (runtimeEnv.OM_LOG_LEVEL === undefined) runtimeEnv.OM_LOG_LEVEL = 'debug'
               const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
+              // Guard the default-on events single-delivery: if this process runs
+              // no events worker, fall back to safe inline dual-dispatch so
+              // persistent side effects are never silently dropped. Mutates both
+              // process.env (in-process bus) and runtimeEnv (spawned workers) so
+              // they agree.
+              applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-              const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const schedulerStartStatus = devSupervisorManifest?.schedulerStartStatus
+                ?? lookupModuleCommand(getCliModules(), 'scheduler', 'start').status
+              const embedSchedulerInSharedWorker =
+                shouldEmbedLocalSchedulerInSharedWorker(process.env)
+                && queueStrategy === 'local'
+                && autoSpawnWorkersMode === 'lazy'
+                && resolveLazySpawnMode(process.env) === 'shared'
+                && autoSpawnSchedulerMode !== 'off'
+                && schedulerStartStatus === 'ok'
               const nextRuntime = startNextDev(runtimeEnv)
               const restartPromise = waitForDevRestart()
               const backgroundStartAbort = new AbortController()
@@ -2017,12 +2285,19 @@ export async function run(argv = process.argv) {
                 }
 
                 if (autoSpawnWorkersMode !== 'off') {
-                  const discoveredWorkers = getRegisteredCliWorkers()
+                  const discoveredWorkers = devSupervisorManifest?.workers ?? getRegisteredCliWorkers()
                   const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
                   if (discoveredWorkerQueues.length === 0) {
-                    console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                    const workerRegistryFile = devSupervisorManifest
+                      ? 'dev-supervisor.generated.json'
+                      : 'modules.cli.generated.ts'
+                    console.error(`[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run \`yarn generate\` and verify \`.mercato/generated/${workerRegistryFile}\` contains worker entries. Continuing without auto-spawned workers.`)
                   } else if (autoSpawnWorkersMode === 'lazy') {
-                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                    const lazySpawnMode = resolveLazySpawnMode(process.env)
+                    const lazyModeHint = lazySpawnMode === 'shared'
+                      ? 'shared worker mode — one `queue worker --all` process; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue to change'
+                      : 'per-queue worker mode — one process per queue; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared to change'
+                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched, ${lazyModeHint}).`)
                     activeLazySupervisor = startLazyWorkerSupervisor({
                       mercatoBin,
                       appDir,
@@ -2030,6 +2305,24 @@ export async function run(argv = process.argv) {
                       workers: discoveredWorkers,
                       pollMs: resolveLazyPollMs(process.env),
                       restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                      spawnMode: lazySpawnMode,
+                      ...(embedSchedulerInSharedWorker
+                        ? {
+                            sharedWorkerArgs: ['--with-scheduler'],
+                            shouldStartSharedWorker: async () => {
+                              const schedules = await probeEnabledSchedules(runtimeEnv)
+                              return !schedules.error && schedules.enabledSchedules > 0
+                            },
+                            ...(resolveLazySchedulerRestart(process.env)
+                              ? {
+                                  shouldRestartSharedWorker: async () => {
+                                    const schedules = await probeEnabledSchedules(runtimeEnv)
+                                    return !schedules.error && schedules.enabledSchedules > 0
+                                  },
+                                }
+                              : {}),
+                          }
+                        : {}),
                     })
                   } else {
                     console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
@@ -2043,9 +2336,11 @@ export async function run(argv = process.argv) {
                   }
                 }
 
-                if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
-                  if (schedulerCommand.status !== 'ok') {
-                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                if (embedSchedulerInSharedWorker && activeLazySupervisor) {
+                  console.log('[server] Local scheduler will run inside the lazy shared worker process.')
+                } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
+                  if (schedulerStartStatus !== 'ok') {
+                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand({ status: schedulerStartStatus })}`)
                   } else if (autoSpawnSchedulerMode === 'lazy') {
                     console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
                     activeLazySchedulerSupervisor = startLazySchedulerSupervisor({
@@ -2078,6 +2373,7 @@ export async function run(argv = process.argv) {
                 // (measured against the legacy sidecar). Opt back into the
                 // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
                 console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                const generateWatchRuntime = await createGenerateWatchRuntime()
                 activeGenerateWatcher = startInProcessGenerateWatcher({
                   // `--skip-initial` equivalent: `yarn dev` always runs an
                   // initial `mercato generate` before reaching the server
@@ -2086,10 +2382,9 @@ export async function run(argv = process.argv) {
                   // twice in a row.
                   skipInitial: true,
                   quiet: false,
-                  computeStructureChecksum: createGenerateWatchChecksumFn(),
+                  ...generateWatchRuntime,
                   runGenerators: async () => {
-                    await runGeneratorSuite(true)
-                    await runPostGenerateStructuralCachePurge(true)
+                    await runGeneratorSuiteWithStructuralInvalidation(true)
                   },
                 })
               } else {
@@ -2134,6 +2429,13 @@ export async function run(argv = process.argv) {
           const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          // Guard the default-on events single-delivery (see the dev `server`
+          // command): fall back to safe inline dual-dispatch when this process
+          // runs no events worker, keeping process.env and runtimeEnv in sync.
+          applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
+          // Throws on single-instance strategies under a multi-instance topology,
+          // aborting before the start lock is acquired or any process is spawned.
+          assertSingleInstanceStrategies(runtimeEnv)
           const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
@@ -2220,7 +2522,11 @@ export async function run(argv = process.argv) {
               if (discoveredWorkerQueues.length === 0) {
                 console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
               } else if (autoSpawnWorkersMode === 'lazy') {
-                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                const lazySpawnMode = resolveLazySpawnMode(process.env)
+                const lazyModeHint = lazySpawnMode === 'shared'
+                  ? 'shared worker mode — one `queue worker --all` process; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue to change'
+                  : 'per-queue worker mode — one process per queue; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared to change'
+                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched, ${lazyModeHint}).`)
                 activeLazySupervisor = startLazyWorkerSupervisor({
                   mercatoBin,
                   appDir,
@@ -2228,6 +2534,7 @@ export async function run(argv = process.argv) {
                   workers: discoveredWorkers,
                   pollMs: resolveLazyPollMs(process.env),
                   restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                  spawnMode: lazySpawnMode,
                 })
               } else {
                 console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
@@ -2365,11 +2672,16 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  console.log(`🚀 Running ${modName}:${cmdName} ${rest.join(' ')}`)
+  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
+    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
+    : rest
+  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
     await cmd.run(rest)
-    const ms = Date.now() - started
-    console.log(`⏱️ Done in ${ms}ms`)
+    if (modName !== 'deploy' || cmdName !== 'railway') {
+      const ms = Date.now() - started
+      console.log(`⏱️ Done in ${ms}ms`)
+    }
     return 0
   } catch (e: any) {
     console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)

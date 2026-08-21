@@ -6,6 +6,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn, slugifyTagLabel } from '@open-mercato/shared/lib/utils'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -18,6 +19,9 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import type { TagSummary } from './types'
 import { ManageTagsDialog } from './ManageTagsDialog'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type DictEntry = { id: string; value: string; label: string; color?: string | null }
 
@@ -385,8 +389,19 @@ export function EntityTagsDialog({
   const [creatingKind, setCreatingKind] = React.useState<string | null>(null)
   const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
   const [activeCategoryPage, setActiveCategoryPage] = React.useState(1)
-  const [activeCategoryTotalPages, setActiveCategoryTotalPages] = React.useState(1)
+  // Short-page termination instead of `page < totalPages` — see
+  // `hasMoreFromPage`. Like the page number it belongs to whichever category is
+  // active: the fetch effect below rewrites it on every category, search and
+  // page change, and the reset effect clears it alongside the page so a
+  // category with more entries never leaves the affordance behind on one
+  // without.
+  const [activeCategoryHasMore, setActiveCategoryHasMore] = React.useState(false)
   const [activeCategoryLoading, setActiveCategoryLoading] = React.useState(false)
+  // A transport failure is not an end-of-list signal: it leaves the affordance
+  // in place and turns the next click into a retry of the page that failed,
+  // rather than advancing past it.
+  const [activeCategoryLoadFailed, setActiveCategoryLoadFailed] = React.useState(false)
+  const [activeCategoryReloadToken, setActiveCategoryReloadToken] = React.useState(0)
   const creationInFlightRef = React.useRef<string | null>(null)
   const mutationContextId = React.useMemo(
     () => `customer-tags:${entityType}:${entityId}`,
@@ -438,53 +453,49 @@ export function EntityTagsDialog({
   const loadData = React.useCallback(async () => {
     setLoading(true)
     try {
-      let kindSettings: KindSetting[] = []
       const scopedQuery = new URLSearchParams()
       if (entityOrganizationId) {
         scopedQuery.set('organizationId', entityOrganizationId)
       }
-      try {
-        const settingsCall = await apiCall<{ items?: KindSetting[] }>(
-          `/api/customers/dictionaries/kind-settings${scopedQuery.size ? `?${scopedQuery.toString()}` : ''}`,
-          { cache: 'no-store', headers: { 'x-om-unauthorized-redirect': '0' } },
-        )
-        if (settingsCall.ok && settingsCall.result?.items) {
-          kindSettings = settingsCall.result.items
+
+      const loadKindSettings = async (): Promise<KindSetting[]> => {
+        try {
+          const settingsCall = await apiCall<{ items?: KindSetting[] }>(
+            `/api/customers/dictionaries/kind-settings${scopedQuery.size ? `?${scopedQuery.toString()}` : ''}`,
+            { cache: 'no-store', headers: { 'x-om-unauthorized-redirect': '0' } },
+          )
+          if (settingsCall.ok && settingsCall.result?.items) {
+            return settingsCall.result.items
+          }
+        } catch {
+          // Default category order works without explicit settings rows.
         }
-      } catch {
-        // Default category order works without explicit settings rows.
+        return []
       }
 
-      const settingsMap = new Map(kindSettings.map((setting) => [setting.kind, setting]))
-
-      const selectedTagEntries = Array.isArray(entityData.tags)
-        ? entityData.tags.map((tag) => ({
-            id: tag.id,
-            value: tag.id,
-            label: tag.label,
-            color: tag.color ?? null,
-          }))
-        : []
-
-      let assignedLabelIds: string[] = []
-      let selectedLabelEntries: CategoryOption[] = []
-      try {
-        const labelsQuery = new URLSearchParams()
-        labelsQuery.set('entityId', entityId)
-        labelsQuery.set('pageSize', '1')
-        if (entityOrganizationId) {
-          labelsQuery.set('organizationId', entityOrganizationId)
-        }
-        const labelsCall = await apiCall<{
-          items?: LabelItem[]
-          assignedIds?: string[]
-        }>(`/api/customers/labels?${labelsQuery.toString()}`, {
-          cache: 'no-store',
-          headers: { 'x-om-unauthorized-redirect': '0' },
-        })
-        const labelsData = labelsCall.ok ? labelsCall.result : null
-        assignedLabelIds = labelsData?.assignedIds ?? []
-        if (assignedLabelIds.length > 0) {
+      const loadLabelData = async (): Promise<{
+        assignedLabelIds: string[]
+        selectedLabelEntries: CategoryOption[]
+      }> => {
+        try {
+          const labelsQuery = new URLSearchParams()
+          labelsQuery.set('entityId', entityId)
+          labelsQuery.set('pageSize', '1')
+          if (entityOrganizationId) {
+            labelsQuery.set('organizationId', entityOrganizationId)
+          }
+          const labelsCall = await apiCall<{
+            items?: LabelItem[]
+            assignedIds?: string[]
+          }>(`/api/customers/labels?${labelsQuery.toString()}`, {
+            cache: 'no-store',
+            headers: { 'x-om-unauthorized-redirect': '0' },
+          })
+          const labelsData = labelsCall.ok ? labelsCall.result : null
+          const assignedLabelIds = labelsData?.assignedIds ?? []
+          if (assignedLabelIds.length === 0) {
+            return { assignedLabelIds, selectedLabelEntries: [] }
+          }
           const detailQuery = new URLSearchParams({
             ids: assignedLabelIds.join(','),
             pageSize: String(Math.min(assignedLabelIds.length, 100)),
@@ -500,44 +511,36 @@ export function EntityTagsDialog({
             },
           )
           const selectedLabels = selectedLabelsCall.ok ? selectedLabelsCall.result?.items ?? [] : []
-          selectedLabelEntries = selectedLabels.map((label) => ({
+          const selectedLabelEntries = selectedLabels.map((label) => ({
             id: label.id,
             value: label.id,
             label: label.label,
             color: null,
           }))
+          return { assignedLabelIds, selectedLabelEntries }
+        } catch {
+          return { assignedLabelIds: [], selectedLabelEntries: [] }
         }
-      } catch {
-        assignedLabelIds = []
-        selectedLabelEntries = []
       }
 
+      const selectedTagEntries = Array.isArray(entityData.tags)
+        ? entityData.tags.map((tag) => ({
+            id: tag.id,
+            value: tag.id,
+            label: tag.label,
+            color: tag.color ?? null,
+          }))
+        : []
+
+      // The label chain is independent of kind settings and the dictionary
+      // fan-out, so kick it off immediately and let it resolve in parallel.
+      const labelDataPromise = loadLabelData()
+
+      const kindSettings = await loadKindSettings()
+      const settingsMap = new Map(kindSettings.map((setting) => [setting.kind, setting]))
       const categoryDefs = buildApplicableCategories(entityType, kindSettings)
-      const loadedCategories: CategorySection[] = []
 
-      for (const categoryDef of categoryDefs) {
-        if (categoryDef.source === 'tags') {
-          loadedCategories.push({
-            ...categoryDef,
-            label: t(categoryDef.labelKey, categoryDef.labelFallback),
-            description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
-            entries: sortOptions(selectedTagEntries),
-            selectionMode: categoryDef.selectionMode ?? 'multi',
-          })
-          continue
-        }
-
-        if (categoryDef.source === 'labels') {
-          loadedCategories.push({
-            ...categoryDef,
-            label: t(categoryDef.labelKey, categoryDef.labelFallback),
-            description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
-            entries: sortOptions(selectedLabelEntries),
-            selectionMode: categoryDef.selectionMode ?? 'multi',
-          })
-          continue
-        }
-
+      const loadDictionaryCategory = async (categoryDef: CategoryDef): Promise<CategorySection> => {
         try {
           const dictionaryUrl = new URL(`/api/customers/dictionaries/${categoryDef.routeKind}`, 'http://localhost')
           if (entityOrganizationId) {
@@ -568,7 +571,7 @@ export function EntityTagsDialog({
               color: null,
             })
           })
-          loadedCategories.push({
+          return {
             ...categoryDef,
             label: categoryDef.labelKey
               ? t(categoryDef.labelKey, categoryDef.labelFallback)
@@ -582,7 +585,7 @@ export function EntityTagsDialog({
               : categoryDef.descriptionFallback,
             entries: sortOptions(entries),
             selectionMode,
-          })
+          }
         } catch {
           const setting = categoryDef.settingKind
             ? settingsMap.get(categoryDef.settingKind)
@@ -594,7 +597,7 @@ export function EntityTagsDialog({
             label: value,
             color: null,
           }))
-          loadedCategories.push({
+          return {
             ...categoryDef,
             label: categoryDef.labelKey
               ? t(categoryDef.labelKey, categoryDef.labelFallback)
@@ -608,9 +611,39 @@ export function EntityTagsDialog({
               : categoryDef.descriptionFallback,
             entries: fallbackEntries,
             selectionMode,
-          })
+          }
         }
       }
+
+      // Independent dictionary requests fan out together instead of awaiting
+      // each one sequentially; Promise.all preserves categoryDefs order so the
+      // subsequent sort and selection initialization stay stable.
+      const loadedCategories = await Promise.all(
+        categoryDefs.map(async (categoryDef): Promise<CategorySection> => {
+          if (categoryDef.source === 'tags') {
+            return {
+              ...categoryDef,
+              label: t(categoryDef.labelKey, categoryDef.labelFallback),
+              description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
+              entries: sortOptions(selectedTagEntries),
+              selectionMode: categoryDef.selectionMode ?? 'multi',
+            }
+          }
+          if (categoryDef.source === 'labels') {
+            const { selectedLabelEntries } = await labelDataPromise
+            return {
+              ...categoryDef,
+              label: t(categoryDef.labelKey, categoryDef.labelFallback),
+              description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
+              entries: sortOptions(selectedLabelEntries),
+              selectionMode: categoryDef.selectionMode ?? 'multi',
+            }
+          }
+          return loadDictionaryCategory(categoryDef)
+        }),
+      )
+
+      const { assignedLabelIds, selectedLabelEntries } = await labelDataPromise
 
       loadedCategories.sort((left, right) => {
         const leftSortOrder =
@@ -674,7 +707,7 @@ export function EntityTagsDialog({
     if (!open) return
     setSearchValue('')
     setNewEntryInputByKind({})
-    loadData().catch((err) => console.warn('[EntityTagsDialog] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'EntityTagsDialog', err }))
   }, [loadData, open])
 
   React.useEffect(() => {
@@ -692,12 +725,15 @@ export function EntityTagsDialog({
   React.useEffect(() => {
     if (!open) return
     setActiveCategoryPage(1)
+    setActiveCategoryHasMore(false)
+    setActiveCategoryLoadFailed(false)
   }, [activeCategoryKind, open, searchValue])
 
   React.useEffect(() => {
     if (!open || !activeCategoryKindValue || (activeCategorySource !== 'tags' && activeCategorySource !== 'labels')) {
       setActiveCategoryLoading(false)
-      setActiveCategoryTotalPages(1)
+      setActiveCategoryHasMore(false)
+      setActiveCategoryLoadFailed(false)
       return
     }
 
@@ -731,16 +767,36 @@ export function EntityTagsDialog({
       }))
 
     setActiveCategoryLoading(true)
-    void apiCall<{ items?: Array<DictEntry | LabelItem>; totalPages?: number }>(endpoint, {
+    void apiCall<{ items?: Array<DictEntry | LabelItem>; page?: number }>(endpoint, {
       cache: 'no-store',
       headers: { 'x-om-unauthorized-redirect': '0' },
     })
       .then((response) => {
-        if (!response.ok || cancelled) return
-        const fetchedEntries = mapEntries(Array.isArray(response.result?.items) ? response.result.items : [])
-        setActiveCategoryTotalPages(
-          typeof response.result?.totalPages === 'number' ? response.result.totalPages : 1,
+        if (cancelled) return
+        if (!response.ok) {
+          setActiveCategoryLoadFailed(true)
+          return
+        }
+        setActiveCategoryLoadFailed(false)
+        const servedEntries = Array.isArray(response.result?.items) ? response.result.items : []
+        const fetchedEntries = mapEntries(servedEntries)
+        // The two sources paginate differently. `/api/customers/tags` is a
+        // query-engine list, so a page past the end comes back empty and the
+        // served count alone terminates the sequence. `/api/customers/labels`
+        // clamps the requested page to the last one and re-serves it in full
+        // forever, so short-page termination needs the second half of the
+        // helper's obligation 2: take an echoed page below the one asked for as
+        // the end of the list. Same guard as `AttachmentsSection`, whose
+        // endpoint clamps the same way.
+        const returnedPage =
+          typeof response.result?.page === 'number' ? response.result.page : activeCategoryPage
+        const servedRequestedPage = returnedPage >= activeCategoryPage
+        // Measured on what the endpoint served, before `mergeOptions` folds the
+        // page into the entries already on screen.
+        setActiveCategoryHasMore(
+          servedRequestedPage && hasMoreFromPage(servedEntries.length, REMOTE_CATEGORY_PAGE_SIZE),
         )
+        if (!servedRequestedPage) return
         updateCategoryEntries(activeCategoryKindValue, (currentEntries) =>
           activeCategoryPage <= 1
             ? mergeOptions(seedEntries, fetchedEntries)
@@ -749,8 +805,10 @@ export function EntityTagsDialog({
       })
       .catch(() => {
         if (cancelled) return
-        setActiveCategoryTotalPages(1)
-        updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
+        setActiveCategoryLoadFailed(true)
+        if (activeCategoryPage <= 1) {
+          updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -764,6 +822,7 @@ export function EntityTagsDialog({
   }, [
     activeCategoryKindValue,
     activeCategoryPage,
+    activeCategoryReloadToken,
     activeCategorySource,
     entityId,
     entityOrganizationId,
@@ -1229,15 +1288,23 @@ export function EntityTagsDialog({
                               {t('customers.personTags.loading', 'Loading...')}
                             </div>
                           ) : null}
-                          {(activeCategory.source === 'tags' || activeCategory.source === 'labels') && activeCategoryPage < activeCategoryTotalPages ? (
+                          {(activeCategory.source === 'tags' || activeCategory.source === 'labels') && activeCategoryHasMore ? (
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
                               className="rounded-lg px-3 text-xs"
-                              onClick={() => setActiveCategoryPage((current) => current + 1)}
+                              onClick={() => {
+                                if (activeCategoryLoadFailed) {
+                                  setActiveCategoryReloadToken((current) => current + 1)
+                                  return
+                                }
+                                setActiveCategoryPage((current) => current + 1)
+                              }}
                             >
-                              {t('customers.activities.loadMore', 'Load more')}
+                              {activeCategoryLoadFailed
+                                ? t('customers.personTags.retry', 'Retry')
+                                : t('customers.activities.loadMore', 'Load more')}
                             </Button>
                           ) : null}
                         </div>

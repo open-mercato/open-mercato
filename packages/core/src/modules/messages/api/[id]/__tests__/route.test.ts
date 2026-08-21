@@ -1,6 +1,7 @@
-import { GET, PATCH } from '@open-mercato/core/modules/messages/api/[id]/route'
+import { GET, PATCH, DELETE } from '@open-mercato/core/modules/messages/api/[id]/route'
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
@@ -193,6 +194,8 @@ describe('messages /api/messages/[id] GET', () => {
       deletedAt: null,
     }))
     expect(payload).toEqual(expect.objectContaining({
+      canArchive: true,
+      isArchived: false,
       subject: encryptedAnchorMessage.subject,
       body: encryptedAnchorMessage.body,
     }))
@@ -207,6 +210,323 @@ describe('messages /api/messages/[id] GET', () => {
       undefined,
       { tenantId, organizationId },
     )
+  })
+
+  it('marks sender-only details as not archivable by the current actor', async () => {
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+
+    const message = {
+      id: messageId,
+      threadId: messageId,
+      senderUserId: actorUserId,
+      organizationId,
+      tenantId,
+      deletedAt: null,
+      isDraft: false,
+      type: 'system',
+      visibility: 'internal',
+      sourceEntityType: null,
+      sourceEntityId: null,
+      externalEmail: null,
+      externalName: null,
+      parentMessageId: null,
+      subject: 'Sender-only subject',
+      body: 'Sender-only body',
+      bodyFormat: 'markdown',
+      priority: 'normal',
+      sentAt: new Date('2026-02-24T10:00:00.000Z'),
+      actionData: null,
+      actionTaken: null,
+      actionTakenAt: null,
+      actionTakenByUserId: null,
+    }
+
+    const em = {
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async (entity: unknown) => {
+        if (entity === MessageObject) return []
+        if (entity === MessageRecipient) return []
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return [message]
+      if (entity === User) {
+        return [{ id: actorUserId, name: 'Actor User', email: 'actor@example.com' }]
+      }
+      return []
+    })
+
+    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return message
+      if (entity === User) {
+        return { id: actorUserId, name: 'Actor User', email: 'actor@example.com' }
+      }
+      return null
+    })
+
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            return null
+          },
+        },
+      },
+      scope: {
+        tenantId,
+        organizationId,
+        userId: actorUserId,
+      },
+    })
+
+    const response = await GET(
+      new Request(`http://localhost/api/messages/${messageId}?skipMarkRead=1`),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({
+      canArchive: false,
+      isArchived: false,
+      senderUserId: actorUserId,
+    }))
+  })
+
+  async function getDetailWithRecipientStatus(status: 'archived' | 'unread' | 'read') {
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const threadId = '11111111-1111-4111-8111-111111111111'
+    const anchorId = '22222222-2222-4222-8222-222222222222'
+
+    const anchorMessage = {
+      id: anchorId,
+      threadId,
+      senderUserId: actorUserId,
+      organizationId,
+      tenantId,
+      deletedAt: null,
+      isDraft: false,
+      type: 'system',
+      visibility: 'internal',
+      sourceEntityType: null,
+      sourceEntityId: null,
+      externalEmail: null,
+      externalName: null,
+      parentMessageId: null,
+      subject: 'Subject',
+      body: 'Body',
+      bodyFormat: 'markdown',
+      priority: 'normal',
+      sentAt: new Date('2026-02-24T10:00:00.000Z'),
+      actionData: null,
+      actionTaken: null,
+      actionTakenAt: null,
+      actionTakenByUserId: null,
+    }
+    const threadMessages = [{
+      id: anchorId,
+      senderUserId: actorUserId,
+      body: 'Body',
+      bodyFormat: 'markdown',
+      sentAt: anchorMessage.sentAt,
+    }]
+
+    const em = {
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === MessageRecipient && where.messageId === anchorId) {
+          return {
+            messageId: anchorId,
+            recipientUserId: actorUserId,
+            status,
+            readAt: status === 'read' ? new Date('2026-02-24T10:05:00.000Z') : null,
+            archivedAt: status === 'archived' ? new Date('2026-02-24T10:05:00.000Z') : null,
+            deletedAt: null,
+          }
+        }
+        return null
+      }),
+      find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === MessageObject) return []
+        if (entity === MessageRecipient && typeof where.recipientUserId === 'string') {
+          return [{ messageId: anchorId, status }]
+        }
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return threadMessages
+      if (entity === User) return [{ id: actorUserId, name: 'Actor User', email: 'actor@example.com' }]
+      return []
+    })
+    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return anchorMessage
+      if (entity === User) return { id: actorUserId, name: 'Actor User', email: 'actor@example.com' }
+      return null
+    })
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container: { resolve: (name: string) => (name === 'em' ? em : null) } },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await GET(
+      new Request(`http://localhost/api/messages/${anchorId}?skipMarkRead=1`),
+      { params: { id: anchorId } },
+    )
+    expect(response.status).toBe(200)
+    return response.json() as Promise<{ conversationArchived?: boolean; conversationAllUnread?: boolean }>
+  }
+
+  it('reports conversationArchived when every actor recipient row is archived', async () => {
+    const payload = await getDetailWithRecipientStatus('archived')
+    expect(payload.conversationArchived).toBe(true)
+    expect(payload.conversationAllUnread).toBe(false)
+  })
+
+  it('reports conversationAllUnread when every actor recipient row is unread', async () => {
+    const payload = await getDetailWithRecipientStatus('unread')
+    expect(payload.conversationAllUnread).toBe(true)
+    expect(payload.conversationArchived).toBe(false)
+  })
+
+  it('reports neither flag when the conversation is read', async () => {
+    const payload = await getDetailWithRecipientStatus('read')
+    expect(payload.conversationArchived).toBe(false)
+    expect(payload.conversationAllUnread).toBe(false)
+  })
+
+  it('carries the external identity on thread entries so collapsed rows can label ingested email', async () => {
+    // Inbound channel messages are authored by the communication_channels
+    // system user, so a thread entry without externalName/externalEmail leaves
+    // the collapsed conversation row nothing to print but the sentinel uuid.
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const systemUserId = '00000000-0000-0000-0000-000000000000'
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const threadId = '11111111-1111-4111-8111-111111111111'
+    const anchorId = '22222222-2222-4222-8222-222222222222'
+
+    const anchorMessage = {
+      id: anchorId,
+      threadId,
+      senderUserId: systemUserId,
+      organizationId,
+      tenantId,
+      deletedAt: null,
+      isDraft: false,
+      type: 'channel.email',
+      visibility: 'public',
+      sourceEntityType: 'communication_channels.external_conversation',
+      sourceEntityId: null,
+      externalEmail: 'jan@example.com',
+      externalName: 'Jan Kowalski',
+      parentMessageId: null,
+      subject: 'Re: order 1234',
+      body: 'newest reply',
+      bodyFormat: 'text',
+      priority: 'normal',
+      sentAt: new Date('2026-08-13T10:00:00.000Z'),
+      actionData: null,
+      actionTaken: null,
+      actionTakenAt: null,
+      actionTakenByUserId: null,
+    }
+
+    const threadMessages = [
+      {
+        id: anchorId,
+        senderUserId: systemUserId,
+        externalName: 'Jan Kowalski',
+        externalEmail: 'jan@example.com',
+        sourceEntityType: 'communication_channels.external_conversation',
+        body: 'newest reply',
+        bodyFormat: 'text',
+        sentAt: new Date('2026-08-13T10:00:00.000Z'),
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        senderUserId: systemUserId,
+        externalName: 'Jan Kowalski',
+        externalEmail: 'jan@example.com',
+        sourceEntityType: 'communication_channels.external_conversation',
+        body: 'first message',
+        bodyFormat: 'text',
+        sentAt: new Date('2026-08-13T09:00:00.000Z'),
+      },
+    ]
+
+    const actorRecipientRow = {
+      messageId: anchorId,
+      recipientUserId: actorUserId,
+      recipientType: 'to',
+      status: 'read',
+      readAt: new Date('2026-08-13T10:05:00.000Z'),
+      deletedAt: null,
+    }
+
+    const em = {
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => (
+        entity === MessageRecipient && where.messageId === anchorId ? actorRecipientRow : null
+      )),
+      find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === MessageObject) return []
+        if (entity === Message && where.threadId === threadId) return threadMessages
+        if (entity === MessageRecipient && where.messageId === anchorId) return [actorRecipientRow]
+        if (entity === MessageRecipient && typeof where.recipientUserId === 'string') {
+          return threadMessages.map((item) => ({ messageId: item.id }))
+        }
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return threadMessages
+      // The sentinel user has no directory row, which is exactly why
+      // senderName / senderEmail come back null for ingested mail.
+      return []
+    })
+    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => (
+      entity === Message ? anchorMessage : null
+    ))
+
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container: { resolve: (name: string) => (name === 'em' ? em : null) } },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await GET(
+      new Request(`http://localhost/api/messages/${anchorId}?skipMarkRead=1`),
+      { params: { id: anchorId } },
+    )
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as {
+      thread?: Array<{
+        id?: string
+        senderName?: string | null
+        externalName?: string | null
+        externalEmail?: string | null
+        sourceEntityType?: string | null
+      }>
+    }
+
+    expect(payload.thread ?? []).toHaveLength(2)
+    for (const item of payload.thread ?? []) {
+      expect(item.senderName).toBeNull()
+      expect(item.externalName).toBe('Jan Kowalski')
+      expect(item.externalEmail).toBe('jan@example.com')
+      // The label chain needs this discriminator to know the external identity
+      // is the author here rather than the recipient — without it a thread
+      // assigned to an agent would print the agent as the customer's name.
+      expect(item.sourceEntityType).toBe('communication_channels.external_conversation')
+    }
   })
 })
 
@@ -273,5 +593,259 @@ describe('messages /api/messages/[id] PATCH', () => {
       organizationId,
       userId,
     }))
+  })
+})
+
+describe('messages /api/messages/[id] DELETE authorization', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    hasOrganizationAccessMock.mockReturnValue(true)
+  })
+
+  it('rejects a same-organization non-participant before command dispatch', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const senderUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const message = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId,
+      deletedAt: null,
+      updatedAt: new Date('2026-02-24T10:00:00.000Z'),
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => (entity === Message ? message : null)),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Access denied' })
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+      em,
+      MessageRecipient,
+      {
+        messageId,
+        recipientUserId: actorUserId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId, organizationId },
+    )
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('lets the sender delete without looking up a recipient row', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const message = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId: actorUserId,
+      deletedAt: null,
+      updatedAt: new Date('2026-02-24T10:00:00.000Z'),
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => (entity === Message ? message : null)),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    // The sender never needs the recipient row, so the decryption-aware lookup is skipped.
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
+  it('lets an active recipient delete the message', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const senderUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const message = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId,
+      deletedAt: null,
+      updatedAt: new Date('2026-02-24T10:00:00.000Z'),
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => (entity === Message ? message : null)),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: '33333333-3333-4333-8333-333333333333',
+      messageId,
+      recipientUserId: actorUserId,
+      deletedAt: null,
+    })
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('messages /api/messages/[id] optimistic locking', () => {
+  const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const messageId = '22222222-2222-4222-8222-222222222222'
+  const currentUpdatedAt = new Date('2026-02-24T10:00:00.000Z')
+
+  function setupDraft(overrides: Record<string, unknown> = {}) {
+    const draftMessage = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId: userId,
+      isDraft: true,
+      deletedAt: null,
+      updatedAt: currentUpdatedAt,
+      ...overrides,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(draftMessage),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId },
+    })
+    return { commandBus }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    hasOrganizationAccessMock.mockReturnValue(true)
+  })
+
+  it('rejects a stale draft PATCH with a structured 409 and leaves the message untouched', async () => {
+    const { commandBus } = setupDraft()
+    const request = new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-02-24T09:00:00.000Z',
+      },
+      body: JSON.stringify({ subject: 'Stale edit', body: 'Stale body' }),
+    })
+
+    const response = await PATCH(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body).toEqual(expect.objectContaining({
+      code: 'optimistic_lock_conflict',
+      currentUpdatedAt: currentUpdatedAt.toISOString(),
+      expectedUpdatedAt: '2026-02-24T09:00:00.000Z',
+    }))
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('allows a draft PATCH whose expected version matches the current one', async () => {
+    const { commandBus } = setupDraft()
+    const request = new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        [OPTIMISTIC_LOCK_HEADER_NAME]: currentUpdatedAt.toISOString(),
+      },
+      body: JSON.stringify({ subject: 'Fresh edit', body: 'Fresh body' }),
+    })
+
+    const response = await PATCH(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a stale draft DELETE with a structured 409', async () => {
+    const { commandBus } = setupDraft()
+    const request = new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: {
+        [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-02-24T09:00:00.000Z',
+      },
+    })
+
+    const response = await DELETE(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body).toEqual(expect.objectContaining({ code: 'optimistic_lock_conflict' }))
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 })

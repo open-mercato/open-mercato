@@ -97,6 +97,11 @@ describe('sales command registration', () => {
       expected: ['sales.shipments.create', 'sales.shipments.update', 'sales.shipments.delete'],
     },
     {
+      label: '../returns',
+      path: '../returns',
+      expected: ['sales.returns.create', 'sales.returns.update', 'sales.returns.delete'],
+    },
+    {
       label: '../statuses',
       path: '../statuses',
       expected: [

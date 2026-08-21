@@ -1,13 +1,14 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   loadCurrencyOptions,
@@ -47,6 +48,7 @@ type ExchangeRateData = {
 export default function EditExchangeRatePage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
 
   const [exchangeRate, setExchangeRate] = React.useState<ExchangeRateData | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -82,6 +84,20 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
   const groups = React.useMemo(
     () => exchangeRateGroups(t, loadOptions),
     [t, loadOptions]
+  )
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `currencies.exchange_rate`
+  // + id explicitly. The resourceKind mirrors the CrudForm `versionHistory` so the
+  // held lock matches the save-time conflict surface for the same exchange rate.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'currencies.exchange_rate',
+      resourceId: exchangeRate?.id ?? null,
+      updatedAt: exchangeRate?.updatedAt ?? exchangeRate?.updated_at ?? null,
+      data: exchangeRate as Record<string, unknown> | null,
+      path: pathname,
+    }),
   )
 
   if (loading) {

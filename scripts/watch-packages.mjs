@@ -10,7 +10,9 @@
 // Behavior parity with `packages/<pkg>/watch.mjs` (which delegates to
 // `scripts/watch.mjs`'s `low-memory` mode):
 //   - one-shot `esbuild.build` per change, no persistent context held idle;
-//   - re-globs entry points before every rebuild so brand-new files emit;
+//   - compiles changed TypeScript entries for ordinary edits and re-globs on
+//     add/remove/rename events so brand-new files still emit;
+//   - byte-identical outputs keep their mtimes and avoid graph invalidation;
 //   - 100 ms per-package debounce coalesces editor save flurries;
 //   - emits the same `[watch] <pkg>: rebuilding...` / `rebuild complete`
 //     lines so `scripts/dev.mjs` log filters keep working.
@@ -27,9 +29,17 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
 import { existsSync, readFileSync, readdirSync, watch as fsWatch, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
+import {
+  AUTO_EXPAND_INTERVAL_MS,
+  describeWatchMode,
+  detectTouchedPackages,
+  discoverWatchTargets,
+  resolveWatchScope,
+  selectWatchedPackages,
+} from './watch-scope.mjs'
 
 const REBUILD_DEBOUNCE_MS = 100
 const TOUCHABLE_GENERATED_PATTERN = /\.generated(?:\.[a-z0-9]+)?(?:\.ts|\.checksum)$/i
@@ -43,55 +53,11 @@ export function isWatchedSourceFile(filename) {
   return true
 }
 
-function safeReadPackageJson(packageDir) {
-  const pkgPath = join(packageDir, 'package.json')
-  if (!existsSync(pkgPath)) return null
-  try {
-    return JSON.parse(readFileSync(pkgPath, 'utf8'))
-  } catch {
-    return null
-  }
-}
+// Re-exported from `watch-scope.mjs` (the dependency-light shared discovery
+// source) so existing importers and tests keep the same entry point.
+export const discoverWorkspacePackages = discoverWatchTargets
 
-export function discoverWorkspacePackages(root) {
-  const roots = [
-    join(root, 'packages'),
-    join(root, 'external', 'official-modules', 'packages'),
-  ]
-  const discovered = []
-
-  for (const parent of roots) {
-    if (!existsSync(parent)) continue
-    let entries
-    try {
-      entries = readdirSync(parent, { withFileTypes: true })
-    } catch {
-      continue
-    }
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      const packageDir = join(parent, entry.name)
-      const pkg = safeReadPackageJson(packageDir)
-      if (!pkg) continue
-      if (!pkg.scripts?.watch) continue
-      const srcDir = join(packageDir, 'src')
-      if (!existsSync(srcDir)) continue
-
-      discovered.push({
-        name: pkg.name ?? basename(packageDir),
-        packageDir,
-        srcDir,
-        shortLabel: basename(packageDir),
-      })
-    }
-  }
-
-  discovered.sort((a, b) => a.shortLabel.localeCompare(b.shortLabel))
-  return discovered
-}
-
-function createBuildOptions(packageDir, entryPoints) {
+function createBuildOptions(packageDir, entryPoints, { onWrite } = {}) {
   return {
     absWorkingDir: packageDir,
     entryPoints,
@@ -103,7 +69,7 @@ function createBuildOptions(packageDir, entryPoints) {
     sourcemap: true,
     jsx: 'automatic',
     write: false,
-    plugins: [createAtomicWritePlugin()],
+    plugins: [createAtomicWritePlugin({ onWrite })],
     logLevel: 'warning',
   }
 }
@@ -145,7 +111,10 @@ export function discoverAppGeneratedDirs(root) {
   })
 }
 
-export function touchGeneratedBarrels(generatedDirs, { log = defaultLog } = {}) {
+export function touchGeneratedBarrels(
+  generatedDirs,
+  { log = defaultLog, packageName = null } = {},
+) {
   let touchedCount = 0
   for (const generatedDir of generatedDirs) {
     let entries = []
@@ -160,7 +129,9 @@ export function touchGeneratedBarrels(generatedDirs, { log = defaultLog } = {}) 
       if (!TOUCHABLE_GENERATED_PATTERN.test(entry.name)) continue
       const filePath = join(generatedDir, entry.name)
       try {
-        writeFileSync(filePath, readFileSync(filePath))
+        const contents = readFileSync(filePath)
+        if (packageName && !contents.includes(packageName)) continue
+        writeFileSync(filePath, contents)
         touchedCount += 1
       } catch (error) {
         log(
@@ -179,7 +150,10 @@ function makePackageState(pkg) {
     rebuildTimeout: null,
     isRebuilding: false,
     rebuildQueued: false,
+    pendingChangedFiles: new Set(),
+    requiresFullRebuild: false,
     watcher: null,
+    watchError: null,
   }
 }
 
@@ -193,14 +167,29 @@ async function rebuildPackage(state, { log, build = esbuild.build, generatedDirs
     state.rebuildQueued = false
     state.isRebuilding = true
     try {
-      const points = await globEntryPoints(state.packageDir)
+      const pendingChangedFiles = state.pendingChangedFiles
+      const requiresFullRebuild = state.requiresFullRebuild || pendingChangedFiles.size === 0
+      state.pendingChangedFiles = new Set()
+      state.requiresFullRebuild = false
+
+      const points = requiresFullRebuild
+        ? await globEntryPoints(state.packageDir)
+        : [...pendingChangedFiles].filter((filePath) => existsSync(filePath))
       if (points.length === 0) {
         log(`[watch] ${state.shortLabel}: no source files found, skipping rebuild`)
         continue
       }
       log(`[watch] ${state.shortLabel}: rebuilding...`)
-      await build(createBuildOptions(state.packageDir, points))
-      touchGeneratedBarrels(generatedDirs, { log })
+      const changedOutputPaths = new Set()
+      const result = await build(createBuildOptions(state.packageDir, points, {
+        onWrite(filePath, changed) {
+          if (changed) changedOutputPaths.add(filePath)
+        },
+      }))
+      for (const filePath of result?.changedOutputPaths ?? []) changedOutputPaths.add(filePath)
+      if (changedOutputPaths.size > 0) {
+        touchGeneratedBarrels(generatedDirs, { log, packageName: state.name })
+      }
       log(`[watch] ${state.shortLabel}: rebuild complete`)
     } catch (error) {
       log(`[watch] ${state.shortLabel}: rebuild failed: ${error?.message ?? error}`, 'error')
@@ -210,9 +199,15 @@ async function rebuildPackage(state, { log, build = esbuild.build, generatedDirs
   } while (state.rebuildQueued)
 }
 
-function startPackageWatcher(state, { log, build, generatedDirs }) {
-  const onChange = (_eventType, filename) => {
+function startPackageWatcher(state, { log, build, generatedDirs, watch = fsWatch }) {
+  const onChange = (eventType, filename) => {
     if (!isWatchedSourceFile(filename)) return
+    const filePath = join(state.srcDir, filename)
+    if (eventType === 'change' && /\.tsx?$/.test(filename) && existsSync(filePath)) {
+      state.pendingChangedFiles.add(filePath)
+    } else {
+      state.requiresFullRebuild = true
+    }
     if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout)
     state.rebuildTimeout = setTimeout(() => {
       state.rebuildTimeout = null
@@ -221,12 +216,22 @@ function startPackageWatcher(state, { log, build, generatedDirs }) {
   }
 
   try {
-    state.watcher = fsWatch(state.srcDir, { recursive: true }, onChange)
+    state.watcher = watch(state.srcDir, { recursive: true }, onChange)
+    state.watcher?.on?.('error', (error) => {
+      state.watchError = error
+      log(
+        `[watch] ${state.shortLabel}: watcher error: ${error?.message ?? error}`,
+        'error',
+      )
+    })
+    return true
   } catch (error) {
+    state.watchError = error
     log(
       `[watch] ${state.shortLabel}: failed to start fs.watch: ${error?.message ?? error}`,
       'error',
     )
+    return false
   }
 }
 
@@ -246,10 +251,12 @@ export async function runConsolidatedWatch({
   log = defaultLog,
   signal,
   build,
+  watch,
 } = {}) {
-  const packages = discoverWorkspacePackages(root)
+  const { env = process.env, argv = process.argv.slice(2), runGit } = arguments[0] ?? {}
+  const allPackages = discoverWorkspacePackages(root)
   const generatedDirs = discoverAppGeneratedDirs(root)
-  if (packages.length === 0) {
+  if (allPackages.length === 0) {
     log(
       '[watch] no workspace packages with a `watch` script and `src/` directory were found',
       'error',
@@ -257,19 +264,48 @@ export async function runConsolidatedWatch({
     return { packages: [] }
   }
 
-  const states = packages.map(makePackageState)
+  const scopeConfig = resolveWatchScope({ env, argv })
+  const selection = selectWatchedPackages({ packages: allPackages, config: scopeConfig, root, runGit })
+  const selected = selection.selected.length ? selection.selected : allPackages
+
+  const watchMode = describeWatchMode(selection.mode)
+  log(`[watch] watch scope: ${watchMode.emoji} ${watchMode.mode} — ${selection.reason}`)
+  if (selection.mode !== 'all') {
+    const excluded = allPackages.length - selected.length
+    if (excluded > 0) {
+      log(`[watch] watch scope: ${excluded} of ${allPackages.length} package(s) are not watched (set OM_WATCH_SCOPE=all to watch everything)`)
+    }
+  }
+
+  const states = selected.map(makePackageState)
+  const watchedLabels = new Set(states.map((state) => state.shortLabel))
+  let expandTimer = null
   log(
     `[watch] consolidated watcher: tracking ${states.length} package${states.length === 1 ? '' : 's'} (${states
       .map((state) => state.shortLabel)
       .join(', ')})`,
   )
 
+  let startedCount = 0
   for (const state of states) {
-    startPackageWatcher(state, { log, build, generatedDirs })
+    if (startPackageWatcher(state, { log, build, generatedDirs, watch })) {
+      startedCount += 1
+    }
+  }
+
+  if (startedCount !== states.length) {
+    log(
+      `[watch] consolidated watcher: failed to start ${states.length - startedCount} of ${states.length} package watchers`,
+      'error',
+    )
   }
 
   const cleanup = () => {
     log('\n[watch] consolidated watcher: stopping...')
+    if (expandTimer) {
+      clearInterval(expandTimer)
+      expandTimer = null
+    }
     for (const state of states) {
       if (state.rebuildTimeout) {
         clearTimeout(state.rebuildTimeout)
@@ -279,6 +315,31 @@ export async function runConsolidatedWatch({
         state.watcher?.close()
       } catch {}
     }
+  }
+
+  // `auto-optimized` keeps re-checking which packages changed and expands the
+  // watch set (it never removes a watcher once started).
+  if (selection.autoExpand) {
+    const expandWatchers = () => {
+      let touched
+      try {
+        touched = detectTouchedPackages({ packages: allPackages, root, config: scopeConfig, runGit })
+      } catch {
+        return
+      }
+      for (const pkg of touched) {
+        if (watchedLabels.has(pkg.shortLabel)) continue
+        const state = makePackageState(pkg)
+        if (startPackageWatcher(state, { log, build, generatedDirs, watch })) {
+          states.push(state)
+          watchedLabels.add(state.shortLabel)
+          log(`[watch] watch scope: expanded to newly-touched package ${state.shortLabel}`)
+          void rebuildPackage(state, { log, build, generatedDirs })
+        }
+      }
+    }
+    expandTimer = setInterval(expandWatchers, AUTO_EXPAND_INTERVAL_MS)
+    if (typeof expandTimer.unref === 'function') expandTimer.unref()
   }
 
   if (signal) {
@@ -296,7 +357,7 @@ export async function runConsolidatedWatch({
     process.on('SIGTERM', onSignal)
   }
 
-  return { packages: states, cleanup }
+  return { packages: states, cleanup, failed: startedCount !== states.length }
 }
 
 const invokedDirectly = (() => {
@@ -309,6 +370,16 @@ const invokedDirectly = (() => {
 })()
 
 if (invokedDirectly) {
-  await runConsolidatedWatch()
-  await new Promise(() => {})
+  const keepAlive = setInterval(() => {}, 60000)
+  runConsolidatedWatch().catch((error) => {
+    clearInterval(keepAlive)
+    console.error(`[watch] consolidated watcher failed: ${error?.message ?? error}`)
+    process.exit(1)
+  }).then((result) => {
+    if (result?.failed || result?.packages?.length === 0) {
+      clearInterval(keepAlive)
+      result.cleanup?.()
+      process.exit(1)
+    }
+  })
 }

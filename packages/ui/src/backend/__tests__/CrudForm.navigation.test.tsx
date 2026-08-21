@@ -9,7 +9,6 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
-jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
 jest.mock('../confirm-dialog', () => ({
   useConfirmDialog: () => ({
     confirm: confirmDialogMock,
@@ -60,6 +59,126 @@ describe('CrudForm unsaved navigation guard', () => {
 
     expect(event.defaultPrevented).toBe(true)
     expect(event.returnValue).toBe('')
+  })
+
+  it('marks the form dirty on the first edit even when no baseline has been initialized yet', async () => {
+    const onDirtyChange = jest.fn()
+    const { container } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} onDirtyChange={onDirtyChange} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.confirmUnsavedChanges': 'Unsaved changes',
+        },
+      },
+    )
+
+    const input = container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Alice updated' } })
+    })
+
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+
+    const event = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent
+    Object.defineProperty(event, 'returnValue', { writable: true, value: undefined })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('keeps a first edit dirty when late initialValues refresh after the user types', async () => {
+    const onDirtyChange = jest.fn()
+    const view = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ name: 'Alice' }}
+        embedded
+        trackDirtyWhenEmbedded
+        onDirtyChange={onDirtyChange}
+        onSubmit={() => {}}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.confirmUnsavedChanges': 'Unsaved changes',
+        },
+      },
+    )
+
+    const input = view.container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Alice updated' } })
+    })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+
+    await act(async () => {
+      view.rerender(
+        <CrudForm
+          title="Form"
+          fields={fields}
+          initialValues={{ name: 'Alice from server' }}
+          embedded
+          trackDirtyWhenEmbedded
+          onDirtyChange={onDirtyChange}
+          onSubmit={() => {}}
+        />,
+      )
+    })
+
+    expect(input).toHaveValue('Alice updated')
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+  })
+
+  it('accepts late initialValues refresh after the edited field is reverted to baseline', async () => {
+    const onDirtyChange = jest.fn()
+    const view = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ name: 'Alice' }}
+        embedded
+        trackDirtyWhenEmbedded
+        onDirtyChange={onDirtyChange}
+        onSubmit={() => {}}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.confirmUnsavedChanges': 'Unsaved changes',
+        },
+      },
+    )
+
+    const input = view.container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Alice updated' } })
+    })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Alice' } })
+      fireEvent.blur(input)
+    })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+
+    await act(async () => {
+      view.rerender(
+        <CrudForm
+          title="Form"
+          fields={fields}
+          initialValues={{ name: 'Alice from server' }}
+          embedded
+          trackDirtyWhenEmbedded
+          onDirtyChange={onDirtyChange}
+          onSubmit={() => {}}
+        />,
+      )
+    })
+
+    expect(input).toHaveValue('Alice from server')
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
   })
 
   it('blocks router-driven history pushes until the user confirms leaving', async () => {

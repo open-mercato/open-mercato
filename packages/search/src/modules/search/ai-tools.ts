@@ -1,5 +1,15 @@
 import { z } from 'zod'
-import type { SearchResult, SearchStrategyId } from '@open-mercato/shared/modules/search'
+import type {
+  SearchEntityConfig,
+  SearchResult,
+  SearchStrategyId,
+} from '@open-mercato/shared/modules/search'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import {
+  filterSearchResultsByEntityAccess,
+  resolveReadableEntityTypes,
+  type SearchEntityConfigLookup,
+} from './lib/entity-access'
 
 /**
  * AI Tools definitions for the Search module.
@@ -47,6 +57,99 @@ type AiToolDefinition = {
   handler: (input: any, ctx: ToolContext) => Promise<unknown>
 }
 
+/**
+ * Minimal shape of the `searchIndexer` DI service consumed by the per-entity
+ * ACL / field-policy resolution below. Aliased rather than redeclared so the
+ * tools and the global-search route cannot drift apart, and still narrow enough
+ * to avoid importing the full `SearchIndexer` class into the tool module.
+ */
+type SearchIndexerLike = SearchEntityConfigLookup
+
+class SearchToolAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SearchToolAuthorizationError'
+  }
+}
+
+/**
+ * Resolve the search config for an entity type and enforce the per-entity view
+ * feature(s). Data-returning tools (`search_get` / `search_aggregate`) MUST NOT
+ * rely on the search-administration `search.view` feature to gate record reads.
+ *
+ * Fails closed: when the entity is not configured for search, or has no
+ * `aclFeatures` declared, access is denied so records are never exposed without
+ * an explicit owning-module grant.
+ */
+function authorizeEntityAccess(entityType: string, ctx: ToolContext): SearchEntityConfig {
+  const searchIndexer = ctx.container.resolve<SearchIndexerLike>('searchIndexer')
+  const config = searchIndexer.getEntityConfig(entityType)
+
+  if (!config) {
+    throw new SearchToolAuthorizationError(
+      `[internal] Entity type "${entityType}" is not configured for search`
+    )
+  }
+
+  if (ctx.isSuperAdmin) return config
+
+  const required = config.aclFeatures
+  if (!required || required.length === 0) {
+    throw new SearchToolAuthorizationError(
+      `[internal] Entity type "${entityType}" does not declare aclFeatures; access denied`
+    )
+  }
+
+  if (!authorizeFeatures(required, {
+    grantedFeatures: ctx.userFeatures,
+    unrestricted: ctx.isSuperAdmin,
+  })) {
+    throw new SearchToolAuthorizationError(
+      `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`
+    )
+  }
+
+  return config
+}
+
+/**
+ * Strip fields that the entity's field policy marks as sensitive
+ * (`hashOnly` exact-match PII or fully `excluded`) from a query-engine record.
+ * Defense-in-depth so even an authorized caller never receives decrypted PII or
+ * fields a `fieldPolicy` keeps out of search.
+ */
+function stripSensitiveFields(
+  record: Record<string, unknown>,
+  config: SearchEntityConfig
+): Record<string, unknown> {
+  const sensitive = new Set<string>([
+    ...(config.fieldPolicy?.hashOnly ?? []),
+    ...(config.fieldPolicy?.excluded ?? []),
+  ])
+  if (sensitive.size === 0) return record
+  const safe: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (sensitive.has(key)) continue
+    safe[key] = value
+  }
+  return safe
+}
+
+/**
+ * Determine whether a field is a safe aggregation grouping key for an entity.
+ * Only fields explicitly declared `searchable` are allowed; `hashOnly` and
+ * `excluded` (PII / sensitive) fields can never be enumerated via group-by.
+ */
+function isGroupByAllowed(field: string, config: SearchEntityConfig): boolean {
+  const sensitive = new Set<string>([
+    ...(config.fieldPolicy?.hashOnly ?? []),
+    ...(config.fieldPolicy?.excluded ?? []),
+  ])
+  if (sensitive.has(field)) return false
+  const searchable = config.fieldPolicy?.searchable ?? []
+  return searchable.includes(field)
+}
+
 // =============================================================================
 // Tool Definitions
 // =============================================================================
@@ -88,13 +191,26 @@ Searches customers, products, orders, deals, and more in one call.`,
       search: (query: string, options: any) => Promise<SearchResult[]>
     }>('searchService')
 
-    const results = await searchService.search(input.query, {
+    // Same rule the HTTP palette applies: `search.global` authorizes using search,
+    // not reading every indexed entity type. The query is narrowed to the readable
+    // types so `limit` is not spent on records that would be filtered out, and the
+    // results are filtered afterwards as defense in depth.
+    const searchIndexer = ctx.container.resolve<SearchIndexerLike>('searchIndexer')
+    const subject = { grantedFeatures: ctx.userFeatures, isSuperAdmin: ctx.isSuperAdmin }
+    const readableEntityTypes = resolveReadableEntityTypes(searchIndexer, subject, input.entityTypes)
+    if (readableEntityTypes && readableEntityTypes.length === 0) {
+      return { query: input.query, totalResults: 0, results: [] }
+    }
+
+    const rawResults = await searchService.search(input.query, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      entityTypes: input.entityTypes,
+      entityTypes: readableEntityTypes,
       strategies: input.strategies as SearchStrategyId[],
       limit: input.limit,
     })
+
+    const results = filterSearchResultsByEntityAccess(rawResults, searchIndexer, subject)
 
     return {
       query: input.query,
@@ -169,6 +285,8 @@ const searchGetTool: AiToolDefinition = {
       throw new Error('Tenant context is required')
     }
 
+    const entityConfig = authorizeEntityAccess(input.entityType, ctx)
+
     const queryEngine = ctx.container.resolve<{
       query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
     }>('queryEngine')
@@ -181,8 +299,8 @@ const searchGetTool: AiToolDefinition = {
       page: { page: 1, pageSize: 1 },
     })
 
-    const record = result.items[0] as Record<string, unknown> | undefined
-    if (!record) {
+    const rawRecord = result.items[0] as Record<string, unknown> | undefined
+    if (!rawRecord) {
       return {
         found: false,
         entityType: input.entityType,
@@ -190,6 +308,8 @@ const searchGetTool: AiToolDefinition = {
         error: 'Record not found',
       }
     }
+
+    const record = stripSensitiveFields(rawRecord, entityConfig)
 
     // Extract custom fields
     const customFields: Record<string, unknown> = {}
@@ -327,6 +447,14 @@ const searchAggregateTool: AiToolDefinition = {
   handler: async (input, ctx) => {
     if (!ctx.tenantId) {
       throw new Error('Tenant context is required')
+    }
+
+    const entityConfig = authorizeEntityAccess(input.entityType, ctx)
+
+    if (!isGroupByAllowed(input.groupBy, entityConfig)) {
+      throw new SearchToolAuthorizationError(
+        `[internal] Field "${input.groupBy}" is not an allowed grouping key for "${input.entityType}"`
+      )
     }
 
     const queryEngine = ctx.container.resolve<{

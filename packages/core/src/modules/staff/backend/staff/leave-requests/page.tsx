@@ -3,9 +3,11 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -28,6 +30,7 @@ type LeaveRequestsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function StaffLeaveRequestsPage() {
@@ -38,6 +41,7 @@ export default function StaffLeaveRequestsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'startDate', desc: true }])
@@ -121,6 +125,7 @@ export default function StaffLeaveRequestsPage() {
       setRows(items.map(mapLeaveRequest))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+      setTotalIsCapped(payload?.totalIsCapped === true)
     } catch {
       setRows([])
       setTotal(0)
@@ -150,7 +155,13 @@ export default function StaffLeaveRequestsPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
+          emptyState={(
+            <ListEmptyState
+              entityName={labels.title}
+              createHref="/backend/staff/leave-requests/create"
+              createLabel={labels.actions.add}
+            />
+          )}
           actions={(
             <Button asChild size="sm">
               <Link href="/backend/staff/leave-requests/create">{labels.actions.add}</Link>
@@ -169,6 +180,7 @@ export default function StaffLeaveRequestsPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           onRowClick={(row) => {

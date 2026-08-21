@@ -1,17 +1,20 @@
 name: Release
 
+# Stage 2 of a release: publish the version already committed on main.
+# The version bump lands through the Release Prepare workflow's PR, so this
+# workflow never pushes to the protected main branch — it only pushes a tag.
+#
+# Ordering matters: every reversible step (checks, build, tag) runs before the
+# irreversible one (npm publish), so a failure never leaves npm ahead of git.
+
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: 'Version bump type (`existing` uses root package.json as-is)'
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-          - existing
+      resume:
+        description: 'Resume a partially published release (skips the "not on npm yet" guard)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -22,6 +25,12 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   release:
     name: Release
+    # GitHub-hosted on purpose — do NOT move this job to a Blacksmith runner.
+    # `scripts/publish-packages.sh` publishes with `npm publish --provenance`, and
+    # npm's sigstore verification only accepts `github-hosted` runners; a
+    # `self-hosted` runner (which is how Blacksmith registers) fails the publish
+    # with a 422 after the release tag has already been pushed.
+    # Guarded by scripts/__tests__/npm-provenance-runners.test.mjs.
     runs-on: ubuntu-latest
     # Only allow releases from main branch
     if: github.ref == 'refs/heads/main'
@@ -34,15 +43,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '24.19.0'
 
       - name: Enable Corepack
         run: corepack enable
@@ -57,79 +66,146 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Configure git
+      - name: Resolve release version
+        id: version
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          VERSION=$(jq -r '.version' package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION from $(git rev-parse --short HEAD)"
 
-      - name: Release ${{ inputs.bump }}
-        id: release
+      - name: Verify version alignment
+        run: ./scripts/check-version-alignment.sh --reference package.json
+
+      - name: Verify the version is not published yet
+        if: ${{ !inputs.resume }}
+        run: ./scripts/check-version-unpublished.sh "${{ steps.version.outputs.version }}"
+
+      - name: Extract changelog entry
+        # Gates the release: a version with no CHANGELOG.md section fails here,
+        # before anything is built, tagged or published
         run: |
-          ./scripts/release-${{ inputs.bump }}.sh 2>&1 | tee release-output.txt
+          ./scripts/changelog-section.sh "${{ steps.version.outputs.version }}" \
+            > "$RUNNER_TEMP/changelog-section.md"
+          echo "Changelog entry: $(wc -c < "$RUNNER_TEMP/changelog-section.md") bytes"
 
-          if [ "${{ inputs.bump }}" = "existing" ]; then
-            NEW_VERSION=$(jq -r '.version' package.json)
-          else
-            NEW_VERSION=$(jq -r '.version' packages/shared/package.json)
-          fi
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-          # Build packages list from package.json files
-          PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
-            jq -s '[.[] | select(.private != true) | {name: .name, version: .version}]')
-
-          echo "packages_json<<EOF" >> $GITHUB_OUTPUT
-          echo "$PACKAGES_JSON" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Commit version changes
+      - name: Build packages
+        # `shell: bash` adds `-o pipefail`, so a failure upstream of `tee` still fails the step
+        shell: bash
         run: |
-          if [ "${{ inputs.bump }}" = "existing" ]; then
-            echo "Existing release mode uses committed versions as-is; skipping version commit"
-            exit 0
-          fi
-
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No release changes to commit"
-            exit 0
-          fi
-
-          git commit -m "chore: release v${{ steps.release.outputs.version }}"
-          git push
+          {
+            yarn build:packages
+            yarn generate
+            yarn build:packages
+          } 2>&1 | tee "$RUNNER_TEMP/release-output.txt"
 
       - name: Create git tag
+        # Runs before publishing: a tag is cheap to delete, an npm version is not
         run: |
-          git tag "v${{ steps.release.outputs.version }}"
-          git push origin "v${{ steps.release.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on origin; leaving it untouched"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Publish packages to npm
+        id: release
+        shell: bash
+        run: |
+          ./scripts/publish-packages.sh 2>&1 | tee -a "$RUNNER_TEMP/release-output.txt"
+
+          PACKAGES_JSON=$(find packages -maxdepth 2 -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
+            jq -s '[.[] | select(.private != true) | {name: .name, version: .version}]')
+
+          {
+            echo "packages_json<<PACKAGES_EOF"
+            echo "$PACKAGES_JSON"
+            echo "PACKAGES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-log
+          path: ${{ runner.temp }}/release-output.txt
+          if-no-files-found: ignore
 
       - name: Create GitHub Release
         uses: actions/github-script@v8
         with:
           script: |
-            const packages = ${{ steps.release.outputs.packages_json }};
-            const version = '${{ steps.release.outputs.version }}';
+            const fs = require('fs');
+            const path = require('path');
 
-            let releaseNotes = '## Published Packages\n\n';
-            releaseNotes += '| Package | Version |\n|---------|---------|';
-            for (const pkg of packages) {
-              releaseNotes += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
+            const packages = ${{ steps.release.outputs.packages_json }};
+            const version = '${{ steps.version.outputs.version }}';
+            const tag = `v${version}`;
+
+            // Read from disk rather than interpolating: changelog prose contains
+            // backticks, quotes and newlines that would break an inline expression
+            const changelog = fs.readFileSync(
+              path.join(process.env.RUNNER_TEMP, 'changelog-section.md'),
+              'utf8',
+            ).trim();
+
+            let packageNotes = '## Published Packages\n\n';
+            packageNotes += '| Package | Version |\n|---------|---------|';
+            for (const pkg of packages.sort((a, b) => a.name.localeCompare(b.name))) {
+              packageNotes += `\n| \`${pkg.name}\` | \`${pkg.version}\` |`;
             }
 
-            releaseNotes += '\n\n### Install\n\n```bash\n';
-            releaseNotes += 'npm install @open-mercato/shared@' + version + '\n';
-            releaseNotes += '# or\n';
-            releaseNotes += 'yarn add @open-mercato/shared@' + version + '\n';
-            releaseNotes += '```';
+            const CHANGELOG_URL = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${tag}/CHANGELOG.md`;
+            // GitHub rejects release bodies over 125,000 characters
+            const BODY_LIMIT = 125000;
+            const budget = BODY_LIMIT - packageNotes.length - 500;
+
+            let changelogSection = changelog;
+            if (changelogSection.length > budget) {
+              changelogSection = changelogSection.slice(0, budget) +
+                `\n\n_Changelog truncated — [read the full entry](${CHANGELOG_URL})._`;
+              core.warning(`Changelog entry for ${tag} exceeded the release body limit and was truncated`);
+            }
+
+            const releaseNotes = `${changelogSection}\n\n---\n\n${packageNotes}\n\n[Full changelog](${CHANGELOG_URL})`;
+
+            let existing = null;
+            try {
+              const found = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              existing = found.data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            // Resuming a partial release refreshes the notes instead of failing
+            if (existing) {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: existing.id,
+                name: tag,
+                body: releaseNotes,
+              });
+              console.log(`Updated existing release ${tag}`);
+              return;
+            }
 
             await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: `v${version}`,
-              name: `v${version}`,
+              tag_name: tag,
+              name: tag,
               body: releaseNotes,
               draft: false,
               prerelease: false
             });
 
-            console.log(`Created release v${version}`);
+            console.log(`Created release ${tag}`);

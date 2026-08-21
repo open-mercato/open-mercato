@@ -3,7 +3,12 @@
  */
 import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
-import { DictionaryEntrySelect, type DictionarySelectLabels } from '../DictionaryEntrySelect'
+import {
+  DictionaryEntrySelect,
+  DictionaryOptionsUnavailableError,
+  type DictionarySelectLabels,
+} from '../DictionaryEntrySelect'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/customers',
@@ -52,7 +57,11 @@ jest.mock('@open-mercato/ui/primitives/select', () => ({
   SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => (
     <option value={value}>{children}</option>
   ),
-  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectTrigger: ({ children, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span data-testid="dictionary-entry-trigger" {...props}>
+      {children}
+    </span>
+  ),
   SelectValue: () => null,
 }))
 
@@ -86,6 +95,7 @@ function optionLabels() {
 describe('DictionaryEntrySelect', () => {
   beforeEach(() => {
     fetchOptions.mockClear()
+    ;(flash as jest.Mock).mockClear()
   })
 
   it('keeps API order when sortOptions is none', async () => {
@@ -117,5 +127,70 @@ describe('DictionaryEntrySelect', () => {
     )
 
     await waitFor(() => expect(optionLabels()).toEqual(['Alpha', 'Beta']))
+  })
+
+  it('keeps the selected value visible when it is missing from fetched options', async () => {
+    render(
+      <DictionaryEntrySelect
+        value="legacy"
+        onChange={jest.fn()}
+        fetchOptions={fetchOptions}
+        labels={labels}
+        allowInlineCreate={false}
+        showManage={false}
+      />,
+    )
+
+    await waitFor(() => expect(optionLabels()).toEqual(['legacy', 'Alpha', 'Beta']))
+  })
+
+  it('shows an inline hint instead of an error toast when options are unavailable (#4401)', async () => {
+    const unavailableFetch = jest.fn(async () => {
+      throw new DictionaryOptionsUnavailableError('Organization context is required')
+    })
+
+    render(
+      <DictionaryEntrySelect
+        value={undefined}
+        onChange={jest.fn()}
+        fetchOptions={unavailableFetch}
+        labels={labels}
+        allowInlineCreate={false}
+        showManage={false}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Organization context is required')).toBeInTheDocument(),
+    )
+    const hint = screen.getByText('Organization context is required')
+    await waitFor(() =>
+      expect(screen.getByTestId('dictionary-entry-trigger')).toHaveAttribute(
+        'aria-describedby',
+        hint.id,
+      ),
+    )
+    expect(flash).not.toHaveBeenCalled()
+    expect(optionLabels()).toEqual([])
+  })
+
+  it('still flashes the load error for unexpected failures', async () => {
+    const failingFetch = jest.fn(async () => {
+      throw new Error('boom')
+    })
+
+    render(
+      <DictionaryEntrySelect
+        value={undefined}
+        onChange={jest.fn()}
+        fetchOptions={failingFetch}
+        labels={labels}
+        allowInlineCreate={false}
+        showManage={false}
+      />,
+    )
+
+    await waitFor(() => expect(flash).toHaveBeenCalledWith('Load failed', 'error'))
+    expect(screen.queryByText('boom')).toBeNull()
   })
 })

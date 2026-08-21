@@ -445,7 +445,7 @@ export interface ExchangeOAuthCodeResult {
  * `RefreshCredentialsInput`. Adapters without OAuth refresh (IMAP, WhatsApp
  * Business API) ignore it.
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 export interface OAuthClientConfig {
   clientId: string
@@ -486,6 +486,14 @@ export interface ValidateCredentialsResult {
   ok: boolean
   /** Field-level error messages keyed by credential field name; for `createCrudFormError`. */
   errors?: Record<string, string>
+  /**
+   * Stable machine-readable code per failing field, keyed the same way as
+   * `errors`. Lets a UI render a localized message instead of the English
+   * prose in `errors` (which stays reserved for logs and API consumers), the
+   * same split the route-level `code` field already uses. Optional: adapters
+   * that don't emit codes keep working and callers fall back to `errors`.
+   */
+  errorCodes?: Record<string, string>
 }
 
 // ── The adapter contract ─────────────────────────────────────
@@ -493,6 +501,23 @@ export interface ValidateCredentialsResult {
 export interface ChannelAdapter {
   readonly providerKey: string
   readonly channelType: 'whatsapp' | 'slack' | 'email' | 'sms' | string
+
+  /**
+   * Scope of a connected channel for this provider. Governs whether the connect
+   * flow stamps `CommunicationChannel.user_id` with the connecting user or leaves
+   * it NULL (tenant-wide):
+   *
+   * - `'user'` (default when absent) — one channel per user (Gmail, IMAP). The
+   *   credential belongs to the connecting user.
+   * - `'tenant'` — one shared channel per tenant (`user_id = NULL`), connected by
+   *   an admin. Used by push providers (FCM/APNs/Expo) whose service account /
+   *   signing key serves every device in the tenant. Reading (fan-out/delivery)
+   *   is already scope-agnostic; this only affects the connect/write path.
+   *
+   * ADDITIVE-ONLY (BACKWARD_COMPATIBILITY.md): existing adapters that omit it keep
+   * their per-user behaviour unchanged.
+   */
+  readonly channelScope?: 'tenant' | 'user'
 
   /** Declare supported features */
   readonly capabilities: ChannelCapabilities

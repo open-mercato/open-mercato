@@ -5,6 +5,14 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import {
+  assertDesignSystemActivation,
+  assertExampleActivation,
+  assertModulesUnregistered,
+  DESIGN_SYSTEM_ACTIVATION_ENTRY,
+  EXAMPLE_ACTIVATION_ENTRY,
+  runActivationFixture,
+} from './lib/module-activation-fixtures'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -71,6 +79,52 @@ function forwardSignal(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
+/**
+ * Disabled-by-default delivery contract, activation half. The scaffolded app has
+ * just proved that a shipped preset generates cleanly with neither reference
+ * module registered; these two fixtures prove each one still works when a
+ * developer enables it, using the app's own `yarn generate`, and that neither
+ * pulls the other in. No database is touched and no migration is applied — the
+ * assertions run entirely against generated artifacts and installed package
+ * contracts. Each fixture restores the shipped module set before the next one
+ * runs, so the app handed to the interactive shell is back at its baseline.
+ */
+async function runDisabledByDefaultActivationFixtures(
+  appDir: string,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const generate = (): void => {
+    runCommand('yarn', ['generate'], { cwd: appDir, env })
+  }
+  const log = (message: string): void => {
+    console.log(cyan(message))
+  }
+
+  await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+  console.log(green('✔ Shipped preset generates with example and design_system unregistered'))
+
+  await runActivationFixture({
+    appDir,
+    entry: EXAMPLE_ACTIVATION_ENTRY,
+    generate,
+    assertActivation: assertExampleActivation,
+    log,
+  })
+  console.log(green('✔ Activation fixture: example registers the Todo surface without design_system'))
+
+  await runActivationFixture({
+    appDir,
+    entry: DESIGN_SYSTEM_ACTIVATION_ENTRY,
+    generate,
+    assertActivation: assertDesignSystemActivation,
+    log,
+  })
+  console.log(green('✔ Activation fixture: design_system registers the gallery without example'))
+
+  await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+  console.log(green('✔ Activation fixtures restored the shipped disabled baseline'))
+}
+
 async function main(): Promise<void> {
   const entryCwd = process.cwd()
   const shellDisabled = process.argv.includes('--no-shell')
@@ -85,16 +139,31 @@ async function main(): Promise<void> {
   try {
     await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio', '--skip-agentic-setup'], { cwd: ROOT })
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--agents', 'all'], { cwd: ROOT })
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded app package.json created')
     assertExists(path.join(appDir, 'src', 'modules.ts'), 'Scaffolded app modules.ts created')
     assertExists(path.join(appDir, '.yarnrc.yml'), 'Scaffolded app Yarn config created')
+    const yarnConfig = fs.readFileSync(path.join(appDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error(`Scaffolded app does not use the published Verdaccio registry: ${VERDACCIO_URL}`)
+    }
+    console.log(green(`✔ Scaffolded app uses Verdaccio at ${VERDACCIO_URL}`))
+
+    assertExists(path.join(appDir, 'CLAUDE.md'), 'Agentic setup wrote CLAUDE.md (claude-code)')
+    assertExists(path.join(appDir, '.codex', 'mcp.json.example'), 'Agentic setup wrote .codex config (codex)')
+    assertExists(path.join(appDir, '.cursor', 'rules'), 'Agentic setup wrote .cursor rules (cursor)')
+    assertExists(path.join(appDir, '.ai', 'agentic.config.json'), 'Agentic setup wrote agentic.config.json')
+    assertExists(path.join(appDir, '.ai', 'trackers', 'github.md'), 'Agentic setup wrote the GitHub tracker descriptor')
+    assertExists(path.join(appDir, '.ai', 'skills', 'tiers.json'), 'Agentic setup wrote the skills tier manifest')
+    assertExists(path.join(appDir, 'scripts', 'install-skills.sh'), 'Agentic setup wrote the skill installer')
 
     addPreinstallScriptProbe(appDir)
-    runCommand('yarn', ['verify:yarn-script-resolution'], { cwd: appDir })
-
     runCommand('yarn', ['install'], {
+      cwd: appDir,
+      env: standaloneInstallEnv,
+    })
+    runCommand('yarn', ['verify:yarn-script-resolution'], {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
@@ -102,6 +171,8 @@ async function main(): Promise<void> {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
+
+    await runDisabledByDefaultActivationFixtures(appDir, standaloneInstallEnv)
 
     console.log(green('\ncreate-mercato-app scaffold test passed'))
     console.log(cyan(`App path: ${appDir}`))

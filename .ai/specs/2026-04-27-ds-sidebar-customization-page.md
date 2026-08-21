@@ -2,7 +2,7 @@
 
 ## TLDR
 
-Refactor the sidebar customization UI from an in-place sidebar takeover (toggled by an internal `customizing` boolean and a `?customize=1` URL hack) into a regular auto-discovered settings page that renders its own content like every other entry in the settings menu. The customization editor becomes a self-contained component owned by the page, the AppShell stops hijacking the sidebar, and the entry appears in the settings nav through standard page-metadata auto-discovery instead of a hardcoded inject. Companion to [`2026-04-26-ds-sidebar-restyle.md`](2026-04-26-ds-sidebar-restyle.md). No new BC contract surfaces are introduced; the `?customize=1` URL trigger and the hardcoded "Customization" settings section added during the restyle PR are both reverted because they were unreleased internals.
+Refactor the sidebar customization UI from an in-place sidebar takeover (toggled by an internal `customizing` boolean and a `?customize=1` URL hack) into a regular auto-discovered settings page that renders its own content like every other entry in the settings menu. The customization editor becomes a self-contained component owned by the page, the AppShell stops hijacking the sidebar, and the entry appears in the settings nav through standard page-metadata auto-discovery instead of a hardcoded inject. Companion to [`2026-04-26-ds-sidebar-restyle.md`](implemented/2026-04-26-ds-sidebar-restyle.md). No new BC contract surfaces are introduced; the `?customize=1` URL trigger and the hardcoded "Customization" settings section added during the restyle PR are both reverted because they were unreleased internals.
 
 ## Overview
 
@@ -18,7 +18,7 @@ The current implementation of "Customize sidebar" couples the editor to the AppS
 
 1. AppShell owns all customization state (`customizing`, `customDraft`, `originalNavRef`, `availableRoleTargets`, `selectedRoleIds`, `canApplyToRoles`, `customizationError`, `loadingPreferences`, `savingPreferences`) plus the callbacks (`startCustomization`, `cancelCustomization`, `resetCustomization`, `saveCustomization`, `updateDraft`).
 2. When `customizing === true`, AppShell's `renderSidebar` swaps the entire sidebar tree for an inline `customizationEditor` JSX block. The main page content underneath is unaffected, but the user loses the live-rendered nav while editing.
-3. The entry point in the [restyle PR](2026-04-26-ds-sidebar-restyle.md) had to be hand-wired:
+3. The entry point in the [restyle PR](implemented/2026-04-26-ds-sidebar-restyle.md) had to be hand-wired:
    - A `?customize=1` query-param effect in AppShell that calls `startCustomization()` and clears the param.
    - A hardcoded "Customization" section appended at render time inside `renderSectionSidebar`'s settings branch.
    - A defensive duplicate in `SettingsPageWrapper` for downstream apps using the wrapper directly.
@@ -78,6 +78,31 @@ The component:
 - Shows a loading skeleton while preferences are fetching.
 - On save, calls the same API endpoint with the draft, surfaces validation errors as flash messages or inline banners.
 - On cancel, navigates back (or fires `onSaved`/`onCanceled` callback so the page decides).
+
+#### Group-level visibility toggle
+
+Each group header carries a visibility `Switch` beside its reorder buttons, so a whole group can be
+hidden in one action instead of toggling every item inside it.
+
+- **Semantics** — off means every item in the group (including nested descendants) is hidden; on clears
+  all of them. `AppShell` already drops a group once all its items are hidden, so this is what removes
+  the group from the sidebar.
+- **Three states** — `visible` (nothing hidden), `hidden` (everything hidden, with the existing
+  "Hidden" badge shown), `partial` (some hidden). The switch reads as on for `partial`, and its
+  label/tooltip says so, since the design system's `Switch` has no indeterminate state.
+- **No new persisted shape** — the toggle writes exactly the `hiddenItemIds` keys the per-item switches
+  write. Settings reached this way are indistinguishable from toggling each item by hand, so
+  `SidebarPreferencesSettings.hiddenItems` is unchanged and no migration is required.
+- **Nested items** — the existing per-item `ancestorHidden` cascade is untouched; child switches stay
+  disabled while their parent is hidden.
+- **Logic placement** — `collectGroupItemKeys`, `resolveGroupVisibility` and `applyGroupHidden` live in
+  `customization-helpers.ts` as pure functions, keeping the reducer logic testable without rendering
+  the editor.
+- **Coverage** — pure helpers are unit-tested in
+  `packages/ui/src/backend/sidebar/__tests__/group-visibility.test.ts`; the rendered behaviour is
+  covered by `packages/core/src/modules/auth/__integration__/TC-AUTH-SIDEBAR-GROUP-001.spec.ts`, which
+  toggles a group off on the real page, saves, reloads to prove persistence, confirms the group's
+  entries leave the main sidebar, and restores the state afterwards.
 
 ### Page contract — `/backend/sidebar-customization`
 
@@ -155,7 +180,7 @@ Analyzed against the 13 contract surfaces from [`BACKWARD_COMPATIBILITY.md`](../
 |---|---|---|---|
 | 1 | Auto-discovery file conventions | Additive | New `page.tsx` + `page.meta.ts` follow the standard convention. |
 | 2 | Type definitions & interfaces | None | `SidebarCustomizationDraft`, `SidebarRoleTarget`, `AppShellProps` unchanged in their public-facing fields. AppShell internal state is private. |
-| 3 | Function signatures | None | No exported function signatures change. |
+| 3 | Function signatures | Additive + deprecation | The 2026-08-14 fix adds `findSidebarPreference` (returns `SidebarPreferencesSettings \| null`) to `auth/services/sidebarPreferencesService`. `loadSidebarPreference` keeps its exact signature and behaviour as a `@deprecated` bridge until 0.9.0, so no existing caller breaks. |
 | 4 | Import paths | Additive | New `@open-mercato/ui/backend/SidebarCustomizationEditor` export. No existing path moves. |
 | 5 | Event IDs | None | No event changes. |
 | 6 | Widget injection spot IDs | None | All five spots from the restyle PR remain rendered. |
@@ -449,3 +474,39 @@ When picked up, the follow-up will live at `.ai/specs/{date}-ds-sidebar-icon-cus
 - **2026-04-27 (addendum)** — Multi-variant management appended: API extension (`?roleId` on GET, `scope` discriminator on PUT, new DELETE), editor variant switcher with dirty-state confirm, "Delete variant" affordance, kept "Apply to roles" as user-scope secondary action. No DB or new ACL feature; reuses `RoleSidebarPreference` + `auth.sidebar.manage`.
 - **2026-04-27 (deferral)** — Multi-variant implementation **deferred to a follow-up PR** per reviewer decision. Current PR ships only the extraction + UX polish (reset-to-default per field, "Hidden" badge, "Default: {original}" hint when modified). Addendum stays in this spec as the design source of truth for the follow-up; implementation order from the addendum (API → switcher → polish) carries over verbatim. Icon customization remains deferred to its own future spec as documented above.
 - **2026-04-27 (re-scoped — multi-variant in current PR)** — Reviewer reversed the deferral and asked to ship multi-variant in the current PR (icons stay deferred). All three implementation phases landed locally on `refactor/ds-sidebar-restyle`: (Step A) API route — `?roleId` on GET, `scope` discriminator on PUT (rejecting `applyToRoles`/`clearRoleIds` when role-scoped), new DELETE method, cross-tenant guard via `findRoleInScope`, OpenAPI updated; (Step B) editor — `EditingScope` discriminated union state, variant `Select` switcher, `useConfirmDialog` for dirty-state switch and destructive variant deletion, `Trash2` "Delete variant" inline button when role scope has an existing preference, "Apply to roles" Card hidden in role scope, dirty tracking gates Save and the switch confirm; (Step C) i18n — 13 new keys (`appShell.sidebarCustomization{Default,DeleteVariant*,Group,HiddenBadge,OrderHeading,OrderDescription,Preview,ResetField,Scope*,SwitchConfirm*,VariantLabel}`) with EN + PL translations, German + Spanish + create-app template locales not yet synced (TBD via standard i18n process). Validation: typecheck UI + core clean, 347/347 UI tests passing, 3241/3241 core tests passing, full package build OK, `yarn generate` re-emits OpenAPI bundle with new DELETE method. Bug fix included: editor previously raced the BackendChromeProvider payload (mounted with empty groups, never re-loaded); now guarded by `hasInitializedRef` + `sourceGroups.length` dep so the load fires once when chrome data arrives.
+- **2026-07-30 (group-level visibility toggle)** — Added a group header `Switch` that hides or shows every item in a group at once, closing the gap where "hide this module from the sidebar" required clicking through every item individually. Reported from a downstream app that had to hand its owner a click-through-N-items instruction. Three-state resolution (`visible` / `hidden` / `partial`) with the existing "Hidden" badge reused; pure helpers (`collectGroupItemKeys`, `resolveGroupVisibility`, `applyGroupHidden`) added to `customization-helpers.ts` with 14 unit tests. No change to `SidebarPreferencesSettings` and no migration — the toggle writes the same `hiddenItems` keys as the per-item switches, so the persisted result is identical to toggling each item by hand. Two i18n keys added (`appShell.sidebarCustomization{ShowGroup,HideGroupPartial}`) across EN/PL/DE/ES in both `apps/mercato` and the create-app template, closing the DE/ES sync gap noted in the 2026-04-27 re-scope entry for these two keys.
+
+- **2026-07-31 (review follow-up)** — `mt-[26px]` on the group control row moved to the shared spacing
+  scale (`mt-6`) per `.ai/ds-rules.md`; the value predated this change but the row was modified here.
+  Added `TC-AUTH-SIDEBAR-GROUP-001` for real-page coverage of the toggle, its persistence, and the
+  resulting sidebar change, since unit tests over the reducer helpers cannot observe any of that.
+
+- **2026-08-14 (fix — role layout wiped for users with no saved layout)** — `loadSidebarPreference`
+  returned `normalizeSidebarSettings(existing?.settingsJson)`, so a user with no
+  `UserSidebarPreference` row got a fully-populated *default* settings object rather than `null`.
+  `backendChrome` builds the sidebar as a two-layer merge (role preference → `adoptSidebarDefaults`
+  → user preference) and guards the second pass with `userPreference ? … : baseForUser`, so that
+  else-branch was dead code. Because `applySidebarPreference` **overwrites** `hidden`
+  (`next.hidden = hidden`) instead of OR-ing it, and falls back to weight/name ordering when
+  `groupOrder` is empty, the empty user pass erased the whole role layer on every render:
+  role-level hidden items reappeared and role group ordering was lost for every user who had never
+  personally customised their sidebar. Fixed by adding `findSidebarPreference`, which returns `null`
+  when no row exists and makes the existing guard work; `null` means "no saved preference", distinct
+  from "a preference exists and is empty" — the latter still applies over the role layer. Both
+  internal call sites (`backendChrome.tsx`, `api/sidebar/preferences/route.ts`) now use it, and the
+  API JSON response is unchanged because the route already read every field as `settings?.x ??
+  default`. Users with a saved row see no behavioural change. `loadSidebarPreference` is kept
+  verbatim as a `@deprecated` bridge (removal targeted at 0.9.0) so third-party callers written
+  against the old non-nullable contract keep working — see the BC table row 3 and `UPGRADE_NOTES.md`
+  under `0.7.0 → 0.7.1`. Covered by `sidebarPreferencesService.load-preference.test.ts` (absent →
+  `null`, present → settings, present-but-empty → non-null empty, scope preserved, plus two cases
+  pinning the deprecated bridge's non-null default) and `backendChrome.role-preference.test.ts`,
+  which runs the **real** loader and merge against a stubbed `UserSidebarPreference` row so a
+  regression in either fails there (role hide and role group order survive an absent row; a
+  saved-but-empty row still overrides).
+  **Known gap, deliberately out of scope:** once a user saves *any* personal preference, role hides
+  are wiped again — `applySidebarPreference` overwrites rather than merges, and
+  `SidebarCustomizationEditor` seeds its draft solely from the user's own saved `hiddenItems`, never
+  from the role-applied `hidden` flags in the base snapshot. Whether role hides are policy
+  (un-overridable) or merely a default is a product decision that needs its own spec entry, tracked
+  as a follow-up issue rather than only in this changelog.

@@ -10,15 +10,26 @@ const containerResolve = jest.fn((name: string) => {
   return null
 })
 const createRequestContainer = jest.fn(async () => ({ resolve: containerResolve }))
+const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
 }))
 
-jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => ({
-  buildRequestOriginUrl: (_req: Request, path: string) => `http://localhost${path}`,
+jest.mock('@open-mercato/core/modules/auth/events', () => ({
+  emitAuthEvent: (eventId: string, payload: Record<string, unknown>, options?: Record<string, unknown>) =>
+    mockEmitAuthEvent(eventId, payload, options),
 }))
 
+jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => {
+  const { NextResponse } = require('next/server')
+  return {
+    buildSafeRedirectResponse: (_req: Request, path: string) =>
+      new NextResponse(null, { status: 307, headers: { Location: `http://localhost${path}` } }),
+  }
+})
+
+import * as logoutRoute from '@open-mercato/core/modules/auth/api/logout'
 import { POST } from '@open-mercato/core/modules/auth/api/logout'
 
 beforeAll(() => {
@@ -127,5 +138,113 @@ describe('POST /api/auth/logout — session revocation', () => {
     await POST(req)
 
     expect(deleteSessionById).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/auth/logout — auth.logout event', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('emits auth.logout with the identity carried by the auth_token', async () => {
+    const req = new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    })
+
+    await POST(req)
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', {
+      id: userId,
+      tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
+      organizationId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
+      sessionId,
+      sessionRevoked: true,
+      at: expect.any(String),
+    }, { persistent: true })
+  })
+
+  it('reports sessionRevoked false when server-side revocation failed', async () => {
+    deleteSessionById.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    }))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+      'auth.logout',
+      expect.objectContaining({ id: userId, sessionRevoked: false }),
+      { persistent: true },
+    )
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
+  })
+
+  it('reports a null session id when the token predates the sid claim', async () => {
+    const legacyToken = signJwt({
+      sub: userId,
+      tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
+      orgId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
+      email: 'user@example.test',
+      roles: ['admin'],
+    })
+
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: legacyToken }) },
+    }))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+      'auth.logout',
+      expect.objectContaining({ id: userId, sessionId: null }),
+      { persistent: true },
+    )
+  })
+
+  it('identifies the user by id only, keeping the email out of the durable payload', async () => {
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    }))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('email')
+    expect(JSON.stringify(payload)).not.toContain('user@example.test')
+  })
+
+  it('does not emit when no verifiable auth_token identifies the caller', async () => {
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: 'not-a-valid-jwt', session_token: 'remember-me-token' }) },
+    }))
+
+    expect(mockEmitAuthEvent).not.toHaveBeenCalled()
+  })
+
+  it('still clears cookies when the event bus rejects', async () => {
+    mockEmitAuthEvent.mockRejectedValueOnce(new Error('event bus down'))
+
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    }))
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
+  })
+})
+
+describe('logout route — CSRF hardening (POST-only)', () => {
+  it('does not expose a GET handler so a cross-origin embed cannot trigger logout', () => {
+    expect((logoutRoute as Record<string, unknown>).GET).toBeUndefined()
+  })
+
+  it('declares only POST in route metadata', () => {
+    expect(Object.keys(logoutRoute.metadata)).toEqual(['POST'])
+  })
+
+  it('documents only POST in the OpenAPI spec', () => {
+    expect(Object.keys(logoutRoute.openApi.methods)).toEqual(['POST'])
   })
 })

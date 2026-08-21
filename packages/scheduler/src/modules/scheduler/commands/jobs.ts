@@ -1,11 +1,13 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRun } from '../lib/nextRunCalculator.js'
+import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
+import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type {
   ScheduleCreateInput,
   ScheduleUpdateInput,
@@ -81,13 +83,22 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return value instanceof Date ? value : new Date(value)
 }
 
+function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
+  const auth = ctx.auth
+  if (!auth) return null
+  if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId.trim()
+  if (auth.isApiKey) return null
+  return typeof auth.sub === 'string' && auth.sub.trim().length > 0 ? auth.sub.trim() : null
+}
+
 /**
- * Re-create a ScheduledJob entity from a snapshot, preserving its original id.
- * Used by delete-undo when the row was hard-removed rather than soft-deleted.
+ * Build a full create seed (including the original id and Date-coerced timestamps)
+ * from a snapshot. Shared by `materializeScheduleFromSnapshot` (delete-undo) and the
+ * create command's id-preserving `redo`.
  */
-function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSnapshot): ScheduledJob {
+function scheduleSeedFromSnapshot(snapshot: ScheduleSnapshot): Record<string, unknown> {
   const now = new Date()
-  return em.create(ScheduledJob, {
+  return {
     id: snapshot.id,
     name: snapshot.name,
     description: snapshot.description,
@@ -110,7 +121,15 @@ function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSn
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
-  })
+  }
+}
+
+/**
+ * Re-create a ScheduledJob entity from a snapshot, preserving its original id.
+ * Used by delete-undo when the row was hard-removed rather than soft-deleted.
+ */
+function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSnapshot): ScheduledJob {
+  return em.create(ScheduledJob, scheduleSeedFromSnapshot(snapshot) as never)
 }
 
 /**
@@ -178,8 +197,12 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
+    if (input.isEnabled ?? true) {
+      await enforceTenantActiveScheduleLimit(em, input.tenantId)
+    }
+
     // Calculate next run time
-    const nextRunAt = calculateNextRun(
+    const nextRunAt = calculateNextRunForWrite(
       input.scheduleType,
       input.scheduleValue,
       input.timezone || 'UTC'
@@ -208,7 +231,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       sourceType: input.sourceType ?? 'user',
       sourceModule: input.sourceModule ?? null,
       nextRunAt,
-      createdByUserId: (ctx.auth?.userId as string | undefined) ?? null,
+      createdByUserId: resolveCommandActorUserId(ctx),
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -251,6 +274,16 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       await syncBullMQAfterUndo(ctx, schedule)
     }
   },
+
+  redo: makeCreateRedo<ScheduledJob, ScheduleSnapshot, ScheduleCreateInput, { id: string }>({
+    entityClass: ScheduledJob,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: scheduleSeedFromSnapshot,
+    buildResult: (entity) => ({ id: entity.id }),
+    afterRestore: async ({ ctx, entity }) => {
+      await syncBullMQAfterUndo(ctx, entity)
+    },
+  }),
 }
 
 /**
@@ -276,6 +309,26 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     ensureTenantScope(ctx, schedule.tenantId)
     if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
     ensureCanManageSystemScopedJob(ctx, schedule)
+
+    if (input.isEnabled === true && schedule.isEnabled !== true) {
+      await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
+    }
+
+    const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined
+    const nextRunAt = scheduleChanged
+      ? calculateNextRunForWrite(
+        input.scheduleType ?? schedule.scheduleType,
+        input.scheduleValue ?? schedule.scheduleValue,
+        input.timezone ?? schedule.timezone,
+      )
+      : null
+
+    if (scheduleChanged && !nextRunAt) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('scheduler.error.invalid_schedule_value', 'Invalid schedule value.'),
+      })
+    }
 
     // Update fields
     if (input.name !== undefined) schedule.name = input.name
@@ -306,20 +359,12 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
     }
 
-    // Recalculate next run if schedule changed
-    if (input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined) {
-      const nextRunAt = calculateNextRun(
-        schedule.scheduleType,
-        schedule.scheduleValue,
-        schedule.timezone
-      )
-      if (nextRunAt) {
-        schedule.nextRunAt = nextRunAt
-      }
+    if (nextRunAt) {
+      schedule.nextRunAt = nextRunAt
     }
 
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
+    schedule.updatedByUserId = resolveCommandActorUserId(ctx)
 
     await em.flush()
 
@@ -410,7 +455,7 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
     // Soft delete
     schedule.deletedAt = new Date()
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
+    schedule.updatedByUserId = resolveCommandActorUserId(ctx)
 
     await em.flush()
 

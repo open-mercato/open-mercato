@@ -1,9 +1,10 @@
-import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 type OnboardingStatus = 'pending' | 'processing' | 'completed' | 'expired'
 
 @Entity({ tableName: 'onboarding_requests' })
-@Unique({ properties: ['email'] })
+@Index({ name: 'onboarding_requests_email_idx', properties: ['email'] })
+@Unique({ properties: ['emailHash'] })
 @Unique({ properties: ['tokenHash'] })
 export class OnboardingRequest {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -11,6 +12,9 @@ export class OnboardingRequest {
 
   @Property({ type: 'text' })
   email!: string
+
+  @Property({ name: 'email_hash', type: 'text', nullable: true })
+  emailHash?: string | null
 
   @Property({ name: 'token_hash', type: 'text' })
   tokenHash!: string
@@ -59,6 +63,9 @@ export class OnboardingRequest {
 
   @Property({ name: 'last_email_sent_at', type: Date, nullable: true })
   lastEmailSentAt?: Date | null
+
+  @Property({ name: 'preparation_started_at', type: Date, nullable: true })
+  preparationStartedAt?: Date | null
 
   @Property({ name: 'preparation_completed_at', type: Date, nullable: true })
   preparationCompletedAt?: Date | null

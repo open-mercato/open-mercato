@@ -34,7 +34,7 @@ import {
  * The runtime (`@open-mercato/ai-assistant`) reads `aiToolConfigEntries`
  * to populate the tool registry and `aiToolOverrideEntries` to apply
  * cross-module replacements after the base load. See spec
- * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+ * `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md`.
  */
 export function createAiToolsExtension(): GeneratorExtension {
   const imports = [] as Array<ReturnType<typeof namespaceImportSpec>>

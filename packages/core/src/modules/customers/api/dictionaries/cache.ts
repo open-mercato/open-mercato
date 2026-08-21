@@ -1,4 +1,7 @@
 import type { CacheStrategy } from '@open-mercato/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const CACHE_PREFIX = 'customers:dictionaries'
 export const DICTIONARY_CACHE_TTL_MS = 5 * 60 * 1000
@@ -48,6 +51,6 @@ export async function invalidateDictionaryCache(
   try {
     await cache.deleteByTags(tags)
   } catch (err) {
-    console.warn('[customers.dictionaries.cache] Failed to invalidate cache', err)
+    logger.warn('Failed to invalidate cache', { component: 'dictionaries.cache', err })
   }
 }

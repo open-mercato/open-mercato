@@ -12,6 +12,7 @@ import {
   type PriceKindUpdateInput,
 } from '../data/validators'
 import { ensureTenantScope, extractUndoPayload } from './shared'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CatalogPriceDisplayMode } from '../data/types'
 
 type PriceKindSnapshot = {
@@ -123,6 +124,10 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
     em.remove(record)
     await em.flush()
   },
+  redo: makeCreateRedo<CatalogPriceKind, PriceKindSnapshot, PriceKindCreateInput, { priceKindId: string }>({
+    entityClass: CatalogPriceKind,
+    buildResult: (entity) => ({ priceKindId: entity.id }),
+  }),
 }
 
 const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId: string }> = {

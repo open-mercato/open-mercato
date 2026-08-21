@@ -1,5 +1,5 @@
 import { parseCronExpression } from './cronParser.js'
-import { calculateNextRunFromInterval } from './intervalParser.js'
+import { calculateNextRunFromInterval, validateInterval } from './intervalParser.js'
 
 /**
  * Calculate the next run time for a schedule
@@ -26,6 +26,19 @@ export function calculateNextRun(
   }
   
   return null
+}
+
+export function calculateNextRunForWrite(
+  scheduleType: 'cron' | 'interval',
+  scheduleValue: string,
+  timezone: string = 'UTC',
+  fromDate?: Date,
+): Date | null {
+  if (scheduleType === 'interval' && !validateInterval(scheduleValue)) {
+    return null
+  }
+
+  return calculateNextRun(scheduleType, scheduleValue, timezone, fromDate)
 }
 
 /**

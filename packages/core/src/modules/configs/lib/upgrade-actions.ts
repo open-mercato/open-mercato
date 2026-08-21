@@ -1,6 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import * as semver from 'semver'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { reconcileAttachmentOrganizations } from '@open-mercato/core/modules/attachments/lib/reconcileOrganization'
+
+const logger = createLogger('configs').child({ component: 'upgrade-actions' })
 
 export type UpgradeActionContext = {
   tenantId: string
@@ -37,7 +42,91 @@ export function compareVersions(a: string, b: string): number {
   return semver.compare(cleanA, cleanB)
 }
 
-export const upgradeActions: UpgradeActionDefinition[] = []
+export const upgradeActions: UpgradeActionDefinition[] = [
+  {
+    id: 'attachments.reconcile-organization',
+    version: '0.6.6',
+    messageKey: 'configs.upgrades.attachmentsOrgReconcile.message',
+    ctaKey: 'configs.upgrades.attachmentsOrgReconcile.cta',
+    successKey: 'configs.upgrades.attachmentsOrgReconcile.success',
+    loadingKey: 'configs.upgrades.attachmentsOrgReconcile.loading',
+    async run({ container, em, tenantId }) {
+      const queryEngine = container.resolve('queryEngine') as QueryEngine
+      const report = await reconcileAttachmentOrganizations({ em, queryEngine, tenantId })
+      logger.info('attachments organization reconcile completed', {
+        tenantId,
+        scanned: report.scanned,
+        updated: report.updated,
+        unresolved: report.unresolved,
+        skippedVirtual: report.skippedVirtual,
+      })
+    },
+  },
+  {
+    id: 'devices.seed-push-token-encryption-map',
+    version: '0.6.6',
+    messageKey: 'configs.upgrades.devicesPushTokenEncryption.message',
+    ctaKey: 'configs.upgrades.devicesPushTokenEncryption.cta',
+    successKey: 'configs.upgrades.devicesPushTokenEncryption.success',
+    loadingKey: 'configs.upgrades.devicesPushTokenEncryption.loading',
+    // Encryption maps are seeded once at tenant creation (`entities seed-encryption`), so a tenant
+    // that predates the devices push-token feature has no `devices:user_device` map row. Without it
+    // `encryptEntityPayload` no-ops and `push_token` is written as PLAINTEXT (the map is a declaration
+    // of which fields to encrypt; the tenant DEK still drives the actual crypto, so seeding it is safe
+    // even when encryption is currently disabled — it only takes effect once encryption is on).
+    // Lazy-imported so configs stays decoupled from devices/entities (mirrors the customers action).
+    run: async ({ em, tenantId, organizationId }) => {
+      const [{ default: devicesEncryptionMaps }, { upsertEncryptionMapSpecs }] = await Promise.all([
+        import('@open-mercato/core/modules/devices/encryption'),
+        import('@open-mercato/core/modules/entities/cli'),
+      ])
+      await upsertEncryptionMapSpecs(em, tenantId, organizationId ?? null, devicesEncryptionMaps)
+    },
+  },
+  {
+    id: 'customers.seed-interaction-statuses',
+    version: '0.6.5',
+    messageKey: 'customers.config.upgradeActions.interactionStatuses.message',
+    ctaKey: 'customers.config.upgradeActions.interactionStatuses.cta',
+    successKey: 'customers.config.upgradeActions.interactionStatuses.success',
+    loadingKey: 'customers.config.upgradeActions.interactionStatuses.loading',
+    // Existing tenants predate the `interaction_status` dictionary, so their status
+    // dropdown is empty until seeded. New tenants get it via customers `seedDefaults`.
+    // Lazy-imported so configs stays decoupled from customers (the catalog of actions
+    // lives here, but customers code only loads when the action actually runs).
+    run: async ({ em, tenantId, organizationId }) => {
+      const [{ INTERACTION_STATUS_DEFAULTS }, { ensureDictionaryEntry }] = await Promise.all([
+        import('@open-mercato/core/modules/customers/cli'),
+        import('@open-mercato/core/modules/customers/commands/shared'),
+      ])
+      for (const entry of INTERACTION_STATUS_DEFAULTS) {
+        await ensureDictionaryEntry(em, {
+          tenantId,
+          organizationId,
+          kind: 'interaction_status',
+          value: entry.value,
+          label: entry.label,
+          color: entry.color,
+          icon: entry.icon,
+        })
+      }
+    },
+  },
+  {
+    id: 'payment_gateways.register-session-initialization-prune',
+    version: '0.6.6',
+    messageKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.message',
+    ctaKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.cta',
+    successKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.success',
+    loadingKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.loading',
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerSessionInitializationPruneSchedule } = await import(
+        '@open-mercato/core/modules/payment_gateways/setup'
+      )
+      await registerSessionInitializationPruneSchedule(container, { tenantId, organizationId })
+    },
+  },
+]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {
   return upgradeActions // NOSONAR — upgradeActions is populated at boot time by modules

@@ -1,13 +1,17 @@
 
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { DataTable, RowActions, Button } from '@open-mercato/ui'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { buildEntitiesCsv } from '../lib/entitiesCsvExport'
 
 type EntityRow = {
   entityId: string
@@ -38,18 +42,6 @@ function buildColumns(t: (key: string, fallback: string) => string): ColumnDef<E
       )
     },
   ]
-}
-
-function toCsv(rows: EntityRow[]) {
-  const header = ['entityId','label','source','count','showInSidebar']
-  const esc = (s: string | number | boolean) => {
-    const str = String(s ?? '')
-    if (/[",\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"'
-    return str
-  }
-  const lines = [header.join(',')]
-  for (const r of rows) lines.push([r.entityId, r.label, r.source, r.count, r.showInSidebar || false].map(esc).join(','))
-  return lines.join('\n')
 }
 
 export default function UserEntitiesTable() {
@@ -85,7 +77,7 @@ export default function UserEntitiesTable() {
       actions={(
         <>
           <Button variant="outline" onClick={() => {
-            const csv = toCsv(rows)
+            const csv = buildEntitiesCsv(rows, { includeSidebar: true })
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
@@ -106,7 +98,14 @@ export default function UserEntitiesTable() {
       sortable
       sorting={sorting}
       onSortingChange={setSorting}
-      perspective={{ tableId: 'entities.user.list' }}
+      perspective={{ tableId: extensionPoints.hosts.userEntitiesTable.tableId }}
+      emptyState={(
+        <ListEmptyState
+          entityName={t('entities.user.table.title', 'User Entities')}
+          createHref="/backend/entities/user/create"
+          createLabel={t('common.create', 'Create')}
+        />
+      )}
       rowActions={(row) => (
         <RowActions
           items={[

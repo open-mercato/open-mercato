@@ -6,6 +6,11 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { invalidateDefinitionsCache } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  beginEntitiesMutationGuard,
+  FIELD_DEFINITION_RESOURCE_KIND,
+} from './definitions.mutation-guard'
+import { createExactDefinitionWhere, resolveDefinitionMutationScope } from '../lib/definition-scope'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
@@ -20,6 +25,7 @@ export async function POST(req: Request) {
   if (!entityId || !key) return NextResponse.json({ error: 'entityId and key are required' }, { status: 400 })
 
   const container = await createRequestContainer()
+  const scope = await resolveDefinitionMutationScope({ auth, container, request: req })
   const { resolve } = container
   const em = resolve('em') as any
   let cache: CacheStrategy | undefined
@@ -27,17 +33,30 @@ export async function POST(req: Request) {
     cache = resolve('cache') as CacheStrategy
   } catch {}
 
-  const where: any = { entityId, key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
+  const where: any = createExactDefinitionWhere(entityId, key, scope)
   const def = await em.findOne(CustomFieldDef, where)
   if (!def) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+    resourceId: def.id,
+    operation: 'custom',
+    mutationPayload: { entityId, key },
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
   ;(def as any).deletedAt = null
   ;(def as any).isActive = true
   ;(def as any).updatedAt = new Date()
   em.persist(def)
   await em.flush()
+  await guard.runAfterSuccess()
   await invalidateDefinitionsCache(cache, {
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
     entityIds: [entityId],
   })
   return NextResponse.json({ ok: true })

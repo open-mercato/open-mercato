@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -30,6 +30,7 @@ interface ListResponse {
   items: SsoConfigRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
   isSuperAdmin?: boolean
 }
 
@@ -220,6 +221,7 @@ export default function SsoConfigListPage() {
               pageSize: 50,
               total: data.total,
               totalPages: data.totalPages,
+              totalIsCapped: data?.totalIsCapped === true,
               onPageChange: setPage,
             }}
             isLoading={isLoading}

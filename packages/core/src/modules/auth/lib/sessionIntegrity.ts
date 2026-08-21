@@ -48,10 +48,11 @@ export async function resolveCanonicalStaffAuthContext(
   // still exist (not soft-deleted, not expired). This is what makes logout / password-reset
   // actually invalidate an already-issued JWT.
   //
-  // Legacy tokens (pre-migration, without `sid`) are allowed through during the grace period
-  // (controlled by JWT_LEGACY_GRACE_MINUTES) so that rolling deployments don't force-logout
-  // every user. Once the grace period expires these tokens will fail signature verification
-  // in `verifyJwt` before reaching this point.
+  // Legacy tokens (pre-migration, without `sid`) are allowed through during the grace period so
+  // that rolling deployments don't force-logout every user. `verifyJwt` owns that window: it only
+  // marks a payload `_legacyToken` while the token's own `iat` is within JWT_LEGACY_GRACE_MINUTES
+  // and before JWT_LEGACY_CUTOVER_AT, so an aged or post-cutover raw-secret token fails
+  // verification before reaching this point and every remaining token must carry a live `sid`.
   const sessionId = normalizeScopeId(typeof auth.sid === 'string' ? auth.sid : null)
   if (sessionId === INVALID_SCOPE) return null
   if (sessionId === null) {
@@ -69,8 +70,14 @@ export async function resolveCanonicalStaffAuthContext(
   // round-trips into one. The `em` here is a fresh request-scoped EntityManager
   // (resolved per request, never inside an explicit transaction), so concurrent
   // reads on it are safe.
+  //
+  // The session lookup is bound to the token subject (`user: subjectId`) so the
+  // referenced session must actually belong to the JWT's subject. Without this
+  // binding, a forged-but-otherwise-valid token could pair `sub` for one user with
+  // a still-live `sid` belonging to another, evading per-user session revocation
+  // (logout / deleteAllUserSessions / password reset).
   const sessionPromise = sessionId !== null
-    ? findOneWithDecryption(em, Session, { id: sessionId, deletedAt: null })
+    ? findOneWithDecryption(em, Session, { id: sessionId, user: subjectId, deletedAt: null })
     : Promise.resolve(null)
   const userPromise = findOneWithDecryption(
     em,
@@ -83,10 +90,11 @@ export async function resolveCanonicalStaffAuthContext(
 
   if (sessionId !== null) {
     if (!session) return null
+    if (resolveSessionUserId(session) !== subjectId) return null
     if (session.expiresAt.getTime() < Date.now()) return null
   }
 
-  if (!user) return null
+  if (!user || user.isConfirmed === false) return null
 
   const currentTenantId = normalizeScopeId(user.tenantId ?? null)
   const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)
@@ -141,6 +149,16 @@ export async function resolveCanonicalStaffAuthContext(
     roles,
     isSuperAdmin,
   }
+}
+
+function resolveSessionUserId(session: Session): string | null {
+  const owner = (session as { user?: unknown }).user
+  if (typeof owner === 'string') return owner
+  if (owner && typeof owner === 'object') {
+    const ownerId = (owner as { id?: unknown }).id
+    if (typeof ownerId === 'string') return ownerId
+  }
+  return null
 }
 
 async function userAclGrantsSuperAdmin(

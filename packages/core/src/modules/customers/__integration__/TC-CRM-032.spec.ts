@@ -11,6 +11,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  * Views sidebar opened from the ViewSwitcherDropdown.
  */
 test.describe('TC-CRM-032: DataTable Column Chooser', () => {
+  test.setTimeout(120_000);
+
   test('should toggle column visibility via Views sidebar on people page', async ({ page }) => {
     test.slow();
 

@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { z } from 'zod'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -38,14 +39,16 @@ export type SudoProtectionResolution = {
   config?: SudoChallengeConfig
 }
 
-type SignedSudoTokenPayload = {
-  sid: string
-  sub: string
-  tid: string | null
-  oid: string | null
-  tgt: string
-  exp: number
-}
+const signedSudoTokenPayloadSchema = z.object({
+  sid: z.string(),
+  sub: z.string(),
+  tid: z.string().nullable(),
+  oid: z.string().nullable(),
+  tgt: z.string(),
+  exp: z.number(),
+})
+
+type SignedSudoTokenPayload = z.infer<typeof signedSudoTokenPayloadSchema>
 
 type UserScope = {
   id: string
@@ -64,6 +67,11 @@ type DeveloperDefaultPayload = {
   label?: string | null
   ttlSeconds?: number
   challengeMethod?: ChallengeMethod
+}
+
+function readTrimmedEnv(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
 }
 
 export class SudoChallengeServiceError extends Error {
@@ -209,13 +217,22 @@ export class SudoChallengeService {
   async prepare(
     sessionId: string,
     methodType: string,
+    options: { expectedUserId?: string } = {},
     request?: Request,
   ): Promise<{ clientData?: Record<string, unknown> }> {
     const session = await this.getPendingSession(sessionId)
+    if (options.expectedUserId && session.userId !== options.expectedUserId) {
+      throw new SudoChallengeServiceError('Sudo challenge user mismatch', 403)
+    }
     if (session.challengeMethod !== 'mfa') {
       throw new SudoChallengeServiceError('This sudo session does not require MFA', 400)
     }
-    return this.mfaVerificationService.prepareChallenge(session.sessionToken, methodType, { request })
+    return this.mfaVerificationService.prepareChallenge(
+      session.sessionToken,
+      methodType,
+      { request },
+      { userId: session.userId },
+    )
   }
 
   async verify(
@@ -257,7 +274,13 @@ export class SudoChallengeService {
       verified = await this.passwordService.verifyPassword(session.userId, password)
       methodUsed = SudoChallengeMethodUsed.PASSWORD
     } else {
-      verified = await this.mfaVerificationService.verifyChallenge(session.sessionToken, methodType, payload, { request })
+      verified = await this.mfaVerificationService.verifyChallenge(
+        session.sessionToken,
+        methodType,
+        payload,
+        { request },
+        { userId: session.userId },
+      )
     }
 
     if (!verified) {
@@ -665,19 +688,26 @@ export class SudoChallengeService {
     if (!timingSafeEqual(signatureBuffer, expectedBuffer)) return null
 
     try {
-      const parsed = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as SignedSudoTokenPayload
-      if (!parsed || typeof parsed !== 'object') return null
-      return parsed
+      const parsed = signedSudoTokenPayloadSchema.safeParse(
+        JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')),
+      )
+      if (!parsed.success) return null
+      return parsed.data
     } catch {
       return null
     }
   }
 
   private getSudoSecret(): string {
-    return process.env.OM_SECURITY_SUDO_SECRET
-      ?? process.env.AUTH_JWT_SECRET
-      ?? process.env.JWT_SECRET
-      ?? 'open-mercato-sudo-secret'
+    const secret =
+      readTrimmedEnv(process.env.OM_SECURITY_SUDO_SECRET)
+      ?? readTrimmedEnv(process.env.AUTH_JWT_SECRET)
+      ?? readTrimmedEnv(process.env.AUTH_SECRET)
+      ?? readTrimmedEnv(process.env.JWT_SECRET)
+    if (secret) return secret
+    throw new Error(
+      'Sudo step-up tokens require OM_SECURITY_SUDO_SECRET, AUTH_JWT_SECRET, AUTH_SECRET, or JWT_SECRET to be set.',
+    )
   }
 
   private toChallengeMethod(

@@ -4,6 +4,10 @@ import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoService } from '../../../services/ssoService'
 import { emitSsoEvent } from '../../../events'
+import { resolveSsoCallbackErrorCode } from '../../../lib/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso').child({ component: 'callback' })
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -42,7 +46,7 @@ async function handleCallback(req: Request): Promise<NextResponse> {
     if (callbackParams.error) {
       void emitSsoEvent('sso.login.failed', {
         reason: callbackParams.error,
-      }).catch((e) => console.error('[SSO Event]', e))
+      }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
       return NextResponse.redirect(toAbsoluteUrl(req, '/login?error=sso_idp_error'))
     }
 
@@ -78,12 +82,11 @@ async function handleCallback(req: Request): Promise<NextResponse> {
 
     return res
   } catch (err) {
-    console.error('[SSO Callback] Error:', err)
+    logger.error('SSO callback error', { err })
     void emitSsoEvent('sso.login.failed', {
       reason: err instanceof Error ? err.message : 'callback_failed',
-    }).catch((e) => console.error('[SSO Event]', e))
-    const message = err instanceof Error ? err.message : ''
-    const errorCode = message.includes('email is not verified') ? 'sso_email_not_verified' : 'sso_failed'
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+    const errorCode = resolveSsoCallbackErrorCode(err)
     return NextResponse.redirect(toAbsoluteUrl(req, `/login?error=${errorCode}`))
   }
 }

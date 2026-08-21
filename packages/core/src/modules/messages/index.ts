@@ -1,11 +1,4 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
-import './commands/actions'
-import './commands/attachments'
-import './commands/conversation'
-import './commands/confirmations'
-import './commands/messages'
-import './commands/recipients'
-import './commands/tokens'
 
 export const metadata: ModuleInfo = {
   name: 'messages',

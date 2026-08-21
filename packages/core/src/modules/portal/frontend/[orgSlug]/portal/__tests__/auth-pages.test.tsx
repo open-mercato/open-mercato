@@ -9,7 +9,7 @@ import PortalSignupPage from '../signup/page'
 const mockApiCall = jest.fn()
 
 const mockTranslations: Record<string, string> = {
-  'portal.login.error.inactive': 'Your account is not active yet. An administrator must activate it before you can log in.',
+  'portal.login.error.invalidCredentials': 'Invalid email or password.',
   'portal.signup.success.description': 'If your registration was accepted, check your email for next steps before signing in. Some organizations require an administrator to activate new accounts.',
   'portal.signup.success.title': 'Check your email',
 }
@@ -78,7 +78,9 @@ describe('portal auth pages', () => {
     expect(screen.queryByText('Your account has been created. You can now log in.')).not.toBeInTheDocument()
   })
 
-  it('surfaces inactive-account login errors instead of showing invalid credentials', async () => {
+  it('shows the generic invalid-credentials message for an inactive-account 401 (no enumeration leak)', async () => {
+    // The login API no longer differentiates inactive/locked accounts in the synchronous
+    // response, so the UI must render the generic message even if a legacy body slips through.
     mockApiCall.mockResolvedValue({
       status: 401,
       ok: false,
@@ -95,8 +97,8 @@ describe('portal auth pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
 
     await waitFor(() => {
-      expect(screen.getByText(mockTranslations['portal.login.error.inactive'])).toBeInTheDocument()
+      expect(screen.getByText(mockTranslations['portal.login.error.invalidCredentials'])).toBeInTheDocument()
     })
-    expect(screen.queryByText('Invalid email or password.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Your account is not active yet. An administrator must activate it before you can log in.')).not.toBeInTheDocument()
   })
 })

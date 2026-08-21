@@ -212,8 +212,16 @@ test.describe('TC-CRM-061: Deals filter UX (V2 figma redesign)', () => {
       }
       await firstOption.click();
 
-      // Close the popover (Escape) to surface the chip strip
+      // Try to close the popover first. The chip assertion below is the contract
+      // for this case; popover close behavior has separate coverage and can be
+      // affected by the value Select's focus trap during full-suite runs.
+      const panel = page.locator('[data-testid="advanced-filter-panel"]').first();
       await page.keyboard.press('Escape');
+      const closedWithEscape = await panel.isHidden({ timeout: 2_000 }).catch(() => false);
+      if (!closedWithEscape) {
+        await page.getByRole('heading', { name: /^Deals$/i }).first().click().catch(() => {});
+        await panel.waitFor({ state: 'hidden', timeout: 2_000 }).catch(() => {});
+      }
 
       const chipStrip = page.locator('[data-testid="active-filter-chips"]').first();
       await expect(chipStrip).toBeVisible({ timeout: 5_000 });
@@ -254,11 +262,17 @@ test.describe('TC-CRM-061: Deals filter UX (V2 figma redesign)', () => {
       // Apply a preset to populate the tree
       await page.getByRole('button', { name: /my deals/i }).first().click();
 
-      // Reopen the popover
+      // Reopen the popover. Applying the preset above closes the panel
+      // (handlePresetApply → onOpenChange(false)) with a Radix exit animation;
+      // clicking the trigger while the panel is mid-close was the historic flake
+      // (the transiently-visible closing panel was mistaken for the reopened one,
+      // or the click toggled a panel that then finished closing). Wait for the
+      // panel to be fully hidden, then reopen deterministically.
       const filtersButton = page.getByTestId('advanced-filter-trigger').first();
-      await filtersButton.click();
       const panel = page.locator('[data-testid="advanced-filter-panel"]').first();
-      await expect(panel).toBeVisible({ timeout: 5_000 });
+      await expect(panel).toBeHidden({ timeout: 10_000 });
+      await filtersButton.click();
+      await expect(panel).toBeVisible({ timeout: 10_000 });
 
       // Click "Clear all" inside the builder
       await panel.getByRole('button', { name: /clear all/i }).first().click();

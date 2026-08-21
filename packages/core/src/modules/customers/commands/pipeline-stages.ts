@@ -14,8 +14,12 @@ import {
   type PipelineStageReorderInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry } from './shared'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import {
+  enforceCommandOptimisticLockWithGuards,
+  enforceRecordGoneIsConflict,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 
 const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { stageId: string }> = {
   id: 'customers.pipeline-stages.create',
@@ -106,10 +110,20 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
       ...(callerTenantId ? { tenantId: callerTenantId } : {}),
       ...(callerOrganizationId ? { organizationId: callerOrganizationId } : {}),
     })
-    if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
+    if (!stage) {
+      enforceRecordGoneIsConflict({ resourceKind: 'customers.pipelineStage', resourceId: parsed.id, request: ctx.request ?? null })
+      throw notFound('Pipeline stage not found')
+    }
 
     ensureTenantScope(ctx, stage.tenantId)
     ensureOrganizationScope(ctx, stage.organizationId)
+
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.pipelineStage',
+      resourceId: stage.id,
+      current: stage.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     await withAtomicFlush(em, [
       () => {
@@ -148,10 +162,20 @@ const deletePipelineStageCommand: CommandHandler<PipelineStageDeleteInput, void>
       ...(callerTenantId ? { tenantId: callerTenantId } : {}),
       ...(callerOrganizationId ? { organizationId: callerOrganizationId } : {}),
     })
-    if (!stage) throw new CrudHttpError(404, { error: 'Pipeline stage not found' })
+    if (!stage) {
+      enforceRecordGoneIsConflict({ resourceKind: 'customers.pipelineStage', resourceId: parsed.id, request: ctx.request ?? null })
+      throw notFound('Pipeline stage not found')
+    }
 
     ensureTenantScope(ctx, stage.tenantId)
     ensureOrganizationScope(ctx, stage.organizationId)
+
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.pipelineStage',
+      resourceId: stage.id,
+      current: stage.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     const activeDealsCount = await em.count(CustomerDeal, {
       pipelineStageId: parsed.id,

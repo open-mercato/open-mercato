@@ -17,6 +17,12 @@ import {
   expectListHandlerScopesToFilterIds,
 } from './helpers/orgScopeAssertions'
 
+function flushBackgroundWorkflowExecution(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve)
+  })
+}
+
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -104,6 +110,10 @@ describe('Workflow Instances API', () => {
     })
 
     jest.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    await flushBackgroundWorkflowExecution()
   })
 
   // ============================================================================
@@ -349,6 +359,44 @@ describe('Workflow Instances API', () => {
             initiatedBy: testUserId,
           }),
         })
+      )
+    })
+
+    test('should ignore client-supplied initiatedBy metadata', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
+
+      const request = new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({
+          workflowId: 'checkout',
+          initialContext: {},
+          metadata: {
+            entityType: 'order',
+            entityId: 'order-123',
+            initiatedBy: 'admin-user-id',
+          },
+        }),
+      })
+
+      await startInstance(request)
+      await flushBackgroundWorkflowExecution()
+
+      expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            entityType: 'order',
+            entityId: 'order-123',
+            initiatedBy: testUserId,
+          }),
+        })
+      )
+      expect(workflowExecutor.executeWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        mockContainer,
+        testInstanceId,
+        { userId: testUserId }
       )
     })
 

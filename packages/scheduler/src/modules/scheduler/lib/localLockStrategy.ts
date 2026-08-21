@@ -1,44 +1,81 @@
 import type { EntityManager } from '@mikro-orm/core'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'local' })
 
 /**
- * PostgreSQL advisory lock strategy for single-instance or local development
+ * Mutual-exclusion strategy for single-instance or local development.
+ *
+ * Exclusion for the duration of the guarded run is IN-PROCESS (`heldKeys`).
+ * The PostgreSQL advisory lock only serialises concurrent *claims* — it is
+ * transaction-scoped and released as soon as the short claim transaction
+ * commits, before the guarded function runs. It therefore does NOT protect
+ * against two processes executing the same key concurrently; that matches the
+ * documented single-instance contract of the local scheduler strategy, and
+ * `LocalSchedulerService.start()` warns about it at startup.
  */
 export class LocalLockStrategy {
+  // Process-local by construction, so it only guards a single strategy
+  // instance. Invariant relied upon: exactly one LocalLockStrategy exists per
+  // process, because the only construction site is LocalSchedulerService
+  // (an Awilix singleton) and only the CLI entry points start the polling
+  // engine. A caller that resolves a second container would silently get an
+  // independent guard — see the single-instance warning in
+  // LocalSchedulerService.start().
+  private heldKeys = new Set<string>()
+
   constructor(private em: () => EntityManager) {}
 
   /**
-   * Execute a function under a PostgreSQL advisory lock.
+   * Execute a function under a mutual-exclusion lock.
    *
-   * IMPORTANT: Uses transaction-scoped advisory locks (`pg_try_advisory_xact_lock`)
-   * to avoid connection pool/session mismatch issues. The lock is automatically
-   * released when the transaction ends.
+   * In-process exclusion for the whole duration of `fn` comes from `heldKeys`
+   * (this strategy is single-instance by contract). The transaction-scoped
+   * advisory lock (`pg_try_advisory_xact_lock`) only guards the claim itself
+   * against a concurrently claiming process and is released when the short
+   * claim transaction commits, BEFORE `fn` runs.
+   *
+   * IMPORTANT: `fn` must NOT run inside that transaction. Holding the
+   * transaction open across `fn` leaves the connection idle-in-transaction
+   * while `fn` awaits non-DB work; the pool's default
+   * `idle_in_transaction_session_timeout` (120s) then makes Postgres kill the
+   * connection (FATAL 25P03), which crashes the scheduler process.
    */
   async runWithLock<T>(key: string, fn: () => Promise<T>): Promise<{ acquired: boolean; result?: T }> {
-    const em = this.em().fork()
-    const hash = this.hashString(key)
-    let lockAcquired = false
+    if (this.heldKeys.has(key)) {
+      return { acquired: false }
+    }
+    // Reserve synchronously before the async claim so a concurrent in-process
+    // caller cannot slip in between our claim transaction committing (which
+    // releases the advisory xact lock) and the start of `fn`.
+    this.heldKeys.add(key)
 
     try {
-      return await em.transactional(async (txEm) => {
-        const result = await txEm.getConnection().execute<{ acquired: boolean }[]>(
-          `SELECT pg_try_advisory_xact_lock(?) as acquired`,
-          [hash],
-        )
+      const em = this.em().fork()
+      const hash = this.hashString(key)
+      let claimed = false
 
-        const acquired = result[0]?.acquired === true
-        if (!acquired) return { acquired: false }
-        lockAcquired = true
-
-        const fnResult = await fn()
-        return { acquired: true, result: fnResult }
-      })
-    } catch (error) {
-      if (lockAcquired) {
-        throw error
+      try {
+        claimed = await em.transactional(async (txEm) => {
+          const result = await txEm.getConnection().execute<{ acquired: boolean }[]>(
+            `SELECT pg_try_advisory_xact_lock(?) as acquired`,
+            [hash],
+          )
+          return result[0]?.acquired === true
+        })
+      } catch (error) {
+        logger.error('Failed to acquire lock', { lockKey: key, err: error })
+        return { acquired: false }
       }
 
-      console.error('[scheduler:local] Failed to acquire lock:', error)
-      return { acquired: false }
+      if (!claimed) {
+        return { acquired: false }
+      }
+
+      const fnResult = await fn()
+      return { acquired: true, result: fnResult }
+    } finally {
+      this.heldKeys.delete(key)
     }
   }
 

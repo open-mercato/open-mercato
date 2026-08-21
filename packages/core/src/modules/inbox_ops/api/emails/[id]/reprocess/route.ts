@@ -10,6 +10,9 @@ import {
   extractPathSegment,
   UnauthorizedError,
 } from '../../../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'email-reprocess' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -72,9 +75,13 @@ export async function POST(req: Request) {
         organizationId: email.organizationId,
         forwardedByAddress: email.forwardedByAddress,
         subject: email.subject,
+      }, {
+        persistent: true,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:email:reprocess] Failed to emit events:', eventError)
+      logger.error('Failed to emit events', { err: eventError })
     }
 
     return NextResponse.json({ ok: true, ...retiredCounts })
@@ -86,7 +93,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: err.message }, { status: 409 })
     }
 
-    console.error('[inbox_ops:email:reprocess] Error:', err)
+    logger.error('Reprocess failed', { err })
     return NextResponse.json({ error: 'Failed to reprocess email' }, { status: 500 })
   }
 }

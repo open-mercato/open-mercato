@@ -1,3 +1,3 @@
 export const integrationMeta = {
-  dependsOnModules: ['audit_logs'],
+  dependsOnModules: ['audit_logs', 'dictionaries'],
 };

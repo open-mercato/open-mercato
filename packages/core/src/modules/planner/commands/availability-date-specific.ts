@@ -9,9 +9,27 @@ import {
   type PlannerAvailabilityDateSpecificReplaceInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { PlannerAvailabilityKind, PlannerAvailabilitySubjectType } from '../data/entities'
 
 const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
+
+/**
+ * The date-specific aggregate (the one-off rules for a subject/date) has no
+ * single parent row, so its optimistic-lock version is the latest `updated_at`
+ * of the rules being replaced. The editor sends that token via the extension
+ * header; an empty set means "nothing to clobber" → no current version → the
+ * guard is a no-op (strictly additive, fail-open).
+ */
+function resolveAggregateLockVersion(rules: PlannerAvailabilityRule[]): Date | null {
+  let latest: Date | null = null
+  for (const rule of rules) {
+    const value = rule.updatedAt
+    if (!value || Number.isNaN(value.getTime())) continue
+    if (!latest || value.getTime() > latest.getTime()) latest = value
+  }
+  return latest
+}
 
 type AvailabilityRuleSnapshot = {
   id: string
@@ -206,6 +224,12 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
           const window = parseAvailabilityRuleWindow(rule)
           if (window.repeat !== 'once') return false
           return dates.has(formatDateKey(window.startAt))
+        })
+        enforceCommandOptimisticLock({
+          resourceKind: AVAILABILITY_RULE_RESOURCE_KIND,
+          resourceId: `${parsed.subjectType}:${parsed.subjectId}`,
+          current: resolveAggregateLockVersion(toDelete),
+          request: ctx.request ?? null,
         })
         toDelete.forEach((rule) => {
           rule.deletedAt = now

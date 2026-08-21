@@ -3,11 +3,13 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
   sanitizeUploadedFileName,
 } from '@open-mercato/core/modules/attachments/lib/security'
+import { isS3KeyAddressableByScope } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
@@ -22,32 +24,28 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   }
   const creds = await credentialsService.resolve('storage_s3', { tenantId, organizationId: orgId })
   if (!creds) return null
-  return new S3StorageDriver(creds)
-}
-
-function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
-  const parts = key.split('/')
-  return parts.length >= 3 && parts[1] === `org_${orgId}` && parts[2] === `tenant_${tenantId}`
+  return new S3StorageDriver({ ...creds, organizationId: orgId, tenantId })
 }
 
 export async function GET(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('storage_s3.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const key = new URL(req.url).searchParams.get('key')
   if (!key) {
-    return NextResponse.json({ error: 'key query param is required' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.keyRequired', 'key query param is required') }, { status: 400 })
   }
 
-  if (!isKeyScoped(key, auth.orgId, auth.tenantId)) {
-    return NextResponse.json({ error: 'Access denied: key is not scoped to this tenant.' }, { status: 403 })
+  if (!isS3KeyAddressableByScope(key, auth.orgId, auth.tenantId)) {
+    return NextResponse.json({ error: t('storage_s3.errors.keyAccessDenied', 'Access denied: key is not scoped to this tenant.') }, { status: 403 })
   }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
-    return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
   let buffer: Buffer
@@ -57,7 +55,7 @@ export async function GET(req: Request) {
     buffer = result.buffer
     contentType = result.contentType
   } catch {
-    return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    return NextResponse.json({ error: t('storage_s3.errors.fileNotFound', 'File not found') }, { status: 404 })
   }
 
   const fileName = sanitizeUploadedFileName(key.split('/').pop() || 'download')

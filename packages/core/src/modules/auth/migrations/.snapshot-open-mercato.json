@@ -56,6 +56,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "min_active_holders": {
+          "name": "min_active_holders",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "0",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -668,16 +684,6 @@
         }
       },
       "indexes": [
-        {
-          "columnNames": [
-            "email"
-          ],
-          "composite": false,
-          "keyName": "users_email_unique",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
         {
           "columnNames": [
             "email_hash"
@@ -1742,6 +1748,26 @@
         }
       },
       "indexes": [
+        {
+          "keyName": "user_roles_user_id_idx",
+          "columnNames": [
+            "user_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "user_roles_role_id_idx",
+          "columnNames": [
+            "role_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "user_roles_pkey",
           "columnNames": [

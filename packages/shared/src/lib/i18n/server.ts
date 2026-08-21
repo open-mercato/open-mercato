@@ -1,8 +1,8 @@
 import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
-import { resolveLocaleFromAcceptLanguage } from './locale'
+import { resolveForcedLocale, resolveLocaleFromAcceptLanguage } from './locale'
 import { createFallbackTranslator, createTranslator } from './translate'
-import { getModules } from '../modules/registry'
+import { tryGetModules } from '../modules/registry'
 import { loadAppDictionary } from './app-dictionaries'
 import { getCachedDictionary, setCachedDictionary } from './dictionary-cache'
 
@@ -27,6 +27,9 @@ function flattenDictionary(source: unknown, prefix = ''): Dict {
 }
 
 export async function detectLocale(): Promise<Locale> {
+  // Ops-level override: pin the whole app to one locale (default: unset).
+  const forced = resolveForcedLocale(process.env)
+  if (forced) return forced
   // Dynamic import to avoid requiring Next.js in non-Next.js contexts (CLI, tests)
   try {
     const { cookies, headers } = await import('next/headers')
@@ -58,7 +61,11 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
   // Load from registry instead of @/ import (works in standalone packages)
   const baseRaw = await loadAppDictionary(locale)
   const merged: Dict = { ...flattenDictionary(baseRaw) }
-  const modules = getModules()
+  // Route handlers translate their responses, so they resolve a dictionary even
+  // when they are exercised in isolation without a bootstrapped registry. The
+  // app dictionary alone is the right degraded answer there — `registerModules`
+  // invalidates this cache, so a later bootstrap still gets the merged result.
+  const modules = tryGetModules() ?? []
   for (const m of modules) {
     const dict = m.translations?.[locale]
     if (dict) Object.assign(merged, flattenDictionary(dict))

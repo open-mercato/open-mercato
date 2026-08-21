@@ -37,9 +37,7 @@ function responseForTokenError(error: unknown): Response | null {
 
 async function resolveTokenAccess(em: EntityManager, token: string): Promise<TokenAccess> {
   const hashedToken = hashAuthToken(token)
-  const accessToken =
-    (await findOneWithDecryption(em, MessageAccessToken, { token: hashedToken })) ??
-    (await findOneWithDecryption(em, MessageAccessToken, { token }))
+  const accessToken = await findOneWithDecryption(em, MessageAccessToken, { token: hashedToken })
   if (!accessToken) {
     throw new Error('Invalid or expired link')
   }

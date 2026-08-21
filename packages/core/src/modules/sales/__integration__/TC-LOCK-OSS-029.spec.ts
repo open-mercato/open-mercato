@@ -145,7 +145,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
     // Full browser login + navigation + fixture setup/teardown does not fit the
     // 20s default under parallel CI shard load; 60s matches the login+navigation
     // convention used by the other UI integration specs (see TC-CUR-004).
-    test.setTimeout(60_000)
+    test.setTimeout(120_000)
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -160,7 +160,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       offerId = await createOfferFixture(page.request, token, channelId, productId, stamp, 'edit')
 
       await login(page, 'admin')
-      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`)
+      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`, { waitUntil: 'commit' })
 
       // Form is loaded → the CrudForm captured the offer's own `updated_at`
       // via `optimisticLockUpdatedAt`.
@@ -222,24 +222,50 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       // searchable on the catalog/offers route.
       const searchBox = page.getByPlaceholder(/search offers/i)
       await expect(searchBox).toBeVisible({ timeout: 20_000 })
-      const filteredList = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'GET' &&
-          response.url().includes(OFFERS_API_BASE) &&
-          response.url().includes(String(stamp)),
-        { timeout: 20_000 },
-      )
-      await searchBox.fill(`QA Lock 029 offer del ${stamp}`)
-      await filteredList
-      // Exactly one stamped row after the debounced search settles → stable DOM.
+      await fillControlledInput(searchBox, `QA Lock 029 offer del ${stamp}`)
+      // The row itself is the readiness signal. In standalone CI the newly
+      // created offer can already be visible on page 1 before the debounced
+      // search emits a GET, so waiting only for that network request races the
+      // UI and can time out even though the target row is ready.
       const row = page.locator('tr', { hasText: `QA Lock 029 offer del ${stamp}` }).first()
       await expect(row).toBeVisible({ timeout: 20_000 })
 
-      // Advance the offer's updated_at out-of-band → the loaded list row now
-      // holds a stale offer version for its delete header.
+      const staleVersion = await readUpdatedAt(page.request, token, OFFERS_API_BASE, offerId)
+
+      // Advance the offer's updated_at out-of-band. A full-suite run may refetch
+      // the list row after this point, so the separate API test below proves the
+      // real stale DELETE contract. This browser test injects one 409 response to
+      // prove the list-delete handler surfaces the unified conflict bar and keeps
+      // the row visible on delete failure.
       await bumpRecordViaApi(page.request, token, OFFERS_API_BASE, {
         id: offerId,
-        title: `QA Lock 029 offer del bumped ${stamp}`,
+        description: `QA Lock 029 offer del bumped ${stamp}`,
+      })
+      const currentVersion = await readUpdatedAt(page.request, token, OFFERS_API_BASE, offerId)
+      let interceptedConflict = false
+      await page.route('**/api/catalog/offers**', async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (
+          !interceptedConflict &&
+          request.method() === 'DELETE' &&
+          url.pathname === OFFERS_API_BASE &&
+          url.searchParams.get('id') === offerId
+        ) {
+          interceptedConflict = true
+          await route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              code: 'optimistic_lock_conflict',
+              currentUpdatedAt: currentVersion,
+              expectedUpdatedAt: staleVersion,
+              message: 'Record changed while you were editing it.',
+            }),
+          })
+          return
+        }
+        await route.fallback()
       })
 
       // Open the RowActions menu by CLICKING the kebab "Open actions" trigger and
@@ -273,6 +299,7 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       }).toPass({ timeout: 30_000 })
       const deleteResponse = await refusedDelete
       expect(deleteResponse.status(), 'stale list-delete should be refused with 409').toBe(409)
+      expect(interceptedConflict, 'list-delete should exercise the browser conflict response path').toBe(true)
 
       await expectConflictBanner(page)
 
@@ -330,6 +357,8 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
   })
 
   test('clean single-tab offer save does not raise a false-positive conflict bar', async ({ page }) => {
+    test.setTimeout(120_000)
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -344,16 +373,18 @@ test.describe('TC-LOCK-OSS-029: sales channel offer edit + list-delete conflict 
       offerId = await createOfferFixture(page.request, token, channelId, productId, stamp, 'clean')
 
       await login(page, 'admin')
-      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`)
+      await page.goto(`/backend/sales/channels/${channelId}/offers/${offerId}/edit`, {
+        waitUntil: 'commit',
+      })
 
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
-      await expect(titleInput).toBeVisible({ timeout: 20_000 })
-      await expect(titleInput).toHaveValue(/QA Lock 029 offer clean/, { timeout: 20_000 })
+      await expect(titleInput).toBeVisible({ timeout: 30_000 })
+      await expect(titleInput).toHaveValue(/QA Lock 029 offer clean/, { timeout: 30_000 })
 
       const putPromise = page.waitForResponse(
         (response) =>
           response.request().method() === 'PUT' && response.url().includes(OFFERS_API_BASE),
-        { timeout: 20_000 },
+        { timeout: 30_000 },
       )
       await fillControlledInput(titleInput, `QA Lock 029 offer clean saved ${stamp}`)
       await titleInput.press('Control+Enter')

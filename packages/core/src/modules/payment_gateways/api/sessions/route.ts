@@ -2,9 +2,17 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createSessionSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
+import {
+  resolveUserFeatures,
+  runPaymentGatewayMutationGuardAfterSuccess,
+  runPaymentGatewayMutationGuards,
+} from '../guards'
+
+const gatewayTransactionResourceKind = 'payment_gateways.gateway_transaction'
 
 export const metadata = {
   path: '/payment_gateways/sessions',
@@ -24,6 +32,28 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const guardResult = await runPaymentGatewayMutationGuards(
+    container,
+    {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: gatewayTransactionResourceKind,
+      resourceId: null,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data as Record<string, unknown>,
+    },
+    resolveUserFeatures(auth),
+  )
+  if (!guardResult.ok) {
+    return NextResponse.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
 
   try {
@@ -46,6 +76,17 @@ export async function POST(req: Request) {
     const redirectUrl = session.redirectUrl
       ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null)
 
+    await runPaymentGatewayMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: gatewayTransactionResourceKind,
+      resourceId: transaction.id,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+
     return NextResponse.json({
       transactionId: transaction.id,
       sessionId: session.sessionId,
@@ -58,9 +99,10 @@ export async function POST(req: Request) {
       paymentId: transaction.paymentId,
     }, { status: 201 })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to create payment session'
-    const status = message.includes('No gateway adapter') ? 422 : 502
-    return NextResponse.json({ error: message }, { status })
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    return NextResponse.json({ error: 'Failed to create payment session' }, { status: 502 })
   }
 }
 
@@ -73,6 +115,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 201, description: 'Payment session created' },
+        { status: 409, description: 'Amount or currency does not match the referenced order' },
         { status: 422, description: 'Invalid payload or unknown provider' },
         { status: 502, description: 'Gateway provider error' },
       ],

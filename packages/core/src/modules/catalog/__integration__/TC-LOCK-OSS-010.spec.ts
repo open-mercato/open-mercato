@@ -14,7 +14,7 @@ import {
 /**
  * TC-LOCK-OSS-010: optimistic locking on catalog product VARIANT delete.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  *
  * Round-4 QA reported a stale variant DELETE succeeding without a conflict.
  * This proves the server-side guard: a DELETE carrying a stale `updated_at`

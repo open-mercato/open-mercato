@@ -55,7 +55,7 @@ For each command, run: **create state → execute command → UNDO → (then) RE
 | I9 | Undo affordance is **absent** for non-undoable commands (Section 4). |
 
 **Generic field contract by command kind** (applies unless a row notes specifics):
-- **create → undo** = remove the record (soft delete / hard remove per entity); redo re-creates it.
+- **create → undo** = remove the record (soft delete / hard remove per entity); **redo re-materializes it with the *same* id** (restores the soft-deleted row, or re-creates it from the after-snapshot reusing the original id) so references and the after-snapshot match exactly — redo MUST NOT mint a new id (issue #2506, invariant I6).
 - **update → undo** = restore the **complete before snapshot** of all scalar fields + relations + custom fields.
 - **delete → undo** = re-materialize the record from the before snapshot (all scalars, `deleted_at=null`, relations, custom fields).
 - **assign/unassign / link/unlink** = toggle the junction row's `deleted_at`.
@@ -118,6 +118,7 @@ For each command, run: **create state → execute command → UNDO → (then) RE
 | `sales.shipments.create/update/delete` | Shipment | full shipment snapshot, `deleted_at` |
 | `sales.document-addresses.create/update/delete` | DocumentAddress | address fields, `deleted_at` |
 | `sales.tags.create/update/delete` | Tag | name, color, `deleted_at` |
+| `sales.returns.create` | Return | return + line adjustments removed, `returned_quantity` restored, order totals recomputed |
 
 ### 3.5 staff
 | Command | Entity | Fields |
@@ -170,6 +171,7 @@ For each command, run: **create state → execute command → UNDO → (then) RE
 | Command | Entity | Fields |
 |---|---|---|
 | `feature_toggles.global.create/update/delete` | FeatureToggle | key, state, description, `deleted_at` |
+| `feature_toggles.overrides.changeState` | FeatureToggleOverride | `value` restored, or override deleted/recreated per `before` snapshot |
 
 ### 3.11 scheduler
 | Command | Entity | Fields |
@@ -191,8 +193,7 @@ These intentionally do **not** support undo. Verify no Undo button/banner appear
 - **customers:** `pipelines.*`, `pipeline-stages.*` (incl. `reorder`), `settings.save*`, `interaction.recompute_next`
 - **dictionaries:** `entries.reorder`, `entries.set_default`
 - **directory:** `tenants.create/update/delete`
-- **feature_toggles:** `overrides.changeState`
-- **sales:** `returns.create`, `settings.save`
+- **sales:** `settings.save`
 - **translations:** `translation.save`, `translation.delete`
 - **messages:** all (`compose`, `update_draft`, `reply`, `forward`, `delete_for_actor`, recipients `mark_read/mark_unread/archive/unarchive`, conversation `archive/delete/mark_unread_for_actor`, attachments `link/unlink`, `confirmations.confirm`, `actions.execute/record_terminal`, `tokens.consume`)
 - **communication_channels:** all (connect/disconnect/delete channel, deliver/ingest message, reactions, reassign, set-primary, push register/renew/unregister, queue-import-history)

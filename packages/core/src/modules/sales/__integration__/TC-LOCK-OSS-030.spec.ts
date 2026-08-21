@@ -136,8 +136,11 @@ async function assertStalePutConflicts(
 async function openEditDialogForRow(page: Page, uniqueName: string): Promise<Locator> {
   const row = page.locator('tr', { hasText: uniqueName }).first()
   await expect(row, `row "${uniqueName}" should be visible on the config page`).toBeVisible({ timeout: 20_000 })
+  await page.keyboard.press('Escape').catch(() => {})
   await row.getByRole('button', { name: /open actions/i }).click()
-  await page.getByRole('menuitem', { name: /^edit$/i }).click()
+  const menu = page.getByRole('menu').last()
+  await expect(menu).toBeVisible({ timeout: 10_000 })
+  await menu.getByRole('menuitem', { name: /^edit$/i }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible({ timeout: 10_000 })
   return dialog

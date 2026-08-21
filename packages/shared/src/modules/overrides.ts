@@ -2,7 +2,7 @@
  * Unified `modules.ts` override surface — one place for downstream apps to
  * replace or disable any contract a module presents.
  *
- * Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`
+ * Spec: `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`
  *
  * Each `ModuleEntry` in `apps/<app>/src/modules.ts` may carry an
  * `overrides` field whose sub-keys address one domain at a time:
@@ -58,6 +58,7 @@ export interface AiOverridesShape {
   tools?: Record<string, unknown>
   extensions?: unknown[]
 }
+
 
 type LooseOverrideMap = Record<string, unknown>
 
@@ -116,6 +117,21 @@ export interface EncryptionOverridesShape {
 }
 
 /**
+ * Backend navigation ordering.
+ *
+ * `groupOrder` **prepends** sidebar nav group ids: the ids listed here rank ahead of every other
+ * group, in the order given, and any group not named keeps the ordering it has today. Prepending
+ * rather than replacing means an app that only cares about its own group lists that one id, instead of
+ * having to enumerate every shipped group and accidentally demoting the ones it forgot.
+ *
+ * This is a *default*, applied beneath both role and user sidebar preferences — an operator's own
+ * arrangement still wins.
+ */
+export interface NavOverridesShape {
+  groupOrder?: string[]
+}
+
+/**
  * Umbrella shape for `entry.overrides`. Every key is optional; a
  * downstream app sets only the domains it cares about.
  */
@@ -135,6 +151,7 @@ export interface ModuleOverrides {
   acl?: AclOverridesShape
   di?: DiOverridesMap | LooseOverrideMap
   encryption?: EncryptionOverridesShape
+  nav?: NavOverridesShape
 }
 
 /**
@@ -174,6 +191,7 @@ export type ModuleOverrideDomain =
   | 'acl'
   | 'di'
   | 'encryption'
+  | 'nav'
 
 export interface ModuleOverrideEntry<TShape> {
   moduleId: string
@@ -226,10 +244,11 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
   'acl',
   'di',
   'encryption',
+  'nav',
 ]
 
 const TRACKING_ISSUE_HINT =
-  'See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and tracking issue https://github.com/open-mercato/open-mercato/issues/1787.'
+  'See `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` and tracking issue https://github.com/open-mercato/open-mercato/issues/1787.'
 
 /**
  * Walk every `ModuleEntry` and dispatch its `overrides.<domain>` shape
@@ -270,9 +289,7 @@ export function applyModuleOverridesFromEnabledModules(
       if (!warnedUnwiredDomains.has(domain)) {
         warnedUnwiredDomains.add(domain)
         const moduleIds = Array.from(new Set(entries.map((e) => e.moduleId))).join(', ')
-        console.warn(
-          `[Module Overrides] Domain "${domain}" not yet wired — entry.overrides.${domain} for module(s) [${moduleIds}] was ignored. ${TRACKING_ISSUE_HINT}`,
-        )
+        logger.warn('Override domain not yet wired — entry ignored', { domain, moduleIds, hint: TRACKING_ISSUE_HINT })
       }
       continue
     }
@@ -312,7 +329,7 @@ export function applyModuleOverridesFromEnabledModules(
 // runtime override scenarios call the dispatcher / programmatic API
 // before `bootstrap.ts` triggers manifest registration.
 //
-// Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (Phases 2/3).
+// Spec: `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` (Phases 2/3).
 
 // ApiRouteManifestEntry / ApiHandler / HttpMethod live in ./registry. The
 // type-only import is erased at runtime, so there is no cycle even though
@@ -330,6 +347,8 @@ import type {
   ModuleSubscriber,
   ModuleWorker,
 } from './registry'
+import { createLogger } from '../lib/logger'
+import { resolveDeclaredPageRouteMetadata } from './pageRouteMetadata'
 import type { ModuleInjectionTable } from './widgets/injection'
 import type { ComponentOverride } from './widgets/component-registry'
 import type { NotificationHandler } from './notifications/handler'
@@ -340,6 +359,8 @@ import type { ApiInterceptor } from '../lib/crud/api-interceptor'
 import type { ResponseEnricher } from '../lib/crud/response-enricher'
 import type { CommandInterceptor } from '../lib/commands/command-interceptor'
 import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from './middleware/page'
+
+const logger = createLogger('shared').child({ component: 'module-overrides' })
 
 /** Override for a single API route entry: replace handler/metadata, or `null` to disable. */
 export interface ApiRouteOverrideDefinition {
@@ -439,11 +460,76 @@ const encryptionMapOverrideStore: OverrideStore<ModuleEncryptionMap> = { modules
 const diOverrideStore: OverrideStore<Exclude<DiBindingOverride, null>> = { modules: {}, programmatic: {} }
 const setupOverridesByModule: Record<string, SetupOverridesShape> = {}
 
+/**
+ * Sidebar nav ordering state.
+ *
+ * Persisted on `globalThis` rather than in a module-local variable. This is the one override domain
+ * whose consumer lives in a *different package* (`@open-mercato/core`'s backend chrome reads what the
+ * app's bootstrap wrote), and standalone builds can evaluate `@open-mercato/shared` through more than
+ * one server chunk — bootstrap would store the value in one instance while the reader saw `null` from
+ * another. See `.ai/lessons.md`, "Global registries in publishable packages must use `globalThis`".
+ *
+ * Two tiers, matching every other override domain and the documented resolution order: programmatic
+ * calls win over `modules.ts` inline declarations.
+ */
+const GLOBAL_NAV_OVERRIDE_STATE_KEY = '__openMercatoNavOverrideState__'
+
+type NavOverrideState = {
+  /** From `modules.ts` inline `overrides.nav`, with the module entry that supplied it. */
+  modules: { moduleId: string; groupOrder: string[] } | null
+  /** From `applyNavGroupOrderOverrides`. Takes precedence over `modules`. */
+  programmatic: string[] | null
+}
+
+function getNavOverrideState(): NavOverrideState {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_NAV_OVERRIDE_STATE_KEY]
+  if (existing && typeof existing === 'object') {
+    const typed = existing as NavOverrideState
+    if ('modules' in typed && 'programmatic' in typed) return typed
+  }
+  const initial: NavOverrideState = { modules: null, programmatic: null }
+  ;(globalThis as Record<string, unknown>)[GLOBAL_NAV_OVERRIDE_STATE_KEY] = initial
+  return initial
+}
+
+/** Drops blank/duplicate ids and returns `null` when nothing usable remains. */
+function normalizeNavGroupOrder(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const ids = Array.from(
+    new Set(
+      value
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map((id) => id.trim()),
+    ),
+  )
+  return ids.length > 0 ? ids : null
+}
+
+/**
+ * Programmatic nav ordering, for env-driven boot decisions and tests. Takes precedence over
+ * `modules.ts` inline `overrides.nav`, consistent with the other domains' programmatic tier. Pass
+ * `null` to clear it and fall back to the inline declaration.
+ */
+export function applyNavGroupOrderOverrides(groupOrder: string[] | null): void {
+  getNavOverrideState().programmatic = groupOrder === null ? null : normalizeNavGroupOrder(groupOrder)
+}
+
+/**
+ * Nav group ids an app wants ranked ahead of the built-in order, or `null` when none is configured.
+ *
+ * Consumers MUST treat `null` as "use the shipped ordering unchanged" — this is a default, applied
+ * beneath role and user sidebar preferences.
+ */
+export function getNavGroupOrderOverride(): readonly string[] | null {
+  const state = getNavOverrideState()
+  return state.programmatic ?? state.modules?.groupOrder ?? null
+}
+
 function normalizeIdOverrideKey(key: string, label: string): string | null {
   if (typeof key !== 'string') return null
   const trimmed = key.trim()
   if (trimmed) return trimmed
-  console.warn(`[Module Overrides] Skipping malformed ${label} key "${key}" — expected a non-empty string.`)
+  logger.warn('Skipping malformed override key — expected a non-empty string', { label, key })
   return null
 }
 
@@ -514,17 +600,13 @@ function applyArrayOverrides<T>(
     const replacement = overrides[id]
     if (replacement === null) continue
     if (options.isReplacement && !options.isReplacement(replacement)) {
-      console.warn(
-        `[Module Overrides] Skipping malformed ${options.label} override for "${id}" — replacement has the wrong shape.`,
-      )
+      logger.warn('Skipping malformed override — replacement has the wrong shape', { label: options.label, id })
       result.push(item)
       continue
     }
     const replacementId = options.getId(replacement)
     if (replacementId !== id) {
-      console.warn(
-        `[Module Overrides] Skipping malformed ${options.label} override for "${id}" — replacement id must match the override key.`,
-      )
+      logger.warn('Skipping malformed override — replacement id must match the override key', { label: options.label, id })
       result.push(item)
       continue
     }
@@ -537,7 +619,7 @@ function applyArrayOverrides<T>(
 function warnStaleOverrides(label: string, overrides: Readonly<Record<string, unknown>>, consumed: ReadonlySet<string>): void {
   for (const key of Object.keys(overrides)) {
     if (!consumed.has(key)) {
-      console.warn(`[Module Overrides] ${label} override "${key}" did not match any registered entry — override skipped.`)
+      logger.warn('Override did not match any registered entry — override skipped', { label, key })
     }
   }
 }
@@ -686,9 +768,7 @@ export function applyApiRouteOverrides(overrides: ApiRouteOverridesMap): void {
   for (const [rawKey, value] of Object.entries(overrides)) {
     const key = normalizeApiRouteOverrideKey(rawKey)
     if (!key) {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.api key "${rawKey}" — expected "METHOD /api/path".`,
-      )
+      logger.warn('Skipping malformed routes.api key — expected "METHOD /api/path"', { key: rawKey })
       continue
     }
     programmaticApiRouteOverrides[key] = value
@@ -725,6 +805,9 @@ export function resetModuleContractOverridesForTests(): void {
   clearStore(encryptionMapOverrideStore)
   clearStore(diOverrideStore)
   for (const key of Object.keys(setupOverridesByModule)) delete setupOverridesByModule[key]
+  const navState = getNavOverrideState()
+  navState.modules = null
+  navState.programmatic = null
 }
 
 /**
@@ -929,9 +1012,7 @@ export function applyApiOverridesToManifests<T extends ApiRouteManifestEntry>(
         methodOverrides.set(method, value)
         remainingMethods.push(method)
       } else {
-        console.warn(
-          `[Module Overrides] Skipping malformed routes.api override for "${key}" — expected { handler, metadata? } or null.`,
-        )
+        logger.warn('Skipping malformed routes.api override — expected { handler, metadata? } or null', { key })
         remainingMethods.push(method)
       }
     }
@@ -971,15 +1052,21 @@ export function applyApiOverridesToManifests<T extends ApiRouteManifestEntry>(
 
   for (const key of overrideKeys) {
     if (!consumedKeys.has(key)) {
-      console.warn(
-        `[Module Overrides] routes.api override "${key}" did not match any registered API route — override skipped.`,
-      )
+      logger.warn('routes.api override did not match any registered API route — override skipped', { key })
     }
   }
 
   return result
 }
 
+/**
+ * A manifest entry holds *resolved* metadata (`order`, `title`, `group`), while an override
+ * declares *authored* metadata, which may use the `page*` aliases (`pageOrder`, `pageTitle`).
+ * Spreading the raw override alone left those aliases on keys nothing reads, so an override
+ * could retitle a page through `pageTitleKey` yet never reposition it through `pageOrder`
+ * (#4845). The raw metadata is still spread first so unrecognized keys keep reaching the
+ * entry, then the resolved-and-declared subset lands on top.
+ */
 export function applyPageOverridesToManifests<T extends BackendRouteManifestEntry | FrontendRouteManifestEntry>(
   routes: readonly T[],
   overrides: Readonly<PageRouteOverridesMap>,
@@ -990,9 +1077,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
   for (const [rawKey, value] of Object.entries(overrides)) {
     const key = normalizePageRouteOverrideKey(rawKey)
     if (!key) {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.pages key "${rawKey}" — expected "/backend/path" or "/frontend/path".`,
-      )
+      logger.warn('Skipping malformed routes.pages key — expected "/backend/path" or "/frontend/path"', { key: rawKey })
       continue
     }
     normalizedOverrides[key] = value
@@ -1015,9 +1100,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
     const override = normalizedOverrides[key]
     if (override === null) continue
     if (!override || typeof override !== 'object') {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.pages override for "${key}" — expected { load?, Component?, metadata? } or null.`,
-      )
+      logger.warn('Skipping malformed routes.pages override — expected { load?, Component?, metadata? } or null', { key })
       result.push(entry)
       continue
     }
@@ -1025,9 +1108,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
     const hasLoad = typeof override.load === 'function'
     const hasComponent = typeof override.Component === 'function'
     if (!hasLoad && !hasComponent && override.metadata === undefined) {
-      console.warn(
-        `[Module Overrides] Skipping malformed routes.pages override for "${key}" — expected a loader, component, metadata, or null.`,
-      )
+      logger.warn('Skipping malformed routes.pages override — expected a loader, component, metadata, or null', { key })
       result.push(entry)
       continue
     }
@@ -1041,7 +1122,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
         ? async () => override.Component!
         : entry.load
 
-    result.push({ ...entry, ...metadata, load })
+    result.push({ ...entry, ...metadata, ...resolveDeclaredPageRouteMetadata(metadata), load })
   }
 
   warnStaleOverrides('routes.pages', Object.fromEntries(
@@ -1182,13 +1263,13 @@ export function applyComponentOverridesToEntries(
     const value = overrides[key]
     if (value === null) continue
     if (!isComponentOverrideValue(value)) {
-      console.warn(`[Module Overrides] Skipping malformed widgets.components override for "${key}" — expected ComponentOverride, ComponentOverride[], or null.`)
+      logger.warn('Skipping malformed widgets.components override — expected ComponentOverride, ComponentOverride[], or null', { key })
       continue
     }
     const values = Array.isArray(value) ? value : [value]
     for (const override of values) {
       if (override.target.componentId !== key) {
-        console.warn(`[Module Overrides] Skipping malformed widgets.components override for "${key}" — target.componentId must match the override key.`)
+        logger.warn('Skipping malformed widgets.components override — target.componentId must match the override key', { key })
         continue
       }
       additions.push(override)
@@ -1415,9 +1496,7 @@ function routesOverridesApplier(
       for (const [rawKey, value] of Object.entries(api)) {
         const key = normalizeApiRouteOverrideKey(rawKey)
         if (!key) {
-          console.warn(
-            `[Module Overrides] Skipping malformed routes.api key "${rawKey}" — expected "METHOD /api/path".`,
-          )
+          logger.warn('Skipping malformed routes.api key — expected "METHOD /api/path"', { key: rawKey })
           continue
         }
         modulesConfigApiRouteOverrides[key] = value as ApiRouteOverride
@@ -1516,7 +1595,24 @@ function encryptionOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<E
   }
 }
 
+function navOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<NavOverridesShape>>): void {
+  const state = getNavOverrideState()
+  for (const entry of entries) {
+    const groupOrder = normalizeNavGroupOrder(entry.overrides?.groupOrder)
+    if (!groupOrder) continue
+    if (state.modules && state.modules.moduleId !== entry.moduleId) {
+      logger.warn('nav.groupOrder declared by more than one module — the later one wins', {
+        previousModuleId: state.modules.moduleId,
+        moduleId: entry.moduleId,
+        hint: 'Sidebar group ordering is a single app-wide decision; declare it on one module entry.',
+      })
+    }
+    state.modules = { moduleId: entry.moduleId, groupOrder }
+  }
+}
+
 function registerBuiltInModuleOverrideAppliers(): void {
+  registerModuleOverrideApplier<NavOverridesShape>('nav', navOverridesApplier)
   registerModuleOverrideApplier<RoutesOverridesShape>('routes', routesOverridesApplier)
   registerModuleOverrideApplier<EventsOverridesShape>('events', eventsOverridesApplier)
   registerModuleOverrideApplier<WorkerOverridesMap>('workers', workersOverridesApplier)

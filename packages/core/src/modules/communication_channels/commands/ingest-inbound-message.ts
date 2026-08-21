@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { emitCommunicationChannelsEvent } from '../events'
 import { resolveContact } from '../lib/contact-resolver'
 import type { ChannelAdapterRegistry } from '../lib/registry'
@@ -19,6 +20,9 @@ import {
 import { normalizedInboundMessageSchema } from '../data/validators'
 import { resolveCommunicationChannelsSystemUserId } from '../lib/system-user'
 import { isUniqueViolation } from '../lib/pg-errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'ingest-inbound-message' })
 
 const ingestInputSchema = z.object({
   channelId: z.string().uuid(),
@@ -152,10 +156,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       } catch (dedupErr) {
         // Sent-folder dedup is best-effort — a failure here must not abort
         // ingest (better a possible duplicate than a lost inbound message).
-        console.warn(
-          '[communication_channels:ingest-inbound] sent-folder dedup query failed, continuing:',
-          dedupErr instanceof Error ? dedupErr.message : dedupErr,
-        )
+        logger.warn('sent-folder dedup query failed, continuing', { err: dedupErr })
       }
     }
 
@@ -285,10 +286,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     } catch (matcherErr) {
       // Matcher failure must not block ingest — fall back to the existing
       // conversation-based thread mapping so the message still lands.
-      console.warn(
-        '[communication_channels:ingest-inbound] thread matcher failed, falling back to conversation mapping:',
-        matcherErr instanceof Error ? matcherErr.message : matcherErr,
-      )
+      logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
     }
 
     // (4) Contact resolution (best-effort, advisory).
@@ -316,10 +314,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // Best-effort: contact resolution is advisory and must not abort ingest.
       // Log like the sibling dedup/matcher catches so a misbehaving resolver is
       // visible in operator logs instead of failing silently.
-      console.warn(
-        '[communication_channels:ingest-inbound] contact resolution failed, continuing without a CRM match:',
-        contactErr instanceof Error ? contactErr.message : contactErr,
-      )
+      logger.warn('contact resolution failed, continuing without a CRM match', { err: contactErr })
       contactHint = null
     }
     const matchedPersonId = contactHint?.matchedPersonId ?? null
@@ -342,10 +337,41 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     //     ExternalMessage.rawPayload if needed for forensic / forward use.
     //   - Some legitimate messages have no subject (notifications, bounce
     //     digests). Substitute a placeholder instead of failing ingest.
+    //   - HTML bodies land in the platform body as plain text rather than being
+    //     merely relabelled as `text`: `MarkdownContent` renders a `text` body
+    //     verbatim, so unconverted markup shows up as literal doctype, <style>
+    //     blocks and tags in the inbox preview and the detail body. The source
+    //     markup is untouched in `channelPayload.html`, which `data/enrichers.ts`
+    //     sanitizes into `_channelPayload.sanitizedHtml` for the channel-payload
+    //     renderer widget mounted at `detail:messages:message:body:after`.
+    //   - The plain-text alternative wins over conversion when the sender's
+    //     client supplied one (`multipart/alternative`), because that part is
+    //     what a human actually wrote; `html-to-text` output — inlined link
+    //     URLs, flattened tables, synthesized list markers — is the fallback for
+    //     HTML-only senders. `lib/email-mime.ts` preferred `bodyHtml` when
+    //     picking `body`, but preserved the text part at `channelPayload.text`.
     const MAX_COMPOSE_BODY = 50_000
+    // Bound the synchronous parse: inbound mail is untrusted and the 5MB body
+    // ceiling from `lib/email-capabilities.ts` would otherwise block the ingest
+    // worker on a single oversized document. This cap counts markup bytes while
+    // MAX_COMPOSE_BODY counts text characters, so it can bite first — an
+    // ordinary marketing template or a long quoted thread is easily over 512KB
+    // of markup and still well under 50k characters of text. It therefore
+    // carries the same truncation marker, rather than ending mid-sentence with
+    // nothing to tell the reader the rest exists.
+    const MAX_HTML_PARSE_INPUT = 512 * 1024
     const TRUNCATE_MARKER =
       '\n\n[…message truncated by Open Mercato — full body preserved in ExternalMessage.rawPayload]'
-    const rawBody = m.body ?? ''
+    const sourceBody = m.body ?? ''
+    const plainAlternative =
+      typeof m.channelPayload?.text === 'string' ? m.channelPayload.text.trim() : ''
+    const convertHtmlBody = () => {
+      const converted = htmlToPlainText(sourceBody.slice(0, MAX_HTML_PARSE_INPUT))
+      return sourceBody.length > MAX_HTML_PARSE_INPUT ? converted + TRUNCATE_MARKER : converted
+    }
+    const rawBody = m.bodyFormat === 'html'
+      ? (plainAlternative || convertHtmlBody())
+      : sourceBody
     const truncatedBody =
       rawBody.length > MAX_COMPOSE_BODY
         ? rawBody.slice(0, MAX_COMPOSE_BODY - TRUNCATE_MARKER.length) + TRUNCATE_MARKER

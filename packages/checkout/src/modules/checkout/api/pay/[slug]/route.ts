@@ -2,12 +2,10 @@ import { NextResponse } from 'next/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { CheckoutLink } from '../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../lib/constants'
 import { resolveCheckoutPublicCustomFields } from '../../../lib/customFields'
-import { checkoutPublicViewRateLimitConfig } from '../../../lib/rateLimiter'
+import { checkoutPublicViewRateLimitConfig, enforceCheckoutRateLimit } from '../../../lib/rateLimiter'
 import { handleCheckoutRouteError, readCheckoutAccessCookie, requirePreviewContext } from '../../helpers'
 import {
   isCheckoutLinkPublic,
@@ -30,14 +28,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const container = await createRequestContainer()
     if (previewRequested) await requirePreviewContext(req)
     if (!previewRequested) {
-      try {
-        const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
-        const ip = getClientIp(req, 1) ?? 'unknown'
-        const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutPublicViewRateLimitConfig, `checkout-public-view:${ip}`, 'Too many checkout page requests. Please try again later.')
-        if (rateLimitResponse) return rateLimitResponse
-      } catch {
-        // Rate limiting is fail-open
-      }
+      // Fail-open: this endpoint is read-only.
+      const rateLimitResponse = await enforceCheckoutRateLimit({
+        req,
+        container,
+        config: checkoutPublicViewRateLimitConfig,
+        namespace: 'checkout-public-view',
+        errorMessage: 'Too many checkout page requests. Please try again later.',
+        posture: 'fail-open',
+      })
+      if (rateLimitResponse) return rateLimitResponse
     }
     const em = container.resolve('em')
     const link = await findOneWithDecryption(em, CheckoutLink, {

@@ -1,7 +1,8 @@
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import type { Message, MessageAction, MessageActionData, MessageObject } from '../data/entities'
-import { getMessageObjectType } from './message-objects-registry'
-import { getMessageType } from './message-types-registry'
+import { getAllMessageObjectTypes, getMessageObjectType } from './message-objects-registry'
+import { getAllMessageTypes, getMessageType } from './message-types-registry'
 
 type MessageActionSource = 'message' | 'type_default' | 'object'
 
@@ -203,11 +204,15 @@ function buildTemplateContext(
   }
 }
 
-function resolveTemplateString(template: string, context: Record<string, unknown>): string {
+function resolveTemplateString(
+  template: string,
+  context: Record<string, unknown>,
+  encodeValue: (value: string) => string = (value) => value,
+): string {
   return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (fullMatch, key: string) => {
     const value = context[key]
     if (value == null) return fullMatch
-    return String(value)
+    return encodeValue(String(value))
   })
 }
 
@@ -218,7 +223,36 @@ export function resolveActionHref(
 ): string | null {
   if (!action.href) return null
   const context = buildTemplateContext(message, resolutionContext, action.objectRef)
-  return resolveTemplateString(action.href, context)
+  const resolved = resolveTemplateString(action.href, context, encodeURIComponent)
+  return sanitizeRichTextHref(resolved)
+}
+
+function collectCommandId(target: Set<string>, commandId: unknown): void {
+  if (typeof commandId !== 'string') return
+  const trimmed = commandId.trim()
+  if (trimmed.length > 0) target.add(trimmed)
+}
+
+export function getMessageSafeCommandIds(): Set<string> {
+  const safeCommandIds = new Set<string>()
+  for (const messageType of getAllMessageTypes()) {
+    for (const action of messageType.defaultActions ?? []) {
+      collectCommandId(safeCommandIds, action.commandId)
+    }
+  }
+  for (const objectType of getAllMessageObjectTypes()) {
+    for (const action of objectType.actions ?? []) {
+      collectCommandId(safeCommandIds, action.commandId)
+    }
+  }
+  return safeCommandIds
+}
+
+export function isMessageSafeCommandId(commandId: unknown): boolean {
+  if (typeof commandId !== 'string') return false
+  const trimmed = commandId.trim()
+  if (trimmed.length === 0) return false
+  return getMessageSafeCommandIds().has(trimmed)
 }
 
 export function resolveActionCommandInput(

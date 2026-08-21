@@ -17,6 +17,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
   useParams: () => ({ id: 'cur-1' }),
+  usePathname: () => '/backend/currencies/cur-1',
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({

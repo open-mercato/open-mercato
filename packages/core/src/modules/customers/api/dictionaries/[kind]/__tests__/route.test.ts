@@ -4,12 +4,15 @@ const organizationId = '22222222-2222-4222-8222-222222222222'
 const em = {
   find: jest.fn(),
   findOne: jest.fn(),
+  create: jest.fn(),
+  persist: jest.fn(),
+  flush: jest.fn(),
 }
 
 jest.mock('../../context', () => ({
   mapDictionaryKind: jest.fn((kind?: string) => ({
     kind,
-    mappedKind: kind === 'statuses' ? 'status' : kind,
+    mappedKind: kind === 'statuses' ? 'status' : kind === 'pipeline-stages' ? 'pipeline_stage' : kind,
   })),
   resolveDictionaryRouteContext: jest.fn(async () => ({
     translate: (_key: string, fallback?: string) => fallback ?? 'error',
@@ -33,6 +36,7 @@ jest.mock('../../../../commands/settings', () => ({
 
 import { GET } from '../route'
 import { resolveDictionaryRouteContext } from '../../context'
+import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../../lib/dictionaries'
 
 describe('customer dictionary route', () => {
   beforeEach(() => {
@@ -126,5 +130,57 @@ describe('customer dictionary route', () => {
       expect.any(Request),
       expect.objectContaining({ selectedId: organizationId }),
     )
+  })
+
+  it('returns a stable error code when organization context is unavailable', async () => {
+    jest.mocked(resolveDictionaryRouteContext).mockResolvedValueOnce({
+      translate: (_key: string, fallback?: string) => fallback ?? 'error',
+      em,
+      organizationId: null,
+      tenantId,
+      readableOrganizationIds: [],
+      cache: undefined,
+    } as never)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses'),
+      { params: { kind: 'statuses' } },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Organization context is required',
+      code: CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+    })
+  })
+
+  it('does not seed/persist pipeline_stage entries for stages lacking one (read-only GET, #2735)', async () => {
+    const stage = {
+      id: '33333333-3333-4333-8333-333333333333',
+      label: 'Legacy Stage Without Entry',
+      organizationId,
+      tenantId,
+    }
+    // First find loads dictionary entries (none); second loads pipeline stages.
+    em.find.mockResolvedValueOnce([]).mockResolvedValueOnce([stage])
+    em.findOne.mockResolvedValue(null)
+    em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({
+      id: 'seeded-entry',
+      normalizedValue: String((payload as { value?: string }).value ?? '').trim().toLowerCase(),
+      ...payload,
+    }))
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/pipeline-stages'),
+      { params: { kind: 'pipeline-stages' } },
+    )
+
+    expect(response.status).toBe(200)
+
+    // A GET must not have write side effects — a pipeline stage missing its
+    // dictionary entry must NOT be auto-seeded inside the read handler (#2735).
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })

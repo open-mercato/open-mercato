@@ -14,7 +14,7 @@ import {
  * TC-LOCK-OSS-006: deterministic two-session concurrent-edit conflict on
  * `catalog.product`.
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md +
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md +
  *       .ai/specs/2026-05-28-optimistic-locking-coverage-completion.md
  *
  * Pattern (see ../../sales/__integration__/__concurrent_edit_pattern.md):

@@ -6,9 +6,13 @@ import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/enti
 import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dashboardsTag,
@@ -18,6 +22,7 @@ import {
 } from '../openapi'
 
 const DEFAULT_SIZE = 'md'
+const RESOURCE_KIND = 'dashboards.layout'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dashboards.view'] },
@@ -83,7 +88,10 @@ export async function GET(req: Request) {
     organizationId: auth.orgId ?? null,
   }
 
-  const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+  const effectiveFeatures = await rbac.getEffectiveFeatures(scope.userId, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
   const widgets = await loadAllWidgets()
   const allowedIds = await resolveAllowedWidgetIds(
     em,
@@ -91,12 +99,20 @@ export async function GET(req: Request) {
       userId: scope.userId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      features: acl.features ?? [],
-      isSuperAdmin: !!acl.isSuperAdmin,
+      features: effectiveFeatures,
+      isSuperAdmin: false,
     },
     widgets,
   )
   const allowedWidgets = widgets.filter((w) => allowedIds.includes(w.metadata.id))
+
+  // An empty widget registry means the module registry has not been populated yet
+  // (a boot race), not that this app has no widgets. Every write below is derived
+  // from it, so a read request must persist nothing until it recovers — otherwise a
+  // restart-recoverable glitch is written into saved layouts for good (#5041).
+  // Note this keys off the registry, not off `allowedIds`: a user whose allowlist is
+  // legitimately empty on a healthy registry is still pruned and seeded as before.
+  const hasRegisteredWidgets = widgets.length > 0
 
   let layout = await loadScopeLayout(em, scope)
   let items = layout ? normalizeLayoutItems(layout.layoutJson) : []
@@ -112,15 +128,17 @@ export async function GET(req: Request) {
       size: widget.metadata.defaultSize ?? DEFAULT_SIZE,
       settings: widget.metadata.defaultSettings ?? undefined,
     }))
-    layout = em.create(DashboardLayout, {
-      userId: scope.userId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      layoutJson: items,
-    })
-    em.persist(layout)
-    hasChanged = true
-  } else {
+    if (hasRegisteredWidgets) {
+      layout = em.create(DashboardLayout, {
+        userId: scope.userId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        layoutJson: items,
+      })
+      em.persist(layout)
+      hasChanged = true
+    }
+  } else if (hasRegisteredWidgets) {
     const existingLayout = layout
     const filtered = items.filter((item) => allowedIds.includes(item.widgetId))
     if (filtered.length !== items.length) {
@@ -142,7 +160,9 @@ export async function GET(req: Request) {
     await em.flush()
   }
 
-  const canConfigure = acl.isSuperAdmin || hasFeature(acl.features, 'dashboards.configure')
+  const canConfigure = authorizeFeatures(['dashboards.configure'], {
+    grantedFeatures: effectiveFeatures,
+  })
 
   let userEmail: string | null = null
   let userName: string | null = null
@@ -206,7 +226,8 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Invalid layout payload', issues: parsed.error.issues }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = (resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
   const rbac = resolve('rbacService') as any
 
@@ -216,20 +237,52 @@ export async function PUT(req: Request) {
     organizationId: auth.orgId ?? null,
   }
 
-  const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
-  if (!acl.isSuperAdmin && !hasFeature(acl.features, 'dashboards.configure')) {
+  const canConfigure = await rbac.userHasAllFeatures(
+    scope.userId,
+    ['dashboards.configure'],
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  if (!canConfigure) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: scope.tenantId ?? '',
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: RESOURCE_KIND,
+    resourceId: scope.userId,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { items: parsed.data.items },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   const widgets = await loadAllWidgets()
+  // The allowlist below is derived from the registry, and this handler persists the
+  // filtered result unconditionally. An empty registry — the boot race behind #5041 —
+  // would drop every submitted item and save `[]` while answering `{ ok: true }`, so a
+  // stale tab reordering a widget could erase the layout it just rendered. Fail the
+  // write instead: the save is explicit, so the client must learn it did not happen
+  // and retry, rather than be told a wipe succeeded.
+  if (widgets.length === 0) {
+    return NextResponse.json({ error: 'Widget registry unavailable' }, { status: 503 })
+  }
+  const effectiveFeatures = await rbac.getEffectiveFeatures(scope.userId, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
   const allowedIds = await resolveAllowedWidgetIds(
     em,
     {
       userId: scope.userId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      features: acl.features ?? [],
-      isSuperAdmin: !!acl.isSuperAdmin,
+      features: effectiveFeatures,
+      isSuperAdmin: false,
     },
     widgets,
   )
@@ -266,6 +319,20 @@ export async function PUT(req: Request) {
   }
   await em.flush()
 
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: scope.tenantId ?? '',
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: RESOURCE_KIND,
+      resourceId: scope.userId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
+
   return NextResponse.json({ ok: true })
 }
 
@@ -301,6 +368,7 @@ const layoutPutDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Invalid layout payload', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
     { status: 403, description: 'Missing dashboards.configure feature', schema: dashboardsErrorSchema },
+    { status: 503, description: 'Widget registry unavailable — the layout was not saved', schema: dashboardsErrorSchema },
   ],
 }
 

@@ -182,6 +182,34 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
       logEntry: normalizeUndoCreateLogEntry(logEntry, payload),
     })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string; entityId: string }
+    >('customers.interactions.create')
+    if (!canonicalCreate.redo) {
+      throw new Error('[internal] Missing redo handler: customers.interactions.create')
+    }
+    const result = await canonicalCreate.redo({
+      input: {
+        tenantId:
+          payload?.after?.interaction.tenantId ??
+          (typeof logEntry.tenantId === 'string' ? logEntry.tenantId : '00000000-0000-0000-0000-000000000000'),
+        organizationId:
+          payload?.after?.interaction.organizationId ??
+          (typeof logEntry.organizationId === 'string'
+            ? logEntry.organizationId
+            : '00000000-0000-0000-0000-000000000000'),
+        entityId: payload?.after?.interaction.entityId ?? '00000000-0000-0000-0000-000000000000',
+        interactionType: payload?.after?.interaction.interactionType ?? 'compatibility',
+        status: 'planned',
+      },
+      ctx,
+      logEntry: normalizeUndoCreateLogEntry(logEntry, payload),
+    })
+    return { activityId: result.interactionId }
+  },
 }
 
 /** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */

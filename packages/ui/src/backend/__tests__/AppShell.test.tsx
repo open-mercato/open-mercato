@@ -19,7 +19,13 @@ jest.mock('next/link', () => {
   ))
 })
 
-jest.mock('next/image', () => (props: any) => <img alt={props.alt} {...props} />)
+jest.mock('next/image', () => {
+  const React = require('react')
+  return (props: any) => {
+    const { unoptimized, ...rest } = props
+    return <img alt={rest.alt} data-unoptimized={unoptimized ? 'true' : 'false'} {...rest} />
+  }
+})
 
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
@@ -201,6 +207,158 @@ describe('AppShell', () => {
     )
   })
 
+  it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {
+    const { rerender } = renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Users List' }]} />
+      </AppShell>,
+      { dict },
+    )
+
+    mockPathname = '/backend/roles'
+    rerender(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Roles' }]} />
+      </AppShell>,
+    )
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
+    expect(activePage).toHaveTextContent('Roles')
+    expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
+  })
+
+  it('hides the backend footer status bar when requested', () => {
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        version="1.2.3"
+        hideFooter
+      >
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    expect(screen.getByText('Child content')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Terms' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Privacy' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:layout:footer')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['internal-file', '/api/attachments/file/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    ['internal-image-query', '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.svg?width=320&height=320'],
+    ['external-webp', 'https://example.com/acme-wide-logo.webp'],
+  ])('uses an aspect-ratio-preserving backend chrome brand logo when enabled for %s', async (variant, logoSrc) => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        brand: {
+          name: 'Acme',
+          logo: {
+            src: logoSrc,
+            alt: 'Acme logo',
+            preserveAspectRatio: true,
+          },
+        },
+        groups,
+        settingsSections: [],
+        settingsPathPrefixes: [],
+        profileSections: [],
+        profilePathPrefixes: [],
+        grantedFeatures: [],
+        roles: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    ) as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={[]}
+          adminNavApi={`/api/auth/admin/nav-brand-logo-${variant}`}
+        >
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        const logo = screen.getByAltText('Acme logo')
+        expect(logo).toHaveAttribute('src', logoSrc)
+        expect(logo).toHaveAttribute('data-unoptimized', 'true')
+        expect(logo).toHaveClass('object-contain')
+        expect(logo).not.toHaveClass('rounded-full')
+      })
+      expect(screen.getByText('Acme')).toBeInTheDocument()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
+  it('uses the cropped icon treatment for backend chrome brand logos by default', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const logoSrc = 'https://example.com/acme-wide-logo.webp'
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        brand: {
+          name: 'Acme',
+          logo: {
+            src: logoSrc,
+            alt: 'Acme logo',
+          },
+        },
+        groups,
+        settingsSections: [],
+        settingsPathPrefixes: [],
+        profileSections: [],
+        profilePathPrefixes: [],
+        grantedFeatures: [],
+        roles: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    ) as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={[]}
+          adminNavApi="/api/auth/admin/nav-brand-logo-cropped"
+        >
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        const logo = screen.getByAltText('Acme logo')
+        expect(logo).toHaveAttribute('src', logoSrc)
+        expect(logo).toHaveAttribute('data-unoptimized', 'true')
+        expect(logo).toHaveClass('object-cover')
+        expect(logo).toHaveClass('rounded-full')
+        expect(logo).not.toHaveClass('object-contain')
+      })
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
   it('renders nested settings links when settings parent route is active', async () => {
     mockPathname = '/backend/entities/user'
 
@@ -310,6 +468,52 @@ describe('AppShell', () => {
     await waitFor(() => {
       expect(screen.getByText('Dashboard content')).toBeInTheDocument()
       expect(getBreadcrumbText()).not.toContain('Users List')
+    })
+  })
+
+  it('keeps the new page breadcrumb after client-side navigation', async () => {
+    mockPathname = '/backend/documents'
+
+    const { rerender } = renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb title="Documents" breadcrumb={[{ label: 'Documents' }]} />
+        <div>Documents list</div>
+      </AppShell>,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Documents')).toBeInTheDocument()
+    })
+
+    mockPathname = '/backend/documents/document-id'
+    rerender(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb
+          title="Document"
+          breadcrumb={[
+            { label: 'Documents', href: '/backend/documents' },
+            { label: 'Document' },
+          ]}
+        />
+        <div>Document detail</div>
+      </AppShell>,
+    )
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' })
+      expect(within(breadcrumb).getByRole('link', { name: 'Documents' })).toHaveAttribute('href', '/backend/documents')
+      expect(within(breadcrumb).getByText('Document')).toHaveAttribute('aria-current', 'page')
     })
   })
 

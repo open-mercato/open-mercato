@@ -36,10 +36,62 @@ export function forbidden(message = 'Forbidden'): CrudHttpError {
   return new CrudHttpError(403, { error: message })
 }
 
+/**
+ * Builds the standardized 404 (`{ error: message }`) — use it instead of hand-rolling
+ * `new CrudHttpError(404, { error: message })`. Reach for this in guard statements, where
+ * the lookup spans several lines or the condition is compound
+ * (`if (!entity || entity.tenantId !== auth.tenantId) throw notFound(msg)`); TypeScript
+ * still narrows the value after the throw. For a plain inline lookup, `assertFound` is terser.
+ *
+ * Pass an already-translated message; this helper never derives one, so 404 copy
+ * stays routed through i18n.
+ */
 export function notFound(message = 'Not found'): CrudHttpError {
   return new CrudHttpError(404, { error: message })
 }
 
+export function conflict(message: string): CrudHttpError {
+  return new CrudHttpError(409, { error: message })
+}
+
+const POSTGRES_UNIQUE_VIOLATION = '23505'
+
+/**
+ * Detects a Postgres unique-constraint violation (SQLSTATE 23505) on a thrown
+ * error, looking through MikroORM's driver-error wrapping. Use this to map a DB
+ * uniqueness race (e.g. a soft-deleted row the in-app check missed, or a
+ * timestamp-precision mismatch) onto a clean 409 instead of a generic 500.
+ */
+export function isUniqueViolation(err: unknown, constraintName?: string): boolean {
+  if (!err || typeof err !== 'object') return false
+  const candidates: unknown[] = [err, (err as { cause?: unknown }).cause, (err as { previous?: unknown }).previous]
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const record = candidate as Record<string, unknown>
+    if (record.code === POSTGRES_UNIQUE_VIOLATION) {
+      if (!constraintName) return true
+      const constraint = typeof record.constraint === 'string' ? record.constraint : ''
+      const detail = typeof record.detail === 'string' ? record.detail : ''
+      const message = typeof record.message === 'string' ? record.message : ''
+      return constraint === constraintName || detail.includes(constraintName) || message.includes(constraintName)
+    }
+  }
+  return false
+}
+
+/**
+ * The canonical "entity must exist" guard for API routes and commands: throws the
+ * standardized 404 when the lookup came back empty, and returns the value narrowed
+ * to `T` so callers drop the `| null` without a cast.
+ *
+ *   const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))
+ *
+ * Use this instead of hand-rolling `if (!entity) throw new CrudHttpError(404, ...)`.
+ * `message` is required and passed through verbatim, so it must already be translated.
+ *
+ * Treats every falsy value as missing, so it suits entity/object lookups — do not use
+ * it to guard numbers or strings, where `0` and `''` are legitimate results.
+ */
 export function assertFound<T>(value: T | null | undefined, message: string): T {
   if (!value) throw notFound(message)
   return value

@@ -1,3 +1,4 @@
+import { FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { decodeBase64Url, encodeBase64Url, getGmailApiClient, GmailApiError, setGmailApiClient } from '../gmail-client'
 
 describe('base64url encoding helpers', () => {
@@ -53,6 +54,10 @@ function fakeResponse(init: FakeResponseInit): Response {
 }
 
 describe('FetchGmailApiClient.requestJson retry/backoff', () => {
+  // Mirrors GMAIL_DEFAULT_REQUEST_TIMEOUT_MS in gmail-client.ts: the per-request
+  // timeout `fetchWithTimeout` schedules when no OM_CHANNEL_GMAIL_REQUEST_TIMEOUT_MS
+  // override is set (none of these tests set it).
+  const GMAIL_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
   const originalFetch = globalThis.fetch
   const originalSetTimeout = globalThis.setTimeout
   const originalRandom = Math.random
@@ -65,8 +70,15 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     capturedDelays = []
     // Replace the backoff sleep with a synchronous no-wait shim that records the
     // requested delay and fires the callback immediately, so the retry loop runs
-    // without real timers while we assert the computed wait durations.
+    // without real timers while we assert the computed wait durations. The
+    // shared `fetchWithTimeout` helper also schedules a per-request timeout timer
+    // (`GMAIL_DEFAULT_REQUEST_TIMEOUT_MS`); delegate that one to the real timer —
+    // the helper clears it in its `finally` before the mocked fetch resolves, so
+    // it never fires and never pollutes the recorded backoff delays.
     globalThis.setTimeout = ((callback: () => void, ms?: number) => {
+      if (ms === GMAIL_DEFAULT_REQUEST_TIMEOUT_MS) {
+        return originalSetTimeout(callback, ms)
+      }
       capturedDelays.push(typeof ms === 'number' ? ms : 0)
       callback()
       return 0 as unknown as ReturnType<typeof setTimeout>
@@ -205,5 +217,102 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     expect((thrown as GmailApiError).status).toBe(401)
     expect(calls).toBe(1)
     expect(capturedDelays).toEqual([])
+  })
+
+  it('attaches an AbortSignal to each request so a stalled connection cannot hang the worker (issue #2976)', async () => {
+    let capturedSignal: unknown
+    globalThis.fetch = ((_url: string, init?: RequestInit) => {
+      capturedSignal = init?.signal
+      return Promise.resolve(
+        fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '1' }) }),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('treats a timed-out (TimeoutError) fetch as transient and retries it (issue #2976)', async () => {
+    Math.random = () => 0
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls += 1
+      if (calls === 1) {
+        // `AbortSignal.timeout()` rejects fetch with a `TimeoutError` DOMException,
+        // not an `AbortError` — exercise the real production failure shape.
+        return Promise.reject(new DOMException('The operation timed out', 'TimeoutError'))
+      }
+      return Promise.resolve(
+        fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '5' }) }),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    const profile = await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+    expect(calls).toBe(2)
+    expect(profile.historyId).toBe('5')
+    // computeBackoff(0) = 500ms (jitter stripped) — the timeout took the retry path.
+    expect(capturedDelays).toEqual([500])
+  })
+
+  it('treats a shared-helper FetchTimeoutError as transient and retries it (issue #3068)', async () => {
+    Math.random = () => 0
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls += 1
+      if (calls === 1) {
+        // After consolidating onto `fetchWithTimeout`, an elapsed per-request
+        // timeout surfaces as `FetchTimeoutError` (a real Error subclass), not a
+        // `TimeoutError` DOMException — exercise that production failure shape.
+        return Promise.reject(new FetchTimeoutError('https://gmail.googleapis.com/gmail/v1/users/me/profile', 30_000))
+      }
+      return Promise.resolve(
+        fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '11' }) }),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    const profile = await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+    expect(calls).toBe(2)
+    expect(profile.historyId).toBe('11')
+    expect(capturedDelays).toEqual([500])
+  })
+
+  it('also retries an externally-aborted (AbortError) fetch (issue #2976)', async () => {
+    Math.random = () => 0
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls += 1
+      if (calls === 1) return Promise.reject(new DOMException('The operation was aborted', 'AbortError'))
+      return Promise.resolve(
+        fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '7' }) }),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    const profile = await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+    expect(calls).toBe(2)
+    expect(profile.historyId).toBe('7')
+    expect(capturedDelays).toEqual([500])
+  })
+
+  it('throws a GmailApiError after timeouts exhaust the retry budget (issue #2976)', async () => {
+    Math.random = () => 0
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls += 1
+      return Promise.reject(new DOMException('The operation timed out', 'TimeoutError'))
+    }) as unknown as typeof globalThis.fetch
+
+    const thrown = await getGmailApiClient()
+      .getProfile({ accessToken: 'token' })
+      .catch((error: unknown) => error)
+
+    expect(thrown).toBeInstanceOf(GmailApiError)
+    expect((thrown as GmailApiError).status).toBe(599)
+    // 1 initial + 3 retries = 4 attempts; backoff fired on the first 3.
+    expect(calls).toBe(4)
+    expect(capturedDelays).toEqual([500, 1000, 2000])
   })
 })

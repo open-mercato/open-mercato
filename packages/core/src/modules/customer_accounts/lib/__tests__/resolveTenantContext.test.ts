@@ -6,13 +6,25 @@ const PLATFORM_TENANT = '11111111-1111-1111-1111-111111111111'
 const HOST_TENANT = '22222222-2222-2222-2222-222222222222'
 const HOST_ORG = '33333333-3333-3333-3333-333333333333'
 
-function makeContainer(resolveFn: ((hostname: string) => Promise<unknown>) | null) {
+const PLATFORM_ORG = '44444444-4444-4444-4444-444444444444'
+
+type OrgRow = { id: string; tenant: { id: string } | string | null } | null
+
+function makeContainer(
+  resolveFn: ((hostname: string) => Promise<unknown>) | null,
+  orgRow?: OrgRow,
+) {
   return {
     resolve(name: string) {
       if (name === 'domainMappingService') {
         if (!resolveFn) throw new Error('not registered')
         return {
           resolveByHostname: resolveFn,
+        }
+      }
+      if (name === 'em') {
+        return {
+          findOne: async () => (orgRow === undefined ? null : orgRow),
         }
       }
       throw new Error(`unexpected resolve(${name})`)
@@ -56,10 +68,50 @@ describe('resolveTenantContext', () => {
     })
   })
 
-  it('throws 400 when platform host has no body tenantId', async () => {
+  it('throws 400 when platform host has neither organizationId nor tenantId', async () => {
     await expect(
       resolveTenantContext(makeReq('localhost'), null, { container: makeContainer(null) }),
     ).rejects.toBeInstanceOf(TenantResolutionError)
+  })
+
+  it('resolves the tenant server-side from organizationId on a platform host', async () => {
+    const ctx = await resolveTenantContext(makeReq('openmercato.com'), null, {
+      container: makeContainer(null, { id: PLATFORM_ORG, tenant: { id: PLATFORM_TENANT } }),
+      organizationId: PLATFORM_ORG,
+    })
+    expect(ctx).toEqual({
+      source: 'body',
+      tenantId: PLATFORM_TENANT,
+      organizationId: PLATFORM_ORG,
+      hostname: 'openmercato.com',
+    })
+  })
+
+  it('throws 400 when the platform-host organizationId does not resolve', async () => {
+    await expect(
+      resolveTenantContext(makeReq('openmercato.com'), null, {
+        container: makeContainer(null, null),
+        organizationId: PLATFORM_ORG,
+      }),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('fails closed when a legacy tenantId mismatches the resolved organization tenant', async () => {
+    await expect(
+      resolveTenantContext(makeReq('openmercato.com'), HOST_TENANT, {
+        container: makeContainer(null, { id: PLATFORM_ORG, tenant: { id: PLATFORM_TENANT } }),
+        organizationId: PLATFORM_ORG,
+      }),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('accepts a matching legacy tenantId alongside organizationId on a platform host', async () => {
+    const ctx = await resolveTenantContext(makeReq('openmercato.com'), PLATFORM_TENANT, {
+      container: makeContainer(null, { id: PLATFORM_ORG, tenant: { id: PLATFORM_TENANT } }),
+      organizationId: PLATFORM_ORG,
+    })
+    expect(ctx.tenantId).toBe(PLATFORM_TENANT)
+    expect(ctx.organizationId).toBe(PLATFORM_ORG)
   })
 
   it('resolves from custom-domain host', async () => {

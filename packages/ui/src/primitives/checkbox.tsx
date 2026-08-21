@@ -31,11 +31,12 @@ export type CheckboxProps = React.ComponentPropsWithoutRef<typeof CheckboxPrimit
 const Checkbox = React.forwardRef<
   React.ElementRef<typeof CheckboxPrimitive.Root>,
   CheckboxProps
->(({ className, size, ...props }, ref) => {
+>(({ className, size, type = "button", ...props }, ref) => {
   const iconClass = indicatorIconBySize[size ?? "sm"]
   return (
     <CheckboxPrimitive.Root
       ref={ref}
+      type={type}
       className={cn(checkboxVariants({ size, className }))}
       {...props}
     >

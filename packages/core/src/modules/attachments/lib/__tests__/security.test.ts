@@ -5,6 +5,10 @@ import {
   sanitizeUploadedFileName,
 } from '@open-mercato/core/modules/attachments/lib/security'
 
+const NUL = String.fromCharCode(0)
+const TAB = String.fromCharCode(9)
+const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b)
+
 describe('hasDangerousExecutableExtension', () => {
   it('flags files whose final extension is executable', () => {
     expect(hasDangerousExecutableExtension('malware.exe')).toBe(true)
@@ -49,5 +53,27 @@ describe('hasDangerousExecutableExtension', () => {
     expect(hasDangerousExecutableExtension(raw)).toBe(true)
     expect(sanitizeUploadedFileName(raw)).toBe('faktura_pdf.exe')
     expect(getAttachmentExtension(sanitizeUploadedFileName(raw))).toBe('exe')
+  })
+
+  it('flags executable segments laced with a NUL byte (control-character deny-list bypass)', () => {
+    expect(hasDangerousExecutableExtension(`evil.exe${NUL}.png`)).toBe(true)
+    expect(hasDangerousExecutableExtension(`payload.${NUL}bat.txt`)).toBe(true)
+    expect(hasDangerousExecutableExtension(`shell.s${NUL}h`)).toBe(true)
+  })
+
+  it('flags executable segments laced with other control or invisible characters', () => {
+    expect(hasDangerousExecutableExtension(`evil.e${TAB}xe.png`)).toBe(true)
+    expect(hasDangerousExecutableExtension(`evil.e${ZERO_WIDTH_SPACE}xe.png`)).toBe(true)
+  })
+
+  it('flags executable segments with stray non-filename characters between dots', () => {
+    expect(hasDangerousExecutableExtension('evil.e!xe.png')).toBe(true)
+    expect(hasDangerousExecutableExtension('evil.ex e.png')).toBe(true)
+  })
+
+  it('stays aligned with the sanitized filename for control-character payloads', () => {
+    const raw = `evil.exe${NUL}.png`
+    expect(hasDangerousExecutableExtension(raw)).toBe(true)
+    expect(sanitizeUploadedFileName(raw)).toBe('evil_exe.png')
   })
 })

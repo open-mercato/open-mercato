@@ -1,6 +1,6 @@
 # Railway One-Command Deployment from the Open Mercato CLI
 
-> Status: **Draft / Pending Implementation**
+> Status: **Implemented / Live Deployment Flow Validated**
 > Scope: Open Source edition. No enterprise overlay.
 > Related but distinct: `apps/docs/docs/installation/railway.mdx` (legacy Deploy-on-Railway button) — flagged as outdated; this spec supersedes it.
 
@@ -16,11 +16,22 @@ The command:
    - Git-backed deploy when a usable Railway-supported remote repository exists.
    - Local-source deploy through the supported `railway up` CLI path when no usable remote exists or the user explicitly requests it.
    The default `--source auto` mode prefers Git when available and falls back to local upload, preserving the original `create-mercato-app` + `git init` one-command flow.
-4. Ships a minimal, repo-owned Railway configuration inside the `create-mercato-app` template (`railway.toml`, `Dockerfile`, `scripts/railway-start.sh`, `scripts/railway-healthcheck.ts`) so the build/run contract is committed to user code, not hidden in a Railway-side template we no longer control.
+4. Ships a minimal, repo-owned Railway configuration inside the `create-mercato-app` template (`railway.toml`, `railway.worker.toml`, `Dockerfile`, `scripts/railway-start.sh`, `scripts/railway-worker.sh`, and `src/app/api/healthz/route.ts`) so the build/run contract is committed to user code, not hidden in a Railway-side template we no longer control.
 5. Persists Railway resource IDs (project, environments, services, database services, domains, source metadata) in `.mercato/railway.json` inside the user's repo so re-runs are **idempotent** — the second invocation updates the existing project rather than creating a duplicate.
 6. Prints the live URL, the Railway dashboard URL, and a short post-deploy checklist.
 
 Phase 0 has been completed against Railway CLI `v4.66.1` and a live Railway Public API schema on 2026-06-03. The implementation PR should still keep schema drift visible with a fresh schema fingerprint, but the operation table below reflects the verified shapes from that run.
+
+## Implementation Status
+
+Implemented on 2026-06-05:
+
+- Bootstrap-free `mercato deploy railway` command with `auto|git|local` source modes, dry run, cleanup, resumable state, token handling, secret redaction, and protected variable computation.
+- Railway GraphQL project, environment, template database, service, variable, deployment, domain, region, and volume operations with lookup-before-retry handling for ambiguous mutations.
+- Standalone template Railway configuration, separate app/worker deploy contracts, local-upload ignore contract, and coarse DB/Redis healthcheck backed by an additive cache-strategy probe.
+- Railway deployment documentation, legacy guide redirect, CLI discovery entry, focused unit tests, and a metadata-gated live integration test.
+
+Local validation completed with focused CLI tests, CLI/create-app typechecks and builds, docs build, all package builds, shell syntax checks, and built-CLI dry-run smoke coverage. A live Railway run on 2026-06-06 created managed Postgres, Redis, and the app service, verified resource reuse across repeated runs, returned HTTP 200 with the coarse health payload, and deleted the test project successfully. Because repository version `0.6.4` was not yet published to npm, the live scaffold used the current `develop` packages plus a temporary backward-compatible cache probe; the release-artifact run remains gated until the implementation packages are published.
 
 ## Overview
 
@@ -329,6 +340,7 @@ The CLI computes and injects the following env-var set into each Railway service
 | `REDIS_URL` | Railway Redis service | `${{Redis.REDIS_URL}}` | Reference variable. Redis variables may appear only after the Redis deployment reaches `SUCCESS`; poll readiness before applying references. |
 | `NODE_ENV` | static | `production` | |
 | `NEXT_TELEMETRY_DISABLED` | static | `1` | Avoid telemetry in CI. |
+| `PORT` | static | `3000` | Must match the Dockerfile exposure and Railway domain `targetPort`; setting it explicitly prevents Railway runtime port injection from diverging from the public-domain route. |
 | `NEXT_PUBLIC_APP_URL` | derived | `https://<domain>` | Computed after domain provisioning; updated on `--domain` change. |
 | `APP_URL` | derived | same as above | Server-side mirror. |
 | `OM_AI_PROVIDER` | env-file | `openai` (matches repo default) | Honors `OM_AI_PROVIDER` from the local env file. |
@@ -813,19 +825,19 @@ This spec is **additive**:
 
 - **Spec format** — TLDR, Overview, Problem Statement, Proposed Solution (CLI + Railway + Template + Flow), Failure Handling, Security, Testing, Documentation, Integration Coverage, Migration/BC, Risks, Final Compliance, Changelog. ✓
 - **AGENTS.md alignment** — references the CLI package (`packages/cli`), the create-app template (`packages/create-app/template`), and the docs app (`apps/docs/docs`). ✓
-- **BC contract** — no contract surface changed. Additive only. ✓
+- **BC contract** — new CLI command, template files, healthcheck route, and optional cache `healthcheck()` method are additive contract surfaces; no existing surface was removed. ✓
 - **Naming** — `mercato deploy railway` aligns with future provider namespace `mercato deploy <provider>`. ✓
 - **Testing requirements** — unit-test-mandatory + gated-integration-test pattern matches `.ai/qa/AGENTS.md`. ✓
 - **Security defaults** — fail-closed: no token in env/cache → fail in CI mode; no envfile → fail; missing AI keys do not block deploy but are surfaced as app configuration warnings. ✓
 - **Phase 0 evidence** — live Railway CLI/API findings are reconciled into the operation table and risk model. ✓
 
-## Open Decisions (for the implementation PR)
+## Resolved Implementation Decisions
 
 These are the remaining product/implementation decisions after Phase 0:
 
 - **Decision A — Source strategy.** Resolved by issue #2414 follow-up: support both Git-backed and local-source deploys. Implement `--source auto|git|local`; `auto` prefers Git when a usable remote exists and otherwise falls back to local upload via `railway up`.
-- **Decision B — Volume default.** Confirm the recommended default for the attachments volume. Spec recommends opt-in via `--volume`.
-- **Decision C — Track `.mercato/railway.json` or not.** Spec recommends commit-by-default. The implementation PR may revise after dogfooding.
+- **Decision B — Volume default.** Resolved: volume creation is opt-in via `--volume`.
+- **Decision C — Track `.mercato/railway.json` or not.** Resolved: commit-by-default, with `--no-track` writing `.mercato/railway.json.local`.
 - **Decision D — `railway.toml` vs. `railway.json`.** Resolved for v1: use `railway.toml`; Phase 0 accepted the required fields.
 - **Decision E — Worker entry command.** Resolved for v1: use `yarn mercato queue worker --all` with `QUEUE_STRATEGY=async`, unless implementation discovers a blocking runtime issue.
 - **Decision F — `pluginCreate` vs. service-backed databases.** Resolved: use database templates via `templateDeployV2`; do not use deprecated `pluginCreate`.
@@ -835,3 +847,5 @@ These are the remaining product/implementation decisions after Phase 0:
 - 2026-05-12 — Initial spec authored under `auto-create-pr` (slug `railway-one-command-deploy`). Honors the user-flagged constraint that `apps/docs/docs/installation/railway.mdx` and `railway.com/deploy/TKvo95` are outdated and not assumed to be accessible. Railway GraphQL operations were intentionally left for live verification. Status: **Draft / Pending Implementation**.
 - 2026-06-04 — Reconciled after live Railway Phase 0 verification and issue #2414 maintainer feedback. Updates auth token handling, source strategy (`auto|git|local`), database provisioning (`templateDeployV2`), verified GraphQL operation shapes, env-var matrix, retry rules, and remaining open decisions. Status remains **Draft / Pending Implementation**.
 - 2026-06-04 — Security hardening pass: added local-upload archive preflight, per-key secret scanner bypass, stronger output/log redaction, coarse public healthcheck response, Git remote sync checks, and non-interactive cleanup confirmation. Status remains **Draft / Pending Implementation**.
+- 2026-06-05 — Implemented issue #2414 across `packages/cli`, the standalone create-app template, docs, unit tests, and a gated Railway integration test. Local builds and focused tests pass; live Railway validation remains credential-gated. Status: **Implemented / Pending Live Railway Validation**.
+- 2026-06-06 — Live Railway validation found that Railway injected runtime port `8080` while the generated service domain targeted port `3000`, producing a persistent public `502` despite a successful deployment. The deployer now pins `PORT=3000` in service variables and covers the invariant with a regression assertion. The corrected deployment returned HTTP 200 from `/api/healthz`, reused the same three Railway services across repeated runs, and cleanup removed the project. Status: **Implemented / Live Deployment Flow Validated**.

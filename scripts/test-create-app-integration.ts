@@ -5,7 +5,17 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
+import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
+import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
+import {
+  EXAMPLE_ACTIVATION_ENTRY,
+  assertExampleActivation,
+  assertModulesUnregistered,
+  enableModuleEntry,
+  modulesConfigPath,
+} from './lib/module-activation-fixtures'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -16,6 +26,8 @@ const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
+
+const STANDALONE_BUILD_NODE_OPTIONS = '--max-old-space-size=8192'
 
 type EphemeralEnvState = {
   status?: string
@@ -49,6 +61,20 @@ function ensureEnterpriseDependency(appDir: string): void {
   writeJson(packageJsonPath, packageJson)
 }
 
+function withStandaloneBuildNodeOptions(value: string | undefined): string {
+  const normalized = value?.trim()
+  if (!normalized) return STANDALONE_BUILD_NODE_OPTIONS
+  if (/(?:^|\s)--max-old-space-size=\d+(?=\s|$)/.test(normalized)) return normalized
+  return `${normalized} ${STANDALONE_BUILD_NODE_OPTIONS}`
+}
+
+// The Playwright specs default to `<cwd>/.ai/qa/email-capture.jsonl`, and they run
+// from the monorepo root — mirror that path so the standalone app writes where the
+// specs read (TC-AUTH-033).
+function standaloneEmailCapturePath(): string {
+  return path.join(ROOT, '.ai', 'qa', 'email-capture.jsonl')
+}
+
 function writeStandaloneEnv(appDir: string): void {
   const envExamplePath = path.join(appDir, '.env.example')
   const envPath = path.join(appDir, '.env')
@@ -57,8 +83,15 @@ function writeStandaloneEnv(appDir: string): void {
     example.trimEnd(),
     'APP_URL=http://localhost:3000',
     'NEXT_PUBLIC_APP_URL=http://localhost:3000',
+    // `yarn start` serves a production build, so NODE_ENV is production inside the
+    // server process even with NODE_ENV=test below, and customer-portal email links
+    // refuse to fall back to localhost there — portal invites 502 without this.
+    'PLATFORM_PORTAL_BASE_URL=http://localhost:3000',
+    // The app and the Playwright specs run from different working directories, so
+    // the captured-email path must be absolute and identical on both sides.
+    `OM_TEST_EMAIL_CAPTURE_PATH=${standaloneEmailCapturePath()}`,
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
-    'JWT_SECRET=ci-standalone-test-jwt-secret',
+    'JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
     'NODE_ENV=test',
     'OM_TEST_MODE=1',
@@ -68,14 +101,17 @@ function writeStandaloneEnv(appDir: string): void {
     'ENABLE_CRUD_API_CACHE=true',
     'MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret',
     'MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret',
-    'NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true',
     'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true',
     'AUTO_SPAWN_WORKERS=false',
     'AUTO_SPAWN_SCHEDULER=false',
-    'CACHE_STRATEGY=memory',
+    // Cross-process strategy required: queue jobs drain in child processes, so a
+    // per-process memory cache would leave the server serving stale CRUD entries.
+    // The path is pinned absolute so every process opens the same store.
+    'CACHE_STRATEGY=sqlite',
+    `CACHE_SQLITE_PATH=${path.join(appDir, '.mercato', 'cache', 'cache.db')}`,
   ].filter(Boolean)
 
   fs.writeFileSync(envPath, `${envLines.join('\n')}\n`)
@@ -165,7 +201,23 @@ async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams 
   ])
 }
 
+function ensurePlaywrightBrowsersInstalled(): void {
+  const failure = findChromiumPreflightFailure({
+    resolveManagedExecutablePath: () => chromium.executablePath(),
+  })
+  if (!failure) return
+
+  console.error(red(failure.message))
+  for (const remedy of failure.remedies) {
+    console.error(yellow(`  ${remedy}`))
+  }
+  console.error(cyan(`See: ${PLAYWRIGHT_BROWSERS_DOCS_URL}`))
+  process.exit(1)
+}
+
 async function main(): Promise<void> {
+  ensurePlaywrightBrowsersInstalled()
+
   const cleanup = process.argv.includes('--cleanup')
   const testArgs = rootIntegrationArgs()
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-integration-'))
@@ -176,7 +228,9 @@ async function main(): Promise<void> {
   const integrationEnv: NodeJS.ProcessEnv = {
     APP_URL: 'http://localhost:3000',
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
-    JWT_SECRET: 'ci-standalone-test-jwt-secret',
+    PLATFORM_PORTAL_BASE_URL: 'http://localhost:3000',
+    OM_TEST_EMAIL_CAPTURE_PATH: standaloneEmailCapturePath(),
+    JWT_SECRET: 'ci-standalone-test-jwt-secret-32-chars-min',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
@@ -186,16 +240,18 @@ async function main(): Promise<void> {
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
-    NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true',
     AUTO_SPAWN_WORKERS: 'false',
     AUTO_SPAWN_SCHEDULER: 'false',
-    CACHE_STRATEGY: 'memory',
+    CACHE_STRATEGY: 'sqlite',
+    CACHE_SQLITE_PATH: path.join(appDir, '.mercato', 'cache', 'cache.db'),
+    OM_DRAIN_DEBUG: '1',
     OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180',
     OM_TEST_APP_ROOT: appDir,
+    NODE_OPTIONS: withStandaloneBuildNodeOptions(process.env.NODE_OPTIONS),
     NODE_ENV: 'test',
   }
 
@@ -204,10 +260,15 @@ async function main(): Promise<void> {
   try {
     await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio', '--skip-agentic-setup'], { cwd: ROOT })
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'], { cwd: ROOT })
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded standalone app created')
     assertExists(path.join(appDir, '.ai', 'qa', 'tests', 'playwright.config.ts'), 'Standalone QA config present')
+    const yarnConfig = fs.readFileSync(path.join(appDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error(`Scaffolded standalone app does not use the published Verdaccio registry: ${VERDACCIO_URL}`)
+    }
+    console.log(green(`✔ Scaffolded standalone app uses Verdaccio at ${VERDACCIO_URL}`))
 
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)
@@ -215,6 +276,25 @@ async function main(): Promise<void> {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
+
+    console.log(cyan('Building the runtime-disabled scaffold baseline in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
+    await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+    console.log(green('✔ Runtime-disabled scaffold baseline contains no reference-module output'))
+
+    enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
+    console.log(cyan('Building the explicitly activated example fixture in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ Activated ${label}`)) })
+    await assertExampleActivation(appDir)
+    console.log(green('✔ Activated disposable app exposes example without design_system'))
 
     const standalone = await waitForStandaloneEphemeralApp({
       appDir,

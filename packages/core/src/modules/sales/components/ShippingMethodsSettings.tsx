@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { z } from 'zod'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -37,6 +37,9 @@ import {
 } from '../lib/providers'
 import { isRecord } from '@open-mercato/shared/lib/utils'
 import { renderProviderFieldInput } from './ProviderFieldInput'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ShippingMethodRow = {
   id: string
@@ -500,7 +503,7 @@ export function ShippingMethodsSettings() {
         })
       )
     } catch (err) {
-      console.error('sales.shipping-methods.list failed', err)
+      logger.error('sales.shipping-methods.list failed', { err })
       flash(translations.errors.load, 'error')
     } finally {
       setLoading(false)
@@ -564,7 +567,7 @@ export function ShippingMethodsSettings() {
       flash(translations.messages.deleted, 'success')
       await loadEntries()
     } catch (err) {
-      console.error('sales.shipping-methods.delete failed', err)
+      logger.error('sales.shipping-methods.delete failed', { err })
       const message = err instanceof Error ? err.message : translations.errors.delete
       flash(message, 'error')
     }
@@ -661,7 +664,7 @@ export function ShippingMethodsSettings() {
       await loadEntries()
       closeDialog()
     } catch (err) {
-      console.error('sales.shipping-methods.save failed', err)
+      logger.error('sales.shipping-methods.save failed', { err })
       const message = err instanceof Error ? err.message : translations.errors.save
       flash(message, 'error')
     } finally {

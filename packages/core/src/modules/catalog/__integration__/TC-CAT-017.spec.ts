@@ -135,6 +135,8 @@ test.describe('TC-CAT-017: Offer CRUD Lifecycle', () => {
   })
 
   test('should delete an offer and verify it is removed from the list', async ({ request }) => {
+    test.slow()
+
     const stamp = Date.now()
     const title = `QA TC-CAT-017 Delete ${stamp}`
     let token: string | null = null

@@ -151,6 +151,20 @@ export type PaginationProps = React.HTMLAttributes<HTMLDivElement> & {
   pageSize: number
   /** Total item count. Used to derive `Math.ceil(total / pageSize)` pages. */
   total: number
+  /**
+   * `total` is a floor, not an exact count (a capped list count,
+   * `OM_LIST_COUNT_CAP`). The derived page count then only bounds the page
+   * *list*: the current page is never clamped down to it, the last-page jump
+   * is suppressed (it would present the floor as the end of the data), and
+   * Next stays available past the floor when `hasNextPage` says so.
+   */
+  totalIsCapped?: boolean
+  /**
+   * Caller-provided "a next page exists" signal for the capped case, typically
+   * short-page detection (the current page came back full). Ignored when
+   * `totalIsCapped` is false; when omitted, Next ends at the known floor.
+   */
+  hasNextPage?: boolean
   /** Called when the user changes page. */
   onPageChange: (next: number) => void
   /** Called when the user changes page size. Optional — when omitted,
@@ -188,6 +202,8 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
       page,
       pageSize,
       total,
+      totalIsCapped = false,
+      hasNextPage,
       onPageChange,
       onPageSizeChange,
       pageSizeOptions = [10, 25, 50, 100],
@@ -208,26 +224,37 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
     const resolvedFormatPageInfo =
       formatPageInfo ??
       ((p: number, total: number) =>
-        t('ui.pagination.info.pageOf', 'Page {page} of {total}', { page: p, total }))
+        totalIsCapped
+          ? t('ui.pagination.info.pageOfCapped', 'Page {page} of {total}+', { page: p, total })
+          : t('ui.pagination.info.pageOf', 'Page {page} of {total}', { page: p, total }))
     const resolvedFormatPageSizeLabel =
       formatPageSizeLabel ??
       ((size: number) =>
         t('ui.pagination.itemsPerPage.label', '{size} / page', { size }))
     const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
-    const safePage = Math.min(Math.max(1, page), totalPages)
+    // A capped total is a floor: never clamp the current page down to the
+    // derived count — a page past the floor holds reachable rows.
+    const safePage = totalIsCapped
+      ? Math.max(1, page)
+      : Math.min(Math.max(1, page), totalPages)
+    const listPages = Math.max(totalPages, safePage)
+    const canGoNext = totalIsCapped
+      ? (hasNextPage ?? safePage < listPages)
+      : safePage < totalPages
     const items = React.useMemo(
-      () => buildPaginationItems(safePage, totalPages, siblingCount, boundaryCount),
-      [safePage, totalPages, siblingCount, boundaryCount],
+      () => buildPaginationItems(safePage, listPages, siblingCount, boundaryCount),
+      [safePage, listPages, siblingCount, boundaryCount],
     )
     const showPageSize = showPageSizeProp ?? Boolean(onPageSizeChange)
 
     const goTo = React.useCallback(
       (next: number) => {
         if (disabled) return
-        const bounded = Math.min(Math.max(1, next), totalPages)
+        const upperBound = totalIsCapped ? Math.max(listPages, safePage + 1) : totalPages
+        const bounded = Math.min(Math.max(1, next), upperBound)
         if (bounded !== safePage) onPageChange(bounded)
       },
-      [disabled, onPageChange, safePage, totalPages],
+      [disabled, onPageChange, safePage, totalPages, totalIsCapped, listPages],
     )
 
     return (
@@ -235,7 +262,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
         ref={ref}
         data-slot="pagination"
         aria-label={props['aria-label'] ?? t('ui.pagination.landmark.ariaLabel', 'Pagination')}
-        className={cn('flex w-full items-center justify-between gap-6', className)}
+        className={cn('flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-2', className)}
         {...props}
       >
         {showInfo ? (
@@ -243,7 +270,9 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
             data-slot="pagination-info"
             className="shrink-0 text-sm text-muted-foreground tabular-nums"
           >
-            {resolvedFormatPageInfo(safePage, totalPages)}
+            {/* When capped, report the best-known floor: a deep page proves at
+                least that many pages exist. */}
+            {resolvedFormatPageInfo(safePage, totalIsCapped ? listPages : totalPages)}
           </div>
         ) : (
           <div />
@@ -251,7 +280,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
         <div
           data-slot="pagination-controls"
-          className="inline-flex items-center gap-2"
+          className="flex flex-wrap items-center justify-center gap-2"
         >
           {showFirstLast ? (
             <button
@@ -280,7 +309,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
           <ol
             data-slot="pagination-pages"
-            className="inline-flex items-center gap-2 list-none"
+            className="flex flex-wrap items-center justify-center gap-2 list-none"
           >
             {items.map((entry, index) => {
               if (entry === 'ellipsis-left' || entry === 'ellipsis-right') {
@@ -324,14 +353,16 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               type="button"
               data-slot="pagination-next"
               aria-label={t('ui.pagination.next.ariaLabel', 'Next page')}
-              disabled={disabled || safePage >= totalPages}
+              disabled={disabled || !canGoNext}
               onClick={() => goTo(safePage + 1)}
               className={cn(navButtonVariants())}
             >
               <ChevronRight aria-hidden="true" className="size-5" />
             </button>
           ) : null}
-          {showFirstLast ? (
+          {/* The last-page jump is suppressed for capped totals: it would land
+              on the floor page while presenting itself as the end of the data. */}
+          {showFirstLast && !totalIsCapped ? (
             <button
               type="button"
               data-slot="pagination-last"

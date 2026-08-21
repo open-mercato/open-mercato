@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Users, Phone, Check, Mail, Calendar, AlertTriangle, X, StickyNote } from 'lucide-react'
+import { Users, Phone, Check, Mail, Calendar, X, StickyNote } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
@@ -99,6 +99,8 @@ interface ScheduleActivityDialogProps {
   onActivityCreated?: () => void
   /** When provided, dialog opens in edit mode with pre-filled data */
   editData?: ScheduleActivityEditData | null
+  /** Default country ISO2 code for phone number input when value is empty/unparsed */
+  defaultCountryIso2?: string
 }
 
 export function ScheduleActivityDialog({
@@ -111,6 +113,7 @@ export function ScheduleActivityDialog({
   entityType,
   onActivityCreated,
   editData,
+  defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
   const state = useScheduleFormState({ open, editData: editData ?? null })
@@ -204,6 +207,7 @@ export function ScheduleActivityDialog({
   const initialSnapshotRef = React.useRef<string | null>(null)
   const snapshotOpenKeyRef = React.useRef<string | null>(null)
   const snapshotSettleCountRef = React.useRef(0)
+  const closeConfirmPendingRef = React.useRef(false)
   const openKey = open ? `${editData?.id ?? 'new'}` : null
   React.useEffect(() => {
     if (!open) {
@@ -229,21 +233,27 @@ export function ScheduleActivityDialog({
   }, [formSnapshot])
 
   const guardedClose = React.useCallback(async () => {
+    if (closeConfirmPendingRef.current) return
     if (!isDirty()) {
       onClose()
       return
     }
-    const ok = await confirm({
-      title: t('customers.schedule.discardConfirm.title', 'Discard unsaved changes?'),
-      description: t(
-        'customers.schedule.discardConfirm.description',
-        'You have unsaved edits in this activity. Save them first or continue to discard them.',
-      ),
-      confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
-      cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
-      variant: 'destructive',
-    })
-    if (ok) onClose()
+    closeConfirmPendingRef.current = true
+    try {
+      const ok = await confirm({
+        title: t('customers.schedule.discardConfirm.title', 'Discard unsaved changes?'),
+        description: t(
+          'customers.schedule.discardConfirm.description',
+          'You have unsaved edits in this activity. Save them first or continue to discard them.',
+        ),
+        confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
+        cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
+        variant: 'destructive',
+      })
+      if (ok) onClose()
+    } finally {
+      closeConfirmPendingRef.current = false
+    }
   }, [confirm, isDirty, onClose, t])
 
   const mutationContextId = React.useMemo(
@@ -465,8 +475,12 @@ export function ScheduleActivityDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
-      {ConfirmDialogElement}
-      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
+      <DialogContent
+        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
+        onKeyDown={handleKeyDown}
+        aria-describedby={undefined}
+      >
+        {ConfirmDialogElement}
         <VisuallyHidden>
           <DialogTitle>{isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}</DialogTitle>
         </VisuallyHidden>
@@ -497,8 +511,7 @@ export function ScheduleActivityDialog({
 
         {/* Conflict warning */}
         {state.conflict && (
-          <Alert variant="warning" className="rounded-lg">
-            <AlertTriangle className="size-5" />
+          <Alert status="warning" className="rounded-lg">
             <AlertTitle>
               {t('customers.schedule.conflict.title', 'Calendar conflict')}
             </AlertTitle>
@@ -690,6 +703,7 @@ export function ScheduleActivityDialog({
               externalError={callPhoneError}
               invalidLabel={callPhoneInvalidMessage}
               minDigits={7}
+              defaultCountryIso2={defaultCountryIso2}
             />
           </div>
         ) : (

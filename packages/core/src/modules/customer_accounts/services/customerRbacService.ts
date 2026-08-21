@@ -5,7 +5,10 @@ import {
   CustomerRoleAcl,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import {
+  authorizeFeatures,
+  resolveEffectiveFeatures,
+} from '@open-mercato/shared/security/featurePolicy'
 
 interface CustomerAclData {
   isPortalAdmin: boolean
@@ -29,7 +32,9 @@ export class CustomerRbacService {
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string; organizationId: string }): string {
-    return `customer_rbac:${userId}:${scope.tenantId}:${scope.organizationId}`
+    // Keep the authorization query versioned in the key so cache entries created
+    // before scope hardening cannot preserve grants that are no longer valid.
+    return `customer_rbac:v2:${userId}:${scope.tenantId}:${scope.organizationId}`
   }
 
   private getUserTag(userId: string): string {
@@ -89,8 +94,13 @@ export class CustomerRbacService {
     // Aggregate role ACLs
     const links = await em.find(CustomerUserRole, {
       user: userId as any,
+      role: {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
       deletedAt: null,
-    }, { populate: ['role'] })
+    } as any, { populate: ['role'] })
     const roleIds = links.map((l) => (l.role as any)?.id).filter(Boolean)
 
     let isPortalAdmin = false
@@ -122,8 +132,18 @@ export class CustomerRbacService {
   ): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
-    if (acl.isPortalAdmin) return true
-    return hasAllFeatures(required, acl.features)
+    return authorizeFeatures(required, {
+      grantedFeatures: acl.features,
+      unrestricted: acl.isPortalAdmin,
+    })
+  }
+
+  async getEffectiveFeatures(
+    userId: string,
+    scope: { tenantId: string; organizationId: string },
+  ): Promise<string[]> {
+    const acl = await this.loadAcl(userId, scope)
+    return resolveEffectiveFeatures(acl.isPortalAdmin ? ['portal.*'] : acl.features)
   }
 
   async invalidateUserCache(userId: string): Promise<void> {

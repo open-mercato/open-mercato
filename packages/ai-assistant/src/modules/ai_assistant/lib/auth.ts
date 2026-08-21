@@ -1,6 +1,10 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Successful authentication result.
@@ -106,7 +110,7 @@ export async function authenticateMcpRequest(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('[MCP Auth] Authentication failed:', message)
+    logger.error('MCP authentication failed', { err: error })
     return { success: false, error: 'Authentication failed' }
   }
 }
@@ -118,7 +122,8 @@ export async function authenticateMcpRequest(
  * - Super admin bypass (always returns true)
  * - Direct feature match (e.g., 'customers.view')
  * - Global wildcard ('*' grants all features)
- * - Prefix wildcard (e.g., 'customers.*' grants 'customers.people.view')
+ * - Prefix wildcard (e.g., 'customers.*' grants 'customers.people.view' and the
+ *   bare 'customers' segment itself)
  *
  * @param requiredFeatures - List of features required for access
  * @param userFeatures - List of features the user has
@@ -132,27 +137,10 @@ export function hasRequiredFeatures(
   isSuperAdmin: boolean,
   rbacService?: RbacService
 ): boolean {
-  if (isSuperAdmin) return true
-  if (!requiredFeatures?.length) return true
-
-  // Delegate to RbacService if provided
-  if (rbacService) {
-    return rbacService.hasAllFeatures(requiredFeatures, userFeatures)
-  }
-
-  // Fallback for cases without rbacService (keeps backward compatibility)
-  return requiredFeatures.every((required) => {
-    if (userFeatures.includes(required)) return true
-    if (userFeatures.includes('*')) return true
-
-    // Check wildcard patterns (e.g., 'customers.*' grants 'customers.people.view')
-    return userFeatures.some((feature) => {
-      if (feature.endsWith('.*')) {
-        const prefix = feature.slice(0, -2)
-        return required.startsWith(prefix + '.')
-      }
-      return false
-    })
+  void rbacService
+  return authorizeFeatures(requiredFeatures ?? [], {
+    grantedFeatures: userFeatures,
+    unrestricted: isSuperAdmin,
   })
 }
 

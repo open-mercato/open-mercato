@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { tenantCreateSchema, tenantUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { loadCustomFieldValues, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
+import { resolveRecordIdsForCustomFieldFilters } from './tenant-cf-filter'
 import { E } from '#generated/entities.ids.generated'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -87,15 +90,16 @@ const toRow = (tenant: Tenant, cf: Record<string, unknown>): TenantRow => ({
   ...cf,
 })
 
-const matchesValue = (current: unknown, expected: unknown): boolean => {
-  if (Array.isArray(current)) return current.some((item) => item === expected)
-  return current === expected
-}
-
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
+  }
+
+  const container = await createRequestContainer()
+  const isSuperAdmin = await resolveIsSuperAdmin({ auth, container })
+  if (!isSuperAdmin) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const url = new URL(req.url)
@@ -115,7 +119,6 @@ export async function GET(req: Request) {
     )
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
 
   const { id, page, pageSize, search, sortField, sortDir, isActive } = parsed.data
@@ -180,28 +183,31 @@ export async function GET(req: Request) {
   let cfValues: Record<string, Record<string, unknown>>
 
   if (cfFilterEntries.length) {
-    // Custom-field filters are matched in JS against separately-loaded values,
-    // so the full result set must be fetched before filtering and paging.
-    const all = await em.find(Tenant, where, { orderBy })
-    cfValues = await loadCfValues(all)
-    const filtered = all.filter((tenant) => {
-      const rid = String(tenant.id)
-      const payload = cfValues[rid] ?? {}
-      return cfFilterEntries.every(([key, expected]) => {
-        const value = payload[`cf_${key}`]
-        if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
-          const maybeIn = (expected as { $in?: unknown[] }).$in
-          if (Array.isArray(maybeIn)) {
-            if (value === undefined || value === null) return false
-            if (Array.isArray(value)) return value.some((val) => maybeIn.includes(val))
-            return maybeIn.includes(value)
-          }
-        }
-        return matchesValue(value, expected)
-      })
+    // Custom-field values live in a separate store, so first resolve the bounded
+    // set of matching tenant ids from that store, then push pagination to the
+    // database via findAndCount instead of loading the whole tenant table.
+    const matchedIds = await resolveRecordIdsForCustomFieldFilters({
+      em,
+      entityId: E.directory.tenant,
+      tenantId: auth.tenantId ?? null,
+      filters: cfFilterEntries,
     })
-    total = filtered.length
-    pageTenants = filtered.slice(start, start + pageSize)
+    const existingId = where.id
+    const idFilter = typeof existingId === 'string'
+      ? (matchedIds.has(existingId) ? [existingId] : [])
+      : Array.from(matchedIds)
+
+    if (!idFilter.length) {
+      total = 0
+      pageTenants = []
+      cfValues = {}
+    } else {
+      where.id = { $in: idFilter }
+      const [rows, count] = await em.findAndCount(Tenant, where, { orderBy, limit: pageSize, offset: start })
+      total = count
+      pageTenants = rows
+      cfValues = await loadCfValues(rows)
+    }
   } else {
     // No JS-side filtering applies, so pagination is pushed to the database
     // instead of fetching the whole table and slicing in memory.
@@ -257,6 +263,7 @@ const tenantGetDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid query parameters', schema: directoryErrorSchema },
     { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+    { status: 403, description: 'Requires super-admin', schema: directoryErrorSchema },
   ],
 }
 

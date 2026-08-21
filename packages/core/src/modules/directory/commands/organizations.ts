@@ -15,6 +15,7 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   parseWithCustomFields,
@@ -83,6 +84,8 @@ type OrganizationUndoSnapshot = {
   tenantId: string | null
   name: string
   slug?: string | null
+  logoUrl?: string | null
+  logoPreserveAspectRatio?: boolean
   isActive: boolean
   parentId: string | null
   childParents: ChildParentSnapshot[]
@@ -119,6 +122,8 @@ function serializeOrganization(entity: Organization, custom?: Record<string, unk
     tenantId: resolveTenantIdFromEntity(entity),
     name: entity.name,
     slug: entity.slug ?? null,
+    logoUrl: entity.logoUrl ?? null,
+    logoPreserveAspectRatio: !!entity.logoPreserveAspectRatio,
     isActive: !!entity.isActive,
     parentId: entity.parentId ?? null,
     ancestorIds: Array.isArray(entity.ancestorIds) ? [...entity.ancestorIds] : [],
@@ -143,6 +148,8 @@ function captureOrganizationSnapshots(
       tenantId,
       name: entity.name,
       slug: entity.slug ?? null,
+      logoUrl: entity.logoUrl ?? null,
+      logoPreserveAspectRatio: !!entity.logoPreserveAspectRatio,
       isActive: !!entity.isActive,
       parentId: entity.parentId ?? null,
       childParents: (childParents ?? []).map((entry) => ({
@@ -275,7 +282,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationCreateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const tenantId = await enforceTenantSelection(ctx, parsed.tenantId ?? null)
+    const tenantId = await enforceTenantSelection(ctx, parsed.tenantId)
     if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
 
     const parentId = parsed.parentId ?? null
@@ -302,6 +309,8 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
             tenant: tenantRef,
             name: parsed.name,
             slug,
+            logoUrl: parsed.logoUrl ?? null,
+            logoPreserveAspectRatio: parsed.logoPreserveAspectRatio ?? false,
             isActive: parsed.isActive ?? true,
             parentId,
           },
@@ -413,6 +422,76 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       },
     ], { transaction: true })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<OrganizationUndoSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for organization create' })
+    const tenantId = after.tenantId
+    if (!tenantId) throw new CrudHttpError(400, { error: '[internal] redo snapshot missing tenant for organization create' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    let organization!: Organization
+    await withAtomicFlush(em, [
+      async () => {
+        const existing = await em.findOne(Organization, { id: after.id })
+        if (existing) {
+          existing.deletedAt = null
+          existing.name = after.name
+          if (after.slug !== undefined) existing.slug = after.slug ?? null
+          if (after.logoUrl !== undefined) existing.logoUrl = after.logoUrl ?? null
+          if (after.logoPreserveAspectRatio !== undefined) existing.logoPreserveAspectRatio = !!after.logoPreserveAspectRatio
+          existing.isActive = after.isActive
+          existing.parentId = after.parentId
+          await em.flush()
+          organization = existing
+        } else {
+          organization = await de.createOrmEntity({
+            entity: Organization,
+            data: {
+              id: after.id,
+              name: after.name,
+              slug: after.slug ?? null,
+              logoUrl: after.logoUrl ?? null,
+              logoPreserveAspectRatio: after.logoPreserveAspectRatio ?? false,
+              tenant: em.getReference(Tenant, tenantId),
+              isActive: after.isActive,
+              parentId: after.parentId,
+            },
+          })
+        }
+        setInternalTenantId(organization, tenantId)
+
+        if (after.custom && Object.keys(after.custom).length) {
+          const reset = buildCustomFieldResetMap(after.custom, undefined)
+          if (Object.keys(reset).length) {
+            const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
+            await de.setCustomFields({
+              entityId: E.directory.organization,
+              recordId: after.id,
+              tenantId,
+              organizationId: after.id,
+              values: resetValues,
+              notify: false,
+            })
+          }
+        }
+
+        await assignChildren(em, tenantId, after.id, after.childParents.map((entry) => entry.childId))
+        await rebuildHierarchyForTenant(em, tenantId)
+      },
+    ], { transaction: true })
+
+    const identifiers = { id: after.id, organizationId: after.id, tenantId }
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: organization,
+      identifiers,
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
+    })
+
+    return organization
+  },
 }
 
 const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
@@ -497,6 +576,8 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
           apply: (entity) => {
             if (parsed.name !== undefined) entity.name = parsed.name
             if (resolvedSlug !== undefined) entity.slug = resolvedSlug
+            if (parsed.logoUrl !== undefined) entity.logoUrl = parsed.logoUrl ?? null
+            if (parsed.logoPreserveAspectRatio !== undefined) entity.logoPreserveAspectRatio = parsed.logoPreserveAspectRatio
             if (parsed.isActive !== undefined) entity.isActive = parsed.isActive
             entity.parentId = parentId
           },
@@ -563,7 +644,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       organizationId: String(result.id),
     })
     const after = serializeOrganization(result, custom)
-    const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'slug', 'isActive', 'parentId'])
+    const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'slug', 'logoUrl', 'logoPreserveAspectRatio', 'isActive', 'parentId'])
     const customDiff = diffCustomFieldChanges(beforeRecord?.custom, custom)
     for (const [key, diff] of Object.entries(customDiff)) {
       changes[`cf_${key}`] = diff
@@ -600,6 +681,8 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
           apply: (entity) => {
             entity.name = before.name
             if (before.slug !== undefined) entity.slug = before.slug
+            if (before.logoUrl !== undefined) entity.logoUrl = before.logoUrl ?? null
+            if (before.logoPreserveAspectRatio !== undefined) entity.logoPreserveAspectRatio = !!before.logoPreserveAspectRatio
             entity.isActive = before.isActive
             entity.parentId = before.parentId
           },

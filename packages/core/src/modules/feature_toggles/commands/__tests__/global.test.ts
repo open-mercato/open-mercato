@@ -64,7 +64,7 @@ describe('feature_toggles.global commands', () => {
 
             const ctx: any = {
                 container,
-                auth: { isSuperAdmin: true },
+                auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' },
             }
 
             const input = {
@@ -92,6 +92,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'created',
                 entity: expect.objectContaining({ id: 'new-toggle-id' }),
+                identifiers: expect.objectContaining({ id: 'new-toggle-id', organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
         })
@@ -177,6 +178,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'created',
                 entity: expect.objectContaining({ id: 'seeded-toggle-id' }),
+                identifiers: expect.objectContaining({ id: 'seeded-toggle-id', organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
         })
@@ -217,7 +219,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container, auth: { isSuperAdmin: true } }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
             const logEntry = { resourceId: toggleId }
 
             await createCommand.undo({ logEntry, ctx })
@@ -229,8 +231,57 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'deleted',
                 entity: existingToggle,
+                identifiers: expect.objectContaining({ id: toggleId, organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
+        })
+
+        it('redo emits created side effects for restored toggles', async () => {
+            let createCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(null),
+                create: jest.fn((_ctor, data) => ({ ...data })),
+                persist: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'tenant-1' } }
+            const snapshot = {
+                id: 'toggle-id',
+                identifier: 'qa.redo',
+                name: 'QA Redo',
+                description: null,
+                category: 'qa',
+                type: 'boolean',
+                defaultValue: true,
+            }
+
+            const result = await createCommand.redo({ logEntry: { snapshotAfter: snapshot }, ctx })
+
+            expect(result).toEqual({ toggleId: 'toggle-id' })
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'created',
+                entity: expect.objectContaining({ id: 'toggle-id', identifier: 'qa.redo' }),
+                identifiers: expect.objectContaining({ id: 'toggle-id', organizationId: null, tenantId: null }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
+            expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('qa.redo')
         })
     })
 
@@ -269,7 +320,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container, auth: { isSuperAdmin: true } }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
 
             const input = {
                 id: '123e4567-e89b-12d3-a456-426614174000',
@@ -287,9 +338,64 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'updated',
                 entity: existingToggle,
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('test_feature')
+        })
+
+        it('keeps update undo side effects global for a super-admin with a selected tenant', async () => {
+            let updateCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.update')?.[0]
+            })
+
+            const existingToggle = {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                identifier: 'test_feature',
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(existingToggle),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = { markOrmEntityChange: jest.fn() }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
+
+            await updateCommand.undo({
+                logEntry: {
+                    payload: {
+                        undo: {
+                            before: {
+                                id: existingToggle.id,
+                                identifier: existingToggle.identifier,
+                                name: 'Test Feature',
+                                description: null,
+                                category: null,
+                                type: 'boolean',
+                                defaultValue: true,
+                            },
+                        },
+                    },
+                },
+                ctx,
+            })
+
+            expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+                action: 'updated',
+                entity: existingToggle,
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
         })
 
         it('throws error when toggle not found', async () => {
@@ -311,7 +417,7 @@ describe('feature_toggles.global commands', () => {
                 }),
             }
 
-            const ctx: any = { container, auth: { isSuperAdmin: true } }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } }
 
             await expect(updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Toggle not found')
         })
@@ -380,6 +486,7 @@ describe('feature_toggles.global commands', () => {
             expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
                 action: 'deleted',
                 entity: existingToggle,
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('test_feature')
@@ -420,6 +527,11 @@ describe('feature_toggles.global commands', () => {
             expect(em.create).toHaveBeenCalledTimes(2)
             expect(em.persist).toHaveBeenCalledTimes(2)
             expect(em.flush).toHaveBeenCalled()
+            expect(dataEngine.markOrmEntityChange).toHaveBeenLastCalledWith(expect.objectContaining({
+                action: 'updated',
+                identifiers: expect.objectContaining({ id: existingToggle.id, organizationId: null, tenantId: null }),
+                indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
+            }))
         })
 
         it('throws error when toggle not found', async () => {
@@ -444,6 +556,91 @@ describe('feature_toggles.global commands', () => {
             const ctx: any = { container, auth: { isSuperAdmin: true } }
 
             await expect(deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Feature toggle not found')
+        })
+
+        it('refuses a stale delete with a 409 optimistic-lock conflict (issue #3239)', async () => {
+            let deleteCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.delete')?.[0]
+            })
+            expect(deleteCommand).toBeDefined()
+
+            const currentUpdatedAt = new Date('2026-06-01T10:00:00.000Z')
+            const existingToggle = {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                identifier: 'test_feature',
+                updatedAt: currentUpdatedAt,
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(existingToggle),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    return undefined
+                }),
+            }
+            const staleUpdatedAt = '2026-05-01T08:00:00.000Z'
+            const ctx: any = {
+                container,
+                auth: { isSuperAdmin: true },
+                request: new Request('http://localhost/api/feature_toggles/global', {
+                    method: 'DELETE',
+                    headers: { 'x-om-ext-optimistic-lock-expected-updated-at': staleUpdatedAt },
+                }),
+            }
+
+            await expect(
+                deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx),
+            ).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+            expect(em.flush).not.toHaveBeenCalled()
+        })
+
+        it('allows a delete whose lock header matches the current version (issue #3239)', async () => {
+            let deleteCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.delete')?.[0]
+            })
+            expect(deleteCommand).toBeDefined()
+
+            const currentUpdatedAt = new Date('2026-06-01T10:00:00.000Z')
+            const existingToggle = {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                identifier: 'test_feature',
+                updatedAt: currentUpdatedAt,
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(existingToggle),
+                find: jest.fn().mockResolvedValue([]),
+                remove: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = { markOrmEntityChange: jest.fn() }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx: any = {
+                container,
+                auth: { isSuperAdmin: true },
+                request: new Request('http://localhost/api/feature_toggles/global', {
+                    method: 'DELETE',
+                    headers: { 'x-om-ext-optimistic-lock-expected-updated-at': currentUpdatedAt.toISOString() },
+                }),
+            }
+
+            const result = await deleteCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)
+            expect(result).toEqual({ toggleId: '123e4567-e89b-12d3-a456-426614174000' })
+            expect(em.flush).toHaveBeenCalled()
         })
     })
 })

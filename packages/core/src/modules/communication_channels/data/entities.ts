@@ -63,6 +63,16 @@ export type CommunicationChannelStatus =
   expression:
     `create unique index "communication_channels_user_provider_external_uq" on "communication_channels" ("tenant_id", "user_id", "provider_key", "external_identifier") where "deleted_at" is null and "user_id" is not null and "external_identifier" is not null`,
 })
+// One tenant-wide push channel per (tenant, provider): push providers (FCM/APNs/
+// Expo) have no `external_identifier` and `user_id IS NULL`, so the mailbox
+// unique index above does not cover them. This keeps an admin reconnect healing
+// the single shared row (see `createConnectedChannelRow`) instead of inserting
+// duplicates the fan-out would silently ignore.
+@Index({
+  name: 'communication_channels_tenant_push_provider_uq',
+  expression:
+    `create unique index "communication_channels_tenant_push_provider_uq" on "communication_channels" ("tenant_id", "provider_key") where "channel_type" = 'push' and "user_id" is null and "deleted_at" is null`,
+})
 export class CommunicationChannel {
   [OptionalProps]?:
     | 'createdAt'
@@ -440,7 +450,7 @@ export class MessageReaction {
  * forged inbound messages: tokens that don't HMAC-verify never reach the DB
  * lookup.
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`.
  */
 @Entity({ tableName: 'channel_thread_tokens' })
 // One token row per (tenant, thread): the matcher resolves every reply to the
@@ -495,7 +505,7 @@ export class ChannelThreadToken {
  * `raw_body` is encrypted at rest via the module's `encryption.ts`
  * `defaultEncryptionMaps` entry (MIME bodies may contain PII).
  *
- * See `.ai/specs/2026-05-27-email-integration-inbound-reliability-and-threading.md`
+ * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`
  * (§ 3 Data Model).
  */
 @Entity({ tableName: 'channel_ingest_dead_letters' })

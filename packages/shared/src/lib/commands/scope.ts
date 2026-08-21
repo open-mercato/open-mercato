@@ -1,7 +1,46 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { env } from 'process'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'scope' })
+
+function buildScopeLogContext(ctx: CommandRuntimeContext) {
+  const requestInfo =
+    ctx.request && typeof ctx.request === 'object'
+      ? {
+          method: (ctx.request as Request).method ?? undefined,
+          url: (ctx.request as Request).url ?? undefined,
+        }
+      : null
+  const scope = ctx.organizationScope
+    ? {
+        selectedId: ctx.organizationScope.selectedId ?? null,
+        tenantId: ctx.organizationScope.tenantId ?? null,
+        allowedIdsCount: Array.isArray(ctx.organizationScope.allowedIds)
+          ? ctx.organizationScope.allowedIds.length
+          : null,
+        filterIdsCount: Array.isArray(ctx.organizationScope.filterIds)
+          ? ctx.organizationScope.filterIds.length
+          : null,
+      }
+    : null
+  return {
+    userId: ctx.auth?.sub ?? null,
+    actorTenantId: ctx.auth?.tenantId ?? null,
+    actorOrganizationId: ctx.auth?.orgId ?? null,
+    selectedOrganizationId: ctx.selectedOrganizationId ?? null,
+    organizationIdsCount: Array.isArray(ctx.organizationIds) ? ctx.organizationIds.length : null,
+    scope,
+    request: requestInfo,
+  }
+}
+
+function isStrictOrganizationScopeEnforced(): boolean {
+  return parseBooleanWithDefault(env.OM_ENFORCE_ORG_SCOPE_STRICT, false)
+}
 
 function logScopeViolation(
   ctx: CommandRuntimeContext,
@@ -9,36 +48,25 @@ function logScopeViolation(
   actual: string | null
 ): void {
   try {
-    const requestInfo =
-      ctx.request && typeof ctx.request === 'object'
-        ? {
-            method: (ctx.request as Request).method ?? undefined,
-            url: (ctx.request as Request).url ?? undefined,
-          }
-        : null
-    const scope = ctx.organizationScope
-      ? {
-          selectedId: ctx.organizationScope.selectedId ?? null,
-          tenantId: ctx.organizationScope.tenantId ?? null,
-          allowedIdsCount: Array.isArray(ctx.organizationScope.allowedIds)
-            ? ctx.organizationScope.allowedIds.length
-            : null,
-          filterIdsCount: Array.isArray(ctx.organizationScope.filterIds)
-            ? ctx.organizationScope.filterIds.length
-            : null,
-        }
-      : null
     if (env.NODE_ENV !== 'test') {
-      console.warn('[scope] Forbidden organization scope mismatch detected', {
+      logger.warn('Forbidden organization scope mismatch detected', {
         expectedId: expected,
         actualId: actual,
-        userId: ctx.auth?.sub ?? null,
-        actorTenantId: ctx.auth?.tenantId ?? null,
-        actorOrganizationId: ctx.auth?.orgId ?? null,
-        selectedOrganizationId: ctx.selectedOrganizationId ?? null,
-        organizationIdsCount: Array.isArray(ctx.organizationIds) ? ctx.organizationIds.length : null,
-        scope,
-        request: requestInfo,
+        ...buildScopeLogContext(ctx),
+      })
+    }
+  } catch {
+    // best-effort logging
+  }
+}
+
+function logUnscopedOrganizationAccess(ctx: CommandRuntimeContext, organizationId: string): void {
+  try {
+    if (env.NODE_ENV !== 'test') {
+      logger.warn('Unscoped organization command executed without organization context', {
+        targetOrganizationId: organizationId,
+        strictEnforcement: isStrictOrganizationScopeEnforced(),
+        ...buildScopeLogContext(ctx),
       })
     }
   } catch {
@@ -52,36 +80,11 @@ function logTenantScopeViolation(
   actualTenantId: string | null
 ): void {
   try {
-    const requestInfo =
-      ctx.request && typeof ctx.request === 'object'
-        ? {
-            method: (ctx.request as Request).method ?? undefined,
-            url: (ctx.request as Request).url ?? undefined,
-          }
-        : null
-    const scope = ctx.organizationScope
-      ? {
-          selectedId: ctx.organizationScope.selectedId ?? null,
-          tenantId: ctx.organizationScope.tenantId ?? null,
-          allowedIdsCount: Array.isArray(ctx.organizationScope.allowedIds)
-            ? ctx.organizationScope.allowedIds.length
-            : null,
-          filterIdsCount: Array.isArray(ctx.organizationScope.filterIds)
-            ? ctx.organizationScope.filterIds.length
-            : null,
-        }
-      : null
     if (env.NODE_ENV !== 'test') {
-      console.warn('[scope] Forbidden tenant scope mismatch detected', {
+      logger.warn('Forbidden tenant scope mismatch detected', {
         expectedTenantId,
         actualTenantId,
-        userId: ctx.auth?.sub ?? null,
-        actorTenantId: ctx.auth?.tenantId ?? null,
-        actorOrganizationId: ctx.auth?.orgId ?? null,
-        selectedOrganizationId: ctx.selectedOrganizationId ?? null,
-        organizationIdsCount: Array.isArray(ctx.organizationIds) ? ctx.organizationIds.length : null,
-        scope,
-        request: requestInfo,
+        ...buildScopeLogContext(ctx),
       })
     }
   } catch {
@@ -100,11 +103,32 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
   if (!scope) {
     if (isSuperAdmin) return
     const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-    if (currentOrg && currentOrg !== organizationId) {
-      logScopeViolation(ctx, organizationId, currentOrg)
-      throw new CrudHttpError(403, { error: 'Forbidden' })
+    if (currentOrg) {
+      if (currentOrg !== organizationId) {
+        logScopeViolation(ctx, organizationId, currentOrg)
+        throw new CrudHttpError(403, { error: 'Forbidden' })
+      }
+      return
+    }
+    // No current org could be resolved either. This branch previously returned
+    // with no validation and no signal — a fail-open-by-omission shape (#2441):
+    // a new command path reaching here with `organizationScope: null` would act
+    // on an arbitrary target org silently. Preserve the legacy allow behavior by
+    // default (the path is load-bearing) but make the unscoped access observable,
+    // and let operators harden it into a deny via OM_ENFORCE_ORG_SCOPE_STRICT.
+    if (organizationId) {
+      logUnscopedOrganizationAccess(ctx, organizationId)
+      if (isStrictOrganizationScopeEnforced()) {
+        throw new CrudHttpError(403, { error: 'Forbidden' })
+      }
     }
     return
+  }
+
+  if (!scope.tenantId && organizationId && ctx.auth && !isSuperAdmin) {
+    const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+    logScopeViolation(ctx, organizationId, currentOrg)
+    throw new CrudHttpError(403, { error: 'Forbidden' })
   }
 
   if (
@@ -123,8 +147,16 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
 }
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
   const currentTenant = ctx.auth?.tenantId ?? null
-  if (currentTenant && currentTenant !== tenantId) {
+  if (!currentTenant) {
+    if (tenantId && ctx.auth && !isSuperAdmin) {
+      logTenantScopeViolation(ctx, tenantId, currentTenant)
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    }
+    return
+  }
+  if (currentTenant !== tenantId) {
     logTenantScopeViolation(ctx, tenantId, currentTenant)
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }

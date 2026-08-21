@@ -23,6 +23,9 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { resolveIsSuperAdmin, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 type SerializedRole = {
   name: string
@@ -51,6 +54,22 @@ type RoleSnapshots = {
   undo: RoleUndoSnapshot
 }
 
+function resolveActorTenantScope(ctx: CommandRuntimeContext): string | null {
+  if (ctx.systemActor === true) return null
+  const auth = ctx.auth
+  if (!auth) return null
+  if ((auth as { isSuperAdmin?: boolean }).isSuperAdmin === true) return null
+  return normalizeTenantId(auth.tenantId ?? null) ?? null
+}
+
+function assertRoleTenantInScope(actorTenantScope: string | null, targetTenantId: unknown): void {
+  if (!actorTenantScope) return
+  const targetTenant = normalizeTenantId(targetTenantId) ?? null
+  if (!targetTenant || targetTenant !== actorTenantScope) {
+    throw new CrudHttpError(404, { error: 'Role not found' })
+  }
+}
+
 const RESERVED_ROLE_NAMES = new Set(['superadmin', 'admin'])
 
 function isReservedRoleName(name: string | undefined | null): boolean {
@@ -63,6 +82,22 @@ function assertRoleNameAllowed(name: string | undefined | null) {
   if (isReservedRoleName(name)) {
     throw new CrudHttpError(400, { error: 'Role name is reserved' })
   }
+}
+
+type ResolvedActorScope = { isSuperAdmin: boolean; actorTenantId: string | null }
+
+async function resolveActorScope(ctx: { auth: { tenantId?: string | null; sub?: string | null; orgId?: string | null; isSuperAdmin?: boolean } | null; container: { resolve<T = unknown>(name: string): T } }): Promise<ResolvedActorScope> {
+  const isSuperAdmin = await resolveIsSuperAdmin(ctx)
+  const actorTenantId = normalizeTenantId(ctx.auth?.tenantId ?? null) ?? null
+  return { isSuperAdmin, actorTenantId }
+}
+
+function buildScopedRoleFilter(roleId: string, scope: ResolvedActorScope): FilterQuery<Role> {
+  const filter: FilterQuery<Role> = { id: roleId, deletedAt: null }
+  if (!scope.isSuperAdmin) {
+    ;(filter as Record<string, unknown>).tenantId = scope.actorTenantId
+  }
+  return filter
 }
 
 const createSchema = z.object({
@@ -109,7 +144,14 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     }
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     assertRoleNameAllowed(parsed.name)
-    const resolvedTenantId = parsed.tenantId ?? ctx.auth?.tenantId ?? null
+    const scope = await resolveActorScope(ctx)
+    const requestedTenantId = parsed.tenantId ?? null
+    if (!scope.isSuperAdmin && requestedTenantId && requestedTenantId !== scope.actorTenantId) {
+      throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
+    }
+    const resolvedTenantId = scope.isSuperAdmin
+      ? (requestedTenantId ?? scope.actorTenantId)
+      : scope.actorTenantId
     if (!resolvedTenantId) {
       throw new CrudHttpError(400, { error: 'tenantId is required — global roles are not supported' })
     }
@@ -203,6 +245,56 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       soft: false,
     })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<RoleUndoSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for role create' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    let role = await findOneWithDecryption(em, Role, { id: after.id }, {}, { tenantId: null, organizationId: null })
+    if (role) {
+      role.deletedAt = null
+      role.name = after.name
+      role.tenantId = after.tenantId
+      await em.flush()
+    } else {
+      role = await de.createOrmEntity({
+        entity: Role,
+        data: {
+          id: after.id,
+          name: after.name,
+          tenantId: after.tenantId,
+        },
+      })
+    }
+    await restoreRoleAcls(em, after.id, after.acls)
+    if (after.custom && Object.keys(after.custom).length) {
+      const reset = buildCustomFieldResetMap(after.custom, undefined)
+      if (Object.keys(reset).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.role,
+          recordId: after.id,
+          organizationId: null,
+          tenantId: after.tenantId ?? null,
+          values: reset,
+          notify: false,
+        })
+      }
+    }
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: role,
+      identifiers: {
+        id: after.id,
+        organizationId: null,
+        tenantId: after.tenantId ?? null,
+      },
+      events: roleCrudEvents,
+      indexer: roleCrudIndexer,
+    })
+    return role
+  },
 }
 
 const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
@@ -210,8 +302,10 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    const scope = await resolveActorScope(ctx)
+    const existing = await findOneWithDecryption(em, Role, buildScopedRoleFilter(parsed.id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Role not found' })
+    assertRoleTenantInScope(resolveActorTenantScope(ctx), existing.tenantId)
     const acls = await loadRoleAclSnapshots(em, parsed.id)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
@@ -223,8 +317,11 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const current = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    const scope = await resolveActorScope(ctx)
+    const current = await findOneWithDecryption(em, Role, buildScopedRoleFilter(parsed.id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    assertRoleTenantInScope(actorTenantScope, current.tenantId)
     if (parsed.name !== undefined) {
       const nextName = parsed.name
       if (nextName !== current.name) assertRoleNameAllowed(nextName)
@@ -237,6 +334,9 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     }
     const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
     if (wantsTenantChange) {
+      if (!scope.isSuperAdmin) {
+        throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
+      }
       const assignments = await em.count(UserRole, { role: current, deletedAt: null })
       if (assignments > 0) {
         throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
@@ -246,10 +346,10 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.updateOrmEntity({
       entity: Role,
-      where: { id: parsed.id, deletedAt: null } as FilterQuery<Role>,
+      where: buildScopedRoleFilter(parsed.id, scope),
       apply: (entity) => {
         if (parsed.name !== undefined) entity.name = parsed.name
-        if (parsed.tenantId !== undefined) entity.tenantId = parsed.tenantId
+        if (parsed.tenantId !== undefined && scope.isSuperAdmin) entity.tenantId = parsed.tenantId
       },
     })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -372,8 +472,14 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async prepare(input, ctx) {
     const id = requireId(input, 'Role id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await findOneWithDecryption(em, Role, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    const scope = await resolveActorScope(ctx)
+    const existing = await findOneWithDecryption(em, Role, buildScopedRoleFilter(id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!existing) return {}
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    if (actorTenantScope) {
+      const targetTenant = normalizeTenantId(existing.tenantId) ?? null
+      if (!targetTenant || targetTenant !== actorTenantScope) return {}
+    }
     const acls = await loadRoleAclSnapshots(em, id)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
@@ -385,8 +491,10 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async execute(input, ctx) {
     const id = requireId(input, 'Role id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const role = await findOneWithDecryption(em, Role, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    const scope = await resolveActorScope(ctx)
+    const role = await findOneWithDecryption(em, Role, buildScopedRoleFilter(id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
+    assertRoleTenantInScope(resolveActorTenantScope(ctx), role.tenantId)
     const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
     if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
 
@@ -395,7 +503,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const deleted = await de.deleteOrmEntity({
       entity: Role,
-      where: { id, deletedAt: null } as FilterQuery<Role>,
+      where: buildScopedRoleFilter(id, scope),
       soft: false,
     })
     if (!deleted) throw new CrudHttpError(404, { error: 'Role not found' })

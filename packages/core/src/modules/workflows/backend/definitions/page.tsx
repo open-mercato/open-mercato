@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -25,6 +26,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Trash2 } from 'lucide-react'
 
 type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
@@ -60,6 +62,7 @@ type DefinitionsResponse = {
     limit: number
     offset: number
     hasMore: boolean
+    totalIsCapped?: boolean
   }
 }
 
@@ -84,6 +87,7 @@ export default function WorkflowDefinitionsListPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -117,6 +121,7 @@ export default function WorkflowDefinitionsListPage() {
         setTotal(response.pagination.total || 0)
         const calculatedPages = Math.ceil((response.pagination.total || 0) / pageSize)
         setTotalPages(calculatedPages || 1)
+        setTotalIsCapped(response.pagination?.totalIsCapped === true)
       }
 
       return response?.data || []
@@ -152,20 +157,29 @@ export default function WorkflowDefinitionsListPage() {
     setDeleteTarget(null)
   }
 
-  const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
-    const result = await apiCall(`/api/workflows/definitions/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        enabled: !currentEnabled,
+  const handleToggleEnabled = async (id: string, currentEnabled: boolean, updatedAt: string | null) => {
+    const result = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(updatedAt),
+      () => apiCall(`/api/workflows/definitions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: !currentEnabled,
+        }),
       }),
-    })
+    )
 
     if (result.ok) {
       flash(t('workflows.messages.updated'), 'success')
       queryClient.invalidateQueries({ queryKey: ['workflow-definitions'] })
     } else {
-      flash(t('workflows.messages.updateFailed'), 'error')
+      const conflictError = Object.assign(new Error(t('workflows.messages.updateFailed')), {
+        status: result.status,
+        ...(result.result && typeof result.result === 'object' ? result.result : {}),
+      })
+      if (!surfaceRecordConflict(conflictError, t)) {
+        flash(t('workflows.messages.updateFailed'), 'error')
+      }
     }
   }
 
@@ -266,12 +280,12 @@ export default function WorkflowDefinitionsListPage() {
             )}
           </div>
           {row.original.description && (
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-muted-foreground">
               {row.original.description}
             </div>
           )}
           {row.original.metadata?.category && (
-            <div className="text-xs text-gray-400 mt-0.5">
+            <div className="text-xs text-muted-foreground mt-0.5">
               {row.original.metadata.category}
             </div>
           )}
@@ -295,11 +309,11 @@ export default function WorkflowDefinitionsListPage() {
       accessorKey: 'enabled',
       cell: ({ row }) => (
         <button
-          onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
+          onClick={() => handleToggleEnabled(row.original.id, row.original.enabled, row.original.updatedAt)}
           className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium cursor-pointer ${
             row.original.enabled
-              ? 'bg-green-100 text-green-800 hover:bg-green-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-status-success-bg text-status-success-text hover:bg-status-success-border'
+              : 'bg-status-neutral-bg text-status-neutral-text hover:bg-status-neutral-border'
           }`}
           title={t('workflows.actions.toggleEnabled')}
         >
@@ -312,7 +326,7 @@ export default function WorkflowDefinitionsListPage() {
       header: t('workflows.fields.tags'),
       cell: ({ row }) => {
         const tags = row.original.metadata?.tags || []
-        if (tags.length === 0) return <span className="text-gray-400">-</span>
+        if (tags.length === 0) return <span className="text-muted-foreground">-</span>
         return (
           <div className="flex flex-wrap gap-1">
             {tags.slice(0, 2).map((tag, idx) => (
@@ -333,7 +347,7 @@ export default function WorkflowDefinitionsListPage() {
       accessorKey: 'createdAt',
       cell: ({ row }) => {
         const date = new Date(row.original.createdAt)
-        return <span className="text-sm text-gray-600">{date.toLocaleDateString()}</span>
+        return <span className="text-sm text-muted-foreground">{date.toLocaleDateString()}</span>
       },
     },
     {
@@ -355,7 +369,7 @@ export default function WorkflowDefinitionsListPage() {
           ...(!isCodeOnly ? [{
             id: row.original.enabled ? 'disable' : 'enable',
             label: row.original.enabled ? t('common.disable') : t('common.enable'),
-            onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
+            onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled, row.original.updatedAt),
           }] : []),
           ...(!isCodeOnly ? [{
             id: 'duplicate',
@@ -419,9 +433,16 @@ export default function WorkflowDefinitionsListPage() {
           onFiltersClear={handleFiltersClear}
           onRowClick={(row) => router.push(`/backend/definitions/visual-editor?id=${row.id}`)}
           perspective={{
-            tableId: 'workflows.definitions.list',
+            tableId: extensionPoints.hosts.definitionsTable.tableId,
           }}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('workflows.list.title')}
+              createHref="/backend/definitions/create"
+              createLabel={t('workflows.actions.create')}
+            />
+          )}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
         <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
           <DialogContent className="sm:max-w-md">
@@ -435,7 +456,7 @@ export default function WorkflowDefinitionsListPage() {
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="destructive" onClick={confirmDelete}>
+              <Button variant="destructive-solid" onClick={confirmDelete}>
                 <Trash2/>
                 {t('common.delete')}
               </Button>

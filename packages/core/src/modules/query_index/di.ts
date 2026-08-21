@@ -1,16 +1,113 @@
-import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import { HybridQueryEngine } from './lib/engine'
-import { markDeleted } from './lib/indexer'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { VectorIndexService } from '@open-mercato/search/vector'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
+import { HybridQueryEngine } from './lib/engine'
+import {
+  loadQueryIndexRowScope,
+  QueryIndexScopeError,
+  resolveQueryIndexRecordScope,
+  resolveQueryIndexSourceMetadata,
+} from './lib/subscriber-scope'
 
-function toEntityTypeFromEvent(event: string): string | null {
-  // Expect '<module>.<entity>.<action>'
-  const parts = event.split('.')
-  if (parts.length !== 3) return null
-  const [mod, ent] = parts
-  return `${mod}:${ent}`
+const logger = createLogger('query_index').child({ component: 'crud-bridge' })
+
+function hasOwn(value: unknown, key: string): boolean {
+  return !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function readScopeValue(
+  source: unknown,
+  keys: string[],
+): { value: string | null | undefined; present: boolean } {
+  const sourceRecord = source && typeof source === 'object' ? source as Record<string, unknown> : {}
+  const key = keys.find((candidate) => hasOwn(source, candidate))
+  if (!key) return { value: undefined, present: false }
+  const value = sourceRecord[key]
+  if (value === null) return { value: null, present: true }
+  if (typeof value === 'string' && value.trim().length > 0) return { value, present: true }
+  return { value: undefined, present: false }
+}
+
+async function resolveBridgeRecordScope(
+  em: EntityManager,
+  entityType: string,
+  recordId: string,
+  payload: unknown,
+  action: 'upsert' | 'delete',
+  options?: { validateCompletePayload?: boolean },
+) {
+  let organization = readScopeValue(payload, ['organizationId', 'orgId'])
+  let tenant = readScopeValue(payload, ['tenantId'])
+  if (organization.present && tenant.present && options?.validateCompletePayload !== true) {
+    return {
+      organizationId: organization.value ?? null,
+      tenantId: tenant.value ?? null,
+      sourceValidated: false,
+    }
+  }
+  const source = resolveQueryIndexSourceMetadata(em, entityType)
+  const sourceScope = await loadQueryIndexRowScope(em, source, recordId)
+
+  if (sourceScope.kind === 'global') {
+    if (!organization.present) organization = { value: null, present: true }
+    if (!tenant.present) tenant = { value: null, present: true }
+  } else if (sourceScope.kind === 'missing' && action === 'upsert') {
+    throw new QueryIndexScopeError(
+      'Query index upsert event source row scope could not be resolved',
+    )
+  }
+
+  const resolvedScope = resolveQueryIndexRecordScope({
+    payloadOrganizationId: organization.value,
+    payloadTenantId: tenant.value,
+    hasPayloadOrganizationId: organization.present,
+    hasPayloadTenantId: tenant.present,
+    sourceScope,
+  })
+  return { ...resolvedScope, sourceValidated: true }
+}
+
+async function recordBridgeError(input: {
+  em: EntityManager | null
+  handler: 'upsert' | 'delete'
+  error: unknown
+  entityType: string
+  recordId: string
+  payload: unknown
+}): Promise<void> {
+  const handler = `event:query_index.crud_bridge.${input.handler}`
+  if (!input.em) {
+    logger.error('CRUD bridge event failed before the entity manager was resolved', {
+      handler,
+      entityType: input.entityType,
+      recordId: input.recordId,
+      err: input.error,
+    })
+    return
+  }
+  await recordIndexerError(
+    { em: input.em },
+    {
+      source: 'query_index',
+      handler,
+      error: input.error,
+      entityType: input.entityType,
+      recordId: input.recordId,
+      payload: input.payload,
+    },
+  ).catch((loggingError) => {
+    logger.error('Failed to record CRUD bridge error', {
+      handler,
+      entityType: input.entityType,
+      recordId: input.recordId,
+      err: loggingError,
+    })
+  })
 }
 
 export function register(container: AppContainer) {
@@ -64,26 +161,25 @@ export function register(container: AppContainer) {
     if (!bus) { setTimeout(setup, 0); return }
 
     const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
+      let em: EntityManager | null = null
+      let id = ''
       try {
-        const em = ctx.resolve('em')
-        let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
-        let tenantId = payload?.tenantId || ctx?.tenantId || null
-        const id = String(payload?.id || payload?.recordId || '')
+        // DataEngine emits the canonical query_index.upsert_one itself. The
+        // bridge only covers domain events from write paths that do not own an
+        // indexer, otherwise failures and error logs are duplicated.
+        if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
+        em = ctx.resolve('em') as EntityManager
+        id = String(payload?.id || payload?.recordId || '')
         if (!id) return
-        if (!orgId || !tenantId) {
-          try {
-            const db = (em as any).getKysely()
-            const table = resolveEntityTableName(em, entityType)
-            const row = await db
-              .selectFrom(table as any)
-              .select(['organization_id' as any, 'tenant_id' as any])
-              .where('id' as any, '=', id)
-              .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
-            orgId = row?.organization_id ?? orgId
-            tenantId = row?.tenant_id ?? tenantId
-          } catch {}
-        }
+        const { organizationId: orgId, tenantId, sourceValidated } = await resolveBridgeRecordScope(
+          em,
+          entityType,
+          id,
+          payload,
+          'upsert',
+        )
         // Optional: only index when custom field definitions exist for this entity (org/global)
+        let hasCustomFields: boolean | null = null
         try {
           const db = (em as any).getKysely()
           let cfQuery = db
@@ -107,40 +203,47 @@ export function register(container: AppContainer) {
           } else {
             cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
           }
-          const hasCf = await cfQuery.executeTakeFirst()
-          if (!hasCf) return
+          hasCustomFields = !!await cfQuery.executeTakeFirst()
         } catch {}
-        try {
-          const bus = ctx.resolve('eventBus') as any
-          await bus.emitEvent('query_index.upsert_one', { entityType, recordId: id, organizationId: orgId, tenantId })
-        } catch {}
-      } catch {}
+        if (hasCustomFields === false) {
+          if (!sourceValidated) {
+            await resolveBridgeRecordScope(
+              em,
+              entityType,
+              id,
+              payload,
+              'upsert',
+              { validateCompletePayload: true },
+            )
+          }
+          return
+        }
+        const bus = ctx.resolve('eventBus') as any
+        await bus.emitEvent('query_index.upsert_one', { entityType, recordId: id, organizationId: orgId, tenantId })
+      } catch (error) {
+        await recordBridgeError({ em, handler: 'upsert', error, entityType, recordId: id, payload })
+      }
     }
     const makeDeleteHandler = (entityType: string) => async (payload: any, ctx: any) => {
+      let em: EntityManager | null = null
+      let id = ''
       try {
-        const em = ctx.resolve('em')
-        let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
-        let tenantId = payload?.tenantId || ctx?.tenantId || null
-        const id = String(payload?.id || payload?.recordId || '')
+        if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
+        em = ctx.resolve('em') as EntityManager
+        id = String(payload?.id || payload?.recordId || '')
         if (!id) return
-        if (!orgId || !tenantId) {
-          try {
-            const db = (em as any).getKysely()
-            const table = resolveEntityTableName(em, entityType)
-            const row = await db
-              .selectFrom(table as any)
-              .select(['organization_id' as any, 'tenant_id' as any])
-              .where('id' as any, '=', id)
-              .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
-            orgId = row?.organization_id ?? orgId
-            tenantId = row?.tenant_id ?? tenantId
-          } catch {}
-        }
-        try {
-          const bus = ctx.resolve('eventBus') as any
-          await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })
-        } catch {}
-      } catch {}
+        const { organizationId: orgId, tenantId } = await resolveBridgeRecordScope(
+          em,
+          entityType,
+          id,
+          payload,
+          'delete',
+        )
+        const bus = ctx.resolve('eventBus') as any
+        await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })
+      } catch (error) {
+        await recordBridgeError({ em, handler: 'delete', error, entityType, recordId: id, payload })
+      }
     }
 
     // Build list of entity ids to subscribe to
@@ -162,9 +265,9 @@ export function register(container: AppContainer) {
             for (const entityType of Array.from(new Set(ids))) {
               const [mod, ent] = entityType.split(':')
               if (!mod || !ent) continue
-              bus.on(`${mod}.${ent}.created`, makeUpsertHandler(entityType))
-              bus.on(`${mod}.${ent}.updated`, makeUpsertHandler(entityType))
-              bus.on(`${mod}.${ent}.deleted`, makeDeleteHandler(entityType))
+              bus.on(`${mod}.${ent}.created`, makeUpsertHandler(entityType), { moduleId: 'query_index' })
+              bus.on(`${mod}.${ent}.updated`, makeUpsertHandler(entityType), { moduleId: 'query_index' })
+              bus.on(`${mod}.${ent}.deleted`, makeDeleteHandler(entityType), { moduleId: 'query_index' })
             }
           }
           if (cfEntityIds.length > 0) {

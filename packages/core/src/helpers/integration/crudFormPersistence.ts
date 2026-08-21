@@ -68,10 +68,10 @@ export type CrudFormExpectation = {
 export type CrudFormRoundTripConfig = {
   request: APIRequestContext;
   token: string;
-  /** Collection route handling POST/PUT/DELETE and a `?id=` list GET, e.g. `/api/currencies/currencies`. */
+  /** Collection route handling POST (and, without `recordPath`, the collection-style PUT/DELETE and `?id=` list GET), e.g. `/api/currencies/currencies`. */
   collectionPath: string;
   create: { payload: CrudRecord; expectedStatus?: number };
-  /** Build the PUT body from the created id. MUST include the id the route expects. */
+  /** Build the PUT body from the created id. For makeCrud collection routes include the id the route expects; for `recordPath` (detail) routes the id is taken from the path. */
   update: { payload: (id: string) => CrudRecord; expectedStatus?: number };
   expectAfterCreate: CrudFormExpectation;
   expectAfterUpdate: CrudFormExpectation;
@@ -79,6 +79,14 @@ export type CrudFormRoundTripConfig = {
   idFromCreate?: (body: CrudRecord) => string;
   /** Override read-back (default: list `?id=` and match on `id`). Useful for detail-GET routes. */
   readById?: (id: string) => Promise<CrudRecord | null>;
+  /**
+   * For hand-written detail routes (Tier B) where update + delete target `<collection>/:id`
+   * (id in the path) instead of the makeCrud collection verbs (`PUT <collection>` with the id in
+   * the body, `DELETE <collection>?id=`). When provided, the update PUT and the cleanup DELETE both
+   * use `recordPath(id)` verbatim (no `?id=` is appended); read-back still goes through `readById`.
+   * Defaults to the makeCrud collection-verb behavior so existing specs are unaffected.
+   */
+  recordPath?: (id: string) => string;
   /** Delete the fixture in `finally` (default true). */
   cleanup?: boolean;
 };
@@ -138,7 +146,8 @@ export async function runCrudFormRoundTrip(config: CrudFormRoundTripConfig): Pro
       assertCustomFieldsPersisted(afterCreate as CrudRecord, config.expectAfterCreate.customFields, 'after-create');
     }
 
-    const updateResponse = await apiRequest(request, 'PUT', collectionPath, {
+    const updateUrl = config.recordPath ? config.recordPath(id) : collectionPath;
+    const updateResponse = await apiRequest(request, 'PUT', updateUrl, {
       token,
       data: config.update.payload(id),
     });
@@ -158,7 +167,10 @@ export async function runCrudFormRoundTrip(config: CrudFormRoundTripConfig): Pro
   } finally {
     if (id && config.cleanup !== false) {
       const separator = collectionPath.includes('?') ? '&' : '?';
-      await apiRequest(request, 'DELETE', `${collectionPath}${separator}id=${encodeURIComponent(id)}`, {
+      const deleteUrl = config.recordPath
+        ? config.recordPath(id)
+        : `${collectionPath}${separator}id=${encodeURIComponent(id)}`;
+      await apiRequest(request, 'DELETE', deleteUrl, {
         token,
       }).catch(() => undefined);
     }

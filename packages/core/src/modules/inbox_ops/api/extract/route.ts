@@ -4,6 +4,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { InboxEmail } from '../../data/entities'
 import { emitInboxOpsEvent } from '../../events'
 import { resolveRequestContext, handleRouteError } from '../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'extract' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.manage'] },
@@ -67,9 +70,13 @@ export async function POST(req: Request) {
         organizationId: ctx.organizationId,
         forwardedByAddress: submitterEmail,
         subject: title || 'Text extraction',
+      }, {
+        persistent: true,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:extract] Failed to emit email.received event:', eventError)
+      logger.error('Failed to emit email.received event', { err: eventError })
     }
 
     return NextResponse.json({ ok: true, emailId: email.id })

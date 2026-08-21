@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
@@ -9,6 +10,15 @@ import type { SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
 import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
+import { normalizeRunParameters } from '../lib/run-parameters'
+import { resolveStartCursor } from '../lib/start-cursor'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('data_sync').child({ component: 'run' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['data_sync.run'] },
@@ -22,8 +32,12 @@ export const openApi = {
 export async function POST(req: Request) {
   try {
     const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth.orgId) {
+    if (!auth?.tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const organizationId = resolveActiveOrganizationId(auth)
+    if (!organizationId) {
+      return organizationScopeRequiredResponse()
     }
 
     const payload = await readJsonSafe(req)
@@ -38,7 +52,7 @@ export async function POST(req: Request) {
     const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
 
     const scope = {
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     }
 
@@ -65,6 +79,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unsupported entity type for this integration' }, { status: 422 })
     }
 
+    const normalizedParameters = normalizeRunParameters(
+      adapter.runParameters,
+      parsed.data.direction,
+      parsed.data.parameters,
+      parsed.data.entityType,
+    )
+    if (!normalizedParameters.ok) {
+      return NextResponse.json(
+        { error: 'Invalid run parameters', details: { parameters: normalizedParameters.errors } },
+        { status: 422 },
+      )
+    }
+
     const integrationEnabled = await integrationStateService.isEnabled(parsed.data.integrationId, scope)
     if (!integrationEnabled) {
       return NextResponse.json({ error: 'Integration is disabled' }, { status: 409 })
@@ -80,9 +107,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'A sync run is already in progress for this integration and entity direction' }, { status: 409 })
     }
 
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId: scope.organizationId,
+      userId: auth.sub,
+      resourceKind: 'data_sync.run',
+      resourceId: parsed.data.integrationId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsed.data,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     const cursor = parsed.data.fullSync
       ? null
-      : await syncRunService.resolveCursor(parsed.data.integrationId, parsed.data.entityType, parsed.data.direction, scope)
+      : await resolveStartCursor({
+        syncRunService,
+        adapter,
+        integrationId: parsed.data.integrationId,
+        entityType: parsed.data.entityType,
+        direction: parsed.data.direction,
+        scope,
+      })
 
     const { run, progressJob } = await startDataSyncRun({
       syncRunService,
@@ -98,16 +147,33 @@ export async function POST(req: Request) {
         cursor,
         triggeredBy: parsed.data.triggeredBy ?? auth.sub,
         batchSize: parsed.data.batchSize,
+        parameters: Object.keys(normalizedParameters.values).length > 0
+          ? normalizedParameters.values
+          : null,
       },
     })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: scope.organizationId,
+        userId: auth.sub,
+        resourceKind: 'data_sync.run',
+        resourceId: run.id,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     return NextResponse.json({ id: run.id, progressJobId: progressJob?.id ?? null }, { status: 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const stack = error instanceof Error ? error.stack : undefined
-    console.error('[data_sync.run] unhandled error', { message, stack })
+    logger.error('Unhandled error starting sync run', { message, stack })
     return NextResponse.json(
-      { error: 'Failed to start data sync run.', message, stack },
+      { error: 'Failed to start data sync run.' },
       { status: 500 },
     )
   }

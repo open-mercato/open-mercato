@@ -4,9 +4,10 @@
 
 | I need to... | Use this | Import |
 |---|---|---|
-| Show an error/success/warning message inline | `<Alert variant="destructive\|success\|warning\|info">` | `@open-mercato/ui/primitives/alert` |
+| Show an error/success/warning message inline | `<Alert status="error\|success\|warning\|information\|feature" style="light\|lighter\|stroke\|filled">` | `@open-mercato/ui/primitives/alert` |
 | Show a toast notification | `flash('message', 'success\|error\|warning\|info')` | `@open-mercato/ui/backend/FlashMessages` |
 | Confirm a destructive action | `useConfirmDialog()` | `@open-mercato/ui/backend/confirm-dialog` |
+| Delete/remove button anywhere | `<Button variant="destructive">` (quiet: red text + border, white surface) | `@open-mercato/ui/primitives/button` |
 | Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` | `@open-mercato/ui/primitives/status-badge` |
 | Wrap a form field with label + error | `<FormField label="..." error={...}>` | `@open-mercato/ui/primitives/form-field` |
 | Build a section header with count + action | `<SectionHeader title="..." count={n} action={...}>` | `@open-mercato/ui/backend/SectionHeader` |
@@ -126,22 +127,31 @@ type SectionHeaderProps = {
 
 ## Alert
 
-Inline feedback messages. Replaces deprecated `Notice` component.
+Inline feedback messages, toasts, and notifications — one primitive, Figma-aligned matrix API. Replaced deprecated `Notice`/`ErrorNotice` (migration complete, guard-tested).
 
-**Variants:** `default`, `destructive` (error), `success`, `warning`, `info`
+**API:** `status="information|success|warning|error|feature"` × `style="light|lighter|stroke|filled"` × `size="xs|sm|default"` + `showIcon` / `icon` / `dismissible` / `onDismiss` / `action`
 
 ```tsx
-<Alert variant="destructive">
-  <AlertCircle className="h-4 w-4" />
-  <AlertTitle>Error</AlertTitle>
-  <AlertDescription>Something went wrong.</AlertDescription>
+// Inline error with title + body (step up to size="default" for multi-line)
+<Alert status="error" size="default">
+  <AlertTitle>{t('module.error.title', 'Error')}</AlertTitle>
+  <AlertDescription>{t('module.error.body', 'Something went wrong.')}</AlertDescription>
+</Alert>
+
+// Compact success strip with inline action
+<Alert status="success" dismissible onDismiss={close} action={<LinkButton onClick={undo}>Undo</LinkButton>}>
+  {t('module.saved', 'Saved')}
 </Alert>
 ```
 
 **Rules:**
-- Use `destructive` (not `error`) — aligned with Button variant naming
-- Use composition pattern: `AlertTitle` + `AlertDescription` (not props)
-- For transient feedback, use `flash()` instead
+- The `variant` prop (`destructive`/`info`/…) is **deprecated BC** — never use it in new code; migrate opportunistically (see token-mapping.md "Legacy Alert `variant` → `status`")
+- Default `light`+`sm` fits inline strips/toasts; `lighter` = lowest emphasis; `stroke` = floating card; `filled` = high-contrast call-out
+- Leading icon is automatic per status (icon badge); override via `icon`, hide via `showIcon={false}`
+- `feature` status renders with `status-neutral-*` (Figma `state/faded`), NOT `brand-violet`
+- Use composition: `AlertTitle` + `AlertDescription` (not props)
+- For transient feedback, use `flash()` instead (it wraps Alert internally)
+- Full matrix and MUST rules: `.ai/ui-components.md` § Alert
 
 ## Badge Status Variants
 
@@ -422,3 +432,19 @@ Specialized button primitives.
 | Label | `text-sm font-medium` | Form labels |
 | Overline | `text-overline font-semibold uppercase tracking-wider` | Section labels, category tags |
 | Code | `text-sm font-mono` | Code snippets |
+
+
+## Destructive buttons — loudness policy
+
+- `variant="destructive"` is the DS **Error/Stroke** style (quiet): red text
+  and full `--destructive` border on the page surface, `hover:bg-destructive/10`.
+  Use it for EVERY delete/remove/discard action in toolbars, forms, tables and
+  dialog bodies.
+- `variant="destructive-solid"` (filled red) is reserved for the single
+  point-of-no-return confirmation button inside a confirm dialog
+  (`useConfirmDialog()` renders it automatically). Never use it for the button
+  that OPENS the confirmation, and never place two solid buttons in one footer.
+- In dialog/drawer footers the destructive action sits at the LEFT edge,
+  Cancel + primary at the right — distance is part of the safety.
+- Never hand-roll the quiet look with palette classes
+  (`text-red-600 border-red-200 hover:bg-red-50`) — that is what the variant is for.

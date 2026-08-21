@@ -82,14 +82,23 @@ export function resolveQueueStrategy(): QueueStrategyType {
  */
 export function createModuleQueue<T = unknown>(
   name: string,
-  options?: { concurrency?: number },
+  options?: Pick<
+    AsyncQueueOptions,
+    'attempts' | 'concurrency' | 'lockDuration' | 'maxStalledCount' | 'onJobAbandoned'
+  >,
 ): Queue<T> {
   const strategy = resolveQueueStrategy()
   if (strategy === 'async') {
     return createAsyncQueue<T>(name, {
       connection: { url: getRedisUrlOrThrow('QUEUE') },
       concurrency: options?.concurrency,
+      attempts: options?.attempts,
+      lockDuration: options?.lockDuration,
+      maxStalledCount: options?.maxStalledCount,
+      onJobAbandoned: options?.onJobAbandoned,
     })
   }
+  // The local strategy runs the handler in-process, so there is no queue that could outlive it and
+  // abandon a job — `onJobAbandoned` has nothing to report and is deliberately not forwarded.
   return createLocalQueue<T>(name, { concurrency: options?.concurrency })
 }

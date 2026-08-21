@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { expectOperation, undoOk, redoOk } from '@open-mercato/core/helpers/integration/undoHarness'
+import { expectOperation, undoOk, redoOk, skipIfUndoTestsDisabled } from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
  * TC-UNDO-001 — data-driven undo/redo regression across simple-CRUD config entities
@@ -53,10 +53,13 @@ function findField(body: any, id: string, field: string): unknown {
 }
 
 test.describe('TC-UNDO-001 config-entities undo/redo', () => {
+  test.setTimeout(120_000)
+
   let token: string
   let scope: { organizationId: string; tenantId: string }
 
   test.beforeAll(async ({ request }) => {
+    skipIfUndoTestsDisabled()
     token = await getAuthToken(request, 'admin')
     const orgs = (await readJsonSafe(await apiRequest(request, 'GET', '/api/directory/organizations?pageSize=5', { token }))) as any
     const org = (orgs?.items || []).find((o: any) => o.id && o.tenantId) || (orgs?.items || [])[0]

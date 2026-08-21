@@ -230,4 +230,20 @@ describe('sync_excel import route', () => {
 
     expect(response.status).toBe(404)
   })
+
+  it('does not leak the error message or stack in the 500 response (CWE-209)', async () => {
+    const internalDetail = '/srv/app/internal at sync_runs_pkey; connection tenant_secret'
+    mockStartDataSyncRun.mockRejectedValueOnce(new Error(internalDetail))
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ok: true }),
+    }))
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body).toEqual({ error: 'Failed to start sync_excel import.' })
+    expect(JSON.stringify(body)).not.toContain(internalDetail)
+  })
 })

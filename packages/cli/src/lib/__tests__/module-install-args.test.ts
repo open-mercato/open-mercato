@@ -32,4 +32,27 @@ describe('parseModuleInstallArgs', () => {
       'Unsupported option: --installed',
     )
   })
+
+  it('defaults allowThirdParty to false', () => {
+    expect(parseModuleInstallArgs(['@open-mercato/test-package'])).toMatchObject({
+      allowThirdParty: false,
+    })
+  })
+
+  it('accepts --allow-third-party as a boolean flag', () => {
+    expect(parseModuleInstallArgs(['@scope/pkg', '--allow-third-party'])).toMatchObject({
+      packageSpec: '@scope/pkg',
+      allowThirdParty: true,
+    })
+    expect(parseModuleInstallArgs(['--allow-third-party', '@scope/pkg'])).toMatchObject({
+      packageSpec: '@scope/pkg',
+      allowThirdParty: true,
+    })
+  })
+
+  it('rejects --allow-third-party values', () => {
+    expect(() => parseModuleInstallArgs(['@scope/pkg', '--allow-third-party=true'])).toThrow(
+      '--allow-third-party does not accept a value',
+    )
+  })
 })

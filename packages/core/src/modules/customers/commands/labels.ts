@@ -2,7 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -26,6 +26,7 @@ import {
   extractUndoPayload,
   resolveParentResourceKind,
 } from './shared'
+import { makeCreateRedo, resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 type LabelAssignmentSnapshot = {
   id: string
@@ -244,6 +245,20 @@ const createLabelCommand: CommandHandler<LabelCreateCommandInput, { labelId: str
       indexer: { entityType: 'customers:customer_label' },
     })
   },
+  redo: makeCreateRedo<CustomerLabel, LabelSnapshot, LabelCreateCommandInput, { labelId: string; slug: string; label: string }>({
+    entityClass: CustomerLabel,
+    seedFromSnapshot: (snapshot) => ({
+      id: snapshot.id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+      userId: snapshot.userId,
+      slug: snapshot.slug,
+      label: snapshot.label,
+    }),
+    buildResult: (entity) => ({ labelId: entity.id, slug: entity.slug, label: entity.label }),
+    events: labelCrudEvents,
+    indexer: { entityType: 'customers:customer_label' },
+  }),
 }
 
 const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId: string; created: boolean; entityKind: 'person' | 'company' | null }> = {
@@ -272,7 +287,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!label) {
-      throw new CrudHttpError(404, { error: 'Label not found' })
+      throw notFound('Label not found')
     }
 
     const entity = await findOneWithDecryption(
@@ -283,7 +298,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!entity) {
-      throw new CrudHttpError(404, { error: 'Entity not found' })
+      throw notFound('Entity not found')
     }
 
     const existing = await findOneWithDecryption(
@@ -412,6 +427,76 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       indexer: { entityType: 'customers:customer_label_assignment' },
     })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<LabelAssignmentSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for label assign' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const label = await findOneWithDecryption(
+      em,
+      CustomerLabel,
+      { id: after.labelId, tenantId: after.tenantId, organizationId: after.organizationId },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!label) {
+      throw notFound('Label not found')
+    }
+    const entity = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: after.entityId, tenantId: after.tenantId, organizationId: after.organizationId, deletedAt: null },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!entity) {
+      throw notFound('Entity not found')
+    }
+
+    let assignment = await findOneWithDecryption(
+      em,
+      CustomerLabelAssignment,
+      {
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        userId: after.userId,
+        label,
+        entity,
+      } as FilterQuery<CustomerLabelAssignment>,
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!assignment) {
+      assignment = em.create(CustomerLabelAssignment, {
+        id: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        userId: after.userId,
+        label,
+        entity,
+      })
+      em.persist(assignment)
+      await em.flush()
+    }
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: assignment,
+      identifiers: getAssignmentIdentifiers(assignment),
+      syncOrigin: ctx.syncOrigin,
+      events: labelAssignmentCrudEvents,
+      indexer: { entityType: 'customers:customer_label_assignment' },
+    })
+
+    return {
+      assignmentId: assignment.id,
+      created: true,
+      entityKind: after.entityKind,
+    }
+  },
 }
 
 const unassignLabelCommand: CommandHandler<LabelUnassignCommandInput, { assignmentId: string | null; entityKind: 'person' | 'company' | null }> = {
@@ -485,7 +570,7 @@ const unassignLabelCommand: CommandHandler<LabelUnassignCommandInput, { assignme
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!label) {
-      throw new CrudHttpError(404, { error: 'Label not found' })
+      throw notFound('Label not found')
     }
 
     const entity = await findOneWithDecryption(
@@ -496,7 +581,7 @@ const unassignLabelCommand: CommandHandler<LabelUnassignCommandInput, { assignme
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!entity) {
-      throw new CrudHttpError(404, { error: 'Entity not found' })
+      throw notFound('Entity not found')
     }
 
     const existing = await findOneWithDecryption(

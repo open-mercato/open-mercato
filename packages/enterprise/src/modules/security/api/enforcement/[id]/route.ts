@@ -2,13 +2,47 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { updateEnforcementPolicySchema } from '../../../data/validators'
+import { EnforcementScope } from '../../../data/entities'
+import type { MfaEnforcementPolicy } from '../../../data/entities'
+import type { UpdateEnforcementPolicyInput } from '../../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
 import { securityApiError } from '../../i18n'
-import { mapEnforcementError, resolveEnforcementContext } from '../_shared'
+import {
+  assertActorOwnsEnforcementScope,
+  mapEnforcementError,
+  resolveEnforcementContext,
+  type EnforcementRequestContext,
+} from '../_shared'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })
+
+function scopeIdFromPolicy(policy: {
+  scope: EnforcementScope
+  tenantId?: string | null
+  organizationId?: string | null
+}): string | null {
+  if (policy.scope === EnforcementScope.TENANT) {
+    return policy.tenantId ?? null
+  }
+  if (policy.scope === EnforcementScope.ORGANISATION) {
+    if (!policy.tenantId || !policy.organizationId) return null
+    return `${policy.tenantId}:${policy.organizationId}`
+  }
+  return null
+}
+
+async function assertActorOwnsRequestedPolicyScope(
+  context: EnforcementRequestContext,
+  current: MfaEnforcementPolicy,
+  data: UpdateEnforcementPolicyInput,
+): Promise<void> {
+  const scope = data.scope ?? current.scope
+  const tenantId = data.tenantId ?? current.tenantId ?? null
+  const organizationId = data.organizationId ?? current.organizationId ?? null
+  await assertActorOwnsEnforcementScope(context, scope, scopeIdFromPolicy({ scope, tenantId, organizationId }))
+}
 
 const okResponseSchema = z.object({
   ok: z.literal(true),
@@ -41,6 +75,13 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
   }
 
   try {
+    const policy = await requestContext.enforcementService.getPolicyById(params.data.id)
+    if (!policy) {
+      return securityApiError(404, 'Enforcement policy not found')
+    }
+    await assertActorOwnsEnforcementScope(requestContext, policy.scope, scopeIdFromPolicy(policy))
+    await assertActorOwnsRequestedPolicyScope(requestContext, policy, parsedBody.data)
+
     const commandBus = requestContext.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.enforcement.update', {
       input: {
@@ -65,6 +106,12 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   }
 
   try {
+    const policy = await requestContext.enforcementService.getPolicyById(params.data.id)
+    if (!policy) {
+      return securityApiError(404, 'Enforcement policy not found')
+    }
+    await assertActorOwnsEnforcementScope(requestContext, policy.scope, scopeIdFromPolicy(policy))
+
     const commandBus = requestContext.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.enforcement.delete', {
       input: { id: params.data.id },
@@ -92,6 +139,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid input', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'Not authorized for the requested scope', schema: securityErrorSchema },
         { status: 404, description: 'Policy not found', schema: securityErrorSchema },
         { status: 409, description: 'Conflict', schema: securityErrorSchema },
       ],
@@ -105,6 +153,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid policy id', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'Not authorized for the requested scope', schema: securityErrorSchema },
         { status: 404, description: 'Policy not found', schema: securityErrorSchema },
       ],
     },

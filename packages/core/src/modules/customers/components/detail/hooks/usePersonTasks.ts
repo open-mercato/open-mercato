@@ -7,6 +7,7 @@ import { resolveTodoApiPath } from '../utils'
 import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { CUSTOMER_INTERACTION_TASK_SOURCE } from '../../../lib/interactionCompatibility'
 
 const DEFAULT_TODO_SOURCE = CUSTOMER_INTERACTION_TASK_SOURCE
@@ -29,18 +30,22 @@ type CustomerTodoRow = {
   createdAt: string
 }
 
+// `/api/customers/todos` also reports `totalPages`, deliberately left out of
+// this type: the load-more affordance terminates on a short page instead — see
+// `hasMoreFromPage`. `total` stays because it feeds the section's count badge,
+// where an under-report is cosmetic rather than a way to strand rows.
 type CustomerTodosResponse = {
   items: CustomerTodoRow[]
   total: number
   page: number
   pageSize: number
-  totalPages: number
 }
 
 export type TaskFormPayload = {
   base: {
     title: string
     is_done?: boolean
+    status?: string
     description?: string | null
     priority?: number | null
     scheduledAt?: string | null
@@ -171,9 +176,9 @@ export function usePersonTasks({
   pageSize = 20,
 }: UsePersonTasksOptions): UsePersonTasksResult {
   const [tasks, setTasks] = React.useState<TodoLinkSummary[]>(initialTasks)
-  const [pageInfo, setPageInfo] = React.useState<{ page: number; totalPages: number; total: number }>({
+  const [pageInfo, setPageInfo] = React.useState<{ page: number; hasMore: boolean; total: number }>({
     page: 1,
-    totalPages: 1,
+    hasMore: false,
     total: initialTasks.length,
   })
   const [isInitialLoading, setIsInitialLoading] = React.useState<boolean>(() => Boolean(entityId))
@@ -186,12 +191,18 @@ export function usePersonTasks({
     const mapped = Array.isArray(payload.items) ? payload.items.map(mapRowToSummary) : []
     setPageInfo({
       page: payload.page ?? 1,
-      totalPages: payload.totalPages ?? 0,
+      // Short-page termination instead of `page < totalPages` — see
+      // `hasMoreFromPage`. `mapRowToSummary` is a 1:1 map and the `mergeUnique`
+      // dedupe happens after this, so `mapped.length` is what the server served.
+      // Measured against the page size the server echoed rather than the one
+      // requested, so a page size the endpoint narrows server-side cannot make a
+      // full page read as short and silently end the sequence.
+      hasMore: hasMoreFromPage(mapped.length, payload.pageSize ?? pageSize),
       total: payload.total ?? mapped.length,
     })
     setError(null)
     return mapped
-  }, [])
+  }, [pageSize])
 
   const fetchPage = React.useCallback(
     async (page: number): Promise<CustomerTodosResponse> => {
@@ -201,7 +212,6 @@ export function usePersonTasks({
           total: 0,
           page: 1,
           pageSize,
-          totalPages: 1,
         }
       }
       const params = new URLSearchParams({
@@ -221,7 +231,7 @@ export function usePersonTasks({
   const refresh = React.useCallback(async () => {
     if (!entityId) {
       setTasks([])
-      setPageInfo({ page: 1, totalPages: 1, total: 0 })
+      setPageInfo({ page: 1, hasMore: false, total: 0 })
       return
     }
     setIsInitialLoading(true)
@@ -241,7 +251,7 @@ export function usePersonTasks({
   const loadMore = React.useCallback(async () => {
     if (!entityId) return
     if (isLoadingMore) return
-    if (pageInfo.page >= pageInfo.totalPages) return
+    if (!pageInfo.hasMore) return
     setIsLoadingMore(true)
     try {
       const payload = await fetchPage(pageInfo.page + 1)
@@ -254,12 +264,12 @@ export function usePersonTasks({
     } finally {
       setIsLoadingMore(false)
     }
-  }, [entityId, fetchPage, isLoadingMore, mapResponse, pageInfo.page, pageInfo.totalPages])
+  }, [entityId, fetchPage, isLoadingMore, mapResponse, pageInfo.hasMore, pageInfo.page])
 
   React.useEffect(() => {
     if (!entityId) {
       setTasks([])
-      setPageInfo({ page: 1, totalPages: 1, total: 0 })
+      setPageInfo({ page: 1, hasMore: false, total: 0 })
       setError(null)
       setIsInitialLoading(false)
       return
@@ -267,7 +277,7 @@ export function usePersonTasks({
     setTasks(initialTasks)
     setPageInfo({
       page: 1,
-      totalPages: 1,
+      hasMore: false,
       total: initialTasks.length,
     })
     setError(null)
@@ -341,7 +351,7 @@ export function usePersonTasks({
         setTasks((prev) => [newTask, ...prev])
         setPageInfo((prev) => ({
           page: 1,
-          totalPages: prev.totalPages,
+          hasMore: prev.hasMore,
           total: prev.total + 1,
         }))
         await refresh()
@@ -465,7 +475,7 @@ export function usePersonTasks({
         setTasks((prev) => prev.filter((item) => item.id !== task.id))
         setPageInfo((prev) => ({
           page: prev.page,
-          totalPages: prev.totalPages,
+          hasMore: prev.hasMore,
           total: Math.max(0, prev.total - 1),
         }))
       } finally {
@@ -475,7 +485,7 @@ export function usePersonTasks({
     [],
   )
 
-  const hasMore = entityId != null && pageInfo.page < pageInfo.totalPages
+  const hasMore = entityId != null && pageInfo.hasMore
 
   return {
     tasks,

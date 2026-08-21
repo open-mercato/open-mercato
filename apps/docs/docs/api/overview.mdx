@@ -55,6 +55,7 @@ Full examples live in the [Directory service guide](./directory).
 
 - **Payload format:** JSON bodies unless the handler specifies otherwise (only `/login` expects `multipart/form-data` or `application/x-www-form-urlencoded`).
 - **Pagination:** List endpoints accept `page` (default `1`) and `pageSize` (default `50`, max `100` or `200` depending on the handler) and respond with `{ items, total, page, pageSize, totalPages }`.
+- **Exporting:** Add `format=csv|json|xml|markdown` to a list endpoint to download the result set as a file instead of a JSON page. See the [Exporting data guide](./exporting).
 - **Filtering:** Common filters include `search`, `id`, and module-specific filters such as `roleIds` or `tenantId`. Custom field filters use the `cf_<key>` convention and obey the custom field kind.
 - **Sorting:** When powered by the Query Engine, endpoints accept `sortField` and `sortDir` (`asc` or `desc`).
 - **Custom fields:** Include values under `customFields` or prefixed keys (`cf_priority`) in create/update payloads. The CRUD factory persists them automatically.
@@ -83,6 +84,7 @@ Full examples live in the [Directory service guide](./directory).
 - `GET /docs/api` opens the OpenAPI Explorer, an interactive playground generated from the live module registry. Access it from the admin UI once signed in, browse every operation, review example payloads, and paste an API token to execute authenticated requests against your chosen base URL.
 - `GET /api/docs/openapi` returns the OpenAPI 3.1 JSON document for client generation, contract testing, or syncing external tooling.
 - `GET /api/docs/markdown` serves the same specification as Markdown, ideal for quick sharing or feeding into LLM prompts.
+- Both export routes stay publicly reachable, but the access-control metadata of each operation (the `Requires features/roles` description lines and the `x-require-features` / `x-require-roles` extensions) is served only to signed-in staff callers. Anonymous clients receive the same document with those internal identifiers stripped, so the ACL feature names of your deployment are never published.
 
 ## Module Guides
 

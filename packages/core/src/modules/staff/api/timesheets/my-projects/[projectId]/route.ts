@@ -16,6 +16,9 @@ import {
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 export const metadata = {
   PATCH: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -154,7 +157,7 @@ export async function PATCH(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('staff.timesheets.my-projects.patch failed', err)
+    logger.error('staff.timesheets.my-projects.patch failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.updateMyProject', 'Failed to update project visibility.') },

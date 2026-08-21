@@ -1,17 +1,22 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/currencies/extension-points'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -37,6 +42,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function ExchangeRatesPage() {
@@ -46,11 +52,22 @@ export default function ExchangeRatesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
+  const mutationContextId = 'currencies-exchange-rates-list:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -85,6 +102,7 @@ export default function ExchangeRatesPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -109,27 +127,41 @@ export default function ExchangeRatesPage() {
       if (!confirmed) return
 
       try {
-        const call = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCall(`/api/currencies/exchange-rates`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
-          }),
-        )
-
-        if (!call.ok) {
-          flash(t('exchangeRates.flash.deleteError'), 'error')
-          return
-        }
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(row.updatedAt),
+              () => apiCall(`/api/currencies/exchange-rates`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+              }),
+            )
+            if (!call.ok) {
+              throw Object.assign(new Error('[internal] currencies.exchangeRate.delete failed'), {
+                status: call.status,
+                ...((call.result as Record<string, unknown> | null) ?? {}),
+              })
+            }
+            return call
+          },
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'currencies.exchange_rate',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id },
+        })
 
         flash(t('exchangeRates.flash.deleted'), 'success')
         setReloadToken((token) => token + 1)
       } catch (error) {
+        if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
         flash(t('exchangeRates.flash.deleteError'), 'error')
       }
     },
-    [t, confirmDialog]
+    [t, confirmDialog, mutationContextId, retryLastMutation, runMutation]
   )
 
   const columns = React.useMemo<ColumnDef<ExchangeRateRow>[]>(
@@ -175,13 +207,9 @@ export default function ExchangeRatesPage() {
           const type = row.original.type
           if (!type) return '—'
           return (
-            <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
-              type === 'buy' 
-                ? 'bg-green-100 text-green-800' 
-                : 'bg-blue-100 text-blue-800'
-            }`}>
+            <Badge variant={type === 'buy' ? 'success' : 'info'}>
               {type === 'buy' ? t('exchangeRates.list.type.buy') : t('exchangeRates.list.type.sell')}
-            </span>
+            </Badge>
           )
         },
       },
@@ -300,9 +328,16 @@ export default function ExchangeRatesPage() {
               ]}
             />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('exchangeRates.list.title')}
+              createHref="/backend/exchange-rates/create"
+              createLabel={t('exchangeRates.list.actions.create')}
+            />
+          )}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
-          perspective={{ tableId: 'exchange-rates.list' }}
+          perspective={{ tableId: extensionPoints.hosts.exchangeRatesTable.tableId }}
         />
       </PageBody>
       {ConfirmDialogElement}

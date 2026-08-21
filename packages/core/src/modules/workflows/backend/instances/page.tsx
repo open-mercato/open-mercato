@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -41,6 +42,7 @@ type InstancesResponse = {
     limit: number
     offset: number
     hasMore: boolean
+    totalIsCapped?: boolean
   }
 }
 
@@ -49,6 +51,7 @@ export default function WorkflowInstancesListPage() {
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -82,6 +85,7 @@ export default function WorkflowInstancesListPage() {
         setTotal(response.pagination.total || 0)
         const calculatedPages = Math.ceil((response.pagination.total || 0) / pageSize)
         setTotalPages(calculatedPages || 1)
+        setTotalIsCapped(response.pagination?.totalIsCapped === true)
       }
 
       return response?.data || []
@@ -147,19 +151,19 @@ export default function WorkflowInstancesListPage() {
   const getStatusBadgeClass = (status: WorkflowInstance['status']) => {
     switch (status) {
       case 'RUNNING':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-status-info-bg text-status-info-text'
       case 'PAUSED':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'bg-status-warning-bg text-status-warning-text'
       case 'COMPLETED':
-        return 'bg-green-100 text-green-800'
+        return 'bg-status-success-bg text-status-success-text'
       case 'FAILED':
-        return 'bg-red-100 text-red-800'
+        return 'bg-status-error-bg text-status-error-text'
       case 'CANCELLED':
         return 'bg-muted text-foreground'
       case 'COMPENSATING':
-        return 'bg-orange-100 text-orange-800'
+        return 'bg-status-warning-bg text-status-warning-text'
       case 'COMPENSATED':
-        return 'bg-purple-100 text-purple-800'
+        return 'bg-status-neutral-bg text-status-neutral-text'
       default:
         return 'bg-muted text-muted-foreground'
     }
@@ -267,7 +271,7 @@ export default function WorkflowInstancesListPage() {
       header: t('workflows.instances.fields.retryCount'),
       accessorKey: 'retryCount',
       cell: ({ row }) => (
-        <span className={`text-sm ${row.original.retryCount > 0 ? 'text-orange-600 font-medium' : 'text-muted-foreground'}`}>
+        <span className={`text-sm ${row.original.retryCount > 0 ? 'text-status-warning-text font-medium' : 'text-muted-foreground'}`}>
           {row.original.retryCount}
         </span>
       ),
@@ -310,7 +314,7 @@ export default function WorkflowInstancesListPage() {
       <Page>
         <PageBody>
           <div className="p-8 text-center">
-            <p className="text-red-600">{t('workflows.instances.messages.loadFailed')}</p>
+            <p className="text-status-error-text">{t('workflows.instances.messages.loadFailed')}</p>
             <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['workflow-instances'] })} className="mt-4">
               {t('common.retry')}
             </Button>
@@ -332,9 +336,9 @@ export default function WorkflowInstancesListPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{
-            tableId: 'workflows.instances.list',
+            tableId: extensionPoints.hosts.instancesTable.tableId,
           }}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}

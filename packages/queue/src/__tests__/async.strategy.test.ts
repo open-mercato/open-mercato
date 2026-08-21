@@ -6,6 +6,7 @@ const workerCtor = jest.fn()
 const queueAdd = jest.fn(async () => ({ id: 'bull-job-id' }))
 const queueClose = jest.fn(async () => {})
 const queueObliterate = jest.fn(async () => {})
+const queueGetJobs = jest.fn(async () => [])
 const queueGetJobCounts = jest.fn(async () => ({
   waiting: 2,
   active: 1,
@@ -17,6 +18,7 @@ const workerOn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
   getRedisUrlOrThrow: jest.fn(),
+  parseRedisUrl: jest.requireActual('@open-mercato/shared/lib/redis/connection').parseRedisUrl,
 }))
 
 jest.mock('bullmq', () => {
@@ -29,6 +31,7 @@ jest.mock('bullmq', () => {
     close = queueClose
     obliterate = queueObliterate
     getJobCounts = queueGetJobCounts
+    getJobs = queueGetJobs
   }
 
   class MockWorker<T> {
@@ -58,7 +61,7 @@ describe('Queue - async strategy', () => {
     getRedisUrlOrThrowMock.mockReturnValue('rediss://default:secret@example.com:6380/1')
   })
 
-  it('passes the full Redis URL to BullMQ when using env-based async config', async () => {
+  it('passes parsed Redis connection fields to BullMQ for env-based async config', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async', {
       concurrency: 3,
     })
@@ -67,19 +70,37 @@ describe('Queue - async strategy', () => {
     await queue.process(async () => {})
 
     expect(queueCtor).toHaveBeenCalledWith('test-queue', {
-      connection: { url: 'rediss://default:secret@example.com:6380/1' },
+      connection: {
+        host: 'example.com',
+        port: 6380,
+        username: 'default',
+        password: 'secret',
+        db: 1,
+        tls: {},
+        family: undefined,
+        protocol: 2,
+      },
     })
     expect(workerCtor).toHaveBeenCalledWith(
       'test-queue',
       expect.any(Function),
       {
-        connection: { url: 'rediss://default:secret@example.com:6380/1' },
+        connection: {
+          host: 'example.com',
+          port: 6380,
+          username: 'default',
+          password: 'secret',
+          db: 1,
+          tls: {},
+          family: undefined,
+          protocol: 2,
+        },
         concurrency: 3,
       },
     )
   })
 
-  it('preserves an explicit Redis URL without converting it to host/port fields', async () => {
+  it('preserves URL connection semantics when converting to BullMQ fields', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async', {
       connection: {
         url: 'rediss://user:secret@example.com:6380/4?family=6',
@@ -89,7 +110,16 @@ describe('Queue - async strategy', () => {
     await queue.enqueue({ value: 42 })
 
     expect(queueCtor).toHaveBeenCalledWith('test-queue', {
-      connection: { url: 'rediss://user:secret@example.com:6380/4?family=6' },
+      connection: {
+        host: 'example.com',
+        port: 6380,
+        username: 'user',
+        password: 'secret',
+        db: 4,
+        tls: {},
+        family: 6,
+        protocol: 2,
+      },
     })
   })
 
@@ -110,6 +140,84 @@ describe('Queue - async strategy', () => {
     )
 
     await queue.close()
+  })
+
+  it('threads queue retry, lock-duration and stalled-job options to BullMQ', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async', {
+      attempts: 5,
+      lockDuration: 120_000,
+      maxStalledCount: 10,
+    })
+
+    await queue.enqueue({ value: 42 })
+    await queue.process(async () => {})
+
+    expect(queueAdd).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ payload: { value: 42 } }),
+      expect.objectContaining({ attempts: 5 }),
+    )
+    expect(workerCtor).toHaveBeenCalledWith(
+      'test-queue',
+      expect.any(Function),
+      expect.objectContaining({ lockDuration: 120_000, maxStalledCount: 10 }),
+    )
+  })
+
+  it('leaves BullMQ on its own lock and stall defaults when the options are unset', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async', {})
+
+    await queue.process(async () => {})
+
+    const workerOptions = workerCtor.mock.calls[0]?.[2] as Record<string, unknown>
+    expect(workerOptions).not.toHaveProperty('lockDuration')
+    expect(workerOptions).not.toHaveProperty('maxStalledCount')
+  })
+
+  it('removeQueuedJobsByScope removes only queued jobs matching tenant scope', async () => {
+    const removeMatching = jest.fn(async () => {})
+    const removeAutoIndex = jest.fn(async () => {})
+    const removeOtherOrg = jest.fn(async () => {})
+    const removeOtherTenant = jest.fn(async () => {})
+    queueGetJobs.mockResolvedValueOnce([
+      {
+        data: { payload: { tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'batch-index', value: 1 } },
+        remove: removeMatching,
+      },
+      {
+        data: { payload: { tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'index', value: 2 } },
+        remove: removeAutoIndex,
+      },
+      {
+        data: { payload: { tenantId: 'tenant-1', organizationId: 'org-2', value: 2 } },
+        remove: removeOtherOrg,
+      },
+      {
+        data: { payload: { tenantId: 'tenant-2', organizationId: 'org-1', value: 3 } },
+        remove: removeOtherTenant,
+      },
+    ])
+    const queue = createQueue<{ tenantId: string; organizationId?: string | null; value: number }>(
+      'test-queue',
+      'async',
+    )
+
+    const result = await queue.removeQueuedJobsByScope!({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      jobTypes: ['batch-index'],
+    })
+
+    expect(queueGetJobs).toHaveBeenCalledWith(
+      ['waiting', 'delayed', 'prioritized', 'paused', 'waiting-children'],
+      0,
+      -1,
+    )
+    expect(result.removed).toBe(1)
+    expect(removeMatching).toHaveBeenCalledTimes(1)
+    expect(removeAutoIndex).not.toHaveBeenCalled()
+    expect(removeOtherOrg).not.toHaveBeenCalled()
+    expect(removeOtherTenant).not.toHaveBeenCalled()
   })
 
   it('keeps structured Redis options when host-based config is used', async () => {

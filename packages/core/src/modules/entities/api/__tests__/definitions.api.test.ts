@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { GET, POST } from '../definitions'
+import { DELETE, GET, POST } from '../definitions'
 
 const installCustomEntitiesFromModulesMock = jest.fn(async () => ({
   processed: 1,
@@ -9,7 +9,8 @@ const installCustomEntitiesFromModulesMock = jest.fn(async () => ({
 }))
 
 const loadEntityFieldsetConfigsMock = jest.fn(async () => new Map())
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockRbac = { userHasAllFeatures: jest.fn(), loadAcl: jest.fn() }
+const mockResolveOrganizationScopeForRequest = jest.fn(async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }))
 
 const mockEm = {
   find: jest.fn(),
@@ -40,7 +41,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }),
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
 }))
 
 jest.mock('../../lib/fieldsets', () => ({
@@ -66,6 +67,58 @@ describe('entities/definitions API', () => {
     mockEm.find.mockResolvedValue([])
     mockEm.findOne.mockResolvedValue(null)
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: ['*'], organizations: null })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({ tenantId: 'tenant-1', selectedId: 'org-1' })
+  })
+
+  it('does not expose definitions when the caller lacks Data Designer and owning-module view access', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [], organizations: null })
+    mockEm.find
+      .mockResolvedValueOnce([{
+        key: 'private_note',
+        kind: 'text',
+        entityId: 'customers:customer_person_profile',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        updatedAt: new Date(),
+        configJson: { label: 'Private note' },
+      }])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person_profile'),
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ items: [] })
+  })
+
+  it('does not expose restricted custom-entity definitions to a coarse records reader', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.loadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['entities.records.view'],
+      organizations: null,
+    })
+    mockEm.find.mockResolvedValueOnce([{
+      entityId: 'hr:salaries',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      isActive: true,
+      accessRestricted: true,
+    }])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=hr:salaries'),
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      fieldsetsByEntity: {},
+      entitySettings: {},
+    })
   })
 
   it('synchronizes module-backed definitions for requested entities when the caller can manage definitions', async () => {
@@ -144,6 +197,216 @@ describe('entities/definitions API', () => {
     expect(status?.defaultValue).toBe('customer')
     expect(isVip?.defaultValue).toBe(true)
     expect(notes?.defaultValue).toBeUndefined()
+  })
+
+  it('exposes relation targets only for relation-kind fields', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'goods',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Goods', relatedEntityId: 'custom:goods' },
+        },
+        {
+          key: 'missing_target',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Missing target', relatedEntityId: '  ' },
+        },
+        {
+          key: 'notes',
+          kind: 'text',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Notes', relatedEntityId: 'custom:goods' },
+        },
+      ])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=custom:stock_in'),
+    )
+
+    expect(response.status).toBe(200)
+    const items = (await response.json()).items as Array<Record<string, unknown>>
+    expect(items.find((item) => item.key === 'goods')?.relatedEntityId).toBe('custom:goods')
+    expect(items.find((item) => item.key === 'missing_target')?.relatedEntityId).toBeUndefined()
+    expect(items.find((item) => item.key === 'notes')?.relatedEntityId).toBeUndefined()
+  })
+
+  it('passes phone defaultCountryIso2 from configJson into the normalized response (#62)', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'work_phone',
+          kind: 'phone',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: {
+            label: 'Work phone',
+            defaultCountryIso2: 'PL',
+          },
+        },
+        {
+          key: 'mobile_phone',
+          kind: 'phone',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: {
+            label: 'Mobile phone',
+            // no defaultCountryIso2 configured
+          },
+        },
+      ])
+      .mockResolvedValueOnce([]) // tombstones
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    const items = body.items as Array<Record<string, unknown>>
+    const work = items.find((i) => i.key === 'work_phone')
+    const mobile = items.find((i) => i.key === 'mobile_phone')
+
+    expect(work?.kind).toBe('phone')
+    expect(work?.defaultCountryIso2).toBe('PL')
+    expect(mobile?.defaultCountryIso2).toBeUndefined()
+  })
+
+  it('hides inherited definitions that have a scoped tombstone', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          deletedAt: new Date('2026-06-26T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-26T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items).toEqual([])
+  })
+
+  it('does not hide inherited definitions with another organization tombstone', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          key: 'estimated_seats',
+          kind: 'integer',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: 'org-2',
+          deletedAt: new Date('2026-06-26T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-26T00:00:00.000Z'),
+          configJson: { label: 'Estimated seats' },
+        },
+      ])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockEm.find.mock.calls[1][1].$and[1].$or).toEqual([
+      { organizationId: 'org-1' },
+      { organizationId: null },
+    ])
+    const body = await response.json()
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        key: 'estimated_seats',
+        label: 'Estimated seats',
+      }),
+    ])
+  })
+
+  it('keeps public definition reads in the auth tenant when selected scope points at another tenant', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({ tenantId: 'tenant-2', selectedId: 'org-2' })
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'implementation_complexity',
+          kind: 'text',
+          entityId: 'customers:customer_person',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          configJson: { label: 'Implementation complexity' },
+        },
+      ])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('user-1', ['entities.definitions.manage'], {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(mockEm.find.mock.calls[0][1].$and[0].$or).toEqual([
+      { tenantId: 'tenant-1' },
+      { tenantId: null },
+    ])
+    expect(mockEm.find.mock.calls[0][1].$and[1].$or).toEqual([
+      { organizationId: 'org-1' },
+      { organizationId: null },
+    ])
+    const body = await response.json()
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        key: 'implementation_complexity',
+        label: 'Implementation complexity',
+      }),
+    ])
   })
 
   it('does not synchronize module-backed definitions for callers without manage permission', async () => {
@@ -304,5 +567,74 @@ describe('entities/definitions POST — defaultValue validation', () => {
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.ok).toBe(true)
+  })
+})
+
+describe('entities/definitions DELETE', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockEm.find.mockResolvedValue([])
+    mockEm.findOne.mockResolvedValue(null)
+  })
+
+  const makeDeleteRequest = (body: Record<string, unknown>) =>
+    new Request('http://x/api/entities/definitions', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  it('creates a scoped tombstone when deleting an inherited definition', async () => {
+    const inherited = {
+      entityId: 'customers:customer_deal',
+      key: 'estimated_seats',
+      kind: 'integer',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      configJson: { label: 'Estimated seats/licenses' },
+    }
+    mockEm.findOne.mockResolvedValueOnce(null)
+    mockEm.find.mockResolvedValueOnce([inherited])
+
+    const response = await DELETE(makeDeleteRequest({
+      entityId: 'customers:customer_deal',
+      key: 'estimated_seats',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entityId: 'customers:customer_deal',
+        key: 'estimated_seats',
+        kind: 'integer',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        isActive: false,
+        deletedAt: expect.any(Date),
+      }),
+    )
+    expect(mockEm.persist).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'estimated_seats',
+      isActive: false,
+      deletedAt: expect.any(Date),
+    }))
+    expect(mockEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('still returns 404 when neither scoped nor inherited definition exists', async () => {
+    mockEm.findOne.mockResolvedValueOnce(null)
+    mockEm.find.mockResolvedValueOnce([])
+
+    const response = await DELETE(makeDeleteRequest({
+      entityId: 'customers:customer_deal',
+      key: 'missing_key',
+    }))
+
+    expect(response.status).toBe(404)
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
   })
 })

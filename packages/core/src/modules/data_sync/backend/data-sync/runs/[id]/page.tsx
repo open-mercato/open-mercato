@@ -5,16 +5,31 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Progress } from '@open-mercato/ui/primitives/progress'
+import { Pagination } from '@open-mercato/ui/primitives/pagination'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { RotateCcw, XCircle } from 'lucide-react'
+import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
+import {
+  buildRetryFailureMessage,
+  resolveRunParameterText,
+  type RetryFailureBody,
+} from '../../../../components/RunParameterFields'
+
+type RunParameterDeclaration = {
+  key: string
+  label?: string
+  labelKey?: string
+}
 
 type SyncRunDetail = {
   id: string
@@ -29,6 +44,7 @@ type SyncRunDetail = {
   batchesCompleted: number
   lastError: string | null
   progressJobId: string | null
+  parameters: Record<string, unknown> | null
   progressJob: {
     id: string
     status: string
@@ -69,15 +85,6 @@ function formatEtaSeconds(seconds: number): string {
   return `${hours}h ${minutes}m`
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-800',
-  running: 'bg-blue-100 text-blue-800',
-  completed: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  cancelled: 'bg-yellow-100 text-yellow-800',
-  paused: 'bg-orange-100 text-orange-800',
-}
-
 type SyncRunDetailPageProps = {
   params?: {
     id?: string | string[]
@@ -96,11 +103,16 @@ function resolvePathnameId(pathname: string): string | undefined {
   return decodeURIComponent(runId)
 }
 
+const LOG_PAGE_SIZE = 50
+
 export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const pathname = usePathname()
   const router = useRouter()
   const runId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
   const t = useT()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'data_sync.runDetail',
+  })
 
   const [run, setRun] = React.useState<SyncRunDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -108,6 +120,14 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
+  const [logsTotal, setLogsTotal] = React.useState(0)
+  const [logsPage, setLogsPage] = React.useState(1)
+  const logsPageRef = React.useRef(1)
+  const [parameterLabels, setParameterLabels] = React.useState<Record<string, string>>({})
+  // Declarations cannot change between two refreshes of the same run, so the
+  // options list is fetched once per integration rather than on every progress
+  // event that re-reads the run.
+  const parameterLabelsIntegrationRef = React.useRef<string | null>(null)
 
   const resolveCurrentRunId = React.useCallback(() => {
     return runId ?? (
@@ -116,6 +136,26 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
         : undefined
     )
   }, [runId])
+
+  // The run row stores machine keys. Resolve the adapter's declared labels so a
+  // past run reads as "Start id" rather than "startId"; keys the adapter no
+  // longer declares keep their raw form, which keeps historical runs readable.
+  const loadParameterLabels = React.useCallback(async (integrationId: string) => {
+    if (parameterLabelsIntegrationRef.current === integrationId) return
+    parameterLabelsIntegrationRef.current = integrationId
+    const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[] }> }>(
+      '/api/data_sync/options',
+      undefined,
+      { fallback: { items: [] } },
+    )
+    const declared = (call.result?.items ?? []).find((item) => item.integrationId === integrationId)?.runParameters ?? []
+    const labels: Record<string, string> = {}
+    for (const param of declared) {
+      const resolved = resolveRunParameterText(t, param.labelKey, param.label)
+      if (resolved) labels[param.key] = resolved
+    }
+    setParameterLabels(labels)
+  }, [t])
 
   const loadRun = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
@@ -141,20 +181,27 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     }
     setRun(call.result)
     setIsLoading(false)
-  }, [resolveCurrentRunId, t])
+    if (call.result.parameters && Object.keys(call.result.parameters).length > 0) {
+      void loadParameterLabels(call.result.integrationId)
+    }
+  }, [loadParameterLabels, resolveCurrentRunId, t])
 
-  const loadLogs = React.useCallback(async () => {
+  const loadLogs = React.useCallback(async (page?: number) => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
+    const targetPage = page ?? logsPageRef.current
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ runId: currentRunId, pageSize: '50' })
-    const call = await apiCall<{ items: LogEntry[] }>(
+    const params = new URLSearchParams({ runId: currentRunId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
+    const call = await apiCall<{ items: LogEntry[]; total?: number }>(
       `/api/integrations/logs?${params.toString()}`,
       undefined,
-      { fallback: { items: [] } },
+      { fallback: { items: [], total: 0 } },
     )
     if (call.ok && call.result) {
       setLogs(call.result.items)
+      if (typeof call.result.total === 'number') setLogsTotal(call.result.total)
+      logsPageRef.current = targetPage
+      setLogsPage(targetPage)
     }
     setIsLoadingLogs(false)
   }, [resolveCurrentRunId])
@@ -220,32 +267,50 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const handleCancel = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
-    const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
-      method: 'POST',
-    }, { fallback: null })
+    const call = await runMutation({
+      // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
+        method: 'POST',
+      }, { fallback: null }),
+      mutationPayload: { runId: currentRunId },
+      context: {
+        operation: 'update',
+        actionId: 'cancel-sync-run',
+        runId: currentRunId,
+      },
+    })
     if (call.ok) {
       flash(t('data_sync.runs.detail.cancelSuccess'), 'success')
       void loadRun()
     } else {
       flash(t('data_sync.runs.detail.cancelError'), 'error')
     }
-  }, [resolveCurrentRunId, t, loadRun])
+  }, [resolveCurrentRunId, runMutation, t, loadRun])
 
   const handleRetry = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
-    const call = await apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fromBeginning: false }),
-    }, { fallback: null })
+    const call = await runMutation({
+      // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromBeginning: false }),
+      }, { fallback: null }),
+      mutationPayload: { runId: currentRunId, fromBeginning: false },
+      context: {
+        operation: 'create',
+        actionId: 'retry-sync-run',
+        runId: currentRunId,
+      },
+    })
     if (call.ok && call.result) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
-      flash(t('data_sync.runs.detail.retryError'), 'error')
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
-  }, [resolveCurrentRunId, router, t])
+  }, [resolveCurrentRunId, router, runMutation, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (isNotFound) {
@@ -284,9 +349,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
           statusBadge={(
             <div className="mt-2 flex flex-wrap gap-2">
               <Badge variant="outline">{t(`data_sync.dashboard.direction.${run.direction}`)}</Badge>
-              <Badge variant="secondary" className={STATUS_STYLES[run.status] ?? ''}>
+              <StatusBadge variant={getSyncRunStatusVariant(run.status)}>
                 {t(`data_sync.dashboard.status.${run.status}`)}
-              </Badge>
+              </StatusBadge>
               {run.triggeredBy ? <Badge variant="outline">{run.triggeredBy}</Badge> : null}
             </div>
           )}
@@ -312,9 +377,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <CardTitle>{t('data_sync.runs.detail.progress')}</CardTitle>
-              <Badge variant="secondary" className={STATUS_STYLES[progressStatus] ?? ''}>
+              <StatusBadge variant={getSyncRunStatusVariant(progressStatus)}>
                 {t(`data_sync.dashboard.status.${progressStatus}`)}
-              </Badge>
+              </StatusBadge>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -355,37 +420,57 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-green-600">{run.createdCount}</div>
+              <div className="text-2xl font-bold text-status-success-text">{run.createdCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.created')}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-blue-600">{run.updatedCount}</div>
+              <div className="text-2xl font-bold text-status-info-text">{run.updatedCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.updated')}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-gray-600">{run.skippedCount}</div>
+              <div className="text-2xl font-bold text-muted-foreground">{run.skippedCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.skipped')}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-2xl font-bold text-red-600">{run.failedCount}</div>
+              <div className="text-2xl font-bold text-status-error-text">{run.failedCount}</div>
               <p className="text-sm text-muted-foreground">{t('data_sync.runs.detail.counters.failed')}</p>
             </CardContent>
           </Card>
         </div>
 
-        {run.lastError && (
-          <Card className="border-red-200 bg-red-50">
+        {run.parameters && Object.keys(run.parameters).length > 0 ? (
+          <Card>
             <CardHeader>
-              <CardTitle className="text-red-800">{t('data_sync.runs.detail.error')}</CardTitle>
+              <CardTitle>{t('data_sync.runs.detail.parameters', 'Run parameters')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="text-sm text-red-700 whitespace-pre-wrap">{run.lastError}</pre>
+              <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {Object.entries(run.parameters).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                    <dt className="font-medium text-muted-foreground">{parameterLabels[key] ?? key}</dt>
+                    <dd className="font-mono text-foreground">
+                      {typeof value === 'boolean' ? String(value) : String(value ?? '')}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {run.lastError && (
+          <Card className="border-status-error-border bg-status-error-bg">
+            <CardHeader>
+              <CardTitle className="text-status-error-text">{t('data_sync.runs.detail.error')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre className="text-sm text-status-error-text whitespace-pre-wrap">{run.lastError}</pre>
             </CardContent>
           </Card>
         )}
@@ -406,7 +491,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   message: log.message,
                   body: log.payload ? (
                     <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border bg-card p-3 text-xs">
-                      {JSON.stringify(log.payload, null, 2)}
+                      {log.payload.kind === 'export-item-failure' && typeof log.payload.summary === 'string'
+                        ? log.payload.summary
+                        : JSON.stringify(log.payload, null, 2)}
                     </pre>
                   ) : (
                     <p className="text-sm text-muted-foreground">
@@ -415,6 +502,15 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   ),
                 }))}
                 emptyMessage={t('data_sync.runs.detail.noLogs')}
+              />
+            )}
+            {logsTotal > LOG_PAGE_SIZE && (
+              <Pagination
+                className="mt-4"
+                page={logsPage}
+                pageSize={LOG_PAGE_SIZE}
+                total={logsTotal}
+                onPageChange={(next) => { void loadLogs(next) }}
               />
             )}
           </CardContent>

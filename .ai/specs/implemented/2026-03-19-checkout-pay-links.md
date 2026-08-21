@@ -1240,6 +1240,7 @@ Customer visits /pay/[slug]
   │                                             │
   │  paymentGatewayService.createPaymentSession({│
   │    paymentId: checkoutTransaction.id,       │
+  │    idempotencyKey,                          │
   │    providerKey: link.gatewayProviderKey,    │
   │    amount, currencyCode,                    │
   │    captureMethod,                           │
@@ -1271,6 +1272,8 @@ Customer visits /pay/[slug]
   Return paymentSession                Return redirectUrl
   (render inline)                      (frontend redirects)
 ```
+
+Keyed session creation is single-flight across concurrent processes. The payment-gateway service derives a tenant-scoped operation key, atomically claims a short lease before network I/O, renews that lease while the owner is alive, and persists the winning `GatewayTransaction` on the coordination record. Followers wait for and reuse that completed transaction without imposing a shorter timeout than the provider call. A stale lease can be reclaimed after 30 seconds without a heartbeat; token-checked completion prevents the old owner from publishing a second local transaction. Provider adapters receive the same optional operation key for native idempotency (Stripe passes it as the PaymentIntent request idempotency key). Successful replay is supported for 24 hours from finalization, measured by the coordination row's `updated_at`. A tenant-scoped daily worker deletes one bounded batch of completed rows (`gateway_transaction_id IS NOT NULL`) whose finalization timestamp is strictly older than that window and queues a continuation when the batch fills; incomplete, released, and active claims are never retention-pruned. New organizations receive the schedule through `seedDefaults`, while an idempotent `payment_gateways.register-session-initialization-prune` upgrade action registers it for existing organizations. The daily cadence can retain completed rows beyond 24 hours, but replay after the supported window is best-effort until cleanup runs. Unkeyed callers preserve the pre-existing behavior.
 
 ### Gateway Event Processing
 
@@ -1851,7 +1854,7 @@ Preferred doc locations:
 | TC-CHKT-031 | Publish draft link makes it publicly accessible | Update status to `active`, `GET /api/checkout/pay/:slug` → 200 |
 | TC-CHKT-032 | Publish requires gateway provider | Attempt publish without `gatewayProviderKey` → validation error |
 | TC-CHKT-024 | Amount tampering prevention (fixed mode) | `POST /submit` with wrong amount → 422 |
-| TC-CHKT-025 | Submit replay with same `Idempotency-Key` does not create duplicate transactions | Repeat `POST /submit` with same header |
+| TC-CHKT-025 | Concurrent submit/replay with the same `Idempotency-Key` creates one provider session and reuses one gateway transaction; stale claims recover | Concurrent and repeated `POST /submit` with the same header |
 | TC-CHKT-026 | Status endpoint rejects transaction from another slug | `GET /status/:transactionId` with mismatched slug → 404 |
 | TC-CHKT-027 | Password-protected status/success page requires verified session | Access after cookie expiry → blocked |
 | TC-CHKT-028 | Payment-gateway transactions DataTable shows injected `Create Payment Link` toolbar action | Settings → Payment Transactions table |
@@ -1860,6 +1863,7 @@ Preferred doc locations:
 | TC-CHKT-031 | Pay page section wrapper/replacement handle can customize summary/help area without changing payment integrity | UMES component replacement test |
 | TC-CHKT-032 | Checkout emits webhook-ready customer-data/session-start lifecycle events only after commit | Submit flow with webhook subscriber spy |
 | TC-CHKT-033 | External webhook subscription can receive checkout success/failure automation events with stable identifiers and no secrets | `webhooks` module subscribed to `checkout.transaction.**` |
+| TC-PGWY-024 | Completed payment-session claims remain replayable through 24 hours and become cleanup-eligible only after expiry; incomplete and cross-organization rows survive | Database-backed tenant-scoped retention worker coverage around the strict replay cutoff |
 | TC-CHKT-034 | Required terms/privacy consent blocks submit when unchecked | `POST /api/checkout/pay/:slug/submit` → 422 |
 | TC-CHKT-035 | Terms/privacy links open popup with sanitized markdown content and accepted proof is stored on transaction | Public pay page + transaction detail |
 
@@ -1938,12 +1942,13 @@ Preferred doc locations:
 Phase A keeps core changes minimal, but it does introduce one **additive** contract surface in `payment_gateways`: a generic provider-descriptor registry/service/API for session settings, supported currencies, payment types, and presentation capabilities.
 
 - **Auto-discovery conventions**: additive only; new package/module files follow existing conventions
-- **Type/function contracts**: no existing public signatures need to change
+- **Type/function contracts**: `CreateSessionInput.idempotencyKey?` and `CreatePaymentSessionInput.idempotencyKey?` are additive optional fields; existing adapters and unkeyed callers remain valid
 - **Event IDs**: checkout adds new event IDs only; it consumes existing `payment_gateways.payment.*` events unchanged
-- **Gateway service**: `paymentGatewayService.createPaymentSession()` remains unchanged
+- **Gateway service**: `paymentGatewayService.createPaymentSession()` keeps its return shape and unkeyed behavior; keyed calls now single-flight and reuse the completed transaction
 - **Gateway descriptor surface**: new additive service/API only; no existing fields or routes are removed or renamed
 - **API routes**: additive only; checkout introduces new `/api/checkout/*` endpoints
-- **Database schema**: additive only; checkout introduces new checkout-owned tables/columns
+- **Database schema**: additive only; checkout introduces its checkout-owned tables/columns and `payment_gateways` adds the internal `gateway_session_initializations` coordination table
+- **Retention**: completed `gateway_session_initializations` rows have a documented 24-hour replay guarantee and are deleted only after expiry by an additive tenant-scoped queue worker and schedule; an idempotent upgrade action registers the schedule for existing organizations, and an additive partial index on `(tenant_id, organization_id, updated_at)` supports the bounded prune query without indexing incomplete claims
 - **Widget spots**: additive only; checkout adds new UMES spots and checkout-owned widgets
 
 Optional future enhancements to generic payment-source correlation in `payment_gateways` must be specified separately and follow the full deprecation / BC process if they alter existing contracts.
@@ -2042,3 +2047,9 @@ None identified.
 - Added provider-owned client renderer registration via generated `payments.client.generated.ts` from module entrypoints under `widgets/payments/client.ts(x)`
 - Added fieldset-based, customer-safe example custom fields for checkout links/templates and public pay-page rendering
 - Seeded checkout examples with richer success/cancel/error messaging and transactional email templates
+
+### 2026-07-09
+- Hardened keyed payment-session creation with tenant-scoped single-flight claims, stale-lease recovery, persisted transaction reuse, and provider-native Stripe idempotency (#4035)
+
+### 2026-08-02
+- Defined the 24-hour payment-session replay window and added tenant-scoped cleanup for expired completed initialization claims (#4861)

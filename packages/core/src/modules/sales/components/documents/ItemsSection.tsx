@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/sales/extension-points";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
@@ -22,11 +23,21 @@ import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
 import type { SalesLineRecord } from "./lineItemTypes";
-import { formatMoney, normalizeNumber } from "./lineItemUtils";
+import {
+  formatMoney,
+  normalizeNumber,
+  resolveLineDiscountDisplay,
+} from "./lineItemUtils";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import type { SalesLineUomSnapshot } from "../../lib/types";
+import { useInjectionDataWidgets } from "@open-mercato/ui/backend/injection/useInjectionDataWidgets";
+import type { InjectionColumnDefinition } from "@open-mercato/shared/modules/widgets/injection";
+import { OrderItemsInjectionContext } from "../../widgets/injection/order-items-context";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ResolvedUnitPriceReference = {
   grossPerReference: number;
@@ -107,6 +118,19 @@ function getUomFields(item: Record<string, unknown>) {
   };
 }
 
+function resolveInjectedColumnValue(
+  row: Record<string, unknown>,
+  accessorKey: string,
+): unknown {
+  const segments = accessorKey.split(".").filter(Boolean);
+  let current: unknown = row;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
 type SalesDocumentItemsSectionProps = {
   documentId: string;
   kind: "order" | "quote";
@@ -145,6 +169,22 @@ export function SalesDocumentItemsSection({
     new Map(),
   );
 
+  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+    extensionPoints.hosts.orderItemColumns.spotId,
+  );
+  const columnWidgets = kind === "order" ? allColumnWidgets : [];
+  const injectedColumns = React.useMemo<InjectionColumnDefinition[]>(() => {
+    const cols: InjectionColumnDefinition[] = [];
+    for (const widget of columnWidgets) {
+      if (!("columns" in widget)) continue;
+      for (const def of (widget as { columns?: InjectionColumnDefinition[] })
+        .columns ?? []) {
+        cols.push(def);
+      }
+    }
+    return cols;
+  }, [columnWidgets]);
+
   const resourcePath = React.useMemo(
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
     [kind],
@@ -164,7 +204,7 @@ export function SalesDocumentItemsSection({
       const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false });
       setLineStatusMap(createDictionaryMap(entries));
     } catch (err) {
-      console.error("sales.document.line-statuses.load", err);
+      logger.error('sales.document.line-statuses.load', { err });
       setLineStatusMap({});
     }
   }, []);
@@ -203,6 +243,10 @@ export function SalesDocumentItemsSection({
                     typeof (item.catalog_snapshot as Record<string, unknown>).name === "string"
                   ? (item.catalog_snapshot as Record<string, unknown>).name as string
                   : null;
+            const description =
+              typeof item.description === "string" && item.description.trim()
+                ? item.description
+                : null;
             const quantity = normalizeNumber(item.quantity, 0);
             const uomFields = getUomFields(item);
             const quantityUnit = canonicalizeUnitCode(uomFields.quantityUnit);
@@ -267,6 +311,7 @@ export function SalesDocumentItemsSection({
             const record: SalesLineRecord = {
               id,
               name,
+              description,
               productId:
                 typeof item.product_id === "string" ? item.product_id : null,
               productVariantId:
@@ -285,6 +330,14 @@ export function SalesDocumentItemsSection({
                     : null,
               unitPriceNet,
               unitPriceGross,
+              discountAmount: normalizeNumber(
+                item.discount_amount ?? item.discountAmount,
+                0,
+              ),
+              discountPercent: normalizeNumber(
+                item.discount_percent ?? item.discountPercent,
+                0,
+              ),
               taxRate,
               totalNet,
               totalGross,
@@ -315,7 +368,7 @@ export function SalesDocumentItemsSection({
         if (onItemsChange) onItemsChange([]);
       }
     } catch (err) {
-      console.error("sales.document.items.load", err);
+      logger.error('sales.document.items.load', { err });
       setError(t("sales.documents.items.errorLoad", "Failed to load items."));
       if (onItemsChange) onItemsChange([]);
     } finally {
@@ -364,7 +417,7 @@ export function SalesDocumentItemsSection({
         setShippedTotals(new Map());
       }
     } catch (err) {
-      console.error("sales.document.shipments.load", err);
+      logger.error('sales.document.shipments.load', { err });
       setShippedTotals(new Map());
     }
   }, [documentId, kind]);
@@ -476,7 +529,7 @@ export function SalesDocumentItemsSection({
         }
       } catch (err) {
         if (handleSectionMutationError(err, t, () => void loadItems())) return;
-        console.error("sales.document.items.delete", err);
+        logger.error('sales.document.items.delete', { err });
         const normalized = normalizeCrudServerError(err);
         const fallback = t(
           "sales.documents.items.errorDelete",
@@ -522,6 +575,11 @@ export function SalesDocumentItemsSection({
       );
     },
     [lineStatusMap, t],
+  );
+
+  const showDiscountColumn = React.useMemo(
+    () => items.some((item) => resolveLineDiscountDisplay(item) !== null),
+    [items],
   );
 
   const renderImage = (record: SalesLineRecord) => {
@@ -572,6 +630,7 @@ export function SalesDocumentItemsSection({
   };
 
   return (
+    <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
       {loading ? (
         <LoadingMessage
@@ -609,9 +668,22 @@ export function SalesDocumentItemsSection({
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.unit", "Unit price")}
                 </th>
+                {showDiscountColumn ? (
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    {t("sales.documents.items.table.discount", "Discount")}
+                  </th>
+                ) : null}
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.total", "Total")}
                 </th>
+                {injectedColumns.map((col) => (
+                  <th
+                    key={col.id}
+                    className="px-3 py-2 font-medium whitespace-nowrap"
+                  >
+                    {col.headerKey ? t(col.headerKey, col.header) : col.header}
+                  </th>
+                ))}
                 <th className="px-3 py-2 font-medium sr-only">
                   {t("sales.documents.items.table.actions", "Actions")}
                 </th>
@@ -654,6 +726,7 @@ export function SalesDocumentItemsSection({
                 const unitPriceReference = resolveUnitPriceReference(
                   item.uomSnapshot,
                 );
+                const discount = resolveLineDiscountDisplay(item);
 
                 return (
                   <tr
@@ -678,6 +751,14 @@ export function SalesDocumentItemsSection({
                           {showProductSku ? (
                             <div className="text-xs text-muted-foreground truncate">
                               {showProductSku}
+                            </div>
+                          ) : null}
+                          {item.description ? (
+                            <div
+                              className="text-xs text-muted-foreground line-clamp-2"
+                              title={item.description}
+                            >
+                              {item.description}
                             </div>
                           ) : null}
                         </div>
@@ -747,6 +828,45 @@ export function SalesDocumentItemsSection({
                         ) : null}
                       </div>
                     </td>
+                    {showDiscountColumn ? (
+                      <td className="px-3 py-3">
+                        {discount ? (
+                          <div className="flex flex-col gap-0.5">
+                            {discount.amount !== null ? (
+                              <span className="font-mono text-sm">
+                                {t(
+                                  "sales.documents.items.table.discountAmount",
+                                  "−{{value}}",
+                                  {
+                                    value: formatMoney(
+                                      discount.amount,
+                                      item.currencyCode ??
+                                        currencyCode ??
+                                        undefined,
+                                    ),
+                                  },
+                                )}
+                              </span>
+                            ) : null}
+                            {discount.percent !== null ? (
+                              <span
+                                className={
+                                  discount.amount !== null
+                                    ? "font-mono text-xs text-muted-foreground"
+                                    : "font-mono text-sm"
+                                }
+                              >
+                                {t(
+                                  "sales.documents.items.table.discountPercent",
+                                  "{{value}}%",
+                                  { value: discount.percent },
+                                )}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-3 font-semibold">
                       <div className="flex flex-col gap-0.5">
                         <span>
@@ -767,12 +887,29 @@ export function SalesDocumentItemsSection({
                         </span>
                       </div>
                     </td>
+                    {injectedColumns.map((col) => {
+                      const colValue = resolveInjectedColumnValue(
+                        item as unknown as Record<string, unknown>,
+                        col.accessorKey,
+                      );
+                      const Cell = col.cell;
+                      return (
+                        <td
+                          key={col.id}
+                          className="px-3 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {Cell ? <Cell getValue={() => colValue} /> : null}
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
+                          aria-label={t('ui.actions.edit', 'Edit')}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleEdit(item);
@@ -780,17 +917,25 @@ export function SalesDocumentItemsSection({
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDelete(item);
-                          }}
+                        <span
+                          title={kind === 'order' && items.length === 1
+                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                            : undefined}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            aria-label={t('ui.actions.delete', 'Delete')}
+                            disabled={kind === 'order' && items.length === 1}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDelete(item);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -814,6 +959,11 @@ export function SalesDocumentItemsSection({
         organizationId={resolvedOrganizationId}
         tenantId={resolvedTenantId}
         initialLine={lineForEdit}
+        shippedQuantity={
+          lineForEdit
+            ? Math.max(0, shippedTotals.get(lineForEdit.id) ?? 0)
+            : 0
+        }
         onSaved={async () => {
           await loadItems();
           emitSalesDocumentTotalsRefresh({ documentId, kind });
@@ -821,5 +971,6 @@ export function SalesDocumentItemsSection({
       />
       {ConfirmDialogElement}
     </div>
+    </OrderItemsInjectionContext.Provider>
   );
 }

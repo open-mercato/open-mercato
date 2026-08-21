@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncMapping } from '@open-mercato/core/modules/data_sync/data/entities'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 const idParamsSchema = z.object({ id: z.string().uuid() })
 
@@ -32,8 +37,12 @@ async function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: s
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const parsedParams = await resolveParams(ctx)
@@ -43,14 +52,14 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const mapping = await findOneWithDecryption(
     em,
     SyncMapping,
     {
       id: parsedParams.data.id,
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     },
     undefined,
@@ -73,8 +82,12 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const parsedParams = await resolveParams(ctx)
@@ -90,14 +103,14 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const mapping = await findOneWithDecryption(
     em,
     SyncMapping,
     {
       id: parsedParams.data.id,
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     },
     undefined,
@@ -108,8 +121,37 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Mapping not found' }, { status: 404 })
   }
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: auth.sub,
+    resourceKind: 'data_sync.mapping',
+    resourceId: mapping.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: parsedBody.data,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   mapping.mapping = parsedBody.data.mapping
   await em.flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: auth.sub,
+      resourceKind: 'data_sync.mapping',
+      resourceId: mapping.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   return NextResponse.json({
     id: mapping.id,
@@ -122,8 +164,12 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const parsedParams = await resolveParams(ctx)
@@ -133,14 +179,14 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const mapping = await findOneWithDecryption(
     em,
     SyncMapping,
     {
       id: parsedParams.data.id,
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     },
     undefined,
@@ -151,8 +197,38 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
     return NextResponse.json({ error: 'Mapping not found' }, { status: 404 })
   }
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: auth.sub,
+    resourceKind: 'data_sync.mapping',
+    resourceId: mapping.id,
+    operation: 'delete',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: null,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
+  const mappingId = mapping.id
   em.remove(mapping)
   await em.flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: auth.sub,
+      resourceKind: 'data_sync.mapping',
+      resourceId: mappingId,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   return NextResponse.json({ deleted: true })
 }

@@ -1,12 +1,15 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getToolRegistry } from '../../lib/tool-registry'
+import { toolInputJsonSchema } from '../../lib/tool-input-schema'
 import { loadAllModuleTools } from '../../lib/tool-loader'
 import { hasRequiredFeatures } from '../../lib/auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+
+const logger = createLogger('ai_assistant')
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -53,14 +56,14 @@ export async function GET(req: NextRequest) {
       return {
         name: tool.name,
         description: tool.description,
-        inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
+        inputSchema: toolInputJsonSchema(tool.inputSchema),
         module: nameParts[0] || 'other',
       }
     })
 
     return NextResponse.json({ tools })
   } catch (error) {
-    console.error('[AI Tools] Error listing tools:', error)
+    logger.error('AI Tools — Error listing tools', { err: error })
     return NextResponse.json({ error: 'Failed to list tools' }, { status: 500 })
   }
 }

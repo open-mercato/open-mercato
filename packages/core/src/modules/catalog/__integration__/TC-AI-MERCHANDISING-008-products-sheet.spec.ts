@@ -91,15 +91,14 @@ test.describe('TC-AI-MERCHANDISING-008: catalog.merchandising_assistant sheet', 
     // load, making a single click a no-op; re-click (only while closed) until
     // the sheet + composer mount.
     const sheet = page.locator('[data-ai-merchandising-sheet]');
-    const composer = page.locator('#ai-chat-composer');
+    const chatRegion = sheet.locator(`[data-ai-chat-agent="${MERCHANDISING_AGENT_ID}"]`);
+    const composer = chatRegion.locator('#ai-chat-composer');
     await expect(async () => {
       if (!(await sheet.isVisible())) await trigger.click();
       await expect(sheet).toBeVisible({ timeout: 3_000 });
+      await expect(chatRegion).toBeVisible({ timeout: 3_000 });
       await expect(composer).toBeVisible({ timeout: 3_000 });
     }).toPass({ timeout: 60_000, intervals: [500, 1_000, 2_000] });
-
-    const chatRegion = page.locator(`[data-ai-chat-agent="${MERCHANDISING_AGENT_ID}"]`);
-    await expect(chatRegion).toBeVisible();
   });
 
   test('selection pill reflects the current selected count when selection changes', async ({ page }) => {

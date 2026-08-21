@@ -33,6 +33,20 @@ export const customerMagicLinkIpRateLimitConfig = readEndpointRateLimitConfig('C
   points: 10, duration: 60, blockDuration: 120, keyPrefix: 'customer-magic-link-ip',
 })
 
+// Staff- and portal-facing customer invitation endpoints
+// (`/api/customer_accounts/admin/users-invite`, `/api/customer_accounts/portal/users-invite`).
+// Both are authenticated, but a single authorized actor must not be able to mint
+// unbounded invitation rows/tokens. The compound layer caps repeated invitations
+// targeting the same recipient address from the same client, while the IP layer
+// caps overall invitation throughput per client.
+export const customerInviteRateLimitConfig = readEndpointRateLimitConfig('CUSTOMER_INVITE', {
+  points: 5, duration: 60, blockDuration: 120, keyPrefix: 'customer-invite',
+})
+
+export const customerInviteIpRateLimitConfig = readEndpointRateLimitConfig('CUSTOMER_INVITE_IP', {
+  points: 20, duration: 60, blockDuration: 120, keyPrefix: 'customer-invite-ip',
+})
+
 // Bulk custom-domain warm-up endpoint (`/api/customer_accounts/domain-resolve/all`).
 // Single shared `DOMAIN_RESOLVE_SECRET` gates a payload that lists every active
 // custom-domain mapping in the deployment, so we cap requests per IP to make

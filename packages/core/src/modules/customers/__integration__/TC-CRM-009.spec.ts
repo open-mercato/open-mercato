@@ -3,6 +3,60 @@ import { createCompanyFixture, createDealFixture, createPipelineFixture, createP
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
+async function expectPipelineFixtureVisible(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  pipelineId: string,
+  pipelineName: string,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/pipelines?page=1&pageSize=100&search=${encodeURIComponent(pipelineName)}`,
+          { token },
+        );
+        const body = (await res.json().catch(() => null)) as
+          | { items?: Array<{ id?: string; name?: string }>; result?: { items?: Array<{ id?: string; name?: string }> } }
+          | null;
+        const items = Array.isArray(body?.items)
+          ? body.items
+          : Array.isArray(body?.result?.items)
+            ? body.result.items
+            : [];
+        return items.some((item) => item.id === pipelineId && item.name === pipelineName);
+      },
+      {
+        message: `pipeline fixture ${pipelineName} should be visible through the list API`,
+        timeout: 15_000,
+      },
+    )
+    .toBe(true);
+}
+
+async function selectPipelineFilter(page: import('@playwright/test').Page, pipelineName: string): Promise<void> {
+  const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
+  await expect(pipelineChip).toBeVisible({ timeout: 15_000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await pipelineChip.click();
+    const pipelinePopover = page.getByRole('dialog').last();
+    const option = pipelinePopover.getByRole('radio', { name: pipelineName, exact: true });
+    if (await option.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await option.click();
+      await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
+      return;
+    }
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+  }
+  await pipelineChip.click();
+  const pipelinePopover = page.getByRole('dialog').last();
+  await pipelinePopover.getByRole('radio', { name: pipelineName, exact: true }).click();
+  await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
+}
+
 /**
  * TC-CRM-009: Update Deal Pipeline Stage
  * Source: .ai/qa/scenarios/TC-CRM-009-deal-pipeline-update.md
@@ -45,23 +99,15 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
         data: { id: dealId, pipelineId, pipelineStageId: winStageId },
       });
       expect(updateResponse.status(), `PUT /api/customers/deals returned ${updateResponse.status()}`).toBeLessThan(400);
+      await expectPipelineFixtureVisible(request, token, pipelineId, pipelineName);
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/deals/pipeline');
+      await page.goto('/backend/customers/deals/pipeline', { waitUntil: 'commit' });
       // SPEC-048 kanban redesign: the pipeline selector is now a chip+popover, not a
       // <label>Pipeline<Select/></label>. The chip button is rendered with
       // aria-label="Pipeline: <value>" (PipelineFilterPopover → ChipButton); selecting a
       // pipeline is a two-step interaction (open chip → click radio row → click Apply).
-      const pipelineChip = page.getByRole('button', { name: /^Pipeline:/ });
-      await expect(pipelineChip).toBeVisible({ timeout: 10_000 });
-      await pipelineChip.click();
-      // Inside the popover dialog, each pipeline row is a `<button role="radio">` —
-      // the `role` override means Playwright's accessibility tree exposes them as radios,
-      // NOT buttons. Use `getByRole('radio', ...)` so the test matches the actual ARIA role
-      // (see PipelineFilterPopover.tsx). The Apply button keeps its native button role.
-      const pipelinePopover = page.getByRole('dialog').last();
-      await pipelinePopover.getByRole('radio', { name: pipelineName, exact: true }).click();
-      await pipelinePopover.getByRole('button', { name: 'Apply', exact: true }).click();
+      await selectPipelineFilter(page, pipelineName);
       // After filtering to the test pipeline, the deal (already moved to Win via API) should
       // render inside the Win lane. Lane wrapper is an unlabelled flex container — we locate
       // it as the outermost <div> containing both the stage label and the deal title.

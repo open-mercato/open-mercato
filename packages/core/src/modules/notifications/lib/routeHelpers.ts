@@ -1,8 +1,26 @@
 import { z } from 'zod'
+import type { AwilixContainer } from 'awilix'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveNotificationService, type NotificationService } from './notificationService'
+
+/**
+ * Mutation-guard resource kind for notification rows.
+ */
+export const NOTIFICATION_RESOURCE_KIND = 'notifications.notification'
+
+/**
+ * Mutation-guard resource kind for notification delivery settings.
+ */
+export const NOTIFICATION_SETTINGS_RESOURCE_KIND = 'notifications.settings'
+
+/**
+ * Mutation-guard resource kind for a user's channel preferences.
+ */
+export const NOTIFICATION_PREFERENCE_RESOURCE_KIND = 'notifications.preference'
 
 /**
  * Notification scope context for service calls
@@ -10,6 +28,7 @@ import { resolveNotificationService, type NotificationService } from './notifica
 export interface NotificationScope {
   tenantId: string
   organizationId: string | null
+  organizationIds?: string[] | null
   userId: string | null
 }
 
@@ -47,20 +66,157 @@ export function notificationCrudErrorResponse(error: unknown): Response | null {
 }
 
 /**
+ * Machine-readable discriminator for the tenant-scope rejection, mirroring
+ * `ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE`. Without it a client cannot tell an unresolved scope
+ * apart from an ordinary permission denial, since both are a 403 carrying only a message.
+ */
+export const TENANT_SCOPE_REQUIRED_ERROR_CODE = 'tenant_scope_required'
+
+/**
+ * Fail closed when a request cannot be resolved to a tenant.
+ *
+ * `resolveNotificationContext` falls back to `''` when neither the organization scope nor the auth
+ * context yields a tenant — reachable for a genuinely tenant-less principal such as an unscoped
+ * super-admin API key. `notifications.tenant_id` is a NOT NULL uuid, so that `''` makes the driver
+ * reject every read and write built from the scope; dropping the tenant predicate instead would
+ * leave `recipientUserId` as the only thing keeping a read inside one tenant.
+ *
+ * Unlike the audit-log read guard there is no `isSuperAdmin` escape hatch: notification rows are
+ * per-recipient and per-tenant, so there is no cross-tenant read mode to preserve.
+ *
+ * Plain truthiness is deliberate — it matches the `?? ''` sentinel and also rejects a null or
+ * omitted tenant reaching this helper from a caller that builds its own scope.
+ */
+export async function requireResolvedNotificationTenantScope(
+  scope: { tenantId?: string | null },
+): Promise<Response | null> {
+  if (scope.tenantId) return null
+  const { t } = await resolveTranslations()
+  return Response.json(
+    {
+      error: t('api.errors.forbidden', 'Forbidden'),
+      code: TENANT_SCOPE_REQUIRED_ERROR_CODE,
+    },
+    { status: 403 },
+  )
+}
+
+/**
  * Resolve notification service and scope from a request.
  * Centralizes the common pattern used across all notification API routes.
  */
 export async function resolveNotificationContext(req: Request): Promise<NotificationRequestContext> {
   const { ctx } = await resolveRequestContext(req)
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container: ctx.container,
+    auth: ctx.auth,
+    request: req,
+    ...(ctx.selectedOrganizationId === undefined
+      ? {}
+      : { selectedId: ctx.selectedOrganizationId }),
+  })
+  const tenantId = organizationScope.tenantId ?? ctx.auth?.tenantId ?? ''
+  const organizationId = organizationScope.selectedId
+  const organizationIds = organizationScope.filterIds
+  ctx.organizationScope = organizationScope
+  ctx.selectedOrganizationId = organizationId
+  ctx.organizationIds = organizationIds
   return {
     service: resolveNotificationService(ctx.container),
     scope: {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? null,
+      tenantId,
+      // The *creator's* org (the shared resolver already falls back to the caller's own org when
+      // nothing is selected), and the push strategy later scopes the recipient's device lookup to
+      // it. Same-org and self-notify (the common paths) match; a cross-org notify — an admin in
+      // org A notifying a user whose devices live in org B — won't match the recipient's devices,
+      // so push is silently dropped for that case. Same for a deliberate all-organizations
+      // selection, which stays tenant-level (org=null) and so only reaches null-org devices.
+      // In-app delivery is unaffected. If cross-org push is ever required, scope the device
+      // lookup by the recipient's org instead.
+      organizationId,
+      organizationIds,
       userId: ctx.auth?.sub ?? null,
     },
     ctx,
   }
+}
+
+export type GuardedNotificationContext =
+  | ({ ok: true } & NotificationRequestContext)
+  | { ok: false; response: Response }
+
+/**
+ * Resolve the notification context and reject the request when it has no tenant.
+ *
+ * Writes are structurally safe because every one of them funnels through
+ * `runGuardedNotificationWrite`. Reads have no such choke point, so they resolve their context
+ * through this wrapper instead: a route that forgets to check cannot compile past the discriminated
+ * result, which makes the guard impossible to skip by omission rather than by convention.
+ */
+export async function resolveGuardedNotificationContext(req: Request): Promise<GuardedNotificationContext> {
+  const resolved = await resolveNotificationContext(req)
+  const tenantScopeGuard = await requireResolvedNotificationTenantScope(resolved.scope)
+  if (tenantScopeGuard) return { ok: false, response: tenantScopeGuard }
+  return { ok: true, ...resolved }
+}
+
+/**
+ * Mutation-guard options for a notification write.
+ */
+export interface NotificationMutationGuardOptions {
+  resourceKind: string
+  resourceId?: string | null
+  operation: 'create' | 'update' | 'delete' | 'custom'
+  payload?: Record<string, unknown> | null
+}
+
+export type GuardedNotificationWriteResult<T> =
+  | { ok: true; result: T }
+  | { ok: false; response: Response }
+
+/**
+ * Run a notification write through the mutation guard lifecycle.
+ * Validates before the mutation, performs the write, then runs after-success
+ * hooks only when the write succeeded and the guard requested them. Returns the
+ * guard's own block response when validation fails so authorization behavior and
+ * conflict shapes are preserved.
+ */
+export async function runGuardedNotificationWrite<T>(
+  container: AwilixContainer,
+  scope: NotificationScope,
+  req: Request,
+  options: NotificationMutationGuardOptions,
+  write: () => Promise<T>,
+): Promise<GuardedNotificationWriteResult<T>> {
+  const tenantScopeGuard = await requireResolvedNotificationTenantScope(scope)
+  if (tenantScopeGuard) {
+    return { ok: false, response: tenantScopeGuard }
+  }
+
+  const guarded = await runRouteMutationGuards({
+    container,
+    req,
+    auth: {
+      userId: scope.userId ?? '',
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    input: {
+      resourceKind: options.resourceKind,
+      resourceId: options.resourceId ?? null,
+      operation: options.operation,
+      mutationPayload: options.payload ?? null,
+    },
+  })
+  if (!guarded.ok) {
+    return { ok: false, response: guarded.response }
+  }
+
+  const result = await write()
+
+  await guarded.runAfterSuccess()
+
+  return { ok: true, result }
 }
 
 /**
@@ -72,7 +228,7 @@ export function createBulkNotificationRoute<TSchema extends z.ZodTypeAny>(
   serviceMethod: 'createBatch' | 'createForRole' | 'createForFeature'
 ) {
   return async function POST(req: Request) {
-    const { service, scope } = await resolveNotificationContext(req)
+    const { service, scope, ctx } = await resolveNotificationContext(req)
 
     const body = await req.json().catch(() => ({}))
     const parsed = schema.safeParse(body)
@@ -81,7 +237,19 @@ export function createBulkNotificationRoute<TSchema extends z.ZodTypeAny>(
     }
 
     try {
-      const notifications = await service[serviceMethod](parsed.data as never, scope)
+      const guarded = await runGuardedNotificationWrite(
+        ctx.container,
+        scope,
+        req,
+        {
+          resourceKind: NOTIFICATION_RESOURCE_KIND,
+          operation: 'create',
+          payload: parsed.data as Record<string, unknown>,
+        },
+        () => service[serviceMethod](parsed.data as never, scope),
+      )
+      if (!guarded.ok) return guarded.response
+      const notifications = guarded.result
 
       return Response.json({
         ok: true,
@@ -144,10 +312,21 @@ export function createSingleNotificationActionRoute(
 ) {
   return async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
-    const { service, scope } = await resolveNotificationContext(req)
+    const { service, scope, ctx } = await resolveNotificationContext(req)
 
     try {
-      await service[serviceMethod](id, scope)
+      const guarded = await runGuardedNotificationWrite(
+        ctx.container,
+        scope,
+        req,
+        {
+          resourceKind: NOTIFICATION_RESOURCE_KIND,
+          resourceId: id,
+          operation: 'update',
+        },
+        () => service[serviceMethod](id, scope),
+      )
+      if (!guarded.ok) return guarded.response
     } catch (error) {
       const errorResponse = notificationCrudErrorResponse(error)
       if (errorResponse) return errorResponse

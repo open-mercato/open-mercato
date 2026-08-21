@@ -11,6 +11,7 @@ export type ResolvedIntegrationState = {
   lastHealthCheckedAt: Date | null
   lastHealthLatencyMs: number | null
   enabledAt: Date | null
+  updatedAt: Date | null
 }
 
 export function createIntegrationStateService(em: EntityManager) {
@@ -25,6 +26,7 @@ export function createIntegrationStateService(em: EntityManager) {
       lastHealthCheckedAt: null,
       lastHealthLatencyMs: null,
       enabledAt: null,
+      updatedAt: null,
     }
   }
 
@@ -56,6 +58,7 @@ export function createIntegrationStateService(em: EntityManager) {
         lastHealthCheckedAt: state?.lastHealthCheckedAt ?? null,
         lastHealthLatencyMs: state?.lastHealthLatencyMs ?? null,
         enabledAt: state?.enabledAt ?? null,
+        updatedAt: state?.updatedAt ?? null,
       }
     },
 

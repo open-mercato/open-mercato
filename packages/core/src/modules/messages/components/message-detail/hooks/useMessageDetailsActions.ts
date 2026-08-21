@@ -5,7 +5,10 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { MessageActionsProps, MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import type {
   ActionResult,
   MessageAction,
@@ -13,13 +16,26 @@ import type {
   MessageDetail,
   PendingActionConfirmation,
 } from '../types'
-import { parseObjectActionId, toErrorMessage } from '../utils'
+import { isSafeNavigationHref, parseObjectActionId, toErrorMessage } from '../utils'
 
 type RequestAndRefreshOptions = {
   skipDetailAutoMarkRead?: boolean
+  onSuccess?: () => void
 }
 
-type ConversationActionKind = 'archiveConversation' | 'deleteConversation' | 'markAllUnread'
+type ConversationActionKind =
+  | 'archiveConversation'
+  | 'unarchiveConversation'
+  | 'deleteConversation'
+  | 'markAllUnread'
+  | 'markAllRead'
+
+type MessageDetailMutationContext = {
+  resourceKind: 'message' | 'conversation'
+  messageId: string
+  action: string
+  retryLastMutation: () => Promise<boolean>
+}
 
 type UseMessageDetailsActionsInput = {
   id: string
@@ -29,7 +45,22 @@ type UseMessageDetailsActionsInput = {
   attachments: MessageAttachment[] | undefined
   isArchived: boolean
   onDeleted: () => void
+  onMarkedUnread: () => void
   refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail | null>
+  suppressAutoMarkRead: () => void
+}
+
+function toStateChangeErrorMessage(payload: unknown, t: TranslateFn): string | null {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const code = (payload as Record<string, unknown>).code
+    if (code === 'messages_sender_archive_unsupported') {
+      return t(
+        'messages.errors.archiveSenderMessageUnsupported',
+        'You cannot archive messages you sent.',
+      )
+    }
+  }
+  return toErrorMessage(payload)
 }
 
 export function useMessageDetailsActions({
@@ -40,7 +71,9 @@ export function useMessageDetailsActions({
   attachments,
   isArchived,
   onDeleted,
+  onMarkedUnread,
   refreshDetailWithoutAutoMarkRead,
+  suppressAutoMarkRead,
 }: UseMessageDetailsActionsInput) {
   const [replyOpen, setReplyOpen] = React.useState(false)
   const [forwardOpen, setForwardOpen] = React.useState(false)
@@ -51,6 +84,10 @@ export function useMessageDetailsActions({
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = React.useState(false)
   const [activeConversationAction, setActiveConversationAction] = React.useState<ConversationActionKind | null>(null)
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<MessageDetailMutationContext>({
+    contextId: 'messages-detail-actions',
+  })
+
   const requestAndRefresh = React.useCallback(async (
     url: string,
     method: 'PUT' | 'DELETE',
@@ -58,18 +95,25 @@ export function useMessageDetailsActions({
   ) => {
     setUpdatingState(true)
     try {
-      const call = await apiCall<{ ok?: boolean }>(url, { method })
-      if (!call.ok) {
-        throw new Error(
-          toErrorMessage(call.result)
-          ?? t('messages.errors.stateChangeFailed', 'Failed to update message state.'),
-        )
-      }
-      if (options?.skipDetailAutoMarkRead) {
-        await refreshDetailWithoutAutoMarkRead()
-      } else {
-        await detailQuery.refetch()
-      }
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall<{ ok?: boolean }>(url, { method })
+          if (!call.ok) {
+            throw new Error(
+              toStateChangeErrorMessage(call.result, t)
+              ?? t('messages.errors.stateChangeFailed', 'Failed to update message state.'),
+            )
+          }
+          if (options?.skipDetailAutoMarkRead) {
+            await refreshDetailWithoutAutoMarkRead()
+          } else {
+            await detailQuery.refetch()
+          }
+        },
+        context: { resourceKind: 'message', messageId: id, action: 'state-change', retryLastMutation },
+        mutationPayload: { messageId: id, action: 'state-change', url, method },
+      })
+      options?.onSuccess?.()
     } catch (err) {
       flash(
         err instanceof Error
@@ -80,20 +124,39 @@ export function useMessageDetailsActions({
     } finally {
       setUpdatingState(false)
     }
-  }, [detailQuery, refreshDetailWithoutAutoMarkRead, t])
+  }, [detailQuery, id, refreshDetailWithoutAutoMarkRead, retryLastMutation, runMutation, t])
 
   const handleDelete = React.useCallback(async () => {
     setUpdatingState(true)
     try {
-      const call = await apiCall<{ ok?: boolean }>(`/api/messages/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
+      await runMutation({
+        // Carry the OSS optimistic-lock header so a stale tab cannot delete a
+        // concurrently-changed message; throw a status-carrying error on failure
+        // so the 409 conflict surfaces on the shared RecordConflictBanner.
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.updatedAt),
+          async () => {
+            const call = await apiCall<{ ok?: boolean }>(`/api/messages/${encodeURIComponent(id)}`, {
+              method: 'DELETE',
+            })
+            if (!call.ok) {
+              throw Object.assign(
+                new Error(toErrorMessage(call.result) ?? t('messages.errors.deleteFailed', 'Failed to delete message.')),
+                {
+                  status: call.status,
+                  ...(call.result && typeof call.result === 'object' ? call.result : {}),
+                },
+              )
+            }
+          },
+        ),
+        context: { resourceKind: 'message', messageId: id, action: 'delete', retryLastMutation },
+        mutationPayload: { messageId: id, action: 'delete' },
       })
-      if (!call.ok) {
-        throw new Error(toErrorMessage(call.result) ?? t('messages.errors.deleteFailed', 'Failed to delete message.'))
-      }
       flash(t('messages.flash.deleted', 'Message deleted.'), 'success')
       onDeleted()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) return
       flash(
         err instanceof Error
           ? err.message
@@ -103,7 +166,7 @@ export function useMessageDetailsActions({
     } finally {
       setUpdatingState(false)
     }
-  }, [id, onDeleted, t])
+  }, [detail?.updatedAt, id, onDeleted, retryLastMutation, runMutation, t])
 
   const runConversationAction = React.useCallback(async (
     action: ConversationActionKind,
@@ -117,13 +180,19 @@ export function useMessageDetailsActions({
   ) => {
     setActiveConversationAction(action)
     try {
-      const call = await apiCall<{ ok?: boolean; affectedCount?: number }>(options.url, { method: options.method })
-      if (!call.ok) {
-        throw new Error(
-          toErrorMessage(call.result)
-          ?? t('messages.errors.conversationActionFailed', 'Failed to update conversation.'),
-        )
-      }
+      await runMutation({
+        operation: async () => {
+          const call = await apiCall<{ ok?: boolean; affectedCount?: number }>(options.url, { method: options.method })
+          if (!call.ok) {
+            throw new Error(
+              toErrorMessage(call.result)
+              ?? t('messages.errors.conversationActionFailed', 'Failed to update conversation.'),
+            )
+          }
+        },
+        context: { resourceKind: 'conversation', messageId: id, action, retryLastMutation },
+        mutationPayload: { messageId: id, action, url: options.url, method: options.method },
+      })
 
       flash(options.successMessage, 'success')
 
@@ -147,7 +216,7 @@ export function useMessageDetailsActions({
     } finally {
       setActiveConversationAction(null)
     }
-  }, [detailQuery, refreshDetailWithoutAutoMarkRead, t])
+  }, [detailQuery, id, refreshDetailWithoutAutoMarkRead, retryLastMutation, runMutation, t])
 
   const archiveConversation = React.useCallback(async (messageId?: string) => {
     const targetMessageId = messageId ?? id
@@ -158,13 +227,32 @@ export function useMessageDetailsActions({
     })
   }, [id, runConversationAction, t])
 
+  const unarchiveConversation = React.useCallback(async (messageId?: string) => {
+    const targetMessageId = messageId ?? id
+    await runConversationAction('unarchiveConversation', {
+      url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/archive`,
+      method: 'DELETE',
+      successMessage: t('messages.flash.conversationUnarchived', 'Conversation restored from archive.'),
+    })
+  }, [id, runConversationAction, t])
+
   const markConversationUnread = React.useCallback(async (messageId?: string) => {
+    suppressAutoMarkRead()
     const targetMessageId = messageId ?? id
     await runConversationAction('markAllUnread', {
       url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/read`,
       method: 'DELETE',
       successMessage: t('messages.flash.conversationMarkedUnread', 'Conversation marked unread.'),
-      skipDetailAutoMarkRead: true,
+      onSuccess: onMarkedUnread,
+    })
+  }, [id, onMarkedUnread, runConversationAction, suppressAutoMarkRead, t])
+
+  const markConversationRead = React.useCallback(async (messageId?: string) => {
+    const targetMessageId = messageId ?? id
+    await runConversationAction('markAllRead', {
+      url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/read`,
+      method: 'PUT',
+      successMessage: t('messages.flash.conversationMarkedRead', 'Conversation marked read.'),
     })
   }, [id, runConversationAction, t])
 
@@ -194,32 +282,54 @@ export function useMessageDetailsActions({
   const executeAction = React.useCallback(async (action: MessageAction, payload?: Record<string, unknown>) => {
     setExecutingActionId(action.id)
     try {
-      const call = await apiCall<ActionResult>(
-        `/api/messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(action.id)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload ?? {}),
-        },
-      )
+      const call = await runMutation({
+        // Carry the OSS optimistic-lock header so a stale tab cannot execute an
+        // action against a concurrently-changed message; throw a status-carrying
+        // error on failure so the 409 conflict surfaces on the shared banner.
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.updatedAt),
+          async () => {
+            const result = await apiCall<ActionResult>(
+              `/api/messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(action.id)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload ?? {}),
+              },
+            )
 
-      if (!call.ok) {
-        throw new Error(
-          toErrorMessage(call.result)
-          ?? t('messages.errors.actionFailed', 'Failed to execute action.'),
-        )
-      }
+            if (!result.ok) {
+              throw Object.assign(
+                new Error(toErrorMessage(result.result) ?? t('messages.errors.actionFailed', 'Failed to execute action.')),
+                {
+                  status: result.status,
+                  ...(result.result && typeof result.result === 'object' ? result.result : {}),
+                },
+              )
+            }
+
+            return result
+          },
+        ),
+        context: { resourceKind: 'message', messageId: id, action: 'execute-action', retryLastMutation },
+        mutationPayload: { messageId: id, action: 'execute-action', actionId: action.id },
+      })
 
       flash(t('messages.flash.actionSuccess', 'Action completed.'), 'success')
 
       const redirectTarget = call.result?.result?.redirect
-      if (typeof redirectTarget === 'string' && redirectTarget.trim().length > 0) {
+      if (
+        typeof redirectTarget === 'string'
+        && redirectTarget.trim().length > 0
+        && isSafeNavigationHref(redirectTarget)
+      ) {
         window.location.href = redirectTarget
         return
       }
 
       await detailQuery.refetch()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) return
       flash(
         err instanceof Error
           ? err.message
@@ -229,7 +339,7 @@ export function useMessageDetailsActions({
     } finally {
       setExecutingActionId(null)
     }
-  }, [detailQuery, id, t])
+  }, [detail?.updatedAt, detailQuery, id, retryLastMutation, runMutation, t])
 
   const handleExecuteAction = React.useCallback(async (action: MessageAction, payload?: Record<string, unknown>) => {
     if (executingActionId || detail?.actionTaken) return
@@ -320,12 +430,15 @@ export function useMessageDetailsActions({
   }, [detail?.actionData?.actions])
 
   const toggleRead = React.useCallback(async () => {
+    if (detail?.isRead) {
+      suppressAutoMarkRead()
+    }
     await requestAndRefresh(
       `/api/messages/${encodeURIComponent(id)}/read`,
       detail?.isRead ? 'DELETE' : 'PUT',
-      detail?.isRead ? { skipDetailAutoMarkRead: true } : undefined,
+      detail?.isRead ? { skipDetailAutoMarkRead: true, onSuccess: onMarkedUnread } : undefined,
     )
-  }, [detail?.isRead, id, requestAndRefresh])
+  }, [detail?.isRead, id, onMarkedUnread, requestAndRefresh, suppressAutoMarkRead])
 
   const toggleArchive = React.useCallback(async () => {
     await requestAndRefresh(
@@ -351,8 +464,10 @@ export function useMessageDetailsActions({
     toggleRead,
     toggleArchive,
     archiveConversation,
+    unarchiveConversation,
     deleteConversation,
     markConversationUnread,
+    markConversationRead,
     requestAndRefresh,
     handleDelete,
     handleDeleteDialogKeyDown,

@@ -46,6 +46,32 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     expect(provider.defaultModels[0].id).toBe('zai-org/GLM-5.1')
   })
 
+  it('defaults usesVendorPrefixedModelIds to false when the preset omits it', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.usesVendorPrefixedModelIds).toBe(false)
+  })
+
+  it('surfaces usesVendorPrefixedModelIds from the preset', () => {
+    const provider = createOpenAICompatibleProvider({
+      ...DEEPINFRA_PRESET,
+      id: 'my-gateway',
+      usesVendorPrefixedModelIds: true,
+    })
+    expect(provider.usesVendorPrefixedModelIds).toBe(true)
+  })
+
+  it('flags exactly the gateway presets (openrouter/requesty/litellm) in the catalog', () => {
+    const flagged = new Set(
+      OPENAI_COMPATIBLE_PRESETS.filter((p) => p.usesVendorPrefixedModelIds).map((p) => p.id),
+    )
+    expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm']))
+    // Non-gateway backends stay unflagged.
+    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq', 'azure']) {
+      const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === id)!
+      expect(preset.usesVendorPrefixedModelIds).toBeFalsy()
+    }
+  })
+
   it('detects configuration via the preset-specific env key', () => {
     const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
     expect(provider.isConfigured({ DEEPINFRA_API_KEY: 'key' })).toBe(true)
@@ -302,5 +328,46 @@ describe('LM Studio preset', () => {
       baseURL: 'http://192.168.1.100:1234/v1',
     })
     expect(model).toBeDefined()
+  })
+})
+
+describe('OpenAIAdapter — safety identifier + moderation capability', () => {
+  it('maps an end-user identifier into the OpenAI safetyIdentifier providerOptions fragment', () => {
+    // Key MUST be the AI SDK provider-option name `safetyIdentifier` (camelCase);
+    // the SDK translates it to the `safety_identifier` request-body field and
+    // strips unknown providerOptions keys, so a snake_case key would be dropped.
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')!
+    const provider = createOpenAICompatibleProvider(openaiPreset)
+    expect(provider.mapEndUserIdentifier?.('hashed-id')).toEqual({
+      openai: { safetyIdentifier: 'hashed-id' },
+    })
+  })
+
+  it('does not map a safety identifier for OpenAI-compatible backends (OpenAI-only param)', () => {
+    // `safety_identifier` is an OpenAI-specific body field; compatible/self-hosted
+    // backends (Groq, DeepInfra, Azure, Ollama, …) may reject the unknown param,
+    // so they must not advertise the mapping.
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.mapEndUserIdentifier).toBeUndefined()
+    for (const preset of OPENAI_COMPATIBLE_PRESETS) {
+      const built = createOpenAICompatibleProvider(preset)
+      if (preset.id === 'openai') {
+        expect(built.mapEndUserIdentifier).toBeDefined()
+      } else {
+        expect(built.mapEndUserIdentifier).toBeUndefined()
+      }
+    }
+  })
+
+  it('marks the native OpenAI preset as supporting input moderation', () => {
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')
+    expect(openaiPreset).toBeDefined()
+    const provider = createOpenAICompatibleProvider(openaiPreset!)
+    expect(provider.supportsInputModeration).toBe(true)
+  })
+
+  it('leaves OpenAI-compatible backends without moderation support', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.supportsInputModeration).toBe(false)
   })
 })

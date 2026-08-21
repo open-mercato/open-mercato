@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooks",
   "webhooks.deliveries.actions.retry": "Retry",
   "webhooks.deliveries.actions.viewDetails": "Ver detalles",
   "webhooks.deliveries.autoRefreshHint": "The delivery log refreshes automatically while this page is open.",
@@ -29,7 +30,7 @@
   "webhooks.detail.actions.deactivate": "Deactivate",
   "webhooks.detail.actions.rotateSecret": "Rotate Secret",
   "webhooks.detail.actions.test": "Send Test",
-  "webhooks.detail.backToList": "Volver a los webhooks",
+  "webhooks.detail.backToList": "Volver a webhooks",
   "webhooks.detail.consecutiveFailures": "Consecutive Failures",
   "webhooks.detail.deliveryTip": "Start with a test delivery before enabling a broad event pattern. The delivery log below shows exactly what your consumer returned.",
   "webhooks.detail.loadError": "Failed to load webhook.",
@@ -80,7 +81,7 @@
   "webhooks.form.name": "Name",
   "webhooks.form.namePlaceholder": "My Webhook",
   "webhooks.form.rateLimitPerMinute": "Rate Limit Per Minute",
-  "webhooks.form.rateLimitPerMinuteHint": "Maximum deliveries per minute for this endpoint (0 means unlimited).",
+  "webhooks.form.rateLimitPerMinuteHint": "Máximo de entregas por minuto para este endpoint (0 significa sin límite). El valor se guarda, pero el worker de entrega aún no lo aplica.",
   "webhooks.form.secret": "Signing Secret",
   "webhooks.form.secretCopied": "Secret copied to clipboard.",
   "webhooks.form.secretCopy": "Copy Secret",

@@ -2,6 +2,7 @@ import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entit
 import type { ActionLogCreateInput } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { commandRegistry } from './registry'
 import type {
+  BulkImportSuppression,
   CommandExecutionOptions,
   CommandExecuteResult,
   CommandHandler,
@@ -30,6 +31,10 @@ import {
 } from './command-interceptor-runner'
 import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -42,6 +47,28 @@ const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
 function asRecord(input: unknown): Record<string, unknown> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   return input as Record<string, unknown>
+}
+
+/** Command handlers often return domain keys (e.g. warehouseId) without `id`; cache invalidation must still resolve the record. */
+function extractPrimaryIdFromCommandResult(result: unknown): string | null {
+  const r = asRecord(result)
+  if (!r) return null
+  const direct = pickFirstIdentifier(r.id, r.entityId, r.recordId)
+  if (direct) return direct
+  for (const key of [
+    'warehouseId',
+    'zoneId',
+    'locationId',
+    'lotId',
+    'reservationId',
+    'profileId',
+    'movementId',
+    'balanceId',
+  ]) {
+    const v = r[key]
+    if (typeof v === 'string' && v.trim().length > 0) return v.trim()
+  }
+  return null
 }
 
 function toISOString(value: unknown): string | null {
@@ -198,7 +225,7 @@ export class CommandBus {
     commandId: string,
     options: CommandExecutionOptions<TInput>
   ): Promise<CommandExecuteResult<TResult>> {
-    const handler = this.resolveHandler<TInput, TResult>(commandId)
+    const handler = await this.resolveHandler<TInput, TResult>(commandId)
 
     // Run beforeExecute command interceptors
     const allInterceptors = getAllCommandInterceptorInstances()
@@ -218,7 +245,8 @@ export class CommandBus {
         allInterceptors, commandId, options.input, interceptorCtx, userFeatures,
       )
       if (!beforeResult.ok) {
-        throw new CommandInterceptorError(beforeResult.error!.message)
+        const blocked = beforeResult.error!
+        throw new CommandInterceptorError(blocked.message, { status: blocked.status, body: blocked.body })
       }
       interceptorMetadata = beforeResult.metadataByInterceptor
       if (beforeResult.modifiedInput) {
@@ -230,11 +258,39 @@ export class CommandBus {
     }
 
     const snapshots = await this.prepareSnapshots(handler, effectiveOptions)
-    const result = await handler.execute(effectiveOptions.input, effectiveOptions.ctx)
+    const redoLogEntry = effectiveOptions.redoLogEntry ?? null
+    const result =
+      redoLogEntry && typeof handler.redo === 'function'
+        ? await handler.redo({ input: effectiveOptions.input, ctx: effectiveOptions.ctx, logEntry: redoLogEntry })
+        : await handler.execute(effectiveOptions.input, effectiveOptions.ctx)
     const afterSnapshot = await this.captureAfter(handler, effectiveOptions, result)
     const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
     const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)
     let mergedMeta = this.mergeMetadata(effectiveOptions.metadata, logMeta)
+    // Interceptors opt into audit-log enrichment with a reserved `logContext` key rather
+    // than the generic `context` one, so the metadata an interceptor already passes to its
+    // own afterExecute hook is never silently promoted into audit storage.
+    // Map iteration order is interceptor priority order (see collectMatching), so a
+    // later-priority interceptor overrides an earlier one on key collisions.
+    let interceptorContextMerged: Record<string, unknown> = {}
+    for (const meta of interceptorMetadata.values()) {
+      const logContextRecord = asRecord(asRecord(meta)?.logContext)
+      if (!logContextRecord) continue
+      interceptorContextMerged = {
+        ...interceptorContextMerged,
+        ...logContextRecord,
+      }
+    }
+    const baseContext = asRecord(effectiveOptions.metadata?.context) ?? {}
+    const logMetaContext = asRecord(logMeta?.context) ?? {}
+    if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
+      mergedMeta = mergedMeta ?? {}
+      mergedMeta.context = {
+        ...baseContext,
+        ...interceptorContextMerged,
+        ...logMetaContext,
+      }
+    }
     const undoable = this.isUndoable(handler)
     if (undoable) {
       mergedMeta = mergedMeta ?? {}
@@ -289,7 +345,11 @@ export class CommandBus {
     if (!effectiveOptions.skipCacheInvalidation) {
       await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
     }
-    await this.flushCrudSideEffects(effectiveOptions.ctx.container)
+    // Bulk-import backfills defer heavy per-record side effects: the ctx flags are read here and
+    // threaded as a local into the flush (never stored on the shared dataEngine), so a concurrent
+    // command with different flags can't observe them. Reindex is restored by the caller's
+    // end-of-run `query_index rebuild`. Mirrors `skipCacheInvalidation` above.
+    await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx?.bulkImport)
     return { result: finalResult, logEntry }
   }
 
@@ -297,58 +357,73 @@ export class CommandBus {
     const service = (ctx.container.resolve('actionLogService') as ActionLogService)
     const log = await service.findByUndoToken(undoToken)
     if (!log) throw new Error('Undo token expired or not found')
-    const handler = this.resolveHandler(log.commandId)
+    const handler = await this.resolveHandler(log.commandId)
     if (!handler.undo || this.isUndoable(handler) === false) {
       throw new Error(`Command ${log.commandId} is not undoable`)
     }
 
-    // Run beforeUndo command interceptors
-    const allInterceptors = getAllCommandInterceptorInstances()
-    let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
-    const userFeatures = allInterceptors.length
-      ? await this.resolveUserFeaturesForInterceptors(ctx)
-      : []
-    if (allInterceptors.length) {
-      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
-      const interceptorCtx: CommandInterceptorContext = {
-        commandId: log.commandId,
-        auth: ctx.auth ?? null,
-        selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        container: ctx.container,
+    // Atomically claim the action-log row before running any undo side effects.
+    // Two concurrent requests holding the same undo token can both pass
+    // findByUndoToken/executionState checks; the compare-and-set below ensures
+    // only one transitions `done` -> `undoing` and proceeds, the other bails out.
+    const claimed = await service.claimForUndo(log.id)
+    if (!claimed) throw new Error('Undo token already consumed')
+
+    try {
+      // Run beforeUndo command interceptors
+      const allInterceptors = getAllCommandInterceptorInstances()
+      let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
+      const userFeatures = allInterceptors.length
+        ? await this.resolveUserFeaturesForInterceptors(ctx)
+        : []
+      if (allInterceptors.length) {
+        const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+        const interceptorCtx: CommandInterceptorContext = {
+          commandId: log.commandId,
+          auth: ctx.auth ?? null,
+          selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          container: ctx.container,
+        }
+        const beforeResult = await runCommandInterceptorsBeforeUndo(
+          allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
+        )
+        if (!beforeResult.ok) {
+          const blocked = beforeResult.error!
+          throw new CommandInterceptorError(blocked.message, { status: blocked.status, body: blocked.body })
+        }
+        undoInterceptorMetadata = beforeResult.metadataByInterceptor
       }
-      const beforeResult = await runCommandInterceptorsBeforeUndo(
-        allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
-      )
-      if (!beforeResult.ok) {
-        throw new CommandInterceptorError(beforeResult.error!.message)
+
+      await handler.undo({
+        input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
+        ctx,
+        logEntry: log,
+      })
+      await service.markUndone(log.id, this.buildUndoTraceLog(log, ctx))
+
+      // Run afterUndo command interceptors
+      if (allInterceptors.length) {
+        const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+        const interceptorCtx: CommandInterceptorContext = {
+          commandId: log.commandId,
+          auth: ctx.auth ?? null,
+          selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          container: ctx.container,
+        }
+        await runCommandInterceptorsAfterUndo(
+          allInterceptors, log.commandId, undoCtx, interceptorCtx,
+          userFeatures, undoInterceptorMetadata,
+        )
       }
-      undoInterceptorMetadata = beforeResult.metadataByInterceptor
+
+      await this.invalidateCacheAfterUndo(log, ctx)
+      await this.flushCrudSideEffects(ctx.container)
+    } catch (err) {
+      // Undo failed after claiming the row — release the claim so the action
+      // remains retryable instead of being stranded in the `undoing` state.
+      await service.releaseUndoClaim(log.id).catch(() => {})
+      throw err
     }
-
-    await handler.undo({
-      input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
-      ctx,
-      logEntry: log,
-    })
-    await service.markUndone(log.id, this.buildUndoTraceLog(log, ctx))
-
-    // Run afterUndo command interceptors
-    if (allInterceptors.length) {
-      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
-      const interceptorCtx: CommandInterceptorContext = {
-        commandId: log.commandId,
-        auth: ctx.auth ?? null,
-        selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        container: ctx.container,
-      }
-      await runCommandInterceptorsAfterUndo(
-        allInterceptors, log.commandId, undoCtx, interceptorCtx,
-        userFeatures, undoInterceptorMetadata,
-      )
-    }
-
-    await this.invalidateCacheAfterUndo(log, ctx)
-    await this.flushCrudSideEffects(ctx.container)
   }
 
   private buildUndoTraceLog(log: ActionLog, ctx: CommandRuntimeContext): ActionLogCreateInput | undefined {
@@ -404,15 +479,21 @@ export class CommandBus {
     return []
   }
 
-  private resolveHandler<TInput, TResult>(commandId: string): CommandHandler<TInput, TResult> {
-    const handler = commandRegistry.get<TInput, TResult>(commandId)
+  private async resolveHandler<TInput, TResult>(commandId: string): Promise<CommandHandler<TInput, TResult>> {
+    const handler =
+      commandRegistry.get<TInput, TResult>(commandId) ??
+      ((await commandRegistry.load(commandId)) as CommandHandler<TInput, TResult> | null)
     if (!handler) {
       const moduleName = commandId.split('.')[0]
       const registered = commandRegistry.list()
       const sameModule = registered.filter((id) => id.split('.')[0] === moduleName)
+      const registeredLoaders = commandRegistry.listLoaders()
+      const sameModuleLoaders = registeredLoaders.filter((id) => id === commandId || id.startsWith(`${moduleName}:`))
       const hint = sameModule.length > 0
         ? ` Registered commands for module "${moduleName}": [${sameModule.join(', ')}].`
-        : ` No commands registered for module "${moduleName}". Ensure the command file is imported (side-effect) in the module's index.ts.`
+        : sameModuleLoaders.length > 0
+          ? ` Command loaders for module "${moduleName}" were registered but none loaded "${commandId}".`
+          : ` No commands or command loaders registered for module "${moduleName}". Ensure the command file is imported or generated lazy command loaders are registered.`
       throw new Error(`Command handler not registered for id ${commandId}.${hint}`)
     }
     return handler
@@ -552,6 +633,7 @@ export class CommandBus {
 
       const recordId = pickFirstIdentifier(
         metadata?.resourceId,
+        extractPrimaryIdFromCommandResult(result),
         resultRecord?.entityId,
         resultRecord?.id,
         resultRecord?.recordId,
@@ -600,7 +682,7 @@ export class CommandBus {
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {
-          console.debug('[crud][cache] execute-invalidation failed', { commandId, err })
+          logger.debug('Cache execute-invalidation failed', { commandId, err })
         } catch {}
       }
     }
@@ -632,17 +714,20 @@ export class CommandBus {
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {
-          console.debug('[crud][cache] undo-invalidation failed', { commandId: log.commandId, err })
+          logger.debug('Cache undo-invalidation failed', { commandId: log.commandId, err })
         } catch {}
       }
     }
   }
 
-  private async flushCrudSideEffects(container: AwilixContainer): Promise<void> {
+  private async flushCrudSideEffects(container: AwilixContainer, suppress?: BulkImportSuppression): Promise<void> {
     try {
       const dataEngine = (container.resolve('dataEngine') as DataEngine)
-      await dataEngine.flushOrmEntityChanges()
-    } catch {
+      await dataEngine.flushOrmEntityChanges(suppress)
+    } catch (error) {
+      if (isReadProjectionAlwaysConsistent()) {
+        throw error
+      }
       // best-effort: failures should not block command execution
     }
   }

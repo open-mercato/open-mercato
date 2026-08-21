@@ -1,18 +1,22 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customer_accounts/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type RoleRow = {
   id: string
@@ -30,6 +34,7 @@ type RolesResponse = {
   items?: RoleRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function CustomerRolesPage() {
@@ -41,9 +46,25 @@ export default function CustomerRolesPage() {
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+
+  const { runMutation } = useGuardedMutation<{ entityType: string }>({
+    contextId: 'customer_accounts:roles-list',
+  })
+
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { entityType: 'customer_accounts:role' },
+      })
+    },
+    [runMutation],
+  )
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -69,6 +90,7 @@ export default function CustomerRolesPage() {
         setRows(items)
         setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload?.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : t('customer_accounts.admin.roles.error.load', 'Failed to load roles')
@@ -83,8 +105,8 @@ export default function CustomerRolesPage() {
   }, [queryParams, reloadToken, t])
 
   const handleDelete = React.useCallback(async (role: RoleRow) => {
-    if (role.isSystem) {
-      flash(t('customer_accounts.admin.roles.error.deleteSystem', 'System roles cannot be deleted'), 'error')
+    if (role.isDefault) {
+      flash(t('customer_accounts.admin.roles.error.deleteDefault', 'The default role cannot be deleted. Set another role as default first.'), 'error')
       return
     }
     const confirmed = await confirm({
@@ -93,24 +115,26 @@ export default function CustomerRolesPage() {
     })
     if (!confirmed) return
     try {
-      const call = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(role.updatedAt),
-        () => apiCall(
-          `/api/customer_accounts/admin/roles/${encodeURIComponent(role.id)}`,
-          { method: 'DELETE' },
-        ),
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
-      setReloadToken((token) => token + 1)
+      await runMutationWithContext(async () => {
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(role.updatedAt),
+          () => apiCall(
+            `/api/customer_accounts/admin/roles/${encodeURIComponent(role.id)}`,
+            { method: 'DELETE' },
+          ),
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
+        setReloadToken((token) => token + 1)
+      }, { id: role.id })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.roles.error.delete', 'Failed to delete role')
       flash(message, 'error')
     }
-  }, [confirm, t])
+  }, [confirm, runMutationWithContext, t])
 
   const columns = React.useMemo<ColumnDef<RoleRow>[]>(() => [
     {
@@ -164,9 +188,9 @@ export default function CustomerRolesPage() {
       header: t('customer_accounts.admin.roles.columns.customerAssignable', 'Self-assignable'),
       cell: ({ row }) => (
         row.original.customerAssignable ? (
-          <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+          <Badge variant="brand">
             {t('customer_accounts.admin.roles.assignable', 'Yes')}
-          </span>
+          </Badge>
         ) : (
           <span className="text-muted-foreground text-sm">
             {t('customer_accounts.admin.roles.notAssignable', 'No')}
@@ -193,7 +217,14 @@ export default function CustomerRolesPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customer_accounts.admin.roles.searchPlaceholder', 'Search roles...')}
-          perspective={{ tableId: 'customer_accounts.admin.roles' }}
+          perspective={{ tableId: extensionPoints.hosts.rolesTable.tableId }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customer_accounts.admin.roles.title', 'Customer Roles')}
+              createHref="/backend/customer_accounts/roles/create"
+              createLabel={t('customer_accounts.admin.roles.actions.create', 'Create Role')}
+            />
+          )}
           onRowClick={(row) => router.push(`/backend/customer_accounts/roles/${row.id}`)}
           rowActions={(row) => (
             <RowActions
@@ -203,7 +234,7 @@ export default function CustomerRolesPage() {
                   label: t('customer_accounts.admin.roles.actions.edit', 'Edit'),
                   onSelect: () => { router.push(`/backend/customer_accounts/roles/${row.id}`) },
                 },
-                ...(!row.isSystem ? [{
+                ...(!row.isDefault ? [{
                   id: 'delete',
                   label: t('customer_accounts.admin.roles.actions.delete', 'Delete'),
                   destructive: true,
@@ -212,7 +243,7 @@ export default function CustomerRolesPage() {
               ]}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

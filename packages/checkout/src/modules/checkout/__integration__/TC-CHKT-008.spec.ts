@@ -14,7 +14,11 @@ import {
 } from './helpers/fixtures'
 
 test.describe('TC-CHKT-008: Attempt update on locked link, verify 422', () => {
+  test.setTimeout(120_000)
+
   test('rejects link edits after the first transaction locks the record', async ({ request }) => {
+    test.slow()
+
     let token: string | null = null
     let linkId: string | null = null
     let transactionId: string | null = null

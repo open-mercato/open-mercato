@@ -1,4 +1,5 @@
 import { extractApiKeyFromHeaders, hasRequiredFeatures } from '../auth'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 
 describe('extractApiKeyFromHeaders', () => {
   describe('plain object headers', () => {
@@ -92,6 +93,32 @@ describe('hasRequiredFeatures', () => {
     ).toBe(false)
   })
 
+  it('grants a bare-segment requirement from a prefix wildcard (issue #2723)', () => {
+    expect(
+      hasRequiredFeatures(['entities'], ['entities.*'], false)
+    ).toBe(true)
+  })
+
+  it('matches the canonical matcher for bare-segment requirements with and without rbacService', () => {
+    const rbacService = {
+      hasAllFeatures: jest.fn((required: string[], granted: string[]) =>
+        hasAllFeatures(required, granted)
+      ),
+    }
+
+    const withService = hasRequiredFeatures(
+      ['entities'],
+      ['entities.*'],
+      false,
+      rbacService as any
+    )
+    const withoutService = hasRequiredFeatures(['entities'], ['entities.*'], false)
+
+    expect(withService).toBe(true)
+    expect(withoutService).toBe(true)
+    expect(withService).toBe(withoutService)
+  })
+
   it('requires all features (AND logic)', () => {
     expect(
       hasRequiredFeatures(
@@ -110,7 +137,7 @@ describe('hasRequiredFeatures', () => {
     ).toBe(true)
   })
 
-  it('delegates to rbacService when provided', () => {
+  it('uses the shared policy even when a legacy rbacService argument is provided', () => {
     const rbacService = {
       hasAllFeatures: jest.fn().mockReturnValue(true),
     }
@@ -121,9 +148,6 @@ describe('hasRequiredFeatures', () => {
       rbacService as any
     )
     expect(result).toBe(true)
-    expect(rbacService.hasAllFeatures).toHaveBeenCalledWith(
-      ['customers.view'],
-      ['customers.view']
-    )
+    expect(rbacService.hasAllFeatures).not.toHaveBeenCalled()
   })
 })

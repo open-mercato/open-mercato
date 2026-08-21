@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncMapping } from '@open-mercato/core/modules/data_sync/data/entities'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 const listMappingsQuerySchema = z.object({
   integrationId: z.string().min(1).optional(),
@@ -31,8 +36,12 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const url = new URL(req.url)
@@ -49,7 +58,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const where: FilterQuery<SyncMapping> = {
     organizationId: scope.organizationId,
@@ -88,8 +97,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const payload = await req.json().catch(() => null)
@@ -100,7 +113,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const existing = await findOneWithDecryption(
     em,
@@ -115,9 +128,39 @@ export async function POST(req: Request) {
     scope,
   )
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: auth.sub,
+    resourceKind: 'data_sync.mapping',
+    resourceId: existing?.id ?? scope.organizationId,
+    operation: existing ? 'update' : 'create',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: parsed.data,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   if (existing) {
     existing.mapping = parsed.data.mapping
     await em.flush()
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: auth.sub,
+        resourceKind: 'data_sync.mapping',
+        resourceId: existing.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
     return NextResponse.json({
       id: existing.id,
       integrationId: existing.integrationId,
@@ -134,6 +177,20 @@ export async function POST(req: Request) {
     tenantId: scope.tenantId,
   })
   await em.persist(created).flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: auth.sub,
+      resourceKind: 'data_sync.mapping',
+      resourceId: created.id,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
 
   return NextResponse.json({
     id: created.id,

@@ -6,7 +6,7 @@
  * a curated model list for the AI Assistant UI dropdown.
  *
  * @see packages/shared/src/lib/ai/llm-provider.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic'
@@ -88,6 +88,16 @@ export function createAnthropicAdapter(): LlmProvider {
         }
       }
       return envKeys[0]
+    },
+
+    mapEndUserIdentifier(identifier: string): Record<string, unknown> {
+      // Anthropic Messages API accepts `metadata.user_id` so abuse enforcement
+      // can target a single hashed end user instead of the org key. The key MUST
+      // be the AI SDK provider-option name `userId` (camelCase) — the SDK
+      // translates it to the `metadata.user_id` request-body field and strips
+      // unknown providerOptions keys, so a snake_case key would be dropped and
+      // never reach Anthropic.
+      return { anthropic: { metadata: { userId: identifier } } }
     },
 
     createModel(options: LlmCreateModelOptions): unknown {

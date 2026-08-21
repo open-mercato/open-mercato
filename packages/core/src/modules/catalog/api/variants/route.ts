@@ -104,6 +104,9 @@ const crud = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   indexer: { entityType: E.catalog.catalog_product_variant },
+  enrichers: {
+    entityId: E.catalog.catalog_product_variant,
+  },
   list: {
     schema: listSchema,
     entityId: E.catalog.catalog_product_variant,
@@ -113,6 +116,8 @@ const crud = makeCrudRoute({
       FV.name,
       FV.sku,
       FV.barcode,
+      'gtin_type',
+      'hs_code',
       FV.status_entry_id,
       FV.is_default,
       FV.is_active,
@@ -252,6 +257,8 @@ const variantListItemSchema = z.object({
   name: z.string().nullable().optional(),
   sku: z.string().nullable().optional(),
   barcode: z.string().nullable().optional(),
+  gtin_type: z.string().nullable().optional(),
+  hs_code: z.string().nullable().optional(),
   status_entry_id: z.string().uuid().nullable().optional(),
   is_default: z.boolean().nullable().optional(),
   is_active: z.boolean().nullable().optional(),

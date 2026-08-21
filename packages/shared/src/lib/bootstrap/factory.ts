@@ -1,21 +1,23 @@
 import type { BootstrapData, BootstrapOptions } from './types'
 import { registerOrmEntities } from '../db/mikro'
-import { registerDiRegistrars } from '../di/container'
+import { registerAppDiRegistrar, registerDiRegistrars } from '../di/container'
 import { registerModules } from '../modules/registry'
 import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerCodeWorkflowEntries } from '../../modules/workflows/code-registry'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
 import { registerComponentOverrides } from '../../modules/widgets/component-registry'
 import { registerMutationGuards } from '../crud/mutation-guard-store'
 import { registerCommandInterceptors } from '../commands/command-interceptor-store'
+import { registerCommandLoaders } from '../commands/registry'
 import { registerNotificationHandlers } from '../notifications/handler-registry'
 import { clearRegisteredIntegrations, registerBundles, registerIntegrations } from '../../modules/integrations/types'
 import { applyComponentOverridesToEntries } from '../../modules/overrides'
 
-let _bootstrapped = false
+const _bootstrappedKeys = new Set<string>()
 
 // Store the async registration promise so callers can await it if needed
 let _asyncRegistrationPromise: Promise<void> | null = null
@@ -32,10 +34,14 @@ let _asyncRegistrationPromise: Promise<void> | null = null
  */
 export function createBootstrap(data: BootstrapData, options: BootstrapOptions = {}) {
   return function bootstrap(): void {
+    const registrationKey = options.registrationKey ?? 'default'
+    if (options.appDiRegistrar) {
+      registerAppDiRegistrar(options.appDiRegistrar)
+    }
     // In development, always re-run registrations to handle HMR
     // (Module state may be reset when Turbopack reloads packages)
-    if (_bootstrapped && process.env.NODE_ENV !== 'development') return
-    _bootstrapped = true
+    if (_bootstrappedKeys.has(registrationKey) && process.env.NODE_ENV !== 'development') return
+    _bootstrappedKeys.add(registrationKey)
 
     // === 1. Foundation: ORM entities and DI registrars ===
     registerOrmEntities(data.entities)
@@ -71,6 +77,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
       registerAnalyticsModuleConfigs(data.analyticsModuleConfigs)
     }
 
+    // === 6a. Code workflow definitions (so CLI/worker processes resolve them like the app runtime) ===
+    if (data.codeWorkflows?.length) {
+      registerCodeWorkflowEntries(data.codeWorkflows)
+    }
+
     // === 6b. Response enrichers (for CRUD response enrichment) ===
     if (data.enricherEntries) {
       registerResponseEnrichers(data.enricherEntries)
@@ -98,6 +109,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
       registerCommandInterceptors(data.commandInterceptorEntries)
     }
 
+    // === 6f.1. Command loaders (for lazy command handler registration) ===
+    if (data.commandLoaderEntries) {
+      registerCommandLoaders(data.commandLoaderEntries)
+    }
+
     // === 6g. Notification handlers (reactive notification side-effects) ===
     if (data.notificationHandlerEntries) {
       registerNotificationHandlers(data.notificationHandlerEntries)
@@ -123,21 +139,26 @@ export async function waitForAsyncRegistration(): Promise<void> {
 }
 
 async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: BootstrapOptions): Promise<void> {
-  // Register UI widgets (dynamic imports to avoid circular deps with ui/core packages)
+  // Register widget data required by server-side injection independently from
+  // browser-facing UI registries. API-only bootstraps avoid loading @open-mercato/ui.
   try {
-    const [dashboardRegistry, injectionRegistry, coreInjection] = await Promise.all([
-      import('@open-mercato/ui/backend/dashboard/widgetRegistry'),
-      import('@open-mercato/ui/backend/injection/widgetRegistry'),
-      import('@open-mercato/core/modules/widgets/lib/injection'),
-    ])
-
-    dashboardRegistry.registerDashboardWidgets(data.dashboardWidgetEntries)
-    injectionRegistry.registerInjectionWidgets(data.injectionWidgetEntries)
-    coreInjection.registerCoreInjectionWidgets(data.injectionWidgetEntries)
+    const coreInjection = await import('@open-mercato/core/modules/widgets/lib/injection')
+    if (!options.skipCoreInjectionWidgets) {
+      coreInjection.registerCoreInjectionWidgets(data.injectionWidgetEntries)
+    }
     coreInjection.registerCoreInjectionTables(data.injectionTables)
     coreInjection.registerEnabledModuleIds(
       data.modules.map((module) => module.id).filter((id): id is string => typeof id === 'string' && id.length > 0),
     )
+
+    if (!options.skipUiRegistries) {
+      const [dashboardRegistry, injectionRegistry] = await Promise.all([
+        import('@open-mercato/ui/backend/dashboard/widgetRegistry'),
+        import('@open-mercato/ui/backend/injection/widgetRegistry'),
+      ])
+      dashboardRegistry.registerDashboardWidgets(data.dashboardWidgetEntries)
+      injectionRegistry.registerInjectionWidgets(data.injectionWidgetEntries)
+    }
   } catch {
     // UI packages may not be available in all contexts
   }
@@ -155,12 +176,12 @@ async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: 
  * Check if bootstrap has been called.
  */
 export function isBootstrapped(): boolean {
-  return _bootstrapped
+  return _bootstrappedKeys.size > 0
 }
 
 /**
  * Reset bootstrap state. Useful for testing.
  */
 export function resetBootstrapState(): void {
-  _bootstrapped = false
+  _bootstrappedKeys.clear()
 }

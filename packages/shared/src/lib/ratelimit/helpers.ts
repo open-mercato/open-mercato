@@ -5,22 +5,47 @@ import type { RateLimiterService } from './service'
 
 export const RATE_LIMIT_ERROR_KEY = 'api.errors.rateLimit'
 export const RATE_LIMIT_ERROR_FALLBACK = 'Too many requests. Please try again later.'
+export const RATE_LIMIT_FALLBACK_KEY = 'global'
+export const RATE_LIMIT_UNAVAILABLE_KEY = 'api.errors.rateLimitUnavailable'
+export const RATE_LIMIT_UNAVAILABLE_FALLBACK = 'Service temporarily unavailable. Please try again later.'
 
 export const rateLimitErrorSchema = z.object({
   error: z.string().describe('Rate limit exceeded message'),
 })
 
+export type CheckRateLimitOptions = {
+  /**
+   * Reject with 503 when the limiter could not reach its backing store, instead of
+   * letting the request through uncounted. Use on state-mutating endpoints, where an
+   * unenforced limit is worse than a rejected request.
+   */
+  failClosed?: boolean
+  /** Body message for the 503 emitted by `failClosed`. */
+  unavailableMessage?: string
+}
+
 /**
  * Check rate limit for a request. Returns a 429 NextResponse if rate limited, or null if allowed.
  * Rate limit headers (X-RateLimit-*, Retry-After) are only included on 429 responses.
+ *
+ * With `options.failClosed`, a degraded limiter (backing store unreachable) yields a 503
+ * instead of an allowed request. Without it the call behaves exactly as before and fails open.
  */
 export async function checkRateLimit(
   rateLimiterService: RateLimiterService,
   config: RateLimitConfig,
   key: string,
   errorMessage: string,
+  options: CheckRateLimitOptions = {},
 ): Promise<NextResponse | null> {
   const result = await rateLimiterService.consume(key, config)
+
+  if (result.degraded && options.failClosed) {
+    return NextResponse.json(
+      { error: options.unavailableMessage ?? RATE_LIMIT_UNAVAILABLE_FALLBACK },
+      { status: 503 },
+    )
+  }
 
   if (!result.allowed) {
     const retryAfterSec = Math.ceil(result.msBeforeNext / 1000)
@@ -45,18 +70,25 @@ export async function checkRateLimit(
  * Extract client IP from a request, respecting reverse proxy trust depth.
  *
  * @param trustProxyDepth Number of trusted reverse proxies between the client and the app.
- *   - 0 (default): Do not trust X-Forwarded-For; fall back to X-Real-IP or null.
- *   - 1: One trusted proxy (e.g. nginx) — the last entry in X-Forwarded-For is the client IP.
- *   - N: N trusted proxies — the Nth-from-last entry is the client IP.
+ *   - 0 (default): Do not trust proxy-provided IP headers; return null.
+ *   - 1: One trusted proxy (e.g. nginx) — the last entry in X-Forwarded-For is the client IP;
+ *     X-Real-IP is accepted only as a single-proxy fallback when X-Forwarded-For is absent.
+ *   - N: N trusted proxies — the Nth-from-last entry is the client IP. If the
+ *     forwarded chain is shorter than N, return null rather than trusting an
+ *     attacker-controlled entry.
  *
- * With depth=0, X-Forwarded-For is ignored entirely to prevent spoofing.
+ * With depth=0, X-Forwarded-For and X-Real-IP are ignored entirely to prevent spoofing.
  */
 export function getClientIp(req: Request, trustProxyDepth: number = 0): string | null {
   const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded && trustProxyDepth > 0) {
+  if (!Number.isInteger(trustProxyDepth) || trustProxyDepth <= 0) {
+    return null
+  }
+
+  if (forwarded) {
     const ips = forwarded.split(',').map((ip) => ip.trim())
     const clientIndex = ips.length - trustProxyDepth
-    return clientIndex >= 0 ? ips[clientIndex] : ips[0]
+    return clientIndex >= 0 ? ips[clientIndex] || null : null
   }
-  return req.headers.get('x-real-ip') ?? null
+  return trustProxyDepth === 1 ? req.headers.get('x-real-ip')?.trim() || null : null
 }

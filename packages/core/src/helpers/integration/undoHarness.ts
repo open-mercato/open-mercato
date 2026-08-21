@@ -1,5 +1,8 @@
-import { type APIRequestContext, type APIResponse, expect } from '@playwright/test'
+import { type APIRequestContext, type APIResponse, expect, test } from '@playwright/test'
+import { randomInt } from 'node:crypto'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { apiRequest } from './api'
+import { expectId, readJsonSafe } from './generalFixtures'
 
 /**
  * Shared harness for verifying Undo/Redo correctness against the real command bus.
@@ -14,6 +17,7 @@ const HEADER_PREFIX = 'omop:'
 const UNDO_PATH = '/api/audit_logs/audit-logs/actions/undo'
 const REDO_PATH = '/api/audit_logs/audit-logs/actions/redo'
 const ACTIONS_PATH = '/api/audit_logs/audit-logs/actions'
+export const UNDO_TESTS_DISABLED_ENV = 'OM_INTEGRATION_UNDO_TESTS_DISABLED'
 
 export type Operation = {
   logId: string
@@ -21,6 +25,26 @@ export type Operation = {
   commandId: string
   resourceKind: string | null
   resourceId: string | null
+}
+
+export type CrudUndoEntityConfig = {
+  label: string
+  collectionPath: string
+  field: string
+  createPayload: (stamp: string) => Record<string, unknown>
+  updatePayload: (id: string, stamp: string) => Record<string, unknown>
+  readPath?: (id: string) => string
+  deletePath?: (id: string) => string
+  createStatus?: number
+  updateStatus?: number
+}
+
+export function undoTestsDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBooleanWithDefault(env[UNDO_TESTS_DISABLED_ENV], false)
+}
+
+export function skipIfUndoTestsDisabled(): void {
+  test.skip(undoTestsDisabled(), `${UNDO_TESTS_DISABLED_ENV} is set — undo/redo integration tests skipped`)
 }
 
 /** Parse the `x-om-operation` header into a structured operation, or null when absent/malformed. */
@@ -107,5 +131,113 @@ export function assertFieldsEqual(
       JSON.stringify((actual as Record<string, unknown>)[field]),
       `${context}: field "${field}" not restored (expected ${JSON.stringify((expected as Record<string, unknown>)[field])}, got ${JSON.stringify((actual as Record<string, unknown>)[field])})`,
     ).toBe(JSON.stringify((expected as Record<string, unknown>)[field]))
+  }
+}
+
+function findRecord(body: unknown, id: string): Record<string, unknown> | null {
+  if (!body || typeof body !== 'object') return null
+  if (!Array.isArray(body) && (body as Record<string, unknown>).id === id) {
+    return body as Record<string, unknown>
+  }
+  for (const value of Array.isArray(body) ? body : Object.values(body)) {
+    const found = findRecord(value, id)
+    if (found) return found
+  }
+  return null
+}
+
+async function readRecord(
+  request: APIRequestContext,
+  token: string,
+  entity: CrudUndoEntityConfig,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const path = entity.readPath?.(id) ?? `${entity.collectionPath}?id=${encodeURIComponent(id)}`
+  const response = await apiRequest(request, 'GET', path, { token })
+  const body = await readJsonSafe(response)
+  if (!response.ok()) return null
+  return findRecord(body, id)
+}
+
+function fieldValue(record: Record<string, unknown> | null, field: string): unknown {
+  return record?.[field]
+}
+
+async function deleteEntity(
+  request: APIRequestContext,
+  token: string,
+  entity: CrudUndoEntityConfig,
+  id: string,
+): Promise<APIResponse> {
+  const path = entity.deletePath?.(id) ?? `${entity.collectionPath}?id=${encodeURIComponent(id)}`
+  return apiRequest(request, 'DELETE', path, { token })
+}
+
+export async function runCrudUndoRoundTrip(
+  request: APIRequestContext,
+  token: string,
+  entity: CrudUndoEntityConfig,
+): Promise<void> {
+  const stamp = `${Date.now()}${randomInt(1000)}`
+  let createUndoId: string | null = null
+  let cycleId: string | null = null
+
+  try {
+    const createUndoRes = await apiRequest(request, 'POST', entity.collectionPath, {
+      token,
+      data: entity.createPayload(`${stamp}a`),
+    })
+    expect(createUndoRes.status(), `${entity.label} create-for-undo status`).toBe(entity.createStatus ?? 201)
+    const createUndoOp = expectOperation(createUndoRes, `${entity.label}.create`)
+    createUndoId = createUndoOp.resourceId || expectId((await readJsonSafe<Record<string, unknown>>(createUndoRes))?.id, `${entity.label} create id`)
+    expect(fieldValue(await readRecord(request, token, entity, createUndoId), entity.field), `${entity.label} field readable after create`).toBeDefined()
+
+    await undoOk(request, token, createUndoOp.undoToken, `${entity.label} undo create`)
+    expect(await readRecord(request, token, entity, createUndoId), `${entity.label} create→undo soft-deletes/removes the record (I3)`).toBeNull()
+    await expectTokenConsumed(request, token, createUndoOp.undoToken, `${entity.label} create token consumed (I5)`)
+
+    const createRes = await apiRequest(request, 'POST', entity.collectionPath, {
+      token,
+      data: entity.createPayload(`${stamp}b`),
+    })
+    expect(createRes.status(), `${entity.label} create status`).toBe(entity.createStatus ?? 201)
+    const createOp = expectOperation(createRes, `${entity.label}.create`)
+    cycleId = createOp.resourceId || expectId((await readJsonSafe<Record<string, unknown>>(createRes))?.id, `${entity.label} cycle id`)
+
+    const beforeUpdate = await readRecord(request, token, entity, cycleId)
+    const beforeValue = fieldValue(beforeUpdate, entity.field)
+    expect(beforeValue, `${entity.label} field readable before update`).toBeDefined()
+
+    const updateRes = await apiRequest(request, 'PUT', entity.collectionPath, {
+      token,
+      data: entity.updatePayload(cycleId, stamp),
+    })
+    expect(updateRes.status(), `${entity.label} update status`).toBe(entity.updateStatus ?? 200)
+    const updateOp = expectOperation(updateRes, `${entity.label}.update`)
+    const afterUpdate = await readRecord(request, token, entity, cycleId)
+    const afterUpdateValue = fieldValue(afterUpdate, entity.field)
+    expect(JSON.stringify(afterUpdateValue), `${entity.label} field changed by update`).not.toBe(JSON.stringify(beforeValue))
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await undoOk(request, token, updateOp.undoToken, `${entity.label} undo update`)
+    const afterUndo = await readRecord(request, token, entity, cycleId)
+    expect(JSON.stringify(fieldValue(afterUndo, entity.field)), `${entity.label} update→undo restores ${entity.field} (I1)`).toBe(JSON.stringify(beforeValue))
+    if (typeof beforeUpdate?.updatedAt === 'string' && typeof afterUndo?.updatedAt === 'string') {
+      expect(afterUndo.updatedAt, `${entity.label} undo bumps updatedAt`).not.toBe(beforeUpdate.updatedAt)
+    }
+
+    await redoOk(request, token, updateOp.logId, `${entity.label} redo update`)
+    expect(JSON.stringify(fieldValue(await readRecord(request, token, entity, cycleId), entity.field)), `${entity.label} redo re-applies update (I6)`).toBe(JSON.stringify(afterUpdateValue))
+
+    const deleteRes = await deleteEntity(request, token, entity, cycleId)
+    expect(deleteRes.ok(), `${entity.label} delete status ${deleteRes.status()}`).toBeTruthy()
+    const deleteOp = expectOperation(deleteRes, `${entity.label}.delete`)
+    expect(await readRecord(request, token, entity, cycleId), `${entity.label} deleted record should not read`).toBeNull()
+
+    await undoOk(request, token, deleteOp.undoToken, `${entity.label} undo delete`)
+    expect(fieldValue(await readRecord(request, token, entity, cycleId), entity.field), `${entity.label} delete→undo re-materializes (I2)`).toBeDefined()
+  } finally {
+    if (createUndoId) await deleteEntity(request, token, entity, createUndoId).catch(() => {})
+    if (cycleId) await deleteEntity(request, token, entity, cycleId).catch(() => {})
   }
 }

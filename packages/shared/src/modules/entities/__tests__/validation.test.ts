@@ -56,6 +56,43 @@ describe('validateValuesAgainstDefs', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('applies value rules per-element for multi-value (array) fields', () => {
+    const defs = [
+      { key: 'labels', kind: 'text', configJson: { validation: [ { rule: 'regex', param: '^[a-z0-9_-]+$', message: 'Labels must be slug-like' } ] } },
+    ]
+
+    // Multiple slug-like labels must pass — the regex is checked per element,
+    // not against the comma-joined string representation (issue #2650).
+    let r = validateValuesAgainstDefs({ labels: ['frontend', 'backend', 'ops'] }, defs as any)
+    expect(r.ok).toBe(true)
+    expect(Object.keys(r.fieldErrors).length).toBe(0)
+
+    // A single slug-like label still passes.
+    r = validateValuesAgainstDefs({ labels: ['frontend'] }, defs as any)
+    expect(r.ok).toBe(true)
+
+    // Any non-conforming element fails the whole field.
+    r = validateValuesAgainstDefs({ labels: ['frontend', 'Not Valid!'] }, defs as any)
+    expect(r.ok).toBe(false)
+    expect(r.fieldErrors['cf_labels']).toBe('Labels must be slug-like')
+
+    // An empty array is treated as empty (no value rules apply).
+    r = validateValuesAgainstDefs({ labels: [] }, defs as any)
+    expect(r.ok).toBe(true)
+  })
+
+  it('enforces required on multi-value fields by array emptiness, not per-element', () => {
+    const defs = [
+      { key: 'labels', kind: 'text', configJson: { validation: [ { rule: 'required', message: 'labels required' } ] } },
+    ]
+    let r = validateValuesAgainstDefs({ labels: [] }, defs as any)
+    expect(r.ok).toBe(false)
+    expect(r.fieldErrors['cf_labels']).toBe('labels required')
+
+    r = validateValuesAgainstDefs({ labels: ['frontend', 'backend'] }, defs as any)
+    expect(r.ok).toBe(true)
+  })
+
   it('evaluates dangerous backtracking regex rules in bounded time', () => {
     const defs = [
       {

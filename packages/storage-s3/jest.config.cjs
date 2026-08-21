@@ -3,18 +3,18 @@ const base = require('../../jest.config.base.cjs')
 
 module.exports = {
   ...base,
-  preset: 'ts-jest',
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
+    '^@open-mercato/queue$': '<rootDir>/../queue/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [
-      'ts-jest',
+      '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {
           jsx: 'react-jsx',

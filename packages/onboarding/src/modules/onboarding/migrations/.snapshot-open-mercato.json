@@ -25,6 +25,15 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "token_hash": {
           "name": "token_hash",
           "type": "text",
@@ -176,6 +185,16 @@
           "length": 6,
           "mappedType": "datetime"
         },
+        "preparation_started_at": {
+          "name": "preparation_started_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
         "preparation_completed_at": {
           "name": "preparation_completed_at",
           "type": "timestamptz",
@@ -241,14 +260,24 @@
           "unique": true
         },
         {
-          "keyName": "onboarding_requests_email_unique",
+          "keyName": "onboarding_requests_email_hash_unique",
           "columnNames": [
-            "email"
+            "email_hash"
           ],
           "composite": false,
           "constraint": true,
           "primary": false,
           "unique": true
+        },
+        {
+          "keyName": "onboarding_requests_email_idx",
+          "columnNames": [
+            "email"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
         },
         {
           "keyName": "onboarding_requests_pkey",

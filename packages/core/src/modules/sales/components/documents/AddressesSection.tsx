@@ -28,6 +28,9 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -72,12 +75,21 @@ const emptyDraft: AddressEditorDraft = {
   isPrimary: false,
 }
 
-function normalizeAddressDraft(draft?: AddressEditorDraft | null): Record<string, unknown> | null {
+const EDITABLE_SNAPSHOT_KEYS = new Set(Object.keys(emptyDraft))
+
+function normalizeAddressDraft(
+  draft?: AddressEditorDraft | null,
+  previous?: Record<string, unknown> | null,
+): Record<string, unknown> | null {
   if (!draft) return null
   const normalized: Record<string, unknown> = {}
+  let hasEditableContent = false
   const assign = (key: keyof AddressEditorDraft, target: string) => {
     const value = draft[key]
-    if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
+    if (typeof value === 'string' && value.trim().length) {
+      normalized[target] = value.trim()
+      hasEditableContent = true
+    }
     if (typeof value === 'boolean') normalized[target] = value
   }
   assign('name', 'name')
@@ -92,7 +104,15 @@ function normalizeAddressDraft(draft?: AddressEditorDraft | null): Record<string
   assign('postalCode', 'postalCode')
   assign('country', 'country')
   assign('isPrimary', 'isPrimary')
-  return Object.keys(normalized).length ? normalized : null
+  if (!hasEditableContent) return null
+  if (previous) {
+    for (const [key, value] of Object.entries(previous)) {
+      if (EDITABLE_SNAPSHOT_KEYS.has(key)) continue
+      if (value === undefined) continue
+      normalized[key] = value
+    }
+  }
+  return normalized
 }
 
 function draftFromSnapshot(snapshot?: Record<string, unknown> | null): AddressEditorDraft {
@@ -157,6 +177,12 @@ function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrat
   return { id, label, summary, value, name: name || null, purpose: purpose || null }
 }
 
+function mergeAddressOption(options: AddressOption[], selected: AddressOption | null): AddressOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
+}
+
 function draftFromDocumentAddress(entry: DocumentAddressAssignment): AddressEditorDraft {
   return {
     name: entry.name ?? '',
@@ -191,9 +217,13 @@ export function SalesDocumentAddressesSection({
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
-  const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(!!shippingAddressSnapshot)
+  const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(
+    !!shippingAddressSnapshot && !shippingAddressId
+  )
   const [useCustomBilling, setUseCustomBilling] = React.useState<boolean>(
-    billingAddressSnapshot ? true : !!shippingAddressSnapshot
+    billingAddressSnapshot && !billingAddressId
+      ? true
+      : !!shippingAddressSnapshot && !shippingAddressId
   )
   const [sameAsShipping, setSameAsShipping] = React.useState<boolean>(() => {
     if (shippingAddressSnapshot || billingAddressSnapshot) {
@@ -346,7 +376,7 @@ export function SalesDocumentAddressesSection({
         setDocumentAddresses([])
       }
     } catch (err) {
-      console.error('sales.documents.addresses.document.load', err)
+      logger.error('sales.documents.addresses.document.load', { err })
       const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
       flash(message, 'error')
       setDocumentAddressesError(message)
@@ -357,8 +387,8 @@ export function SalesDocumentAddressesSection({
   }, [documentId, kind, resolveAddressSummary, t])
 
   React.useEffect(() => {
-    const shippingCustom = !!shippingAddressSnapshot
-    const billingCustom = !!billingAddressSnapshot
+    const shippingCustom = !!shippingAddressSnapshot && !shippingAddressId
+    const billingCustom = !!billingAddressSnapshot && !billingAddressId
     const nextSame = shippingAddressSnapshot || billingAddressSnapshot
       ? deepEqual(shippingAddressSnapshot, billingAddressSnapshot)
       : !billingAddressId || billingAddressId === shippingAddressId
@@ -436,7 +466,7 @@ export function SalesDocumentAddressesSection({
           setAddressOptions([])
         }
       } catch (err) {
-        console.error('sales.documents.addresses.load', err)
+        logger.error('sales.documents.addresses.load', { err })
         const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
         setAddressesError(message)
         flash(message, 'error')
@@ -448,9 +478,42 @@ export function SalesDocumentAddressesSection({
     [addressFormat, t]
   )
 
+  const loadAddressOptionById = React.useCallback(
+    async (addressId: string): Promise<AddressOption | null> => {
+      const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/customers/addresses?id=${encodeURIComponent(addressId)}&pageSize=1`
+      )
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      return (
+        items
+          .map((item) => mapApiAddress(item, addressFormat))
+          .find((entry): entry is AddressOption => entry?.id === addressId) ?? null
+      )
+    },
+    [addressFormat]
+  )
+
   React.useEffect(() => {
     loadAddresses(customerId).catch(() => {})
   }, [customerId, loadAddresses])
+
+  React.useEffect(() => {
+    const selectedIds = [shippingAddressIdState, billingAddressIdState].filter(
+      (id): id is string => typeof id === 'string' && id.length > 0
+    )
+    const missingIds = selectedIds.filter((id) => !addressOptions.some((option) => option.id === id))
+    if (!missingIds.length) return
+    Promise.all(missingIds.map((id) => loadAddressOptionById(id).catch(() => null)))
+      .then((selectedOptions) => {
+        setAddressOptions((current) =>
+          selectedOptions.reduce(
+            (next, selected) => mergeAddressOption(next, selected),
+            current
+          )
+        )
+      })
+      .catch(() => {})
+  }, [addressOptions, billingAddressIdState, loadAddressOptionById, shippingAddressIdState])
 
   const guardLocked = React.useCallback(() => {
     if (!locked) return false
@@ -480,7 +543,7 @@ export function SalesDocumentAddressesSection({
           setAddressFormat(format)
         }
       } catch (err) {
-        console.error('sales.documents.addresses.format', err)
+        logger.error('sales.documents.addresses.format', { err })
       }
     }
     fetchAddressFormat().catch(() => {})
@@ -794,8 +857,12 @@ export function SalesDocumentAddressesSection({
     if (guardLocked()) return
     setSaving(true)
     try {
-      const shippingSnapshot = useCustomShipping ? normalizeAddressDraft(shippingDraft) : null
-      let billingSnapshot = useCustomBilling ? normalizeAddressDraft(billingDraft) : null
+      const shippingSnapshot = useCustomShipping
+        ? normalizeAddressDraft(shippingDraft, shippingAddressSnapshot)
+        : null
+      let billingSnapshot = useCustomBilling
+        ? normalizeAddressDraft(billingDraft, billingAddressSnapshot)
+        : null
       const same = sameAsShipping
       const payload: Record<string, unknown> = { id: documentId }
 
@@ -848,8 +915,12 @@ export function SalesDocumentAddressesSection({
         if (res?.result?.id) billingId = res.result.id
       }
 
-      payload.shippingAddressSnapshot = shippingSnapshot ?? null
-      payload.billingAddressSnapshot = billingSnapshot ?? null
+      if (shippingSnapshot || !shippingId) {
+        payload.shippingAddressSnapshot = shippingSnapshot ?? null
+      }
+      if (billingSnapshot || !billingId) {
+        payload.billingAddressSnapshot = billingSnapshot ?? null
+      }
       payload.shippingAddressId = shippingSnapshot ? null : shippingId
       payload.billingAddressId = billingSnapshot ? null : billingId
 
@@ -898,6 +969,7 @@ export function SalesDocumentAddressesSection({
     }
   }, [
     billingAddressIdState,
+    billingAddressSnapshot,
     billingDraft,
     customerId,
     documentId,
@@ -906,6 +978,7 @@ export function SalesDocumentAddressesSection({
     saveBillingAddress,
     saveShippingAddress,
     shippingAddressIdState,
+    shippingAddressSnapshot,
     shippingDraft,
     t,
     loadAddresses,
@@ -919,29 +992,48 @@ export function SalesDocumentAddressesSection({
     options: AddressOption[],
     onChange: (next: string | null) => void,
     disabled: boolean
-  ) => (
-    <Select value={value || undefined} onValueChange={(next) => onChange(next || null)} disabled={disabled}>
-      <SelectTrigger>
-        <SelectValue
-          placeholder={
-            addressesLoading
-              ? t('sales.documents.form.address.loading', 'Loading addresses…')
-              : t('sales.documents.form.address.placeholder', 'Select address')
-          }
-        />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((addr) => {
-          const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
-          return (
-            <SelectItem key={addr.id} value={addr.id}>
-              {optionLabel}
-            </SelectItem>
-          )
-        })}
-      </SelectContent>
-    </Select>
-  )
+  ) => {
+    const selectedOption = options.find((addr) => addr.id === value) ?? null
+    const selectedLabel = selectedOption
+      ? selectedOption.summary
+        ? `${selectedOption.label} — ${selectedOption.summary}`
+        : selectedOption.label
+      : null
+    const optionsKey = options
+      .map((addr) => `${addr.id}:${addr.summary ? `${addr.label} — ${addr.summary}` : addr.label}`)
+      .join('\0')
+
+    return (
+      <Select
+        key={`address:${value}:${optionsKey}`}
+        value={value || undefined}
+        onValueChange={(next) => onChange(next || null)}
+        disabled={disabled}
+      >
+        <SelectTrigger>
+          <SelectValue
+            placeholder={
+              addressesLoading
+                ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                : t('sales.documents.form.address.placeholder', 'Select address')
+            }
+          >
+            {selectedLabel ?? undefined}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((addr) => {
+            const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+            return (
+              <SelectItem key={addr.id} value={addr.id}>
+                {optionLabel}
+              </SelectItem>
+            )
+          })}
+        </SelectContent>
+      </Select>
+    )
+  }
 
   return (
     <div className="space-y-4">

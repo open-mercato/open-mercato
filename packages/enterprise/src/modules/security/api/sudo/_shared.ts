@@ -13,6 +13,9 @@ import type {
 } from '../../services/SudoChallengeService'
 import { isSudoRequiredError } from '../../lib/sudo-middleware'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('security').child({ component: 'sudo' })
 
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type Auth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -135,7 +138,7 @@ export async function mapSudoError(error: unknown): Promise<NextResponse> {
   if (isSudoChallengeServiceError(error)) {
     return securityApiError(error.statusCode, error.message)
   }
-  console.error('security.sudo.route failure', error)
+  logger.error('Sudo route failure', { err: error })
   return securityApiError(500, 'Failed to process sudo request.')
 }
 

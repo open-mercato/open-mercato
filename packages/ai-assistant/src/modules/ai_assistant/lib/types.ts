@@ -16,6 +16,8 @@ export interface McpToolContext {
   apiKeySecret?: string
   /** Session token for memory layer (deduplication of search/GET calls) */
   sessionId?: string
+  /** Pending action that the operator explicitly confirmed before this handler invocation. */
+  approvedPendingActionId?: string
   /**
    * Back-reference to the tool definition the handler is executing. Populated
    * by the runtime (`tool-executor`, `pending-action-executor`, the agent-tools
@@ -217,6 +219,13 @@ export interface McpServerOptions {
   }
   /** API key secret for authentication (alternative to manual context) */
   apiKeySecret?: string
+  /**
+   * Explicit, loud opt-in for running without authentication as a superadmin
+   * (development/testing only). When false/unset and no `apiKeySecret` or
+   * `context.userId` is supplied, the server fails closed and refuses to start
+   * instead of silently escalating to superadmin. NEVER enable in production.
+   */
+  allowUnauthenticatedSuperadmin?: boolean
 }
 
 /**

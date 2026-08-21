@@ -27,6 +27,16 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
 import { DictionaryValue, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import { AppearanceSelector, type AppearanceSelectorLabels, useAppearanceState } from './AppearanceSelector'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'DictionaryEntrySelect' })
+
+export class DictionaryOptionsUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DictionaryOptionsUnavailableError'
+  }
+}
 
 const DEFAULT_APPEARANCE_LABELS: AppearanceSelectorLabels = {
   colorLabel: 'Color',
@@ -78,6 +88,7 @@ export type DictionaryEntrySelectProps = {
   labels: DictionarySelectLabels
   manageHref?: string
   selectClassName?: string
+  seedOptions?: DictionaryOption[]
   allowInlineCreate?: boolean
   allowAppearance?: boolean
   appearanceLabels?: AppearanceSelectorLabels
@@ -103,6 +114,7 @@ export function DictionaryEntrySelect({
   labels,
   manageHref,
   selectClassName,
+  seedOptions,
   allowInlineCreate = true,
   allowAppearance = false,
   appearanceLabels,
@@ -112,6 +124,7 @@ export function DictionaryEntrySelect({
   sortOptions = 'label_asc',
   showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
+  const unavailableMessageId = React.useId()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
@@ -121,17 +134,24 @@ export function DictionaryEntrySelect({
   const [newValue, setNewValue] = React.useState('')
   const [newLabel, setNewLabel] = React.useState('')
   const [formError, setFormError] = React.useState<string | null>(null)
+  const [unavailableMessage, setUnavailableMessage] = React.useState<string | null>(null)
   const appearance = useAppearanceState(null, null)
 
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
+    setUnavailableMessage(null)
     try {
       const items = await fetchOptions()
       setOptions(sortOptions === 'none' ? items : items.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })))
     } catch (err) {
-      console.error('DictionaryEntrySelect.fetchOptions failed', err)
-      flash(labels.errorLoad, 'error')
-      setOptions([])
+      if (err instanceof DictionaryOptionsUnavailableError) {
+        setUnavailableMessage(err.message)
+        setOptions([])
+      } else {
+        logger.error('Failed to fetch options', { err })
+        flash(labels.errorLoad, 'error')
+        setOptions([])
+      }
     } finally {
       setLoading(false)
     }
@@ -154,10 +174,39 @@ export function DictionaryEntrySelect({
     if (!dialogOpen) resetDialogState()
   }, [dialogOpen, resetDialogState])
 
+  const mergedOptions = React.useMemo(() => {
+    if (!Array.isArray(seedOptions) || !seedOptions.length) return options
+    const merged: DictionaryOption[] = []
+    const seen = new Set<string>()
+    for (const option of seedOptions) {
+      if (!option.value || seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    for (const option of options) {
+      if (seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+    return merged
+  }, [options, seedOptions])
+
   const activeOption = React.useMemo(
-    () => options.find((option) => option.value === value) ?? null,
-    [options, value],
+    () => mergedOptions.find((option) => option.value === value) ?? null,
+    [mergedOptions, value],
   )
+  const displayOptions = React.useMemo(() => {
+    if (!value || activeOption) return mergedOptions
+    return [
+      {
+        value,
+        label: value,
+        color: null,
+        icon: null,
+      },
+      ...mergedOptions,
+    ]
+  }, [activeOption, mergedOptions, value])
 
   const handleCreate = React.useCallback(async () => {
     if (!createOption) return
@@ -195,7 +244,7 @@ export function DictionaryEntrySelect({
         flash(labels.successCreateLabel, 'success')
       }
     } catch (err) {
-      console.error('DictionaryEntrySelect.createOption failed', err)
+      logger.error('Failed to create option', { err })
       flash(labels.errorSave, 'error')
     } finally {
       setSaving(false)
@@ -242,7 +291,7 @@ export function DictionaryEntrySelect({
     return '⌘/Ctrl + Enter'
   }, [labels.saveShortcutHint])
 
-  const disabled = disabledProp || loading || saving
+  const disabled = disabledProp || loading || saving || unavailableMessage !== null
   const manageLink = manageHref ?? '/backend/config/dictionaries'
   const returnTo = React.useMemo(() => {
     const query = searchParams?.toString() ?? ''
@@ -253,24 +302,40 @@ export function DictionaryEntrySelect({
     () => buildHrefWithReturnTo(manageLink, returnTo),
     [manageLink, returnTo],
   )
+  const optionsKey = React.useMemo(
+    () => displayOptions.map((option) => `${option.value}:${option.label}`).join('\0'),
+    [displayOptions],
+  )
 
   return (
     <div className="space-y-2">
+      {unavailableMessage ? (
+        <p id={unavailableMessageId} className="text-xs text-muted-foreground">
+          {unavailableMessage}
+        </p>
+      ) : null}
       <div className="flex items-center gap-2">
         <Select
-          value={value || undefined}
-          onValueChange={(next) => onChange(next || undefined)}
+          key={`dictionary-entry:${value ?? ''}:${optionsKey}`}
+          value={value ?? ''}
+          onValueChange={(next) => {
+            if (!next) return
+            onChange(next)
+          }}
           disabled={disabled}
         >
           <SelectTrigger
             id={id}
+            aria-describedby={unavailableMessage ? unavailableMessageId : undefined}
             className={selectClassName}
             title={activeOption?.label ?? undefined}
           >
-            <SelectValue placeholder={labels.placeholder} />
+            <SelectValue placeholder={labels.placeholder}>
+              {activeOption?.label}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {options.map((option) => (
+            {displayOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
@@ -333,7 +398,7 @@ export function DictionaryEntrySelect({
                       labels={appearanceLabels ?? DEFAULT_APPEARANCE_LABELS}
                     />
                   ) : null}
-                  {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
+                  {formError ? <p className="text-sm text-status-error-text">{formError}</p> : null}
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>

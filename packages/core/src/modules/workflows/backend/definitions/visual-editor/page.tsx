@@ -6,11 +6,12 @@ import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
-import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
+import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
+import { humanizeDefinitionIssuePath } from '../../../lib/format-validation-error'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -35,8 +36,9 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
@@ -44,6 +46,9 @@ import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../../data/types'
 import * as React from 'react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 /**
  * VisualEditorPage - Visual workflow definition editor
@@ -61,6 +66,7 @@ export default function VisualEditorPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const definitionId = searchParams.get('id')
   const isMobile = useIsMobile()
 
@@ -159,7 +165,7 @@ export default function VisualEditorPage() {
         setSource((definition.source as 'code' | 'code_override' | 'user') ?? null)
         setUpdatedAt(typeof definition.updatedAt === 'string' ? definition.updatedAt : null)
       } catch (error) {
-        console.error('Error loading workflow definition:', error)
+        logger.error('Error loading workflow definition', { err: error })
         flash('Failed to load workflow definition', 'error')
       } finally {
         setIsLoading(false)
@@ -169,16 +175,18 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
-  // Handle node changes from ReactFlow
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+  // Handle node changes from ReactFlow. The lazy graph applies React Flow's
+  // change reducers internally (#3169) and hands back the resolved nodes, so
+  // this page never imports the @xyflow/react runtime.
+  const handleNodesChange = useCallback((nextNodes: Node[]) => {
     if (isCodeOnly) return
-    setNodes((nds) => applyNodeChanges(changes, nds))
+    setNodes(nextNodes)
   }, [isCodeOnly])
 
-  // Handle edge changes from ReactFlow
-  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+  // Handle edge changes from ReactFlow (resolved edges from the lazy graph).
+  const handleEdgesChange = useCallback((nextEdges: Edge[]) => {
     if (isCodeOnly) return
-    setEdges((eds) => applyEdgeChanges(changes, eds))
+    setEdges(nextEdges)
   }, [isCodeOnly])
 
   // Handle adding new node from palette
@@ -285,7 +293,7 @@ export default function VisualEditorPage() {
       },
     }
 
-    setEdges((eds) => addEdge(newEdge, eds))
+    setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
   // Validate workflow
@@ -350,11 +358,19 @@ export default function VisualEditorPage() {
       triggers: triggers.length > 0 ? triggers : undefined,
     }
 
-    // Run Zod schema validation before saving
+    // Run Zod schema validation before saving. Report every issue, not just the
+    // first: a save rejected for one missing activity field used to look like
+    // "nothing happened" once the operator fixed that field and hit a second
+    // one (#4232). Paths are humanized (steps.2.activities.0.config.endpoint →
+    // step 3 › activity 1 › endpoint) so the message points at the node to open.
     const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
     if (!schemaResult.success) {
-      const firstIssue = schemaResult.error.issues[0]
-      flash(`Schema error: ${firstIssue.path.join('.')} - ${firstIssue.message}`, 'error')
+      const issues = schemaResult.error.issues
+      const described = issues
+        .slice(0, 3)
+        .map((issue) => `${humanizeDefinitionIssuePath(issue.path)}: ${issue.message}`)
+      const suffix = issues.length > described.length ? ` (+${issues.length - described.length} more)` : ''
+      flash(`Cannot save — ${described.join('; ')}${suffix}`, 'error')
       return
     }
 
@@ -433,7 +449,7 @@ export default function VisualEditorPage() {
       }, 1500)
 
     } catch (error) {
-      console.error('Error saving workflow definition:', error)
+      logger.error('Error saving workflow definition', { err: error })
       flash('Failed to save workflow definition. Please try again.', 'error')
     } finally {
       setIsSaving(false)
@@ -615,6 +631,22 @@ export default function VisualEditorPage() {
     flash('Canvas cleared', 'success')
   }, [])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `workflows.definition` + id
+  // explicitly. This is the highest-value record_locks target (long-lived visual
+  // edits): presence holds the lock while the graph is open, and the raw `apiCall`
+  // save already routes its 409 through `surfaceRecordConflict`. Cleared on create
+  // (no `definitionId`) and on unmount. Mirrors the form edit page's resourceKind so
+  // a lock held in either editor surfaces in the other.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'workflows.definition',
+      resourceId: definitionId,
+      updatedAt,
+      path: pathname,
+    }),
+  )
+
   // Show loading spinner while loading definition
   if (isLoading) {
     return (
@@ -656,7 +688,7 @@ export default function VisualEditorPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowClearConfirm(false)}>{t('common.cancel', 'Cancel')}</Button>
-            <Button variant="destructive" onClick={confirmClear}>{t('common.clear', 'Clear')}</Button>
+            <Button variant="destructive-solid" onClick={confirmClear}>{t('common.clear', 'Clear')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -805,12 +837,12 @@ export default function VisualEditorPage() {
       {(isCodeOnly || isCodeOverride) && (
         <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
           {isCodeOnly && (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertTitle>{t('workflows.source.code.readonlyBanner')}</AlertTitle>
             </Alert>
           )}
           {isCodeOverride && (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertTitle>{t('workflows.source.code_override.banner')}</AlertTitle>
             </Alert>
           )}
@@ -1138,8 +1170,7 @@ export default function VisualEditorPage() {
               </div>
 
               {/* Instructions */}
-              <Alert variant="info" className="mt-6">
-                <Info className="size-4" />
+              <Alert status="information" className="mt-6">
                 <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
                 <div className="mt-2">
                   <ul className="list-inside list-disc space-y-1 text-xs">

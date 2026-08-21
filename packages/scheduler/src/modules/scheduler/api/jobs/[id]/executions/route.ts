@@ -5,8 +5,12 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { ScheduledJob } from '../../../../data/entities.js'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { resolveScheduleAccess } from '../../../../lib/scheduleAccess.js'
+import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'executions' })
 
 
 export const metadata = {
@@ -37,30 +41,19 @@ export async function GET(
   const scheduleId = params.id
 
   try {
-    // Verify schedule exists and user has access (with tenant/org scope filter)
-    const findFilter: Record<string, unknown> = {
-      id: scheduleId,
-      deletedAt: null,
-    }
-
-    // Apply tenant isolation: scope the query to the user's tenant/org
-    if (auth.tenantId) {
-      findFilter.tenantId = auth.tenantId
-    }
-    if (auth.orgId) {
-      findFilter.organizationId = auth.orgId
-    }
-
-    const schedule = await em.findOne(ScheduledJob, findFilter)
+    // Load by id alone, then apply isolation to the loaded row. Folding the actor's
+    // tenant/org into the lookup would make every system-scoped schedule unmatchable.
+    const schedule = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
 
     if (!schedule) {
       return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
     }
 
-    // System-scoped schedules (no tenantId/orgId) require super-admin. Use the
-    // immutable `isSuperAdmin` flag — never compare mutable/spoofable role names.
-    const isSuperAdmin = auth.isSuperAdmin === true
-    if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {
+    const access = resolveScheduleAccess(schedule, auth)
+    if (access === 'not_found') {
+      return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
+    }
+    if (access === 'forbidden') {
       return NextResponse.json({ error: translate('scheduler.error.access_denied', 'Access denied') }, { status: 403 })
     }
 
@@ -76,7 +69,9 @@ export async function GET(
 
     // Fetch jobs from BullMQ scheduler-execution queue
     const { Queue } = await import('bullmq')
-    const queue = new Queue('scheduler-execution', { connection: { url: getRedisUrlOrThrow('QUEUE') } })
+    const queue = new Queue('scheduler-execution', {
+      connection: parseRedisUrl(getRedisUrlOrThrow('QUEUE')),
+    })
 
     try {
       // Validate query params with Zod schema
@@ -143,7 +138,7 @@ export async function GET(
     }
 
   } catch (error: unknown) {
-    console.error('[scheduler:executions] Error fetching execution history:', error)
+    logger.error('Error fetching execution history', { err: error })
     return NextResponse.json(
       { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_executions_failed', 'Failed to fetch execution history') },
       { status: 500 }

@@ -32,7 +32,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import {
   Select,
@@ -64,9 +64,11 @@ import { CurrencyFilterPopover } from './components/CurrencyFilterPopover'
 import { AddStageLane } from './components/AddStageLane'
 import type { DealCardData } from './components/DealCard'
 import {
-  QuickDealDialog,
+  QuickDealDialog as DefaultQuickDealDialog,
+  QUICK_DEAL_DIALOG_COMPONENT_ID,
   type QuickDealContext,
   type QuickDealCompanyOption,
+  type QuickDealDialogProps,
 } from './components/QuickDealDialog'
 import { AddStageDialog, type AddStageContext } from './components/AddStageDialog'
 import { StatusFilterPopover } from './components/StatusFilterPopover'
@@ -80,9 +82,15 @@ import {
   type ActivityComposerContext,
 } from './components/ActivityComposerDialog'
 import { BulkActionsBar } from './components/BulkActionsBar'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { ChangeStageDialog } from './components/ChangeStageDialog'
 import { ChangeOwnerDialog } from './components/ChangeOwnerDialog'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import {
+  readVersionedPreference,
+  writeVersionedPreference,
+  clearVersionedPreference,
+} from '@open-mercato/shared/lib/browser/versionedPreference'
 import { runBulkDelete, groupBulkDeleteFailures } from '@open-mercato/ui/backend/utils/bulkDelete'
 import {
   fetchAssignableStaffMembers,
@@ -170,35 +178,37 @@ const MIN_LANE_WIDTH = 240
 const MAX_LANE_WIDTH = 576
 const LANE_GAP = 14
 const LANE_WIDTHS_STORAGE_KEY_PREFIX = 'kanban-lane-widths-v2'
+const LANE_WIDTHS_STORAGE_VERSION = 1
+
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    && Object.values(value as Record<string, unknown>).every((v) => typeof v === 'number')
+}
 
 function loadLaneWidths(scopeKey: string): Record<string, number> {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = window.localStorage.getItem(`${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return {}
-    const out: Record<string, number> = {}
-    for (const [k, v] of Object.entries(parsed)) {
-      if (typeof v === 'number' && Number.isFinite(v) && v >= MIN_LANE_WIDTH && v <= MAX_LANE_WIDTH) {
-        out[k] = v
-      }
+  const raw = readVersionedPreference<Record<string, number>>(
+    `${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`,
+    LANE_WIDTHS_STORAGE_VERSION,
+    isNumberRecord,
+    {},
+    { legacyIsValid: isNumberRecord },
+  )
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    if (Number.isFinite(v) && v >= MIN_LANE_WIDTH && v <= MAX_LANE_WIDTH) {
+      out[k] = v
     }
-    return out
-  } catch {
-    return {}
   }
+  return out
 }
 
 function saveLaneWidths(scopeKey: string, widths: Record<string, number>) {
-  if (typeof window === 'undefined') return
-  try {
-    if (Object.keys(widths).length === 0) {
-      window.localStorage.removeItem(`${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`)
-    } else {
-      window.localStorage.setItem(`${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`, JSON.stringify(widths))
-    }
-  } catch {}
+  const key = `${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`
+  if (Object.keys(widths).length === 0) {
+    clearVersionedPreference(key)
+  } else {
+    writeVersionedPreference(key, LANE_WIDTHS_STORAGE_VERSION, widths)
+  }
 }
 
 function normalizeAmount(value: unknown): number | null {
@@ -403,6 +413,12 @@ function sortDeals(deals: DealCardData[], option: SortOption): DealCardData[] {
 
 export default function DealsKanbanPage(): React.ReactElement {
   const t = useT()
+  // Resolved through the component registry so downstream apps can replace,
+  // wrap, or props-transform the quick-add dialog without forking this page.
+  const QuickDealDialog = useRegisteredComponent<QuickDealDialogProps>(
+    QUICK_DEAL_DIALOG_COMPONENT_ID,
+    DefaultQuickDealDialog,
+  )
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -599,10 +615,10 @@ export default function DealsKanbanPage(): React.ReactElement {
     () => ({
       pipelineId: selectedPipelineId,
       search: search.trim(),
-      status: statusFilters.slice().sort().join(','),
-      owners: ownerFilters.slice().sort().join(','),
-      people: peopleFilters.slice().sort().join(','),
-      companies: companyFilters.slice().sort().join(','),
+      status: statusFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      owners: ownerFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      people: peopleFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      companies: companyFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
       closeFrom: closeDateFilter.from ?? '',
       closeTo: closeDateFilter.to ?? '',
       currency: currencyFilter ?? '',
@@ -2542,6 +2558,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   return (
     <Page>
       <PageBody>
+        <ViewTabsRow active="kanban" className="mb-4" />
         <div className="flex flex-col gap-2">
           <Breadcrumb>
             <BreadcrumbList>
@@ -2710,8 +2727,6 @@ export default function DealsKanbanPage(): React.ReactElement {
           ) : null}
         </div>
 
-        <ViewTabsRow active="kanban" className="mt-4" />
-
         <FilterBarRow
           leadingChips={leadingChipsNode}
           chips={filterChips}
@@ -2735,17 +2750,18 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
         ) : firstError ? (
           <div className="max-w-xl">
-            <ErrorNotice
-              message={
-                firstError instanceof Error
+            <Alert status="error">
+              <AlertTitle>{translateWithFallback(t, 'ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
+              <AlertDescription>
+                {firstError instanceof Error
                   ? firstError.message
                   : translateWithFallback(
                       t,
                       'customers.deals.pipeline.loadError',
                       'Failed to load deals.',
-                    )
-              }
-            />
+                    )}
+              </AlertDescription>
+            </Alert>
           </div>
         ) : (
           <DndContext

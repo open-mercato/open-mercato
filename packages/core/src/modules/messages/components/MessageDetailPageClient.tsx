@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import { MessageComposer } from '@open-mercato/ui/backend/messages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -94,7 +95,7 @@ function MessageConversationDetailItem({
 
           {/* UMES — channel payload renderer mounts here (channel-linked emails, Slack blocks, etc.). */}
           <InjectionSpot
-            spotId="detail:messages:message:body:after"
+            spotId={extensionPoints.hosts.detailBodyAfter.spotId}
             context={{ messageId }}
             data={state.detail}
           />
@@ -105,7 +106,7 @@ function MessageConversationDetailItem({
               `userFeatures` lets feature-gated widgets (e.g. the channel reassignment editor,
               gated on `communication_channels.assign`) render their controls for permitted users. */}
           <InjectionSpot
-            spotId="detail:messages:message:sidebar"
+            spotId={extensionPoints.hosts.detailSidebar.spotId}
             context={{ messageId, userFeatures }}
             data={state.detail}
           />
@@ -220,6 +221,8 @@ export function MessageDetailPageClient({ id }: { id: string }) {
   const firstConversationMessageId = state.conversationItems[0]?.id ?? null
   const latestConversationMessageId = state.conversationItems[state.conversationItems.length - 1]?.id ?? null
   const canRunConversationActions = Boolean(firstConversationMessageId)
+  const conversationArchived = Boolean(detail.conversationArchived)
+  const conversationAllUnread = Boolean(detail.conversationAllUnread)
 
   return (
     <div className="space-y-3">
@@ -228,6 +231,8 @@ export function MessageDetailPageClient({ id }: { id: string }) {
         priority={(detail.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal'}
         canReply={!detail.isDraft && detail.typeDefinition.allowReply && Boolean(firstConversationMessageId)}
         canForwardAll={!detail.isDraft && detail.typeDefinition.allowForward && Boolean(latestConversationMessageId)}
+        conversationArchived={conversationArchived}
+        conversationAllUnread={conversationAllUnread}
         actionsDisabled={Boolean(state.activeConversationAction)}
         activeActionId={state.activeConversationAction}
         onReply={() => {
@@ -244,13 +249,21 @@ export function MessageDetailPageClient({ id }: { id: string }) {
             messageId: latestConversationMessageId,
           })
         }}
-        onArchiveConversation={() => {
+        onToggleArchiveConversation={() => {
           if (!canRunConversationActions) return
-          void state.archiveConversation(firstConversationMessageId ?? undefined)
+          if (conversationArchived) {
+            void state.unarchiveConversation(firstConversationMessageId ?? undefined)
+          } else {
+            void state.archiveConversation(firstConversationMessageId ?? undefined)
+          }
         }}
-        onMarkAllUnread={() => {
+        onToggleReadConversation={() => {
           if (!canRunConversationActions) return
-          void state.markConversationUnread(firstConversationMessageId ?? undefined)
+          if (conversationAllUnread) {
+            void state.markConversationRead(firstConversationMessageId ?? undefined)
+          } else {
+            void state.markConversationUnread(firstConversationMessageId ?? undefined)
+          }
         }}
         onDeleteConversation={() => {
           if (!canRunConversationActions || state.activeConversationAction) return

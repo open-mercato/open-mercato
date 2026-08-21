@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { readIntegrationEnvFlag } from '@open-mercato/core/helpers/integration/standaloneEnv';
 import { createWebhookFixture, deleteWebhookIfExists } from './helpers/fixtures';
 
 /**
@@ -15,9 +16,7 @@ import { createWebhookFixture, deleteWebhookIfExists } from './helpers/fixtures'
  * active flag dictates. Exhaustive private-IP coverage lives in the unit suites
  * (data/__tests__/validators.test.ts, lib/__tests__/url-safety.test.ts).
  */
-const PRIVATE_URLS_ALLOWED = ['1', 'true', 'yes', 'on'].includes(
-  (process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '').trim().toLowerCase(),
-);
+const PRIVATE_URLS_ALLOWED = readIntegrationEnvFlag('OM_WEBHOOKS_ALLOW_PRIVATE_URLS');
 
 const ALWAYS_UNSAFE_URLS = [
   'ftp://example.com/webhook',

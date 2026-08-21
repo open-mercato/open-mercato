@@ -10,8 +10,13 @@ import { expect, test, type Page } from '@playwright/test';
  * behind the deterministic round-trip.
  */
 async function submitResetAndExpectError(page: Page): Promise<void> {
-  await page.getByLabel(/^new password$/i).fill('Valid1!Pass');
-  await page.getByLabel(/^confirm new password$/i).fill('Valid1!Pass');
+  await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 30_000 });
+  const passwordInput = page.getByLabel(/^new password$/i);
+  const confirmPasswordInput = page.getByLabel(/^confirm new password$/i);
+  await passwordInput.fill('Valid1!Pass');
+  await expect(passwordInput).toHaveValue('Valid1!Pass');
+  await confirmPasswordInput.fill('Valid1!Pass');
+  await expect(confirmPasswordInput).toHaveValue('Valid1!Pass');
   const confirmResponse = page.waitForResponse(
     (response) =>
       response.url().includes('/api/auth/reset/confirm') &&

@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/undo/route'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 
 const mockRbac = { userHasAllFeatures: jest.fn() }
 const mockLogs = {
@@ -101,6 +102,64 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
     }))
   })
 
+  // A command can refuse an undo for a reason the operator can act on — reverting a
+  // role grant that would drop a tenant below a protected role's active-holder floor.
+  // Flattening that to a generic "Undo failed" leaves them with no idea why.
+  it('surfaces a command CrudHttpError body and status instead of a generic failure', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const target = {
+      id: 'log-1',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    const { CrudHttpError } = await import('@open-mercato/shared/lib/crud/errors')
+    mockCommandBus.undo.mockRejectedValue(
+      new CrudHttpError(400, { error: 'Cannot remove the last active holder of role "admin"' }),
+    )
+
+    const res = await POST(makeRequest({ undoToken: 'token-1' }))
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Cannot remove the last active holder of role "admin"',
+    })
+  })
+
+  it('keeps unexpected failures generic so internals are not leaked', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const target = {
+      id: 'log-1',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    mockCommandBus.undo.mockRejectedValue(new Error('connection terminated: relation "users" does not exist'))
+
+    const res = await POST(makeRequest({ undoToken: 'token-1' }))
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Undo failed' })
+  })
+
   // Regression for issue #2398 — org create/update/delete/reparent log rows are
   // tenant-level (organization_id = NULL). A super-admin resolves to a concrete
   // home org, so the old code re-looked-up the latest undoable action with that
@@ -151,5 +210,134 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       expect.objectContaining({ organizationId: null, resourceId: 'new-org-1' }),
     )
     expect(mockCommandBus.undo).toHaveBeenCalledWith('token-org-1', expect.anything())
+  })
+
+  // Regression for issue #2685 — a caller with a null tenantId (tenant-less global
+  // account or unscoped API key) must NOT undo a tenant-scoped row. The old guard
+  // (`target.tenantId && auth.tenantId && ...`) short-circuited to "allow" whenever
+  // auth.tenantId was null, leaking cross-tenant undo.
+  it('rejects a tenant-less caller undoing a tenant-scoped row', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+    })
+    const target = {
+      id: 'log-1',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    mockLogs.latestUndoableForActor.mockResolvedValue(target)
+
+    const res = await POST(makeRequest({ undoToken: 'token-1' }))
+    expect(res.status).toBe(400)
+    expect(mockCommandBus.undo).not.toHaveBeenCalled()
+  })
+
+  // Regression for issue #2685 — a regular caller (no audit_logs.undo_tenant) whose
+  // organization scope resolves to null must NOT undo an org-scoped row. The old org
+  // guard (`target.organizationId && scopedOrgId && ...`) skipped rejection when
+  // scopedOrgId was null; only tenant-level undoers may legitimately leave org null.
+  it('rejects a regular caller with null org scope undoing an org-scoped row', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: null,
+    })
+    ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+      organizationId: null,
+      scope: { allowedIds: null },
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+
+    const target = {
+      id: 'log-2',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    mockLogs.latestUndoableForActor.mockResolvedValue(target)
+
+    const res = await POST(makeRequest({ undoToken: 'token-2' }))
+    expect(res.status).toBe(400)
+    expect(mockCommandBus.undo).not.toHaveBeenCalled()
+  })
+
+  // Issue #5045 — a beforeUndo interceptor that blocks with an explicit status is a deliberate
+  // business rejection, so the route must answer with that status instead of a flat 400.
+  describe('beforeUndo interceptor rejections', () => {
+    const authorizeUndo = async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+        sub: 'user-1',
+        tenantId: 'tenant-1',
+        orgId: 'org-1',
+      })
+      const target = {
+        id: 'log-1',
+        actorUserId: 'user-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        resourceKind: 'auth.user',
+        resourceId: 'user-42',
+        executionState: 'done',
+      }
+      mockLogs.findByUndoToken.mockResolvedValue(target)
+      mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    }
+
+    it('surfaces the interceptor status and message', async () => {
+      await authorizeUndo()
+      mockCommandBus.undo.mockRejectedValue(
+        new CommandInterceptorError('Period already closed', { status: 409 }),
+      )
+
+      const res = await POST(makeRequest({ undoToken: 'token-1' }))
+      expect(res.status).toBe(409)
+      await expect(res.json()).resolves.toEqual({ error: 'Period already closed' })
+    })
+
+    it('surfaces an explicit interceptor body verbatim', async () => {
+      await authorizeUndo()
+      mockCommandBus.undo.mockRejectedValue(
+        new CommandInterceptorError('Blocked', { status: 422, body: { error: 'Blocked', reason: 'locked-period' } }),
+      )
+
+      const res = await POST(makeRequest({ undoToken: 'token-1' }))
+      expect(res.status).toBe(422)
+      await expect(res.json()).resolves.toEqual({ error: 'Blocked', reason: 'locked-period' })
+    })
+
+    it('keeps the generic 400 when the rejection carries no status', async () => {
+      await authorizeUndo()
+      mockCommandBus.undo.mockRejectedValue(new CommandInterceptorError('Blocked'))
+
+      const res = await POST(makeRequest({ undoToken: 'token-1' }))
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({ error: 'Undo failed' })
+    })
+
+    it('keeps the generic 400 for an unrelated undo failure', async () => {
+      await authorizeUndo()
+      mockCommandBus.undo.mockRejectedValue(new Error('boom'))
+
+      const res = await POST(makeRequest({ undoToken: 'token-1' }))
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({ error: 'Undo failed' })
+    })
   })
 })

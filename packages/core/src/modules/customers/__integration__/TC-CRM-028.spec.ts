@@ -34,6 +34,7 @@ const SYNC_TOGGLE_IDS = {
 const EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_QUEUE = 'example-customers-sync-outbound';
 const EXAMPLE_CUSTOMERS_SYNC_INBOUND_QUEUE = 'example-customers-sync-inbound';
 const EXAMPLE_CUSTOMERS_SYNC_RECONCILE_QUEUE = 'example-customers-sync-reconcile';
+const EVENTS_QUEUE = 'events';
 
 if (!IS_STANDALONE_APP) {
   loadEnv({ path: path.resolve(APP_ROOT, '.env') });
@@ -185,9 +186,13 @@ async function flushExampleCustomersSyncQueues(options: {
   outbound?: boolean;
   inbound?: boolean;
   reconcile?: boolean;
+  events?: boolean;
 } = {}): Promise<void> {
   if (options.outbound ?? true) {
     await drainQueue(EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_QUEUE);
+  }
+  if (options.events ?? false) {
+    await drainQueue(EVENTS_QUEUE);
   }
   if (options.inbound ?? false) {
     await drainQueue(EXAMPLE_CUSTOMERS_SYNC_INBOUND_QUEUE);
@@ -658,7 +663,7 @@ test.describe('TC-CRM-028: Example customer sync (standalone smoke)', () => {
 });
 
 test.describe('TC-CRM-028: Example customer sync', () => {
-  test.describe.configure({ mode: 'serial' });
+  test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
   let adminToken: string;
   let superadminToken: string;
@@ -681,7 +686,8 @@ test.describe('TC-CRM-028: Example customer sync', () => {
     adminScope = getTokenScope(adminToken);
   });
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(async ({ request }, testInfo) => {
+    if (testInfo.title.includes('registers the example_customers_sync outbound worker')) return;
     await clearSyncFlagOverrides(request, superadminToken);
     await flushExampleCustomersSyncQueues({ outbound: true, inbound: true });
   });
@@ -812,7 +818,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
       expect(createdTodoId).toBe(todoId);
 
       const mapping = await waitForMapping(request, superadminToken, { todoId }, undefined, {
-        onAttempt: () => flushExampleCustomersSyncQueues({ inbound: true, outbound: false }),
+        onAttempt: () => flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false }),
       });
       interactionId = mapping.interactionId;
       expect(interactionId).toBe(todoId);
@@ -883,7 +889,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
         .poll(async () => {
           // Re-drain on each attempt — the inbound sync job is enqueued by a
           // persistent (async) subscriber, so a one-shot drain can race ahead.
-          await flushExampleCustomersSyncQueues({ inbound: true, outbound: false });
+          await flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false });
           const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           return rows.find((item) => item.id === interactionId)?.status ?? null;
         }, { timeout: 15_000, intervals: [250, 500, 1_000] })
@@ -895,6 +901,94 @@ test.describe('TC-CRM-028: Example customer sync', () => {
           intervals: [250, 500, 1_000],
         })
         .toContain('customers.interactions.complete');
+    } finally {
+      await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId);
+      await deleteEntityIfExists(request, adminToken, '/api/example/todos', todoId);
+      await cleanupDbRows({
+        interactionIds: interactionId ? [interactionId] : [],
+        todoIds: todoId ? [todoId] : [],
+      });
+      await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId);
+    }
+  });
+
+  test('keeps probe events out of destructive sync while a legitimate scoped deletion still synchronizes', async ({ request }) => {
+    let companyId: string | null = null;
+    let interactionId: string | null = null;
+    let todoId: string | null = null;
+
+    try {
+      await setSyncFlags(request, superadminToken, { enabled: true, bidirectional: true });
+      companyId = await createCompanyFixture(request, adminToken, `QA CRM028 Probe Guard ${Date.now()}`);
+      interactionId = await createInteraction(request, adminToken, {
+        entityId: companyId,
+        interactionType: 'task',
+        title: `CRM028 probe guard ${Date.now()}`,
+        body: 'Must survive test-only event probes',
+        priority: 2,
+        customValues: { severity: 'high' },
+      });
+      await flushExampleCustomersSyncQueues({ outbound: true });
+
+      const mapping = await waitForMapping(
+        request,
+        superadminToken,
+        { interactionId },
+        undefined,
+        { expectedStatus: 'synced' },
+      );
+      todoId = mapping.todoId;
+
+      const forgedProbeResponse = await apiRequest(request, 'POST', '/api/example/assignees', {
+        token: adminToken,
+        data: {
+          eventId: 'example.todo.deleted',
+          organizationId: adminScope.organizationId,
+          payload: {
+            id: todoId,
+            tenantId: adminScope.tenantId,
+            organizationId: adminScope.organizationId,
+          },
+        },
+      });
+      expect(forgedProbeResponse.status()).toBe(403);
+
+      const scopedProbeResponse = await apiRequest(request, 'POST', '/api/example/assignees', {
+        token: adminToken,
+        data: {
+          eventId: 'example.todo.deleted',
+          organizationId: adminScope.organizationId,
+          payload: { probeId: `crm028-delete-probe-${Date.now()}` },
+        },
+      });
+      expect(scopedProbeResponse.status()).toBe(200);
+
+      await flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false });
+      expect(
+        (await listCanonicalInteractions(request, adminToken, companyId))
+          .some((item) => item.id === interactionId),
+      ).toBe(true);
+      expect(await listMappings(request, superadminToken, { interactionId })).toHaveLength(1);
+
+      const legitimateDeleteResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/example/todos?id=${encodeURIComponent(todoId)}`,
+        { token: adminToken },
+      );
+      expect(legitimateDeleteResponse.status()).toBe(200);
+
+      await expect
+        .poll(async () => {
+          await flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false });
+          const interactions = await listCanonicalInteractions(request, adminToken, companyId!);
+          return interactions.some((item) => item.id === interactionId);
+        }, { timeout: 15_000, intervals: [250, 500, 1_000] })
+        .toBe(false);
+      await waitForMappingRemoval(request, superadminToken, { todoId });
+
+      interactionId = null;
+      todoId = null;
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId);
       await deleteEntityIfExists(request, adminToken, '/api/example/todos', todoId);
@@ -1017,7 +1111,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
           // Re-drain on each attempt: the example.todo.updated subscriber that
           // enqueues the inbound sync job is persistent (runs async via the
           // event worker), so a single drain can race ahead of the enqueue.
-          await flushExampleCustomersSyncQueues({ inbound: true, outbound: false });
+          await flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false });
           const rows = await listCanonicalInteractions(request, adminToken, companyId!);
           const row = rows.find((item) => item.id === interactionId);
           return row

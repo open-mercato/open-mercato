@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
-import { Avatar } from '../avatar'
+import { Avatar, AvatarStack } from '../avatar'
 
 describe('Avatar', () => {
   it('renders two-character initials for multi-word labels', () => {
@@ -191,5 +191,40 @@ describe('Avatar', () => {
       expect(badge.className).toContain('size-8')
       expect(badge.className).toContain('bg-status-error-icon')
     })
+  })
+})
+
+describe('AvatarStack', () => {
+  it('derives the +N overflow from children beyond max', () => {
+    render(
+      <AvatarStack max={2}>
+        <Avatar label="Alice Adams" />
+        <Avatar label="Bob Brown" />
+        <Avatar label="Carol Clark" />
+      </AvatarStack>,
+    )
+    expect(screen.getByText('+1')).toBeInTheDocument()
+  })
+
+  it('adds overflowCount (server-truncated items) to the children-derived overflow', () => {
+    // 5 children, max 4 → 1 hidden locally; overflowCount=7 server-hidden → "+8".
+    render(
+      <AvatarStack max={4} overflowCount={7}>
+        {Array.from({ length: 5 }, (_, index) => (
+          <Avatar key={index} label={`Owner ${index}`} />
+        ))}
+      </AvatarStack>,
+    )
+    expect(screen.getByText('+8')).toBeInTheDocument()
+  })
+
+  it('shows no overflow badge when children fit and overflowCount is 0', () => {
+    render(
+      <AvatarStack max={4}>
+        <Avatar label="Alice Adams" />
+        <Avatar label="Bob Brown" />
+      </AvatarStack>,
+    )
+    expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument()
   })
 })

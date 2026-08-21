@@ -4,7 +4,7 @@
 
 /**
  * Acceptance tests for the visible agent task plan
- * (spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`).
+ * (spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`).
  *
  * Asserts that:
  *   - `useAiChat` merges `data-agent-task-plan` snapshots and

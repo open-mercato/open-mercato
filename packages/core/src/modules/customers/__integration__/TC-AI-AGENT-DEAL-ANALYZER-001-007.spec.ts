@@ -525,8 +525,14 @@ test.describe('TC-AI-AGENT-DEAL-ANALYZER-007: loop_disabled banner renders when 
       });
     });
 
+    const agentsRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return request.method() === 'GET' && url.pathname === '/api/ai_assistant/ai/agents';
+    });
     await page.goto(PLAYGROUND_PAGE, { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('[data-ai-playground-chat]').first()).toBeVisible({ timeout: 30_000 });
+    await agentsRequest;
+    await expect(page.getByRole('heading', { name: 'AI Playground' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('combobox', { name: 'Agent' })).toBeVisible({ timeout: 30_000 });
 
     // Verify that the disabled payload was served and the disabled flag is set.
     // The remaining loop fields MUST stay populated even when disabled is

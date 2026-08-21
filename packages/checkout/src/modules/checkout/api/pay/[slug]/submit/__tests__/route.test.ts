@@ -1,4 +1,5 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { POST } from '../route'
@@ -24,6 +25,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
   checkRateLimit: jest.fn(),
   getClientIp: jest.fn(),
+  RATE_LIMIT_FALLBACK_KEY: 'global',
+  RATE_LIMIT_UNAVAILABLE_FALLBACK: 'Service temporarily unavailable. Please try again later.',
 }))
 
 jest.mock('../../../../../events', () => ({
@@ -68,14 +71,26 @@ function createTransaction(overrides: Record<string, unknown> = {}) {
 }
 
 describe('POST /api/checkout/pay/[slug]/submit', () => {
+  const originalAppUrl = process.env.APP_URL
+  const originalPublicAppUrl = process.env.NEXT_PUBLIC_APP_URL
+
+  afterEach(() => {
+    if (originalAppUrl === undefined) delete process.env.APP_URL
+    else process.env.APP_URL = originalAppUrl
+    if (originalPublicAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL
+    else process.env.NEXT_PUBLIC_APP_URL = originalPublicAppUrl
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
+    process.env.APP_URL = 'https://merchant.example'
+    delete process.env.NEXT_PUBLIC_APP_URL
 
     ;(checkRateLimit as jest.Mock).mockResolvedValue(null)
     ;(getClientIp as jest.Mock).mockReturnValue('127.0.0.1')
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rateLimiterService') return {}
+        if (name === 'rateLimiterService') return { trustProxyDepth: 0 }
         if (name === 'em') return { findOne: mockEmFindOne }
         if (name === 'commandBus') return { execute: mockCommandExecute }
         if (name === 'paymentGatewayService') {
@@ -138,7 +153,325 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
         paymentId: TRANSACTION_ID,
         amount: 25,
         currencyCode: 'USD',
+        idempotencyKey: 'replay-key-123456',
       }),
     )
+  })
+
+  it('pins gateway success/cancel URLs to the configured origin instead of the spoofable request Host', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    // Bare Next.js: the inbound Host flows into req.url and there is no Origin/Referer.
+    const response = await POST(
+      new Request('https://evil.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'pin-key-1234567890',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        successUrl: `https://merchant.example/pay/donate/success/${TRANSACTION_ID}`,
+        cancelUrl: `https://merchant.example/pay/donate/cancel/${TRANSACTION_ID}`,
+      }),
+    )
+  })
+
+  it('pins the embedded session returnUrl/cancelUrl to the configured origin', async () => {
+    mockEmFindOne.mockResolvedValue({
+      id: GATEWAY_TRANSACTION_ID,
+      providerKey: 'test_gateway',
+      redirectUrl: null,
+      gatewayMetadata: {
+        clientSession: {
+          type: 'embedded',
+          rendererKey: 'inline',
+          payload: {},
+        },
+      },
+    })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    const response = await POST(
+      new Request('https://evil.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'embedded-key-1234567',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.paymentSession.payload.returnUrl).toBe(
+      `https://merchant.example/pay/donate/success/${TRANSACTION_ID}`,
+    )
+    expect(payload.paymentSession.payload.cancelUrl).toBe(
+      `https://merchant.example/pay/donate/cancel/${TRANSACTION_ID}`,
+    )
+  })
+
+  it('rejects a spoofed X-Forwarded-Host that is not in the configured allowlist', async () => {
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'spoof-key-1234567890',
+          'x-forwarded-host': 'evil.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(403)
+    const payload = await response.json()
+    expect(payload.error).toBe('Invalid request host')
+    expect(findOneWithDecryption as jest.Mock).not.toHaveBeenCalled()
+  })
+
+  it('accepts a correctly TLS-proxied request (internal http upstream, X-Forwarded-Proto https)', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    // Proxy terminated TLS: the upstream connection is plain http to an internal
+    // host, while X-Forwarded-* carry the real public origin (matches APP_URL).
+    const response = await POST(
+      new Request('http://10.0.0.5:3000/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'proxied-key-12345678',
+          'x-forwarded-proto': 'https',
+          'x-forwarded-host': 'merchant.example',
+          host: '10.0.0.5:3000',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        successUrl: `https://merchant.example/pay/donate/success/${TRANSACTION_ID}`,
+        cancelUrl: `https://merchant.example/pay/donate/cancel/${TRANSACTION_ID}`,
+      }),
+    )
+  })
+
+  it('closes the self-pass bypass where a matching spoofed Origin and Host are supplied together', async () => {
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'self-pass-key-123456',
+          origin: 'https://evil.example',
+          host: 'evil.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(403)
+    const payload = await response.json()
+    expect(payload.error).toBe('Invalid request host')
+  })
+
+  it('returns 201 when updateStatus rejects with concurrent_status_update (webhook won the race, payment succeeded)', async () => {
+    // The webhook already advanced the transaction to 'completed' before the
+    // submit route's updateStatus call — that 409 must be treated as benign
+    // and the route must still return 201 with the real terminal transaction.
+    const terminalTransaction = createTransaction({ status: 'completed', gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())        // link lookup
+      .mockResolvedValueOnce(null)               // no existing transaction (idempotency pre-check)
+      .mockResolvedValueOnce(createTransaction()) // transaction after create
+      .mockResolvedValueOnce(terminalTransaction) // refreshed transaction after conflict
+
+    const conflictError = new CrudHttpError(409, {
+      code: 'concurrent_status_update',
+      currentStatus: 'completed',
+      expectedStatus: 'processing',
+      requestedStatus: 'processing',
+      error: '[internal] concurrent update',
+    })
+    mockCommandExecute
+      .mockResolvedValueOnce({ result: { id: TRANSACTION_ID } }) // create
+      .mockRejectedValueOnce(conflictError)                      // updateStatus -> conflict
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'race-conflict-key-123',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.transactionId).toBe(TRANSACTION_ID)
+  })
+
+  it('returns 201 when updateStatus rejects with invalid_status_transition (terminal state already set)', async () => {
+    const terminalTransaction = createTransaction({ status: 'completed', gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(terminalTransaction)
+
+    const invalidTransitionError = new CrudHttpError(409, {
+      code: 'invalid_status_transition',
+      currentStatus: 'completed',
+      requestedStatus: 'processing',
+      error: '[internal] invalid transition',
+    })
+    mockCommandExecute
+      .mockResolvedValueOnce({ result: { id: TRANSACTION_ID } })
+      .mockRejectedValueOnce(invalidTransitionError)
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'invalid-transition-key1',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.transactionId).toBe(TRANSACTION_ID)
+  })
+
+  describe('rate limiting is fail-closed', () => {
+    function submitRequest() {
+      return POST(
+        new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': 'rate-limit-key1',
+            origin: 'https://merchant.example',
+          },
+          body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+        }),
+        { params: { slug: 'donate' } },
+      )
+    }
+
+    it('asks the limiter to fail closed', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+
+      await submitRequest()
+
+      expect(checkRateLimit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ failClosed: true }),
+      )
+    })
+
+    it('returns 503 without creating a payment session when the limiter cannot decide', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+      ;(checkRateLimit as jest.Mock).mockRejectedValue(new Error('backing store unreachable'))
+
+      const response = await submitRequest()
+
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({
+        error: 'Service temporarily unavailable. Please try again later.',
+      })
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+    })
+
+    it('passes a 503 the limiter itself produced straight through', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+      ;(checkRateLimit as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 }),
+      )
+
+      const response = await submitRequest()
+
+      expect(response.status).toBe(503)
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+    })
+
+    // A rate limiter that is not registered at all is a configuration error, not a
+    // transient outage: the request is served (as it was before rate limiting was made
+    // fail-closed) instead of being rejected as "temporarily unavailable" indefinitely.
+    it('serves the request when no rate limiter is registered', async () => {
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce(createLink())
+        .mockResolvedValueOnce(createTransaction())
+        .mockResolvedValueOnce(createTransaction())
+        .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+      ;(createRequestContainer as jest.Mock).mockResolvedValue({
+        hasRegistration: (name: string) => name !== 'rateLimiterService',
+        resolve: (name: string) => {
+          if (name === 'rateLimiterService') throw new Error('rate limiter is not registered')
+          if (name === 'em') return { findOne: mockEmFindOne }
+          if (name === 'commandBus') return { execute: mockCommandExecute }
+          if (name === 'paymentGatewayService') {
+            return { createPaymentSession: mockCreatePaymentSession }
+          }
+          throw new Error(`Unknown dependency: ${name}`)
+        },
+      })
+
+      const response = await POST(
+        new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': 'no-limiter-key-1234',
+            origin: 'https://merchant.example',
+          },
+          body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+        }),
+        { params: { slug: 'donate' } },
+      )
+
+      expect(response.status).toBe(201)
+      expect(checkRateLimit).not.toHaveBeenCalled()
+      expect(mockCommandExecute).toHaveBeenCalled()
+    })
   })
 })

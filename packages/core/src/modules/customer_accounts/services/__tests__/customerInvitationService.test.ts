@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import {
   CustomerRole,
+  CustomerUser,
   CustomerUserInvitation,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
@@ -82,12 +83,91 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     expect(roleFinds[0][1]).toMatchObject({
       id: { $in: roleIds },
       tenantId,
+      organizationId,
       deletedAt: null,
     })
     expect(mockEm.findOne).not.toHaveBeenCalledWith(CustomerRole, expect.anything())
 
     const linkCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUserRole)
     expect(linkCreates).toHaveLength(roleIds.length)
+  })
+
+  it('does not link roles owned by another organization in the same tenant (#4032)', async () => {
+    const foreignOrganizationId = '99999999-9999-4999-8999-999999999999'
+    const localRoleId = roleIds[0]
+    const foreignRoleId = roleIds[1]
+    const invitation = {
+      id: 'inv-3',
+      email: 'new@example.com',
+      tenantId,
+      organizationId,
+      customerEntityId: null,
+      roleIdsJson: [localRoleId, foreignRoleId],
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockImplementation(async (entity: unknown, where: any) => {
+      if (entity === CustomerRole) {
+        const rolesByOrg: Record<string, { id: string; tenantId: string; organizationId: string; deletedAt: null }> = {
+          [localRoleId]: { id: localRoleId, tenantId, organizationId, deletedAt: null },
+          [foreignRoleId]: { id: foreignRoleId, tenantId, organizationId: foreignOrganizationId, deletedAt: null },
+        }
+        return (where.id.$in as string[])
+          .map((id: string) => rolesByOrg[id])
+          .filter((role) => role && (!where.organizationId || role.organizationId === where.organizationId))
+      }
+      return []
+    })
+
+    const result = await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
+    expect(result).not.toBeNull()
+
+    const roleFinds = (mockEm.find as jest.Mock).mock.calls.filter((call) => call[0] === CustomerRole)
+    expect(roleFinds).toHaveLength(1)
+    expect(roleFinds[0][1]).toMatchObject({
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    })
+
+    const linkCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUserRole)
+    expect(linkCreates).toHaveLength(1)
+    expect((linkCreates[0][1] as { role: { id: string } }).role.id).toBe(localRoleId)
+  })
+
+  it('carries personEntityId from the invitation onto the new CustomerUser', async () => {
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const invitation = {
+      id: 'inv-person',
+      email: 'new@example.com',
+      tenantId,
+      organizationId,
+      customerEntityId: null,
+      personEntityId,
+      roleIdsJson: [],
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+
+    const result = await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
+    expect(result).not.toBeNull()
+
+    const userCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userCreates).toHaveLength(1)
+    expect((userCreates[0][1] as { personEntityId: string | null }).personEntityId).toBe(personEntityId)
   })
 
   it('skips the role query entirely when the invitation carries no roleIds', async () => {
@@ -112,5 +192,170 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
     const roleFinds = (mockEm.find as jest.Mock).mock.calls.filter((call) => call[0] === CustomerRole)
     expect(roleFinds).toHaveLength(0)
+  })
+})
+
+describe('CustomerInvitationService.createInvitation — pending-invitation dedupe', () => {
+  const roleIds = [
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  ]
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '22222222-2222-4222-8222-222222222222'
+
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let service: CustomerInvitationService
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEm = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn((_: unknown, data: unknown) => data as any),
+      persist: jest.fn(() => mockEm),
+      flush: jest.fn(async () => undefined),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+    service = new CustomerInvitationService(mockEm as unknown as EntityManager)
+  })
+
+  it('reuses an existing pending invitation instead of inserting a new row', async () => {
+    const existing = {
+      id: 'inv-existing',
+      email: 'old@example.com',
+      tenantId,
+      organizationId,
+      emailHash: 'email-hash',
+      token: 'old-hashed-token',
+      customerEntityId: null,
+      roleIdsJson: ['old-role'],
+      invitedByUserId: null,
+      invitedByCustomerUserId: null,
+      displayName: 'Old Name',
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return existing
+      return null
+    })
+
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const beforeExpiresAt = existing.expiresAt.getTime()
+    const result = await service.createInvitation(
+      ' New@Example.COM ',
+      { tenantId, organizationId },
+      { roleIds, personEntityId, invitedByUserId: 'inviter-1', displayName: 'Refreshed Name' },
+    )
+
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(result.invitation).toBe(existing)
+    expect(result.rawToken).toBe('raw-token')
+    expect(result.reused).toBe(true)
+    expect(result.rollbackState).toMatchObject({
+      email: 'old@example.com',
+      token: 'old-hashed-token',
+      roleIdsJson: ['old-role'],
+      displayName: 'Old Name',
+    })
+    expect(existing.email).toBe('new@example.com')
+    expect(existing.token).toBe('hashed-token')
+    expect(existing.personEntityId).toBe(personEntityId)
+    expect(existing.roleIdsJson).toEqual(roleIds)
+    expect(existing.invitedByUserId).toBe('inviter-1')
+    expect(existing.displayName).toBe('Refreshed Name')
+    expect(existing.expiresAt.getTime()).toBeGreaterThan(beforeExpiresAt)
+    expect(mockEm.flush).toHaveBeenCalled()
+
+    const dedupeFinds = (mockEm.findOne as jest.Mock).mock.calls.filter(
+      (call) => call[0] === CustomerUserInvitation,
+    )
+    expect(dedupeFinds).toHaveLength(1)
+    expect(dedupeFinds[0][1]).toMatchObject({
+      tenantId,
+      organizationId,
+      emailHash: 'email-hash',
+      acceptedAt: null,
+      cancelledAt: null,
+    })
+    expect(dedupeFinds[0][1].expiresAt).toHaveProperty('$gt')
+  })
+
+  it('inserts a new invitation row when no pending invitation exists', async () => {
+    ;(mockEm.findOne as jest.Mock).mockResolvedValue(null)
+
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const result = await service.createInvitation(
+      'fresh@example.com',
+      { tenantId, organizationId },
+      { roleIds, personEntityId, invitedByUserId: 'inviter-2', displayName: 'Fresh' },
+    )
+
+    const invitationCreates = (mockEm.create as jest.Mock).mock.calls.filter(
+      (call) => call[0] === CustomerUserInvitation,
+    )
+    expect(invitationCreates).toHaveLength(1)
+    expect(invitationCreates[0][1]).toMatchObject({
+      tenantId,
+      organizationId,
+      email: 'fresh@example.com',
+      emailHash: 'email-hash',
+      token: 'hashed-token',
+      personEntityId,
+      roleIdsJson: roleIds,
+    })
+    expect(mockEm.persist).toHaveBeenCalled()
+    expect(result.rawToken).toBe('raw-token')
+    expect(result.reused).toBe(false)
+    expect(result.rollbackState).toBeNull()
+  })
+})
+
+describe('CustomerInvitationService.rollbackInvitation', () => {
+  it('hard-deletes the invitation and flushes the removal', async () => {
+    const flush = jest.fn(async () => undefined)
+    const mockEm = { remove: jest.fn(() => mockEm), flush } as unknown as EntityManager
+    const service = new CustomerInvitationService(mockEm)
+    const invitation = { id: 'inv-roll' } as unknown as CustomerUserInvitation
+
+    await service.rollbackInvitation(invitation, null)
+
+    expect(mockEm.remove).toHaveBeenCalledWith(invitation)
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the prior state of a reused invitation', async () => {
+    const flush = jest.fn(async () => undefined)
+    const mockEm = { remove: jest.fn(), flush } as unknown as EntityManager
+    const service = new CustomerInvitationService(mockEm)
+    const invitation = {
+      email: 'new@example.com',
+      token: 'new-token',
+      customerEntityId: 'new-customer',
+      personEntityId: 'new-person',
+      roleIdsJson: ['new-role'],
+      invitedByUserId: 'new-user',
+      invitedByCustomerUserId: null,
+      displayName: 'New Name',
+      expiresAt: new Date('2026-08-05T00:00:00.000Z'),
+    } as unknown as CustomerUserInvitation
+    const rollbackState = {
+      email: 'old@example.com',
+      token: 'old-token',
+      customerEntityId: null,
+      personEntityId: null,
+      roleIdsJson: ['old-role'],
+      invitedByUserId: null,
+      invitedByCustomerUserId: 'old-customer-user',
+      displayName: 'Old Name',
+      expiresAt: new Date('2026-08-04T00:00:00.000Z'),
+    }
+
+    await service.rollbackInvitation(invitation, rollbackState)
+
+    expect(invitation).toMatchObject(rollbackState)
+    expect(mockEm.remove).not.toHaveBeenCalled()
+    expect(flush).toHaveBeenCalledTimes(1)
   })
 })

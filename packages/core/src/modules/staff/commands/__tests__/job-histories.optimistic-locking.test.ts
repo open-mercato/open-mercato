@@ -33,7 +33,10 @@ async function loadCommands() {
   }
 }
 
-function createCtx(em: Pick<EntityManager, 'findOne' | 'fork'>) {
+function createCtx(
+  em: Pick<EntityManager, 'findOne' | 'fork'>,
+  commandGuard?: { enforce: jest.Mock } | null,
+) {
   return {
     auth: {
       sub: 'user-1',
@@ -44,6 +47,7 @@ function createCtx(em: Pick<EntityManager, 'findOne' | 'fork'>) {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'dataEngine') return null
+        if (name === 'commandOptimisticLockGuardService') return commandGuard ?? null
         return null
       },
     } as unknown as AwilixContainer,
@@ -203,5 +207,74 @@ describe('staff job history optimistic locking', () => {
         updatedAt: '2026-05-30T10:00:00+00:00',
       }, createCtx(em)),
     ).resolves.toEqual({ jobHistoryId })
+  })
+
+  it('awaits the enterprise command-guard service before mutating (async seam)', async () => {
+    const { update } = await loadCommands()
+    const record = {
+      id: jobHistoryId,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      updatedAt: new Date('2026-05-30T10:00:00.000Z'),
+      member: { id: 'member-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      name: 'Engineer',
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: null,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(record),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+    const commandGuard = { enforce: jest.fn().mockResolvedValue(undefined) }
+
+    await update.execute(
+      { id: jobHistoryId, name: 'Senior Engineer', updatedAt: '2026-05-30T10:00:00.000Z' },
+      createCtx(em, commandGuard),
+    )
+
+    expect(commandGuard.enforce).toHaveBeenCalledTimes(1)
+    expect(commandGuard.enforce).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceKind: 'staff.jobHistory', resourceId: jobHistoryId }),
+    )
+    expect(record.name).toBe('Senior Engineer')
+  })
+
+  it('a record_lock conflict from the enterprise guard aborts the update (async seam, fail-closed)', async () => {
+    const { update } = await loadCommands()
+    const record = {
+      id: jobHistoryId,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      updatedAt: new Date('2026-05-30T10:00:00.000Z'),
+      member: { id: 'member-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      name: 'Engineer',
+      companyName: null,
+      description: null,
+      startDate: new Date('2026-05-01T00:00:00.000Z'),
+      endDate: null,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(record),
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+    const commandGuard = {
+      enforce: jest.fn().mockRejectedValue(
+        new CrudHttpError(409, { code: 'record_lock_conflict', error: 'locked by another user' }),
+      ),
+    }
+
+    await expect(
+      update.execute(
+        { id: jobHistoryId, name: 'Senior Engineer', updatedAt: '2026-05-30T10:00:00.000Z' },
+        createCtx(em, commandGuard),
+      ),
+    ).rejects.toMatchObject({ status: 409 })
+    // The stale write must not have mutated the record before the guard rejected.
+    expect(record.name).toBe('Engineer')
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })

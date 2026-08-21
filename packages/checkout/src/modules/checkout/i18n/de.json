@@ -245,6 +245,10 @@
   "checkout.linkTemplateForm.messages.tabs.cancel": "Cancel",
   "checkout.linkTemplateForm.messages.tabs.error": "Error",
   "checkout.linkTemplateForm.messages.tabs.success": "Success",
+  "checkout.linkTemplateForm.notFound.link.description": "This pay link no longer exists. It may have been deleted in another tab or by another user.",
+  "checkout.linkTemplateForm.notFound.link.title": "Pay link not found",
+  "checkout.linkTemplateForm.notFound.template.description": "This template no longer exists. It may have been deleted in another tab or by another user.",
+  "checkout.linkTemplateForm.notFound.template.title": "Template not found",
   "checkout.linkTemplateForm.payment.fields.gatewayProvider": "Gateway provider",
   "checkout.linkTemplateForm.payment.placeholders.provider": "Select a provider…",
   "checkout.linkTemplateForm.payment.providerUnavailableSuffix": "(zuerst in Integrations konfigurieren)",
@@ -322,6 +326,7 @@
   "checkout.payPage.errors.loadMessage": "Diese Zahlungsseite konnte nicht geladen werden. Bitte versuche es erneut.",
   "checkout.payPage.errors.loadTitle": "Zahlungslink konnte nicht geladen werden",
   "checkout.payPage.errors.password": "Das Passwort konnte nicht verifiziert werden. Bitte versuche es erneut.",
+  "checkout.payPage.errors.sessionStart": "Die Zahlungssitzung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "checkout.payPage.errors.submit": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "checkout.payPage.fields.booleanFalse": "Nein",
   "checkout.payPage.fields.booleanTrue": "Ja",
@@ -375,6 +380,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Bitte eine Zahlungsoption auswaehlen, um fortzufahren.",
   "checkout.payPage.validation.requiredField": "Bitte {field} ausfuellen.",
   "checkout.payPage.validation.thisField": "dieses Feld",
+  "checkout.search.subtitle.linkTemplate": "Link-Vorlage",
   "checkout.statusPage.backToPayment": "Zuruck zur Zahlungsseite",
   "checkout.statusPage.cancel.cancelled": "Zahlung abgebrochen",
   "checkout.statusPage.cancel.failed": "Zahlung fehlgeschlagen",
@@ -453,5 +459,6 @@
   "checkout.widgets.gatewayTransactionLink.labels.link": "Link",
   "checkout.widgets.gatewayTransactionLink.labels.transactionId": "Transaction ID",
   "checkout.widgets.gatewayTransactionLink.title": "Checkout transaction",
-  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link"
+  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link",
+  "notifications.categories.checkout": "Kasse"
 }

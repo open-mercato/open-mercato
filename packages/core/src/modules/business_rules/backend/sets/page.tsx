@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -15,6 +15,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type RuleSet = {
   id: string
@@ -34,6 +35,7 @@ type RuleSetsResponse = {
   items: RuleSet[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function RuleSetsListPage() {
@@ -41,6 +43,7 @@ export default function RuleSetsListPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -71,6 +74,7 @@ export default function RuleSetsListPage() {
       if (response) {
         setTotal(response.total || 0)
         setTotalPages(response.totalPages || 1)
+        setTotalIsCapped(response?.totalIsCapped === true)
       }
 
       return response?.items || []
@@ -250,7 +254,14 @@ export default function RuleSetsListPage() {
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
           error={error ? t('business_rules.sets.messages.loadFailed') : undefined}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('business_rules.sets.list.title')}
+              createHref="/backend/sets/create"
+              createLabel={t('business_rules.sets.actions.create')}
+            />
+          )}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}

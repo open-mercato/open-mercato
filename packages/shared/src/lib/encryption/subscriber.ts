@@ -1,10 +1,14 @@
 import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
-import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
+import { createLogger } from '../logger'
+import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
 
 type Scoped = {
   tenantId?: string | null
@@ -29,11 +33,21 @@ function resolveScope(entity: Scoped): Scope {
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(event, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }
+}
+
+function isJsonColumnProperty(prop: unknown): boolean {
+  if (!prop || typeof prop !== 'object') return false
+  const candidate = prop as Record<string, unknown>
+  const type = typeof candidate.type === 'string' ? candidate.type.toLowerCase() : ''
+  if (type === 'json' || type === 'jsonb') return true
+  const columnTypes = Array.isArray(candidate.columnTypes) ? candidate.columnTypes : []
+  if (columnTypes.some((value) => typeof value === 'string' && value.toLowerCase().includes('json'))) return true
+  const customTypeName = (candidate.customType as { constructor?: { name?: string } } | undefined)?.constructor?.name
+  return typeof customTypeName === 'string' && customTypeName.toLowerCase().includes('json')
 }
 
 const registeredEventManagers = new WeakSet<object>()
@@ -72,13 +86,8 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     try { return registry.find?.(ctor) } catch {}
     try { return registry.get?.(name) } catch {}
     try { return registry.get?.(ctor) } catch {}
-    const all =
-      (typeof registry.getAll === 'function' && registry.getAll()) ||
-      (Array.isArray((registry as any).metadata) ? (registry as any).metadata : undefined) ||
-      (registry as any).metadata ||
-      {}
     try {
-      const entries = Array.isArray(all) ? all : Object.values<any>(all)
+      const entries = listEntityMetadataFromRegistry(registry)
       const match = entries.find(
         (m: any) =>
           m?.className === name ||
@@ -99,6 +108,21 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return resolveEntityIdFromMetadata(meta)
     } catch {
       return null
+    }
+  }
+
+  private restoreDecryptedJsonColumns(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+  ) {
+    const properties = meta?.properties
+    if (!properties || typeof properties !== 'object') return
+    for (const [propertyName, prop] of Object.entries(properties)) {
+      if (!isJsonColumnProperty(prop)) continue
+      const value = target[propertyName]
+      if (typeof value !== 'string') continue
+      const parsed = parseDecryptedFieldValue(value)
+      if (parsed !== value) target[propertyName] = parsed
     }
   }
 
@@ -196,10 +220,6 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const { tenantId, organizationId } = resolveScope(target)
-    if (!tenantId) {
-      debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
-      return
-    }
     const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
@@ -297,10 +317,6 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     const { tenantId, organizationId } = resolveScope(target)
     const scopedTenantId = tenantId ?? fallbackScope?.tenantId ?? null
     const scopedOrgId = organizationId ?? fallbackScope?.organizationId ?? null
-    if (!scopedTenantId) {
-      debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
-      return
-    }
     // Capture pending (un-flushed) changes BEFORE decrypt mutates the target. Re-baselining a
     // managed entity that a command already mutated would clear its dirty changeset and silently
     // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related
@@ -308,6 +324,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     const hadPendingChanges = syncOriginal ? this.hasPendingChanges(target, resolvedMeta, em as any) : false
     const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
     Object.assign(target, decrypted)
+    this.restoreDecryptedJsonColumns(target, resolvedMeta)
     if (syncOriginal && !hadPendingChanges) {
       this.syncOriginalEntityData(target, resolvedMeta, em as any)
     }
@@ -320,6 +337,17 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     try {
       const extractEntities = (value: any): any[] => {
         if (!value) return []
+        // MikroORM Collection wrapper — MUST be checked before the Reference branch: both wrappers
+        // expose isInitialized(), but only a Collection exposes getItems(). Matching the Reference
+        // branch first returned the Collection wrapper itself instead of its items, so collection
+        // relations were never deep-decrypted and leaked ciphertext (issue #2744).
+        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function' && typeof (value as any).getItems === 'function') {
+          try {
+            return (value as any).isInitialized() ? (value as any).getItems() ?? [] : []
+          } catch {
+            return []
+          }
+        }
         // MikroORM Reference wrapper
         if (typeof value === 'object' && typeof (value as any).isInitialized === 'function') {
           try {
@@ -331,14 +359,6 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
             // ignore
           }
           return []
-        }
-        // Collection wrapper
-        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function' && typeof (value as any).getItems === 'function') {
-          try {
-            return (value as any).isInitialized() ? (value as any).getItems() ?? [] : []
-          } catch {
-            return []
-          }
         }
         if (Array.isArray(value)) return value
         if (typeof value === 'object') return [value]

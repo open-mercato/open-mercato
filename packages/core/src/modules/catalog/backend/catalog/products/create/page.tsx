@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import dynamic from "next/dynamic";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -14,6 +14,7 @@ import { createCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
+import MarkdownField from "@open-mercato/ui/backend/inputs/MarkdownField";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
@@ -77,6 +78,7 @@ import {
   updateDimensionValue,
   updateWeightValue,
   isConfigurableProductType,
+  buildComplianceProductPayload,
 } from "@open-mercato/core/modules/catalog/components/products/productForm";
 import { CATALOG_PRODUCT_TYPES } from "@open-mercato/core/modules/catalog/data/types";
 import {
@@ -84,6 +86,7 @@ import {
   slugifyAttachmentFileName,
 } from "@open-mercato/core/modules/attachments/lib/imageUrls";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
+import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
   UNIT_PRICE_REFERENCE_UNITS,
@@ -94,6 +97,9 @@ import {
   normalizeProductConversionInputs,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 const productFormTypedSchema =
   productFormSchema as unknown as ZodType<ProductFormValues>;
@@ -107,22 +113,6 @@ type VariantPriceRequest = {
   taxRateId: string | null;
   taxRateValue: number | null;
 };
-
-type UiMarkdownEditorProps = {
-  value?: string;
-  height?: number;
-  onChange?: (value?: string) => void;
-  previewOptions?: { remarkPlugins?: unknown[] };
-};
-
-const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-      Loading editor…
-    </div>
-  ),
-}) as unknown as React.ComponentType<UiMarkdownEditorProps>;
 
 type ProductFormStep = (typeof PRODUCT_FORM_STEPS)[number];
 
@@ -165,6 +155,33 @@ const STEP_FIELD_MATCHERS: Record<
     matchField("unitPriceReferenceUnit"),
     matchField("unitPriceBaseQuantity"),
     matchPrefix("unitConversions"),
+  ],
+  compliance: [
+    matchField("countryOfOriginCode"),
+    matchField("pkwiuCode"),
+    matchField("cnCode"),
+    matchField("hsCode"),
+    matchField("taxClassificationCode"),
+    matchField("gtuCodes"),
+    matchField("ageMin"),
+    matchField("isExciseGood"),
+    matchField("exciseCategory"),
+    matchField("requiresPrescription"),
+    matchPrefix("hazmat"),
+    matchField("unNumber"),
+    matchField("containsLithiumBattery"),
+    matchField("launchAt"),
+    matchField("endOfLifeAt"),
+    matchField("availableFrom"),
+    matchField("availableUntil"),
+    matchField("minOrderQty"),
+    matchField("maxOrderQty"),
+    matchField("orderQtyIncrement"),
+    matchField("requiresShipping"),
+    matchField("isQuoteOnly"),
+    matchField("seoTitle"),
+    matchField("seoDescription"),
+    matchField("canonicalUrl"),
   ],
   variants: [
     matchField("hasVariants"),
@@ -255,7 +272,7 @@ export default function CreateCatalogProductPage() {
             .filter((item): item is PriceKindSummary => item !== null),
         );
       } catch (err) {
-        console.error("catalog.price-kinds.fetch failed", err);
+        logger.error('catalog.price-kinds.fetch failed', { err });
         setPriceKinds([]);
       }
     };
@@ -304,7 +321,7 @@ export default function CreateCatalogProductPage() {
           }),
         );
       } catch (err) {
-        console.error("sales.tax-rates.fetch failed", err);
+        logger.error('sales.tax-rates.fetch failed', { err });
         setTaxRates([]);
       }
     };
@@ -320,6 +337,7 @@ export default function CreateCatalogProductPage() {
           values,
           setValue,
           errors,
+          requiredFieldIds,
         }: CrudFormGroupComponentProps) => (
           <ProductBuilder
             values={values as ProductFormValues}
@@ -327,6 +345,7 @@ export default function CreateCatalogProductPage() {
             errors={errors}
             priceKinds={priceKinds}
             taxRates={taxRates}
+            requiredFieldIds={requiredFieldIds}
           />
         ),
       },
@@ -363,7 +382,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           initialValues={
             initialValuesRef.current ?? createInitialProductFormValues()
           }
@@ -556,6 +575,7 @@ export default function CreateCatalogProductPage() {
               unitPriceBaseQuantity: unitPriceEnabled
                 ? unitPriceBaseQuantity
                 : undefined,
+              ...buildComplianceProductPayload(formValues),
             };
             if (optionSchemaDefinition) {
               productPayload.optionSchema = optionSchemaDefinition;
@@ -759,10 +779,7 @@ export default function CreateCatalogProductPage() {
                   { fallback: null },
                 );
                 if (!transfer.ok) {
-                  console.error(
-                    "attachments.transfer.failed",
-                    transfer.result?.error,
-                  );
+                  logger.error("attachments.transfer.failed", { err: transfer.result?.error });
                 }
               }
 
@@ -843,6 +860,7 @@ type ProductBuilderProps = {
   errors: Record<string, string>;
   priceKinds: PriceKindSummary[];
   taxRates: TaxRateSummary[];
+  requiredFieldIds?: ReadonlySet<string>;
 };
 
 type ProductMetaSectionProps = {
@@ -1000,6 +1018,7 @@ function ProductBuilder({
   errors,
   priceKinds,
   taxRates,
+  requiredFieldIds,
 }: ProductBuilderProps) {
   const t = useT();
   const steps = PRODUCT_FORM_STEPS;
@@ -1324,6 +1343,8 @@ function ProductBuilder({
               t("catalog.products.create.steps.organize", "Organize")}
             {step === "uom" &&
               t("catalog.products.uom.title", "Units of measure")}
+            {step === "compliance" &&
+              t("catalog.products.compliance.title", "Compliance & commerce")}
             {step === "variants" &&
               t("catalog.products.create.steps.variants", "Variants")}
             {(stepErrors[step]?.length ?? 0) > 0 ? (
@@ -1341,10 +1362,10 @@ function ProductBuilder({
 
       {currentStepKey === "general" ? (
         <div className="space-y-6">
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="title">
             <Label className="flex items-center gap-1">
               {t("catalog.products.form.title", "Title")}
-              <span className="text-red-600">*</span>
+              <span className="text-status-error-text">*</span>
             </Label>
             <Input
               value={values.title}
@@ -1355,14 +1376,17 @@ function ProductBuilder({
               )}
             />
             {errors.title ? (
-              <p className="text-xs text-red-600">{errors.title}</p>
+              <p className="text-xs text-status-error-text">{errors.title}</p>
             ) : null}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-crud-field-id="description">
             <div className="flex items-center justify-between">
-              <Label>
+              <Label className="flex items-center gap-1">
                 {t("catalog.products.form.description", "Description")}
+                {requiredFieldIds?.has("description") ? (
+                  <span className="text-status-error-text">*</span>
+                ) : null}
               </Label>
               <Button
                 type="button"
@@ -1388,17 +1412,10 @@ function ProductBuilder({
               </Button>
             </div>
             {values.useMarkdown ? (
-              <div
-                data-color-mode="light"
-                className="overflow-hidden rounded-md border"
-              >
-                <MarkdownEditor
-                  value={values.description}
-                  height={260}
-                  onChange={(val) => setValue("description", val ?? "")}
-                  previewOptions={{ remarkPlugins: [] }}
-                />
-              </div>
+              <MarkdownField
+                value={values.description}
+                onChange={(val) => setValue("description", val ?? "")}
+              />
             ) : (
               <textarea
                 className="min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -1412,6 +1429,9 @@ function ProductBuilder({
                 )}
               />
             )}
+            {errors.description ? (
+              <p className="text-xs text-status-error-text">{errors.description}</p>
+            ) : null}
           </div>
 
           <ProductMediaManager
@@ -1440,6 +1460,15 @@ function ProductBuilder({
 
       {currentStepKey === "uom" ? (
         <ProductUomSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+          embedded
+        />
+      ) : null}
+
+      {currentStepKey === "compliance" ? (
+        <ProductComplianceSection
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
@@ -1913,7 +1942,7 @@ function ProductMetaSection({
           )}
         />
         {errors.subtitle ? (
-          <p className="text-xs text-red-600">{errors.subtitle}</p>
+          <p className="text-xs text-status-error-text">{errors.subtitle}</p>
         ) : null}
       </div>
 
@@ -1944,7 +1973,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.handle ? (
-          <p className="text-xs text-red-600">{errors.handle}</p>
+          <p className="text-xs text-status-error-text">{errors.handle}</p>
         ) : null}
       </div>
 
@@ -1966,7 +1995,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.sku ? (
-          <p className="text-xs text-red-600">{errors.sku}</p>
+          <p className="text-xs text-status-error-text">{errors.sku}</p>
         ) : null}
       </div>
 
@@ -2003,7 +2032,7 @@ function ProductMetaSection({
           </SelectContent>
         </Select>
         {errors.productType ? (
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-status-error-text">
             {errors.productType}
           </p>
         ) : null}
@@ -2076,7 +2105,7 @@ function ProductMetaSection({
               )}
         </p>
         {errors.taxRateId ? (
-          <p className="text-xs text-red-600">{errors.taxRateId}</p>
+          <p className="text-xs text-status-error-text">{errors.taxRateId}</p>
         ) : null}
       </div>
     </div>

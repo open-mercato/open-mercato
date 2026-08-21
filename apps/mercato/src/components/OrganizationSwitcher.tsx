@@ -20,6 +20,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -147,13 +148,24 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
 
   const persistTenant = React.useCallback((next: string | null, options?: { refresh?: boolean }) => {
     if (typeof document === 'undefined') return
-    const resolved = next ?? ''
-    setTenantCookieState({ value: resolved, hasCookie: true, raw: resolved })
-    const maxAge = 60 * 60 * 24 * 30
-    try {
-      document.cookie = `om_selected_tenant=${encodeURIComponent(resolved)}; path=/; max-age=${maxAge}; samesite=lax`
-    } catch {
-      // ignore failures
+    if (next) {
+      setTenantCookieState({ value: next, hasCookie: true, raw: next })
+      const maxAge = 60 * 60 * 24 * 30
+      try {
+        document.cookie = `om_selected_tenant=${encodeURIComponent(next)}; path=/; max-age=${maxAge}; samesite=lax`
+      } catch {
+        // ignore failures
+      }
+    } else {
+      // A blank `om_selected_tenant` has no meaning: there is no all-tenants sentinel for this
+      // cookie, and the server treats blank as "no selection". Expire it rather than writing one,
+      // so the session falls back to the tenant carried in the token.
+      setTenantCookieState({ value: '', hasCookie: false, raw: null })
+      try {
+        document.cookie = 'om_selected_tenant=; path=/; max-age=0; samesite=lax'
+      } catch {
+        // ignore failures
+      }
     }
     if (options?.refresh !== false) {
       try { router.refresh() } catch {}
@@ -254,12 +266,19 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
         if (!currentTenantCookie.hasCookie || currentTenantCookie.value !== resolvedTenantId) {
           persistTenant(resolvedTenantId, { refresh: false })
         }
-      } else if (currentTenantCookie.hasCookie && currentTenantCookie.value !== '') {
-        setTenantCookieState({ value: '', hasCookie: true, raw: '' })
+      } else if (currentTenantCookie.hasCookie && currentTenantCookie.value === '') {
+        // Covers a cookie left blank by an earlier build. The old condition was `value !== ''`,
+        // which excluded exactly the blank cookie it needed to clear; scoping to `value === ''`
+        // clears it without discarding an explicit tenant selection.
+        persistTenant(null, { refresh: false })
       }
       const currentCookie = cookieStateRef.current
       if (fallbackSelected) {
-        const tenantMatches = currentTenantCookie.hasCookie ? currentTenantCookie.value === (resolvedTenantId ?? '') : false
+        // With no tenant to match, an absent cookie is the correct state — the blank cookie this
+        // used to compare against is exactly what is no longer written.
+        const tenantMatches = resolvedTenantId === null
+          ? true
+          : currentTenantCookie.hasCookie && currentTenantCookie.value === resolvedTenantId
         if (
           !currentCookie.hasCookie ||
           currentCookie.value !== fallbackSelected ||
@@ -331,6 +350,37 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     : tenantValue
   const showTenantSelect = state.status === 'ready' && state.isSuperAdmin && tenantSelectOptions.length > 0
 
+  const flatOrgOptions = React.useMemo(() => {
+    const out: Array<{ id: string; label: string; selectable: boolean; depth: number }> = []
+    const walk = (list: OrganizationTreeNode[]) => {
+      for (const node of list) {
+        const depth = typeof node.depth === 'number' ? node.depth : 0
+        const indent = depth > 0 ? `${'  '.repeat(depth)}` : ''
+        out.push({
+          id: node.id,
+          label: `${indent}${node.name}`,
+          selectable: node.selectable !== false,
+          depth,
+        })
+        if (Array.isArray(node.children) && node.children.length > 0) walk(node.children as OrganizationTreeNode[])
+      }
+    }
+    walk(nodes)
+    return out
+  }, [nodes])
+
+  const [popoverOpen, setPopoverOpen] = React.useState(false)
+
+  const activeOrgLabel = React.useMemo(() => {
+    if (!value) {
+      return showAllOption
+        ? t('organizationSwitcher.allOrganizations', 'All organizations')
+        : t('organizationSwitcher.label', 'Organization')
+    }
+    return flatOrgOptions.find((opt) => opt.id === value)?.label.trim()
+      || t('organizationSwitcher.label', 'Organization')
+  }, [value, showAllOption, flatOrgOptions, t])
+
   if (state.status === 'hidden') {
     return null
   }
@@ -385,39 +435,6 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     )
   }
 
-  const flatOrgOptions = React.useMemo(() => {
-    const out: Array<{ id: string; label: string; selectable: boolean; depth: number }> = []
-    const walk = (list: OrganizationTreeNode[]) => {
-      for (const node of list) {
-        const depth = typeof node.depth === 'number' ? node.depth : 0
-        const indent = depth > 0 ? `${'  '.repeat(depth)}` : ''
-        out.push({
-          id: node.id,
-          label: `${indent}${node.name}`,
-          selectable: node.selectable !== false,
-          depth,
-        })
-        if (Array.isArray(node.children) && node.children.length > 0) walk(node.children as OrganizationTreeNode[])
-      }
-    }
-    walk(nodes)
-    return out
-  }, [nodes])
-
-  const ALL_ORGS_SENTINEL = '__all__'
-  const orgSelectValue = !value ? (showAllOption ? ALL_ORGS_SENTINEL : '') : value
-  const [popoverOpen, setPopoverOpen] = React.useState(false)
-
-  const activeOrgLabel = React.useMemo(() => {
-    if (!value) {
-      return showAllOption
-        ? t('organizationSwitcher.allOrganizations', 'All organizations')
-        : t('organizationSwitcher.label', 'Organization')
-    }
-    return flatOrgOptions.find((opt) => opt.id === value)?.label.trim()
-      || t('organizationSwitcher.label', 'Organization')
-  }, [value, showAllOption, flatOrgOptions, t])
-
   if (state.status === 'loading') {
     return <span className="hidden md:inline text-xs text-muted-foreground">{t('organizationSwitcher.loading')}</span>
   }
@@ -431,18 +448,20 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
   return (
     <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           aria-label={`${t('organizationSwitcher.label')}: ${activeOrgLabel}`}
           title={activeOrgLabel}
-          className="inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md border border-input bg-background px-0 text-sm font-medium shadow-xs transition-colors hover:bg-muted/40 focus:outline-none focus-visible:shadow-focus focus-visible:border-foreground data-[state=open]:bg-muted/40 sm:w-auto sm:justify-start sm:px-3 sm:max-w-[200px] md:max-w-[260px]"
+          className="w-8 px-0 hover:bg-muted/40 data-[state=open]:bg-muted/40 sm:w-auto sm:justify-start sm:px-3 sm:max-w-48 md:max-w-64"
         >
           <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="hidden sm:block truncate flex-1 text-left">{activeOrgLabel}</span>
           <ChevronDown className="hidden sm:block size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        </button>
+        </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[320px] p-0">
+      <PopoverContent align="end" className="w-80 p-0">
         {showTenantSelect ? (
           <div className="border-b p-3 space-y-2">
             <div className="text-overline font-medium uppercase tracking-wider text-muted-foreground/80 leading-none">
@@ -472,38 +491,43 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
           <div className="px-2 py-1.5 text-overline font-medium uppercase tracking-wider text-muted-foreground/80 leading-none">
             {t('organizationSwitcher.label')}
           </div>
-          <div className="max-h-[280px] overflow-y-auto">
+          <div className="max-h-72 overflow-y-auto">
             {showAllOption ? (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   handleChange(null)
                   setPopoverOpen(false)
                 }}
-                className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/40 focus:outline-none focus-visible:bg-muted/40"
+                className="h-auto w-full justify-between rounded-sm px-2 py-1.5 text-left font-normal hover:bg-muted/40 focus-visible:bg-muted/40"
               >
                 <span className="truncate min-w-0">{t('organizationSwitcher.allOrganizations', 'All organizations')}</span>
                 {!value ? <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" /> : null}
-              </button>
+              </Button>
             ) : null}
             {flatOrgOptions.map((opt) => {
               const isActive = value === opt.id
               return (
-                <button
+                <Button
                   key={opt.id}
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   disabled={!opt.selectable}
                   onClick={() => {
                     if (!opt.selectable) return
                     handleChange(opt.id)
                     setPopoverOpen(false)
                   }}
+                  // DS-SKIP: dynamic tree indentation depends on organization depth.
                   style={{ paddingLeft: `${0.5 + opt.depth * 0.75}rem` }}
-                  className="flex w-full items-center justify-between gap-2 rounded-sm py-1.5 pr-2 text-left text-sm transition-colors hover:bg-muted/40 disabled:opacity-50 disabled:hover:bg-transparent focus:outline-none focus-visible:bg-muted/40"
+                  className="h-auto w-full justify-between rounded-sm py-1.5 pr-2 text-left font-normal hover:bg-muted/40 disabled:bg-transparent disabled:text-muted-foreground disabled:shadow-none focus-visible:bg-muted/40"
                 >
                   <span className="truncate min-w-0">{opt.label.trim()}</span>
                   {isActive ? <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" /> : null}
-                </button>
+                </Button>
               )
             })}
           </div>

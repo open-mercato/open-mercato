@@ -20,6 +20,28 @@ docker compose -f docker-compose.fullapp.dev.yml up --build
 
 The app container mounts the repo, runs `yarn dev` (packages watch + Next.js dev server), and does init/migrate + generate on start. Named volumes keep `node_modules` and `.next` in the container.
 
+### AI assistant services in the fullapp stacks (mcp + opencode)
+
+Both fullapp compose files run the complete agentic stack as three wired services:
+
+| Service | Port (host) | Role |
+|---------|-------------|------|
+| `app` | 3000 (+ splash 4000 in dev) | Next.js app; talks to OpenCode via `OPENCODE_URL=http://opencode:4096` |
+| `mcp` | 3001 (dev only; internal in prod) | MCP Streamable HTTP server (`mcp:serve-http`); reaches the app via `APP_URL=http://app:3000` |
+| `opencode` | 4096 (dev only; internal in prod) | OpenCode agent; reaches MCP via `OPENCODE_MCP_URL=http://mcp:3001/mcp` |
+
+The `mcp` service reuses the app image and (in dev) the app's named volumes — it never runs `yarn install` or builds. Its entrypoint (`docker/scripts/mcp-entrypoint.sh`) waits until the app answers HTTP, then provisions the MCP API key idempotently via `yarn mercato ai_assistant mcp:ensure-api-key` into the shared `mcp_shared` volume; the OpenCode entrypoint waits for MCP `/health` and reads the key file. **Leave `MCP_SERVER_API_KEY` unset in `.env` for these stacks** — a set env value overrides the auto-provisioned file and breaks OpenCode → MCP auth unless it is itself a valid `omk_` key.
+
+Wiring smoke test from the host (dev stack):
+
+```bash
+curl http://localhost:3001/health          # {"status":"ok","tools":N}
+curl http://localhost:4096/global/health   # {"healthy":true,...}
+curl http://localhost:4096/mcp             # {"open-mercato":{"status":"connected"}}
+```
+
+Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose restart opencode`. And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
+
 ## Quick Start
 
 ```bash
@@ -132,9 +154,13 @@ yarn docker:mercato eject currencies
 yarn docker:mercato test:integration
 ```
 
-> **Tip:** You can override which compose file is targeted by setting `DOCKER_COMPOSE_FILE`:
+> **Tip — custom compose file**: If you run a personalised stack (e.g. `docker-compose.fullapp.dev.local.yml`),
+> the `docker:*` commands discover it automatically **without any extra configuration**, as long as the file name
+> matches `docker-compose.*dev*.local.yml` and lives in the repo root. Add it to `.gitignore` to keep it local.
+>
+> You can also force a specific compose file at any time with `DOCKER_COMPOSE_FILE`:
 > ```
-> DOCKER_COMPOSE_FILE=docker-compose.fullapp.yml yarn docker:generate
+> DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
 > ```
 
 ### Script Compatibility Matrix
@@ -153,10 +179,10 @@ yarn docker:mercato test:integration
 | `lint` | works | `yarn docker:lint` | unsupported-by-design | Dev deps not in production image |
 | `typecheck` | works | `yarn docker:typecheck` | unsupported-by-design | Dev deps not in production image |
 | `test` | works | `yarn docker:test` | unsupported-by-design | Dev deps not in production image |
-| `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; use container |
+| `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; external skills need network (`npx skills add`, skip with `--no-external`); use container |
 | `clean:generated` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
 | `clean:packages` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
-| `mcp:serve` | works | works-with-wrapper | unsupported-by-design | Use `docker compose exec app yarn mcp:serve` |
+| `mcp:serve` | works | dedicated `mcp` service | dedicated `mcp` service | The fullapp stacks run the MCP server as their own container (port 3001 in dev); no manual start needed |
 | `registry:*` / `release:*` | works (Unix) | unsupported-by-design | unsupported-by-design | CI/release pipeline scripts |
 
 ### Troubleshooting
@@ -167,6 +193,17 @@ The helper checks for a running `app` service. Ensure the stack is up:
 ```
 docker compose -f docker-compose.fullapp.dev.yml ps
 ```
+
+If you started the stack with a **custom compose file**, either name it `docker-compose.*dev*.local.yml`
+(auto-discovered) or set `DOCKER_COMPOSE_FILE` before the command:
+```
+DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
+```
+
+**Compose file fails to parse / probe warning**
+
+If you see `[docker-exec] Warning: skipping "…" — compose probe failed`, the compose file has a
+configuration or interpolation error. Fix the file, or point directly to a working one via `DOCKER_COMPOSE_FILE`.
 
 **Command times out or hangs**
 

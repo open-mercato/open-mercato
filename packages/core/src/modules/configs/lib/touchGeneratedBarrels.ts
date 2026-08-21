@@ -34,7 +34,7 @@ export function touchGeneratedBarrels(
   options: TouchGeneratedBarrelsOptions = {},
 ): TouchGeneratedBarrelsResult {
   const cwd = options.cwd ?? process.cwd()
-  const log = options.log ?? ((message: string) => console.log(message))
+  const log = options.log ?? ((message: string) => process.stdout.write(`${message}\n`))
   const quiet = options.quiet === true
 
   const generatedDir = findGeneratedDir(cwd)
@@ -43,13 +43,16 @@ export function touchGeneratedBarrels(
   }
 
   const touched: string[] = []
+  const touchedAt = new Date()
   const entries = fs.readdirSync(generatedDir, { withFileTypes: true })
   for (const entry of entries) {
     if (!entry.isFile()) continue
     if (!TOUCHABLE_PATTERN.test(entry.name)) continue
     const filePath = path.join(generatedDir, entry.name)
-    const contents = fs.readFileSync(filePath)
-    fs.writeFileSync(filePath, contents)
+    // Advance mtime without rewriting the bytes: rewriting truncates then refills
+    // multi-megabyte registries, and a concurrent Turbopack compile reading one
+    // mid-write sees a partial file. Matches `packages/cli/src/lib/post-generate-invalidation.ts`.
+    fs.utimesSync(filePath, touchedAt, touchedAt)
     touched.push(filePath)
   }
 

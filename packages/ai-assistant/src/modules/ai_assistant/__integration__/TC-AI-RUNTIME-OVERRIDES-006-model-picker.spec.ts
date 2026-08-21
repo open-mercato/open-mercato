@@ -178,6 +178,14 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
         });
       });
 
+      await page.route('**/api/ai_assistant/ai/agents', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(agentsPayload),
+        });
+      });
+
       await page.route('**/api/ai_assistant/health', async (route) => {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', url: 'http://localhost', mcpUrl: 'http://localhost:3001' }) });
       });
@@ -471,6 +479,10 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
         expect(body).toHaveProperty('agentId');
         expect(body).toHaveProperty('allowRuntimeOverride');
         expect(body).toHaveProperty('providers');
+        // Both degradation fields are emitted unconditionally, so a healthy response
+        // pins them to the fully-resolved values rather than leaving them absent.
+        expect(body).toHaveProperty('degraded', false);
+        expect(body.degradedReason).toBeNull();
       }
     });
   });

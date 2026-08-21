@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import type { IntegrationStateService } from '../../../../integrations/lib/state-service'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import type { SyncRunService } from '../../../lib/sync-run-service'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
@@ -20,8 +25,12 @@ export const openApi = {
 
 export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')
@@ -38,7 +47,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   const progressService = container.resolve('progressService') as ProgressService
   const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
   const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const run = await syncRunService.getRun(parsed.data.id, scope)
   if (!run) {
@@ -48,9 +57,24 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     return NextResponse.json({ error: 'Only pending or running runs can be cancelled' }, { status: 409 })
   }
 
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: auth.tenantId,
+    organizationId: scope.organizationId,
+    userId: auth.sub,
+    resourceKind: 'data_sync.run',
+    resourceId: run.id,
+    operation: 'custom',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { action: 'cancel' },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
   const progressCtx = {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
   }
 
@@ -60,7 +84,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     } catch (error) {
       const job = await progressService.getJob(run.progressJobId, progressCtx)
       const cancelRequested = job && (job.status === 'running' || job.status === 'cancelled')
-        ? await progressService.isCancellationRequested(run.progressJobId, progressCtx.tenantId)
+        ? await progressService.isCancellationRequested(run.progressJobId, progressCtx.tenantId, progressCtx.organizationId)
         : false
 
       if (job?.status !== 'cancelled' && !cancelRequested) {
@@ -84,5 +108,20 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
       summary: 'The sync run was cancelled before completion.',
     },
   }, scope)
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: auth.tenantId,
+      organizationId: scope.organizationId,
+      userId: auth.sub,
+      resourceKind: 'data_sync.run',
+      resourceId: run.id,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
+
   return NextResponse.json({ ok: true })
 }

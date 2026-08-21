@@ -55,6 +55,9 @@ import {
   extractCustomFieldValues,
 } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ProductOption = {
   id: string;
@@ -99,6 +102,42 @@ type TaxRateOption = {
   rate: number | null;
   isDefault: boolean;
 };
+
+function mapTaxRateOption(item: Record<string, unknown>): TaxRateOption | null {
+  const id = typeof item.id === "string" ? item.id : null;
+  const name =
+    typeof item.name === "string" && item.name.trim().length
+      ? item.name.trim()
+      : typeof item.code === "string"
+        ? item.code
+        : null;
+  if (!id || !name) return null;
+  const rate = normalizeNumber((item as ApiTaxRateItem).rate);
+  const code =
+    typeof (item as ApiTaxRateItem).code === "string" &&
+    (item as ApiTaxRateItem).code?.trim().length
+      ? (item as ApiTaxRateItem).code?.trim() ?? null
+      : null;
+  const isDefault = Boolean(
+    (item as ApiTaxRateItem).isDefault ?? (item as ApiTaxRateItem).is_default,
+  );
+  return {
+    id,
+    name,
+    code,
+    rate: Number.isFinite(rate) ? rate : null,
+    isDefault,
+  };
+}
+
+function mergeTaxRateOptions(
+  options: TaxRateOption[],
+  selected: TaxRateOption | null,
+): TaxRateOption[] {
+  if (!selected) return options;
+  if (options.some((option) => option.id === selected.id)) return options;
+  return [selected, ...options];
+}
 
 type StatusOption = {
   id: string;
@@ -233,14 +272,16 @@ type SnapshotEntity = {
 type SalesLineDialogProps = {
   open: boolean;
   kind: "order" | "quote";
-  documentId: string;
+  documentId?: string;
   currencyCode: string | null | undefined;
   documentUpdatedAt?: string | null;
   organizationId: string | null;
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
+  shippedQuantity?: number;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => Promise<void> | void;
+  onDraftSaved?: (payload: Record<string, unknown>, lineId: string | null) => Promise<void> | void;
 };
 
 const defaultForm = (currencyCode?: string | null): LineFormState => ({
@@ -433,8 +474,10 @@ export function LineItemDialog({
   organizationId,
   tenantId,
   initialLine,
+  shippedQuantity = 0,
   onOpenChange,
   onSaved,
+  onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
   const scope = useOrganizationScopeDetail();
@@ -577,45 +620,56 @@ export function LineItemDialog({
         ? response.result.items
         : [];
       const parsed = items
-        .map<TaxRateOption | null>((item) => {
-          const id = typeof item.id === "string" ? item.id : null;
-          const name =
-            typeof item.name === "string" && item.name.trim().length
-              ? item.name.trim()
-              : typeof item.code === "string"
-                ? item.code
-                : null;
-          if (!id || !name) return null;
-          const rate = normalizeNumber((item as ApiTaxRateItem).rate);
-          const code =
-            typeof (item as ApiTaxRateItem).code === "string" &&
-            (item as ApiTaxRateItem).code?.trim().length
-              ? (item as ApiTaxRateItem).code?.trim() ?? null
-              : null;
-          const isDefault = Boolean(
-            (item as ApiTaxRateItem).isDefault ?? (item as ApiTaxRateItem).is_default,
-          );
-          return {
-            id,
-            name,
-            code,
-            rate: Number.isFinite(rate) ? rate : null,
-            isDefault,
-          };
-        })
+        .map<TaxRateOption | null>((item) => mapTaxRateOption(item))
         .filter((entry): entry is TaxRateOption => Boolean(entry));
       taxRatesRef.current = parsed;
       defaultTaxRateRef.current = parsed.find((rate) => rate.isDefault) ?? null;
       setTaxRates(parsed);
       return parsed;
     } catch (err) {
-      console.error("sales.tax-rates.fetch", err);
+      logger.error('sales.tax-rates.fetch', { err });
       taxRatesRef.current = [];
       defaultTaxRateRef.current = null;
       setTaxRates([]);
       return [];
     }
   }, []);
+
+  const loadTaxRateById = React.useCallback(
+    async (taxRateId: string): Promise<TaxRateOption | null> => {
+      const response = await apiCall<{
+        items?: Array<Record<string, unknown>>;
+      }>(
+        `/api/sales/tax-rates?id=${encodeURIComponent(taxRateId)}&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      );
+      const items = Array.isArray(response.result?.items)
+        ? response.result.items
+        : [];
+      return (
+        items
+          .map<TaxRateOption | null>((item) => mapTaxRateOption(item))
+          .find((entry): entry is TaxRateOption => entry?.id === taxRateId) ??
+        null
+      );
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    const selectedId =
+      typeof initialValues.taxRateId === "string" && initialValues.taxRateId.trim().length
+        ? initialValues.taxRateId.trim()
+        : null;
+    if (!selectedId || taxRates.some((rate) => rate.id === selectedId)) return;
+    loadTaxRateById(selectedId)
+      .then((selected) => {
+        taxRatesRef.current = mergeTaxRateOptions(taxRatesRef.current, selected);
+        setTaxRates((current) => mergeTaxRateOptions(current, selected));
+      })
+      .catch(() => {});
+  }, [initialValues.taxRateId, loadTaxRateById, taxRates]);
 
   const loadProductOptionById = React.useCallback(
     async (productId: string): Promise<ProductOption | null> => {
@@ -807,7 +861,7 @@ export function LineItemDialog({
             defaultSalesUnit = defaultSalesUnit ?? matchedUom.defaultSalesUnit;
           }
         } catch (err) {
-          console.error("sales.document.items.loadProductUnits.hydration", err);
+          logger.error('sales.document.items.loadProductUnits.hydration', { err });
         }
       }
       if (baseUnit) {
@@ -838,7 +892,7 @@ export function LineItemDialog({
           });
         }
       } catch (err) {
-        console.error("sales.document.items.loadUnits", err);
+        logger.error('sales.document.items.loadUnits', { err });
       }
       if (defaultSalesUnit && !map.has(defaultSalesUnit)) {
         map.set(defaultSalesUnit, {
@@ -1006,7 +1060,7 @@ export function LineItemDialog({
         setPriceOptions(mapped);
         return mapped;
       } catch (err) {
-        console.error("sales.document.items.loadPrices", err);
+        logger.error('sales.document.items.loadPrices', { err });
         return [];
       } finally {
         setPriceLoading(false);
@@ -1154,7 +1208,7 @@ export function LineItemDialog({
       setLineStatuses(mapped);
       return mapped;
     } catch (err) {
-      console.error("sales.lines.statuses.load", err);
+      logger.error('sales.lines.statuses.load', { err });
       setLineStatuses([]);
       return [];
     } finally {
@@ -1221,7 +1275,7 @@ export function LineItemDialog({
       const resolvedOrg = resolvedOrganizationId;
       const resolvedTenant = resolvedTenantId;
 
-      if (!resolvedOrg || !resolvedTenant || !resolvedDocumentId) {
+      if (!onDraftSaved && (!resolvedOrg || !resolvedTenant || !resolvedDocumentId)) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorScope",
@@ -1275,6 +1329,14 @@ export function LineItemDialog({
             ),
           },
         );
+      }
+      if (shippedQuantity > 0 && qtyNumber < shippedQuantity) {
+        const message = t(
+          "sales.documents.items.errorQuantityBelowShipped",
+          "You cannot lower the quantity below the {{shipped}} already shipped.",
+          { shipped: shippedQuantity },
+        );
+        throw createCrudFormError(message, { quantity: message });
       }
       const resolvedQuantityUnit = (() => {
         const entered = normalizeUnitCode(values.quantityUnit);
@@ -1406,9 +1468,9 @@ export function LineItemDialog({
       };
 
       const payload: Record<string, unknown> = {
-        [documentKey]: String(resolvedDocumentId),
-        organizationId: String(resolvedOrg),
-        tenantId: String(resolvedTenant),
+        ...(resolvedDocumentId ? { [documentKey]: resolvedDocumentId } : {}),
+        ...(resolvedOrg ? { organizationId: resolvedOrg } : {}),
+        ...(resolvedTenant ? { tenantId: resolvedTenant } : {}),
         productId: isCustomLine
           ? undefined
           : values.productId
@@ -1448,6 +1510,11 @@ export function LineItemDialog({
       if (resolvedName) payload.name = resolvedName;
 
       try {
+        if (onDraftSaved) {
+          await onDraftSaved(payload, editingId);
+          closeDialog();
+          return;
+        }
         const action = editingId ? updateCrud : createCrud;
         const result = await withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
@@ -1485,6 +1552,7 @@ export function LineItemDialog({
       documentKey,
       documentUpdatedAt,
       editingId,
+      onDraftSaved,
       priceOptions,
       productOption,
       resourcePath,
@@ -2137,6 +2205,9 @@ export function LineItemDialog({
             typeof value === "string" && value.trim().length
               ? value
               : findTaxRateIdByValue((values as Record<string, unknown>)?.taxRate as number | null | undefined);
+          const selectedTaxRate = resolvedValue
+            ? taxRateMap.get(resolvedValue) ?? null
+            : null;
           const handleChange = (
             event: React.ChangeEvent<HTMLSelectElement>,
           ) => {
@@ -2166,7 +2237,11 @@ export function LineItemDialog({
                             "No tax classes available",
                           )
                     }
-                  />
+                  >
+                    {selectedTaxRate
+                      ? `${selectedTaxRate.name}${selectedTaxRate.code ? ` • ${selectedTaxRate.code.toUpperCase()}` : ""}${Number.isFinite(selectedTaxRate.rate) ? ` • ${selectedTaxRate.rate}%` : ""}`
+                      : undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {taxRates.map((rate) => (
@@ -2770,7 +2845,7 @@ export function LineItemDialog({
           }
           setDeletedCatalogReference(false);
         } catch (err) {
-          console.error("sales.document.items.verifyCatalogReference", err);
+          logger.error('sales.document.items.verifyCatalogReference', { err });
         }
       })();
       void loadProductUnits(initialLine.productId, resolvedProductOption).then(

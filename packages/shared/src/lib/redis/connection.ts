@@ -1,3 +1,7 @@
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'redis' })
+
 /**
  * Shared Redis connection utilities.
  *
@@ -17,10 +21,33 @@
 export type ParsedRedisConnection = {
   host: string
   port: number
+  username?: string
   password?: string
   db?: number
   tls?: Record<string, unknown>
+  family?: number
+  protocol?: RedisProtocolVersion
 }
+
+/**
+ * RESP wire protocol version, mirroring ioredis' own `ProtocolVersion` union.
+ * Declared locally because ioredis is an optional peer of the packages that
+ * consume these options.
+ */
+export type RedisProtocolVersion = 2 | 3
+
+/**
+ * Wire protocol every Redis client in the monorepo negotiates.
+ *
+ * ioredis 6 switched its default from RESP2 to RESP3. RESP3 changes the reply
+ * shape of map-style commands and delivers pub/sub over push frames instead of
+ * ordinary replies, which neither BullMQ nor rate-limiter-flexible declare
+ * support for. Pinning the protocol keeps the client byte-compatible with the
+ * ioredis 5 behaviour the rest of the stack was built and tested against.
+ * Adopting RESP3 is a deliberate, separately testable change — not a side
+ * effect of a version bump.
+ */
+export const REDIS_WIRE_PROTOCOL: RedisProtocolVersion = 2
 
 /**
  * Resolve a Redis URL from environment variables.
@@ -55,12 +82,8 @@ export function getRedisUrlOrThrow(prefix?: string): string {
 }
 
 /**
- * Parse a redis:// URL into a {host, port, password, db} object
- * suitable for BullMQ / ioredis structured connection options.
- *
- * @deprecated Prefer passing the full URL via `{ url: getRedisUrl(...) }` to
- * BullMQ/ioredis — this preserves rediss://, username, database, and query
- * params that structured parsing may lose. Kept for backward compatibility.
+ * Parse a redis:// URL into structured connection options suitable for
+ * BullMQ and ioredis.
  */
 export function parseRedisUrl(url: string): ParsedRedisConnection {
   try {
@@ -68,17 +91,23 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
     const dbStr = parsed.pathname ? parsed.pathname.slice(1) : ''
     const dbParsed = dbStr !== '' ? parseInt(dbStr, 10) : NaN
     const db = Number.isNaN(dbParsed) ? undefined : dbParsed
+    const familyValue = parsed.searchParams.get('family')
+    const familyParsed = familyValue !== null ? parseInt(familyValue, 10) : NaN
+    const family = [0, 4, 6].includes(familyParsed) ? familyParsed : undefined
     return {
       host: parsed.hostname || 'localhost',
       port: parseInt(parsed.port, 10) || 6379,
-      password: parsed.password || undefined,
+      username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
       db,
       tls: parsed.protocol === 'rediss:' ? {} : undefined,
+      family,
+      protocol: REDIS_WIRE_PROTOCOL,
     }
   } catch {
     const safeUrl = url.replace(/\/\/[^:]*:[^@]*@/, '//<redacted>@')
-    console.warn(`[redis] Failed to parse URL "${safeUrl}", falling back to localhost:6379`)
-    return { host: 'localhost', port: 6379 }
+    logger.warn('Failed to parse Redis URL, falling back to localhost:6379', { url: safeUrl })
+    return { host: 'localhost', port: 6379, protocol: REDIS_WIRE_PROTOCOL }
   }
 }
 
