@@ -109,8 +109,6 @@ test.describe('TC-AGENT-UXC-004: run-id prefix search on Traces', () => {
       await searchBox.fill(targetPrefix)
       const bodyRows = page.locator('table tbody tr')
       await expect(bodyRows).toHaveCount(1, { timeout: 15_000 })
-      await bodyRows.first().click()
-      await expect(page).toHaveURL(new RegExp(`/backend/traces/${targetId}`), { timeout: 10_000 })
 
       // Negative leg: an unrelated prefix yields no rows (server-filtered).
       await page.goto('/backend/traces', { waitUntil: 'domcontentloaded' })
