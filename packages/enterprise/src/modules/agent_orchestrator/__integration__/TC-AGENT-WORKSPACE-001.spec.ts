@@ -55,9 +55,10 @@ test.describe('TC-AGENT-WORKSPACE-001: agent-centric evaluation workspace', () =
         token,
         data: {
           key: assertionKey,
+          scorerKey: 'output_present',
           title: assertionTitle,
           type: 'deterministic',
-          config: { path: '$.ok', expected: true },
+          config: {},
           severity: 'warn',
           appliesTo: agent!.id,
           enabled: true,

@@ -54,9 +54,10 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
         token,
         data: {
           key: assertionKey,
+          scorerKey: 'output_present',
           title: taskName,
           type: 'deterministic',
-          config: { path: '$.ok', expected: true },
+          config: {},
           severity: 'warn',
           appliesTo: '*',
           enabled: false,
