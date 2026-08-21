@@ -34,7 +34,7 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId } = getTokenScope(adminToken)
     const stamp = Date.now()
-    const password = 'secret'
+    const password = 'StrongSecret123!'
     const email = `tc-procdef-002-${stamp}@example.com`
     const name = `TC-PROCDEF-002 ${stamp}`
 
