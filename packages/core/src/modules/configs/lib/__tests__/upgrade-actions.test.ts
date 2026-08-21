@@ -170,3 +170,35 @@ describe('payment-session initialization prune upgrade action', () => {
     }))
   })
 })
+
+describe('access-log retention upgrade action', () => {
+  it('registers both retention classes for an existing tenant organization', async () => {
+    const action = upgradeActions.find(
+      (candidate) => candidate.id === 'audit_logs.register-access-log-retention',
+    )
+    const register = jest.fn().mockResolvedValue(undefined)
+    const container = {
+      hasRegistration: (name: string) => name === 'schedulerService',
+      resolve: jest.fn(() => ({ register })),
+    }
+
+    expect(action?.version).toBe('0.6.8')
+    await action?.run({
+      container: container as never,
+      em: {} as never,
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+    })
+
+    expect(register).toHaveBeenCalledTimes(2)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+      targetQueue: 'audit-logs-retention',
+      targetPayload: expect.objectContaining({ accessClass: 'core', retentionDays: 90 }),
+    }))
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      targetPayload: expect.objectContaining({ accessClass: 'non_core', retentionDays: 90 }),
+    }))
+  })
+})

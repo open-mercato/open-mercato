@@ -62,5 +62,9 @@
   "audit_logs.version_history.status.failed": "Fallido",
   "audit_logs.version_history.status.redone": "Rehecho",
   "audit_logs.version_history.status.undone": "Deshecho",
-  "audit_logs.version_history.title": "Historial de versiones"
+  "audit_logs.version_history.title": "Historial de versiones",
+  "audit_logs.upgradeActions.accessLogRetention.cta": "Programar retención de registros de acceso",
+  "audit_logs.upgradeActions.accessLogRetention.loading": "Programando la retención de registros de acceso…",
+  "audit_logs.upgradeActions.accessLogRetention.message": "Registra una limpieza diaria por inquilino de los registros de acceso tras el periodo de retención configurado.",
+  "audit_logs.upgradeActions.accessLogRetention.success": "La retención de registros de acceso está programada."
 }
