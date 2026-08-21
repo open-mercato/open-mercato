@@ -44,6 +44,7 @@ type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disp
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
 const slaVariant: StatusMap<Sla> = { breach: 'error', risk: 'warning', ok: 'success' }
 const NEEDS_ATTENTION_PAGE_SIZE = 20
+const OPTIONAL_READ_HEADERS = { 'x-om-forbidden-redirect': '0' } as const
 
 // Rolling windows supported by /metrics/overview and /metrics/agents.
 type OverviewWindowKey = '24h' | '7d' | '30d'
@@ -93,7 +94,7 @@ type ListFetch =
   | { ok: false; status: number }
 
 async function fetchList(path: string): Promise<ListFetch> {
-  const call = await apiCall<ListResponse>(path, undefined, { fallback: { items: [] } })
+  const call = await apiCall<ListResponse>(path, { headers: OPTIONAL_READ_HEADERS }, { fallback: { items: [] } })
   if (!call.ok) return { ok: false, status: call.status }
   const items = Array.isArray(call.result?.items) ? call.result!.items : []
   const total = typeof call.result?.total === 'number' ? call.result!.total : items.length
@@ -179,7 +180,7 @@ export default function AgentFleetOverviewPage() {
             metricsChunks.map((chunk) =>
               apiCall<{ items?: Array<Record<string, unknown>> }>(
                 `/api/agent_orchestrator/metrics/agents?window=${windowKey}&ids=${chunk.map((id) => encodeURIComponent(id)).join(',')}`,
-                undefined,
+                { headers: OPTIONAL_READ_HEADERS },
                 { fallback: { items: [] } },
               ),
             ),
