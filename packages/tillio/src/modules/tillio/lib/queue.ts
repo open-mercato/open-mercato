@@ -1,4 +1,5 @@
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 
 /**
  * Queue helper for the Tillio provider. Mirrors `getSyncQueue` (data_sync) so the
@@ -13,15 +14,20 @@ const queues = new Map<string, Queue<Record<string, unknown>>>()
 
 export const TILLIO_PULL_QUEUE = 'tillio-pull'
 
+// Worker parallelism comes from the worker manifest, not from the producer-side queue
+// instance this module builds, so both read the same value or the variable only pretends
+// to do something.
+export function resolveTillioQueueConcurrency(): number {
+  return Math.min(20, parseNumberWithDefault(process.env.TILLIO_QUEUE_CONCURRENCY, 1, { min: 1, integer: true }))
+}
+
 export function getTillioQueue(queueName: string): Queue<Record<string, unknown>> {
   const existing = queues.get(queueName)
   if (existing) return existing
 
-  const concurrency = Math.min(
-    20,
-    Math.max(1, Number.parseInt(process.env.TILLIO_QUEUE_CONCURRENCY ?? '1', 10) || 1),
-  )
-  const created = createModuleQueue<Record<string, unknown>>(queueName, { concurrency })
+  const created = createModuleQueue<Record<string, unknown>>(queueName, {
+    concurrency: resolveTillioQueueConcurrency(),
+  })
   queues.set(queueName, created)
   return created
 }

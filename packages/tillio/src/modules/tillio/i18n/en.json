@@ -66,7 +66,7 @@
   "tillio.pull.queued": "Pulling calls from Tillio. Track it in the progress bar.",
   "tillio.pull.rangeRequired": "Pick a date range first.",
   "tillio.pull.retry": "Retry",
-  "tillio.pull.timezoneHint": "Days are interpreted in the Europe/Warsaw timezone that Tillio uses.",
+  "tillio.pull.timezoneHint": "Days are interpreted in the {{timeZone}} timezone that Tillio uses.",
   "tillio.pull.title": "Pull calls from Tillio",
   "tillio.title": "Tillio Telephony"
 }

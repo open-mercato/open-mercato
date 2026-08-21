@@ -66,7 +66,7 @@
   "tillio.pull.queued": "Tillio에서 통화를 가져오는 중입니다. 진행 상황은 진행률 표시줄에서 확인하세요.",
   "tillio.pull.rangeRequired": "먼저 기간을 선택하세요.",
   "tillio.pull.retry": "다시 시도",
-  "tillio.pull.timezoneHint": "날짜는 Tillio가 사용하는 Europe/Warsaw 시간대를 기준으로 해석됩니다.",
+  "tillio.pull.timezoneHint": "날짜는 Tillio가 사용하는 {{timeZone}} 시간대를 기준으로 해석됩니다.",
   "tillio.pull.title": "Tillio에서 통화 가져오기",
   "tillio.title": "Tillio 전화 연동"
 }

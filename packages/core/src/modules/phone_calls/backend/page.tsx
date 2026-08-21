@@ -227,7 +227,14 @@ export default function PhoneCallsPage() {
     {
       accessorKey: 'ingest_status',
       header: t('phone_calls.calls.columns.ingestStatus', 'Ingest'),
-      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.ingest_status || '—'}</span>,
+      cell: ({ row }) => {
+        const value = row.original.ingest_status
+        return (
+          <span className="text-sm text-muted-foreground">
+            {value ? t(`phone_calls.calls.ingestStatus.${value}`, value) : '—'}
+          </span>
+        )
+      },
     },
   ], [t])
 

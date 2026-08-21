@@ -16,7 +16,7 @@ export const integration: IntegrationDefinition = {
   providerKey: TILLIO_PROVIDER_KEY,
   icon: 'phone-call',
   package: '@open-mercato/tillio',
-  version: '0.1.0',
+  version: '1.0.0',
   author: 'Open Mercato Team',
   license: 'MIT',
   tags: ['tillio', 'voip', 'phone-calls', 'telephony', 'ringostat'],

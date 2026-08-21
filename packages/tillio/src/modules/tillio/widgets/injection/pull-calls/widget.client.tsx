@@ -31,6 +31,7 @@ type PullReadiness = {
   operatorAttached: boolean
   envDrift: boolean
   blocker: PullBlocker | null
+  timeZone: string | null
 }
 
 type PullResult = {
@@ -77,6 +78,10 @@ export default function PullCallsWidget(
     try {
       const response = await apiCall<PullReadiness>('/api/tillio/pull')
       setReadiness(response.ok ? (response.result ?? null) : null)
+    } catch {
+      // A null readiness already renders the "could not check" notice, so the failure is
+      // handled here rather than escaping the void call as an unhandled rejection.
+      setReadiness(null)
     } finally {
       setChecking(false)
     }
@@ -186,9 +191,15 @@ export default function PullCallsWidget(
 
               <div className="grid gap-2 py-2">
                 <DateRangePicker value={range} onChange={setRange} disabled={pending || blocked} />
-                <span className="text-xs text-muted-foreground">
-                  {t('tillio.pull.timezoneHint', 'Days are interpreted in the Europe/Warsaw timezone used by Tillio.')}
-                </span>
+                {readiness?.timeZone ? (
+                  <span className="text-xs text-muted-foreground">
+                    {t(
+                      'tillio.pull.timezoneHint',
+                      'Days are interpreted in the {{timeZone}} timezone that Tillio uses.',
+                      { timeZone: readiness.timeZone },
+                    )}
+                  </span>
+                ) : null}
               </div>
             </>
           )}

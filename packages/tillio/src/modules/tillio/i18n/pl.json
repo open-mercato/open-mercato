@@ -66,7 +66,7 @@
   "tillio.pull.queued": "Pobieranie połączeń z Tillio. Postęp śledzisz na pasku postępu.",
   "tillio.pull.rangeRequired": "Najpierw wybierz zakres dat.",
   "tillio.pull.retry": "Spróbuj ponownie",
-  "tillio.pull.timezoneHint": "Dni są interpretowane w strefie Europe/Warsaw, której używa Tillio.",
+  "tillio.pull.timezoneHint": "Dni są interpretowane w strefie {{timeZone}}, której używa Tillio.",
   "tillio.pull.title": "Pobierz połączenia z Tillio",
   "tillio.title": "Telefonia Tillio"
 }

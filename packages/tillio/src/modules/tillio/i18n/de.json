@@ -66,7 +66,7 @@
   "tillio.pull.queued": "Anrufe werden von Tillio abgerufen. Den Fortschritt siehst du in der Fortschrittsleiste.",
   "tillio.pull.rangeRequired": "Wählen Sie zuerst einen Zeitraum.",
   "tillio.pull.retry": "Erneut versuchen",
-  "tillio.pull.timezoneHint": "Tage werden in der von Tillio verwendeten Zeitzone Europe/Warsaw interpretiert.",
+  "tillio.pull.timezoneHint": "Tage werden in der von Tillio verwendeten Zeitzone {{timeZone}} interpretiert.",
   "tillio.pull.title": "Anrufe von Tillio abrufen",
   "tillio.title": "Tillio-Telefonie"
 }

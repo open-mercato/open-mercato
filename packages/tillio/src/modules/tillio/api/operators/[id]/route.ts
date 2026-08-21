@@ -57,8 +57,14 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
   })
   if (!guarded.ok) return guarded.response
 
+  // A guard that refuses to let `force` through has to be able to say so. Only the flag is
+  // read back: rewriting which operator gets detached would silently retarget the request.
+  const guardedForce = typeof guarded.modifiedPayload?.force === 'boolean'
+    ? guarded.modifiedPayload.force
+    : force
+
   try {
-    const result = await detachOperator({ credentialsService, scope }, operatorId, { force })
+    const result = await detachOperator({ credentialsService, scope }, operatorId, { force: guardedForce })
     await guarded.runAfterSuccess()
     return NextResponse.json({ ok: true, detached: result.detached, revoked: result.revoked })
   } catch (err) {

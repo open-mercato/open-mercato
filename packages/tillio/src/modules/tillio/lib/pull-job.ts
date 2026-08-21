@@ -125,13 +125,19 @@ function buildIngestInput(call: NormalizedPhoneCall, scope: IntegrationScope): R
   }
 }
 
+// The initiating user travels in the job payload, so ingest writes carry an actor instead of
+// landing in the audit trail unattributed. The id was resolved from the session that queued
+// the pull, never from request input.
 function buildCommandContext(
   container: AwilixContainer,
   scope: IntegrationScope,
+  userId: string | null,
 ): CommandRuntimeContext {
   return {
     container,
-    auth: null,
+    auth: userId
+      ? { sub: userId, tenantId: scope.tenantId, orgId: scope.organizationId, isSuperAdmin: false }
+      : null,
     organizationScope: {
       selectedId: scope.organizationId,
       filterIds: [scope.organizationId],
@@ -226,7 +232,7 @@ export async function runTillioPullJob(params: {
 
     const deps: IngestDeps = {
       commandBus: container.resolve('commandBus') as CommandBus,
-      commandContext: buildCommandContext(container, scope),
+      commandContext: buildCommandContext(container, scope, payload.scope.userId ?? null),
       scope,
     }
     const credentials = {

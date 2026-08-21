@@ -9,7 +9,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { tillioErrorCopy } from '../../../lib/error-codes'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
-import { Badge } from '@open-mercato/ui/primitives/badge'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -244,9 +244,9 @@ export default function OperatorsConfigWidget(
             <div className="flex items-center gap-2">
               <span className="font-medium">{operator.plugin}</span>
               {operator.stale ? (
-                <Badge variant="warning">{t('tillio.operators.stale', 'Stale')}</Badge>
+                <StatusBadge variant="warning" dot>{t('tillio.operators.stale', 'Stale')}</StatusBadge>
               ) : (
-                <Badge variant="success">{t('tillio.operators.active', 'Active')}</Badge>
+                <StatusBadge variant="success" dot>{t('tillio.operators.active', 'Active')}</StatusBadge>
               )}
             </div>
             <Button type="button" variant="outline" size="sm" onClick={() => void detach(operator.id)} disabled={pending}>
