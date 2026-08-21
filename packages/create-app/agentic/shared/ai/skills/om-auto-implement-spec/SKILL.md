@@ -14,6 +14,8 @@ An incomplete or `Draft` spec is not an engine plan. Stop implementation, report
 
 When a remote and tracker are available, keep the external PR workflow but seed its execution plan from the spec phases. Only the current unblocked phase may be in progress. Parallel agents may own independent slices inside that phase only, and each brief must name routed guides/skills, closest installed reference, canonical primitives, acceptance IDs, owned files, and a validation oracle. Invoke routed skills before delegation, including `om-backend-ui-design` for rendered surfaces. A phase advances only after its integration paths and exit gate pass.
 
+When the resolved spec already carries `## Implementation Status`, inherit the complete ledger and reconciliation contract from `.ai/skills/om-implement-spec/references/{planning-and-progress,resume}.md` before the PR engine schedules work. Focused typecheck runs first, the tree is reconciled against ticked/unticked/`IN FLIGHT` slices, and work resumes at the first verified-unticked boundary; remote delivery never treats an old ledger as authoritative.
+
 Do not launch one agent per future module, mark blocked phases in progress, or treat generated files/typecheck as proof that a business slice is implemented.
 
 ## 3. No-remote fallback is local and phase-safe

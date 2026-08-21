@@ -2,16 +2,29 @@ import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
 import { clearSearchTokenPresenceCache } from '../../search/availability'
+import { clearEncryptedLikeFieldsCache } from '../engine'
 
 // The token-presence answer is cached process-wide (TTL); without clearing it,
 // probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
+  clearEncryptedLikeFieldsCache()
 })
 
 // Mock modules with one entity extension
 const mockModules = [
   { id: 'auth', entityExtensions: [ { base: 'auth:user', extension: 'my_module:user_profile', join: { baseKey: 'id', extensionKey: 'user_id' } } ] },
+  {
+    id: 'example',
+    entityExtensions: [
+      // Declares `table` explicitly; the derived plural now agrees with it.
+      { base: 'customers:customer_entity', extension: 'example:example_customer_priority', join: { baseKey: 'id', extensionKey: 'customer_id' }, table: 'example_customer_priorities' },
+      // No `table`: exercises the derived-plural fallback.
+      { base: 'auth:role', extension: 'example:example_role_policy', join: { baseKey: 'id', extensionKey: 'role_id' } },
+      // `table` is not a bare identifier, so the engine must refuse it.
+      { base: 'auth:session', extension: 'example:example_session_note', join: { baseKey: 'id', extensionKey: 'session_id' }, table: 'notes"; drop table users --' },
+    ],
+  },
 ]
 
 // Register modules for the registration-based pattern
@@ -1070,5 +1083,211 @@ describe('BasicQueryEngine (Kysely)', () => {
 
       expect(countProbes(fakeDb)).toBeGreaterThan(0)
     })
+  })
+})
+
+describe('BasicQueryEngine entity-extension joins', () => {
+  function extensionJoins(fakeDb: any, baseTable: string): any[] {
+    const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === baseTable)
+    expect(baseCall).toBeTruthy()
+    return baseCall._ops.joins.filter((entry: any) => Object.keys(entry.aliasObj)[0].startsWith('ext_'))
+  }
+
+  async function joinFor(entity: string, baseTable: string): Promise<any> {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query(entity, {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      includeExtensions: true,
+    })
+    const joins = extensionJoins(fakeDb, baseTable)
+    expect(joins).toHaveLength(1)
+    return joins[0]
+  }
+
+  test('prefers a declared table over the derived plural', async () => {
+    const join = await joinFor('customers:customer_entity', 'customer_entities')
+    expect(join.aliasObj).toEqual({ ext_example_customer_priority: 'example_customer_priorities' })
+    expect(join.conditions).toEqual([
+      {
+        method: 'on',
+        args: ['ext_example_customer_priority.customer_id', '=', 'customer_entities.id'],
+      },
+    ])
+  })
+
+  test('falls back to the derived plural when no table is declared', async () => {
+    // `policy` ends in `y`, so the correct plural is `policies`. This previously asserted
+    // `policys`, pinning a separate inline `+s` pluralizer that the extension-join path used
+    // instead of the file's own `pluralizeBaseName` — the very bug that made
+    // `example_customer_priority` derive `example_customer_prioritys` and forced the
+    // `table` override into existence.
+    const join = await joinFor('auth:role', 'roles')
+    expect(join.aliasObj).toEqual({ ext_example_role_policy: 'example_role_policies' })
+    expect(join.conditions).toEqual([
+      { method: 'on', args: ['ext_example_role_policy.role_id', '=', 'roles.id'] },
+    ])
+  })
+
+  test('ignores a declared table that is not a bare identifier', async () => {
+    const join = await joinFor('auth:session', 'sessions')
+    expect(join.aliasObj).toEqual({ ext_example_session_note: 'example_session_notes' })
+  })
+})
+
+describe('BasicQueryEngine like/ilike routing by column encryption', () => {
+  // The gate is opt-in: OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS defaults to false and the
+  // legacy rewrite-everything behavior stays. These cases flip it on; the last one pins the
+  // default off.
+  beforeEach(() => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
+  })
+  afterEach(() => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  })
+
+  // The token rewrite exists because ILIKE against ciphertext cannot match. On a plaintext
+  // column SQL ILIKE is exact, and the rewrite silently changes the result set: tokenization
+  // splits on non-alphanumerics and drops tokens shorter than minTokenLength, so a
+  // document-number search like "ZK 1/2026" degrades to the tokens {202, 2026} and matches
+  // every record from that year instead of the one document.
+  const fakeDbWithTokens = () => createFakeKysely({
+    customer_entities: [],
+    search_tokens: [{ one: 1 }],
+    'information_schema.tables': [{ table_name: 'search_tokens' }],
+    'information_schema.columns': [
+      { table_name: 'customer_entities', column_name: 'tenant_id' },
+      { table_name: 'customer_entities', column_name: 'display_name' },
+    ],
+  })
+
+  test('a plaintext base column keeps exact SQL ILIKE even when tokens are available', async () => {
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%ZK 1/2026%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    expect(baseCall).toBeTruthy()
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%ZK 1/2026%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+
+  test('an encrypted base column still routes through search tokens', async () => {
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDbWithTokens() as any,
+      () => ({ getEncryptedFieldNames: async () => ['display_name'] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('no service + encryption disabled: nothing is ciphertext, ILIKE stays exact', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    try {
+      const fakeDb = fakeDbWithTokens()
+      const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+      const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+      await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        filters: { display_name: { $ilike: '%avision%' } },
+        page: { page: 1, pageSize: 10 },
+      })
+
+      expect(applySearchTokensSpy).not.toHaveBeenCalled()
+      const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+      const ilikeWhere = baseCall._ops.wheres.some(
+        (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%avision%',
+      )
+      expect(ilikeWhere).toBe(true)
+    } finally {
+      delete process.env.TENANT_DATA_ENCRYPTION
+    }
+  })
+
+  test('no service + encryption enabled: the map is unknown, the token rewrite is kept', async () => {
+    // A swallowed DI failure looks exactly like "no service". Guessing "plaintext" here would
+    // run ILIKE against ciphertext (zero rows, silently) -- so the gate stays inert instead.
+    const engine = new BasicQueryEngine({} as any, () => fakeDbWithTokens() as any)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('a camelCase encryption-map entry still routes its column through tokens', async () => {
+    // Encryption maps may declare `displayName` while the filter carries the column name
+    // `display_name` (TenantDataEncryptionService resolves both). A raw name comparison would
+    // misread that ciphertext column as plaintext and run ILIKE against ciphertext -- zero rows,
+    // silently. The gate must match across name shapes.
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDbWithTokens() as any,
+      () => ({ getEncryptedFieldNames: async () => ['displayName'] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%avision%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+  })
+
+  test('with the flag off (default) the token rewrite is kept even for plaintext columns', () => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    return engine
+      .query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        filters: { display_name: { $ilike: '%avision%' } },
+        page: { page: 1, pageSize: 10 },
+      })
+      .then(() => {
+        expect(applySearchTokensSpy).toHaveBeenCalled()
+      })
   })
 })

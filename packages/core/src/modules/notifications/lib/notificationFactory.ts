@@ -15,7 +15,8 @@ export function buildNotificationEntity(
   em: EntityManager,
   input: NotificationContentInput,
   recipientUserId: string,
-  ctx: NotificationTenantContext
+  ctx: NotificationTenantContext,
+  channels: string[] | null = null
 ): Notification {
   const actions = sanitizeNotificationActions(input.actions)
   const linkHref = assertSafeNotificationHref(input.linkHref)
@@ -44,6 +45,9 @@ export function buildNotificationEntity(
     sourceEntityId: input.sourceEntityId,
     linkHref,
     groupKey: input.groupKey,
+    data: input.data ?? null,
+    pushOptions: input.pushOptions ?? null,
+    channels,
     expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,

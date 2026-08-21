@@ -43,11 +43,13 @@ interface AgenticSetupOptions {
   tool?: string
   force?: boolean
   updateHarness?: boolean
+  experimentalHooksValidator?: boolean
 }
 
 interface AgenticConfig {
   projectName: string
   targetDir: string
+  experimentalHooksValidator: boolean
 }
 
 interface HarnessManifestFile {
@@ -120,9 +122,9 @@ function readEnabledModuleIds(modulesPath: string): { parsed: boolean; ids: stri
 // (R5 — degraded, never empty).
 function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
   const available = existsSync(modulesSubdir)
-    ? readdirSync(modulesSubdir)
-        .filter((file) => file.endsWith('.md'))
-        .map((file) => file.replace(/\.md$/, ''))
+    ? readdirSync(modulesSubdir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(join(modulesSubdir, entry.name, 'index.md')))
+        .map((entry) => entry.name)
     : []
   if (available.length === 0) return []
   const parsed = readEnabledModuleIds(join(targetDir, 'src', 'modules.ts'))
@@ -157,7 +159,7 @@ export function renderModuleGuidesBlock(
   return [
     index,
     '',
-    'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all module facts.',
+    'Load `.ai/guides/modules/<id>/index.md` only for a targeted installed module/host; never preload all module facts.',
   ].join('\n')
 }
 
@@ -216,6 +218,37 @@ function listFiles(root: string): string[] {
     else if (entry.isFile()) files.push(absolute)
   }
   return files
+}
+
+/**
+ * The Claude Code hook files a scaffold installs, read from the agentic source tree.
+ *
+ * Enumerating them by hand let `settings.json` register `gate-evidence.ts` while this
+ * generator kept copying only `entity-migration-check.ts`, so `mercato agentic:init` wrote a
+ * hook registration pointing at a file that was never created. Deriving the list from disk
+ * keeps this path and the create-app wizard in step whenever a hook is added.
+ */
+function claudeHookFiles(experimentalHooksValidator: boolean): string[] {
+  const hooksDir = join(AGENTIC_DIR, 'claude-code', 'hooks')
+  return listFiles(hooksDir)
+    .map((file) => relative(hooksDir, file).replaceAll('\\', '/'))
+    .filter((file) => experimentalHooksValidator || file !== 'gate-evidence.ts')
+}
+
+function resolveExperimentalHooksValidator(
+  explicitValue?: boolean,
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (explicitValue !== undefined) return explicitValue
+
+  const token = environment.OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR?.trim().toLowerCase()
+  if (!token) return false
+  if (['1', 'true', 'yes', 'on'].includes(token)) return true
+  if (['0', 'false', 'no', 'off'].includes(token)) return false
+
+  throw new Error(
+    'OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR must be one of: 1, true, yes, on, 0, false, no, off',
+  )
 }
 
 function copyTree(sourceRoot: string, destinationRoot: string, config: AgenticConfig): void {
@@ -439,23 +472,54 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
     ...targetPathsForTree(join(srcDir, 'scripts'), join(targetDir, 'scripts')),
   ])
   for (const file of readdirSync(GUIDES_DIR)) {
-    if (file.endsWith('.md') || file === 'module-facts.json') paths.add(join(targetDir, '.ai', 'guides', file))
+    if (
+      file.endsWith('.md')
+      || file === 'module-facts.json'
+      || file === 'module-facts.v2.json'
+      || file === 'reference-module-facts.json'
+    ) {
+      paths.add(join(targetDir, '.ai', 'guides', file))
+    }
   }
   for (const file of listFiles(join(GUIDES_DIR, 'upstream'))) {
     paths.add(join(targetDir, '.ai', 'guides', 'upstream', relative(join(GUIDES_DIR, 'upstream'), file)))
   }
-  for (const moduleId of selectedModules) paths.add(join(targetDir, '.ai', 'guides', 'modules', `${moduleId}.md`))
+  for (const moduleId of selectedModules) {
+    const sourceRoot = join(GUIDES_DIR, 'modules', moduleId)
+    const destinationRoot = join(targetDir, '.ai', 'guides', 'modules', moduleId)
+    for (const file of targetPathsForTree(sourceRoot, destinationRoot)) paths.add(file)
+  }
+  for (const file of listFiles(join(GUIDES_DIR, 'reference-modules'))) {
+    paths.add(join(targetDir, '.ai', 'guides', 'reference-modules', relative(join(GUIDES_DIR, 'reference-modules'), file)))
+  }
   if (selectedTools.includes('claude-code')) {
     paths.add(join(targetDir, 'CLAUDE.md'))
     paths.add(join(targetDir, '.claude', 'settings.json'))
-    paths.add(join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+    for (const hook of claudeHookFiles(config.experimentalHooksValidator)) {
+      paths.add(join(targetDir, '.claude', 'hooks', hook))
+    }
     paths.add(join(targetDir, '.mcp.json.example'))
   }
-  if (selectedTools.includes('codex')) paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+  if (selectedTools.includes('codex')) {
+    paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.codex', 'hooks.json'))
+      paths.add(join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+    }
+  }
   if (selectedTools.includes('cursor')) {
-    for (const file of listFiles(join(AGENTIC_DIR, 'cursor'))) {
-      const rel = relative(join(AGENTIC_DIR, 'cursor'), file)
-      paths.add(join(targetDir, '.cursor', rel))
+    for (const relativePath of [
+      'hooks.json',
+      'hooks/entity-migration-check.mjs',
+      'mcp.json.example',
+      'rules/open-mercato.mdc',
+      'rules/entity-guard.mdc',
+      'rules/generated-guard.mdc',
+    ]) {
+      paths.add(join(targetDir, '.cursor', relativePath))
+    }
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
     }
   }
   const manifestPath = join(targetDir, '.ai', 'harness', 'manifest.json')
@@ -575,6 +639,12 @@ export function applyHarnessUpdate(
     const destinationPath = resolveManifestPath(targetRoot, previousEntry.path)
     if (!destinationPath || !existsSync(destinationPath)) continue
     assertManagedPath(targetRoot, destinationPath, { leaf: 'file' })
+    const isRetiredFlatModuleFact = !previousEntry.userEditable
+      && /^\.ai\/guides\/(?:modules|reference-modules)\/[^/]+\.md$/.test(previousEntry.path)
+    if (isRetiredFlatModuleFact) {
+      rmSync(destinationPath, { force: true })
+      continue
+    }
     let unchanged = false
     try {
       unchanged = hashFile(destinationPath) === previousEntry.sha256
@@ -618,8 +688,8 @@ function generateShared(config: AgenticConfig): void {
   copyTree(join(srcDir, 'scripts'), join(targetDir, 'scripts'), config)
 
   // Routed conceptual guides are copied wholesale (framework-wide). Per-module
-  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
-  // module set; the combined module-facts.json sidecar is copied as-is.
+  // fact-sheets (.ai/guides/modules/<module>/) are filtered to the app's enabled
+  // module set; the combined v1 and corrected v2 module-facts sidecars are copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -637,14 +707,26 @@ function generateShared(config: AgenticConfig): void {
       copyFileSync(moduleFactsPath, destPath)
     }
 
+    const moduleFactsV2Path = join(GUIDES_DIR, 'module-facts.v2.json')
+    if (existsSync(moduleFactsV2Path)) {
+      const destPath = join(guidesDestDir, 'module-facts.v2.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsV2Path, destPath)
+    }
+
+    const referenceFactsPath = join(GUIDES_DIR, 'reference-module-facts.json')
+    if (existsSync(referenceFactsPath)) {
+      const destPath = join(guidesDestDir, 'reference-module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(referenceFactsPath, destPath)
+    }
 
     copyTree(join(GUIDES_DIR, 'upstream'), join(guidesDestDir, 'upstream'), config)
+    copyTree(join(GUIDES_DIR, 'reference-modules'), join(guidesDestDir, 'reference-modules'), config)
 
     const modulesSubdir = join(GUIDES_DIR, 'modules')
     for (const moduleId of selectedModules) {
-      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
-      ensureDir(destPath)
-      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
+      copyTree(join(modulesSubdir, moduleId), join(guidesDestDir, 'modules', moduleId), config)
     }
   }
 
@@ -656,8 +738,14 @@ function generateClaudeCode(config: AgenticConfig): void {
   const srcDir = join(AGENTIC_DIR, 'claude-code')
 
   writeTemplate(srcDir, 'CLAUDE.md.template', join(targetDir, 'CLAUDE.md'), config)
-  copyFile(srcDir, 'settings.json', join(targetDir, '.claude', 'settings.json'))
-  copyFile(srcDir, 'hooks/entity-migration-check.ts', join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+  copyFile(
+    srcDir,
+    config.experimentalHooksValidator ? 'settings.experimental-hooks-validator.json' : 'settings.json',
+    join(targetDir, '.claude', 'settings.json'),
+  )
+  for (const hook of claudeHookFiles(config.experimentalHooksValidator)) {
+    copyFile(srcDir, `hooks/${hook}`, join(targetDir, '.claude', 'hooks', hook))
+  }
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.mcp.json.example'))
 
   // The installer exclusively owns Claude's per-skill compatibility links.
@@ -691,6 +779,10 @@ function generateCodex(config: AgenticConfig): void {
     writeFileSync(agentsPath, agents)
   }
 
+  if (config.experimentalHooksValidator) {
+    copyFile(srcDir, 'hooks.json', join(targetDir, '.codex', 'hooks.json'))
+    copyFile(srcDir, 'hooks/gate-evidence.mjs', join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+  }
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.codex', 'mcp.json.example'))
 
   // No .codex/skills directory: Codex reads the canonical .agents/skills/,
@@ -704,8 +796,15 @@ function generateCursor(config: AgenticConfig): void {
   writeTemplate(srcDir, 'rules/open-mercato.mdc', join(targetDir, '.cursor', 'rules', 'open-mercato.mdc'), config)
   copyFile(srcDir, 'rules/entity-guard.mdc', join(targetDir, '.cursor', 'rules', 'entity-guard.mdc'))
   copyFile(srcDir, 'rules/generated-guard.mdc', join(targetDir, '.cursor', 'rules', 'generated-guard.mdc'))
-  copyFile(srcDir, 'hooks.json', join(targetDir, '.cursor', 'hooks.json'))
+  copyFile(
+    srcDir,
+    config.experimentalHooksValidator ? 'hooks.experimental-hooks-validator.json' : 'hooks.json',
+    join(targetDir, '.cursor', 'hooks.json'),
+  )
   copyFile(srcDir, 'hooks/entity-migration-check.mjs', join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
+  if (config.experimentalHooksValidator) {
+    copyFile(srcDir, 'hooks/gate-evidence.mjs', join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
+  }
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
 
   // No .cursor/skills directory: Cursor reads the canonical .agents/skills/,
@@ -815,6 +914,7 @@ export async function runAgenticSetup(
   const config: AgenticConfig = {
     projectName: basename(targetDir),
     targetDir,
+    experimentalHooksValidator: resolveExperimentalHooksValidator(options?.experimentalHooksValidator),
   }
 
   const stagingDir = mkdtempSync(join(tmpdir(), 'open-mercato-harness-'))
@@ -829,6 +929,7 @@ export async function runAgenticSetup(
     const stagingConfig: AgenticConfig = {
       projectName: config.projectName,
       targetDir: stagingDir,
+      experimentalHooksValidator: config.experimentalHooksValidator,
     }
     generateHarness(stagingConfig, selectedIds)
     const conflicts = applyHarnessUpdate(targetDir, stagingDir, {
@@ -860,6 +961,9 @@ export async function runAgenticSetup(
   }
   if (selectedIds.includes('cursor')) {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
+  }
+  if (config.experimentalHooksValidator) {
+    console.log('   ✓ Experimental gate-evidence/typecheck validator hooks')
   }
   console.log('')
   console.log('   .ai/agentic.config.json ships preconfigured (GitHub tracker, labels off);')

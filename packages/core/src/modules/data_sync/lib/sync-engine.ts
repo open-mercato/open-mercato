@@ -1,18 +1,26 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { ProgressService } from '../../progress/lib/progressService'
+import { STALE_JOB_TIMEOUT_SECONDS } from '../../progress/lib/progressService'
 import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
-import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
-import { getDataSyncAdapter } from './adapter-registry'
+import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch, RunParameterValue } from './adapter'
+import { getDataSyncAdapter, resolveProviderKey } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
 import { SyncRunOwnershipConflictError } from './sync-run-service'
+import { forEachBatch } from './batch-stream'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  captureTelemetryTrace,
+  type TelemetrySpanAttributes,
+} from '@open-mercato/shared/lib/telemetry/runtime'
+import type { SyncRun } from '../data/entities'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
+
+type RunParameters = Record<string, RunParameterValue>
 
 type SyncScope = {
   organizationId: string
@@ -29,8 +37,17 @@ type EngineDeps = {
   progressService: ProgressService
 }
 
-function resolveProviderKey(integrationId: string): string {
-  return getIntegration(integrationId)?.providerKey ?? integrationId
+/** Repeated on every batch span so a rooted batch trace identifies its run on its own. */
+function runSpanAttributes(run: SyncRun, providerKey: string, scope: SyncScope): TelemetrySpanAttributes {
+  return {
+    'data_sync.run_id': run.id,
+    'data_sync.integration_id': run.integrationId,
+    'data_sync.provider_key': providerKey,
+    'data_sync.entity_type': run.entityType,
+    'data_sync.direction': run.direction,
+    'om.tenant_id': scope.tenantId,
+    'om.organization_id': scope.organizationId,
+  }
 }
 
 function applyImportCounters(batch: ImportBatch): Pick<Required<SyncCounterDelta>, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount'> {
@@ -76,6 +93,32 @@ function applyExportCounters(batch: ExportBatch): SyncCounterDelta {
   }
 }
 
+// Adapter batches can legitimately outlast the stale-job sweep window (slow upstream
+// APIs), so the engine must heartbeat while a batch is still being produced.
+const HEARTBEAT_TICK_MS = (STALE_JOB_TIMEOUT_SECONDS * 1000) / 4
+
+// Runs `tick` on an interval only while the source iterator is pending, so heartbeats
+// stop the moment the producer dies and genuinely stale jobs still get swept. The outer
+// finally closes the adapter generator on early exits (cancellation, ownership conflict).
+async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
+  const iterator = source[Symbol.asyncIterator]()
+  try {
+    while (true) {
+      const timer = setInterval(tick, intervalMs)
+      let result: IteratorResult<T>
+      try {
+        result = await iterator.next()
+      } finally {
+        clearInterval(timer)
+      }
+      if (result.done) return
+      yield result.value
+    }
+  } finally {
+    await iterator.return?.()
+  }
+}
+
 export function createSyncEngine(deps: EngineDeps) {
   const { syncRunService, integrationCredentialsService, integrationLogService, integrationStateService, progressService } = deps
 
@@ -101,6 +144,47 @@ export function createSyncEngine(deps: EngineDeps) {
         userId: scope.userId,
       },
     )
+  }
+
+  // On redelivery the progress counter must resume where the last delivery left off the
+  // same way committedBatches does — updateProgress writes absolute counts, so starting at
+  // zero would regress the visible count. The progress job's own processedCount is the only
+  // persisted value already in the engine's unit: `batch.processedCount ?? items.length`,
+  // i.e. source records. The run's created/updated/skipped/failed counters count emitted
+  // items, which adapters may explode several-per-source-record (Akeneo yields a product
+  // plus its variants), so seeding from them would overshoot the total and pin the bar.
+  async function seedProcessedCount(progressJobId: string | null | undefined, scope: SyncScope): Promise<number> {
+    if (!progressJobId) return 0
+    const job = await progressService.getJob(progressJobId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+    })
+    return job?.processedCount ?? 0
+  }
+
+  function makeHeartbeatTick(progressJobId: string | null | undefined, scope: SyncScope): () => void {
+    const touchJobHeartbeat = progressService.touchJobHeartbeat?.bind(progressService)
+    if (!progressJobId || !touchJobHeartbeat) return () => {}
+    let inFlight = false
+    return () => {
+      if (inFlight) return
+      inFlight = true
+      touchJobHeartbeat(progressJobId, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      })
+        .catch((error) => {
+          logger.warn('Progress heartbeat failed', {
+            progressJobId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+        .finally(() => {
+          inFlight = false
+        })
+    }
   }
 
   async function refreshCoverageSnapshots(entityTypes: string[] | undefined, scope: SyncScope): Promise<void> {
@@ -418,6 +502,7 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`No import adapter registered for provider ${providerKey}`)
       }
       const operationalTelemetry = adapter.operationalTelemetry === true
+      const persistSharedCursor = adapter.persistsSharedCursor?.(run.entityType) ?? true
 
       const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
       if (!credentials) {
@@ -471,65 +556,99 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
-      let processedCount = 0
+      let processedCount = await seedProcessedCount(run.progressJobId, scope)
       let totalCount: number | null = null
       let committedBatches = activeRun.batchesCompleted ?? 0
+      // Captured while the triggering job's span is still the active one, so
+      // every rooted batch trace can link back to it.
+      const runTrace = captureTelemetryTrace()
+      const spanAttributes = runSpanAttributes(run, providerKey, scope)
 
       try {
-        for await (const batch of adapter.streamImport({
-          entityType: run.entityType,
-          cursor: run.cursor ?? undefined,
-          batchSize,
-          credentials,
-          mapping,
-          scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
-          runId: run.id,
-        })) {
-          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
-            await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
-            return
-          }
+        const streamResult = await forEachBatch(
+          withHeartbeat(
+            adapter.streamImport({
+              entityType: run.entityType,
+              cursor: run.cursor ?? undefined,
+              batchSize,
+              credentials,
+              mapping,
+              scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+              runId: run.id,
+              parameters: (run.parameters ?? {}) as RunParameters,
+            }),
+            makeHeartbeatTick(run.progressJobId, scope),
+            HEARTBEAT_TICK_MS,
+          ),
+          {
+            spanName: 'data_sync.import.batch',
+            drainSpanName: 'data_sync.import.drain',
+            attributes: spanAttributes,
+            linkTo: runTrace,
+          },
+          async (batch, span) => {
+            span.setAttributes({
+              'data_sync.batch_index': batch.batchIndex,
+              'data_sync.batch_size': batch.items.length,
+            })
 
-          const delta = applyImportCounters(batch)
-          const processedBatchCount = batch.processedCount ?? batch.items.length
-          processedCount += processedBatchCount
-          totalCount = batch.totalEstimate ?? totalCount
+            if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
+              await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+              return 'stop'
+            }
 
-          await syncRunService.commitBatchProgress(
-            run.id,
-            {
-              ...delta,
-              batchesCompleted: 1,
-            },
-            batch.cursor,
-            scope,
-            committedBatches,
-          )
-          committedBatches += 1
+            const delta = applyImportCounters(batch)
+            const processedBatchCount = batch.processedCount ?? batch.items.length
+            processedCount += processedBatchCount
+            totalCount = batch.totalEstimate ?? totalCount
 
-          await updateProgress(run.progressJobId, processedCount, totalCount, scope)
-          await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
-          await logImportItemFailures(run.id, run.integrationId, batch.items, scope)
+            span.setAttributes({
+              'data_sync.processed_count': processedBatchCount,
+              'data_sync.created_count': delta.createdCount,
+              'data_sync.updated_count': delta.updatedCount,
+              'data_sync.skipped_count': delta.skippedCount,
+              'data_sync.failed_count': delta.failedCount,
+            })
 
-          await writeOperationalLog({
-            integrationId: run.integrationId,
-            runId: run.id,
-            level: 'info',
-            message: batch.message?.trim().length
-              ? batch.message.trim()
-              : `Processed import batch ${batch.batchIndex}`,
-            scope,
-            enabled: operationalTelemetry,
-            payload: {
-              operationalStatus: 'running',
-              summary: `Processed ${processedCount}${totalCount ? ` of ${totalCount}` : ''} rows so far.`,
-              processedCount,
-              batchSize: batch.items.length,
-              processedBatchCount,
-              cursor: batch.cursor,
-            },
-          })
-        }
+            await syncRunService.commitBatchProgress(
+              run.id,
+              {
+                ...delta,
+                batchesCompleted: 1,
+              },
+              batch.cursor,
+              scope,
+              { expectedBatchesCompleted: committedBatches, persistSharedCursor },
+            )
+            committedBatches += 1
+
+            await updateProgress(run.progressJobId, processedCount, totalCount, scope)
+            await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
+            await logImportItemFailures(run.id, run.integrationId, batch.items, scope)
+
+            await writeOperationalLog({
+              integrationId: run.integrationId,
+              runId: run.id,
+              level: 'info',
+              message: batch.message?.trim().length
+                ? batch.message.trim()
+                : `Processed import batch ${batch.batchIndex}`,
+              scope,
+              enabled: operationalTelemetry,
+              payload: {
+                operationalStatus: 'running',
+                summary: `Processed ${processedCount}${totalCount ? ` of ${totalCount}` : ''} rows so far.`,
+                processedCount,
+                batchSize: batch.items.length,
+                processedBatchCount,
+                cursor: batch.cursor,
+              },
+            })
+
+            return 'continue'
+          },
+        )
+        if (streamResult === 'stopped') return
       } catch (error) {
         if (error instanceof SyncRunOwnershipConflictError) {
           logger.warn('Yielding import run to a concurrent worker that already advanced it', {
@@ -578,6 +697,7 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`No export adapter registered for provider ${providerKey}`)
       }
       const operationalTelemetry = adapter.operationalTelemetry === true
+      const persistSharedCursor = adapter.persistsSharedCursor?.(run.entityType) ?? true
 
       const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
       if (!credentials) {
@@ -631,60 +751,93 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
-      let processedCount = 0
+      let processedCount = await seedProcessedCount(run.progressJobId, scope)
       let committedBatches = activeRun.batchesCompleted ?? 0
+      // Captured while the triggering job's span is still the active one, so
+      // every rooted batch trace can link back to it.
+      const runTrace = captureTelemetryTrace()
+      const spanAttributes = runSpanAttributes(run, providerKey, scope)
 
       try {
-        for await (const batch of adapter.streamExport({
-          entityType: run.entityType,
-          cursor: run.cursor ?? undefined,
-          batchSize,
-          credentials,
-          mapping,
-          scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
-          runId: run.id,
-        })) {
-          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
-            await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
-            return
-          }
+        const streamResult = await forEachBatch(
+          withHeartbeat(
+            adapter.streamExport({
+              entityType: run.entityType,
+              cursor: run.cursor ?? undefined,
+              batchSize,
+              credentials,
+              mapping,
+              scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+              runId: run.id,
+              parameters: (run.parameters ?? {}) as RunParameters,
+            }),
+            makeHeartbeatTick(run.progressJobId, scope),
+            HEARTBEAT_TICK_MS,
+          ),
+          {
+            spanName: 'data_sync.export.batch',
+            drainSpanName: 'data_sync.export.drain',
+            attributes: spanAttributes,
+            linkTo: runTrace,
+          },
+          async (batch, span) => {
+            span.setAttributes({
+              'data_sync.batch_index': batch.batchIndex,
+              'data_sync.batch_size': batch.results.length,
+            })
 
-          const delta = applyExportCounters(batch)
-          processedCount += delta.processedCount
+            if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
+              await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+              return 'stop'
+            }
 
-          await syncRunService.commitBatchProgress(
-            run.id,
-            {
-              createdCount: 0,
-              updatedCount: delta.updatedCount,
-              skippedCount: delta.skippedCount,
-              failedCount: delta.failedCount,
-              batchesCompleted: 1,
-            },
-            batch.cursor,
-            scope,
-            committedBatches,
-          )
-          committedBatches += 1
-          await updateProgress(run.progressJobId, processedCount, null, scope)
-          await logExportItemFailures(run.id, run.integrationId, batch.results, scope)
+            const delta = applyExportCounters(batch)
+            processedCount += delta.processedCount
 
-          await writeOperationalLog({
-            integrationId: run.integrationId,
-            runId: run.id,
-            level: 'info',
-            message: `Processed export batch ${batch.batchIndex}`,
-            scope,
-            enabled: operationalTelemetry,
-            payload: {
-              operationalStatus: 'running',
-              summary: `Processed ${processedCount} export items so far.`,
-              processedCount,
-              batchSize: batch.results.length,
-              cursor: batch.cursor,
-            },
-          })
-        }
+            span.setAttributes({
+              'data_sync.processed_count': delta.processedCount,
+              'data_sync.updated_count': delta.updatedCount,
+              'data_sync.skipped_count': delta.skippedCount,
+              'data_sync.failed_count': delta.failedCount,
+            })
+
+            await syncRunService.commitBatchProgress(
+              run.id,
+              {
+                createdCount: 0,
+                updatedCount: delta.updatedCount,
+                skippedCount: delta.skippedCount,
+                failedCount: delta.failedCount,
+                batchesCompleted: 1,
+              },
+              batch.cursor,
+              scope,
+              { expectedBatchesCompleted: committedBatches, persistSharedCursor },
+            )
+            committedBatches += 1
+            await updateProgress(run.progressJobId, processedCount, null, scope)
+            await logExportItemFailures(run.id, run.integrationId, batch.results, scope)
+
+            await writeOperationalLog({
+              integrationId: run.integrationId,
+              runId: run.id,
+              level: 'info',
+              message: `Processed export batch ${batch.batchIndex}`,
+              scope,
+              enabled: operationalTelemetry,
+              payload: {
+                operationalStatus: 'running',
+                summary: `Processed ${processedCount} export items so far.`,
+                processedCount,
+                batchSize: batch.results.length,
+                cursor: batch.cursor,
+              },
+            })
+
+            return 'continue'
+          },
+        )
+        if (streamResult === 'stopped') return
       } catch (error) {
         if (error instanceof SyncRunOwnershipConflictError) {
           logger.warn('Yielding export run to a concurrent worker that already advanced it', {

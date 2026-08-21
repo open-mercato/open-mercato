@@ -20,6 +20,8 @@ import {
   type ResolvedJoin,
 } from '@open-mercato/shared/lib/query/join-utils'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
+import { isEncryptedLikeField, resolveEncryptedLikeFieldSet } from '@open-mercato/shared/lib/query/engine'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import {
   createSearchTokenAvailability,
   isSearchFilterOp,
@@ -37,6 +39,11 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 
 const logger = createLogger('query_index').child({ component: 'engine' })
+
+/** Operators `buildCfFilterExpression` compiles; anything else yields no predicate. */
+const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
+  'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte',
+])
 
 const DECRYPT_CONCURRENCY = 8
 const AUTO_REINDEX_DEBOUNCE_DEFAULT_MS = 30_000
@@ -143,13 +150,25 @@ type SearchRuntime = {
   organizationScope?: { ids: string[]; includeNull: boolean } | null
   tenantId?: string | null
   searchSources?: SearchTokenSource[]
+  /**
+   * Base-column fields whose stored value is ciphertext, so a like/ilike on them can only be
+   * answered via search tokens. A plaintext column keeps exact SQL ILIKE instead: the token
+   * rewrite is approximate -- it splits on non-alphanumerics and drops tokens shorter than
+   * minTokenLength, so a document-number search like "ZK 1/2026" degrades to the tokens
+   * {202, 2026} and matches every record from that year, and an all-short term like "ZK"
+   * produces no tokens and silently drops the predicate. `null`/absent = the encryption
+   * service could not answer (or a caller predates this field); keep the old rewrite then,
+   * because guessing "plaintext" would turn encrypted-column search into an
+   * ILIKE-on-ciphertext that matches nothing.
+   */
+  encryptedFields?: Set<string> | null
   /** Per-`query()` alias minter for `search_tokens` subqueries (see #2738). */
   mintAlias: () => string
 }
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
-  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null, options?: { ignoreRuntimeHealth?: boolean }) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
 
@@ -491,6 +510,51 @@ export class HybridQueryEngine implements QueryEngine {
         ? await this.searchAvailability().anySourceHasTokens(searchSources, opts.tenantId ?? null, orgScope)
         : false
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
+      if (
+        searchRuntime.enabled &&
+        searchConfig.useIlikeForNonEncryptedFields === true &&
+        sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
+      ) {
+        // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
+        // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
+        // `organizationId: null` is deliberate, not an omission: the service then unions in every
+        // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays
+        // on the token path -- a wider set fails safe. Passing the request's org instead would
+        // silently break encrypted-column search for orgs without their own map. That union is an
+        // UNCACHED `encryption_maps` read, one extra round-trip per searched list request.
+        try {
+          const encryptionService = this.getEncryptionService()
+          const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)
+          if (readEncryptedFieldNames) {
+            searchRuntime.encryptedFields = await resolveEncryptedLikeFieldSet(
+              () => readEncryptedFieldNames(
+                entity as EntityId,
+                opts.tenantId ?? null,
+                null,
+                { ignoreRuntimeHealth: true },
+              ),
+              String(entity),
+              opts.tenantId ?? null,
+            )
+          } else if (isTenantDataEncryptionEnabled()) {
+            // Encryption is on but the service is unreachable (a swallowed DI failure looks
+            // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
+            // rather than guessing "plaintext" and running ILIKE against ciphertext.
+            searchRuntime.encryptedFields = null
+          } else {
+            // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
+            searchRuntime.encryptedFields = new Set()
+          }
+        } catch (err) {
+          // The fallback is safe (the old rewrite-everything behavior), but taking it silently
+          // would hide that the gate has stopped working.
+          logger.warn('search: encrypted-field map unavailable; keeping the token rewrite for all columns', {
+            entity: String(entity),
+            error: err instanceof Error ? err.message : String(err),
+          })
+          searchRuntime.encryptedFields = null
+        }
+      }
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -742,9 +806,14 @@ export class HybridQueryEngine implements QueryEngine {
         return next
       }
 
+      // Custom-field leaves that belong to an OR disjunct are handled together with
+      // the base ones below; applying them here would AND them onto every disjunct.
+      const regularCfFilters = cfFilters.filter((filter) => !filter.orGroup)
+      const orGroupCfFilters = cfFilters.filter((filter) => filter.orGroup)
+
       const applyCfFilters = (q: AnyBuilder): AnyBuilder => {
         let next = q
-        for (const filter of cfFilters) {
+        for (const filter of regularCfFilters) {
           next = this.applyCfFilterAcrossSources(
             next, filter.field, filter.op, filter.value, indexSources, searchRuntime,
           )
@@ -775,28 +844,60 @@ export class HybridQueryEngine implements QueryEngine {
         return next
       }
 
+      // Also used by the optimized count path, which builds from a bare base table with
+      // no index/custom-field joins. Emitting a cf predicate there would reference an
+      // alias that query has never joined, so this stays safe only while
+      // `canOptimizeCount` is false whenever any cf filter exists (see `hasCustomFieldFilters`).
       const applyOrGroupedBaseFilters = (q: AnyBuilder): AnyBuilder => {
-        if (orGroupFilters.length === 0) return q
-        const groups = new Map<string, BaseFilter[]>()
+        if (orGroupFilters.length === 0 && orGroupCfFilters.length === 0) return q
+        // `BaseFilter` here is just the normalized-leaf shape; the `cf` bucket holds
+        // custom-field leaves, which never resolve to a base column.
+        const groups = new Map<string, { base: BaseFilter[]; cf: BaseFilter[] }>()
+        const bucketFor = (orGroup: string) => {
+          const existing = groups.get(orGroup) ?? { base: [], cf: [] }
+          groups.set(orGroup, existing)
+          return existing
+        }
         for (const filter of orGroupFilters) {
           if (!filter.orGroup) continue
-          const existing = groups.get(filter.orGroup) ?? []
-          existing.push(filter)
-          groups.set(filter.orGroup, existing)
+          bucketFor(filter.orGroup).base.push(filter)
         }
-        const groupList = Array.from(groups.values()).filter((g) => g.length > 0)
-        if (groupList.length === 0) return q
+        // Custom-field leaves belong to the same disjunct as the base ones sharing
+        // their orGroup, so a mixed `base OR cf` filter unites rather than intersects.
+        for (const filter of orGroupCfFilters) {
+          if (!filter.orGroup) continue
+          bucketFor(filter.orGroup).cf.push(filter)
+        }
+        // A cf leaf that compiles to no predicate is dropped, and a disjunct left with
+        // no leaves is dropped too — an empty AND would read as TRUE and widen the result.
+        const applicableGroups = Array.from(groups.values())
+          .map((group) => ({
+            base: group.base,
+            cf: group.cf.filter((filter) =>
+              this.cfFilterHasPredicate(filter.op, filter.value, indexSources, searchRuntime),
+            ),
+          }))
+          .filter((group) => group.base.length > 0 || group.cf.length > 0)
+        if (applicableGroups.length === 0) return q
         // Combine all groups in a single WHERE: disjuncts are OR'd together; within
         // each disjunct, fields are AND'd. Building this as separate `.where()` calls
         // would AND the disjuncts (wrong semantics).
-        return q.where((eb: any) => eb.or(
-          groupList.map((groupFilters) => {
-            const parts = groupFilters.map((filter) =>
-              this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime),
-            )
+        return q.where((eb: any) => {
+          const disjuncts = applicableGroups.map((groupFilters) => {
+            const parts = [
+              ...groupFilters.base.map((filter) =>
+                this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime),
+              ),
+              ...groupFilters.cf.map((filter) =>
+                this.buildCfFilterExpression(
+                  eb, filter.field, filter.op, filter.value, indexSources, searchRuntime,
+                ),
+              ),
+            ]
             return parts.length === 1 ? parts[0] : eb.and(parts)
-          }),
-        ))
+          })
+          return disjuncts.length === 1 ? disjuncts[0] : eb.or(disjuncts)
+        })
       }
 
       const applyAliasScopes = async (target: AnyBuilder, aliasName: string): Promise<AnyBuilder> => {
@@ -1350,37 +1451,44 @@ export class HybridQueryEngine implements QueryEngine {
     return sql<string | null>`coalesce(${sql.join(parts, sql`, `)})`
   }
 
-  private applyCfFilterAcrossSources(
-    builder: AnyBuilder,
+  /**
+   * Build a custom-field predicate as a standalone expression.
+   *
+   * Returning an expression rather than mutating a builder is what lets OR-grouped
+   * cf leaves be combined with the base-column ones inside a single `WHERE`
+   * (#5039). `null` means "no predicate" — an empty search-token set or an
+   * unsupported operator — and callers must treat that as the leaf being absent.
+   */
+  private buildCfFilterExpression(
+    eb: any,
     key: string,
     op: FilterOp,
     value: unknown,
     sources: IndexDocSource[],
     search?: SearchRuntime
-  ): AnyBuilder {
-    if (!sources.length) return builder
+  ): any | null {
+    if (!sources.length) return null
     if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
       const tokens = tokenizeText(String(value), search.config)
       const hashes = tokens.hashes
-      if (hashes.length) {
-        const applied = this.applyMultiSourceSearchExists(builder, sources, key, hashes, search)
-        this.logSearchDebug('search:cf-filter-across', {
-          entity: sources.map((src) => src.entityId),
-          field: key, tokens: tokens.tokens, hashes, applied,
-          tenantId: search.tenantId ?? null, organizationScope: search.organizationScope,
-        })
-        if (applied.builder !== builder) return applied.builder
-      } else {
+      if (!hashes.length) {
         this.logSearchDebug('search:cf-skip-empty-hashes', {
           entity: sources.map((src) => src.entityId), field: key, value,
         })
+        return null
       }
-      return builder
+      const expression = this.buildMultiSourceSearchExists(eb, sources, key, hashes, search)
+      this.logSearchDebug('search:cf-filter-across', {
+        entity: sources.map((src) => src.entityId),
+        field: key, tokens: tokens.tokens, hashes, applied: expression !== null,
+        tenantId: search.tenantId ?? null, organizationScope: search.organizationScope,
+      })
+      return expression
     }
 
     const textExpr = this.buildCfTextExprSql(key, sources)
     const jsonExpr = this.buildCfJsonExprSql(key, sources)
-    if (!textExpr || !jsonExpr) return builder
+    if (!textExpr || !jsonExpr) return null
 
     const arrContains = (val: unknown) => sql<boolean>`${jsonExpr} @> ${JSON.stringify([val])}::jsonb`
 
@@ -1389,58 +1497,98 @@ export class HybridQueryEngine implements QueryEngine {
         // An unset custom field has no array element to contain, so the
         // arrContains branch cannot match it — compare the text value only.
         return value === null
-          ? builder.where(sql<boolean>`${textExpr} is null`)
-          : builder.where((eb: any) => eb.or([
+          ? sql<boolean>`${textExpr} is null`
+          : eb.or([
               sql<boolean>`${textExpr} = ${value}`,
               arrContains(value),
-            ]))
+            ])
       case 'ne':
         return value === null
-          ? builder.where(sql<boolean>`${textExpr} is not null`)
-          : builder.where(sql<boolean>`${textExpr} <> ${value}`)
+          ? sql<boolean>`${textExpr} is not null`
+          : sql<boolean>`${textExpr} <> ${value}`
       case 'in': {
         const values = this.toArray(value)
-        return builder.where((eb: any) => eb.or(
+        return eb.or(
           values.flatMap((val) => [
             sql<boolean>`${textExpr} = ${val}`,
             arrContains(val),
           ])
-        ))
+        )
       }
       case 'nin': {
         const values = this.toArray(value)
-        return builder.where(sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`)
+        return sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`
       }
       case 'like':
-        return builder.where(sql<boolean>`${textExpr} like ${value}`)
+        return sql<boolean>`${textExpr} like ${value}`
       case 'ilike':
-        return builder.where(sql<boolean>`${textExpr} ilike ${value}`)
+        return sql<boolean>`${textExpr} ilike ${value}`
       case 'exists':
         return value
-          ? builder.where(sql<boolean>`${textExpr} is not null`)
-          : builder.where(sql<boolean>`${textExpr} is null`)
+          ? sql<boolean>`${textExpr} is not null`
+          : sql<boolean>`${textExpr} is null`
       case 'gt':
       case 'gte':
       case 'lt':
       case 'lte': {
         const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
-        return builder.where(sql<boolean>`${textExpr} ${operator} ${value}`)
+        return sql<boolean>`${textExpr} ${operator} ${value}`
       }
       default:
-        return builder
+        return null
     }
   }
 
-  /** Apply a search-token EXISTS subquery across multiple sources (OR-joined). */
-  private applyMultiSourceSearchExists(
+  /**
+   * Whether `buildCfFilterExpression` will produce a predicate for this leaf.
+   *
+   * Decidable without an ExpressionBuilder, which lets callers skip the `.where()`
+   * entirely (rather than emitting a tautology) and lets the OR-group builder drop
+   * leaves before it has to decide whether a disjunct survives.
+   */
+  private cfFilterHasPredicate(
+    op: FilterOp,
+    value: unknown,
+    sources: IndexDocSource[],
+    search?: SearchRuntime,
+  ): boolean {
+    if (!sources.length) return false
+    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+      return tokenizeText(String(value), search.config).hashes.length > 0
+    }
+    return CF_FILTER_SUPPORTED_OPS.has(op)
+  }
+
+  private applyCfFilterAcrossSources(
     builder: AnyBuilder,
+    key: string,
+    op: FilterOp,
+    value: unknown,
+    sources: IndexDocSource[],
+    search?: SearchRuntime
+  ): AnyBuilder {
+    if (!this.cfFilterHasPredicate(op, value, sources, search)) {
+      // Preserve the pre-existing behaviour of dropping a leaf we cannot compile.
+      if (sources.length && (op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+        this.logSearchDebug('search:cf-skip-empty-hashes', {
+          entity: sources.map((src) => src.entityId), field: key, value,
+        })
+      }
+      return builder
+    }
+    return builder.where((eb: any) => this.buildCfFilterExpression(eb, key, op, value, sources, search))
+  }
+
+  /** Build a search-token EXISTS predicate across multiple sources (OR-joined). */
+  private buildMultiSourceSearchExists(
+    eb: any,
     sources: IndexDocSource[],
     key: string,
     hashes: string[],
     search: SearchRuntime,
-  ): { builder: AnyBuilder; applied: boolean } {
-    if (!sources.length || !hashes.length) return { builder, applied: false }
-    const next = builder.where((eb: any) => eb.or(
+  ): any | null {
+    if (!sources.length || !hashes.length) return null
+    return eb.or(
       sources.map((source) =>
         eb.exists(this.buildSearchTokensSub(eb, {
           entity: String(source.entityId),
@@ -1451,8 +1599,7 @@ export class HybridQueryEngine implements QueryEngine {
           mintAlias: search.mintAlias,
         }))
       )
-    ))
-    return { builder: next, applied: true }
+    )
   }
 
   /** Construct a search-token EXISTS subquery using the given ExpressionBuilder. */
@@ -1655,11 +1802,13 @@ export class HybridQueryEngine implements QueryEngine {
       return this.buildIndexDocFilterExpression(eb, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime)
     }
     // For like/ilike with active search-tokens, route through hashed-token EXISTS subquery
-    // so encrypted-at-rest columns can still be searched.
+    // so encrypted-at-rest columns can still be searched. Plaintext base columns keep exact
+    // SQL ILIKE -- see SearchRuntime.encryptedFields.
     if (
       (filter.op === 'like' || filter.op === 'ilike') &&
       searchRuntime?.enabled &&
-      typeof filter.value === 'string'
+      typeof filter.value === 'string' &&
+      (searchRuntime.encryptedFields == null || isEncryptedLikeField(searchRuntime.encryptedFields, fieldName))
     ) {
       const tokens = tokenizeText(String(filter.value), searchRuntime.config)
       if (tokens.hashes.length) {
@@ -1683,10 +1832,14 @@ export class HybridQueryEngine implements QueryEngine {
           )
         }
       }
-      // Tokenizer produced no hashes (e.g. value too short). Match the regular-base-filter
-      // path's behavior of skipping the predicate (no filter), which is preferable to
-      // silently turning into a plain `ilike` against an encrypted column.
-      return sql<boolean>`true`
+      // Tokenizer produced no hashes (e.g. value too short) or no source is usable. For a
+      // column KNOWN to be encrypted, `false` is the honest answer for an OR leaf -- `true`
+      // would widen the whole disjunction to match everything, on exactly the columns ILIKE
+      // cannot serve. Every other case (gate off, custom-entity runtime, resolution failure)
+      // keeps the legacy predicate-skipping `true`.
+      return searchRuntime?.encryptedFields != null && isEncryptedLikeField(searchRuntime.encryptedFields, fieldName)
+        ? sql<boolean>`false`
+        : sql<boolean>`true`
     }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }
@@ -1765,6 +1918,9 @@ export class HybridQueryEngine implements QueryEngine {
     const hasSearchTokens = searchEnabled && hasSearchFilter(normalizedFilters)
       ? await this.searchAvailability().hasTokens(entity, opts.tenantId ?? null, orgScope)
       : false
+    // `encryptedFields` is deliberately NOT resolved here: custom-entity rows live in the
+    // `entity_indexes` doc store, whose fields the base-column encryption map does not describe,
+    // so the ILIKE gate stays inert on this path and like/ilike keeps its previous semantics.
     const searchRuntime: SearchRuntime = {
       enabled: searchEnabled && hasSearchTokens,
       config: searchConfig,
@@ -2296,7 +2452,11 @@ export class HybridQueryEngine implements QueryEngine {
     if (
       (filter.op === 'like' || filter.op === 'ilike') &&
       search?.enabled &&
-      typeof filter.value === 'string'
+      typeof filter.value === 'string' &&
+      // Plaintext base columns keep exact SQL ILIKE -- see SearchRuntime.encryptedFields.
+      // Membership runs across name-shape candidates: maps may declare `displayName` while the
+      // filter carries the column name `display_name`.
+      (search.encryptedFields == null || isEncryptedLikeField(search.encryptedFields, search.field))
     ) {
       const tokens = tokenizeText(String(filter.value), search.config)
       const hashes = tokens.hashes
@@ -2325,10 +2485,23 @@ export class HybridQueryEngine implements QueryEngine {
           })
           return q
         }
+        // Hashes exist but no usable search source: same reasoning as the no-hash branch below --
+        // a KNOWN-encrypted column must fail closed rather than drop the predicate (which would
+        // return the full list on exactly the columns ILIKE cannot serve).
+        if (search.encryptedFields != null && isEncryptedLikeField(search.encryptedFields, search.field)) {
+          return q.where(sql<boolean>`false`)
+        }
       } else {
         this.logSearchDebug('search:skip-empty-hashes', {
           entity: search.entity, field: search.field, value: filter.value,
         })
+        // A column KNOWN to be encrypted has no way to match the term except the token index:
+        // dropping the predicate would return every row for a term merely too short to tokenize.
+        // Every other case (gate off, custom-entity runtime, resolution failure) keeps the
+        // legacy behavior of skipping the predicate.
+        if (search.encryptedFields != null && isEncryptedLikeField(search.encryptedFields, search.field)) {
+          return q.where(sql<boolean>`false`)
+        }
       }
       return q
     }

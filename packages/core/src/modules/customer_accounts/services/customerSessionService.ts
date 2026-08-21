@@ -106,6 +106,26 @@ export class CustomerSessionService {
     return session
   }
 
+  async findActiveSessionForClaims(input: {
+    sessionId: string
+    userId: string
+    tenantId: string
+    organizationId: string
+  }): Promise<CustomerUserSession | null> {
+    const session = await this.em.findOne(CustomerUserSession, {
+      id: input.sessionId,
+      user: {
+        id: input.userId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      },
+      deletedAt: null,
+    })
+    if (!session) return null
+    if (session.expiresAt.getTime() < Date.now()) return null
+    return session
+  }
+
   async revokeSession(sessionId: string): Promise<void> {
     await this.em.nativeUpdate(CustomerUserSession, { id: sessionId }, { deletedAt: new Date() })
   }
