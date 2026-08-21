@@ -29,7 +29,7 @@ const VIOLATION_LIMIT = 300
 // the same value, so the two cannot be stated separately; the help text reads it rather than
 // repeating it (#5078).
 export const DEFAULT_CASE_TIMEOUT_MS = 600_000
-const ROUTING_STEP_SLACK_MS = 60_000
+export const ROUTING_STEP_SLACK_MS = 60_000
 const COPY_EXCLUDED_PREFIXES = [
   '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',

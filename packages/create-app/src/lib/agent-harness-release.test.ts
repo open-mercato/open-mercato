@@ -11,6 +11,7 @@ const releaseScript = fileURLToPath(new URL('../../agentic/shared/scripts/run-ag
 const releaseSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/release-result.schema.json', import.meta.url))
 const targetValidationSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/target-validation-result.schema.json', import.meta.url))
 const executionSandboxScript = fileURLToPath(new URL('../../agentic/shared/scripts/execution-sandbox.mjs', import.meta.url))
+const releaseDoc = fileURLToPath(new URL('../../agentic/shared/ai/harness/RELEASE.md', import.meta.url))
 const monorepoNodeModules = fs.realpathSync(fileURLToPath(new URL('../../../../node_modules', import.meta.url)))
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
@@ -23,6 +24,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
     caseTimeout: number
   }) => { args: string[]; timeout: number }
   DEFAULT_CASE_TIMEOUT_MS: number
+  ROUTING_STEP_SLACK_MS: number
   aggregateQualityMetrics: (results: any[]) => any
   sanitizeReportText: (value: string, roots?: string[]) => string
   createMinimalValidationEnvironment: (tempRoot: string, pathValue?: string) => { env: NodeJS.ProcessEnv; toolReadRoots: string[] }
@@ -59,6 +61,11 @@ const isolatedLoopbackAvailable = (() => {
   } catch { return false }
 })()
 
+// This deliberately models a *lowered* operator budget rather than the shipped one. `cases.schema.json`
+// caps `timeoutMs` at exactly DEFAULT_CASE_TIMEOUT_MS, so at the shipped default a declared ceiling can
+// never exceed the fallback and the raise half of the property is unreachable; only an operator who
+// lowered --case-timeout can observe it. The 120000 ms fallback below is that lowered budget, not the
+// default the gate ships.
 test('case-local writable timeout raises but never lowers the operator timeout floor', () => {
   const cases = [{ id: 'OMH-184' }, { id: 'OMH-185', timeoutMs: 600_000 }]
   assert.equal(release.effectiveCaseTimeout(cases, 'OMH-184', 120_000), 120_000)
@@ -74,6 +81,13 @@ test('the release gate owns --case-timeout and rejects the evaluator flag --time
   assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
   assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor[^\\n]*\\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}\\)`))
   assert.equal(release.DEFAULT_CASE_TIMEOUT_MS, 600_000)
+  // The help line derives from the constant, but RELEASE.md restates it as prose an operator reads
+  // before ever running --help. Left unpinned it is the one copy that can silently keep the old
+  // number after the constant moves, which is the drift class #5068 was opened to correct (#5078).
+  assert.match(
+    fs.readFileSync(releaseDoc, 'utf8'),
+    new RegExp(`\`--case-timeout\` \\(default ${release.DEFAULT_CASE_TIMEOUT_MS} ms\\)`),
+  )
   const rejected = spawnSync(process.execPath, [releaseScript, '--timeout', '600000'], { encoding: 'utf8' })
   assert.equal(rejected.status, 2, `${rejected.stdout}\n${rejected.stderr}`)
   assert.match(rejected.stderr, /unknown argument: --timeout/)
@@ -109,6 +123,13 @@ test('the routing step passes the operator case timeout through and budgets its 
   })
   assert.ok(!portability.args.includes('--all'), portability.args.join(' '))
   assert.deepEqual(portability.args.slice(-2), ['--timeout', '600000'])
+  assert.equal(portability.timeout, 60_000 + 600_000 + 600_000)
+
+  // The slack is a second constant this budget is built from, so it gets the same treatment the
+  // default does: exported and pinned to its literal here, while the budget assertions above stay
+  // on hardcoded numbers. Deriving those from release.ROUTING_STEP_SLACK_MS would make them
+  // recompute the value they are checking and assert strictly less than they do now.
+  assert.equal(release.ROUTING_STEP_SLACK_MS, 60_000)
 })
 
 // The browser lane needs a launchable Chromium headless shell, which depends on host

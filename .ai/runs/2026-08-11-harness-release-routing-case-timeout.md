@@ -53,6 +53,11 @@ deviation is recorded explicitly in the PR body and in `RELEASE.md` rather than 
 Every one of those numbers exceeds or approaches the 120000 ms release default, which is the defect this
 closes.
 
+The deviation is deferred rather than impossible — any host that can drive a release at all is Linux with
+trusted Bubblewrap, so the measurement is reachable the first time someone runs the gate for real. #5433
+carries #5078's acceptance criterion 1 forward verbatim so that closing #5078 does not lose it, and it is
+named in the PR body and in the `RELEASE.md` deviation sentence alongside #5078 itself.
+
 ## Scope
 
 - Raise the release `--case-timeout` default and its `--help` text.
@@ -150,3 +155,25 @@ neither was stated. The minor, the deterministic step budgeting its process from
 (`run-agent-harness-release.mjs:1598`), predates this change and needs its own measured value, so it was
 filed as #5184 instead of guessed at here. The verdict was submitted as a comment review because GitHub does
 not permit self-approval; the PR keeps the `review` pipeline label until a maintainer approves it.
+
+An independent review by @adeptofvoltron then requested changes on one Medium finding, which was tracker
+hygiene rather than implementation: `Closes #5078` would retire an issue whose acceptance criterion 1 is
+deliberately unmet for the second consecutive PR, with nothing left in the tracker asking anyone to confirm
+600000 ms against the real release path. That is now fixed the same way the earlier deferred minor became
+#5184 — **#5433** carries acceptance criterion 1 forward verbatim and is named in the PR body, in the
+deviation section above, and in the `RELEASE.md` sentence that records the deviation, so `Closes #5078` can
+stand without losing the measurement.
+
+Four nits came with that review. Three are fixed here. `RELEASE.md`'s stated default is no longer unpinned
+prose: the `#5078` test now reads the shipped `RELEASE.md` and asserts that the number it states is
+`DEFAULT_CASE_TIMEOUT_MS`, closing the same drift class #5068 was opened to correct. `ROUTING_STEP_SLACK_MS`
+is now exported and pinned to its literal by a test, which gives it exactly the treatment
+`DEFAULT_CASE_TIMEOUT_MS` already had — the reviewer's counter-argument, that a test recomputing a value from
+the constant it checks asserts less, is respected by keeping the budget assertions on hardcoded numbers and
+pinning the constant separately rather than deriving one from the other. The `effectiveCaseTimeout` test's
+comment now says outright that it models a lowered operator budget, since the schema cap means the
+raise-never-lower property is unreachable at the shipped default. The reviewer's test-coverage note is taken
+too: the portability lane's process budget is now asserted, not just its argv tail. The fourth nit — that
+`RELEASE.md`'s process-budget sentence is exact only at the shipped default — is fixed in the prose itself,
+which now states that declared writable ceilings keep their own slots under a lowered budget, so the step's
+budget drops less than proportionally.
