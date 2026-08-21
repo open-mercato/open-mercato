@@ -1,9 +1,10 @@
-import { asValue } from 'awilix'
+import { asClass, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
+import { CustomerPeoplePrivacyHandler } from './privacy'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
 // The CRUD factory derives resourceKind via singularize-the-second-segment of
@@ -69,6 +70,7 @@ export function register(container: AppContainer) {
     CustomerEntity: asValue(CustomerEntity),
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
+    customerPeoplePrivacyHandler: asClass(CustomerPeoplePrivacyHandler).scoped(),
   })
   // `crudMutationGuardService` is registered platform-wide in the shared
   // DI bootstrap (`packages/shared/src/lib/di/container.ts`). It already

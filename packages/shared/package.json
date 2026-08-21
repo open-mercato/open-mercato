@@ -20,6 +20,10 @@
       "types": "./src/lib/commands/index.ts",
       "default": "./dist/lib/commands/index.js"
     },
+    "./lib/privacy": {
+      "types": "./src/lib/privacy/index.ts",
+      "default": "./dist/lib/privacy/index.js"
+    },
     "./lib/hotkeys": {
       "types": "./src/lib/hotkeys/index.ts",
       "default": "./dist/lib/hotkeys/index.js"

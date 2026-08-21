@@ -5,6 +5,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { AuthUsersPrivacyHandler } from './privacy'
 import {
   createRbacFallbackCache,
   isRbacDefaultCacheEnabled,
@@ -38,7 +39,10 @@ function resolveOptionalOrganizationHierarchyService(
 
 export function register(container: AppContainer) {
   // Register or override core auth service
-  container.register({ authService: asClass(AuthService).scoped() })
+  container.register({
+    authService: asClass(AuthService).scoped(),
+    authUsersPrivacyHandler: asClass(AuthUsersPrivacyHandler).scoped(),
+  })
   container.register({
     authPrincipalService: asFunction(function authPrincipalServiceFactory(em: EntityManager) {
       return new DefaultAuthPrincipalService(

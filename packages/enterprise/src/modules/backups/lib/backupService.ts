@@ -15,6 +15,7 @@ import {
   type RestoreOperationResult,
 } from './contracts'
 import { writeAuditReceipt } from './auditReceipts'
+import { ErasureManifestService, resolveErasureManifestDirectory } from './erasureManifest'
 
 const ARCHIVE_EXTENSION = '.ombak'
 const MANIFEST_EXTENSION = '.manifest.json'
@@ -254,11 +255,14 @@ export class BackupService {
         targetDatabaseFingerprint: target?.fingerprint ?? null,
         dryRun: input.dryRun,
       })
+      const pendingErasureActions = await this.resolveErasureManifestService()
+        .listAfter(new Date(manifest.completedAt))
       return {
         operationId,
         manifest,
         dryRun: input.dryRun,
         targetDatabaseFingerprint: target?.fingerprint ?? null,
+        pendingErasureActions,
       }
     } catch (error) {
       await this.writeFailureReceipt({
@@ -274,6 +278,12 @@ export class BackupService {
       })
       throw normalizeError(error)
     }
+  }
+
+  private resolveErasureManifestService() {
+    return this.options.erasureManifestService ?? new ErasureManifestService(
+      resolveErasureManifestDirectory(this.options.backupDirectory, this.environment),
+    )
   }
 
   private resolveRestoreTarget(confirmDatabase?: string): DatabaseConnection {
@@ -621,6 +631,9 @@ export function createBackupServiceFromEnvironment(input: {
     auditHmacKey,
     actor: input.actor,
     applicationVersion: ENTERPRISE_PACKAGE_VERSION,
+    erasureManifestService: new ErasureManifestService(
+      resolveErasureManifestDirectory(backupDirectory, environment),
+    ),
     environment,
   })
 }

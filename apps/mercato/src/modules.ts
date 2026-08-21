@@ -189,6 +189,7 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
+const enterpriseDataErasureEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_DATA_ERASURE, false)
 
 if (enterpriseModulesEnabled) {
   enabledModules.push(
@@ -204,4 +205,8 @@ if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
 
 if (enterpriseModulesEnabled && enterpriseSecurityEnabled) {
   enabledModules.push({ id: 'security', from: '@open-mercato/enterprise' })
+}
+
+if (enterpriseModulesEnabled && enterpriseDataErasureEnabled) {
+  enabledModules.push({ id: 'data_erasure', from: '@open-mercato/enterprise' })
 }

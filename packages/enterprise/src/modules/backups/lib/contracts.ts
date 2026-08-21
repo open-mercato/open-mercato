@@ -72,6 +72,22 @@ export type RestoreOperationResult = {
   manifest: BackupManifest
   dryRun: boolean
   targetDatabaseFingerprint: string | null
+  pendingErasureActions: ErasureManifestEntry[]
+}
+
+export type ErasureManifestEntry = {
+  version: 1
+  requestId: string
+  tenantId: string
+  organizationId: string
+  subjectKind: string
+  subjectId: string
+  executedAt: string
+}
+
+export type ErasureManifestServiceContract = {
+  append: (input: Omit<ErasureManifestEntry, 'version' | 'executedAt'> & { executedAt: Date }) => Promise<void>
+  listAfter: (timestamp: Date) => Promise<ErasureManifestEntry[]>
 }
 
 export type BackupServiceOptions = {
@@ -83,6 +99,7 @@ export type BackupServiceOptions = {
   auditHmacKey: Buffer
   actor: string
   applicationVersion: string
+  erasureManifestService?: ErasureManifestServiceContract
   environment?: NodeJS.ProcessEnv
   tools?: Partial<{
     pgDump: string

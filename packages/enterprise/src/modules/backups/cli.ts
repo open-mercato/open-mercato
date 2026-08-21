@@ -76,6 +76,12 @@ function printHelp(): void {
   console.log('Secrets and database URLs are read only from environment variables.')
 }
 
+function reportPendingErasures(count: number): void {
+  if (count === 0) return
+  console.error(`[backups] ${count} privacy erasure action(s) must be reapplied after restore.`)
+  process.exitCode = 2
+}
+
 async function runCommand(input: () => Promise<void>): Promise<void> {
   try {
     await input()
@@ -153,10 +159,15 @@ const verifyBackup: ModuleCli = {
       const result = await service.verify(reference)
       if (hasFlag(args, 'json')) {
         console.log(JSON.stringify(result, null, 2))
+        reportPendingErasures(result.pendingErasureActions.length)
         return
       }
       console.log(`[backups] Verification completed: ${result.manifest.operationId}`)
       console.log(`[backups] SHA-256: ${result.manifest.archive.checksumSha256}`)
+      for (const entry of result.pendingErasureActions) {
+        console.log(`[backups] Reapply erasure ${entry.requestId} for ${entry.subjectKind}:${entry.subjectId}`)
+      }
+      reportPendingErasures(result.pendingErasureActions.length)
     })
   },
 }
@@ -183,11 +194,16 @@ const restoreBackup: ModuleCli = {
       })
       if (hasFlag(args, 'json')) {
         console.log(JSON.stringify(result, null, 2))
+        reportPendingErasures(result.pendingErasureActions.length)
         return
       }
       const action = result.dryRun ? 'Restore dry-run completed' : 'Restore completed'
       console.log(`[backups] ${action}: ${result.manifest.operationId}`)
       console.log(`[backups] Operation receipt: ${result.operationId}`)
+      for (const entry of result.pendingErasureActions) {
+        console.log(`[backups] Reapply erasure ${entry.requestId} for ${entry.subjectKind}:${entry.subjectId}`)
+      }
+      reportPendingErasures(result.pendingErasureActions.length)
     })
   },
 }
