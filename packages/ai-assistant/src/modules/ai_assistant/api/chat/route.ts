@@ -18,6 +18,7 @@ import {
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { checkAiChatRateLimit } from '../../lib/rate-limit'
 import { getUserRoleIds } from '../../lib/user-role-ids'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
 
 const logger = createLogger('ai_assistant')
 
@@ -157,6 +158,13 @@ export async function POST(req: NextRequest) {
 
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if (isHardenedAiRuntimeProfile()) {
+    return NextResponse.json(
+      { error: 'Legacy Code Mode is disabled by the active AI runtime security profile.' },
+      { status: 503 },
+    )
   }
 
   try {

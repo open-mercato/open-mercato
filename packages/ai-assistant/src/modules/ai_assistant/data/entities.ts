@@ -97,8 +97,8 @@ export class AiAgentPromptOverride {
  * rows and transitions them to `expired`. The confirm route (Step 5.8)
  * walks `pending → confirmed → executing → (failed | terminal success)`.
  * Reads always flow through `findOneWithDecryption` /
- * `findWithDecryption`, even though no column is GDPR-flagged today, so
- * future encrypted columns (e.g. `normalizedInput`) are handled.
+ * `findWithDecryption`; proposal inputs, diffs and execution results are
+ * encrypted at rest through this module's default encryption map.
  */
 @Entity({ tableName: 'ai_pending_actions' })
 @Index({
