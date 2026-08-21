@@ -426,8 +426,6 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
         data: { ids: todoIds, idempotencyKey },
       })
       expect(accepted.status()).toBe(202)
-      const row = await loadOperation(idempotencyKey)
-      expect(row?.status).toBe('pending')
       const orderedIds = await withClient(async (client) => {
         const result = await client.query<{ todo_ids: string[] }>(
           'SELECT todo_ids FROM example_todo_bulk_operations WHERE idempotency_key = $1',

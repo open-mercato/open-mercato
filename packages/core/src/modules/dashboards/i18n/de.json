@@ -101,6 +101,7 @@
   "dashboards.analytics.widgets.topProducts.empty": "Keine Produktverkaufsdaten für diesen Zeitraum",
   "dashboards.analytics.widgets.topProducts.error": "Produktdaten konnten nicht geladen werden",
   "dashboards.analytics.widgets.topProducts.title": "Top-Produkte nach Umsatz",
+  "dashboards.errors.forbidden_scope": "Angeforderter Bereich ist nicht zugänglich",
   "dashboards.errors.organization_required": "Organisationskontext ist erforderlich",
   "dashboards.errors.tenant_required": "Mandantenkontext ist erforderlich",
   "dashboards.errors.unauthorized": "Nicht autorisiert",

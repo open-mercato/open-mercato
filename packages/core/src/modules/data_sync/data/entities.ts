@@ -4,7 +4,7 @@ import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legac
 @Entity({ tableName: 'sync_runs' })
 @Index({ properties: ['integrationId', 'entityType', 'status', 'organizationId', 'tenantId'] })
 export class SyncRun {
-  [OptionalProps]?: 'status' | 'cursor' | 'initialCursor' | 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount' | 'batchesCompleted' | 'lastError' | 'progressJobId' | 'jobId' | 'triggeredBy' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'cursor' | 'initialCursor' | 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount' | 'batchesCompleted' | 'lastError' | 'progressJobId' | 'jobId' | 'triggeredBy' | 'parameters' | 'createdAt' | 'updatedAt' | 'deletedAt'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -52,6 +52,9 @@ export class SyncRun {
 
   @Property({ name: 'triggered_by', type: 'text', nullable: true })
   triggeredBy?: string | null
+
+  @Property({ name: 'parameters', type: 'json', nullable: true })
+  parameters?: Record<string, unknown> | null
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string

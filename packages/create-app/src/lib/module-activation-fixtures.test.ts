@@ -8,9 +8,11 @@ import { fileURLToPath } from 'node:url'
 import {
   DESIGN_SYSTEM_ACTIVATION_ENTRY,
   EXAMPLE_ACTIVATION_ENTRY,
+  EXAMPLE_INTEGRATION_ACTIVATION_ENTRY,
   assertDesignSystemActivation,
   assertExampleActivation,
   assertModulesUnregistered,
+  enableModuleEntry,
   runActivationFixture,
   type ModuleActivationEntry,
 } from '../../../../scripts/lib/module-activation-fixtures.ts'
@@ -159,4 +161,21 @@ test('enabling the example module in a generated app registers the Todo surface 
 
 test('enabling the design_system module in a generated app registers the gallery only', async () => {
   await runFixture(DESIGN_SYSTEM_ACTIVATION_ENTRY, assertDesignSystemActivation)
+})
+
+test('standalone integration activation preserves the app-level example override contracts', () => {
+  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'standalone-integration-entry-'))
+  const modulesPath = path.join(targetRoot, 'modules.ts')
+  fs.writeFileSync(modulesPath, 'const enabledModules: ModuleEntry[] = [\n]\n')
+
+  try {
+    enableModuleEntry(modulesPath, EXAMPLE_INTEGRATION_ACTIVATION_ENTRY)
+    const source = fs.readFileSync(modulesPath, 'utf8')
+    assert.match(source, /features: \{ 'example\.manage': null \}/)
+    assert.match(source, /groupOrder: \['example\.nav\.group'\]/)
+    assert.match(source, /'GET \/api\/example\/override-probe'/)
+    assert.match(source, /source: 'modules\.ts override'/)
+  } finally {
+    fs.rmSync(targetRoot, { recursive: true, force: true })
+  }
 })

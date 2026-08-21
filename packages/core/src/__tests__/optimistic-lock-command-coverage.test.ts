@@ -63,6 +63,10 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — draft update/send (PATCH) + delete (DELETE) of messages.message enforce the synchronous OSS updated_at floor in the hand-written route (no makeCrudRoute decorator); the 409 surfaces on the shared conflict banner (#3260). Enterprise record_locks migration deferred.',
   'packages/core/src/modules/messages/commands/actions.ts':
     'OSS-only — message action execute (messages.message) enforces the synchronous OSS updated_at floor before the terminal-action claim; the action also has its own actionTaken idempotency guard. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/devices/api/deviceOps.ts':
+    'OSS-only — user-device rename/deactivate mutates a per-owner device row (devices.user_device), not a shared collaborative-edit surface; the OSS floor covers the same-user two-tab race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/notifications/api/types/route.ts':
+    'OSS-only — per-tenant notification-type override (notifications.settings) is single-admin tenant config edited from the Notification Delivery settings table, not a collaborative merge-dialog target; the OSS floor 409s the concurrent admin two-tab race (the PATCH replaces the whole channels array). Enterprise record_locks migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.

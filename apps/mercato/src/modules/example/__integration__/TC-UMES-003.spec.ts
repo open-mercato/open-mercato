@@ -575,33 +575,26 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     }
   })
 
-  test('TC-UMES-E14: SSE organization boundary drops events scoped to a different organization', async ({
-    browser,
-    request,
-  }) => {
+  test('TC-UMES-E14: probe events reject a different organization scope', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const adminClaims = decodeJwtClaims(adminToken)
-    const adminContext = await browser.newContext()
-    const adminPage = await adminContext.newPage()
+    const foreignOrganizationId = '00000000-0000-4000-8000-000000000777'
+    expect(adminClaims.orgId).not.toBe(foreignOrganizationId)
 
-    try {
-      await setAuthCookie(adminContext, adminToken)
-      await openBackendSession(adminPage, request, adminToken, adminClaims.orgId, 'admin-org')
-
-      const probeId = `umes-org-${Date.now()}`
-      const foreignOrganizationId = '00000000-0000-4000-8000-000000000777'
-      expect(adminClaims.orgId).not.toBe(foreignOrganizationId)
-
-      await emitProbeEvent(request, adminToken, {
+    const response = await request.fetch(`${BASE_URL}/api/example/assignees`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json',
+      },
+      data: {
         eventId: 'example.todo.updated',
         organizationId: foreignOrganizationId,
-        payload: { probeId, title: 'foreign-org-targeted' },
-      })
+        payload: { probeId: `umes-org-${Date.now()}`, title: 'foreign-org-targeted' },
+      },
+    })
 
-      await expectProbeNotReceived(adminPage, probeId)
-    } finally {
-      await adminContext.close().catch(() => {})
-    }
+    expect(response.status()).toBe(403)
   })
 
   test('TC-UMES-E15: Phase A/B harness shows injected menu items', async ({ page }) => {

@@ -17,6 +17,7 @@ import { UniqueConstraintViolationException, LockMode } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { E } from '#generated/entities.ids.generated'
 import { z } from 'zod'
 import {
@@ -34,6 +35,7 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
@@ -41,6 +43,12 @@ import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  assertActorCanAssignUserDestination,
+  resolveUserDestinationRoles,
+  throwUserDestinationOrganizationNotFound,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 
@@ -548,6 +556,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       : null
 
     let tenantId: string | null | undefined
+    let destinationChanged = false
     if (parsed.organizationId !== undefined) {
       const organization = await findOneWithDecryption(
         em,
@@ -556,8 +565,52 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         { populate: ['tenant'] },
         { tenantId: null, organizationId: parsed.organizationId ?? null },
       )
-      if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+      if (!organization) return throwUserDestinationOrganizationNotFound(400)
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+      if (!tenantId) return throwUserDestinationOrganizationNotFound(400)
+      const currentUser = await findOneWithDecryption(
+        em,
+        User,
+        { id: parsed.id, deletedAt: null },
+        {},
+        { tenantId: null, organizationId: null },
+      )
+      if (!currentUser) throw new CrudHttpError(404, { error: 'User not found' })
+      const currentOrganizationId = currentUser.organizationId ? String(currentUser.organizationId) : null
+      const currentTenantId = currentUser.tenantId ? String(currentUser.tenantId) : null
+      destinationChanged = currentOrganizationId !== parsed.organizationId || currentTenantId !== tenantId
+      if (destinationChanged) {
+        const rbacService = ctx.container.resolve('rbacService') as RbacService
+        const destinationRoles = await resolveUserDestinationRoles({
+          em,
+          targetUserId: parsed.id,
+          destinationTenantId: tenantId,
+          roleTokens: parsed.roles,
+        })
+        const actorIsSuperAdmin = ctx.systemActor === true || ctx.auth?.isSuperAdmin === true
+        const organizationScope = ctx.organizationScope?.tenantId === tenantId
+          ? ctx.organizationScope
+          : !actorIsSuperAdmin && ctx.auth?.sub
+            ? await resolveOrganizationScope({
+                em,
+                rbac: rbacService,
+                auth: ctx.auth,
+                tenantId,
+              })
+            : null
+        await assertActorCanAssignUserDestination({
+          em,
+          rbacService,
+          actorUserId: ctx.auth?.sub,
+          actorIsSuperAdmin,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.auth?.orgId ?? null,
+          allowedOrganizationIds: organizationScope?.allowedIds,
+          destinationTenantId: tenantId,
+          destinationOrganizationId: parsed.organizationId,
+          roles: destinationRoles,
+        })
+      }
     }
 
     const userTenantId = existing.tenantId ? String(existing.tenantId) : null
@@ -655,7 +708,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           values: custom,
         })
       }
-    ], { transaction: true })
+    ], { transaction: true, label: destinationChanged ? 'auth.users.update.destination' : 'auth.users.update' })
 
     const identifiers = {
       id: String(user.id),
@@ -671,6 +724,27 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       events: userCrudEvents,
       indexer: userCrudIndexer,
     })
+
+    if (hashed) {
+      const actorId = ctx.auth?.sub ? String(ctx.auth.sub) : null
+      // `system` covers a command invocation with no auth context and one running under
+      // `ctx.systemActor`. Without it those writes would be indistinguishable from an
+      // administrator setting someone else's password, which is exactly the case security
+      // alerting escalates on. Password writes that never reach this command — `mercato
+      // auth set-password`, tenant provisioning — set `passwordHash` directly and emit
+      // nothing, so a subscriber cannot treat this event as covering every credential change.
+      const changedBy = ctx.systemActor === true || !actorId
+        ? 'system'
+        : actorId === identifiers.id ? 'self' : 'admin'
+      void emitAuthEvent('auth.password.changed', {
+        id: identifiers.id,
+        tenantId: identifiers.tenantId,
+        organizationId: identifiers.organizationId,
+        changedBy,
+        changedById: actorId,
+        at: new Date().toISOString(),
+      }, { persistent: true }).catch(() => undefined)
+    }
 
     if (Array.isArray(parsed.roles) && rolesBefore) {
       const rolesAfter = await loadUserRoleNames(em, String(user.id))

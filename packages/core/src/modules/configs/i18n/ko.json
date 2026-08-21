@@ -193,5 +193,9 @@
   "configs.upgrades.attachmentsOrgReconcile.cta": "애착 조직을 조정하세요",
   "configs.upgrades.attachmentsOrgReconcile.loading": "애착단체 화해…",
   "configs.upgrades.attachmentsOrgReconcile.message": "버전 {{version}}는 잘못된 조직에 저장된 첨부 파일을 수정합니다. 조정을 실행하여 기존 첨부 파일을 해당 첨부 파일이 속한 레코드의 조직으로 이동합니다.",
-  "configs.upgrades.attachmentsOrgReconcile.success": "첨부 조직이 조정되었습니다."
+  "configs.upgrades.attachmentsOrgReconcile.success": "첨부 조직이 조정되었습니다.",
+  "configs.upgrades.devicesPushTokenEncryption.cta": "기기 푸시 토큰 암호화",
+  "configs.upgrades.devicesPushTokenEncryption.loading": "푸시 토큰 암호화 맵을 생성하는 중…",
+  "configs.upgrades.devicesPushTokenEncryption.message": "{{version}} 버전에서 모바일 푸시가 추가되며 기기 푸시 토큰이 저장 시 암호화됩니다. 기존 테넌트에는 새 기기 엔티티에 대한 암호화 맵이 없어, 업그레이드 이후 등록되는 토큰이 암호화되지 않은 상태로 저장됩니다. 이 작업을 실행해 맵을 생성하면 푸시 토큰이 암호화됩니다.",
+  "configs.upgrades.devicesPushTokenEncryption.success": "푸시 토큰 암호화 맵이 생성되었습니다."
 }
