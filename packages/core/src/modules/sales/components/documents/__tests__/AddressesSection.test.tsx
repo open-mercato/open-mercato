@@ -353,7 +353,7 @@ describe('SalesDocumentAddressesSection', () => {
     })
   })
 
-  it('renders the contact details an address snapshot carries', async () => {
+  it('hands the editor the tax id and phone the snapshot carries', async () => {
     render(
       <SalesDocumentAddressesSection
         documentId="order-1"
@@ -378,7 +378,7 @@ describe('SalesDocumentAddressesSection', () => {
     expect(screen.queryByText(/eu_vat/)).toBeNull()
   })
 
-  it('renders nothing extra for a snapshot with no contact details', async () => {
+  it('hands the editor empty fields when the snapshot carries neither', async () => {
     render(
       <SalesDocumentAddressesSection
         documentId="order-1"
@@ -465,7 +465,7 @@ describe('SalesDocumentAddressesSection', () => {
     expect(screen.getByTestId('draft-taxId').textContent).toBe('PL1234567890')
   })
 
-  it('hides the contact block once a saved address is selected, so it cannot show stale details', async () => {
+  it('shows no snapshot tax id once a saved address is selected, so it cannot show stale details', async () => {
     // The block renders the FROZEN snapshot. With a saved address chosen the tile shows that address
     // while the snapshot still describes the previous one, so the pairing would be a lie until save.
     render(
