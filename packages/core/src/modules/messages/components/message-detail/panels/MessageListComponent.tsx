@@ -4,8 +4,8 @@ import type { MessageListItemProps } from '@open-mercato/shared/modules/messages
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
-function formatSentTime(value: Date | null): string {
-  if (!value || Number.isNaN(value.getTime())) return '—'
+function formatSentTime(value: Date | null, unknownDate: string): string {
+  if (!value || Number.isNaN(value.getTime())) return unknownDate
 
   const now = new Date()
   if (now.toDateString() === value.toDateString()) {
@@ -24,7 +24,7 @@ export function MessageListComponent({ message, onClick }: MessageListItemProps)
   const t = useT()
   const senderLabel = message.senderName || '—'
   const body = normalizeBody(message.body)
-  const sentAtLabel = formatSentTime(message.sentAt)
+  const sentAtLabel = formatSentTime(message.sentAt, t('messages.unknownDate', 'Unknown date'))
 
   return (
     <div

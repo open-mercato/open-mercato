@@ -25,6 +25,7 @@ import ingestInboundMessageCommand, {
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { normalizedInboundMessageSchema } from '../../data/validators'
 
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
@@ -42,6 +43,21 @@ describe('ingestInboundMessageCommand metadata', () => {
 })
 
 describe('ingestInboundMessageCommand input schema', () => {
+  it('accepts an explicitly unknown message timestamp', () => {
+    const result = normalizedInboundMessageSchema.parse({
+      externalMessageId: 'ext-unknown-date',
+      externalConversationId: 'conv-1',
+      senderIdentifier: 'jane@example.com',
+      body: 'hi',
+      bodyFormat: 'text',
+      timestamp: null,
+      channelPayload: {},
+      channelContentType: 'email/mime',
+      channelMetadata: {},
+    })
+    expect(result.timestamp).toBeNull()
+  })
+
   it('rejects empty providerKey', async () => {
     const input = {
       channelId: '11111111-1111-1111-1111-111111111111',
@@ -108,7 +124,6 @@ describe('ingestInboundMessageCommand input schema', () => {
       ccAddresses: meta.cc as string[],
       bodyPlain: sample.bodyFormat === 'html' ? null : sample.body,
       bodyHtml: sample.bodyFormat === 'html' ? sample.body : null,
-      receivedAt: sample.timestamp,
     }
     expect(matcherInput.messageId).toBe('<reply@external.example>')
     expect(matcherInput.inReplyTo).toBe('<original@example.com>')

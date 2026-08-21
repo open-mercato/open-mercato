@@ -80,11 +80,11 @@ const interactions = [
  *   - 'MessageChannelLink' (string)      → hub links
  *   - 'Message' (string)                 → hub messages
  */
-function mockHubReads(interactionRows: unknown[]) {
+function mockHubReads(interactionRows: unknown[], messageRows: unknown[] = messages) {
   mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
     if (entity === CustomerInteraction) return interactionRows as never
     if (entity === 'MessageChannelLink') return links as never
-    if (entity === 'Message') return messages as never
+    if (entity === 'Message') return messageRows as never
     return [] as never
   })
 }
@@ -107,6 +107,18 @@ beforeEach(() => {
 })
 
 describe('buildPersonEmailThreads', () => {
+  it('keeps sentAt null instead of falling back to link or interaction creation time', async () => {
+    mockHubReads(interactions, messages.map((message) => (
+      message.id === 'M3' ? { ...message, sentAt: null } : message
+    )))
+
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+    const unknownDateThread = threads.find((thread) => thread.threadKey === 'T2')
+
+    expect(unknownDateThread?.messages[0].sentAt).toBeNull()
+    expect(unknownDateThread?.lastMessageAt).toBeNull()
+  })
+
   it('groups messages into threads, newest thread first, messages chronological', async () => {
     mockHubReads(interactions)
     const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })

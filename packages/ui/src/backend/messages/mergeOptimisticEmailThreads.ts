@@ -51,9 +51,12 @@ export function mergeOptimisticEmailThreads(
     if (existing) {
       // Guard against double-adding the same optimistic message across re-renders.
       if (existing.messages.some((m) => m.id === message.id)) continue
-      const messages = [...existing.messages, message].sort((a, b) =>
-        a.sentAt.localeCompare(b.sentAt),
-      )
+      const messages = [...existing.messages, message].sort((left, right) => compareNullableDates(
+        left.sentAt,
+        right.sentAt,
+        left.id,
+        right.id,
+      ))
       const last = messages[messages.length - 1]
       byKey.set(threadKey, {
         ...existing,
@@ -80,5 +83,26 @@ export function mergeOptimisticEmailThreads(
 
   return order
     .map((key) => byKey.get(key)!)
-    .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+    .sort((left, right) => compareNullableDates(
+      left.lastMessageAt,
+      right.lastMessageAt,
+      left.threadKey,
+      right.threadKey,
+      'desc',
+    ))
+}
+
+function compareNullableDates(
+  leftValue: string | null,
+  rightValue: string | null,
+  leftTieBreaker: string,
+  rightTieBreaker: string,
+  direction: 'asc' | 'desc' = 'asc',
+): number {
+  if (leftValue === rightValue) return leftTieBreaker.localeCompare(rightTieBreaker)
+  if (leftValue === null) return 1
+  if (rightValue === null) return -1
+  return direction === 'asc'
+    ? leftValue.localeCompare(rightValue)
+    : rightValue.localeCompare(leftValue)
 }

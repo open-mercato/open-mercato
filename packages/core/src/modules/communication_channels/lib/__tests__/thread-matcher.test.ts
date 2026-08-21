@@ -30,7 +30,6 @@ function buildInput(overrides: Partial<ThreadMatchInput> = {}): ThreadMatchInput
     ccAddresses: [],
     bodyPlain: null,
     bodyHtml: null,
-    receivedAt: new Date('2026-05-27T10:00:00Z'),
     ...overrides,
   }
 }
@@ -493,7 +492,6 @@ describe('thread-matcher', () => {
           references: [],
           fromAddress: 'Alice@Example.com',
           toAddresses: ['BOB@example.com'],
-          receivedAt: new Date('2026-05-27T10:00:00Z'),
         }),
         { em, now: () => new Date('2026-05-27T10:00:00Z') },
       )

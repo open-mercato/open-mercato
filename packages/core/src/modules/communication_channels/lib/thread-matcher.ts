@@ -43,8 +43,6 @@ export type ThreadMatchInput = {
 
   bodyPlain: string | null
   bodyHtml: string | null
-
-  receivedAt: Date
 }
 
 export type ThreadMatchStrategy =

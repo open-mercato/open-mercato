@@ -414,12 +414,18 @@ export interface NormalizeMimeInboundOptions {
   fallbackMessageId: string
   /** Compute the conversation grouping id from the resolved message id + references. */
   resolveConversationId: (context: { messageId: string; references: string[] }) => string
-  /** Fallback timestamp when the parsed message has no Date header. */
-  fallbackDate?: Date
+  /** Provider-specific fallback when the parsed message has no valid MIME Date header. */
+  fallbackDate?: Date | null
   /** Provider-specific fields merged into `channelMetadata`. */
   channelMetadata?: (parsed: ParsedMail) => Record<string, unknown>
   /** Provider-specific fields merged into `channelPayload`. */
   channelPayload?: (parsed: ParsedMail) => Record<string, unknown>
+}
+
+function validDate(value: Date | string | null | undefined): Date | null {
+  if (value == null) return null
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 /**
@@ -474,7 +480,7 @@ export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): Norm
     body,
     bodyFormat,
     attachments,
-    timestamp: parsed.date ? new Date(parsed.date) : options.fallbackDate ?? new Date(),
+    timestamp: validDate(parsed.date) ?? validDate(options.fallbackDate),
     replyToExternalId: inReplyTo ?? undefined,
     channelPayload,
     channelContentType: 'email/mime',

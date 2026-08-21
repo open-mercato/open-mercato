@@ -103,4 +103,21 @@ describe('normalizeInboundGmailMessage', () => {
     expect(payload.gmailThreadId).toBe('gm-thread-9')
     expect(payload.gmailLabelIds).toEqual(['INBOX'])
   })
+
+  it('uses Gmail internalDate when the MIME Date header is missing', async () => {
+    const fallbackDate = new Date('2026-05-29T10:00:00.000Z')
+    const result = await normalizeInboundGmailMessage({
+      rawMessage: buildMime({
+        messageId: '<msg@example.com>',
+        from: 'alice@example.com',
+        to: 'bob@example.com',
+        text: 'hi',
+      }),
+      gmailMessageId: 'gm-msg-10',
+      gmailThreadId: 'gm-thread-10',
+      accountIdentifier: 'bob@example.com',
+      fallbackDate,
+    })
+    expect(result.timestamp).toEqual(fallbackDate)
+  })
 })

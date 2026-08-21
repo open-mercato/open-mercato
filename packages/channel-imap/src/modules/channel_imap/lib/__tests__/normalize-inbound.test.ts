@@ -123,4 +123,20 @@ describe('normalizeInboundImapMessage', () => {
     expect(result.bodyFormat).toBe('html')
     expect(result.body).toContain('<b>rich</b>')
   })
+
+  it('uses IMAP INTERNALDATE when the MIME Date header is missing', async () => {
+    const fallbackDate = new Date('2026-05-29T10:00:00.000Z')
+    const result = await normalizeInboundImapMessage({
+      rawMessage: buildMimeMessage({
+        messageId: '<fallback-date@example.com>',
+        from: 'alice@example.com',
+        to: 'bob@example.com',
+        text: 'hi',
+      }),
+      uid: 101,
+      accountIdentifier: 'bob@example.com',
+      fallbackDate,
+    })
+    expect(result.timestamp).toEqual(fallbackDate)
+  })
 })

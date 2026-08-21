@@ -290,7 +290,8 @@ export async function GET(req: Request) {
       'r.status as recipient_status',
       'r.read_at',
     ])
-    .orderBy('m.sent_at', 'desc')
+    .orderBy(sql`${sql.ref('m.sent_at')} desc nulls last`)
+    .orderBy('m.id', 'desc')
     .offset(offset)
     .limit(input.pageSize)
     .execute()

@@ -8,7 +8,6 @@ import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { emitCommunicationChannelsEvent } from '../events'
 import { resolveContact } from '../lib/contact-resolver'
 import type { ChannelAdapterRegistry } from '../lib/registry'
-import type { NormalizedInboundMessage } from '../lib/adapter'
 import { matchThread, type ThreadMatch } from '../lib/thread-matcher'
 import {
   ChannelThreadMapping,
@@ -212,7 +211,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         subject: m.subject ?? null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-        lastMessageAt: m.timestamp ?? new Date(),
+        lastMessageAt: m.timestamp,
       })
       em.persist(conversation)
       conversationCreated = true
@@ -279,7 +278,6 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
           ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
           bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
           bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
-          receivedAt: m.timestamp ?? new Date(),
         },
         { em },
       )
@@ -398,6 +396,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // when the matcher returned null (no token / JWZ / subject hit).
       parentMessageId: threadMatch?.messageThreadId ?? mapping?.messageThreadId,
       isDraft: false,
+      sentAt: m.timestamp,
       // Stable dedup key so a retried ingest (after a transient failure between
       // compose and the ExternalMessage anchor insert) reuses the message
       // composed by the first attempt instead of duplicating it. Mirrors the
@@ -463,7 +462,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       direction: 'inbound',
       senderIdentifier: m.senderIdentifier,
       senderDisplayName: m.senderDisplayName ?? null,
-      providerTimestamp: m.timestamp,
+      providerTimestamp: null,
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId ?? null,
     })

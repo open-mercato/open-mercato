@@ -34,7 +34,7 @@ export type PersonEmailMessage = {
   cc: string[]
   subject: string | null
   bodyText: string | null
-  sentAt: string
+  sentAt: string | null
   providerKey: string | null
 }
 
@@ -43,7 +43,7 @@ export type PersonEmailThread = {
   subject: string | null
   preview: string | null
   participants: string[]
-  lastMessageAt: string
+  lastMessageAt: string | null
   messageCount: number
   providerKey: string | null
   lastDirection: EmailThreadDirection
@@ -171,12 +171,10 @@ export async function buildPersonEmailThreads(
     dscope,
   )) as CustomerInteraction[]
 
-  const linkIdByInteraction = new Map<string, { occurredAt: Date }>()
   const linkIds: string[] = []
   for (const interaction of interactions) {
     const linkId = interaction.externalMessageId
-    if (!linkId || linkIdByInteraction.has(linkId)) continue
-    linkIdByInteraction.set(linkId, { occurredAt: interaction.occurredAt ?? interaction.createdAt })
+    if (!linkId || linkIds.includes(linkId)) continue
     linkIds.push(linkId)
   }
   if (linkIds.length === 0) return []
@@ -248,14 +246,12 @@ export async function buildPersonEmailThreads(
       typeof message?.body === 'string' ? message.body : null,
     )
 
-    const sentAtRaw =
-      (typeof message?.sentAt === 'string' || message?.sentAt instanceof Date
-        ? message.sentAt
-        : null) ??
-      (link.createdAt instanceof Date || typeof link.createdAt === 'string' ? link.createdAt : null) ??
-      linkIdByInteraction.get(linkId)?.occurredAt ??
-      new Date()
-    const sentAt = (sentAtRaw instanceof Date ? sentAtRaw : new Date(sentAtRaw)).toISOString()
+    const messageSentAt = message?.sentAt instanceof Date || typeof message?.sentAt === 'string'
+      ? new Date(message.sentAt)
+      : null
+    const sentAt = messageSentAt && !Number.isNaN(messageSentAt.getTime())
+      ? messageSentAt.toISOString()
+      : null
 
     const threadKey =
       (typeof message?.threadId === 'string' && message.threadId ? message.threadId : null) ??
@@ -298,7 +294,12 @@ export async function buildPersonEmailThreads(
   // ── (5) Finalize thread summaries ───────────────────────────────────────
   const threads: PersonEmailThread[] = []
   for (const thread of threadsByKey.values()) {
-    thread.messages.sort((a, b) => a.sentAt.localeCompare(b.sentAt))
+    thread.messages.sort((left, right) => compareNullableIsochronological(
+      left.sentAt,
+      right.sentAt,
+      left.id,
+      right.id,
+    ))
     if (thread.messages.length > maxMessagesPerThread) {
       thread.messages = thread.messages.slice(thread.messages.length - maxMessagesPerThread)
     }
@@ -313,13 +314,34 @@ export async function buildPersonEmailThreads(
     thread.subject = firstWithSubject?.subject ?? thread.subject
     thread.preview = truncate(last?.bodyText ?? null)
     thread.participants = Array.from(participantSet)
-    thread.lastMessageAt = last?.sentAt ?? thread.lastMessageAt
+    thread.lastMessageAt = last?.sentAt ?? null
     thread.lastDirection = last?.direction ?? thread.lastDirection
     thread.providerKey = last?.providerKey ?? thread.providerKey
     thread.messageCount = thread.messages.length
     threads.push(thread)
   }
 
-  threads.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+  threads.sort((left, right) => compareNullableIsochronological(
+    left.lastMessageAt,
+    right.lastMessageAt,
+    left.threadKey,
+    right.threadKey,
+    'desc',
+  ))
   return threads.slice(0, maxThreads)
+}
+
+function compareNullableIsochronological(
+  leftValue: string | null,
+  rightValue: string | null,
+  leftTieBreaker: string,
+  rightTieBreaker: string,
+  direction: 'asc' | 'desc' = 'asc',
+): number {
+  if (leftValue === rightValue) return leftTieBreaker.localeCompare(rightTieBreaker)
+  if (leftValue === null) return 1
+  if (rightValue === null) return -1
+  return direction === 'asc'
+    ? leftValue.localeCompare(rightValue)
+    : rightValue.localeCompare(leftValue)
 }
