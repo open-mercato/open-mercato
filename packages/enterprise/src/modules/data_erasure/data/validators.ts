@@ -43,10 +43,24 @@ export const subjectRequestSchema = z.object({
   dryRun: z.boolean().default(true),
 })
 
+export const environmentSanitizationSchema = z.object({
+  profile: z.literal('sandbox-strict').default('sandbox-strict'),
+  dryRun: z.boolean().default(true),
+  confirmation: z.literal('SANITIZE_NON_PRODUCTION').nullable().optional(),
+}).superRefine((input, context) => {
+  if (!input.dryRun && input.confirmation !== 'SANITIZE_NON_PRODUCTION') {
+    context.addIssue({
+      code: 'custom',
+      path: ['confirmation'],
+      message: 'Apply mode requires SANITIZE_NON_PRODUCTION confirmation',
+    })
+  }
+})
+
 export const operationListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
-  type: z.enum(['retention', 'discover', 'export', 'erase', 'anonymize']).optional(),
+  type: z.enum(['retention', 'sanitization', 'discover', 'export', 'erase', 'anonymize']).optional(),
   status: z.enum(['running', 'completed', 'partial', 'failed', 'blocked']).optional(),
 })
 
@@ -55,3 +69,4 @@ export type RetentionPolicyUpdateInput = z.infer<typeof retentionPolicyUpdateSch
 export type LegalHoldCreateInput = z.infer<typeof legalHoldCreateSchema>
 export type RetentionRunInput = z.infer<typeof retentionRunSchema>
 export type SubjectRequestInput = z.infer<typeof subjectRequestSchema>
+export type EnvironmentSanitizationInput = z.infer<typeof environmentSanitizationSchema>

@@ -399,7 +399,7 @@ export class BackupService {
     manifest: BackupManifest,
     archivePath: string,
     args: string[],
-    environment: NodeJS.ProcessEnv = {},
+    environment: NodeJS.ProcessEnv = process.env,
   ): Promise<void> {
     const decipher = createDecipheriv(
       'aes-256-gcm',
@@ -495,7 +495,7 @@ export class BackupService {
   private async readToolVersion(
     tool: string,
     expectedName: string,
-    environment: NodeJS.ProcessEnv = {},
+    environment: NodeJS.ProcessEnv = process.env,
   ): Promise<string> {
     const output = await this.runBuffered(tool, ['--version'], environment)
     const match = output.match(new RegExp(`${expectedName}\\s+\\(PostgreSQL\\)\\s+([^\\s]+)`, 'i'))
@@ -710,6 +710,7 @@ function parseDatabaseConnection(databaseUrl: string): DatabaseConnection {
     throw new BackupServiceError('Database URL must include a database name.', 'INVALID_DATABASE_URL')
   }
   const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: process.env.NODE_ENV,
     PGHOST: parsed.hostname,
     PGPORT: parsed.port || '5432',
     PGUSER: decodeURIComponent(parsed.username),

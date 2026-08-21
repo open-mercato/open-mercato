@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { asFunction } from 'awilix'
 import type { EventBus } from '@open-mercato/events'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,6 +8,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
+import { QueryIndexEnvironmentPrivacyHandler } from './privacy'
 import {
   loadQueryIndexRowScope,
   QueryIndexScopeError,
@@ -111,6 +113,17 @@ async function recordBridgeError(input: {
 }
 
 export function register(container: AppContainer) {
+  container.register({
+    queryIndexEnvironmentPrivacyHandler: asFunction(({ em }: { em: EntityManager }) => (
+      new QueryIndexEnvironmentPrivacyHandler(em, () => {
+        try {
+          return container.resolve('searchIndexer')
+        } catch {
+          return null
+        }
+      })
+    )).scoped(),
+  })
   // Override queryEngine with hybrid that prefers JSONB index when available
   try {
     const em = (container.resolve('em') as any)

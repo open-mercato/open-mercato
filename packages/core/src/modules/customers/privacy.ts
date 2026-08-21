@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { PrivacyDataClassHandler, PrivacySubjectInput } from '@open-mercato/shared/lib/privacy'
+import type {
+  PrivacyDataClassHandler,
+  PrivacyEnvironmentSanitizationInput,
+  PrivacySubjectInput,
+} from '@open-mercato/shared/lib/privacy'
 import { registerPrivacyDataClass } from '@open-mercato/shared/lib/privacy'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
@@ -26,6 +30,7 @@ registerPrivacyDataClass({
   handlerService: 'customerPeoplePrivacyHandler',
   subjectKinds: ['customers:person'],
   subjectActions: ['discover', 'export', 'erase', 'anonymize'],
+  environmentSanitization: { categories: ['personal_data'] },
 })
 
 export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
@@ -213,6 +218,102 @@ export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
     return { affected: 1 }
   }
 
+  async sanitizeEnvironment(input: PrivacyEnvironmentSanitizationInput) {
+    const people = await this.findScopedPeople(input)
+    const relationCounts = await this.countScopedPersonalRelations(input)
+    const matched = people.length + relationCounts
+    if (input.dryRun || matched === 0) return { matched, affected: 0 }
+
+    await this.em.transactional(async (transactionalEm) => {
+      const managedPeople = await findWithDecryption(
+        transactionalEm,
+        CustomerEntity,
+        {
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId,
+          kind: 'person',
+          deletedAt: null,
+        },
+        {},
+        input.scope,
+      )
+      for (const person of managedPeople) {
+        person.displayName = `Anonymized ${person.id.slice(0, 8)}`
+        person.description = null
+        person.primaryEmail = null
+        person.primaryPhone = null
+        transactionalEm.persist(person)
+      }
+      await transactionalEm.nativeUpdate(CustomerPersonProfile, {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+      }, {
+        firstName: null,
+        lastName: null,
+        preferredName: null,
+        jobTitle: null,
+        department: null,
+        seniority: null,
+        timezone: null,
+        linkedInUrl: null,
+        twitterUrl: null,
+      })
+      const scope = {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+      }
+      await transactionalEm.nativeDelete(CustomerAddress, scope)
+      await transactionalEm.nativeDelete(CustomerActivity, scope)
+      await transactionalEm.nativeDelete(CustomerComment, scope)
+      await transactionalEm.nativeDelete(CustomerInteraction, scope)
+      await transactionalEm.nativeDelete(CustomFieldValue, {
+        ...scope,
+        entityId: { $in: [CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID] },
+      })
+      await transactionalEm.flush()
+    })
+
+    return { matched, affected: matched }
+  }
+
+  async verifyEnvironmentSanitization(input: PrivacyEnvironmentSanitizationInput) {
+    const people = await this.findScopedPeople(input)
+    const unsafePeople = people.filter((person) => (
+      person.description
+      || person.primaryEmail
+      || person.primaryPhone
+      || !person.displayName.startsWith('Anonymized ')
+    )).length
+    const profiles = await findWithDecryption(
+      this.em,
+      CustomerPersonProfile,
+      {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+      },
+      {},
+      input.scope,
+    )
+    const unsafeProfiles = profiles.filter((profile) => [
+      profile.firstName,
+      profile.lastName,
+      profile.preferredName,
+      profile.jobTitle,
+      profile.department,
+      profile.seniority,
+      profile.timezone,
+      profile.linkedInUrl,
+      profile.twitterUrl,
+    ].some(Boolean)).length
+    const relatedRecords = await this.countScopedPersonalRelations(input)
+    const findings = [
+      { code: 'customers.people_not_sanitized', count: unsafePeople },
+      { code: 'customers.profiles_not_sanitized', count: unsafeProfiles },
+      { code: 'customers.personal_relations_present', count: relatedRecords },
+    ].filter((finding) => finding.count > 0)
+    return { passed: findings.length === 0, findings }
+  }
+
   private findEntity(input: PrivacySubjectInput): Promise<CustomerEntity | null> {
     return findOneWithDecryption(
       this.em,
@@ -227,6 +328,39 @@ export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
       {},
       input.scope,
     )
+  }
+
+  private findScopedPeople(input: PrivacyEnvironmentSanitizationInput): Promise<CustomerEntity[]> {
+    return findWithDecryption(
+      this.em,
+      CustomerEntity,
+      {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+        kind: 'person',
+        deletedAt: null,
+      },
+      {},
+      input.scope,
+    )
+  }
+
+  private async countScopedPersonalRelations(input: PrivacyEnvironmentSanitizationInput): Promise<number> {
+    const scope = {
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId,
+    }
+    const [addresses, activities, comments, interactions, customFields] = await Promise.all([
+      this.em.count(CustomerAddress, scope),
+      this.em.count(CustomerActivity, scope),
+      this.em.count(CustomerComment, scope),
+      this.em.count(CustomerInteraction, scope),
+      this.em.count(CustomFieldValue, {
+        ...scope,
+        entityId: { $in: [CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID] },
+      }),
+    ])
+    return addresses + activities + comments + interactions + customFields
   }
 
   private scopedRelationFilter(entityId: string, input: PrivacySubjectInput) {

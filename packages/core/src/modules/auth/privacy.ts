@@ -1,8 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { PrivacyDataClassHandler, PrivacySubjectInput } from '@open-mercato/shared/lib/privacy'
+import type {
+  PrivacyDataClassHandler,
+  PrivacyEnvironmentSanitizationInput,
+  PrivacySubjectInput,
+} from '@open-mercato/shared/lib/privacy'
 import { registerPrivacyDataClass } from '@open-mercato/shared/lib/privacy'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { PasswordReset, Session, User, UserSidebarPreference } from './data/entities'
 import { emitAuthEvent } from './events'
@@ -17,6 +21,7 @@ registerPrivacyDataClass({
   handlerService: 'authUsersPrivacyHandler',
   subjectKinds: ['auth:user'],
   subjectActions: ['discover', 'export', 'erase', 'anonymize'],
+  environmentSanitization: { categories: ['personal_data', 'authentication'] },
 })
 
 export class AuthUsersPrivacyHandler implements PrivacyDataClassHandler {
@@ -101,12 +106,112 @@ export class AuthUsersPrivacyHandler implements PrivacyDataClassHandler {
     return { affected: 1 }
   }
 
+  async sanitizeEnvironment(input: PrivacyEnvironmentSanitizationInput) {
+    const users = await this.findScopedUsers(input)
+    const userIds = users.map((user) => user.id)
+    const sessionCount = userIds.length > 0
+      ? await this.em.count(Session, { user: { $in: userIds } })
+      : 0
+    const resetCount = userIds.length > 0
+      ? await this.em.count(PasswordReset, { user: { $in: userIds } })
+      : 0
+    const preferenceCount = await this.em.count(UserSidebarPreference, {
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId,
+    })
+    const matched = users.length + sessionCount + resetCount + preferenceCount
+    if (input.dryRun || matched === 0) return { matched, affected: 0 }
+
+    await this.em.transactional(async (transactionalEm) => {
+      const managedUsers = await findWithDecryption(
+        transactionalEm,
+        User,
+        {
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId,
+          deletedAt: null,
+        },
+        {},
+        input.scope,
+      )
+      const managedIds = managedUsers.map((user) => user.id)
+      for (const user of managedUsers) {
+        user.email = `sandbox+${user.id}@example.invalid`
+        user.emailHash = null
+        user.name = null
+        user.passwordHash = null
+        user.isConfirmed = false
+        transactionalEm.persist(user)
+      }
+      await transactionalEm.nativeUpdate(User, {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+        deletedAt: null,
+      }, { lastLoginAt: null as never })
+      if (managedIds.length > 0) {
+        await transactionalEm.nativeDelete(Session, { user: { $in: managedIds } })
+        await transactionalEm.nativeDelete(PasswordReset, { user: { $in: managedIds } })
+      }
+      await transactionalEm.nativeDelete(UserSidebarPreference, {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+      })
+      await transactionalEm.flush()
+    })
+
+    return { matched, affected: matched }
+  }
+
+  async verifyEnvironmentSanitization(input: PrivacyEnvironmentSanitizationInput) {
+    const users = await this.findScopedUsers(input)
+    const unsafeUsers = users.filter((user) => (
+      user.passwordHash
+      || user.name
+      || user.emailHash
+      || user.isConfirmed
+      || user.lastLoginAt
+      || !user.email.endsWith('@example.invalid')
+    )).length
+    const userIds = users.map((user) => user.id)
+    const activeSessions = userIds.length > 0
+      ? await this.em.count(Session, { user: { $in: userIds } })
+      : 0
+    const resetTokens = userIds.length > 0
+      ? await this.em.count(PasswordReset, { user: { $in: userIds } })
+      : 0
+    const preferences = await this.em.count(UserSidebarPreference, {
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId,
+    })
+    const findings = [
+      { code: 'auth.users_not_sanitized', count: unsafeUsers },
+      { code: 'auth.active_sessions', count: activeSessions },
+      { code: 'auth.password_reset_tokens', count: resetTokens },
+      { code: 'auth.user_preferences', count: preferences },
+    ].filter((finding) => finding.count > 0)
+    return { passed: findings.length === 0, findings }
+  }
+
   private findUser(input: PrivacySubjectInput): Promise<User | null> {
     return findOneWithDecryption(
       this.em,
       User,
       {
         id: input.subject.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+        deletedAt: null,
+      },
+      {},
+      input.scope,
+    )
+  }
+
+  private findScopedUsers(input: PrivacyEnvironmentSanitizationInput): Promise<User[]> {
+    return findWithDecryption(
+      this.em,
+      User,
+      {
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId,
         deletedAt: null,

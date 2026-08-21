@@ -54,4 +54,16 @@ describe('privacy data class registry', () => {
       subjectActions: [],
     })).toThrow('Invalid privacy data class id')
   })
+
+  it('rejects an empty environment sanitization declaration', () => {
+    expect(() => registerPrivacyDataClass({
+      id: 'customers.people',
+      module: 'customers',
+      title: 'Customer people',
+      handlerService: 'customerPrivacyHandler',
+      subjectKinds: [],
+      subjectActions: [],
+      environmentSanitization: { categories: [] },
+    })).toThrow('Environment sanitization must declare at least one category')
+  })
 })

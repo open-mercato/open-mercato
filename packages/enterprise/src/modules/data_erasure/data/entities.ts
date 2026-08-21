@@ -2,7 +2,7 @@ import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { PrivacyRetentionAction, PrivacySubjectAction } from '@open-mercato/shared/lib/privacy'
 
-export type PrivacyOperationType = 'retention' | PrivacySubjectAction
+export type PrivacyOperationType = 'retention' | 'sanitization' | PrivacySubjectAction
 export type PrivacyOperationStatus = 'running' | 'completed' | 'partial' | 'failed' | 'blocked'
 
 @Entity({ tableName: 'privacy_retention_policies' })

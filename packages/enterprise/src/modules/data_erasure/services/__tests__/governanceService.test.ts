@@ -103,6 +103,81 @@ describe('PrivacyGovernanceService', () => {
     expect(result.operation.status).toBe('partial')
     expect(result.operation.reportJson).toEqual(expect.objectContaining({ manifestStatus: 'failed' }))
   })
+
+  it('reports dry-run findings without failing the preview', async () => {
+    registerPrivacyDataClass({
+      id: 'test.sandbox',
+      module: 'test',
+      title: 'Sandbox data',
+      handlerService: 'testPeoplePrivacyHandler',
+      subjectKinds: [],
+      subjectActions: [],
+      environmentSanitization: { categories: ['personal_data'] },
+    })
+    const previous = process.env.OM_ENVIRONMENT_CLASSIFICATION
+    process.env.OM_ENVIRONMENT_CLASSIFICATION = 'sandbox'
+    try {
+      const { service } = createService({
+        handler: {
+          sanitizeEnvironment: async () => ({ matched: 4, affected: 0 }),
+          verifyEnvironmentSanitization: async () => ({
+            passed: false,
+            findings: [{ code: 'test.content_present', count: 4 }],
+          }),
+        },
+      })
+      const operation = await service.runEnvironmentSanitization(scope, 'actor-1', {
+        profile: 'sandbox-strict',
+        dryRun: true,
+        confirmation: null,
+      })
+      expect(operation.status).toBe('completed')
+      expect(operation.reportJson).toEqual(expect.objectContaining({
+        environmentClassification: 'sandbox',
+        totals: expect.objectContaining({ findings: 4 }),
+      }))
+    } finally {
+      if (previous === undefined) delete process.env.OM_ENVIRONMENT_CLASSIFICATION
+      else process.env.OM_ENVIRONMENT_CLASSIFICATION = previous
+    }
+  })
+
+  it('fails an applied class when verification still finds unsafe data', async () => {
+    registerPrivacyDataClass({
+      id: 'test.sandbox',
+      module: 'test',
+      title: 'Sandbox data',
+      handlerService: 'testPeoplePrivacyHandler',
+      subjectKinds: [],
+      subjectActions: [],
+      environmentSanitization: { categories: ['credentials'] },
+    })
+    const previous = process.env.OM_ENVIRONMENT_CLASSIFICATION
+    process.env.OM_ENVIRONMENT_CLASSIFICATION = 'test'
+    try {
+      const { service } = createService({
+        handler: {
+          sanitizeEnvironment: async () => ({ matched: 1, affected: 1 }),
+          verifyEnvironmentSanitization: async () => ({
+            passed: false,
+            findings: [{ code: 'test.credential_present', count: 1 }],
+          }),
+        },
+      })
+      const operation = await service.runEnvironmentSanitization(scope, 'actor-1', {
+        profile: 'sandbox-strict',
+        dryRun: false,
+        confirmation: 'SANITIZE_NON_PRODUCTION',
+      })
+      expect(operation.status).toBe('failed')
+      expect(operation.reportJson).toEqual(expect.objectContaining({
+        totals: expect.objectContaining({ failed: 1 }),
+      }))
+    } finally {
+      if (previous === undefined) delete process.env.OM_ENVIRONMENT_CLASSIFICATION
+      else process.env.OM_ENVIRONMENT_CLASSIFICATION = previous
+    }
+  })
 })
 
 function createService(input: {

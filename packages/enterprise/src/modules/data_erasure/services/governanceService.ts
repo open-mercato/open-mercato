@@ -14,10 +14,15 @@ import {
   type PrivacyOperationStatus,
   type PrivacyOperationType,
 } from '../data/entities'
-import type { RetentionRunInput, SubjectRequestInput } from '../data/validators'
+import type {
+  EnvironmentSanitizationInput,
+  RetentionRunInput,
+  SubjectRequestInput,
+} from '../data/validators'
 import type { PrivacyPolicyService } from './policyService'
 import type { PrivacyLegalHoldService } from './legalHoldService'
 import { PrivacyServiceError } from './errors'
+import { requireNonProductionEnvironment } from './environmentClassification'
 
 type ErasureManifestService = {
   append: (input: {
@@ -43,6 +48,16 @@ type SubjectClassResult = {
   status: 'completed' | 'blocked' | 'failed'
   recordCount: number
   affected: number
+  errorCode: string | null
+}
+
+type SanitizationClassResult = {
+  dataClassId: string
+  status: 'completed' | 'failed'
+  matched: number
+  affected: number
+  verificationPassed: boolean
+  findings: Array<{ code: string; count: number }>
   errorCode: string | null
 }
 
@@ -145,6 +160,107 @@ export class PrivacyGovernanceService {
         errorCode: error instanceof PrivacyServiceError ? error.code : 'EXECUTION_FAILED',
       })
     }
+  }
+
+  async runEnvironmentSanitization(
+    scope: PrivacyScope,
+    actorId: string,
+    input: EnvironmentSanitizationInput,
+  ): Promise<PrivacyOperation> {
+    if (!input.dryRun && input.confirmation !== 'SANITIZE_NON_PRODUCTION') {
+      throw new PrivacyServiceError(
+        'Apply mode requires explicit SANITIZE_NON_PRODUCTION confirmation.',
+        'SANITIZATION_CONFIRMATION_REQUIRED',
+        400,
+      )
+    }
+    const environmentClassification = requireNonProductionEnvironment()
+    const definitions = listPrivacyDataClasses().filter((definition) => (
+      definition.environmentSanitization !== undefined
+    ))
+    if (definitions.length === 0) {
+      throw new PrivacyServiceError(
+        'No environment sanitization handlers are registered.',
+        'SANITIZATION_HANDLERS_NOT_AVAILABLE',
+        409,
+      )
+    }
+    const operation = await this.createOperation(scope, actorId, {
+      type: 'sanitization',
+      dryRun: input.dryRun,
+    })
+    const results: SanitizationClassResult[] = []
+
+    for (const definition of definitions) {
+      const handler = this.dependencies.resolveHandler(definition.handlerService)
+      if (!handler.sanitizeEnvironment || !handler.verifyEnvironmentSanitization) {
+        results.push({
+          dataClassId: definition.id,
+          status: 'failed',
+          matched: 0,
+          affected: 0,
+          verificationPassed: false,
+          findings: [],
+          errorCode: 'HANDLER_NOT_AVAILABLE',
+        })
+        continue
+      }
+      try {
+        const sanitization = await handler.sanitizeEnvironment({
+          scope,
+          dryRun: input.dryRun,
+          actorId,
+          profile: input.profile,
+        })
+        const verification = await handler.verifyEnvironmentSanitization({
+          scope,
+          dryRun: input.dryRun,
+          actorId,
+          profile: input.profile,
+        })
+        const failed = !input.dryRun && !verification.passed
+        results.push({
+          dataClassId: definition.id,
+          status: failed ? 'failed' : 'completed',
+          matched: sanitization.matched,
+          affected: sanitization.affected,
+          verificationPassed: verification.passed,
+          findings: verification.findings,
+          errorCode: failed ? 'VERIFICATION_FAILED' : null,
+        })
+      } catch (error) {
+        results.push({
+          dataClassId: definition.id,
+          status: 'failed',
+          matched: 0,
+          affected: 0,
+          verificationPassed: false,
+          findings: [],
+          errorCode: error instanceof PrivacyServiceError ? error.code : 'EXECUTION_FAILED',
+        })
+      }
+    }
+
+    const failed = results.filter((result) => result.status === 'failed').length
+    const status: PrivacyOperationStatus = failed === 0
+      ? 'completed'
+      : failed === results.length
+        ? 'failed'
+        : 'partial'
+    return this.completeOperation(operation, status, {
+      profile: input.profile,
+      environmentClassification,
+      classes: results,
+      totals: {
+        classes: results.length,
+        failed,
+        matched: results.reduce((sum, result) => sum + result.matched, 0),
+        affected: results.reduce((sum, result) => sum + result.affected, 0),
+        findings: results.reduce((sum, result) => (
+          sum + result.findings.reduce((classSum, finding) => classSum + finding.count, 0)
+        ), 0),
+      },
+    })
   }
 
   async runSubjectRequest(

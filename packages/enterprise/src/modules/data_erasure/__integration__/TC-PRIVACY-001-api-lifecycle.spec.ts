@@ -126,6 +126,39 @@ test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
       }
     }
   })
+
+  test('previews the strict sandbox sanitization profile in a classified non-production environment', async ({ request }) => {
+    const classification = process.env.OM_ENVIRONMENT_CLASSIFICATION?.trim().toLowerCase()
+    test.skip(
+      !classification || classification === 'production',
+      'Environment sanitization requires an explicit non-production OM_ENVIRONMENT_CLASSIFICATION.',
+    )
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'POST', '/api/data_erasure/environment-sanitization', {
+      token,
+      data: { profile: 'sandbox-strict', dryRun: true },
+    })
+    expect(response.ok(), `Sanitization preview failed with status ${response.status()}`).toBeTruthy()
+    const body = await response.json() as {
+      operation: {
+        type: string
+        status: string
+        dryRun: boolean
+        report: {
+          environmentClassification: string
+          classes: Array<{ dataClassId: string; findings: Array<{ code: string; count: number }> }>
+        }
+      }
+    }
+    expect(body.operation).toEqual(expect.objectContaining({
+      type: 'sanitization',
+      status: 'completed',
+      dryRun: true,
+    }))
+    expect(body.operation.report.environmentClassification).toBe(classification)
+    expect(body.operation.report.classes.length).toBeGreaterThan(0)
+    expect(JSON.stringify(body.operation.report)).not.toContain('passwordHash')
+  })
 })
 
 async function updatePolicy(
