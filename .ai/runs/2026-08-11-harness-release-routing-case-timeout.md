@@ -165,8 +165,12 @@ deviation section above, and in the `RELEASE.md` sentence that records the devia
 stand without losing the measurement.
 
 Four nits came with that review. Three are fixed here. `RELEASE.md`'s stated default is no longer unpinned
-prose: the `#5078` test now reads the shipped `RELEASE.md` and asserts that the number it states is
-`DEFAULT_CASE_TIMEOUT_MS`, closing the same drift class #5068 was opened to correct. `ROUTING_STEP_SLACK_MS`
+prose: the `#5057` test now reads the shipped `RELEASE.md` and asserts that the number it states is
+`DEFAULT_CASE_TIMEOUT_MS`, closing the same drift class #5068 was opened to correct. The review suggested
+putting that assertion in the `#5078` test; it sits in the `#5057` one instead, because `#5057` is already
+the drift guard for the documented default — it owns the `--help` line's default and pins the constant, so
+`RELEASE.md`'s restatement of that same number belongs beside them rather than beside the argv contract.
+`ROUTING_STEP_SLACK_MS`
 is now exported and pinned to its literal by a test, which gives it exactly the treatment
 `DEFAULT_CASE_TIMEOUT_MS` already had — the reviewer's counter-argument, that a test recomputing a value from
 the constant it checks asserts less, is respected by keeping the budget assertions on hardcoded numbers and
