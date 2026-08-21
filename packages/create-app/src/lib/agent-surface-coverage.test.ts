@@ -200,7 +200,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 234-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 235-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -212,7 +212,7 @@ test('the 234-case catalog routes audited installed-module, runtime, and AI/prov
     frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
-  assert.equal(cases.length, 234)
+  assert.equal(cases.length, 235)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth/index.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -373,6 +373,10 @@ test('the 234-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/framework-contracts.md'],
       decisions: ['framework-contract-digest-first', 'exact-installed-source-links', 'bounded-resolver-only-if-unresolved', 'installed-packages-read-only'],
     },
+    'OMH-234': {
+      contexts: ['.ai/guides/modules/documents/index.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'reuse-installed-documents', 'per-document-access', 'tenant-scope', 'acl-features', 'smallest-validation'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -417,6 +421,7 @@ test('the 234-case catalog routes audited installed-module, runtime, and AI/prov
     'OMH-201': { factSheet: '.ai/guides/modules/sync_akeneo/index.md', skill: 'om-integration-builder' },
     'OMH-202': { factSheet: '.ai/guides/modules/wms/index.md', skill: 'om-help' },
     'OMH-229': { factSheet: '.ai/guides/modules/eudr/index.md', skill: 'om-help' },
+    'OMH-234': { factSheet: '.ai/guides/modules/documents/index.md', skill: 'om-help' },
   }
   for (const [caseId, { factSheet, skill }] of Object.entries(reuseInstalledFacts)) {
     const record = byId.get(caseId)
@@ -524,7 +529,7 @@ test('every published case count states the shipped catalog or the portability s
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
   const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
   // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
-  // "49 writable implementation/regression cases" and "234 live-routing cases" are checked too; a
+  // "49 writable implementation/regression cases" and "235 live-routing cases" are checked too; a
   // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
   const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)[ -][a-z/ -]{0,120}cases?\b/g
   const allowed = new Map([

@@ -13,9 +13,12 @@ import {
   isSpanContextValid,
   defaultTextMapGetter,
   defaultTextMapSetter,
+  ROOT_CONTEXT,
   SpanStatusCode,
   SpanKind as OtelSpanKind,
+  type Link,
   type Span as OtelApiSpan,
+  type SpanOptions as OtelSpanOptions,
   type TextMapPropagator,
   type Counter,
   type Histogram,
@@ -140,6 +143,35 @@ const SPAN_KIND: Record<SpanKind, OtelSpanKind> = {
   consumer: OtelSpanKind.CONSUMER,
 }
 
+/**
+ * Resolve `links` carriers to span contexts. Extraction runs against
+ * `ROOT_CONTEXT`, never the active one — otherwise an empty carrier would
+ * silently link a span to its own ambient parent instead of yielding no link.
+ */
+function spanLinks(carriers?: TraceCarrier[]): Link[] | undefined {
+  if (!carriers?.length) return undefined
+  const links: Link[] = []
+  for (const carrier of carriers) {
+    const linked = trace.getSpanContext(queuePropagator.extract(ROOT_CONTEXT, carrier, defaultTextMapGetter))
+    if (linked && isSpanContextValid(linked)) links.push({ context: linked })
+  }
+  return links.length ? links : undefined
+}
+
+/**
+ * Translate the vendor-neutral options to OTEL's. `root: true` makes OTEL drop
+ * the parent from the context it samples against, so the span starts a new trace
+ * and the `ParentBasedSampler` falls through to its ratio-based root sampler.
+ */
+function toOtelSpanOptions(options: SpanOptions): OtelSpanOptions {
+  return {
+    kind: options.kind ? SPAN_KIND[options.kind] : undefined,
+    attributes: cleanAttributes(options.attributes),
+    root: options.root,
+    links: spanLinks(options.links),
+  }
+}
+
 const SEVERITY: Record<LogLevel, SeverityNumber> = {
   debug: SeverityNumber.DEBUG,
   info: SeverityNumber.INFO,
@@ -156,6 +188,9 @@ class OtelSpan implements Span {
   }
   setAttributes(attributes: Attributes): void {
     this.span.setAttributes(cleanAttributes(attributes))
+  }
+  updateName(name: string): void {
+    this.span.updateName(name)
   }
   recordException(error: unknown): void {
     // Redact message + stack before they leave the process (Privacy): the auto
@@ -242,10 +277,8 @@ export class OtlpProvider implements TelemetryProvider {
 
   runInSpan<T>(name: string, options: SpanOptions, fn: (span: Span) => T): T {
     const tracer = trace.getTracer(TRACER_NAME)
-    return tracer.startActiveSpan(
-      name,
-      { kind: options.kind ? SPAN_KIND[options.kind] : undefined, attributes: cleanAttributes(options.attributes) },
-      (otelSpan) => runSpan(new OtelSpan(otelSpan), fn),
+    return tracer.startActiveSpan(name, toOtelSpanOptions(options), (otelSpan) =>
+      runSpan(new OtelSpan(otelSpan), fn),
     )
   }
 
@@ -268,10 +301,8 @@ export class OtlpProvider implements TelemetryProvider {
     const parent = queuePropagator.extract(context.active(), carrier, defaultTextMapGetter)
     const tracer = trace.getTracer(TRACER_NAME)
     return context.with(parent, () =>
-      tracer.startActiveSpan(
-        name,
-        { kind: options.kind ? SPAN_KIND[options.kind] : undefined, attributes: cleanAttributes(options.attributes) },
-        (otelSpan) => runSpan(new OtelSpan(otelSpan), fn),
+      tracer.startActiveSpan(name, toOtelSpanOptions(options), (otelSpan) =>
+        runSpan(new OtelSpan(otelSpan), fn),
       ),
     )
   }

@@ -6307,16 +6307,17 @@
   },
   {
     "id": "OMH-078",
-    "title": "Build returns and RMA management across orders and portal",
+    "title": "Extend the shipped warranty and RMA desk across orders and portal",
     "family": "business",
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Build an RMA app module linked by scalar IDs and snapshots to installed orders, products, customers, and the customer portal. Support return requests, item eligibility, approval, receiving, disposition, guarded refunds, portal status, admin actions, notifications, and durable transitions. Prevent returned quantities from exceeding fulfillment and keep retries and refund actions idempotent.",
+    "prompt": "The app already ships a warranty and RMA claims desk. Extend it for returns handled across installed orders, products, customers, and the customer portal instead of building a second claims module. Support return requests, item eligibility, approval, receiving, disposition, guarded refunds, portal status, admin actions, notifications, and durable transitions. Reuse the shipped claim aggregate, lifecycle, and portal surfaces, link everything by scalar IDs and snapshots, prevent returned quantities from exceeding fulfillment, and keep retries and refund actions idempotent.",
     "tags": [
       "business",
       "returns",
       "rma",
+      "warranty",
       "portal",
       "workflow"
     ],
@@ -6367,6 +6368,7 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/skills/om-build-workflow/SKILL.md",
+        ".ai/guides/modules/warranty_claims/index.md",
         ".ai/guides/modules/sales/index.md",
         ".ai/guides/modules/catalog/index.md",
         ".ai/guides/modules/customers/index.md",
@@ -6383,6 +6385,7 @@
       ]
     },
     "requiredDecisions": [
+      "reuse-shipped-module",
       "scalar-id-snapshot",
       "command-state-machine",
       "quantity-invariant",
@@ -21100,6 +21103,89 @@
   },
   {
     "id": "OMH-234",
+    "title": "Reuse installed collaborative documents instead of building a private notes system",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, account teams need shared rich documents attached to customers, deals, quotes, and orders. Several staff members must be able to edit at the same time, discuss selected text, mention colleagues, restore earlier versions, reuse templates, attach files, and grant viewer, commenter, editor, or owner access per document. Decide the smallest safe design against what the installed modules already provide, keep tenant, organization, and record-level visibility boundaries intact, state the access-control posture for reading, commenting, editing, sharing, and managing templates, and identify the smallest relevant validation. Do not model your own document, content, comment, share, version, attachment, or template tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "collaborative-documents"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/documents/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "backend-ui",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/documents/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/guides/backend-ui.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "reuse-installed-documents",
+      "per-document-access",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194",
+      "OMH-210"
+    ]
+  },
+  {
+    "id": "OMH-235",
     "title": "Correlate slow backoffice pages with browser RUM instead of a bespoke span-ingest route",
     "family": "architecture",
     "mode": "analysis",

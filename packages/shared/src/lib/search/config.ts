@@ -8,6 +8,15 @@ export type SearchConfig = {
   enablePartials: boolean
   hashAlgorithm: 'sha256' | 'sha1' | 'md5'
   storeRawTokens: boolean
+  /**
+   * When true, a like/ilike on a PLAINTEXT base column runs as exact SQL ILIKE instead of being
+   * rewritten into an approximate search-token match; encrypted columns always keep the token
+   * path (ILIKE against ciphertext cannot match). Off by default: token matching can be faster
+   * than an unanchored ILIKE, which may need a full scan without a trigram index — but it is
+   * approximate (fragments under minTokenLength vanish, so `ZK 1/2026` degrades to its year and
+   * an all-short term drops the predicate). Flip it on when list search must be exact.
+   */
+  useIlikeForNonEncryptedFields?: boolean
   blocklistedFields: string[]
   entityBlocklistedFields?: Record<string, string[]>
   maxFieldChars?: number
@@ -112,6 +121,7 @@ export function resolveSearchConfig(): SearchConfig {
     enablePartials: parseBoolean(process.env.OM_SEARCH_ENABLE_PARTIAL, true),
     hashAlgorithm: parseHashAlgorithm(process.env.OM_SEARCH_HASH_ALGO),
     storeRawTokens: parseBoolean(process.env.OM_SEARCH_STORE_RAW_TOKENS, false),
+    useIlikeForNonEncryptedFields: parseBoolean(process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS, false),
     blocklistedFields: blocklist.global,
     entityBlocklistedFields: blocklist.byEntity,
     maxFieldChars: parseNumber(process.env.OM_SEARCH_MAX_FIELD_CHARS, DEFAULT_SEARCH_MAX_FIELD_CHARS, 0),
