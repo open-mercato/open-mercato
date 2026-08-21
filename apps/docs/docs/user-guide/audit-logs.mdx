@@ -53,6 +53,20 @@ The Access Log page shows the normalized request context, including method, path
 
 Access records can be downloaded from `GET /api/audit_logs/audit-logs/access/export`. The CSV export applies the same tenant, organization and actor scope as the Access Log list.
 
+## Signed evidence bundles
+
+For an offline evidence package, use the scoped JSON export:
+
+```bash
+export OM_AUDIT_EVIDENCE_HMAC_KEY="<secret-from-your-secret-manager>"
+yarn mercato audit_logs evidence:export --tenant <uuid> --org <uuid> --out ./evidence/audit.json
+yarn mercato audit_logs evidence:verify --file ./evidence/audit.json
+```
+
+The file combines action and access records, gives each record a correlation ID, and protects their content and order with an HMAC-SHA256 chain and bundle signature.
+
+The JSON can contain sensitive data. It is written with owner-only permissions but is not encrypted by the export command. Store it in an encrypted, access-controlled location. The signature detects changes made after export; it does not prove that source database rows were unchanged before the export was created.
+
 ## Removing credentials from older action logs
 
 New action logs filter passwords, tokens, API keys, private keys, recovery codes and similar credential fields before they reach the database. The database migration removes these values from plaintext historical JSON fields.

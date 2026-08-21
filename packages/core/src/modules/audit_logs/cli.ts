@@ -1,3 +1,5 @@
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -7,6 +9,13 @@ import {
   resolveAccessLogRetentionBatchSize,
   resolveAccessLogRetentionDays,
 } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
+import {
+  AuditEvidenceExportService,
+  MAX_AUDIT_EVIDENCE_LIMIT,
+  verifyAuditEvidenceBundle,
+} from '@open-mercato/core/modules/audit_logs/services/evidenceExportService'
+
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -39,6 +48,44 @@ function parsePositiveInt(value: string | boolean | undefined, fallback: number)
   const parsed = Number.parseInt(value, 10)
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback
   return parsed
+}
+
+function requireStringArg(args: Record<string, string | boolean>, names: string[], label: string): string {
+  for (const name of names) {
+    const value = args[name]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  throw new Error(`[internal] Missing required ${label}`)
+}
+
+function requireUuidArg(args: Record<string, string | boolean>, names: string[], label: string): string {
+  const value = requireStringArg(args, names, label)
+  if (!UUID_REGEX.test(value)) throw new Error(`[internal] Invalid ${label}`)
+  return value
+}
+
+function parseOptionalDateArg(value: string | boolean | undefined, label: string): Date | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new Error(`[internal] ${label} requires an ISO timestamp`)
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) throw new Error(`[internal] Invalid ${label} timestamp`)
+  return parsed
+}
+
+function parseEvidenceLimit(value: string | boolean | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new Error('[internal] Audit evidence limit requires a number')
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > MAX_AUDIT_EVIDENCE_LIMIT) {
+    throw new Error(`[internal] Audit evidence limit must be between 1 and ${MAX_AUDIT_EVIDENCE_LIMIT}`)
+  }
+  return parsed
+}
+
+function resolveEvidenceSigningKey(): string {
+  const signingKey = process.env.OM_AUDIT_EVIDENCE_HMAC_KEY
+  if (!signingKey) throw new Error('[internal] OM_AUDIT_EVIDENCE_HMAC_KEY is required')
+  return signingKey
 }
 
 const projectionsBackfill: ModuleCli = {
@@ -215,6 +262,69 @@ const accessRetentionPrune: ModuleCli = {
   },
 }
 
-const cliCommands = [projectionsBackfill, sensitiveDataRedact, accessRetentionPrune]
+const evidenceExport: ModuleCli = {
+  command: 'evidence:export',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = requireUuidArg(args, ['tenantId', 'tenant'], 'tenant id')
+    const organizationId = requireUuidArg(args, ['organizationId', 'orgId', 'org'], 'organization id')
+    const outputPath = resolve(requireStringArg(args, ['out'], 'output path'))
+    const after = parseOptionalDateArg(args.after, 'after')
+    const before = parseOptionalDateArg(args.before, 'before')
+    const limitPerSource = parseEvidenceLimit(args.limit)
+    const force = parseBooleanToken(
+      typeof args.force === 'boolean' ? 'true' : typeof args.force === 'string' ? args.force : null,
+    ) === true
+    const signingKey = resolveEvidenceSigningKey()
+    const container = await createRequestContainer()
+    const service = container.resolve('auditEvidenceExportService') as AuditEvidenceExportService
+    const bundle = await service.export({
+      tenantId,
+      organizationId,
+      after,
+      before,
+      limitPerSource,
+    }, signingKey)
+
+    await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 })
+    await writeFile(outputPath, `${JSON.stringify(bundle, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: force ? 'w' : 'wx',
+      mode: 0o600,
+    })
+    await chmod(outputPath, 0o600)
+
+    console.log('[evidence:export] Complete.')
+    console.log(`  File: ${outputPath}`)
+    console.log(`  Records: ${bundle.records.length}`)
+    console.log(`  Final hash: ${bundle.integrity.finalHash}`)
+  },
+}
+
+const evidenceVerify: ModuleCli = {
+  command: 'evidence:verify',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const filePath = resolve(requireStringArg(args, ['file'], 'evidence file path'))
+    const signingKey = resolveEvidenceSigningKey()
+    const serialized = await readFile(filePath, 'utf8')
+    const bundle: unknown = JSON.parse(serialized)
+    const verification = verifyAuditEvidenceBundle(bundle, signingKey)
+    if (!verification.valid) {
+      throw new Error(`[internal] Audit evidence verification failed: ${verification.errors.join('; ')}`)
+    }
+
+    console.log('[evidence:verify] Valid.')
+    console.log(`  File: ${filePath}`)
+  },
+}
+
+const cliCommands = [
+  projectionsBackfill,
+  sensitiveDataRedact,
+  accessRetentionPrune,
+  evidenceExport,
+  evidenceVerify,
+]
 
 export default cliCommands

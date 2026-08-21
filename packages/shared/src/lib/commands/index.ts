@@ -5,6 +5,7 @@ export * from './customFieldSnapshots'
 export * from './undo'
 export * from './redo'
 export * from './audit-redaction'
+export * from './correlation'
 export {
   CommandInterceptorError,
   isCommandInterceptorError,

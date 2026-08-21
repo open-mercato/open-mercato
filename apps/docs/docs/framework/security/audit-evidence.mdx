@@ -1,0 +1,51 @@
+---
+title: Signed Audit Evidence
+description: Export and verify scoped action and access audit records as one signed JSON file.
+---
+
+# Signed Audit Evidence
+
+Open Mercato can export action and access logs for one tenant and organization as a signed JSON file.
+
+Every record has a correlation ID. HTTP activity uses the request ID. Records are sorted, linked with an HMAC-SHA256 hash chain, and covered by one bundle signature.
+
+## Configure the signing key
+
+Set a high-entropy key with at least 32 bytes:
+
+```bash
+export OM_AUDIT_EVIDENCE_HMAC_KEY="<secret-from-your-secret-manager>"
+```
+
+Keep the key outside the repository and evidence file. The exported JSON contains a short key identifier, never the key itself.
+
+## Export
+
+Both tenant and organization are required:
+
+```bash
+yarn mercato audit_logs evidence:export \
+  --tenant <tenant-uuid> \
+  --org <organization-uuid> \
+  --after 2026-08-01T00:00:00Z \
+  --before 2026-09-01T00:00:00Z \
+  --out ./evidence/audit-2026-08.json
+```
+
+Use `--limit <number>` to change the per-source limit. The default is 10,000 and the maximum is 100,000. The export stops instead of writing a partial package when any source exceeds the limit. Narrow the time range or increase the limit and retry. The command refuses to replace an existing file unless `--force` is supplied. New files are written with owner-only permissions (`0600`).
+
+The export contains decrypted audit payloads and can include personal or business data. Store it in an encrypted, access-controlled location. Immutable or Object Lock storage is recommended for long-term evidence retention.
+
+## Verify
+
+Use the same signing key:
+
+```bash
+yarn mercato audit_logs evidence:verify --file ./evidence/audit-2026-08.json
+```
+
+Verification fails when a record or bundle field was changed, a record was deleted or inserted, the order changed, the source counts no longer match, or a different key is used.
+
+## Integrity boundary
+
+The signature protects the evidence file from the moment it is created. It does not prove that a privileged actor did not alter source database rows before export. For stronger assurance, run exports on a schedule, send them directly to immutable storage, restrict database administration, and monitor access to the signing key.
