@@ -116,8 +116,6 @@ export const composeMessageSchema = z.object({
   attachmentRecordId: z.string().min(1).max(255).optional(),
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional().default(false),
-  /** Normalized timestamp for imported messages; null means unknown. */
-  sentAt: z.date().nullable().optional(),
   parentMessageId: z.string().uuid().optional(),
   isDraft: z.boolean().optional().default(false),
 }).superRefine((value, ctx) => {

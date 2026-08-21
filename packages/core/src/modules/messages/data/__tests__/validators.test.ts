@@ -1,6 +1,18 @@
 import { composeMessageSchema, forwardMessageSchema, messageActionSchema, updateDraftSchema } from '../validators'
 
 describe('messages validators', () => {
+  it('does not expose the internal imported-message timestamp in the public compose schema', () => {
+    const result = composeMessageSchema.parse({
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public',
+      externalEmail: 'recipient@example.com',
+      sentAt: null,
+    })
+
+    expect(result).not.toHaveProperty('sentAt')
+  })
+
   it('rejects duplicate recipient ids during compose', () => {
     const result = composeMessageSchema.safeParse({
       subject: 'Subject',

@@ -396,7 +396,6 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // when the matcher returned null (no token / JWZ / subject hit).
       parentMessageId: threadMatch?.messageThreadId ?? mapping?.messageThreadId,
       isDraft: false,
-      sentAt: m.timestamp,
       // Stable dedup key so a retried ingest (after a transient failure between
       // compose and the ExternalMessage anchor insert) reuses the message
       // composed by the first attempt instead of duplicating it. Mirrors the

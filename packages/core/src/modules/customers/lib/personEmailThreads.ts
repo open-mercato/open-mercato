@@ -300,10 +300,21 @@ export async function buildPersonEmailThreads(
       left.id,
       right.id,
     ))
+    const datedMessages = thread.messages.filter((message) => message.sentAt !== null)
+    const undatedMessages = thread.messages.filter((message) => message.sentAt === null)
     if (thread.messages.length > maxMessagesPerThread) {
-      thread.messages = thread.messages.slice(thread.messages.length - maxMessagesPerThread)
+      const retainedDatedMessages = maxMessagesPerThread > 0
+        ? datedMessages.slice(-maxMessagesPerThread)
+        : []
+      const remainingSlots = Math.max(0, maxMessagesPerThread - retainedDatedMessages.length)
+      const retainedUndatedMessages = remainingSlots > 0
+        ? undatedMessages.slice(-remainingSlots)
+        : []
+      thread.messages = [...retainedDatedMessages, ...retainedUndatedMessages]
     }
-    const last = thread.messages[thread.messages.length - 1]
+    const retainedDatedMessages = thread.messages.filter((message) => message.sentAt !== null)
+    const latestDatedMessage = retainedDatedMessages[retainedDatedMessages.length - 1]
+    const summaryMessage = latestDatedMessage ?? thread.messages[thread.messages.length - 1]
     const firstWithSubject = thread.messages.find((m) => m.subject)
     const participantSet = new Set<string>()
     for (const message of thread.messages) {
@@ -312,11 +323,11 @@ export async function buildPersonEmailThreads(
       if (message.direction === 'outbound') message.to.forEach((email) => participantSet.add(email))
     }
     thread.subject = firstWithSubject?.subject ?? thread.subject
-    thread.preview = truncate(last?.bodyText ?? null)
+    thread.preview = truncate(summaryMessage?.bodyText ?? null)
     thread.participants = Array.from(participantSet)
-    thread.lastMessageAt = last?.sentAt ?? null
-    thread.lastDirection = last?.direction ?? thread.lastDirection
-    thread.providerKey = last?.providerKey ?? thread.providerKey
+    thread.lastMessageAt = latestDatedMessage?.sentAt ?? null
+    thread.lastDirection = summaryMessage?.direction ?? thread.lastDirection
+    thread.providerKey = summaryMessage?.providerKey ?? thread.providerKey
     thread.messageCount = thread.messages.length
     threads.push(thread)
   }

@@ -57,13 +57,16 @@ export function mergeOptimisticEmailThreads(
         left.id,
         right.id,
       ))
-      const last = messages[messages.length - 1]
+      const latestDatedMessage = findLatestDatedMessage(messages)
+      const summaryMessage = latestDatedMessage ?? (
+        existing.lastMessageAt === null ? messages[messages.length - 1] : undefined
+      )
       byKey.set(threadKey, {
         ...existing,
         messages,
         messageCount: messages.length,
-        lastMessageAt: last?.sentAt ?? existing.lastMessageAt,
-        lastDirection: last?.direction ?? existing.lastDirection,
+        lastMessageAt: latestDatedMessage?.sentAt ?? existing.lastMessageAt,
+        lastDirection: summaryMessage?.direction ?? existing.lastDirection,
       })
     } else {
       byKey.set(threadKey, {
@@ -90,6 +93,13 @@ export function mergeOptimisticEmailThreads(
       right.threadKey,
       'desc',
     ))
+}
+
+function findLatestDatedMessage(messages: EmailThreadMessage[]): EmailThreadMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].sentAt !== null) return messages[index]
+  }
+  return undefined
 }
 
 function compareNullableDates(

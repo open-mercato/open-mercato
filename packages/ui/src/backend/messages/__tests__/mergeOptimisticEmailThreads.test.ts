@@ -117,6 +117,37 @@ describe('mergeOptimisticEmailThreads', () => {
     expect(merged.map((item) => item.threadKey)).toEqual(['newest', 'known', 'unknown'])
   })
 
+  it('summarizes a mixed thread from its newest dated optimistic message', () => {
+    const server = [
+      thread({
+        threadKey: 't1',
+        lastMessageAt: '2026-06-02T09:00:00.000Z',
+        lastDirection: 'inbound',
+        messages: [
+          message({ id: 'known', direction: 'inbound', sentAt: '2026-06-02T09:00:00.000Z' }),
+          message({ id: 'unknown', direction: 'inbound', sentAt: null }),
+        ],
+      }),
+    ]
+    const opt = optimistic({
+      id: 'optimistic:newest',
+      messageId: 'msg-newest',
+      threadKey: 't1',
+      direction: 'outbound',
+      sentAt: '2026-06-02T12:00:00.000Z',
+    })
+
+    const merged = mergeOptimisticEmailThreads(server, [opt])
+
+    expect(merged[0].messages.map((item) => item.id)).toEqual([
+      'known',
+      'optimistic:newest',
+      'unknown',
+    ])
+    expect(merged[0].lastMessageAt).toBe('2026-06-02T12:00:00.000Z')
+    expect(merged[0].lastDirection).toBe('outbound')
+  })
+
   it('preserves a failed status and keeps it visible until the server has the message', () => {
     const server = [thread({ threadKey: 't1', messages: [message({ id: 's1', messageId: 's1' })] })]
     const opt = optimistic({

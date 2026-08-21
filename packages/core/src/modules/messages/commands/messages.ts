@@ -320,7 +320,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         priority: input.priority,
         status: input.isDraft ? 'draft' : 'sent',
         isDraft: input.isDraft ?? false,
-        sentAt: input.isDraft ? null : input.sentAt !== undefined ? input.sentAt : new Date(),
+        sentAt: input.isDraft ? null : new Date(),
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,

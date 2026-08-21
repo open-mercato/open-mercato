@@ -85,6 +85,7 @@ User-facing surfaces render the canonical timestamp when present and a translate
 - A valid MIME date and a different valid provider date are both preserved: the MIME date is canonical and the provider date remains diagnostic metadata.
 - When only provider time exists, it supplies both the canonical occurrence time and `providerTimestamp`.
 - When neither exists, both values are `null`; local import time is not substituted.
+- A mixed thread derives its summary and ordering date from its newest dated message; an undated message cannot erase a known thread date. When a thread is capped, newest dated messages are retained before undated messages.
 - Replay and dedup continue to use `(channelId, externalMessageId)`, not timestamps.
 
 ## 📝 Risks & Impact Review
@@ -138,3 +139,4 @@ Ensure every affected projection, ordering path, and UI handles nullable canonic
 ## Changelog
 
 - 2026-08-21: Initial focused specification recording the simplified nullable canonical timestamp and optional provider-native timestamp contract agreed for #5326 and PR #5446.
+- 2026-08-21: Removed imported timestamp authority from the authored-message compose path and defined mixed dated/undated thread summary and retention behavior. Fix 1's `record_existing` command owns imported `sentAt` persistence.
