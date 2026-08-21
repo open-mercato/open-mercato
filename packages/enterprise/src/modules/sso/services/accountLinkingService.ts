@@ -1,5 +1,5 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
-import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'
@@ -7,6 +7,7 @@ import { emitSsoEvent } from '../events'
 import { EmailNotVerifiedError } from '../lib/errors'
 import type { SsoIdentityPayload } from '../lib/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { syncSsoRoleGrants } from '../lib/sso-role-sync'
 
 const logger = createLogger('sso').child({ component: 'account-linking' })
 
@@ -215,131 +216,6 @@ export class AccountLinkingService {
     tenantId: string,
     idpGroups?: string[],
   ): Promise<void> {
-    const resolvedTenantId = tenantId || user.tenantId || ''
-    if (!resolvedTenantId) return
-
-    const allRoles = await em.find(Role, { tenantId: resolvedTenantId, deletedAt: null } as FilterQuery<Role>)
-    const roleByNormalizedName = new Map<string, Role>()
-    for (const role of allRoles) {
-      const normalized = normalizeToken(role.name)
-      if (normalized) roleByNormalizedName.set(normalized, role)
-    }
-
-    // Resolve desired role IDs from IdP groups using merged mappings
-    const desiredRoleNames = resolveRoleNamesFromIdpGroups(idpGroups, config.appRoleMappings)
-    const desiredRoleIds = new Set<string>()
-    for (const roleName of desiredRoleNames) {
-      const role = roleByNormalizedName.get(roleName)
-      if (role) desiredRoleIds.add(role.id)
-    }
-
-    // Query current SSO grants for this user+config
-    const existingGrants = await em.find(SsoRoleGrant, {
-      userId: user.id,
-      ssoConfigId: config.id,
-    })
-    const existingGrantedRoleIds = new Set(existingGrants.map((g) => g.roleId))
-
-    // Compute diff
-    const toAdd = [...desiredRoleIds].filter((id) => !existingGrantedRoleIds.has(id))
-    const toRemove = existingGrants.filter((g) => !desiredRoleIds.has(g.roleId))
-
-    // Add new roles
-    for (const roleId of toAdd) {
-      const role = allRoles.find((r) => r.id === roleId)
-      if (!role) continue
-      await this.ensureUserRole(em, user, role)
-      const grant = em.create(SsoRoleGrant, {
-        tenantId: resolvedTenantId,
-        organizationId: config.organizationId,
-        userId: user.id,
-        roleId,
-        ssoConfigId: config.id,
-      } as RequiredEntityData<SsoRoleGrant>)
-      em.persist(grant)
-    }
-
-    // Remove stale SSO-sourced roles
-    for (const grant of toRemove) {
-      const userRole = await em.findOne(UserRole, {
-        user: user.id,
-        role: grant.roleId,
-        deletedAt: null,
-      } as FilterQuery<UserRole>)
-      if (userRole) {
-        em.remove(userRole)
-      }
-      em.remove(grant)
-    }
-
-    // Clean up orphaned soft-deleted UserRole rows (ghost rows from previous soft-delete logic)
-    const allUserRoles = await em.find(UserRole, { user: user.id } as FilterQuery<UserRole>)
-    for (const ur of allUserRoles) {
-      if (ur.deletedAt) {
-        em.remove(ur)
-      }
-    }
-
-    if (toAdd.length > 0 || toRemove.length > 0 || allUserRoles.some((ur) => ur.deletedAt)) {
-      await em.flush()
-    }
+    await syncSsoRoleGrants(em, user, config, tenantId, idpGroups)
   }
-
-  private async ensureUserRole(em: EntityManager, user: User, role: Role): Promise<void> {
-    const existingLink = await em.findOne(UserRole, {
-      user: user.id,
-      role: role.id,
-      deletedAt: null,
-    } as FilterQuery<UserRole>)
-    if (existingLink) return
-
-    const userRole = em.create(UserRole, { user, role, createdAt: new Date() })
-    await em.persist(userRole).flush()
-  }
-}
-
-function resolveRoleNamesFromIdpGroups(
-  idpGroups?: string[],
-  configMappings?: Record<string, string>,
-): string[] {
-  if (!Array.isArray(idpGroups) || idpGroups.length === 0) return []
-
-  const normalizedGroups = idpGroups
-    .map((group) => normalizeToken(group))
-    .filter((group): group is string => group !== null)
-  if (normalizedGroups.length === 0) return []
-
-  const mergedMappings = loadMergedMappings(configMappings)
-  const roleNames = new Set<string>()
-
-  for (const group of normalizedGroups) {
-    const mapped = mergedMappings.get(group)
-    if (!mapped?.length) continue
-
-    for (const role of mapped) roleNames.add(role)
-  }
-
-  return Array.from(roleNames)
-}
-
-function loadMergedMappings(configMappings?: Record<string, string>): Map<string, string[]> {
-  const mappings = new Map<string, string[]>()
-
-  if (configMappings && Object.keys(configMappings).length > 0) {
-    for (const [group, roleName] of Object.entries(configMappings)) {
-      const normalizedGroup = normalizeToken(group)
-      if (!normalizedGroup) continue
-      const normalizedRole = normalizeToken(roleName)
-      if (!normalizedRole) continue
-      mappings.set(normalizedGroup, [normalizedRole])
-    }
-  }
-
-  return mappings
-}
-
-function normalizeToken(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const normalized = value.trim().toLowerCase()
-  return normalized.length > 0 ? normalized : null
 }

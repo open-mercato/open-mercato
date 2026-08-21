@@ -1,6 +1,6 @@
 # SPEC-ENT-004: SSO & Directory Sync Module for @open-mercato/enterprise
 
-**Status:** Draft
+**Status:** Partially Implemented
 **Date:** 2026-02-19
 **Package:** `packages/enterprise/src/modules/sso/`
 **Framework:** Next.js 16, React 19, MikroORM 6, PostgreSQL
@@ -11,6 +11,23 @@
 ## TLDR
 
 Enterprise SSO module enabling federated authentication (OIDC + SAML 2.0) with any corporate identity provider, plus SCIM 2.0 directory synchronization for automated user lifecycle management. Per-organization IdP configuration, email-domain-based Home Realm Discovery, JIT provisioning, group-to-role mapping, and SSO enforcement policies. Zero modifications to the core auth module.
+
+## Implemented Provisioning Baseline
+
+The current module implements OIDC and a SCIM 2.0 provisioning surface for users and groups. The SCIM surface includes:
+
+- user create, list, read, patch, and deactivate operations;
+- group create, list, read, patch, and delete operations;
+- Entra-compatible group membership add, replace, and filtered remove operations;
+- sequential Bulk requests for user and group create, patch, and delete operations, with `bulkId` references and per-operation results;
+- `ServiceProviderConfig`, `Schemas`, and `ResourceTypes` discovery endpoints;
+- organization-bound bearer tokens whose creator is retained for audit;
+- provisioning logs for user and group mutations;
+- role synchronization that only removes grants previously sourced from the same SSO configuration.
+
+Microsoft Entra ID is the primary compatibility profile. Automated integration coverage exercises user provisioning, group membership changes, Bulk references, token creator attribution, and discovery endpoints. SAML support described elsewhere in this specification remains outside this implementation baseline.
+
+All changes are additive. Existing OIDC, JIT, SCIM User, token, and configuration endpoints retain their routes and payloads. The migration adds `scim_groups` and `scim_group_members` without changing existing records.
 
 ---
 
@@ -393,3 +410,4 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 |---|---|
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
 | 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |
+| 2026-08-21 | Documented the implemented SCIM Groups, membership, Bulk, discovery, token attribution, and Entra compatibility baseline |

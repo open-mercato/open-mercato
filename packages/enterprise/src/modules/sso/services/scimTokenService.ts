@@ -54,7 +54,7 @@ export class ScimTokenService {
       tokenHash,
       tokenPrefix,
       isActive: true,
-      createdBy: null,
+      createdBy: scope.actorId ?? null,
       tenantId: config.tenantId ?? null,
       organizationId: config.organizationId,
     } as RequiredEntityData<ScimToken>)
