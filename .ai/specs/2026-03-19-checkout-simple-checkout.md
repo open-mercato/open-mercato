@@ -460,6 +460,8 @@ Retained from v1, renamed for the template:
 
 Admin mutations remain undoable. **Fixed 2026-08-17**: an earlier draft said session transitions are "not commands... exposing them as undoable admin operations would let a merchant 'undo' a payment" — but non-undoable and command-routed are not the same choice, and Phase A's own `checkout.transaction.create`/`checkout.transaction.updateStatus` are already command-routed despite having no meaningful undo either (`commands/transactions.ts`). Each step of the submit sequence (§7.2) is now a registered command with a no-op `undo` — this keeps the correct, load-bearing rule (a payment must never be "undoable") while giving session writes the same mutation-guard/interceptor/audit wiring every other domain write in this platform gets through the command bus.
 
+`checkout.transaction.updateStatus` itself has, since 2026-08-04, enforced a strict transition state machine (`VALID_CHECKOUT_TRANSITIONS`, rejecting regressions out of `completed`/`failed`/`cancelled`/`expired`) plus an atomic compare-and-swap via `tx.nativeUpdate` with the previous status pinned in the `WHERE` clause, returning `409` on a lost write race between the submit route and the gateway webhook. The conditional `open → submitting` guard on `CheckoutSession.status` (§7.4) is the same CAS pattern applied to the new session entity.
+
 ---
 
 ## 12) Background Jobs
@@ -625,6 +627,10 @@ Rate limits, encryption, redaction, admin session viewer with the event trail, p
 ---
 
 ## 20) Changelog
+
+### 2026-08-21 — merged with `main`
+
+Reconciled with `main`'s `checkout.transaction.updateStatus` hardening (PR #4814, merged 2026-08-04): a strict transition state machine (`VALID_CHECKOUT_TRANSITIONS`) plus an atomic compare-and-swap via `tx.nativeUpdate`, closing a race between the submit route and the gateway webhook. No spec changes were required beyond noting it in §11 (Undo/Command Semantics) as the precedent the new `CheckoutSession.status` CAS guard (§7.4) follows.
 
 ### 2026-08-17 — v2.1 (pre-implementation fixes)
 

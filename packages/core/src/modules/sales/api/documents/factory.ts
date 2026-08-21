@@ -4,11 +4,16 @@ import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mer
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
-import { SalesDocumentTagAssignment } from '../../data/entities'
+import { SalesChannel, SalesDocumentTagAssignment } from '../../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  ORDER_PAYMENT_LEDGER_FIELDS,
+  ORDER_PAYMENT_LEDGER_WARNING_CODE,
   orderCreateSchema,
   quoteCreateSchema,
+  type OrderPaymentLedgerWarning,
 } from '../../data/validators'
 import {
   createPagedListResponseSchema,
@@ -19,6 +24,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -35,6 +41,13 @@ type DocumentBinding = {
   deleteCommandId: string
   manageFeature: string
   viewFeature: string
+}
+
+type DocumentCreateResult = {
+  orderId?: string
+  quoteId?: string
+  id?: string
+  warnings?: OrderPaymentLedgerWarning[]
 }
 
 const rawBodySchema = z.object({}).passthrough()
@@ -79,6 +92,18 @@ const listSchema = z
     id: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     channelId: z.string().uuid().optional(),
+    channelIds: z
+      .string()
+      .optional()
+      .describe(
+        'Comma-separated sales channel uuids; matches documents on any of them. Capped at 200 ids, malformed entries are dropped. Ignored when channelId is supplied; combines with channelIdsEmpty.',
+      ),
+    channelIdsEmpty: z
+      .string()
+      .optional()
+      .describe(
+        'Boolean token; matches documents with no sales channel. Ignored when channelId is supplied; combines with channelIds.',
+      ),
     lineItemCountMin: z.coerce.number().min(0).optional(),
     lineItemCountMax: z.coerce.number().min(0).optional(),
     totalNetMin: z.coerce.number().optional(),
@@ -107,8 +132,24 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   if (query.customerId) {
     filters.customer_entity_id = { $eq: query.customerId }
   }
+  // Singular wins over plural, mirroring how `api/channels/route.ts` resolves `id` before `ids`.
+  // An all-malformed `channelIds` narrows to no channel filter rather than an empty-set filter, so
+  // a typo returns the unfiltered page instead of silently returning zero rows.
   if (query.channelId) {
     filters.channel_id = { $eq: query.channelId }
+  } else {
+    const channelIds = parseIdsParam(query.channelIds)
+    const wantsUnassigned = parseBooleanToken(query.channelIdsEmpty) === true
+    if (channelIds.length && wantsUnassigned) {
+      // A channel multi-select with an "(No channel)" entry produces both at once, so they combine
+      // rather than one silently dropping the other. `filters.$or` is a single key — a future filter
+      // that also needs `$or` would clobber this one; nothing else in this factory writes it today.
+      filters.$or = [{ channel_id: { $in: channelIds } }, { channel_id: { $exists: false } }]
+    } else if (wantsUnassigned) {
+      filters.channel_id = { $exists: false }
+    } else if (channelIds.length) {
+      filters.channel_id = { $in: channelIds }
+    }
   }
   const lineRange: Record<string, number> = {}
   if (typeof query.lineItemCountMin === 'number') lineRange.$gte = query.lineItemCountMin
@@ -256,6 +297,62 @@ const attachTags = async (payload: any, ctx: any) => {
     if (!id) return
     const list = grouped.get(id)
     if (list) item.tags = list
+  })
+}
+
+// Liveness note: this hook runs BEFORE the CRUD list cache stores the payload, so `channelName`
+// and `channelCode` are embedded in the cached entry. What keeps them fresh is that the hook also
+// runs on the cache-HIT path (shared/lib/crud/factory.ts:1683) and reassigns both fields
+// unconditionally for every item carrying a channel id. Anything that later skips this hook on a
+// hit — the way `skipEnrichersOnCacheHit` does for record-pure enrichers — would start serving the
+// stale names baked into the entry.
+export const attachChannelNames = async (
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx,
+) => {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  if (!items.length) return
+  const channelIds = Array.from(
+    new Set(
+      items
+        .map((item) => (item && typeof item.channelId === 'string' ? item.channelId : null))
+        .filter((value): value is string => !!value)
+    )
+  )
+  if (!channelIds.length) return
+  const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as EntityManager) : null
+  if (!em) return
+
+  const where: Record<string, unknown> = { id: { $in: channelIds } }
+  if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
+  const orgIds =
+    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
+      ? ctx.organizationIds.filter((val: string | null) => !!val)
+      : ctx?.selectedOrganizationId
+        ? [ctx.selectedOrganizationId]
+        : []
+  if (orgIds.length) where.organizationId = { $in: orgIds }
+
+  // Only `name` and `code` are read. Without this projection the query loads the whole channel row,
+  // and `sales/encryption.ts` declares eight of its columns encrypted (contact email/phone, the
+  // address block) — so every documents-list request would decrypt PII it never renders, on the
+  // cache-hit path too.
+  const channels = await findWithDecryption(
+    em,
+    SalesChannel,
+    where,
+    { fields: ['id', 'name', 'code'] },
+    {
+      tenantId: ctx?.auth?.tenantId ?? null,
+      organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null,
+    }
+  )
+  const byId = new Map(channels.map((channel) => [channel.id, channel]))
+  items.forEach((item) => {
+    if (!item || typeof item.channelId !== 'string') return
+    const channel = byId.get(item.channelId)
+    item.channelName = channel?.name ?? null
+    item.channelCode = channel?.code ?? null
   })
 }
 
@@ -472,7 +569,12 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           )
           return parsed
         },
-        response: ({ result }: { result: any }) => ({ id: result?.orderId ?? result?.quoteId ?? result?.id ?? null }),
+        response: ({ result }: { result?: DocumentCreateResult | null }) => ({
+          id: result?.orderId ?? result?.quoteId ?? result?.id ?? null,
+          ...(binding.kind === 'order' && Array.isArray(result?.warnings)
+            ? { warnings: result.warnings }
+            : {}),
+        }),
         status: 201,
       },
       update: {
@@ -513,6 +615,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     hooks: {
       afterList: async (payload: any, ctx: CrudCtx) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
+        await attachChannelNames(payload, ctx)
         if (binding.kind === 'order' && Array.isArray(payload?.items) && payload.items.length === 1) {
           const item = payload.items[0] as Record<string, unknown>
           const orderId = typeof item?.id === 'string' ? item.id : null
@@ -585,6 +688,8 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     paymentMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     currencyCode: z.string().nullable(),
     channelId: z.string().uuid().nullable(),
+    channelName: z.string().nullable().optional(),
+    channelCode: z.string().nullable().optional(),
     organizationId: z.string().uuid().nullable(),
     tenantId: z.string().uuid().nullable(),
     validFrom: z.string().nullable().optional(),
@@ -616,8 +721,18 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     listResponseSchema,
     create: {
       schema: createSchema,
-      responseSchema: z.object({ id: z.string().uuid().nullable() }),
-      description: `Creates a new sales ${binding.kind}.`,
+      responseSchema: binding.kind === 'order'
+        ? z.object({
+            id: z.string().uuid().nullable(),
+            warnings: z.array(z.object({
+              code: z.literal(ORDER_PAYMENT_LEDGER_WARNING_CODE),
+              fields: z.array(z.enum(ORDER_PAYMENT_LEDGER_FIELDS)),
+            })).optional(),
+          })
+        : z.object({ id: z.string().uuid().nullable() }),
+      description: binding.kind === 'order'
+        ? 'Creates a new sales order. paidTotalAmount, refundedTotalAmount, and outstandingAmount are deprecated compatibility inputs: supplied values are ignored and reported in warnings. Record payments through sales.payments.create or POST /api/sales/payments.'
+        : 'Creates a new sales quote.',
     },
     del: {
       schema: defaultDeleteRequestSchema,

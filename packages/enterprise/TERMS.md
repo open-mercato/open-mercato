@@ -70,13 +70,15 @@ LICENSOR: OPEN MERCATO SP. Z O.O.   ·   VERSION 2.2   ·   EFFECTIVE: JULY 2026
 
 5.1. Term; paid access. The Contract begins on the Effective Date stated in the Order Form and remains in force for the billing period stated in the Order Form (the "Billing Period"). The Billing Period constitutes the contractual commitment period for the Contract. Unless either party gives timely notice of non-renewal under Section 5.2, including following Licensee's objection to updated Terms under Section 9.6, or the Contract is terminated earlier in accordance with Section 5.4, the Contract automatically renews for successive Billing Periods of the same length. Licensee's rights to access and use the Software and to receive the services under the Contract apply only during the then-current Billing Period and are subject to payment of the applicable fees in accordance with Section 4.
 
-5.2. Non-renewal for convenience. Either party may elect not to renew the Contract for convenience by giving written notice to the other party. Non-renewal is effective only at the end of the then-current Billing Period. If the Billing Period is annual, notice of non-renewal must be given at least thirty (30) days before the end of the then-current Billing Period. If the Billing Period is monthly, notice of non-renewal must be given at least seven (7) days before the end of the then-current Billing Period. For clarity, neither party may terminate the Contract for convenience before the end of the then-current Billing Period.
+5.2. Non-renewal for convenience. Either party may elect not to renew the Contract for convenience by giving written notice to the other party. Non-renewal is effective only at the end of a Billing Period. Notice of non-renewal must be given at least three (3) months in advance and takes effect at the end of the first Billing Period ending on or after expiry of that notice period. For clarity, neither party may terminate the Contract for convenience before the end of the then-current Billing Period.
 
 5.3. Suspension and termination for non-payment. If any undisputed fee is not paid when due, Licensor may suspend Licensee's access to the Software, services, and enterprise-only resources until all overdue amounts are paid. Non-payment of undisputed fees constitutes a material breach capable of termination under Section 5.4, and any notice given under this Section 5.3 may also constitute notice of material breach under Section 5.4 if it identifies the non-payment as a material breach. Termination on grounds of non-payment does not relieve Licensee from its obligation to pay all fees due for the then-current Billing Period.
 
 5.4. Termination for cause. Either party may terminate the Contract with immediate effect if the other party materially breaches the Contract and fails to cure that breach within ten (10) days after receiving written notice specifying the breach. Either party may also terminate the Contract with immediate effect, to the extent permitted by applicable law, if the other party becomes insolvent, is unable to pay its debts as they fall due, makes an assignment for the benefit of creditors, enters into liquidation, bankruptcy, administration, receivership, restructuring, or similar proceedings, has a receiver, administrator, trustee, or similar officer appointed over all or a material part of its assets, or ceases or threatens to cease carrying on business.
 
-5.5. Effect of termination. Upon termination, (a) Licensee's rights to access and use the Software as provided under the Contract end as of the effective termination date, (b) Licensor may disable or terminate Licensee's access to enterprise-only channels, materials, repositories, binaries, upgrade packages, updates, and similar resources provided under the Contract, and (c) Licensor's obligation to provide the services in Section 3 ends as of the effective termination date. For clarity, termination of the Contract does not terminate any open-source license terms that may apply to Open-Source Components obtained independently of Licensor's enterprise distribution.
+5.5. Effect of termination. Subject to Section 5.6, upon termination, (a) Licensee's rights to access and use the Software as provided under the Contract end as of the effective termination date, (b) Licensor may disable or terminate Licensee's access to enterprise-only channels, materials, repositories, binaries, upgrade packages, updates, and similar resources provided under the Contract, and (c) Licensor's obligation to provide the services in Section 3 ends as of the effective termination date. For clarity, termination of the Contract does not terminate any open-source license terms that may apply to Open-Source Components obtained independently of Licensor's enterprise distribution.
+
+5.6. Continued use of the deployed Software after the Contract ends (no vendor lock-in). Notwithstanding Section 5.5(a), Licensor grants Licensee a perpetual, non-exclusive, non-transferable, non-sublicensable license to continue to install, run, and use the Retained Version for Licensee's internal business purposes and within the licensed project scope stated in Section 2.2, where the Contract ends by expiry, by non-renewal under Section 5.2, or by termination for non-payment under Sections 5.3 and 5.4, provided that all fees accrued up to the effective end date have been paid. "Retained Version" means the version of the Software last made available to Licensee by Licensor under the Contract before that date. The Retained Version is provided "as is" and carries no updates, security patches, new features, upgrade packages, enterprise-only resources, or services under Section 3, and Licensor has no obligation to provide any of them. Sections 2.4 (Restrictions), 2.6 (Ownership), 6 (Disclaimer; limitation of liability), and 8.1 (Confidentiality) continue to apply to the Retained Version. This Section 5.6 does not apply where Licensor terminates the Contract under Section 5.4 for an uncured material breach by Licensee other than non-payment, and it does not restore access to the resources described in Section 5.5(b).
 
 ### Disclaimer; limitation of liability
 
@@ -154,12 +156,22 @@ Licensing model
 Per project, not per seat. The license is charged per Open Mercato project / per monorepo - never per developer or per end user.
 
 * Unlimited Seats - no limits on the number of users or servers within a given system, so your licensing never blocks customer or team growth.
+* No vendor lock-in - if the subscription ends, you keep running the version of the enterprise modules you already have, for as long as you want. What stops are updates, security patches, new features and support. The full rule is in the Terms, cl. 5.6.
 * Revenue-based tiering - the applicable tier is determined by the Licensee's annual revenue.
 * Usage verification ("Phone Home") - for on-premise deployments, the system reports aggregate user/usage counts to Open Mercato. This enables transparent billing verification without Open Mercato needing standing access to your code repository.
 
 Project definition: single business domain / department / business purpose or goal-oriented deployment of Open Mercato - not limited to a physical single instance (can be a multi-server deployment)
 
 ### 03 - TIERS
+
+Starter Pack - where every engagement begins
+
+Every engagement starts with the purchase of a Starter Pack license and a sandbox. The license purchase opens the option of any further collaboration - discovery workshops, Proof of Concept and implementation work with Open Mercato and its Implementation Partners. The Starter Pack includes:
+
+* Sandbox - an Open Mercato project sandbox for your team and coding agents.
+* 1-hour onboarding session - an introduction to the sandbox, AI-engineering and Open Mercato, run by our Customer Success Manager.
+
+The Starter Pack fee is set out in the Order Form / at checkout and applies until the Proof of Concept starts. From POC launch, the subscription is billed according to the tiers below.
 
 Subscription tiers
 
@@ -181,7 +193,7 @@ Services by tier
 
 | SERVICE / CAPABILITY | BASIC | MEDIUM | ENTERPRISE |
 |---|---|---|---|
-| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking, Agents Orchestrator). If your license expires, you can continue using these modules in their last deployed version, but they will no longer receive updates, security patches, new features, or ongoing support. | Included | Included | Included |
+| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking, Agents Orchestrator). If the subscription ends, you keep running the version of these modules you already have (Terms, cl. 5.6); they stop receiving updates, security patches, new features, and support. | Included | Included | Included |
 | Unlimited users & servers (per instance / project / monorepo) | Included | Included | Included |
 | Time-limited offer: Open Mercato project sandboxes with dev/staging and production environment, CI/CD and AI SDLC pipeline (backup & 7-day restore) — early access (beta) | 1 active project | 3 active projects | 10 active projects |
 | Priority support (AI-assisted helpdesk via Discord / ticketing / automatic issue triage by selected Github accounts) | up to 5 Accounts, 1 issue in the pipeline | up to 10 Accounts, includes Discord, 3 issues in the pipeline | Unlimited Accounts, includes Discord, 10 issues in the pipeline |
@@ -237,9 +249,10 @@ How the engagement works
 
 Open Mercato with their Implementation Partners works directly with end customers and runs these processes end-to-end. The path is designed to de-risk adoption and transfer AI-engineering capability to customer's team:
 
-1. Paid discovery workshop - align on the use case, architecture and the way of working.
-2. Paid Proof of Concept - a working, scoped POC that proves value and teaches the customer's team the Open Mercato Way.
-3. Enterprise Subscription - license the platform so your team can extend the system independently, on a safe, certified foundation.
+1. Starter Pack license & sandbox - every engagement starts here. Purchasing the license opens the option of any further collaboration and gives your team a sandbox from day one.
+2. Paid discovery workshop - align on the use case, architecture and the way of working.
+3. Paid Proof of Concept - a working, scoped POC that proves value and teaches the customer's team the Open Mercato Way. From POC launch, the subscription is billed according to the applicable tier (Section 03).
+4. Enterprise Subscription - license the platform so your team can extend the system independently, on a safe, certified foundation.
 
 Implementation Partners. Certified software consultancies handle efficient delivery. The cheaper Basic tier makes the license easy for partners to attach to their projects. Partners do not build or modify the commercial core.
 

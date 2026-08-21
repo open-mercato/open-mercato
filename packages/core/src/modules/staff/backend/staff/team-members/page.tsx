@@ -3,7 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import type { ColumnDef, SortingFn, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef, LegacyFeatures } from '@tanstack/react-table/legacy'
+import type { SortFn, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -141,7 +142,7 @@ export default function StaffTeamMembersPage() {
     },
   }), [t])
 
-  const groupedSortingFn = React.useCallback((field: GroupedSortField): SortingFn<TeamMemberRow> => {
+  const groupedSortingFn = React.useCallback((field: GroupedSortField): SortFn<LegacyFeatures, TeamMemberRow> => {
     return (rowA, rowB) => compareGroupedRows(field, labels.groups, rowA.original, rowB.original)
   }, [labels.groups])
 

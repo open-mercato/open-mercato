@@ -12,6 +12,13 @@ import {
   type ResolvedJoin,
 } from './join-utils'
 import { resolveSearchConfig } from '../search/config'
+import {
+  createSearchTokenAvailability,
+  isSearchFilterOp,
+  type SearchTokenAvailability,
+  type SearchTokenProbeDb,
+  type SearchTokenProbeQueryBuilder,
+} from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
@@ -20,6 +27,7 @@ import {
   type CustomFieldDefinitionRow,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
+import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { mapWithConcurrency } from './bounded-decrypt'
 import { createLogger } from '../logger'
@@ -63,6 +71,16 @@ const pluralizeBaseName = (name: string): string => {
   if (name.endsWith('y')) return `${name.slice(0, -1)}ies`
   return `${name}s`
 }
+
+/**
+ * Accepts a module-declared `EntityExtension.table` only when it is a bare SQL
+ * identifier. The value is interpolated into a join clause, so anything else is
+ * ignored in favour of the derived table name.
+ */
+const PLAIN_TABLE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+const isPlainTableIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && PLAIN_TABLE_IDENTIFIER_PATTERN.test(value)
 
 const toPascalCase = (value: string): string => {
   return value
@@ -206,8 +224,8 @@ function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, ent
  */
 export class BasicQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
-  private tableCache = new Map<string, boolean>()
   private searchAliasSeq = 0
+  private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
   constructor(
     private em: EntityManager,
@@ -228,6 +246,22 @@ export class BasicQueryEngine implements QueryEngine {
     const emAny = this.em as any
     if (typeof emAny?.getKysely === 'function') return emAny.getKysely() as AnyDb
     throw new Error('BasicQueryEngine requires an EntityManager exposing getKysely() (MikroORM v7)')
+  }
+
+  private searchAvailability(): SearchTokenAvailability {
+    if (!this.searchAvailabilityInstance) {
+      this.searchAvailabilityInstance = createSearchTokenAvailability({
+        getDb: () => this.getDb() as unknown as SearchTokenProbeDb,
+        getConfig: resolveSearchConfig,
+        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(
+          query as unknown as AnyBuilder,
+          column,
+          scope,
+        ) as unknown as SearchTokenProbeQueryBuilder,
+        logDebug: (event, payload) => this.logSearchDebug(event, payload),
+      })
+    }
+    return this.searchAvailabilityInstance
   }
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -292,18 +326,25 @@ export class BasicQueryEngine implements QueryEngine {
     }
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
+    // Custom-field leaves carrying an orGroup belong to an OR disjunct; applying them
+    // one `.where()` at a time would AND them onto every disjunct (#5039).
+    const regularCfFilters = cfFilters.filter((filter) => !filter.orGroup)
+    const orGroupCfFilters = cfFilters.filter((filter) => filter.orGroup)
     const searchConfig = resolveSearchConfig()
+    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => isSearchFilterOp(filter.op))
     // Callers that opt out of automatic tenant/org scoping own the full
     // visibility predicate. Search-token filtering has its own tenant/org
     // guards, so it must be disabled on this direct-query path as documented
     // by QueryOptions.omitAutomaticTenantOrgScope.
-    const searchEnabled = !skipAutoScope && searchConfig.enabled && await this.tableExists('search_tokens')
-    const hasSearchTokens = searchEnabled
-      ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
+    const searchEnabled = !skipAutoScope && await this.searchAvailability().staticEnabled()
+    // Probe `search_tokens` only when this query actually searches (#4723): every consumer of
+    // `searchActive` sits behind a like/ilike guard, so on a plain list load the answer is never
+    // read — and the probe is a `LIMIT 1` the planner can resolve as a seq scan over a large
+    // `search_tokens`. The join path below already probes lazily for the same reason.
+    const hasSearchTokens = searchEnabled && searchFilters.length
+      ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
-    const joinSearchAvailability = new Map<string, boolean>()
-    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => filter.op === 'like' || filter.op === 'ilike')
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -333,6 +374,45 @@ export class BasicQueryEngine implements QueryEngine {
           organizationScope: orgScope,
         })
       }
+      const fallbackFields = searchFilters
+        .filter((filter) => !searchActive || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => String(filter.field))
+      if (fallbackFields.length) {
+        await warnOnCiphertextLikeFallback({
+          entity: String(entity),
+          fields: fallbackFields,
+          tenantId: opts.tenantId ?? null,
+          // `searchEnabled` also folds in the missing-table and
+          // omitAutomaticTenantOrgScope cases, which are "no usable tokens"
+          // rather than "the operator switched search off".
+          reason: searchActive
+            ? 'no-indexable-tokens'
+            : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          service: this.getEncryptionService(),
+        })
+      }
+    }
+    for (const [alias, joinedFilters] of joinFilters) {
+      const filters = joinedFilters.filter((entry) => entry.op === 'like' || entry.op === 'ilike')
+      if (!filters.length) continue
+      const join = joinMap.get(alias)
+      if (!join?.entityId) continue
+      const hasJoinedTokens = searchEnabled
+        ? await this.searchAvailability().hasTokens(join.entityId, opts.tenantId ?? null, orgScope)
+        : false
+      const fallbackFields = filters
+        .filter((filter) => !hasJoinedTokens || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => filter.column)
+      if (!fallbackFields.length) continue
+      await warnOnCiphertextLikeFallback({
+        entity: join.entityId,
+        fields: fallbackFields,
+        tenantId: opts.tenantId ?? null,
+        reason: hasJoinedTokens
+          ? 'no-indexable-tokens'
+          : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+        service: this.getEncryptionService(),
+      })
     }
     const recordIdColumn = qualify('id')
 
@@ -396,11 +476,7 @@ export class BasicQueryEngine implements QueryEngine {
       if (!['like', 'ilike'].includes(filter.op)) return { applied: false, builder }
       if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return { applied: false, builder }
 
-      let searchAvailable = joinSearchAvailability.get(join.entityId)
-      if (searchAvailable === undefined) {
-        searchAvailable = await this.hasSearchTokens(join.entityId, opts.tenantId ?? null, orgScope)
-        joinSearchAvailability.set(join.entityId, searchAvailable)
-      }
+      const searchAvailable = await this.searchAvailability().hasTokens(join.entityId, opts.tenantId ?? null, orgScope)
       if (!searchAvailable) return { applied: false, builder }
 
       const tokens = tokenizeText(String(filter.value), searchConfig)
@@ -471,8 +547,8 @@ export class BasicQueryEngine implements QueryEngine {
     // today's complete selection (base fields + CF projections + extension joins).
     // `projection: 'sortKeys'` selects only `id` + the sort columns — the slim phase-1
     // candidate scan used when `requiresPlaintextSort`. Re-running the WHERE/JOIN logic
-    // twice is cheap: every `columnExists`/`tableExists` check is memoized on
-    // `this.columnCache`/`this.tableCache`, so the second pass hits no extra DB calls.
+    // twice is cheap: every `columnExists` check is memoized on `this.columnCache`,
+    // so the second pass hits no extra DB calls.
     const buildQuery = async (projection: 'full' | 'sortKeys'): Promise<BuiltQuery> => {
       const isSortKeysProjection = projection === 'sortKeys'
       let q: AnyBuilder = db.selectFrom(table as any)
@@ -514,50 +590,40 @@ export class BasicQueryEngine implements QueryEngine {
       }
 
       // OR-grouped filters: AND within each group (one $or disjunct), OR between groups.
-      if (orGroupFilters.length > 0) {
-        const groups = new Map<string, typeof orGroupFilters>()
-        for (const f of orGroupFilters) {
+      // Resolution happens here (it needs async column lookups); the WHERE itself is
+      // applied further down, once the cf:* value expressions exist — an OR group may
+      // contain custom-field leaves whose SQL is only available then (#5039).
+      type ResolvedOrClause =
+        | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'cf'; key: string; op: NormalizedFilter['op']; value: unknown }
+      const resolvedGroupFilters: ResolvedOrClause[][] = []
+      if (orGroupFilters.length > 0 || orGroupCfFilters.length > 0) {
+        const groups = new Map<string, NormalizedFilter[]>()
+        for (const f of [...orGroupFilters, ...orGroupCfFilters]) {
           const group = groups.get(f.orGroup!) ?? []
-          group.push(f)
+          group.push(f as NormalizedFilter)
           groups.set(f.orGroup!, group)
         }
-        type ResolvedOrClause =
-          | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
-          | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
-        const resolvedGroupFilters: ResolvedOrClause[][] = []
         for (const [, groupFilters] of groups) {
           const resolved: ResolvedOrClause[] = []
           for (const filter of groupFilters) {
-            const column = await this.resolveBaseColumn(table, String(filter.field))
+            const field = String(filter.field)
+            if (field.startsWith('cf:')) {
+              resolved.push({ kind: 'cf', key: field.slice(3), op: filter.op, value: filter.value })
+              continue
+            }
+            const column = await this.resolveBaseColumn(table, field)
             if (column) {
               resolved.push({ kind: 'column', qualified: qualify(column), op: filter.op, value: filter.value })
             } else {
               // Field is not a base column — for custom-entity records it lives in
               // entity_indexes.doc. Build an EXISTS sub-filter so `$or` searches
               // across doc fields resolve instead of being silently dropped (#3229).
-              resolved.push({ kind: 'doc', field: String(filter.field), op: filter.op, value: filter.value })
+              resolved.push({ kind: 'doc', field, op: filter.op, value: filter.value })
             }
           }
           if (resolved.length > 0) resolvedGroupFilters.push(resolved)
-        }
-        if (resolvedGroupFilters.length > 0) {
-          q = q.where((eb: any) => eb.or(
-            resolvedGroupFilters.map((group) => {
-              const parts = group.map((rf) => rf.kind === 'column'
-                ? this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
-                : this.buildIndexDocOpExpression(eb, {
-                    entity: String(entity),
-                    field: rf.field,
-                    op: rf.op,
-                    value: rf.value,
-                    recordIdColumn,
-                    tenantId: opts.tenantId ?? null,
-                    organizationScope: orgScope,
-                    withDeleted: opts.withDeleted === true,
-                  }))
-              return parts.length === 1 ? parts[0] : eb.and(parts)
-            })
-          ))
         }
       }
 
@@ -807,8 +873,9 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
-      // Apply cf:* filters (on raw expressions)
-      for (const f of cfFilters) {
+      // Apply cf:* filters (on raw expressions). OR-grouped ones are excluded here and
+      // combined with their disjunct's other leaves right below.
+      for (const f of regularCfFilters) {
         if (!f.field.startsWith('cf:')) continue
         const key = f.field.slice(3)
         const expr = cfValueExprByKey[key]
@@ -850,6 +917,43 @@ export class BasicQueryEngine implements QueryEngine {
         q = this.applyColumnOp(q, expr, f.op, f.value)
       }
 
+      // OR groups are applied here, after the cf:* value expressions exist, so a
+      // disjunct mixing base/doc and custom-field leaves is united rather than
+      // intersected. A cf leaf whose key resolved no value expression yields no
+      // predicate and is dropped; a disjunct left empty by that is dropped too,
+      // because an empty AND would read as TRUE and widen the result.
+      //
+      // Known limitation, shared with the `doc` clause kind above: a leaf inside an OR
+      // group compares against the stored value directly and does not route `like` /
+      // `ilike` through the search-token index the way the ungrouped path does. On a
+      // field covered by an encryption map such a leaf therefore compares against
+      // ciphertext and will not match.
+      const applicableGroupFilters = resolvedGroupFilters
+        .map((group) => group.filter((rf) => rf.kind !== 'cf' || Boolean(cfValueExprByKey[rf.key])))
+        .filter((group) => group.length > 0)
+      if (applicableGroupFilters.length > 0) {
+        q = q.where((eb: any) => {
+          const disjuncts = applicableGroupFilters.map((group) => {
+            const parts = group.map((rf) => {
+              if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
+              if (rf.kind === 'cf') return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+              return this.buildIndexDocOpExpression(eb, {
+                entity: String(entity),
+                field: rf.field,
+                op: rf.op,
+                value: rf.value,
+                recordIdColumn,
+                tenantId: opts.tenantId ?? null,
+                organizationScope: orgScope,
+                withDeleted: opts.withDeleted === true,
+              })
+            })
+            return parts.length === 1 ? parts[0] : eb.and(parts)
+          })
+          return disjuncts.length === 1 ? disjuncts[0] : eb.or(disjuncts)
+        })
+      }
+
       // Entity extensions joins (no selection yet; enables future filters/projections)
       if (opts.includeExtensions) {
         const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
@@ -861,7 +965,15 @@ export class BasicQueryEngine implements QueryEngine {
           : exts
         for (const e of chosen) {
           const [, extName] = (e.extension as string).split(':')
-          const extTable = extName.endsWith('s') ? extName : `${extName}s`
+          // Uses the SAME derivation as every other table-name fallback in this file
+          // (`pluralizeBaseName`, also called at the resolveEntityTableName sites above)
+          // rather than a separate inline one. The inline version handled only `+s`, so
+          // `example_customer_priority` derived `example_customer_prioritys` against the
+          // real `example_customer_priorities`. Behaviour is unchanged for every name that
+          // does not end in `y`; `table` below remains the escape hatch for irregular
+          // plurals no guesser can win (`person` → `people`).
+          const derivedTable = pluralizeBaseName(extName)
+          const extTable = isPlainTableIdentifier(e.table) ? e.table : derivedTable
           const alias = `ext_${sanitize(extName)}`
           q = q.leftJoin(`${extTable} as ${alias}` as any, (jb: any) =>
             jb.onRef(`${alias}.${e.join.extensionKey}`, '=', `${table}.${e.join.baseKey}`)
@@ -1092,7 +1204,7 @@ export class BasicQueryEngine implements QueryEngine {
     }
   }
 
-  private buildColumnOpExpression(eb: any, column: string, op: string, value: unknown): any {
+  private buildColumnOpExpression(eb: any, column: string | RawBuilder<unknown>, op: string, value: unknown): any {
     switch (op) {
       case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
       case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)
@@ -1134,51 +1246,6 @@ export class BasicQueryEngine implements QueryEngine {
     if (present) this.columnCache.set(key, true)
     else this.columnCache.delete(key)
     return present
-  }
-
-  private async tableExists(table: string): Promise<boolean> {
-    if (this.tableCache.has(table)) return this.tableCache.get(table) ?? false
-    const db = this.getDb()
-    const exists = await db
-      .selectFrom('information_schema.tables' as any)
-      .select(sql<number>`1`.as('one'))
-      .where('table_name' as any, '=', table)
-      .limit(1)
-      .executeTakeFirst()
-    const present = !!exists
-    this.tableCache.set(table, present)
-    return present
-  }
-
-  private async hasSearchTokens(
-    entity: string,
-    tenantId: string | null,
-    orgScope?: { ids: string[]; includeNull: boolean } | null
-  ): Promise<boolean> {
-    try {
-      const db = this.getDb()
-      let query: AnyBuilder = db
-        .selectFrom('search_tokens' as any)
-        .select(sql<number>`1`.as('one'))
-        .where('entity_type' as any, '=', entity)
-        .limit(1)
-      if (tenantId !== undefined) {
-        query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
-      }
-      if (orgScope) {
-        query = this.applyOrganizationScope(query, 'search_tokens.organization_id', orgScope)
-      }
-      const row = await query.executeTakeFirst()
-      return !!row
-    } catch (err) {
-      this.logSearchDebug('search:has-tokens-error', {
-        entity,
-        tenantId,
-        organizationScope: orgScope,
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return false
-    }
   }
 
   private applySearchTokens(
@@ -1334,9 +1401,15 @@ export class BasicQueryEngine implements QueryEngine {
       const textExpr = sql<string | null>`(${sql.ref(`${alias}.doc`)} ->> ${opts.field})`
       switch (opts.op) {
         case 'eq':
-          sub = sub.where(sql<boolean>`${textExpr} = ${opts.value}`); break
+          sub = opts.value === null
+            ? sub.where(sql<boolean>`${textExpr} is null`)
+            : sub.where(sql<boolean>`${textExpr} = ${opts.value}`)
+          break
         case 'ne':
-          sub = sub.where(sql<boolean>`${textExpr} <> ${opts.value}`); break
+          sub = opts.value === null
+            ? sub.where(sql<boolean>`${textExpr} is not null`)
+            : sub.where(sql<boolean>`${textExpr} <> ${opts.value}`)
+          break
         case 'gt':
         case 'gte':
         case 'lt':

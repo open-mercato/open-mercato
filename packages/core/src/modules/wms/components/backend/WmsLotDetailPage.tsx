@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -479,25 +480,29 @@ function LotKpiCard({
 }: LotKpiCardProps) {
   return (
     <section className="flex min-h-52 flex-col rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
-      <div className="mt-2 flex items-end gap-3">
-        <p className="text-3xl font-semibold tracking-tight">{value}</p>
-        {badgeLabel ? (
-          <StatusBadge variant={badgeVariant} dot>
-            {badgeLabel}
-          </StatusBadge>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
+      </div>
+      <div className="mt-auto pt-2">
+        <div className="flex items-end gap-3">
+          <p className="text-3xl font-semibold tracking-tight">{value}</p>
+          {badgeLabel ? (
+            <StatusBadge variant={badgeVariant} dot>
+              {badgeLabel}
+            </StatusBadge>
+          ) : null}
+        </div>
+        {onCtaClick ? (
+          <LinkButton variant="primary" size="sm" className="mt-4 w-fit" onClick={onCtaClick}>
+            {ctaLabel}
+          </LinkButton>
+        ) : ctaHref ? (
+          <LinkButton asChild variant="primary" size="sm" className="mt-4 w-fit">
+            <Link href={ctaHref}>{ctaLabel}</Link>
+          </LinkButton>
         ) : null}
       </div>
-      {onCtaClick ? (
-        <LinkButton variant="primary" size="sm" className="mt-auto pt-4 w-fit" onClick={onCtaClick}>
-          {ctaLabel}
-        </LinkButton>
-      ) : ctaHref ? (
-        <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
-          <Link href={ctaHref}>{ctaLabel}</Link>
-        </LinkButton>
-      ) : null}
     </section>
   )
 }
@@ -1209,7 +1214,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
                 data={pagedBalances}
                 disableRowClick
                 entityId={E.wms.inventory_balance}
-                perspective={{ tableId: 'wms.lot.distribution' }}
+                perspective={{ tableId: extensionPoints.hosts.lotDistributionTable.tableId }}
                 pagination={{
                   page: distributionPage,
                   pageSize: distributionPageSize,
@@ -1250,7 +1255,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
               data={movementsQuery.data ?? []}
               disableRowClick
               entityId={E.wms.inventory_movement}
-              perspective={{ tableId: 'wms.lot.activity' }}
+              perspective={{ tableId: extensionPoints.hosts.lotActivityTable.tableId }}
               emptyState={t('wms.backend.lot.activity.empty', 'No recent movements for this lot.')}
               actions={(
                 <Button asChild type="button" variant="ghost" size="sm">

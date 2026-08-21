@@ -1,9 +1,10 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
+import { flexRender, type RowData, type SortingState, type ColumnVisibilityState as VisibilityState, type RowSelectionState } from '@tanstack/react-table'
+import { useLegacyTable, getCoreRowModel, getSortedRowModel, type LegacyColumnDef as ColumnDef, type LegacyColumn as TableColumn } from '@tanstack/react-table/legacy'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox, Save } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -45,6 +46,7 @@ import { readVersionedPreference, writeVersionedPreference, clearVersionedPrefer
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
+import { surfaceRecordConflict } from './conflicts'
 import type {
   PerspectiveDto,
   RolePerspectiveDto,
@@ -59,6 +61,7 @@ import type {
   InjectionRowActionDefinition,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { dataTableExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type {
@@ -94,6 +97,14 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { clearAllPerspectiveState, PERSPECTIVE_COOKIE_PREFIX, PERSPECTIVE_STORAGE_PREFIX } from './perspectiveState'
+import { diffPerspectiveSettings } from './perspectiveDirty'
+import type { DataTableViewDirtyState, DataTableViewSettingKey } from './perspectiveDirty'
+
+// Re-exported so `@open-mercato/ui/backend/DataTable` stays the published import
+// path for the purge (BACKWARD_COMPATIBILITY: import paths are a contract surface).
+export { clearAllPerspectiveState }
+export type { DataTableViewDirtyState, DataTableViewSettingKey }
 
 const logger = createLogger('ui').child({ component: 'DataTable' })
 
@@ -209,6 +220,61 @@ export type DataTablePerspectiveConfig = {
   }
 }
 
+/** Input for the imperative `saveCurrentView` action. */
+export type DataTableSaveViewInput = {
+  /**
+   * Name for the saved view. Optional when a personal view is active — the
+   * active view's own name is reused and the save updates it in place.
+   */
+  name?: string
+  /**
+   * Target view id. Defaults to the active personal view; pass `null` to force
+   * creating a new view (then `name` is required).
+   */
+  perspectiveId?: string | null
+  /** Marks the saved view as the user's default. Defaults to the target's current flag. */
+  isDefault?: boolean
+}
+
+/**
+ * Outcome of `saveCurrentView`. Returned rather than thrown so a host toolbar
+ * button can branch on `reason` (e.g. open the views sidebar to ask for a name)
+ * without wrapping every call in try/catch.
+ */
+export type DataTableSaveViewResult =
+  | { ok: true; perspectiveId: string | null }
+  | {
+      ok: false
+      /**
+       * `not-ready` — the perspectives permission check has not resolved yet.
+       * Nothing was saved and nothing is wrong: retry once the table has
+       * settled. Distinct from `perspectives-disabled`, which is a definitive
+       * "this user may not use views" and should be surfaced as such.
+       */
+      reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed'
+      error?: unknown
+    }
+
+/**
+ * Imperative handle exposed through `DataTableProps.viewApiRef`, so a host app
+ * can build its own "Save view" affordance without patching this component.
+ */
+export type DataTableViewApi = {
+  /** The live table settings, in the shape a perspective persists. */
+  getCurrentSettings: () => PerspectiveSettings
+  /** The current unsaved-changes state — the pull counterpart of `onColumnsDirtyChange`. */
+  getDirtyState: () => DataTableViewDirtyState
+  /** Persists the live settings into a saved view. */
+  saveCurrentView: (input?: DataTableSaveViewInput) => Promise<DataTableSaveViewResult>
+  /**
+   * Opens the built-in views sidebar (where a new view can be named and saved).
+   * No-op for a user without the `perspectives.use` feature — the sidebar closes
+   * again on the next render — so a host offering this action should gate it on
+   * the same permission rather than expecting an error.
+   */
+  openViewsSidebar: () => void
+}
+
 export type BulkAction<T = Record<string, unknown>> = {
   id: string
   label: string
@@ -217,7 +283,7 @@ export type BulkAction<T = Record<string, unknown>> = {
   onExecute: (selectedRows: T[]) => Promise<void | boolean | BulkActionExecuteResult> | void | boolean | BulkActionExecuteResult
 }
 
-export type DataTableProps<T> = {
+export type DataTableProps<T extends RowData> = {
   columns: ColumnDef<T, any>[]
   data: T[]
   toolbar?: React.ReactNode
@@ -229,6 +295,8 @@ export type DataTableProps<T> = {
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
+  /** Render the query duration in the pagination footer. Set to false for a count-only footer. */
+  showQueryTime?: boolean
   isLoading?: boolean
   emptyState?: React.ReactNode
   error?: React.ReactNode | string | null
@@ -252,6 +320,26 @@ export type DataTableProps<T> = {
   entityIds?: string[]
   exporter?: DataTableExportConfig | false
   perspective?: DataTablePerspectiveConfig
+  /**
+   * Notified whenever the unsaved-changes state of the current view changes.
+   * Read-only: it never alters the table's own behavior, it lets a host render
+   * its own indicator ("3 unsaved changes") next to a custom save affordance.
+   * Only fires for tables that wire `perspective`.
+   */
+  onColumnsDirtyChange?: (state: DataTableViewDirtyState) => void
+  /**
+   * Imperative handle for the view/perspective surface (`saveCurrentView`,
+   * `getDirtyState`, `getCurrentSettings`, `openViewsSidebar`). Pairs with
+   * `onColumnsDirtyChange` so a host can render a "Save view" button in its own
+   * toolbar instead of relying on the built-in one.
+   */
+  viewApiRef?: React.Ref<DataTableViewApi | null>
+  /**
+   * Renders the built-in "Save view" toolbar button next to the views switcher.
+   * Off by default — the perspectives sidebar stays the default save path, so
+   * existing call sites are unaffected. Requires `perspective`.
+   */
+  showSaveViewButton?: boolean
   embedded?: boolean
   onCustomFieldFilterFieldsetChange?: (fieldset: string | null, entityId?: string) => void
   customFieldFilterKeyExtras?: Array<string | number | boolean | null | undefined>
@@ -365,6 +453,8 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
 }
 const EMPTY_FILTER_DEFS: FilterDef[] = []
 const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
+/** Stand-in for the live view settings on tables that never opt into the view API. */
+const EMPTY_VIEW_SETTINGS: PerspectiveSettings = Object.freeze({}) as PerspectiveSettings
 
 // Directional shadow utilities for sticky table cells. `border-collapse: collapse`
 // blocks `box-shadow` on `<td>`/`<th>`, so we paint the shadow as a pseudo-element
@@ -469,8 +559,6 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
   return sections
 }
 
-const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
-const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
 
 // Bounds for user-driven column resizing (#1835). Widths outside this range are
 // clamped so a persisted/dragged value can never collapse a column to nothing or
@@ -1108,7 +1196,7 @@ function ViewSwitcherDropdown({
   )
 }
 
-export function DataTable<T>({
+export function DataTable<T extends RowData>({
   columns,
   data,
   toolbar,
@@ -1120,6 +1208,7 @@ export function DataTable<T>({
   sorting: sortingProp,
   onSortingChange,
   pagination,
+  showQueryTime = true,
   isLoading,
   emptyState,
   error,
@@ -1141,6 +1230,9 @@ export function DataTable<T>({
   entityIds,
   exporter,
   perspective,
+  onColumnsDirtyChange,
+  viewApiRef,
+  showSaveViewButton = false,
   embedded = false,
   onCustomFieldFilterFieldsetChange,
   customFieldFilterKeyExtras,
@@ -1234,8 +1326,16 @@ export function DataTable<T>({
   // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
   const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const snapshotHydratedTableRef = React.useRef<string | null>(null)
-  const initialSettingsFromConfig = sanitizePerspectiveSettings(perspectiveConfig?.initialState?.initialSettings ?? null)
-  const mergedInitialSettings = initialSettingsFromConfig
+  const initialSettingsSource = perspectiveConfig?.initialState?.initialSettings ?? null
+  // Memoized on the host's own object: `sanitizePerspectiveSettings` returns a
+  // fresh result on every call, so without this every effect keyed on the
+  // sanitized settings would re-run after every render — including the one that
+  // seeds the view baseline, which would then keep resetting an applied view's
+  // baseline back to the server-supplied initial settings.
+  const mergedInitialSettings = React.useMemo(
+    () => sanitizePerspectiveSettings(initialSettingsSource),
+    [initialSettingsSource],
+  )
   const initialActiveId = perspectiveConfig?.initialState?.activePerspectiveId ?? null
   const [isPerspectiveOpen, setPerspectiveOpen] = React.useState(false)
   const [isAdvancedFilterOpen, setAdvancedFilterOpen] = React.useState(false)
@@ -1250,6 +1350,22 @@ export function DataTable<T>({
   const [deletingIds, setDeletingIds] = React.useState<string[]>([])
   const [roleClearingIds, setRoleClearingIds] = React.useState<string[]>([])
   const [perspectiveApiMissing, setPerspectiveApiMissing] = React.useState(false)
+  // Settings the current view was last applied from (mount-time snapshot restore,
+  // perspective activation, "No view" clear, successful save). The public
+  // dirty state is measured against this, so a table only reports unsaved
+  // changes once the user actually changes something after that point.
+  const [viewBaseline, setViewBaselineState] = React.useState<PerspectiveSettings>(() => mergedInitialSettings ?? {})
+  const viewBaselineInitializedRef = React.useRef(Boolean(mergedInitialSettings))
+  const setViewBaseline = React.useCallback((settings: PerspectiveSettings) => {
+    const initialized = viewBaselineInitializedRef.current
+    viewBaselineInitializedRef.current = true
+    // Compared by value, not by identity: the callers hand over freshly
+    // sanitized objects (a new one on every render), so storing them blindly
+    // would let an effect keyed on those settings re-trigger itself forever.
+    setViewBaselineState((previous) => (
+      initialized && diffPerspectiveSettings(previous, settings).length === 0 ? previous : settings
+    ))
+  }, [])
 
   const perspectiveFeatureQuery = useQuery<{ use: boolean; roleDefaults: boolean }>({
     queryKey: ['feature-check', 'perspectives'],
@@ -1299,9 +1415,16 @@ export function DataTable<T>({
     }
   }, [canUsePerspectives, isPerspectiveOpen])
 
+  // Seeded once per table, like the localStorage hydration above. The server's
+  // initial settings describe the state the table mounts in, not a state to
+  // return to: re-running this after the user activates a view would overwrite
+  // that view's baseline and report changes nobody made.
+  const initialSettingsSeededTableRef = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (!perspectiveTableId) return
     if (!mergedInitialSettings) return
+    if (initialSettingsSeededTableRef.current === perspectiveTableId) return
+    initialSettingsSeededTableRef.current = perspectiveTableId
     const snapshot: PerspectiveSnapshot = {
       perspectiveId: initialActiveId,
       settings: mergedInitialSettings,
@@ -1309,7 +1432,8 @@ export function DataTable<T>({
     }
     writePerspectiveSnapshot(perspectiveTableId, snapshot)
     initialSnapshotRef.current = snapshot
-  }, [perspectiveTableId, mergedInitialSettings, initialActiveId])
+    setViewBaseline(mergedInitialSettings)
+  }, [perspectiveTableId, mergedInitialSettings, initialActiveId, setViewBaseline])
 
   const perspectiveQuery = useQuery<PerspectivesIndexResponse>({
     queryKey: ['table-perspectives', perspectiveTableId],
@@ -1352,8 +1476,8 @@ export function DataTable<T>({
   }, [injectionSpotId, perspective?.tableId, extensionTableIdProp])
   const resolvedInjectionSpotId =
     injectionSpotId
-    ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
-    ?? (extensionTableIdProp ? `data-table:${extensionTableIdProp}` : null)
+    ?? (perspective?.tableId ? dataTableExtensionSpotId(perspective.tableId) : null)
+    ?? (extensionTableIdProp ? dataTableExtensionSpotId(extensionTableIdProp) : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
   const baseInjectionContext = React.useMemo(
     () => {
@@ -1376,32 +1500,32 @@ export function DataTable<T>({
     [injectionContext, perspective?.tableId, extensionTableId, title]
   )
   const headerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'header') : null),
     [resolvedInjectionSpotId]
   )
   const toolbarInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'toolbar') : null),
     [resolvedInjectionSpotId]
   )
   const searchTrailingInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:search-trailing` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'search-trailing') : null),
     [resolvedInjectionSpotId]
   )
   const footerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'footer') : null),
     [resolvedInjectionSpotId]
   )
   const { widgets: columnWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:columns` : '__disabled__:columns',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'columns') : '__disabled__:columns',
   )
   const { widgets: rowActionWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:row-actions` : '__disabled__:row-actions',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'row-actions') : '__disabled__:row-actions',
   )
   const { widgets: bulkActionWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:bulk-actions` : '__disabled__:bulk-actions',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'bulk-actions') : '__disabled__:bulk-actions',
   )
   const { widgets: filterWidgets } = useInjectionDataWidgets(
-    extensionTableId ? `data-table:${extensionTableId}:filters` : '__disabled__:filters',
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'filters') : '__disabled__:filters',
   )
   const injectedColumnDefs = React.useMemo<{ def: ColumnDef<T, unknown>; placement: InjectionColumnDefinition['placement'] }[]>(() => {
     const entries: InjectionColumnDefinition[] = []
@@ -1624,7 +1748,7 @@ export function DataTable<T>({
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
   const enableClientSorting = sortable && !manualSorting
-  const table = useReactTable<T>({
+  const table = useLegacyTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
@@ -1695,18 +1819,31 @@ export function DataTable<T>({
     })
   }, [table, mergedColumns])
 
-  const initialVisibilityApplied = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
+  // A stored perspective seeds `columnVisibility` at mount and wins outright over the
+  // `meta.hidden` defaults, so the auto-hide pass is skipped entirely in that case.
+  const visibilitySeededByStoredSettings = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
+  // Auto-hiding is a per-column default, applied once per column — not an enforcement.
+  // It cannot be latched by a single has-run boolean: columns arrive in waves, because
+  // custom-field columns are built from definitions fetched asynchronously. The first
+  // render carries no `cf_*` column at all, so a run-once pass found nothing to hide and
+  // still burned the latch, leaving fields declared `listVisible: false` visible for the
+  // rest of the session after a hard page load (#4859).
+  // It also cannot lean on `columnVisibility` as the record of what has been decided:
+  // `handleColumnChooserToggle` *deletes* a column's entry when the user turns it back on,
+  // so a re-shown column is indistinguishable from one never seen and would be hidden again
+  // on the next wave. Hence an explicit per-column record of what this pass has applied.
+  const autoHiddenColumnIds = React.useRef<Set<string>>(new Set())
   React.useEffect(() => {
-    if (initialVisibilityApplied.current) return
+    if (visibilitySeededByStoredSettings.current) return
     const hidden: VisibilityState = {}
     table.getAllLeafColumns().forEach((column) => {
       const hiddenMeta = (column.columnDef as any)?.meta?.hidden
-      if (hiddenMeta) hidden[column.id] = false
+      if (!hiddenMeta || autoHiddenColumnIds.current.has(column.id)) return
+      hidden[column.id] = false
+      autoHiddenColumnIds.current.add(column.id)
     })
-    if (Object.keys(hidden).length) {
-      setColumnVisibility((prev) => ({ ...hidden, ...prev }))
-    }
-    initialVisibilityApplied.current = true
+    if (!Object.keys(hidden).length) return
+    setColumnVisibility((prev) => ({ ...hidden, ...prev }))
   }, [table, mergedColumns])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
@@ -1759,6 +1896,15 @@ export function DataTable<T>({
     },
   ) => {
     const normalized = sanitizePerspectiveSettings(settings) ?? {}
+    // `preserveAdvancedFilter` leaves the host's filter state untouched, so the
+    // applied settings' `filters` never become the live ones — keeping the live
+    // payload here is what stops the mount-time restore from reporting a
+    // filter change the user never made.
+    setViewBaseline(
+      options?.preserveAdvancedFilter
+        ? { ...normalized, filters: getCurrentSettings().filters }
+        : normalized,
+    )
     if (normalized.columnOrder && normalized.columnOrder.length) {
       setColumnOrder(normalized.columnOrder)
     } else {
@@ -1837,7 +1983,7 @@ export function DataTable<T>({
         initialSnapshotRef.current = null
       }
     }
-  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table, advancedFilter])
+  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table, advancedFilter, getCurrentSettings, setViewBaseline])
 
   // Persist the current column widths into the local snapshot so they survive a
   // refresh even without saving a perspective (#1835). Widths are merged into the
@@ -2172,6 +2318,155 @@ export function DataTable<T>({
     })
   }, [savePerspectiveMutation, activePersonalPerspectiveId])
 
+  const defaultColumnOrderIds = React.useMemo(
+    () => table.getAllLeafColumns().map((column) => column.id),
+    [table, mergedColumns],
+  )
+  // Nothing consumes the dirty state unless the host asked for it, and computing
+  // it is not free: `getCurrentSettings` serializes the advanced-filter tree and
+  // the diff runs six `stableStringify` passes. Tables that never opt in — every
+  // existing call site — must keep paying exactly what they paid before.
+  const viewApiRequested = Boolean(onColumnsDirtyChange || viewApiRef || showSaveViewButton)
+  const currentViewSettings = React.useMemo(
+    () => (viewApiRequested ? getCurrentSettings() : EMPTY_VIEW_SETTINGS),
+    [viewApiRequested, getCurrentSettings],
+  )
+
+  const viewDirtyState = React.useMemo<DataTableViewDirtyState>(() => {
+    // Before the baseline is established there is nothing to compare against, so
+    // the view is reported clean rather than flashing a spurious change. The
+    // active view id is still reported — a host rendering "Viewing: {name}" from
+    // this state should not see a null while only the baseline is pending.
+    if (!viewApiRequested || !perspectiveEnabled || !viewBaselineInitializedRef.current) {
+      return {
+        isDirty: false,
+        changedKeys: [],
+        changedCount: 0,
+        activePerspectiveId,
+        canSaveToActiveView: false,
+      }
+    }
+    const changedKeys = diffPerspectiveSettings(viewBaseline, currentViewSettings, {
+      defaultColumnOrder: defaultColumnOrderIds,
+    })
+    return {
+      isDirty: changedKeys.length > 0,
+      changedKeys,
+      changedCount: changedKeys.length,
+      activePerspectiveId,
+      canSaveToActiveView: Boolean(activePersonalPerspectiveId),
+    }
+  }, [
+    viewApiRequested,
+    perspectiveEnabled,
+    viewBaseline,
+    currentViewSettings,
+    defaultColumnOrderIds,
+    activePerspectiveId,
+    activePersonalPerspectiveId,
+  ])
+
+  // A page can hand the table its own starting point — default sorting, a search
+  // term hydrated from the URL — none of which is a user change. Whatever the
+  // table settled on before anything was applied is the baseline; the snapshot
+  // restore in `applyPerspectiveSettings` runs in a layout effect and claims the
+  // baseline first when it has one, so this never overwrites a restored view.
+  React.useEffect(() => {
+    if (!viewApiRequested || !perspectiveEnabled || viewBaselineInitializedRef.current) return
+    setViewBaseline(currentViewSettings)
+  }, [viewApiRequested, perspectiveEnabled, currentViewSettings, setViewBaseline])
+
+  // Mirrored in a layout effect rather than during render: a render React throws
+  // away must not leave these mirrors holding values that were never committed.
+  // Layout timing keeps them current for the imperative handle below, which is
+  // itself established in a layout effect declared after this one.
+  const viewDirtyStateRef = React.useRef(viewDirtyState)
+  const onColumnsDirtyChangeRef = React.useRef(onColumnsDirtyChange)
+  React.useLayoutEffect(() => {
+    viewDirtyStateRef.current = viewDirtyState
+    onColumnsDirtyChangeRef.current = onColumnsDirtyChange
+  }, [viewDirtyState, onColumnsDirtyChange])
+  const lastDirtySignatureRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    const notify = onColumnsDirtyChangeRef.current
+    if (!notify || !perspectiveEnabled) return
+    // Compared by value, not by object identity: a host that recreates the
+    // callback (or receives a fresh state object each render) must not be able
+    // to turn its own setState into a notification loop.
+    const signature = JSON.stringify([
+      viewDirtyState.isDirty,
+      viewDirtyState.changedKeys,
+      viewDirtyState.activePerspectiveId,
+      viewDirtyState.canSaveToActiveView,
+    ])
+    if (lastDirtySignatureRef.current === signature) return
+    lastDirtySignatureRef.current = signature
+    notify(viewDirtyState)
+  }, [viewDirtyState, perspectiveEnabled])
+
+  const saveCurrentView = React.useCallback(async (
+    input?: DataTableSaveViewInput,
+  ): Promise<DataTableSaveViewResult> => {
+    if (!perspectiveTableId) return { ok: false, reason: 'perspectives-disabled' }
+    // The permission check is a query: until it resolves, "may this user save a
+    // view" is unknown rather than false. Reporting `perspectives-disabled` here
+    // would have a host tell the user views are off when they are merely slow.
+    if (perspectivePermissions === undefined) return { ok: false, reason: 'not-ready' }
+    if (!canUsePerspectives) return { ok: false, reason: 'perspectives-disabled' }
+    const targetId = input?.perspectiveId !== undefined ? input.perspectiveId : activePersonalPerspectiveId
+    const existing = targetId
+      ? perspectiveData?.perspectives.find((item) => item.id === targetId) ?? null
+      : null
+    const name = (input?.name ?? existing?.name ?? '').trim()
+    // Creating a view needs a name, and this API deliberately does not invent
+    // one — the host either supplies it or sends the user to the sidebar.
+    if (!name) return { ok: false, reason: 'name-required' }
+    try {
+      const saved = await savePerspectiveMutation.mutateAsync({
+        name,
+        isDefault: input?.isDefault ?? existing?.isDefault ?? false,
+        applyToRoles: [],
+        setRoleDefault: false,
+        perspectiveId: targetId ?? null,
+      })
+      return { ok: true, perspectiveId: saved?.perspective?.id ?? null }
+    } catch (error) {
+      return { ok: false, reason: 'failed', error }
+    }
+  }, [
+    canUsePerspectives,
+    perspectivePermissions,
+    perspectiveTableId,
+    activePersonalPerspectiveId,
+    perspectiveData,
+    savePerspectiveMutation,
+  ])
+
+  React.useImperativeHandle(viewApiRef, () => ({
+    getCurrentSettings: () => getCurrentSettings(),
+    getDirtyState: () => viewDirtyStateRef.current,
+    saveCurrentView,
+    openViewsSidebar: () => setPerspectiveOpen(true),
+  }), [getCurrentSettings, saveCurrentView])
+
+  const handleSaveViewClick = React.useCallback(async () => {
+    const result = await saveCurrentView()
+    if (result.ok) {
+      flash(t('ui.dataTable.saveView.success', 'View saved'), 'success')
+      return
+    }
+    if (result.reason === 'name-required') {
+      // No personal view is active, so the save needs a name: hand the user the
+      // existing sidebar flow rather than inventing one.
+      setPerspectiveOpen(true)
+      return
+    }
+    if (result.reason === 'failed') {
+      if (surfaceRecordConflict(result.error, t)) return
+      flash(t('ui.dataTable.saveView.error', 'Failed to save view'), 'error')
+    }
+  }, [saveCurrentView, t])
+
   const handlePerspectiveDelete = React.useCallback(async (perspectiveId: string) => {
     await deletePerspectiveMutation.mutateAsync({ perspectiveId })
   }, [deletePerspectiveMutation])
@@ -2323,7 +2618,7 @@ export function DataTable<T>({
     const effectiveDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0)
       ? durationMs
       : measuredDurationMs ?? undefined
-    const durationLabel = formatDurationLabel(effectiveDuration)
+    const durationLabel = showQueryTime ? formatDurationLabel(effectiveDuration) : ''
     const normalizedCacheStatus = cacheStatus === 'hit' || cacheStatus === 'miss' ? cacheStatus : null
     const cacheBadge = normalizedCacheStatus ? (
       <span
@@ -2377,7 +2672,7 @@ export function DataTable<T>({
         />
       </div>
     )
-  }, [pagination, measuredDurationMs, scrollTableIntoView, t])
+  }, [pagination, showQueryTime, measuredDurationMs, scrollTableIntoView, t])
 
   // Auto filters: fetch custom field defs when requested
   const resolvedEntityIds = React.useMemo(() => {
@@ -2749,10 +3044,34 @@ export function DataTable<T>({
           </div>
         )
         : null
-    const leadingItems = advancedFilterButton || perspectiveButton ? (
+    const saveViewButton = showSaveViewButton && canUsePerspectives ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="default"
+        disabled={!viewDirtyState.isDirty || savePerspectiveMutation.isPending}
+        onClick={() => { void handleSaveViewClick() }}
+        title={viewDirtyState.isDirty
+          ? t('ui.dataTable.saveView.title', 'Save the current view')
+          : t('ui.dataTable.saveView.noChanges', 'No unsaved changes')}
+        data-testid="save-view-trigger"
+      >
+        {savePerspectiveMutation.isPending
+          ? <Loader2 className="h-4 w-4 animate-spin" />
+          : <Save className="h-4 w-4" />}
+        <span>{t('ui.dataTable.saveView.button', 'Save view')}</span>
+        {viewDirtyState.changedCount > 0 ? (
+          <span className="ml-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
+            {viewDirtyState.changedCount}
+          </span>
+        ) : null}
+      </Button>
+    ) : null
+    const leadingItems = advancedFilterButton || perspectiveButton || saveViewButton ? (
       <div className="flex items-center gap-2">
         {advancedFilterButton}
         {perspectiveButton}
+        {saveViewButton}
       </div>
     ) : null
     const trailingItems = hasBulkButtons ? (
@@ -2851,6 +3170,11 @@ export function DataTable<T>({
     advancedFilterRuleCount,
     isAdvancedFilterOpen,
     resolvedAdvancedFilterFields,
+    showSaveViewButton,
+    viewDirtyState,
+    savePerspectiveMutation.isPending,
+    handleSaveViewClick,
+    t,
   ])
 
   const hasTitle = title != null

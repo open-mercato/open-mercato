@@ -287,7 +287,7 @@ export function BusinessRulesSelector({
                         </Badge>
                       )}
                       {rule.enabled ? (
-                        <Badge variant="default" className="bg-emerald-500 text-xs">
+                        <Badge variant="default" className="bg-status-success-solid text-status-success-solid-foreground text-xs">
                           Enabled
                         </Badge>
                       ) : (

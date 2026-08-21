@@ -159,7 +159,7 @@ export default function RecordLockingSettingsPage() {
             <option value="optimistic">{t('record_locks.settings.strategy_optimistic', 'Optimistic')}</option>
             <option value="pessimistic">{t('record_locks.settings.strategy_pessimistic', 'Pessimistic')}</option>
           </select>
-          <Alert variant="info">
+          <Alert status="information">
             <AlertDescription>
               <p>
                 <strong>{t('record_locks.settings.strategy_optimistic', 'Optimistic')}:</strong>{' '}

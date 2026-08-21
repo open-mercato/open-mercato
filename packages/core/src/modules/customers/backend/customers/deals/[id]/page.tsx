@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { Building2, UserSearch, Users } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -68,13 +69,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   } = useScheduleDialog()
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-  const initialTab = React.useMemo(() => resolveLegacyTab(searchParams?.get('tab')), [searchParams])
-  const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
-
-  React.useEffect(() => {
-    setActiveTab(initialTab)
-  }, [initialTab])
-
   const currentDealId = data?.deal.id ?? id
   const { injectionContext, runMutationWithContext } = useDealMutationContext({
     currentDealId,
@@ -107,6 +101,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setData,
   })
 
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  const initialTab = React.useMemo(
+    () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
+    [injectedTabIds, searchParams],
+  )
+  const [activeTab, setActiveTab] = React.useState<DealTabId>(initialTab)
+
+  React.useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
   const { searchPeoplePage, fetchPeopleByIds, searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
     excludeLinkedDealId: data?.deal.id ?? null,
   })
@@ -130,6 +135,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: entry.id,
           label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
           kind: entry.kind,
+          isPrimary: entry.isPrimary === true,
         }))
       : []),
     [data],
@@ -140,7 +146,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setSelectedActivityEntityId((current) => {
       if (activityEntities.length === 1) return activityEntities[0].id
       if (current && activityEntities.some((entry) => entry.id === current)) return current
-      return null
+      const primary = activityEntities.find((entry) => entry.isPrimary)
+      return (primary ?? activityEntities[0])?.id ?? null
     })
   }, [activityEntities])
 
@@ -383,7 +390,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showAssociationsGroup={false}
         showVersionHistory={false}
         showCancelAction={false}
-        injectionSpotId="crud-form:customers.deal"
+        injectionSpotId={extensionPoints.hosts.dealForm.spotId}
         optimisticLockUpdatedAt={data.deal.updatedAt}
         onDirtyChange={setIsDirty}
         initialPipelineOptions={formPipelineOptions}
@@ -610,7 +617,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <InjectionSpot spotId="detail:customers.deal:header" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />
 
           <DealDetailHeader
             deal={data.deal}
@@ -628,7 +635,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isSaving={isSaving}
           />
 
-          <InjectionSpot spotId="detail:customers.deal:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.dealStatusBadges.spotId} context={injectionContext} data={data} onDataChange={setData} />
 
           <PipelineStepper
             stages={data.pipelineStages}
@@ -663,7 +670,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             />
           </DealDetailTabs>
 
-          <InjectionSpot spotId="detail:customers.deal:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.dealFooter.spotId} context={injectionContext} data={data} />
         </div>
 
         {ConfirmDialogElement}

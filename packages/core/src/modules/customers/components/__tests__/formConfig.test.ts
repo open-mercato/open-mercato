@@ -7,6 +7,12 @@ jest.mock('../AddressTiles', () => ({
 jest.mock('../detail/RolesSection', () => ({
   RolesSection: () => null,
 }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+}))
+
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
   buildCompanyEditPayload,
@@ -15,8 +21,10 @@ import {
   buildPersonPayload,
   createCompanyDaneFiremyGroups,
   createCompanyEditSchema,
+  createCompanyFormFields,
   createCompanyFormSchema,
   createPersonEditSchema,
+  createPersonFormFields,
   createPersonPersonalDataGroups,
   mapCompanyOverviewToFormValues,
   mapPersonOverviewToFormValues,
@@ -308,5 +316,47 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
     expect('sizeBucket' in payload).toBe(false)
     expect('annualRevenue' in payload).toBe(false)
     expect('description' in payload).toBe(false)
+  })
+})
+
+describe('PhoneNumberField defaultCountryIso2 forwarding', () => {
+  const mockRenderProps = {
+    value: null,
+    setValue: () => {},
+    error: undefined,
+    disabled: false,
+    autoFocus: false,
+    recordId: undefined,
+  }
+
+  it('renders phone input with +48 country code in person form when defaultCountryIso2: PL is provided', () => {
+    const fields = createPersonFormFields(t, { defaultCountryIso2: 'PL' })
+    const phoneField = fields.find((f) => f.id === 'primaryPhone')
+    expect(phoneField).toBeDefined()
+    expect(phoneField?.type).toBe('custom')
+    if (phoneField?.type === 'custom') expect(phoneField.rendersOwnError).toBe(true)
+
+    const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
+    expect(html).toContain('+48')
+  })
+
+  it('renders phone input with +48 country code in company form when defaultCountryIso2: PL is provided', () => {
+    const fields = createCompanyFormFields(t, { defaultCountryIso2: 'PL' })
+    const phoneField = fields.find((f) => f.id === 'primaryPhone')
+    expect(phoneField).toBeDefined()
+    expect(phoneField?.type).toBe('custom')
+    if (phoneField?.type === 'custom') expect(phoneField.rendersOwnError).toBe(true)
+
+    const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
+    expect(html).toContain('+48')
+  })
+
+  it('renders phone input with default +1 country code when options are omitted', () => {
+    const fields = createPersonFormFields(t)
+    const phoneField = fields.find((f) => f.id === 'primaryPhone')
+    expect(phoneField).toBeDefined()
+
+    const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
+    expect(html).toContain('+1')
   })
 })
