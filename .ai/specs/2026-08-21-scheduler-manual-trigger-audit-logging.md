@@ -97,11 +97,13 @@ picks it up, so an undo token would offer to reverse an enqueue that no longer e
 the run's real effects untouched; those are reversed through the entries the run itself writes. This
 also keeps `TC-UNDO-001 §4` (trigger exposes no `x-om-operation` token) correct.
 
-### API-key callers keep acting as the creator
+### Key-only callers keep acting as the creator
 
-`triggeredByUserId` is populated from `resolveCommandActorUserId`, which yields `null` for an API-key
-caller. A key id is not a user id, so an RBAC lookup against it could never succeed; falling back to
-the creator preserves today's behavior for that caller class.
+`triggeredByUserId` is populated from `resolveCommandActorUserId`, which reads `auth.userId` **before**
+it considers `auth.isApiKey`. So an API key issued on a user's behalf resolves to that user and the run
+is attributed to — and authorized as — them, which is the correct actor. Only a key-only context (no
+bound user) yields `null`: a bare key id is not a user id, so an RBAC lookup against it could never
+succeed, and falling back to the creator preserves today's behavior for that caller class.
 
 ### Command id
 

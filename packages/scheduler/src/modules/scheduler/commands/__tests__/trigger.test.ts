@@ -128,14 +128,32 @@ describe('scheduler.jobs.trigger', () => {
     expect(result).toMatchObject({ targetType: 'command', target: 'scheduler.test.echo', outcome: 'enqueued' })
   })
 
-  it('leaves triggeredByUserId null for an API-key caller so the run keeps acting as the creator', async () => {
+  it('leaves triggeredByUserId null for a key-only caller so the run keeps acting as the creator', async () => {
     const trigger = loadTriggerCommand()
     const em = makeEm(makeSchedule())
+    // No bound user: a bare key id is not a user id, so it could never satisfy the
+    // worker's RBAC lookup and must fall back to the schedule's creator.
     const ctx = makeCtx({ sub: 'api-key-1', tenantId: 'tenant-a', orgId: null, isApiKey: true }, em)
 
     await trigger.execute({ id: SCHEDULE_ID }, ctx)
 
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ triggeredByUserId: null }))
+  })
+
+  it('attributes an API key issued on a user behalf to that user', async () => {
+    const trigger = loadTriggerCommand()
+    const em = makeEm(makeSchedule())
+    // `resolveCommandActorUserId` reads `userId` before it considers `isApiKey`, so
+    // a user-bound key acts as its real user rather than falling back to the
+    // creator — the run is attributed to whoever it was actually made on behalf of.
+    const ctx = makeCtx(
+      { sub: 'api-key-1', userId: ACTOR_ID, tenantId: 'tenant-a', orgId: null, isApiKey: true },
+      em,
+    )
+
+    await trigger.execute({ id: SCHEDULE_ID }, ctx)
+
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ triggeredByUserId: ACTOR_ID }))
   })
 
   it('returns not_found for a missing schedule without throwing', async () => {

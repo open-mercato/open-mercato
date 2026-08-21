@@ -115,10 +115,12 @@ const triggerScheduleCommand: CommandHandler<ScheduleTriggerInput, TriggerSchedu
       organizationId: schedule.organizationId,
       scopeType: schedule.scopeType,
       triggerType: 'manual',
-      // `resolveCommandActorUserId` yields null for an API-key caller. That matters
-      // now that the worker authorizes and runs a manual command schedule as this
-      // user: a key id is not a user id, so it must fall back to the schedule's
-      // creator rather than fail an RBAC lookup that could never succeed.
+      // `resolveCommandActorUserId` resolves the bound user whenever the auth
+      // context carries one — including an API key issued on a user's behalf — and
+      // yields null only for a key-only context. That matters now that the worker
+      // authorizes and runs a manual command schedule as this identity: a bare key
+      // id is not a user id, so it falls back to the schedule's creator rather than
+      // failing an RBAC lookup that could never succeed.
       triggeredByUserId: resolveCommandActorUserId(ctx),
     }
 
