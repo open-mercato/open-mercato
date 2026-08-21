@@ -485,17 +485,23 @@ export function ComboboxInput({
       {listboxVisible ? (
         <PopoverContent
           align="start"
+          // Radix hardcodes `role="dialog"` on popover content. This popup is a
+          // positioning shell around the listbox below, and a second dialog node
+          // would both misdescribe it and break `getByRole('dialog')` for anything
+          // that queries while suggestions happen to be open.
+          role="presentation"
           // Focus must stay in the input: the blur-close timer and
           // aria-activedescendant model depend on it, and Radix would otherwise
           // move focus into the list on open and back to the trigger on close.
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
-          // A modal Dialog locks scrolling through `react-remove-scroll`, which only
-          // exempts its own content node. The portaled list is not part of that
-          // exemption, so without this the wheel does nothing over a long list inside
-          // a dialog. Keep the event from reaching the lock; `overscroll-contain`
-          // stops the scroll chaining to the page once the list hits an end.
+          // A modal Dialog locks scrolling through `react-remove-scroll`, which
+          // cancels document-level `wheel` and `touchmove` outside its own content
+          // node. The portaled list is not part of that exemption, so without these
+          // a long list inside a dialog cannot be scrolled by wheel or by touch.
+          // `overscroll-contain` stops the scroll chaining to the page at the ends.
           onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
           className="w-[var(--radix-popover-trigger-width)] min-w-0 max-h-48 sm:max-h-60 overflow-auto overscroll-contain border-input p-2"
         >
           {loading && touched ? (

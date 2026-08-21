@@ -49,26 +49,41 @@ describe('ComboboxInput inside a Dialog', () => {
     expect(dialogContent!.contains(listbox)).toBe(false)
   })
 
-  it('keeps wheel events off the dialog scroll lock so a long list stays scrollable', () => {
+  // `react-remove-scroll` (the dialog's scroll lock) listens on the document for
+  // both `wheel` and `touchmove` and cancels either one when it is raised outside
+  // the dialog content, which would freeze the portaled list.
+  it.each(['wheel', 'touchMove'] as const)('keeps %s events off the dialog scroll lock so a long list stays scrollable', (eventName) => {
     render(<DialogHarness />)
     openSuggestions()
 
-    // `react-remove-scroll` (the dialog's scroll lock) listens on the document and
-    // cancels wheel events raised outside the dialog content, which would freeze the
-    // portaled list.
-    const onDocumentWheel = jest.fn()
-    document.addEventListener('wheel', onDocumentWheel)
+    const domEventName = eventName === 'wheel' ? 'wheel' : 'touchmove'
+    // The scroll lock reads coordinates off the event, so give it usable ones.
+    const init = eventName === 'wheel'
+      ? { deltaY: 120 }
+      : { touches: [{ clientX: 0, clientY: 0 }], changedTouches: [{ clientX: 0, clientY: 0 }] }
+    const onDocumentEvent = jest.fn()
+    document.addEventListener(domEventName, onDocumentEvent)
     try {
-      const list = screen.getByRole('listbox')
-      fireEvent.wheel(list, { deltaY: 120 })
-      expect(onDocumentWheel).not.toHaveBeenCalled()
+      fireEvent[eventName](screen.getByRole('listbox'), init)
+      expect(onDocumentEvent).not.toHaveBeenCalled()
 
-      // control: a wheel anywhere else still reaches the document listener
-      fireEvent.wheel(screen.getByRole('combobox'), { deltaY: 120 })
-      expect(onDocumentWheel).toHaveBeenCalledTimes(1)
+      // control: the same event anywhere else still reaches the document listener
+      fireEvent[eventName](screen.getByRole('combobox'), init)
+      expect(onDocumentEvent).toHaveBeenCalledTimes(1)
     } finally {
-      document.removeEventListener('wheel', onDocumentWheel)
+      document.removeEventListener(domEventName, onDocumentEvent)
     }
+  })
+
+  it('does not add a second dialog node while the suggestions are open', () => {
+    render(<DialogHarness />)
+    openSuggestions()
+
+    // Radix hardcodes role="dialog" on popover content; ~35 test files resolve
+    // `getByRole('dialog')`, which is strict about multiple matches.
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-dialog-content')
   })
 
   it('keeps the dialog open when an option is picked', async () => {
