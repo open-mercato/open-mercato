@@ -142,3 +142,76 @@ describe('findDuplicateRegisteredEntityClassNames', () => {
     expect(groups.find((group) => group.className === 'Ledger')?.sources).toHaveLength(3)
   })
 })
+
+describe('resilience', () => {
+  // The check is a diagnostic; a hostile or exotic export must never be able to turn it
+  // into a bootstrap failure.
+  it('skips an entity whose name getter throws', () => {
+    const hostile = function () {} as unknown as Record<string, unknown>
+    Object.defineProperty(hostile, MetadataStorage.PATH_SYMBOL, { value: '/hostile.ts' })
+    Object.defineProperty(hostile, 'name', {
+      get() {
+        throw new Error('name is not readable')
+      },
+    })
+
+    expect(() => findDuplicateRegisteredEntityClassNames([hostile])).not.toThrow()
+  })
+
+  it('skips an entity whose module id stamp throws', () => {
+    const hostile = function Invoice() {} as unknown as Record<string, unknown>
+    Object.defineProperty(hostile, MetadataStorage.PATH_SYMBOL, { value: '/hostile.ts' })
+    Object.defineProperty(hostile, 'entityName', {
+      get() {
+        throw new Error('entityName is not readable')
+      },
+    })
+
+    expect(() => findDuplicateRegisteredEntityClassNames([hostile])).not.toThrow()
+  })
+
+  it('skips a proxy that throws on every trap', () => {
+    const hostile = new Proxy(function Invoice() {}, {
+      get() {
+        throw new Error('trapped')
+      },
+      has() {
+        throw new Error('trapped')
+      },
+      getOwnPropertyDescriptor() {
+        throw new Error('trapped')
+      },
+    })
+
+    expect(() => findDuplicateRegisteredEntityClassNames([hostile])).not.toThrow()
+  })
+
+  it('still finds a real collision alongside a hostile export', () => {
+    const hostile = function () {} as unknown as Record<string, unknown>
+    Object.defineProperty(hostile, MetadataStorage.PATH_SYMBOL, { value: '/hostile.ts' })
+    Object.defineProperty(hostile, 'name', {
+      get() {
+        throw new Error('name is not readable')
+      },
+    })
+
+    const groups = findDuplicateRegisteredEntityClassNames([hostile, InvoiceBilling, InvoiceSubscriptions])
+
+    expect(groups.map((group) => group.className)).toEqual(['Invoice'])
+  })
+
+  it('tolerates values that are not entities at all', () => {
+    expect(() =>
+      findDuplicateRegisteredEntityClassNames([
+        null,
+        undefined,
+        0,
+        '',
+        Symbol('entity'),
+        Object.create(null),
+        [],
+        new Map(),
+      ]),
+    ).not.toThrow()
+  })
+})

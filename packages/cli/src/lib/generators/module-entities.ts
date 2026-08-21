@@ -234,9 +234,13 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
  * colliding registry is produced. Reported as a warning; generation still succeeds.
  */
 function warnOnDuplicateEntityClassNames(entries: readonly EntityClassNameEntry[]): void {
-  const duplicates = findDuplicateEntityClassNames(entries)
-  if (duplicates.length === 0) return
-  console.warn(`\x1b[33m[Entities Warning]\x1b[0m ${formatDuplicateEntityClassNamesWarning(duplicates)}`)
+  try {
+    const duplicates = findDuplicateEntityClassNames(entries)
+    if (duplicates.length === 0) return
+    console.warn(`\x1b[33m[Entities Warning]\x1b[0m ${formatDuplicateEntityClassNamesWarning(duplicates)}`)
+  } catch {
+    // This check is a diagnostic. It must never be the reason generation fails.
+  }
 }
 
 function resolveConventionFile(baseDir: string, basename: string): string | null {

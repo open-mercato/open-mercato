@@ -31,11 +31,16 @@ function setRegisteredEntities(entities: any[]): void {
  * through — so the logs name the cause instead of only its distant symptoms.
  */
 function warnOnDuplicateEntityClassNames(entities: readonly unknown[]): void {
-  const duplicates = findDuplicateRegisteredEntityClassNames(entities)
-  if (duplicates.length === 0) return
-  logger.warn(`[Bootstrap] ${formatDuplicateEntityClassNamesWarning(duplicates)}`, {
-    classNames: duplicates.map((group) => group.className),
-  })
+  try {
+    const duplicates = findDuplicateRegisteredEntityClassNames(entities)
+    if (duplicates.length === 0) return
+    logger.warn(`[Bootstrap] ${formatDuplicateEntityClassNamesWarning(duplicates)}`, {
+      classNames: duplicates.map((group) => group.className),
+    })
+  } catch (err) {
+    // This check is a diagnostic. It must never be the reason a bootstrap fails.
+    logger.debug('Duplicate entity class name check skipped', { err })
+  }
 }
 
 export function registerOrmEntities(entities: any[]) {

@@ -61,7 +61,14 @@ function toEntityClassNameEntry(value: unknown): EntityClassNameEntry | null {
 export function collectEntityClassNameEntries(entities: readonly unknown[]): EntityClassNameEntry[] {
   const entries: EntityClassNameEntry[] = []
   for (const value of entities) {
-    const entry = toEntityClassNameEntry(value)
+    let entry: EntityClassNameEntry | null = null
+    try {
+      entry = toEntityClassNameEntry(value)
+    } catch {
+      // Reading a name off an exotic export (a throwing getter, a proxy) must not turn
+      // a diagnostic into a boot failure. Skip the value and keep checking the rest.
+      continue
+    }
     if (entry) entries.push(entry)
   }
   return entries
