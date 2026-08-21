@@ -1,11 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
-import { createReadStream, createWriteStream, readFileSync } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Transform, Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { fileURLToPath } from 'node:url'
+import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import {
   BACKUP_FORMAT,
   BACKUP_FORMAT_VERSION,
@@ -21,7 +21,7 @@ import { ErasureManifestService, resolveErasureManifestDirectory } from './erasu
 const ARCHIVE_EXTENSION = '.ombak'
 const MANIFEST_EXTENSION = '.manifest.json'
 const MAX_STDERR_LENGTH = 2_000
-const ENTERPRISE_PACKAGE_VERSION = readPackageVersion()
+const APPLICATION_VERSION = APP_VERSION
 
 type DatabaseConnection = {
   databaseName: string
@@ -631,7 +631,7 @@ export function createBackupServiceFromEnvironment(input: {
     encryptionKey,
     auditHmacKey,
     actor: input.actor,
-    applicationVersion: ENTERPRISE_PACKAGE_VERSION,
+    applicationVersion: APPLICATION_VERSION,
     erasureManifestService: new ErasureManifestService(
       resolveErasureManifestDirectory(backupDirectory, environment),
     ),
@@ -902,15 +902,4 @@ function isBackupManifest(value: unknown): value is BackupManifest {
     && typeof archive.checksumSha256 === 'string'
     && typeof archive.sizeBytes === 'number'
     && manifest.result === 'completed'
-}
-
-function readPackageVersion(): string {
-  const packageUrl = new URL('../../../../package.json', import.meta.url)
-  const parsed: unknown = JSON.parse(
-    readFileSync(fileURLToPath(packageUrl.href), 'utf8'),
-  )
-  if (!parsed || typeof parsed !== 'object' || typeof (parsed as Record<string, unknown>).version !== 'string') {
-    throw new BackupServiceError('Could not read the Open Mercato package version.', 'APPLICATION_VERSION_UNAVAILABLE')
-  }
-  return (parsed as Record<string, string>).version
 }
