@@ -1657,7 +1657,7 @@ OM_SECURITY_SUDO_MAX_TTL=1800                 # Maximum configurable sudo TTL
 OM_SECURITY_WEBAUTHN_RP_NAME=Open Mercato     # WebAuthn relying party name
 OM_SECURITY_WEBAUTHN_RP_ID=                   # WebAuthn RP ID (defaults to hostname)
 OM_SECURITY_RECOVERY_CODE_COUNT=10            # Number of recovery codes generated
-OM_SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster recovery only)
+OM_SECURITY_MFA_EMERGENCY_BYPASS=false        # ⚠️  EMERGENCY BREAK-GLASS ONLY — when true, MFA enforcement is DISABLED platform-wide (all challenges + enrollment redirects skipped, sudo falls back to password). Keep false; when enabled the app emits warn-level structured logs at startup and on every bypassed challenge for auditability.
 ```
 
 ---

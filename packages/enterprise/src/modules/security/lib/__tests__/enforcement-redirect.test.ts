@@ -1,8 +1,9 @@
 const mockLoggerError = jest.fn()
+const mockLoggerWarn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({
-    child: () => ({ error: mockLoggerError }),
+    child: () => ({ error: mockLoggerError, warn: mockLoggerWarn }),
   }),
 }))
 
@@ -35,6 +36,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
   beforeEach(() => {
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
     mockLoggerError.mockClear()
+    mockLoggerWarn.mockClear()
   })
 
   test('returns redirect immediately when deadline is not set', async () => {

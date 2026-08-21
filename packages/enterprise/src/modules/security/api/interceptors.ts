@@ -1,6 +1,6 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
-import { readSecurityModuleConfig } from '../lib/security-config'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
 
 type JwtClaims = {
   sub: string
@@ -59,7 +59,10 @@ export const interceptors: ApiInterceptor[] = [
       if (response.statusCode !== 200) return {}
       if (response.body.ok !== true || response.body.mfa_required === true) return {}
       if (typeof response.body.token !== 'string' || response.body.token.length === 0) return {}
-      if (readSecurityModuleConfig().mfa.emergencyBypass) return {}
+      if (readSecurityModuleConfig().mfa.emergencyBypass) {
+        emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', {})
+        return {}
+      }
 
       const claims = readClaims(response.body.token)
       if (!claims) return {}

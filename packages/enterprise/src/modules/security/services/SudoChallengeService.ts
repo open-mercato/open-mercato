@@ -24,7 +24,7 @@ import type { MfaService } from './MfaService'
 import type { MfaVerificationService } from './MfaVerificationService'
 import { sudoTargets as defaultSudoTargets } from '../security.sudo'
 import type { SecurityModuleConfig } from '../lib/security-config'
-import { readSecurityModuleConfig } from '../lib/security-config'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
 
 type SudoMethod = 'password' | 'mfa'
 
@@ -575,6 +575,10 @@ export class SudoChallengeService {
     availableMfaMethodCount: number,
   ): SudoMethod {
     if (this.securityConfig.mfa.emergencyBypass) {
+      emitMfaEmergencyBypassActiveWarning('sudo challenge downgraded to password', {
+        configuredMethod,
+        availableMfaMethodCount,
+      })
       return 'password'
     }
     if (configuredMethod === ChallengeMethod.PASSWORD) return 'password'

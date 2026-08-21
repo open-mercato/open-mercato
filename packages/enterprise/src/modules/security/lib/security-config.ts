@@ -1,4 +1,5 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const TOTP_PERIOD_SECONDS = 30
 const TOTP_DIGITS = 6
@@ -6,6 +7,9 @@ const DEFAULT_SETUP_TTL_MS = 10 * 60 * 1000
 const DEFAULT_WEBAUTHN_CHALLENGE_TTL_MS = 5 * 60 * 1000
 const DEFAULT_SUDO_PENDING_CHALLENGE_TTL_MS = 10 * 60 * 1000
 const MIN_SUDO_TTL_SECONDS = 30
+
+const securityBypassLogger = createLogger('security').child({ component: 'mfa-emergency-bypass' })
+let startupBypassWarningEmitted = false
 
 export type SecurityModuleConfig = {
   totp: {
@@ -169,6 +173,34 @@ export function resolveSecurityModuleConfigForRequest(
     },
   }
 }
+
+export function emitMfaEmergencyBypassActiveWarning(context: string, extra?: Record<string, unknown>): void {
+  securityBypassLogger.warn(
+    `OM_SECURITY_MFA_EMERGENCY_BYPASS is active — ${context} — MFA enforcement is disabled platform-wide (break-glass)`,
+    {
+      emergencyBypass: true,
+      context,
+      ...extra,
+    },
+  )
+}
+
+export function emitMfaEmergencyBypassStartupWarningIfNeeded(env: NodeJS.ProcessEnv = process.env): void {
+  if (startupBypassWarningEmitted) return
+  const bypass = parseBooleanWithDefault(
+    env.OM_SECURITY_MFA_EMERGENCY_BYPASS,
+    defaultSecurityModuleConfig.mfa.emergencyBypass,
+  )
+  if (!bypass) return
+  startupBypassWarningEmitted = true
+  emitMfaEmergencyBypassActiveWarning('startup', { startup: true })
+}
+
+export function resetMfaEmergencyBypassStartupWarningForTests(): void {
+  startupBypassWarningEmitted = false
+}
+
+emitMfaEmergencyBypassStartupWarningIfNeeded()
 
 export function readSecuritySetupTokenSecret(env: NodeJS.ProcessEnv = process.env): string {
   const secret = readText(env.OM_SECURITY_MFA_SETUP_SECRET)
