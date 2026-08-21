@@ -33,9 +33,9 @@ export function renderValue(value: unknown, fallback: string) {
   if (typeof value === 'boolean') return <span>{value ? 'true' : 'false'}</span>
   if (typeof value === 'number' || typeof value === 'bigint') return <span>{String(value)}</span>
   if (value instanceof Date) return <span>{value.toISOString()}</span>
-  if (typeof value === 'string') return <span className="break-words">{value}</span>
+  if (typeof value === 'string') return <span className="wrap-anywhere">{value}</span>
   return (
-    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 px-2 py-1 text-xs leading-5 text-muted-foreground">
+    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap wrap-anywhere rounded-md bg-muted/50 px-2 py-1 text-xs leading-5 text-muted-foreground">
       {safeStringify(value)}
     </pre>
   )
@@ -86,7 +86,7 @@ export function ChangedFieldsTable({ changeRows, noneLabel, t, beforeLabel, afte
       {changeRows.length ? (
         <div className="@container/changes mt-2">
           <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full divide-y text-sm @lg/changes:min-w-full">
+            <table className="block w-full divide-y text-sm @lg/changes:table @lg/changes:min-w-full">
               <thead className="hidden bg-muted/50 @lg/changes:table-header-group">
                 <tr>
                   <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
