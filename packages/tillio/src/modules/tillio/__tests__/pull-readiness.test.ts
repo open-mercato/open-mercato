@@ -1,5 +1,5 @@
 import { computeEnvFingerprint } from '../lib/operators-store'
-import { blockerSection, evaluatePullReadiness } from '../lib/pull-readiness'
+import { blockerSection, evaluateEnvironmentReadiness, evaluatePullReadiness } from '../lib/pull-readiness'
 
 const environment = { apiUrl: 'https://x.example.com', apiKey: 'k', tenantSystemId: 'OM-abc' }
 
@@ -15,6 +15,22 @@ function operatorWith(envFingerprint: string) {
 }
 
 const attachedOperator = operatorWith(computeEnvFingerprint(environment))
+
+// The pull and the operator-attach route share this decision. It is asserted directly because a
+// second caller now depends on it, and because the `enabled` term used to be written out at each
+// call site, where one copy lost it.
+describe('evaluateEnvironmentReadiness', () => {
+  it.each([
+    ['nothing configured', null, false, false, 'environment_not_ready'],
+    ['configured but switched off', environment, false, true, 'integration_disabled'],
+    ['configured, on, never checked healthy', environment, true, false, 'environment_not_ready'],
+    ['configured, on and healthy', environment, true, true, null],
+  ] as const)('%s', (_name, env, integrationEnabled, environmentHealthy, expected) => {
+    const readiness = evaluateEnvironmentReadiness({ environment: env, integrationEnabled, environmentHealthy })
+    expect(readiness.blocker).toBe(expected)
+    expect(readiness.ready).toBe(expected === null)
+  })
+})
 
 describe('evaluatePullReadiness', () => {
   it('clears the pull when the environment is healthy and an operator is attached', () => {
@@ -49,6 +65,20 @@ describe('evaluatePullReadiness', () => {
       operator: attachedOperator,
     })
     expect(readiness.blocker).toBe('integration_disabled')
+    expect(readiness.environmentReady).toBe(false)
+  })
+
+  // A fresh install has no integration row, and a missing row reads as disabled. Reporting that
+  // as the blocker would tell the user to enable an integration they have not configured yet,
+  // so the missing environment has to win while there is nothing to switch on.
+  it('reports the missing environment, not the switch, before anything is configured', () => {
+    const readiness = evaluatePullReadiness({
+      environment: null,
+      integrationEnabled: false,
+      environmentHealthy: false,
+      operator: null,
+    })
+    expect(readiness.blocker).toBe('environment_not_ready')
     expect(readiness.environmentReady).toBe(false)
   })
 

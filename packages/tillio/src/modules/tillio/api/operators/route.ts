@@ -12,6 +12,7 @@ import {
   type TillioCredentialsService,
 } from '../../lib/operators-store'
 import { createTillioLock, tillioOperatorLockKey } from '../../lib/locking'
+import { evaluateEnvironmentReadiness, type EnvironmentBlocker } from '../../lib/pull-readiness'
 import {
   TillioApiError,
 } from '../../lib/errors'
@@ -26,6 +27,12 @@ import {
 } from '../../lib/operators'
 
 const SUPPORTED_PLUGINS = ['Ringostat'] as const
+
+// Same blockers as the pull reports, worded for the action the caller was attempting.
+const ATTACH_BLOCKER_MESSAGES: Record<EnvironmentBlocker, string> = {
+  integration_disabled: 'The Tillio integration is disabled. Enable it before attaching an operator.',
+  environment_not_ready: 'Run the Tillio environment health check before attaching an operator.',
+}
 
 const attachBodySchema = z.object({
   plugin: z.literal('Ringostat'),
@@ -56,7 +63,11 @@ export async function GET(req: Request) {
 
   const environment = await resolveEnvironment(credentialsService, scope)
   const integrationState = await readTillioIntegrationState(em, scope)
-  const environmentReady = Boolean(environment) && integrationState.enabled && integrationState.healthy
+  const { ready: environmentReady } = evaluateEnvironmentReadiness({
+    environment,
+    integrationEnabled: integrationState.enabled,
+    environmentHealthy: integrationState.healthy,
+  })
   const blob = await readOperatorsBlob(credentialsService, scope)
   const currentFingerprint = environment ? computeEnvFingerprint(environment) : null
 
@@ -96,18 +107,17 @@ export async function POST(req: Request) {
 
   const environment = await resolveEnvironment(credentialsService, scope)
   const integrationState = await readTillioIntegrationState(em, scope)
-  // Provisioning an operator registers a config on Tillio's side, so a switched-off integration
-  // is refused here rather than left to the pull to discover.
-  if (!integrationState.enabled) {
+  // Provisioning an operator registers a config on Tillio's side, so the environment is checked
+  // here rather than left to the pull to discover. The decision is the shared one; only the
+  // wording is specific to attaching.
+  const { blocker } = evaluateEnvironmentReadiness({
+    environment,
+    integrationEnabled: integrationState.enabled,
+    environmentHealthy: integrationState.healthy,
+  })
+  if (blocker) {
     return NextResponse.json(
-      { ok: false, code: 'integration_disabled', section: 'environment', message: 'The Tillio integration is disabled. Enable it before attaching an operator.' },
-      { status: 409 },
-    )
-  }
-  const environmentReady = Boolean(environment) && integrationState.healthy
-  if (!environmentReady) {
-    return NextResponse.json(
-      { ok: false, code: 'environment_not_ready', section: 'environment', message: 'Run the Tillio environment health check before attaching an operator.' },
+      { ok: false, code: blocker, section: 'environment', message: ATTACH_BLOCKER_MESSAGES[blocker] },
       { status: 409 },
     )
   }
