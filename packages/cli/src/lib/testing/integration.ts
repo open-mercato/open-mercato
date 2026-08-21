@@ -1882,9 +1882,18 @@ export async function terminateProcessTree(
 ): Promise<void> {
   const pid = childProcess.pid
   if (!pid) return
-  // Without this the crash path — where the app died on its own but `killed` is still false — would
-  // stall the whole teardown for the grace period waiting for an event that already fired.
-  if (hasProcessAlreadyExited(childProcess)) return
+  // A reaped leader answers only "waiting for its `'exit'` event can never settle" — without this the
+  // crash path would stall the whole teardown for the grace period waiting for an event that already
+  // fired. It does *not* mean the process group is empty: on the readiness-failure path the `yarn`
+  // wrapper exits non-zero while the `mercato start`/Next/worker descendants it spawned stay in its
+  // group, so the group still has to be signalled or #5333's orphan survives verbatim. POSIX keeps
+  // the group id reserved while any member holds it, so signalling it after the leader is reaped is
+  // both safe and effective. Skip the wait, never the signal — and go straight to SIGKILL, since
+  // there is no leader left to coordinate a graceful shutdown or to report the exit we would await.
+  if (hasProcessAlreadyExited(childProcess)) {
+    killProcessTreeIfRunning(pid, 'SIGKILL', dependencies)
+    return
+  }
 
   killProcessTreeIfRunning(pid, 'SIGTERM', dependencies)
 
@@ -1942,6 +1951,10 @@ export function registerEphemeralShutdownHandlers(options: {
           console.error(`Failed to stop the ephemeral environment on ${signal}:`, error)
         } finally {
           dispose()
+          // Load-bearing, not cleanup: `dispose()` already detached this module's `once` handler, so
+          // the only listeners left belong to somebody else (testcontainers, Playwright, a host CLI).
+          // Any survivor would swallow the re-raised signal and turn the interrupt back into the
+          // synthetic success this whole path exists to avoid, so they come off before the re-raise.
           processRef.removeAllListeners(signal)
           processRef.kill(processRef.pid as number, signal)
         }
@@ -3622,7 +3635,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       isStopped = true
       try {
         if (applicationProcess && !applicationProcess.killed) {
-          await terminateProcessTree(applicationProcess)
+          try {
+            await terminateProcessTree(applicationProcess)
+          } catch (error) {
+            // `killProcessTreeIfRunning` rethrows anything that is not `ESRCH`, and this call sits
+            // ahead of the container and state cleanup. A kill that fails must not strand the
+            // Postgres container and the state file too — report it and finish tearing down.
+            console.error(`[${options.logPrefix}] Failed to terminate the application process tree:`, error)
+          }
         }
         await databaseContainer.stop()
         await clearEphemeralEnvironmentState()
@@ -3635,8 +3655,10 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       stop,
       onSignal: (signal) =>
         console.log(`[${options.logPrefix}] Received ${signal}, stopping ephemeral environment...`),
+      // Deliberately not guarded on `isStopped`: `startEphemeralEnvironment`'s own catch already ran
+      // `stop()` before rethrowing, so the guard made the sweep dead on exactly the paths that need
+      // it. After a successful `stop()` the extra group kill is a harmless `ESRCH` this swallows.
       killApplicationTree: () => {
-        if (isStopped) return
         const pid = applicationProcess?.pid
         if (!pid) return
         try {

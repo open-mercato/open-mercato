@@ -1047,7 +1047,7 @@ describe('terminateProcessTree', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('returns immediately without signalling a process that already reported its exit', async () => {
+  it('still kills the group of a process that already reported its exit, without waiting on it', async () => {
     const fakeProcess = makeFakeProcessWithPid(4242)
     fakeProcess.exitCode = 1
     const calls: NodeJS.Signals[] = []
@@ -1061,7 +1061,9 @@ describe('terminateProcessTree', () => {
       },
     })
 
-    expect(calls).toEqual([])
+    // A reaped leader means no `'exit'` event will ever settle the wait, not that its group is
+    // empty — the descendants it spawned are exactly the orphan #5333 is about.
+    expect(calls).toEqual(['SIGKILL'])
     expect(Date.now() - startedAt).toBeLessThan(1_000)
   })
 
@@ -1294,6 +1296,52 @@ describeOnPosix('terminateProcessTree against a real detached process tree', () 
 
       await expect(waitUntilGone(grandchildPid)).resolves.toBe(true)
       await expect(waitUntilGone(wrapperProcess.pid as number)).resolves.toBe(true)
+    } finally {
+      for (const pid of [grandchildPid, wrapperProcess.pid ?? 0]) {
+        if (pid && isProcessAlive(pid)) {
+          try {
+            process.kill(pid, 'SIGKILL')
+          } catch {}
+        }
+      }
+    }
+  }, 20_000)
+
+  // The shape `waitForApplicationReadiness` reports: the `yarn` wrapper dies non-zero (port in use,
+  // broken build, worker dead on boot) while the `mercato start`/Next tree it spawned lives on. The
+  // leader is already reaped by the time teardown runs, so this is the case an exit short-circuit in
+  // `terminateProcessTree` silently skips — leaving the orphan that still holds `server-start.lock`.
+  it('kills a grandchild that outlived its already-exited wrapper', async () => {
+    const resolvedSpawn = resolveSpawnCommand('/bin/sh', ['-c', 'sleep 30 & echo $!; exit 1'], {
+      detached: true,
+    })
+    const wrapperProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      ...resolvedSpawn.spawnOptions,
+    }) as CapturedOutputProcess
+
+    let grandchildPid = 0
+    try {
+      let stdout = ''
+      wrapperProcess.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString()
+      })
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timed out waiting for the wrapper to exit')), 5_000)
+        wrapperProcess.once('exit', () => {
+          clearTimeout(timer)
+          resolve()
+        })
+      })
+      grandchildPid = Number.parseInt(stdout.trim(), 10)
+
+      expect(Number.isInteger(grandchildPid)).toBe(true)
+      expect(wrapperProcess.exitCode).toBe(1)
+      expect(isProcessAlive(grandchildPid)).toBe(true)
+
+      await terminateProcessTree(wrapperProcess, { gracePeriodMs: 1_000 })
+
+      await expect(waitUntilGone(grandchildPid)).resolves.toBe(true)
     } finally {
       for (const pid of [grandchildPid, wrapperProcess.pid ?? 0]) {
         if (pid && isProcessAlive(pid)) {
