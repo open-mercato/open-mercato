@@ -300,6 +300,7 @@
   "security.audit.sudo.delete": "sudo 구성 삭제",
   "security.audit.sudo.update": "sudo 구성 업데이트",
   "security.label": "보안",
+  "security.login.errors.mfaUnavailable": "다단계 인증을 일시적으로 사용할 수 없습니다. 다시 시도해 주세요.",
   "security.login.mfaChallenge.actions.back": "로그인으로 돌아가기",
   "security.login.mfaChallenge.actions.moreOptions": "추가 옵션",
   "security.login.mfaChallenge.actions.verify": "확인",

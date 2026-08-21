@@ -15,11 +15,11 @@ const responseSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, rateLimit: { points: 20, duration: 60, keyPrefix: 'security_mfa_prepare' } },
+  POST: { requireAuth: false, rateLimit: { points: 20, duration: 60, keyPrefix: 'security_mfa_prepare' } },
 }
 
 export async function POST(req: Request) {
-  const context = await resolveMfaRequestContext(req)
+  const context = await resolveMfaRequestContext(req, { allowPending: true })
   if (context instanceof NextResponse) return context
 
   if (context.auth.mfa_pending !== true) {

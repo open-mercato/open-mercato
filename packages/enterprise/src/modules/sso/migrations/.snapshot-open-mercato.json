@@ -406,6 +406,26 @@
           "default": "false",
           "mappedType": "boolean"
         },
+        "required_acr_values": {
+          "name": "required_acr_values",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'[]'",
+          "mappedType": "json"
+        },
+        "required_amr_values": {
+          "name": "required_amr_values",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'[]'",
+          "mappedType": "json"
+        },
         "app_role_mappings": {
           "name": "app_role_mappings",
           "type": "jsonb",

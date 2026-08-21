@@ -1,7 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { AccountLinkingService } from '../accountLinkingService'
-import { isEmailNotVerifiedError, resolveSsoCallbackErrorCode } from '../../lib/errors'
+import {
+  isEmailNotVerifiedError,
+  resolveSsoCallbackErrorCode,
+  SsoAssuranceError,
+} from '../../lib/errors'
 import { ScimToken, SsoIdentity, SsoRoleGrant } from '../../data/entities'
 import type { SsoConfig } from '../../data/entities'
 import type { SsoIdentityPayload } from '../../lib/types'
@@ -105,6 +109,12 @@ describe('OIDC callback unverified-email error mapping (#2741)', () => {
     expect(resolveSsoCallbackErrorCode(new Error('State mismatch — possible CSRF attack'))).toBe('sso_failed')
     expect(resolveSsoCallbackErrorCode(new Error('SSO configuration no longer active'))).toBe('sso_failed')
     expect(resolveSsoCallbackErrorCode(undefined)).toBe('sso_failed')
+  })
+
+  it('classifies unmet OIDC assurance as sso_assurance_required', () => {
+    expect(resolveSsoCallbackErrorCode(new SsoAssuranceError('assurance failed'))).toBe(
+      'sso_assurance_required',
+    )
   })
 })
 

@@ -300,6 +300,7 @@
   "security.audit.sudo.delete": "Delete sudo configuration",
   "security.audit.sudo.update": "Update sudo configuration",
   "security.label": "Bezpieczeństwo",
+  "security.login.errors.mfaUnavailable": "Uwierzytelnianie wieloskładnikowe jest chwilowo niedostępne. Spróbuj ponownie.",
   "security.login.mfaChallenge.actions.back": "Wróć do logowania",
   "security.login.mfaChallenge.actions.moreOptions": "More options",
   "security.login.mfaChallenge.actions.verify": "Zweryfikuj",

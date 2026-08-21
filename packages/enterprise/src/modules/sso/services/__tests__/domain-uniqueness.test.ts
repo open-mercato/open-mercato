@@ -39,6 +39,8 @@ function makeConfig(overrides: Partial<SsoConfig> = {}): SsoConfig {
     autoLinkByEmail: true,
     isActive: false,
     ssoRequired: false,
+    requiredAcrValues: [],
+    requiredAmrValues: [],
     appRoleMappings: {},
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -66,17 +68,23 @@ function createConfigServiceContext(config: SsoConfig) {
   }
   const provider = { validateConfig: jest.fn().mockResolvedValue({ ok: true }) }
   const registry = { resolve: jest.fn().mockReturnValue(provider) }
+  const encryptionService = {
+    encryptEntityPayload: jest.fn(async (_entityId: string, payload: Record<string, unknown>) => payload),
+    decryptEntityPayload: jest.fn(async (_entityId: string, payload: Record<string, unknown>) => payload),
+  }
 
   return {
     service: new SsoConfigService(
       em as unknown as EntityManager,
-      {} as unknown as TenantDataEncryptionService,
+      encryptionService as unknown as TenantDataEncryptionService,
       registry as unknown as SsoProviderRegistry,
     ),
     em,
     txEm,
     calls,
     lock,
+    encryptionService,
+    provider,
   }
 }
 

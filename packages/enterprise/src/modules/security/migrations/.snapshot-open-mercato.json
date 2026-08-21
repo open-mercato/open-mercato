@@ -696,6 +696,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "secret_hash": {
+          "name": "secret_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "provider_metadata": {
           "name": "provider_metadata",
           "type": "jsonb",
@@ -759,6 +768,16 @@
       "name": "user_mfa_methods",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "idx_user_mfa_methods_secret_hash",
+          "columnNames": [
+            "secret_hash"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "idx_user_mfa_methods_tenant",
           "columnNames": [
