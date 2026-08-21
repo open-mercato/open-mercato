@@ -96,10 +96,10 @@ export function register(container: AppContainer) {
     AgentProcessRun: asValue(AgentProcessRun),
     AgentProcess: asValue(AgentProcess),
     agentAuditEvidenceContributor: asValue(agentAuditEvidenceContributor),
-    agentModelUsageService: asFunction(({ em }) => new AgentModelUsageService(em)).scoped(),
+    agentModelUsageService: asFunction(({ em }) => new AgentModelUsageService(em)).proxy().scoped(),
     agentOrchestratorEnvironmentPrivacyHandler: asFunction(({ em }) => (
       new AgentOrchestratorEnvironmentPrivacyHandler(em, container)
-    )).scoped(),
+    )).proxy().scoped(),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
     // attributed to a concrete actor id. Idempotent + org-scoped. The bound
