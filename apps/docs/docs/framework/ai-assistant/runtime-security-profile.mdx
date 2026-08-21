@@ -1,0 +1,36 @@
+---
+title: Runtime Security Profile
+description: Optional hardened AI runtime rules for deployments that require mandatory moderation, approval, and trace evidence.
+---
+
+# Runtime Security Profile
+
+Open Mercato keeps the compatibility default:
+
+```bash
+OM_AI_RUNTIME_SECURITY_PROFILE=standard
+```
+
+Set the profile to `hardened` when AI operations must stop if their safety checks or evidence trail are unavailable:
+
+```bash
+OM_AI_RUNTIME_SECURITY_PROFILE=hardened
+```
+
+In the MIT AI framework this profile:
+
+- disables the legacy OpenCode Code Mode chat endpoint;
+- enforces input moderation in text and structured object modes;
+- rejects a model call when its provider cannot perform the required moderation check;
+- keeps mutation tools behind the existing pending-action confirmation flow;
+- encrypts pending inputs, field diffs, batch diffs, summaries, and execution results through tenant data encryption.
+
+With Enterprise Agent Orchestrator enabled, the same profile also:
+
+- permits only the native runtime;
+- keeps every agent read-only and propose-only;
+- sends every proposal to a human reviewer, ignoring auto-approval thresholds;
+- requires native trace persistence before disposition;
+- requires encrypted storage when a large trace payload is offloaded.
+
+The hardened profile can reduce availability. A moderation, encryption, or required trace-storage outage stops the affected AI operation by design. Configure a moderation-capable provider, tenant encryption, trace storage, and enough human review capacity before enabling it.

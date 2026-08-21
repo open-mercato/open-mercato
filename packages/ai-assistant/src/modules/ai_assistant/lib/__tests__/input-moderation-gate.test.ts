@@ -46,10 +46,18 @@ describe('runInputModerationGate', () => {
     expect(service.checkInput).not.toHaveBeenCalled()
   })
 
-  it('skips when the provider does not support moderation, even on an enforced surface', async () => {
+  it('fails closed when an enforced surface resolves a provider without moderation', async () => {
     const service = serviceReturning(FLAGGED)
     await expect(
       runInputModerationGate({ ...base, untrustedInput: true, supportsInputModeration: false, service }),
+    ).rejects.toBeInstanceOf(AiModerationUnavailableError)
+    expect(service.checkInput).not.toHaveBeenCalled()
+  })
+
+  it('keeps an opt-in surface available when its provider cannot moderate', async () => {
+    const service = serviceReturning(FLAGGED)
+    await expect(
+      runInputModerationGate({ ...base, perAgentOverride: true, supportsInputModeration: false, service }),
     ).resolves.toBeUndefined()
     expect(service.checkInput).not.toHaveBeenCalled()
   })

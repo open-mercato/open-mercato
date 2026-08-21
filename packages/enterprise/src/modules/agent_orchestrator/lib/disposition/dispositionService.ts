@@ -9,6 +9,7 @@ import type {
   DisposeProposalCommandInput,
   DisposeProposalCommandResult,
 } from '../../commands/dispose'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'disposition-service' })
 
@@ -145,7 +146,10 @@ export class DispositionServiceImpl implements DispositionService {
     if (options.length === 0) {
       return { kind: 'none_proposed', proposalId: proposal.id }
     }
-    const decision = evaluateAutoApproval(options, onResult)
+    const effectiveOnResult: DispositionOnResult = isHardenedAiRuntimeProfile()
+      ? { alwaysAsk: true }
+      : onResult
+    const decision = evaluateAutoApproval(options, effectiveOnResult)
     if (decision.kind === 'approve') {
       return this.autoApprove(proposal, decision.option)
     }

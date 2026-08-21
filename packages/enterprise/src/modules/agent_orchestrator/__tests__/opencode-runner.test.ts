@@ -23,6 +23,7 @@ jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: cl
 
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
+import { AgentRuntimeProfileError } from '../lib/runtime/errors'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
@@ -377,6 +378,26 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(agentSentRef.value).toBe(OPENCODE_AGENT_NAME)
   })
 
+  it('rejects OpenCode agents before dispatch in the hardened profile', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container, registrations } = makeHarness()
+    registrations.openCodeClient = { createSession: jest.fn() }
+    process.env.OM_AI_RUNTIME_SECURITY_PROFILE = 'hardened'
+
+    try {
+      const service = new AgentRuntimeService({
+        container: container as never,
+        commandBus: commandBus as never,
+      })
+      await expect(service.run(entry.id, { dealId: 'deal-1' }, runCtx)).rejects.toBeInstanceOf(
+        AgentRuntimeProfileError,
+      )
+      expect(registrations.openCodeClient.createSession).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.OM_AI_RUNTIME_SECURITY_PROFILE
+    }
+  })
+
   it('broadcasts a run.progress event on each tool call open and finish (live progress feed)', async () => {
     const entry = registerExampleFileAgent()
     const { commandBus, container } = makeHarness()
@@ -491,4 +512,3 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(submitOutcomeTool.isMutation).toBe(false)
   })
 })
-

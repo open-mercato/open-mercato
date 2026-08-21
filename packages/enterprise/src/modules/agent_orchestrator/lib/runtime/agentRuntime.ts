@@ -9,14 +9,16 @@ import { getCurrentRunId } from './runContext'
 import { acquireAgentRunSlot, type AgentRunSlotRelease } from './admission'
 import { withAgentActor } from '../identity/agentWriteScope'
 import { registerAgentKindNoBypassSubscriber } from '../identity/agentNoBypassSubscriber'
-import { AgentNotFoundError } from './errors'
+import { AgentNotFoundError, AgentRuntimeProfileError } from './errors'
 import type { AgentRunCtx } from './persistence'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
 
 export type { AgentRunCtx } from './persistence'
 // Error classes moved to `./errors` (native-runtime Phase 1 extraction);
 // re-exported so every existing `from './agentRuntime'` import keeps working.
 export {
   AgentNotFoundError,
+  AgentRuntimeProfileError,
   AgentRunTimeoutError,
   AgentOutputInvalidError,
   AgentGuardrailBlockedError,
@@ -52,6 +54,9 @@ export class AgentRuntimeService {
     await ensureAgentsLoaded()
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
+    if (isHardenedAiRuntimeProfile() && entry.runtime === 'opencode') {
+      throw new AgentRuntimeProfileError(agentId, entry.runtime)
+    }
 
     // Runtime no-bypass enforcement (Wave 4 Phase 3, layer B-b). When the run is
     // bound to a provisioned agent principal (`ctx.runAs`), bind the async-scoped

@@ -60,6 +60,11 @@ Created by migration `Migration20260419134235_ai_assistant`. Key columns:
 | `expires_at` | timestamptz | Derived from `AI_PENDING_ACTION_TTL_SECONDS` |
 | `resolved_at` / `resolved_by_user_id` | — | Populated on confirm/cancel |
 
+The proposal-bearing columns `normalized_input`, `field_diff`, `records`,
+`failed_records`, `side_effects_summary`, and `execution_result` are covered by
+the module's tenant encryption map. Production deployments must configure tenant
+data encryption before enabling the hardened AI runtime profile.
+
 ## `prepareMutation` — writing a pending row
 
 When the runtime intercepts an `isMutation: true` tool call, it calls `prepareMutation`:

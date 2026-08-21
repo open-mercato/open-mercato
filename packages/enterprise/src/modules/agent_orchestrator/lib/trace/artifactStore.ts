@@ -84,6 +84,8 @@ type MinimalContainer = {
 /** An offload fn bound to a container + scope, injected into `ingestTrace`. */
 export type ArtifactOffloader = (ref: ArtifactEncryptionRef, value: unknown) => Promise<string | null>
 
+export type ArtifactOffloadOptions = { required?: boolean }
+
 function tryResolve<T>(container: MinimalContainer, name: string): T | null {
   const hasRegistration =
     typeof container.hasRegistration === 'function' ? container.hasRegistration.bind(container) : null
@@ -119,10 +121,14 @@ async function encryptWrapper(
   scope: ArtifactScope,
   ref: ArtifactEncryptionRef,
   serialized: string,
+  options: ArtifactOffloadOptions,
 ): Promise<Record<string, unknown>> {
   const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
   const payload = { [ref.field]: serialized }
-  if (!enc || typeof enc.encryptEntityPayload !== 'function') return payload
+  if (!enc || typeof enc.encryptEntityPayload !== 'function') {
+    if (options.required) throw new Error('[internal] trace artifact encryption is unavailable')
+    return payload
+  }
   return enc.encryptEntityPayload(ref.entityId, payload, scope.tenantId, scope.organizationId)
 }
 
@@ -135,12 +141,16 @@ export async function putArtifact(
   scope: ArtifactScope,
   ref: ArtifactEncryptionRef,
   value: unknown,
+  options: ArtifactOffloadOptions = {},
 ): Promise<string | null> {
   try {
     const svc = await resolveStorageService(container, scope)
-    if (!svc) return null
+    if (!svc) {
+      if (options.required) throw new Error('[internal] trace artifact storage is unavailable')
+      return null
+    }
     const serialized = JSON.stringify(value ?? null)
-    const wrapper = await encryptWrapper(container, scope, ref, serialized)
+    const wrapper = await encryptWrapper(container, scope, ref, serialized, options)
     const { key } = await svc.upload({
       namespace: AGENT_TRACE_ARTIFACT_NAMESPACE,
       fileName: `${ref.entityId.replace(/[^a-zA-Z0-9_-]+/g, '_')}-${ref.field}.json`,
@@ -150,6 +160,7 @@ export async function putArtifact(
     })
     return key || null
   } catch (error) {
+    if (options.required) throw error
     logger.warn('artifact offload failed; keeping inline summary', {
       error: error instanceof Error ? error.message : String(error),
     })
@@ -193,6 +204,10 @@ export async function getArtifact(
 }
 
 /** Build an offloader bound to a container + scope for `ingestTrace`. */
-export function createArtifactOffloader(container: MinimalContainer, scope: ArtifactScope): ArtifactOffloader {
-  return (ref, value) => putArtifact(container, scope, ref, value)
+export function createArtifactOffloader(
+  container: MinimalContainer,
+  scope: ArtifactScope,
+  options: ArtifactOffloadOptions = {},
+): ArtifactOffloader {
+  return (ref, value) => putArtifact(container, scope, ref, value, options)
 }

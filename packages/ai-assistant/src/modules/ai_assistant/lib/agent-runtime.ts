@@ -43,6 +43,7 @@ import {
   shouldFailClosed,
 } from './moderation-policy'
 import { recordModerationFlag } from './moderation-flag-recorder'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
 import type {
   AiAgentDefinition,
   AiAgentLoopConfig,
@@ -1106,11 +1107,16 @@ export async function runInputModerationGate(params: InputModerationGateParams):
     env: params.env,
   })
   if (!isModerationActive(policy)) return
-  // The resolved chat provider has no moderation endpoint — rely on its own
-  // server-side filtering and skip the gate.
-  if (!params.supportsInputModeration) return
   const text = params.userText.trim()
   if (!text) return
+  if (!params.supportsInputModeration) {
+    if (shouldFailClosed(policy)) {
+      throw new AiModerationUnavailableError(
+        'the resolved provider does not support the required moderation check',
+      )
+    }
+    return
+  }
 
   const failClosed = shouldFailClosed(policy)
   const failOpenOrThrow = (reason: string, error?: unknown): void => {
@@ -1720,8 +1726,9 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // Read tenant overrides only when the provider can moderate and the agent is
   // not already enforced (untrustedInput short-circuits to enforced) — avoids a
   // DB round-trip on the common skip paths.
+  const hardenedProfile = isHardenedAiRuntimeProfile()
   const moderationOverrides =
-    resolvedModel.supportsInputModeration && agent.untrustedInput !== true
+    resolvedModel.supportsInputModeration && agent.untrustedInput !== true && !hardenedProfile
       ? await resolveModerationOverrideValues(
           input.container,
           input.authContext.tenantId,
@@ -1730,7 +1737,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         )
       : { perAgentOverride: null, tenantWideOverride: null }
   await runInputModerationGate({
-    untrustedInput: agent.untrustedInput,
+    untrustedInput: hardenedProfile || agent.untrustedInput === true,
     supportsInputModeration: resolvedModel.supportsInputModeration,
     perAgentOverride: moderationOverrides.perAgentOverride,
     tenantWideOverride: moderationOverrides.tenantWideOverride,
@@ -2214,7 +2221,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(
+  const resolvedModel = resolveAgentModel(
     agent,
     input.modelOverride,
     input.providerOverride,
@@ -2224,7 +2231,48 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.requestOverride,
     tenantAllowlistSnapshot,
   )
+  const { model } = resolvedModel
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
+  let moderationService: ModerationService | null = null
+  try {
+    moderationService = input.container?.resolve<ModerationService>('moderationService') ?? null
+  } catch {
+    moderationService = null
+  }
+  const hardenedProfile = isHardenedAiRuntimeProfile()
+  const moderationOverrides =
+    resolvedModel.supportsInputModeration && agent.untrustedInput !== true && !hardenedProfile
+      ? await resolveModerationOverrideValues(
+          input.container,
+          input.authContext.tenantId,
+          input.authContext.organizationId,
+          agent.id,
+        )
+      : { perAgentOverride: null, tenantWideOverride: null }
+  await runInputModerationGate({
+    untrustedInput: hardenedProfile || agent.untrustedInput === true,
+    supportsInputModeration: resolvedModel.supportsInputModeration,
+    perAgentOverride: moderationOverrides.perAgentOverride,
+    tenantWideOverride: moderationOverrides.tenantWideOverride,
+    userText: extractLatestUserText(normalizedMessages),
+    service: moderationService,
+    resolveApiKey: () => llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
+    baseURL: resolvedModel.baseURL,
+    moderationModel: process.env.OM_AI_MODERATION_MODEL,
+    onFlagged: (categories) =>
+      recordModerationFlag(
+        {
+          tenantId: input.authContext.tenantId,
+          organizationId: input.authContext.organizationId,
+          agentId: agent.id,
+          userId: input.authContext.userId,
+          providerId: resolvedModel.providerId,
+          modelId: resolvedModel.modelId,
+          categories,
+        },
+        input.container,
+      ),
+  })
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
     resolvedAttachments,

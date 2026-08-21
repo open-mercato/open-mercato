@@ -15,6 +15,14 @@ export class AgentNotFoundError extends Error {
   }
 }
 
+export class AgentRuntimeProfileError extends Error {
+  readonly code = 'agent_runtime_profile_restricted'
+  constructor(agentId: string, runtime: string) {
+    super(`[internal] agent "${agentId}" uses runtime "${runtime}", which is disabled by the active security profile`)
+    this.name = 'AgentRuntimeProfileError'
+  }
+}
+
 /**
  * The in-process wall-clock deadline (`OM_AGENT_RUN_TIMEOUT_MS`, default 5 min —
  * symmetric with the OpenCode runner's `OM_OPENCODE_RUN_TIMEOUT_MS`) expired

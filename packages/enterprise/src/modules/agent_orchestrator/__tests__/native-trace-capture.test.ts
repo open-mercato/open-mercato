@@ -85,6 +85,7 @@ function baseInput() {
 
 afterEach(() => {
   delete process.env.OM_AGENT_TRACE_CAPTURE
+  delete process.env.OM_AI_RUNTIME_SECURITY_PROFILE
 })
 
 describe('buildNativeTracePayload', () => {
@@ -251,5 +252,27 @@ describe('captureNativeRunTrace', () => {
       baseInput(),
     )
     expect(resolve).not.toHaveBeenCalled()
+  })
+
+  it('the hardened profile ignores the trace-disable escape hatch', () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    process.env.OM_AI_RUNTIME_SECURITY_PROFILE = 'hardened'
+    expect(isNativeTraceCaptureEnabled()).toBe(true)
+  })
+
+  it('propagates persistence failures when trace evidence is required', async () => {
+    const container = {
+      resolve: () => {
+        throw new Error('[internal] no em')
+      },
+    }
+    await expect(
+      captureNativeRunTrace(
+        container,
+        { tenantId: 't1', organizationId: 'o1' },
+        baseInput(),
+        { required: true },
+      ),
+    ).rejects.toThrow('no em')
   })
 })

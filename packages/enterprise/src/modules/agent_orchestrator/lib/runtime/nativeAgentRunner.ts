@@ -41,6 +41,7 @@ import {
   shapeResult,
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
 
@@ -95,6 +96,7 @@ export class NativeAgentRunner {
     ctx: AgentRunCtx,
   ): Promise<AgentResult> {
     const commandCtx = buildCommandContext(this.container, ctx)
+    const hardenedProfile = isHardenedAiRuntimeProfile()
 
     const runId = await createRun(this.commandBus, commandCtx, {
       source: ctx.source,
@@ -349,12 +351,9 @@ export class NativeAgentRunner {
         ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
       }
     }
-    const scheduleTraceCapture = (): void => {
+    const persistTrace = async (): Promise<void> => {
       if (!traceEnabled) return
-      // Fire-and-forget: the capture catches internally, but a defensive catch
-      // here guarantees a rejected capture can never surface as an unhandled
-      // rejection regardless of the capture implementation.
-      captureNativeRunTrace(
+      const capture = captureNativeRunTrace(
         this.container,
         { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
         {
@@ -366,7 +365,13 @@ export class NativeAgentRunner {
           fallbackUsage,
           fallbackModel: entry.defaultModel ?? null,
         },
-      ).catch((err: unknown) => {
+        { required: hardenedProfile },
+      )
+      if (hardenedProfile) {
+        await capture
+        return
+      }
+      void capture.catch((err: unknown) => {
         logger.warn('native trace capture rejected for run', {
           runId,
           error: err instanceof Error ? err.message : String(err),
@@ -426,12 +431,12 @@ export class NativeAgentRunner {
       rawObject = raced
     } catch (err) {
       if (err instanceof AgentRunTimeoutError) {
-        scheduleTraceCapture()
+        await persistTrace()
         throw err
       }
       const message = err instanceof Error ? err.message : String(err)
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
-      scheduleTraceCapture()
+      await persistTrace()
       throw err
     } finally {
       deadline.cancel()
@@ -493,7 +498,7 @@ export class NativeAgentRunner {
       })
       const detail = parsed.success ? 'guardrail block' : parsed.error.message
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...buildUsageStamp() })
-      scheduleTraceCapture()
+      await persistTrace()
       const blocked = verdict.blockedReason
       if (blocked) {
         throw new AgentGuardrailBlockedError(agentId, detail, {
@@ -515,6 +520,20 @@ export class NativeAgentRunner {
     })
 
     const result = shapeResult(entry.resultKind, parsed.data, agentId)
+
+    if (hardenedProfile) {
+      try {
+        await persistTrace()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        await failRun(this.commandBus, commandCtx, {
+          runId,
+          errorMessage: `[internal] required trace persistence failed: ${message}`,
+          ...buildUsageStamp(),
+        })
+        throw error
+      }
+    }
 
     await completeRun(this.commandBus, commandCtx, {
       runId,
@@ -543,7 +562,7 @@ export class NativeAgentRunner {
 
     // Post-run, best-effort span persistence — after the audited persistence
     // tail so the hot path pays nothing and a capture failure changes nothing.
-    scheduleTraceCapture()
+    if (!hardenedProfile) await persistTrace()
 
     return result
   }

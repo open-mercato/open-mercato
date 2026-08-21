@@ -65,10 +65,9 @@ export interface AiPendingActionSetStatusExtra {
  *   to a 409 Conflict response.
  * - `listExpired` for the cleanup worker (Step 5.12).
  *
- * Every read goes through `findOneWithDecryption` / `findWithDecryption`
- * even though today no column is GDPR-flagged. This keeps the repo
- * consistent with the rest of the module and preps for a future encrypted
- * `normalizedInput` without a second refactor.
+ * Every read goes through `findOneWithDecryption` / `findWithDecryption` so
+ * encrypted proposal inputs, diffs and execution results are transparently
+ * restored for the confirmation flow.
  */
 export class AiPendingActionRepository {
   constructor(private readonly em: EntityManager) {}
