@@ -443,6 +443,14 @@ This is an opt-in security hardening step for existing apps and the default for 
 
 **Action for module authors:** none, unless you write to `onboarding_requests` directly. Deduplicating a signup request means matching `email_hash`, never `email`; code that already does that is unaffected. The one pattern that changes behavior is an upsert declaring `ON CONFLICT (email)` — Postgres requires a unique index for that inference, so such a statement now raises an error instead of silently never conflicting. Rewrite it against `email_hash`. Nothing else changes: no column, table, type, or API is renamed or removed, and every insert or update accepted before is still accepted.
 
+### `GET /api/attachments` serves an empty page past the end instead of clamping (#5299)
+
+The record-scoped attachments list was the only paged endpoint that clamped a requested page down to the last existing page — both for the database offset it used and for the `page` value it echoed back. Asking for page 7 of a 3-page result returned page 3's items labelled `page: 3`. It now behaves like every other query-engine-backed list: the offset is `(page - 1) * pageSize` unclamped, so a page past the end returns an empty `items` array, and `page` echoes exactly what was requested.
+
+**Action for API consumers:** none, unless you relied on the clamp. The route, method, and response shape are unchanged — `items`, `total`, `page`, `pageSize`, and `totalPages` are all still returned, and `page` is still an integer of at least `1`. Two patterns are worth checking. A loop that pages while the returned page is full previously never terminated on this endpoint and now does, which is the point of the change. A caller that used a deliberately large page number as a shorthand for "give me the last page" now receives an empty page instead, and must compute the last page from `totalPages` itself.
+
+**For module authors:** a client-side workaround that treated an echoed page lower than the requested one as the end of the list — the pattern `AttachmentsSection` adopted in #5274 — remains correct; it simply never triggers now. You can drop it when convenient, but nothing forces you to.
+
 ## 0.6.6 → 0.6.7 (2026-08-05)
 
 ### CLI bundling: local `*.client` dynamic imports are replaced by an inert stub (#4623)
