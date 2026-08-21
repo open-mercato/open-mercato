@@ -32,6 +32,7 @@ import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
 import { deriveEnvelopeConfidence, normalizeProposalEnvelope, readProposalActions } from '../../data/proposalEnvelope'
 
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
+const OPTIONAL_TRACE_HEADERS = { 'x-om-forbidden-redirect': '0' } as const
 
 /** The option-set rationale, or the leading option's when the envelope carries none. */
 function readEnvelopeRationale(payload: unknown): string | null {
@@ -324,13 +325,17 @@ export default function AgentPlaygroundPage() {
     let cancelled = false
     async function loadToolCalls(id: string) {
       setToolPanel({ mode: 'loading' })
-      const call = await apiCall<Record<string, unknown>>(
-        `/api/agent_orchestrator/runs/${encodeURIComponent(id)}`,
-        undefined,
-        { fallback: {} },
-      )
-      if (cancelled) return
-      setToolPanel(toolPanelStateFromResponse(call))
+      try {
+        const call = await apiCall<Record<string, unknown>>(
+          `/api/agent_orchestrator/runs/${encodeURIComponent(id)}`,
+          { headers: OPTIONAL_TRACE_HEADERS },
+          { fallback: {} },
+        )
+        if (cancelled) return
+        setToolPanel(toolPanelStateFromResponse(call))
+      } catch {
+        if (!cancelled) setToolPanel({ mode: 'declared' })
+      }
     }
     void loadToolCalls(runId)
     return () => {
