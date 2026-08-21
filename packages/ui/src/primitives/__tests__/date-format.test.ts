@@ -9,6 +9,7 @@ import {
   resolvePublicDateFormat,
   resolvePublicDateTimeFormat,
   toDateInputValue,
+  toUtcDateInputValue,
 } from '../date-format'
 
 const ORIGINAL_ENV = { ...process.env }
@@ -133,5 +134,40 @@ describe('toDateInputValue', () => {
   it('returns null when there is nothing to show', () => {
     expect(toDateInputValue(null)).toBeNull()
     expect(toDateInputValue('not-a-date')).toBeNull()
+  })
+})
+
+// `toDateInputValue` and `toUtcDateInputValue` differ by exactly one day for half the planet, so
+// which one a field gets is a correctness question, not a style one.
+//
+// Honest limitation: in a UTC runner the two are the same function, so these cases cannot fail
+// there — and CI runs in UTC. They bite on any developer machine (every zone but UTC) and in a
+// TZ-pinned job. Verified by regressing `toUtcDateInputValue` to the local reading: 2 failures
+// under `TZ=America/New_York`, none under `TZ=UTC`.
+describe('toUtcDateInputValue', () => {
+  // The shape that actually arrives from the API for a date-only column: the editor submits a bare
+  // `yyyy-MM-dd`, `z.coerce.date()` stores UTC midnight, the route returns it with a `Z`.
+  const STORED_DATE_ONLY = '2026-07-01T00:00:00.000Z'
+
+  it('round-trips a date-only value stored as UTC midnight', () => {
+    expect(toUtcDateInputValue(STORED_DATE_ONLY)).toBe('2026-07-01')
+  })
+
+  it('reads the frame the value was written in, whatever the viewer zone', () => {
+    expect(toUtcDateInputValue(STORED_DATE_ONLY)).toBe(
+      new Date(STORED_DATE_ONLY).toISOString().slice(0, 10),
+    )
+  })
+
+  // A bare day names itself. Parsing it into an instant first — by either reading — moves it in
+  // some zone, which is how the first version of this helper was wrong.
+  it('passes a bare date-only string through untouched', () => {
+    expect(toUtcDateInputValue('2026-07-01')).toBe('2026-07-01')
+    expect(toUtcDateInputValue(' 2026-07-01 ')).toBe('2026-07-01')
+  })
+
+  it('returns null when there is nothing to show', () => {
+    expect(toUtcDateInputValue(null)).toBeNull()
+    expect(toUtcDateInputValue('not-a-date')).toBeNull()
   })
 })

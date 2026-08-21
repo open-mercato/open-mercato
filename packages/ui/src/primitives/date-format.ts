@@ -125,13 +125,43 @@ export function formatDisplayDateTime(value: string | Date | null | undefined, l
 }
 
 /**
- * The local calendar day of a value, as the `yyyy-MM-dd` an `<input type="date">` requires.
+ * The **local** calendar day of a real instant, as the `yyyy-MM-dd` an `<input type="date">` requires.
  *
  * Not `new Date(value).toISOString().slice(0, 10)`: `toISOString` converts to UTC first, so east of
  * UTC an evening timestamp yields the previous day. Rendering that through `formatDisplayDate` is
  * faithful to a day that was already wrong.
+ *
+ * **Precondition: `value` must be a real instant** — a moment that happened, whose local day is the
+ * one a human would name. It must NOT be a date-only value that some write path stored as UTC
+ * midnight: reading that back locally names the PREVIOUS day west of UTC, which is the mirror image
+ * of the bug above. Use `toUtcDateInputValue` for those; see its note for how to tell them apart.
  */
 export function toDateInputValue(value: string | Date | null | undefined): string | null {
   const parsed = parseDisplayValue(value)
   return parsed ? formatWithPublicDateFormat(parsed, 'yyyy-MM-dd') : null
+}
+
+/**
+ * The **UTC** calendar day of a value, as the `yyyy-MM-dd` an `<input type="date">` requires.
+ *
+ * For a column that stores a date-only value as UTC midnight — a bare `yyyy-MM-dd` submitted by a
+ * date input, coerced with `z.coerce.date()` and returned as `…T00:00:00.000Z`. The stored instant
+ * carries no local meaning, so the round trip only closes if it is read back in the same frame it
+ * was written in: UTC.
+ *
+ * Which helper a field needs is decided by its WRITE path, not by its type. If the value can be set
+ * from a date input, it is a UTC day; if it is only ever stamped from a clock, it is an instant.
+ */
+export function toUtcDateInputValue(value: string | Date | null | undefined): string | null {
+  if (value == null) return null
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    // A bare calendar day is already the answer. Parsing it into an instant first — by either
+    // reading — can only move it, since there is no zone in which it was meant.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+    const parsed = new Date(trimmed)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10)
+  }
+  return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10)
 }
