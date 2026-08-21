@@ -16,8 +16,14 @@ const dict: Record<string, string> = {
 
 const t = ((key: string) => dict[key] ?? key) as TranslateFn
 
+// A value with no break opportunities is the case that regressed the layout:
+// overflow-wrap: break-word does not reduce a cell's min-content contribution,
+// so the table kept a floor far wider than its container. See PR #105.
+const unbreakableToken = 'a'.repeat(60) + '9f3c1e2b9a7d4c118b521f9e0a6d3c47' + 'q'.repeat(88)
+
 const changeRows = [
   { field: 'lifecycleStage', from: 'lead', to: 'customer' },
+  { field: 'apiKeyHash', from: null, to: unbreakableToken },
   { field: 'cf_billing_address', from: null, to: { city: 'Bristol' } },
 ]
 
@@ -34,6 +40,21 @@ describe('ChangedFieldsTable', () => {
     expect(screen.getAllByText('lead')).toHaveLength(1)
     expect(screen.getAllByText('customer')).toHaveLength(1)
     expect(screen.getAllByText('Billing Address')).toHaveLength(1)
+    expect(screen.getAllByText(unbreakableToken)).toHaveLength(1)
+  })
+
+  it('keeps every value able to break mid-token so no cell can set a min-content floor', () => {
+    render(<ChangedFieldsTable changeRows={changeRows} noneLabel="None" t={t} />)
+    expect(screen.getByText(unbreakableToken)).toHaveClass('wrap-anywhere')
+  })
+
+  it('drops out of table layout below the breakpoint and back into it above', () => {
+    render(<ChangedFieldsTable changeRows={changeRows} noneLabel="None" t={t} />)
+    // A block tbody inside a display:table parent gets wrapped in an anonymous
+    // table cell, which reintroduces the min-content floor the stacking removes.
+    const table = screen.getByRole('table')
+    expect(table).toHaveClass('block')
+    expect(table).toHaveClass('@lg/changes:table')
   })
 
   it('repeats the before/after labels inside every row so the stacked layout stays readable', () => {
@@ -65,7 +86,8 @@ describe('ChangedFieldsTable', () => {
 
   it('falls back to noneLabel for empty values', () => {
     render(<ChangedFieldsTable changeRows={changeRows} noneLabel="None" t={t} />)
-    expect(screen.getByText('None')).toBeInTheDocument()
+    // apiKeyHash and cf_billing_address both have an empty `from`.
+    expect(screen.getAllByText('None')).toHaveLength(2)
   })
 
   it('renders the empty state instead of a table when there are no changes', () => {
