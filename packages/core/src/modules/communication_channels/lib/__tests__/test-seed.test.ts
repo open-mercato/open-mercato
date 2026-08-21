@@ -136,23 +136,23 @@ function makeCapturedMessage(
 }
 
 describe('test-seed email capture scoping', () => {
-  const originalCapturePath = process.env.OM_TEST_EMAIL_CAPTURE_PATH
+  const originalCapturePath = process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH
   const originalCorrelationToken = process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV]
   let capturePath: string
   const correlationToken = 'c'.repeat(64)
 
   beforeEach(() => {
     capturePath = path.join(tmpdir(), `open-mercato-test-email-${Date.now()}-${Math.random()}.jsonl`)
-    process.env.OM_TEST_EMAIL_CAPTURE_PATH = capturePath
+    process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH = capturePath
     process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV] = correlationToken
   })
 
   afterEach(async () => {
     await rm(capturePath, { force: true })
     if (originalCapturePath === undefined) {
-      delete process.env.OM_TEST_EMAIL_CAPTURE_PATH
+      delete process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH
     } else {
-      process.env.OM_TEST_EMAIL_CAPTURE_PATH = originalCapturePath
+      process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH = originalCapturePath
     }
     if (originalCorrelationToken === undefined) {
       delete process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV]
@@ -176,6 +176,23 @@ describe('test-seed email capture scoping', () => {
     const messages = await listTestSeedCapturedMessages(captureScope)
 
     expect(messages.map((message) => message.metadata?.subject)).toEqual(['exact', 'tenant-wide'])
+  })
+
+  it('skips foreign and malformed records instead of failing the whole capture read', async () => {
+    // The unscoped `shared/lib/email/send` capture writes records with no `scope`, and the repo
+    // ships a committed fixture of them. Reading one of those must not take down every capture
+    // call — that turned the whole email integration suite red once already.
+    const foreignRecord = { to: 'foreign@example.test', subject: 'foreign', from: 'ops@example.test' }
+    await writeFile(
+      capturePath,
+      `${JSON.stringify(foreignRecord)}\nnot-json\n${JSON.stringify(makeCapturedMessage(captureScope, 'ours@example.test', 'ours'))}\n`,
+      'utf8',
+    )
+
+    await expect(listTestSeedCapturedMessages(captureScope)).resolves.toEqual([
+      expect.objectContaining({ metadata: expect.objectContaining({ subject: 'ours' }) }),
+    ])
+    await expect(clearTestSeedCapturedMessages(captureScope)).resolves.toBeUndefined()
   })
 
   it('returns system messages only for the explicitly requested recipient', async () => {

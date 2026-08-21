@@ -278,6 +278,11 @@ const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 
 const EPHEMERAL_CACHE_DB_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-cache.sqlite')
 const EPHEMERAL_EMAIL_CAPTURE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'email-capture.jsonl')
 const EPHEMERAL_QUEUE_BASE_DIR = path.join(appDirectory, '.mercato', 'queue')
+// The Communications Hub keeps its own tenant-scoped capture, in runtime state rather than in the
+// repo: its record shape differs from the unscoped `shared/lib/email/send` capture above, and the
+// repo ships a committed fixture copy of that one. One file for both would make each mechanism
+// read the other's records.
+const EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH = path.join(appDirectory, '.mercato', 'test-email-capture.jsonl')
 const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
 const EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT = path.join(
   resolveDefaultPrivateAttachmentsAppDirectory(),
@@ -1980,6 +1985,7 @@ function buildReusableEnvironment(
     OM_DISABLE_EMAIL_DELIVERY: '0',
     OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
     OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
+    OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
     OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
     OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
     SYSTEM_EMAIL_PROVIDER: '__test_seed__',
@@ -3360,6 +3366,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
       OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
+      OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
       OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
       OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
       SYSTEM_EMAIL_PROVIDER: '__test_seed__',

@@ -50,6 +50,16 @@ export const TEST_SEED_PROVIDER_KEY = '__test_seed__'
 export const TEST_CHANNEL_SEEDING_ENV = 'OM_ENABLE_TEST_CHANNEL_SEEDING'
 export const TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV = 'OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN'
 export const TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV = 'OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN'
+/**
+ * Where the Hub's tenant-scoped capture is written.
+ *
+ * Deliberately not `OM_TEST_EMAIL_CAPTURE_PATH`: that one belongs to the unscoped capture in
+ * `@open-mercato/shared/lib/email/send`, which writes a different record shape to a path the repo
+ * also ships a committed fixture for. Pointing both mechanisms at one file made this module parse
+ * foreign records and let `clear-capture` rewrite the other mechanism's fixtures. Two mechanisms,
+ * two files.
+ */
+export const TEST_SYSTEM_EMAIL_CAPTURE_PATH_ENV = 'OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH'
 
 /**
  * True only when the test-seeding env flag is explicitly enabled. Accepts the
@@ -139,7 +149,7 @@ export function resolveTestEmailCaptureCorrelationToken(): string | null {
 }
 
 function resolveCapturePath(): string {
-  const explicit = process.env.OM_TEST_EMAIL_CAPTURE_PATH?.trim()
+  const explicit = process.env[TEST_SYSTEM_EMAIL_CAPTURE_PATH_ENV]?.trim()
   if (explicit) return path.resolve(explicit)
   const queueBaseDir = process.env.QUEUE_BASE_DIR?.trim()
   if (queueBaseDir) return path.resolve(queueBaseDir, '..', 'test-email-capture.jsonl')
@@ -184,7 +194,16 @@ async function readTestSeedCapturedMessages(): Promise<TestSeedCapturedMessage[]
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as TestSeedCapturedMessage)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as TestSeedCapturedMessage
+      } catch {
+        return null
+      }
+    })
+    // A record without a scope is not ours. Skipping instead of throwing keeps a stray or
+    // foreign-shaped line from turning every capture read into a 500.
+    .filter((message): message is TestSeedCapturedMessage => Boolean(message?.scope))
 }
 
 export async function clearTestSeedCapturedMessages(
