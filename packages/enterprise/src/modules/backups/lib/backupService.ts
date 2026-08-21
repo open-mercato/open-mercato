@@ -5,6 +5,7 @@ import path from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Transform, Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { fileURLToPath } from 'node:url'
 import {
   BACKUP_FORMAT,
   BACKUP_FORMAT_VERSION,
@@ -905,7 +906,7 @@ function isBackupManifest(value: unknown): value is BackupManifest {
 
 function readPackageVersion(): string {
   const parsed: unknown = JSON.parse(
-    readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8'),
+    readFileSync(fileURLToPath(new URL('../../../../package.json', import.meta.url)), 'utf8'),
   )
   if (!parsed || typeof parsed !== 'object' || typeof (parsed as Record<string, unknown>).version !== 'string') {
     throw new BackupServiceError('Could not read the Open Mercato package version.', 'APPLICATION_VERSION_UNAVAILABLE')
