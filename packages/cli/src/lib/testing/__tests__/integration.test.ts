@@ -1322,18 +1322,25 @@ describeOnPosix('terminateProcessTree against a real detached process tree', () 
 
     let grandchildPid = 0
     try {
-      let stdout = ''
-      wrapperProcess.stdout?.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString()
-      })
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('timed out waiting for the wrapper to exit')), 5_000)
-        wrapperProcess.once('exit', () => {
-          clearTimeout(timer)
-          resolve()
+      // `'exit'` and the stdout `'data'` carrying the pid are independent events with no ordering
+      // guarantee, so both are awaited separately. Waiting for `'close'` instead would deadlock:
+      // the detached grandchild inherits this stdout pipe and holds it open for its whole lifetime.
+      const withTimeout = <T,>(label: string, subscribe: (resolve: (value: T) => void) => void) =>
+        new Promise<T>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), 5_000)
+          subscribe((value) => {
+            clearTimeout(timer)
+            resolve(value)
+          })
         })
-      })
-      grandchildPid = Number.parseInt(stdout.trim(), 10)
+
+      const [pidText] = await Promise.all([
+        withTimeout<string>('the grandchild pid', (resolve) =>
+          wrapperProcess.stdout?.once('data', (chunk: Buffer) => resolve(chunk.toString())),
+        ),
+        withTimeout<void>('the wrapper to exit', (resolve) => wrapperProcess.once('exit', () => resolve())),
+      ])
+      grandchildPid = Number.parseInt(pidText.trim(), 10)
 
       expect(Number.isInteger(grandchildPid)).toBe(true)
       expect(wrapperProcess.exitCode).toBe(1)
