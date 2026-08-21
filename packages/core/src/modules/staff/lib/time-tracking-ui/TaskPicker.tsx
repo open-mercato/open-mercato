@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { Check, ChevronDown, Search } from 'lucide-react'
+import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { resolveProjectColorHex } from '../timesheets-ui/colors'
 
@@ -362,7 +364,7 @@ export function TaskPicker({
             ) : (
               groups.map((group) => (
                 <div key={group.key}>
-                  <div className="sticky top-0 z-[1] flex items-center justify-between gap-2 border-b border-border bg-muted px-2.5 py-1 text-overline font-semibold uppercase tracking-widest text-muted-foreground">
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-muted px-2.5 py-1 text-overline font-semibold uppercase tracking-widest text-muted-foreground">
                     <span className="truncate">
                       {group.sublabel ? `${group.label} · ${group.sublabel}` : group.label}
                     </span>
@@ -382,25 +384,26 @@ export function TaskPicker({
                         data-testid={`task-picker-option-${item.id}`}
                         onMouseEnter={() => setActiveIndex(flat.indexOf(item))}
                         onClick={() => choose(item.id)}
-                        className={`flex h-[34px] w-full items-center gap-2 border-b border-border/50 px-2.5 text-left text-sm last:border-b-0 ${
+                        className={`flex h-9 w-full items-center gap-2 border-b border-border/50 px-2.5 text-left text-sm last:border-b-0 ${
                           isActive ? 'bg-accent' : ''
                         }`}
                       >
                         {statusDot(item)}
-                        <span className="w-14 shrink-0 truncate font-mono text-[11px] text-muted-foreground">
+                        <span className="w-14 shrink-0 truncate font-mono text-xs text-muted-foreground">
                           {item.reference ? highlight(item.reference, query) : ''}
                         </span>
                         <span className="min-w-0 flex-1 truncate">{highlight(item.title, query)}</span>
                         {item.assigneeInitials ? (
-                          <span
-                            className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[9px] font-semibold text-muted-foreground"
+                          <Avatar
+                            size="sm"
+                            variant="monochrome"
+                            label={item.assigneeInitials}
+                            ariaLabel={item.assigneeName ?? item.assigneeInitials}
                             title={item.assigneeName ?? undefined}
-                          >
-                            {item.assigneeInitials}
-                          </span>
+                          />
                         ) : null}
                         {hours ? (
-                          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{hours}</span>
+                          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{hours}</span>
                         ) : null}
                         {item.id === value ? <Check className="size-3.5 shrink-0 text-foreground" aria-hidden /> : null}
                       </button>
@@ -411,14 +414,14 @@ export function TaskPicker({
             )}
           </div>
 
-          <div className="flex items-center justify-between gap-2 border-t border-border bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+          <div className="flex items-center justify-between gap-2 border-t border-border bg-muted px-2.5 py-1 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
-              <kbd className="rounded border border-border bg-background px-1 font-mono text-[10px]">↑</kbd>
-              <kbd className="rounded border border-border bg-background px-1 font-mono text-[10px]">↓</kbd>
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd>
               {labels.move}
-              <kbd className="ml-1 rounded border border-border bg-background px-1 font-mono text-[10px]">↵</kbd>
+              <Kbd className="ml-1">↵</Kbd>
               {labels.pick}
-              <kbd className="ml-1 rounded border border-border bg-background px-1 font-mono text-[10px]">esc</kbd>
+              <Kbd className="ml-1">esc</Kbd>
               {labels.close}
             </span>
             <span>{labels.count.replace('{shown}', String(flat.length)).replace('{total}', String(items.length))}</span>

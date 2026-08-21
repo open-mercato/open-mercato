@@ -88,7 +88,7 @@ export function PeriodSelector({
         >
           <ChevronLeft className="size-4" aria-hidden="true" />
         </IconButton>
-        <span className="min-w-[12rem] whitespace-nowrap px-1 text-center text-sm font-semibold">{label}</span>
+        <span className="min-w-48 whitespace-nowrap px-1 text-center text-sm font-semibold">{label}</span>
         <IconButton
           type="button"
           variant="outline"

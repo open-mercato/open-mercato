@@ -10,6 +10,7 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@ope
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import {
   StaffTeamMember,
   StaffTimeEntry,
@@ -63,6 +64,59 @@ function isUniqueViolation(error: unknown): boolean {
   if (code === '23505') return true
   const message = (error as { message?: string }).message
   return typeof message === 'string' && message.toLowerCase().includes('duplicate key')
+}
+
+function readSnapshotText(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * D-9 keeps a project's customer as an FK id plus a denormalized snapshot, and
+ * denormalizing belongs to the module that owns the write: a caller that sends
+ * `customerId` alone — the CRUD route, an import, an integration — must still
+ * produce a project the portfolio grid can name, instead of one that has a
+ * customer in the database and advertises none in the UI. A snapshot the caller
+ * supplied still wins verbatim; the project form already carries the picked
+ * customer and must not be second-guessed.
+ *
+ * The lookup is a scoped read by id — never an ORM relation to the customers
+ * module — and a customers module that is absent, or a customer that is gone,
+ * degrades to `null` rather than failing the write.
+ */
+async function resolveCustomerSnapshot(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  customerId: string | null | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!customerId) return null
+  let customer: CustomerEntity | null = null
+  try {
+    customer = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      {
+        id: customerId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+  } catch {
+    return null
+  }
+  if (!customer) return null
+  const email = readSnapshotText(customer.primaryEmail)
+  const name = readSnapshotText(customer.displayName) ?? email
+  if (!name) return null
+  const snapshot: Record<string, unknown> = { name }
+  const kind = readSnapshotText(customer.kind)
+  if (kind) snapshot.kind = kind
+  if (email) snapshot.email = email
+  return snapshot
 }
 
 type TimeProjectSnapshot = {
@@ -226,13 +280,20 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
     commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const customerSnapshot =
+      parsed.customerSnapshot
+      ?? (await resolveCustomerSnapshot(
+        em,
+        { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+        parsed.customerId,
+      ))
     const now = new Date()
     const project = em.create(StaffTimeProject, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       name: parsed.name,
       customerId: parsed.customerId,
-      customerSnapshot: parsed.customerSnapshot ?? null,
+      customerSnapshot,
       code: parsed.code,
       description: parsed.description ?? null,
       projectType: parsed.projectType ?? null,
@@ -381,9 +442,33 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     ensureTenantScope(ctx, project.tenantId)
     ensureOrganizationScope(ctx, project.organizationId)
 
+    // The FK and its snapshot move together. A payload that re-points the
+    // customer without carrying a snapshot — or that clears a stale one while
+    // keeping the customer — has the snapshot re-derived here, so the grid never
+    // reads a project with a customer as unassigned. The read runs before every
+    // scalar mutation below, so it cannot reset the unit of work.
+    const customerTouched = parsed.customerId !== undefined || parsed.customerSnapshot !== undefined
+    const nextCustomerId = parsed.customerId !== undefined ? parsed.customerId ?? null : project.customerId ?? null
+    const customerUnchanged = nextCustomerId === (project.customerId ?? null)
+    let nextCustomerSnapshot: Record<string, unknown> | null | undefined
+    if (customerTouched) {
+      nextCustomerSnapshot =
+        parsed.customerSnapshot
+        ?? (await resolveCustomerSnapshot(
+          em,
+          { tenantId: project.tenantId, organizationId: project.organizationId },
+          nextCustomerId,
+        ))
+        // A customer that stays put keeps the snapshot it already had when the
+        // lookup comes back empty (customer removed, customers module absent);
+        // only a re-pointed or cleared customer drops it, because holding the
+        // previous customer's details on a different FK would misattribute them.
+        ?? (customerUnchanged && nextCustomerId ? project.customerSnapshot ?? null : null)
+    }
+
     if (parsed.name !== undefined) project.name = parsed.name
     if (parsed.customerId !== undefined) project.customerId = parsed.customerId ?? null
-    if (parsed.customerSnapshot !== undefined) project.customerSnapshot = parsed.customerSnapshot ?? null
+    if (nextCustomerSnapshot !== undefined) project.customerSnapshot = nextCustomerSnapshot
     if (parsed.code !== undefined) project.code = parsed.code
     if (parsed.description !== undefined) project.description = parsed.description ?? null
     if (parsed.projectType !== undefined) project.projectType = parsed.projectType ?? null

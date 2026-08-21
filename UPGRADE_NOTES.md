@@ -35,6 +35,22 @@ The fix is a new function rather than a changed return type, so nothing breaks f
 
 **Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
 
+### `createTimeProjectFixture` needs a customer, and now says so instead of 422-ing
+
+`createTimeProjectFixture` from `@open-mercato/core/helpers/integration/timesheetFixtures` posts to `POST /api/staff/timesheets/time-projects`, where a customer became mandatory when consulting projects gained customer-scoped rates. A fixture call that omits one can no longer succeed: the route answers `422`, and the spec fails somewhere downstream of the fixture with no indication that the fixture was the problem. Six in-repo specs regressed exactly that way.
+
+The helper's third parameter therefore carries a `customerId` — but it stays **optional in the type**, and the whole parameter remains optional, so every existing call still compiles:
+
+```typescript
+createTimeProjectFixture(request, token)                                  // still compiles, throws
+createTimeProjectFixture(request, token, { name: 'Consulting' })          // still compiles, throws
+createTimeProjectFixture(request, token, { customerId, name: 'Consulting' })  // correct
+```
+
+A call with no `customerId` (or a blank one) now throws before any request is made, naming the helper and the missing field. There is no safe value to default to — a fixture cannot invent a customer for the tenant under test without silently changing what the spec exercises — so failing loudly at the call is the closest thing to the compile error that a published helper cannot afford to introduce.
+
+**Action for module authors:** create a customer first and pass its id — `createCompanyFixture` from `@open-mercato/core/helpers/integration/crmFixtures` returns one, and any id from `customers.customer_entities` works. Specs that already pass `customerId` need no change. The parameter is not scheduled to become required; the runtime check is the enforcement, so it will keep compiling.
+
 ---
 
 ## 0.6.7 → 0.7.0 (2026-08-12)

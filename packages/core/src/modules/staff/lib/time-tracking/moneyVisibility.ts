@@ -1,16 +1,6 @@
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('staff').child({ component: 'time-tracking/moneyVisibility' })
+import { resolveFeatureAccess } from './featureAccess'
 
 export const RATES_FEATURE = 'staff.timesheets.rates.view'
-
-type RbacServiceLike = {
-  userHasAllFeatures?: (
-    userId: string,
-    required: string[],
-    scope: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<boolean>
-}
 
 type ContainerLike = { resolve: (name: string) => unknown }
 
@@ -29,30 +19,19 @@ type ContainerLike = { resolve: (name: string) => unknown }
  *
  * Failing closed is the only defensible default here: hiding a rate from someone
  * entitled to it is a support ticket, showing it to someone who is not is a
- * disclosure. The failure is logged rather than swallowed, so an outage that
- * quietly strips money from every report is visible instead of being mistaken for
- * a permissions change.
+ * disclosure.
  *
- * `userHasAllFeatures` is the authority rather than a grant array matched
- * locally: it is the same call `my-work` and the entries list already make, it
- * carries `isSuperAdmin` internally, and asking one question in one way is what
- * keeps two surfaces from disagreeing about the same person.
+ * The lookup itself belongs to `resolveFeatureAccess`, the module's single RBAC
+ * authority: it asks `userHasAllFeatures` (the call that carries `isSuperAdmin`
+ * internally), denies on every failure path, and logs the failure rather than
+ * swallowing it. This function stays as the *name* of the question, so a route
+ * reads `canSeeMoney` instead of a bare feature string — but it re-derives
+ * nothing and cannot drift from the rest of the module.
  */
 export async function resolveMoneyVisibility(
   container: ContainerLike,
   userId: string | null,
   scope: { tenantId: string | null; organizationId: string | null },
 ): Promise<boolean> {
-  if (!userId) return false
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.userHasAllFeatures) {
-      logger.warn('rates.view could not be evaluated: rbacService unavailable', { userId })
-      return false
-    }
-    return (await rbac.userHasAllFeatures(userId, [RATES_FEATURE], scope)) === true
-  } catch (err) {
-    logger.warn('rates.view could not be evaluated; hiding money fields', { err, userId })
-    return false
-  }
+  return (await resolveFeatureAccess(container, userId, [RATES_FEATURE], scope)).allowed
 }

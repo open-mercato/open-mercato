@@ -41,6 +41,16 @@ describe('resolveFeatureAccess', () => {
     expect(access.grantedFeatures).toEqual([])
   })
 
+  it('will not call an empty grant list an answer when the service cannot produce one', async () => {
+    // `resolved` exists to separate "RBAC said nothing was granted" from "RBAC was
+    // never asked". A service without `getGrantedFeatures` is the second case, so
+    // reporting it as the first would hand a caller a fabricated authoritative
+    // empty list. The decision itself is unaffected — it came from the service.
+    const rbac = { userHasAllFeatures: async () => true }
+    const access = await resolveFeatureAccess(container(rbac), 'u1', ['staff.x'], scope)
+    expect(access).toEqual({ allowed: true, grantedFeatures: [], resolved: false })
+  })
+
   it('denies when the service cannot answer at all', async () => {
     await expect(resolveFeatureAccess(container({}), 'u1', ['staff.x'], scope)).resolves.toMatchObject({
       allowed: false,

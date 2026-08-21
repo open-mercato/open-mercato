@@ -1,7 +1,7 @@
 # Time Tracking — prototyp UI
 
 Klikalne makiety 17 ekranów modułu śledzenia czasu, wyprowadzone z
-`time-tracking-module-requirements.md` (sekcje §1–§10 + mapa historyjek §11).
+[`2026-08-12-time-tracking-module-requirements.md`](../../specs/2026-08-12-time-tracking-module-requirements.md) (sekcje §1–§10 + mapa historyjek §11).
 
 **Otwórz `index.html` w przeglądarce.** Działa przez `file://` — serwer nie jest potrzebny.
 

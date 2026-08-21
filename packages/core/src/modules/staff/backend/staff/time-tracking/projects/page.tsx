@@ -815,7 +815,11 @@ export default function TimesheetProjectsPage() {
         if (row.original.customerName) {
           return <span className="text-sm text-muted-foreground">{row.original.customerName}</span>
         }
-        if (canManageProjects) {
+        // Only a project that genuinely has no customer gets the call to action.
+        // A row that carries the FK but no resolvable name (customer removed,
+        // customers module absent) is unnamed, not unassigned — inviting an
+        // assignment there would misstate the record.
+        if (canManageProjects && !row.original.customerId) {
           return (
             <Link
               href={`/backend/staff/time-tracking/projects/${row.original.id}/edit`}

@@ -2,24 +2,46 @@ import { expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest } from './api'
 import { deleteStaffEntityIfExists } from './staffFixtures'
 
+export type CreateTimeProjectFixtureInput = {
+  /**
+   * Required in practice: US-B1 makes a customer mandatory on project create, so a
+   * call without it cannot succeed. Pass an id from `customers.customer_entities`;
+   * `createCompanyFixture` returns one.
+   *
+   * It is typed optional only because this module is published as
+   * `@open-mercato/core/helpers/integration/timesheetFixtures`, and tightening the
+   * parameter would break every third-party spec at compile time with no
+   * deprecation window. The check below turns the omission into a named error
+   * instead of the 422 that six in-repo specs hit (T2.10).
+   */
+  customerId?: string
+  name?: string
+  code?: string
+}
+
 /**
- * `customerId` is a required parameter, not an optional one: US-B1 makes a customer
- * mandatory on project create, so a call without it fails validation at runtime.
- * Keeping it required means TypeScript catches the mistake at the call site instead
- * of a spec discovering it as a 422 (see T2.10 — six specs regressed exactly that way).
- * Pass an id from `customers.customer_entities`; `createCompanyFixture` returns one.
+ * Creates a time project. `input.customerId` must be supplied — see the type above
+ * for why it is not enforced by the compiler.
  */
 export async function createTimeProjectFixture(
   request: APIRequestContext,
   token: string,
-  input: { customerId: string; name?: string; code?: string },
+  input?: CreateTimeProjectFixtureInput,
 ): Promise<string> {
+  const customerId = input?.customerId
+  if (!customerId) {
+    throw new Error(
+      '[internal] createTimeProjectFixture requires input.customerId: a customer is mandatory on ' +
+        'POST /api/staff/timesheets/time-projects, and there is no safe default to fall back to. ' +
+        'Create one first (e.g. createCompanyFixture from crmFixtures) and pass its id.',
+    )
+  }
   const response = await apiRequest(request, 'POST', '/api/staff/timesheets/time-projects', {
     token,
     data: {
-      name: input.name ?? `QA Project ${Date.now()}`,
-      code: input.code ?? `QA-${Date.now()}`,
-      customerId: input.customerId,
+      name: input?.name ?? `QA Project ${Date.now()}`,
+      code: input?.code ?? `QA-${Date.now()}`,
+      customerId,
       projectType: 'internal',
       status: 'active',
     },

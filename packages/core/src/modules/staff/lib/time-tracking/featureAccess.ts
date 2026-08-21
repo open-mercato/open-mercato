@@ -26,9 +26,14 @@ export type FeatureAccess = {
    */
   grantedFeatures: string[]
   /**
-   * `false` when RBAC could not be consulted. An unresolved lookup is not the
+   * `false` when RBAC could not be consulted — the service was unresolvable, it
+   * exposes no way to answer, or the call threw. An unresolved lookup is not the
    * same as "no permission", and a caller that treats it as one silently
    * downgrades somebody's access.
+   *
+   * `true` therefore means the answer is definite: RBAC produced the grant list,
+   * or there was no one to ask about (no user). An empty `grantedFeatures` is
+   * only ever a real answer under `resolved`.
    */
   resolved: boolean
 }
@@ -90,14 +95,19 @@ export async function resolveFeatureAccess(
 
   // The grant list is a convenience, not the decision, so a failure to read it
   // downgrades the plumbing that wants a list without touching `allowed`.
+  // A service that cannot produce a list at all is the same kind of failure as
+  // one whose call throws: the empty array is a fallback, not RBAC's answer, and
+  // saying otherwise is how an empty list gets read as authoritative.
   let grantedFeatures: string[] = []
-  let resolved = true
-  if (rbac.getGrantedFeatures) {
+  let resolved = false
+  if (!rbac.getGrantedFeatures) {
+    logger.warn('rbacService cannot list grants; feature decision still stands', { userId, required })
+  } else {
     try {
       grantedFeatures = (await rbac.getGrantedFeatures(userId, scope)) ?? []
+      resolved = true
     } catch (err) {
       logger.warn('grant list could not be read; feature decision still stands', { err, userId })
-      resolved = false
     }
   }
 

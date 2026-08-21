@@ -37,6 +37,26 @@ describe('resolveMoneyVisibility', () => {
     await expect(resolveMoneyVisibility(container(rbac), null, scope)).resolves.toBe(false)
   })
 
+  it('authorizes from the service, never from the grant array', async () => {
+    // Delegating to `resolveFeatureAccess` must not reintroduce local matching of
+    // a grant list: the service is the authority because it is the only path that
+    // carries `isSuperAdmin`, and two surfaces reading the array their own way is
+    // how the same person got two different answers.
+    const rbac = {
+      userHasAllFeatures: async () => false,
+      getGrantedFeatures: async () => [RATES_FEATURE],
+    }
+    await expect(resolveMoneyVisibility(container(rbac), 'user-1', scope)).resolves.toBe(false)
+  })
+
+  it('keeps money visible when only the grant list read fails', async () => {
+    const rbac = {
+      userHasAllFeatures: async () => true,
+      getGrantedFeatures: async () => { throw new Error('[internal] list unavailable') },
+    }
+    await expect(resolveMoneyVisibility(container(rbac), 'user-1', scope)).resolves.toBe(true)
+  })
+
   it('never treats a non-boolean answer as permission', async () => {
     const rbac = { userHasAllFeatures: async () => ('yes' as unknown as boolean) }
     await expect(resolveMoneyVisibility(container(rbac), 'user-1', scope)).resolves.toBe(false)

@@ -226,6 +226,34 @@ export function LookupSelect({
     }
   }, [query, shouldSearch, fetchKey])
 
+  const [selectedItem, setSelectedItem] = React.useState<LookupSelectItem | null>(null)
+
+  React.useEffect(() => {
+    if (!value) {
+      setSelectedItem(null)
+      return
+    }
+    const match = items.find((item) => item.id === value)
+    if (match) setSelectedItem(match)
+  }, [items, value])
+
+  /*
+   * The collapsed summary is opt-in: only a consumer that supplies
+   * `selectedHintLabel` asks this component to display the selection, so
+   * consumers rendering their own selected-value label keep their layout and
+   * never get a second summary. A resolver that falls back to the id
+   * (`known.get(id) ?? id`) is treated as unresolved and falls through to the
+   * title of the item that was actually fetched — a record id must never reach
+   * the DOM as a label.
+   */
+  const collapsedSelectionLabel = React.useMemo(() => {
+    if (!value || !selectedHintLabel) return null
+    const hinted = selectedHintLabel(value)
+    if (hinted && hinted !== value) return hinted
+    const fetchedTitle = selectedItem && selectedItem.id === value ? selectedItem.title : null
+    return fetchedTitle && fetchedTitle !== value ? fetchedTitle : null
+  }, [selectedHintLabel, selectedItem, value])
+
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
@@ -353,7 +381,7 @@ export function LookupSelect({
             </Button>
           ) : null}
         </div>
-      ) : value ? (
+      ) : collapsedSelectionLabel ? (
         /*
          * The visible input is the *search box*, not a value display: once the
          * list closes it shows its placeholder again, so a selection made and
@@ -366,7 +394,7 @@ export function LookupSelect({
           data-testid="lookup-select-selected"
         >
           <span className="truncate text-sm font-medium text-foreground">
-            {selectedHintLabel ? selectedHintLabel(value) : value}
+            {collapsedSelectionLabel}
           </span>
           <Button
             type="button"

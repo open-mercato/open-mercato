@@ -165,6 +165,8 @@ describe('LookupSelect keyboard accessibility', () => {
 })
 
 describe('LookupSelect selected value display', () => {
+  const RECORD_ID = 'd7f88312-f4b3-44b7-b03a-dc10e561cf8e'
+
   it('shows the selected item once the list is collapsed', () => {
     // The visible input is the search box and reverts to its placeholder, so
     // without this the control looked empty after a selection even though the
@@ -181,9 +183,56 @@ describe('LookupSelect selected value display', () => {
     expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
   })
 
-  it('falls back to the raw id when no label resolver is given', () => {
-    render(<LookupSelect value="cust-1" onChange={() => {}} fetchItems={async () => []} />)
-    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('cust-1')
+  it('never renders the raw id when no label resolver is given', () => {
+    const { container } = render(
+      <LookupSelect value={RECORD_ID} onChange={() => {}} fetchItems={async () => []} />,
+    )
+
+    expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+  })
+
+  it('adds no second summary when the consumer renders its own selected label', () => {
+    // Mirrors eudr's LookupSelectField: the host already prints the resolved
+    // order label above the picker, so the collapsed block would both duplicate
+    // it and expose the uuid (TC-EUDR-013).
+    const { container } = render(
+      <div>
+        <p>Order ORDER-20260820-0000</p>
+        <LookupSelect value={RECORD_ID} onChange={() => {}} fetchItems={async () => []} />
+      </div>,
+    )
+
+    expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+    expect(screen.getAllByText(/ORDER-20260820-0000/)).toHaveLength(1)
+  })
+
+  it('shows the fetched title when the resolver has not resolved the id yet', async () => {
+    // The staff CustomerPicker resolves names from a map it fills
+    // asynchronously and falls back to `id` until then — that fallback must not
+    // put a uuid on screen once the list collapses.
+    function CustomerPickerHarness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      return (
+        <LookupSelect
+          value={value}
+          onChange={setValue}
+          fetchItems={async () => [{ id: RECORD_ID, title: 'ExcelMed' }]}
+          selectedHintLabel={(id) => id}
+        />
+      )
+    }
+
+    const { container } = render(<CustomerPickerHarness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Exc' } })
+    fireEvent.click(await screen.findByRole('option'))
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
   })
 
   it('clears the selection from the collapsed summary', () => {

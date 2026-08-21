@@ -8,7 +8,8 @@
  * impossible rather than unlikely.
  */
 
-import { resolveMoneyVisibility } from '../../../lib/time-tracking/moneyVisibility'
+import { RATES_FEATURE } from '../../../lib/time-tracking/moneyVisibility'
+import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -27,13 +28,6 @@ export const MAX_SHEET_ROWS = 500
 
 export type Translate = (key: string, fallback: string) => string
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
 export type ReportRequestContext = {
   container: Awaited<ReturnType<typeof createRequestContainer>>
   auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -42,8 +36,15 @@ export type ReportRequestContext = {
   organizationId: string
   reportId: string
   translate: Translate
-  /** `null` when RBAC could not be consulted; the declarative guard still applies. */
-  grantedFeatures: string[] | null
+  /**
+   * The caller's grants, for the plumbing that needs a list (mutation guards,
+   * project-access). Empty when RBAC could not be consulted — read
+   * `featuresResolved` before reading anything into an empty array, and never
+   * gate money on this.
+   */
+  grantedFeatures: string[]
+  /** `false` when RBAC could not be consulted; the declarative guard still applies. */
+  featuresResolved: boolean
   /** Fail-closed `staff.timesheets.rates.view` decision — never re-derive it. */
   canSeeMoney: boolean
 }
@@ -86,20 +87,17 @@ export async function resolveReportRequestContext(
     })
   }
 
-  let grantedFeatures: string[] | null = null
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    grantedFeatures = rbac?.getGrantedFeatures
-      ? ((await rbac.getGrantedFeatures(auth.sub ?? '', { tenantId, organizationId })) ?? null)
-      : null
-  } catch {
-    grantedFeatures = null
-  }
-
-  // Decided here, once, so no route re-derives it and none can pick the other
-  // failure direction. `grantedFeatures` stays for the callers that genuinely
-  // need a list (project-access plumbing), but it must not be used to gate money.
-  const canSeeMoney = await resolveMoneyVisibility(container, auth.sub ?? null, {
+  // One lookup, through the module's single RBAC authority, answering both
+  // questions the four routes ask: may this caller see money, and what is the
+  // grant list the mutation guards want. Decided here, once, so no route
+  // re-derives it and none can pick the other failure direction.
+  //
+  // `resolveFeatureAccess` fails closed on every path — an unresolvable service,
+  // a service that cannot answer, a call that throws — so an RBAC outage hides
+  // rates and costs instead of handing them to a plain report viewer. The grant
+  // list is a convenience for the plumbing and must never gate money; `resolved`
+  // is what says whether an empty list is RBAC's answer or its absence.
+  const ratesAccess = await resolveFeatureAccess(container, auth.sub ?? null, [RATES_FEATURE], {
     tenantId,
     organizationId,
   })
@@ -112,7 +110,8 @@ export async function resolveReportRequestContext(
     organizationId,
     reportId,
     translate,
-    grantedFeatures,
-    canSeeMoney,
+    grantedFeatures: ratesAccess.grantedFeatures,
+    featuresResolved: ratesAccess.resolved,
+    canSeeMoney: ratesAccess.allowed,
   }
 }

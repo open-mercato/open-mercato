@@ -2,7 +2,7 @@
 
 **Status:** draft — awaiting review before implementation
 **Module:** `packages/core/src/modules/staff` (time tracking)
-**Related:** [`2026-08-12-time-tracking-consulting-suite.md`](./2026-08-12-time-tracking-consulting-suite.md) (D-3 currency lock, budget burn)
+**Related:** [`2026-08-12-time-tracking-consulting-suite.md`](../specs/2026-08-12-time-tracking-consulting-suite.md) (D-3 currency lock, budget burn)
 
 ## TLDR
 

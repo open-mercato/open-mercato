@@ -2,7 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { StaffTeamMember, StaffTimeProject } from './entities'
 import { computeProjectHoursTrend } from '../lib/timesheets-projects/computeProjectHoursTrend'
 import { computeProjectFinancials } from '../lib/timesheets-projects/computeProjectFinancials'
@@ -80,6 +81,40 @@ function resolveCustomerName(snapshot: Record<string, unknown> | null | undefine
   return null
 }
 
+/**
+ * Second line of defence behind the write-side denormalization: a row written
+ * before the commands derived the snapshot — or by any path that bypassed them —
+ * still carries the FK, so the name is read live for exactly those projects,
+ * in one scoped query for the page rather than one per row. A customers module
+ * that is absent degrades to no name, never to a failed list.
+ */
+async function loadCustomerNames(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string,
+  customerIds: readonly string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>()
+  const ids = [...new Set(customerIds)]
+  if (ids.length === 0) return names
+  try {
+    const customers = await findWithDecryption(
+      em,
+      CustomerEntity,
+      { id: { $in: ids }, tenantId, organizationId, deletedAt: null },
+      undefined,
+      { tenantId, organizationId },
+    )
+    for (const customer of customers) {
+      const name = customer.displayName?.trim() || customer.primaryEmail?.trim()
+      if (name) names.set(customer.id, name)
+    }
+  } catch {
+    return names
+  }
+  return names
+}
+
 async function resolveCallerStaffMemberId(ctx: InternalContext): Promise<string | null> {
   const member = await findOneWithDecryption(
     ctx.em.fork(),
@@ -135,7 +170,12 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
       projects.map((project) => [project.id, toNullableNumber(project.hourlyRate)]),
     )
 
-    const [trendMap, membersMap, financialsMap] = await Promise.all([
+    const customerIdsMissingSnapshot = projects
+      .filter((project) => !resolveCustomerName(project.customerSnapshot))
+      .map((project) => project.customerId)
+      .filter((customerId): customerId is string => typeof customerId === 'string' && customerId.length > 0)
+
+    const [trendMap, membersMap, financialsMap, customerNameById] = await Promise.all([
       computeProjectHoursTrend({
         em: ctx.em,
         tenantId: ctx.tenantId,
@@ -158,6 +198,7 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
         hourlyRateByProjectId,
         staffMemberId: ownEntriesOnly,
       }),
+      loadCustomerNames(ctx.em.fork(), ctx.tenantId, ctx.organizationId, customerIdsMissingSnapshot),
     ])
 
     return records.map((record) => {
@@ -172,7 +213,9 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
         hoursWeek: trend.hoursWeek,
         hoursTrend: trend.hoursTrend,
         myRole: members?.myRole ?? null,
-        customerName: resolveCustomerName(project?.customerSnapshot),
+        customerName:
+          resolveCustomerName(project?.customerSnapshot)
+          ?? (project?.customerId ? customerNameById.get(project.customerId) ?? null : null),
         totalMinutes: financials?.totalMinutes ?? 0,
         billableMinutes: financials?.billableMinutes ?? 0,
         budget: {
