@@ -23,7 +23,7 @@ function normalizeMethods(methods: unknown): string[] {
   const normalized = methods
     .filter((method): method is string => typeof method === 'string' && method.trim().length > 0)
     .map((method) => method.trim().toUpperCase())
-  return Array.from(new Set(normalized)).sort()
+  return Array.from(new Set(normalized)).sort((first, second) => (first < second ? -1 : first > second ? 1 : 0))
 }
 
 for (const route of DEFAULT_MFA_PENDING_ACCESS_ROUTES) {
@@ -70,6 +70,6 @@ export function isMfaPendingAccessAllowed(
 /** Test/ops helper: current snapshot of the pending-access registry. */
 export function listMfaPendingAccessRoutes(): ReadonlyArray<Readonly<MfaPendingAccessRoute>> {
   return Array.from(registeredMethodsByPath.entries())
-    .map(([path, methods]) => ({ path, methods: Array.from(methods).sort() }))
+    .map(([path, methods]) => ({ path, methods: Array.from(methods).sort((first, second) => (first < second ? -1 : first > second ? 1 : 0)) }))
     .sort((first, second) => first.path.localeCompare(second.path))
 }
