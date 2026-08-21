@@ -91,6 +91,7 @@ export function DocumentsPageClient() {
               pageSize={documents.pageSize}
               total={documents.total}
               totalPages={documents.totalPages}
+              totalIsCapped={documents.totalIsCapped}
               hasTemplates={documents.hasTemplates}
               canCreateDocument={canCreateDocument}
               canInstantiateTemplate={canInstantiateTemplate}

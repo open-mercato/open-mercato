@@ -71,6 +71,7 @@ type ClaimsResponse = {
   items?: ClaimRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
   page?: number
   pageSize?: number
   error?: string
@@ -421,6 +422,7 @@ export default function WarrantyClaimsPage() {
   const [page, setPage] = React.useState(initialUrlState.page)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [tabCounts, setTabCounts] = React.useState<ClaimsTabCounts>({})
   const [search, setSearch] = React.useState(initialUrlState.search)
   const [filterValues, setFilterValues] = React.useState<FilterValues>(initialUrlState.filterValues)
@@ -508,6 +510,7 @@ export default function WarrantyClaimsPage() {
         setRows(items.map(normalizeClaimRow).filter((row): row is ClaimRow => row !== null))
         setTotal(typeof call.result?.total === 'number' ? call.result.total : items.length)
         setTotalPages(typeof call.result?.totalPages === 'number' ? call.result.totalPages : 1)
+        setTotalIsCapped(call.result?.totalIsCapped === true)
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : t('warranty_claims.list.error.load')
@@ -1255,6 +1258,7 @@ export default function WarrantyClaimsPage() {
               pageSize: PAGE_SIZE,
               total,
               totalPages,
+              totalIsCapped,
               onPageChange: setPage,
             }}
           />
