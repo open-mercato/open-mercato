@@ -78,6 +78,18 @@ export interface ImportItem {
 export interface ImportBatch {
   items: ImportItem[]
   cursor: string
+  /**
+   * Whether the source has more to give after this batch. The final batch MUST report `false`.
+   *
+   * This is not advisory. The engine uses the last batch's value to tell a stream that DRAINED from
+   * one the adapter STOPPED EARLY on {@link StreamImportInput.signal}, because both end the same way
+   * — the generator simply returns. An adapter that reports `true` on its final batch will have a
+   * complete run misreported as `cancelled` whenever a cancel lands during the final read: the
+   * operator is told a finished sync was partial, and the run stays resumable with nothing left to
+   * resume.
+   *
+   * Derive it from the source rather than hardcoding it — `Boolean(nextPage)`, `offset < total`.
+   */
   hasMore: boolean
   totalEstimate?: number
   processedCount?: number
@@ -111,6 +123,7 @@ export interface ExportItemResult {
 export interface ExportBatch {
   results: ExportItemResult[]
   cursor: string
+  /** Whether the source has more to give; the final batch MUST report `false`. See {@link ImportBatch.hasMore}. */
   hasMore: boolean
   batchIndex: number
 }

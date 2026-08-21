@@ -106,8 +106,14 @@ const HEARTBEAT_TICK_MS = (STALE_JOB_TIMEOUT_SECONDS * 1000) / 4
 // Our own abort, as opposed to a failure that merely coincided with one. Adapters are told to
 // return rather than throw, but `signal.throwIfAborted()` and an aborted `fetch` both surface as
 // this, and either is a cancellation rather than a fault.
+//
+// Matched structurally on `name` rather than with `instanceof Error`, because those two throw a
+// `DOMException`, and whether that inherits from `Error` depends on the runtime — it does under
+// bare Node 24 and does NOT under the jest environment this is tested in. An `instanceof` test
+// therefore passes or fails on where the code runs, which is not something cancellation should
+// depend on.
 function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+  return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError'
 }
 
 async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
@@ -704,6 +710,15 @@ export function createSyncEngine(deps: EngineDeps) {
           })
           return
         }
+        // An adapter that honours the signal may reject instead of returning, so our own abort is
+        // a cancellation rather than a fault — and must not leave an `error` entry in the
+        // integration log for a run the operator cancelled on purpose. Anything else that merely
+        // coincided with the cancel — a rejecting commit, an upstream 500 — is a genuine failure
+        // and keeps its log entry, its message, its `failed` status and its failed event.
+        if (cancellation.signal.aborted && isAbortError(error)) {
+          await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+          return
+        }
         const message = error instanceof Error ? error.message : 'Sync import failed'
         await integrationLogService.write(
           {
@@ -714,14 +729,6 @@ export function createSyncEngine(deps: EngineDeps) {
           },
           scope,
         )
-        // An adapter that honours the signal may reject instead of returning, so our own abort is
-        // a cancellation rather than a fault. Anything else that merely coincided with the cancel —
-        // a rejecting commit, an upstream 500 — is a genuine failure and keeps its message, its
-        // `failed` status and its failed lifecycle event.
-        if (cancellation.signal.aborted && isAbortError(error)) {
-          await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
-          return
-        }
         await finalizeRun(run.id, 'failed', scope, message, operationalTelemetry)
         return
       }
@@ -925,6 +932,15 @@ export function createSyncEngine(deps: EngineDeps) {
           })
           return
         }
+        // An adapter that honours the signal may reject instead of returning, so our own abort is
+        // a cancellation rather than a fault — and must not leave an `error` entry in the
+        // integration log for a run the operator cancelled on purpose. Anything else that merely
+        // coincided with the cancel — a rejecting commit, an upstream 500 — is a genuine failure
+        // and keeps its log entry, its message, its `failed` status and its failed event.
+        if (cancellation.signal.aborted && isAbortError(error)) {
+          await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+          return
+        }
         const message = error instanceof Error ? error.message : 'Sync export failed'
         await integrationLogService.write(
           {
@@ -935,14 +951,6 @@ export function createSyncEngine(deps: EngineDeps) {
           },
           scope,
         )
-        // An adapter that honours the signal may reject instead of returning, so our own abort is
-        // a cancellation rather than a fault. Anything else that merely coincided with the cancel —
-        // a rejecting commit, an upstream 500 — is a genuine failure and keeps its message, its
-        // `failed` status and its failed lifecycle event.
-        if (cancellation.signal.aborted && isAbortError(error)) {
-          await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
-          return
-        }
         await finalizeRun(run.id, 'failed', scope, message, operationalTelemetry)
         return
       }

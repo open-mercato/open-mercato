@@ -163,7 +163,13 @@ async function* streamImport({ cursor, signal }: StreamImportInput): AsyncIterab
     // receives, so yielding a half-applied page advances the cursor past records that were never
     // applied — and no later run walks them again.
     if (signal?.aborted) return
-    yield { items: applied.items, cursor: applied.nextPage, hasMore: true, batchIndex: applied.index }
+    // Derive `hasMore` from the source — never hardcode `true`. See below.
+    yield {
+      items: applied.items,
+      cursor: applied.nextPage,
+      hasMore: applied.nextPage !== null,
+      batchIndex: applied.index,
+    }
     page = applied.nextPage
   }
 }
@@ -172,6 +178,18 @@ async function* streamImport({ cursor, signal }: StreamImportInput): AsyncIterab
 Check inside the per-record loop too, not only per page — a page whose records each go through the
 command bus is exactly the case where a batch outlasts the operator's patience. The in-tree adapters
 (`sync_excel`, `sync_akeneo`) do this and are worth copying.
+
+**Your final batch must report `hasMore: false`.** A stream that drained and a stream the adapter
+stopped early on the signal both end the same way — the generator returns — so the engine uses the
+last batch's `hasMore` to tell them apart. An adapter that always reports `true` will have a complete
+run misreported as `cancelled` whenever a cancel lands during the final read, leaving the operator
+told that a finished sync was partial and the run resumable with nothing left to resume.
+
+**The signal is for work that happens before a yield.** If your adapter does meaningful cleanup after
+its last batch — a reconcile pass, a deferred flush — let that cleanup finish rather than abandoning
+it on an abort. Once you have yielded `hasMore: false` you have declared everything delivered, and the
+run finalizes `completed` and is no longer resumable, so work skipped after that point never runs
+again for that cursor.
 
 Release locks and connections in the generator's own `finally` — it runs when the engine closes the
 iterator on an early exit. The signal only reaches work running in the engine's own process: an adapter

@@ -283,6 +283,31 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       expect(progressService.markCancelled).not.toHaveBeenCalled()
     })
 
+    it('cannot tell a drained stream from an early stop when the adapter never reports hasMore: false', async () => {
+      // Pins the `hasMore` contract documented on ImportBatch.hasMore. An adapter that hardcodes
+      // `true` and simply ends its stream is indistinguishable from one that honoured the signal,
+      // so its complete run is reported cancelled. This is why the final batch MUST report false —
+      // the assertion below is the cost of breaking that rule, not desired behavior.
+      const adapter = importAdapter(async function* () {
+        yield importBatch(0)
+        await new Promise((resolve) => setTimeout(resolve, 30_000))
+      })
+      let call = 0
+      const progressService = createProgressService({
+        isCancellationRequested: jest.fn(async () => call++ > 0),
+      })
+      const syncRunService = createSyncRunService(importRun)
+      const engine = buildEngine({ run: importRun, adapter, progressService, syncRunService })
+
+      jest.useFakeTimers()
+      const running = engine.runImport('run-cancel-1', 100, createScope())
+      await jest.advanceTimersByTimeAsync(30_000)
+      await running
+
+      expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledTimes(1)
+      expect(syncRunService.markStatus as jest.Mock).toHaveBeenLastCalledWith('run-cancel-1', 'cancelled', expect.anything(), undefined)
+    })
+
     it('reports failed, not cancelled, when an unrelated error coincides with the cancel', async () => {
       const entered = makeDeferred()
       const adapter = importAdapter(async function* ({ signal }) {
@@ -310,9 +335,9 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       const adapter = importAdapter(async function* ({ signal }) {
         entered.resolve()
         await whenAborted(signal)
-        const abortError = new Error('The operation was aborted')
-        abortError.name = 'AbortError'
-        throw abortError
+        // The real shape: a DOMException named AbortError, which is what an adapter gets from
+        // throwIfAborted() or an aborted fetch — not a hand-rolled Error with a reassigned name.
+        signal!.throwIfAborted()
       })
       const progressService = createProgressService({ isCancellationRequested: jest.fn(async () => true) })
       const syncRunService = createSyncRunService(importRun)
@@ -465,9 +490,9 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
       const adapter = exportAdapter(async function* ({ signal }) {
         entered.resolve()
         await whenAborted(signal)
-        const abortError = new Error('The operation was aborted')
-        abortError.name = 'AbortError'
-        throw abortError
+        // The real shape: a DOMException named AbortError, which is what an adapter gets from
+        // throwIfAborted() or an aborted fetch — not a hand-rolled Error with a reassigned name.
+        signal!.throwIfAborted()
       })
       const progressService = createProgressService({ isCancellationRequested: jest.fn(async () => true) })
       const syncRunService = createSyncRunService(exportRun)
