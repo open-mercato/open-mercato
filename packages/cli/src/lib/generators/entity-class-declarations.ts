@@ -10,17 +10,48 @@ import ts from 'typescript-js'
  * exists.
  */
 
-function isEntityDecorator(decorator: ts.Decorator): boolean {
-  const expression = decorator.expression
-  if (ts.isCallExpression(expression)) {
-    return ts.isIdentifier(expression.expression) && expression.expression.text === 'Entity'
-  }
-  return ts.isIdentifier(expression) && expression.text === 'Entity'
+function inferScriptKind(filePath: string): ts.ScriptKind {
+  if (filePath.endsWith('.tsx')) return ts.ScriptKind.TSX
+  if (filePath.endsWith('.jsx')) return ts.ScriptKind.JSX
+  if (filePath.endsWith('.js')) return ts.ScriptKind.JS
+  return ts.ScriptKind.TS
 }
 
-function hasEntityDecorator(node: ts.ClassDeclaration): boolean {
+/**
+ * Local names bound to MikroORM's `Entity` decorator, so an aliased import
+ * (`import { Entity as OrmEntity }`) is still recognised.
+ */
+function collectEntityDecoratorNames(sourceFile: ts.SourceFile): Set<string> {
+  const names = new Set<string>(['Entity'])
+  sourceFile.forEachChild((node) => {
+    if (!ts.isImportDeclaration(node)) return
+    const bindings = node.importClause?.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) return
+    for (const element of bindings.elements) {
+      if ((element.propertyName ?? element.name).text === 'Entity') {
+        names.add(element.name.text)
+      }
+    }
+  })
+  return names
+}
+
+/**
+ * Accepts `@Entity`, `@Entity(...)`, an aliased local name, and a namespace-qualified
+ * form such as `@orm.Entity()`.
+ */
+function isEntityDecorator(decorator: ts.Decorator, entityNames: ReadonlySet<string>): boolean {
+  const expression = ts.isCallExpression(decorator.expression)
+    ? decorator.expression.expression
+    : decorator.expression
+  if (ts.isIdentifier(expression)) return entityNames.has(expression.text)
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text === 'Entity'
+  return false
+}
+
+function hasEntityDecorator(node: ts.ClassDeclaration, entityNames: ReadonlySet<string>): boolean {
   if (!ts.canHaveDecorators(node)) return false
-  return (ts.getDecorators(node) ?? []).some(isEntityDecorator)
+  return (ts.getDecorators(node) ?? []).some((decorator) => isEntityDecorator(decorator, entityNames))
 }
 
 function isExported(node: ts.ClassDeclaration): boolean {
@@ -49,12 +80,19 @@ export function parseEntityClassNames(filePath: string): string[] {
     // A warning path must never break generation.
     return []
   }
-  const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS)
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.ES2020,
+    true,
+    inferScriptKind(filePath),
+  )
+  const entityNames = collectEntityDecoratorNames(sourceFile)
   const localExports = collectLocalExportNames(sourceFile)
   const classNames: string[] = []
   sourceFile.forEachChild((node) => {
     if (!ts.isClassDeclaration(node) || !node.name) return
-    if (!hasEntityDecorator(node)) return
+    if (!hasEntityDecorator(node, entityNames)) return
     const className = node.name.text
     if (!isExported(node) && !localExports.has(className)) return
     if (!classNames.includes(className)) classNames.push(className)

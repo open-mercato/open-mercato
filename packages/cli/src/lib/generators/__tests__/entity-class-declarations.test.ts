@@ -5,8 +5,8 @@ import { parseEntityClassNames } from '../entity-class-declarations'
 
 let tmpDir: string
 
-function writeSource(content: string): string {
-  const filePath = path.join(tmpDir, 'entities.ts')
+function writeSource(content: string, fileName = 'entities.ts'): string {
+  const filePath = path.join(tmpDir, fileName)
   fs.writeFileSync(filePath, content)
   return filePath
 }
@@ -93,5 +93,50 @@ describe('parseEntityClassNames', () => {
 
   it('returns nothing for an unreadable file instead of throwing', () => {
     expect(parseEntityClassNames(path.join(tmpDir, 'missing.ts'))).toEqual([])
+  })
+
+  it('recognises an aliased Entity import', () => {
+    const filePath = writeSource(`
+      import { Entity as OrmEntity } from '@mikro-orm/decorators/legacy'
+
+      @OrmEntity({ tableName: 'invoices' })
+      export class Invoice {}
+    `)
+
+    expect(parseEntityClassNames(filePath)).toEqual(['Invoice'])
+  })
+
+  it('recognises a namespace-qualified Entity decorator', () => {
+    const filePath = writeSource(`
+      import * as orm from '@mikro-orm/decorators/legacy'
+
+      @orm.Entity({ tableName: 'invoices' })
+      export class Invoice {}
+    `)
+
+    expect(parseEntityClassNames(filePath)).toEqual(['Invoice'])
+  })
+
+  it('does not treat an unrelated decorator as an entity', () => {
+    const filePath = writeSource(`
+      @Injectable()
+      export class InvoiceService {}
+    `)
+
+    expect(parseEntityClassNames(filePath)).toEqual([])
+  })
+
+  it('parses a .tsx entity file as JSX rather than dropping declarations', () => {
+    // MODULE_CODE_EXTENSIONS accepts .tsx, where `<T>` is JSX, not a type assertion.
+    const filePath = writeSource(`
+      import { Entity } from '@mikro-orm/decorators/legacy'
+
+      export const icon = () => <span>invoice</span>
+
+      @Entity({ tableName: 'invoices' })
+      export class Invoice {}
+    `, 'entities.tsx')
+
+    expect(parseEntityClassNames(filePath)).toEqual(['Invoice'])
   })
 })

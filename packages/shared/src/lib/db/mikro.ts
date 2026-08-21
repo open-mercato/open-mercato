@@ -16,6 +16,18 @@ let ormInstance: AppMikroORM | null = null
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
 const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
+// Same reason, plus HMR: a module-level set would reset on the very reloads it exists to
+// deduplicate across.
+const GLOBAL_REPORTED_DUPLICATE_ENTITY_NAMES_KEY = '__openMercatoReportedDuplicateEntityClassNames__'
+
+function getReportedDuplicateEntityClassNames(): Set<string> {
+  const globals = globalThis as Record<string, unknown>
+  const existing = globals[GLOBAL_REPORTED_DUPLICATE_ENTITY_NAMES_KEY]
+  if (existing instanceof Set) return existing as Set<string>
+  const created = new Set<string>()
+  globals[GLOBAL_REPORTED_DUPLICATE_ENTITY_NAMES_KEY] = created
+  return created
+}
 
 function getRegisteredEntities(): any[] | null {
   return (globalThis as Record<string, unknown>)[GLOBAL_ENTITIES_KEY] as any[] | null ?? null
@@ -34,8 +46,15 @@ function warnOnDuplicateEntityClassNames(entities: readonly unknown[]): void {
   try {
     const duplicates = findDuplicateRegisteredEntityClassNames(entities)
     if (duplicates.length === 0) return
-    logger.warn(`[Bootstrap] ${formatDuplicateEntityClassNamesWarning(duplicates)}`, {
-      classNames: duplicates.map((group) => group.className),
+    // Development re-runs registration on every HMR reload, so report each colliding
+    // name once per process. Reprinting the whole warning on every reload buries it.
+    // A newly introduced collision still reports, because its name is not yet recorded.
+    const reported = getReportedDuplicateEntityClassNames()
+    const fresh = duplicates.filter((group) => !reported.has(group.className))
+    if (fresh.length === 0) return
+    for (const group of fresh) reported.add(group.className)
+    logger.warn(`[Bootstrap] ${formatDuplicateEntityClassNamesWarning(fresh)}`, {
+      classNames: fresh.map((group) => group.className),
     })
   } catch (err) {
     // This check is a diagnostic. It must never be the reason a bootstrap fails.

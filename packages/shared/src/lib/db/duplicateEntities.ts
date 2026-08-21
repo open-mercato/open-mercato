@@ -40,6 +40,11 @@ function readModuleIdFromStamp(stamp: unknown): string | undefined {
  * else is skipped so helpers that happen to share a name are never reported.
  */
 function toEntityClassNameEntry(value: unknown): EntityClassNameEntry | null {
+  // `enhanceEntities()` in the generated registry keeps only `typeof value === 'function'`
+  // exports, so an EntitySchema a module exports never arrives through it. This branch is
+  // live only for direct callers such as the testing bootstrap — and since the module id
+  // stamp is applied to those same function exports, an EntitySchema carries no module id
+  // and reports by path alone.
   if (EntitySchema.is(value)) {
     const className = readString(value.meta?.className)
     if (!className) return null

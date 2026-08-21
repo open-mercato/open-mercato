@@ -67,6 +67,15 @@ describe('findDuplicateEntityClassNames', () => {
     expect(groups[1].sources.map((source) => source.moduleId)).toEqual(['billing', 'subscriptions', 'reporting'])
   })
 
+  it('keeps unidentifiable entries distinct so a collision fails open', () => {
+    // Neither entry names a module, a file, or a class, so nothing distinguishes them.
+    // Collapsing them into one bucket would hide a genuine collision.
+    const groups = findDuplicateEntityClassNames([{ className: 'Invoice' }, { className: 'Invoice' }])
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].sources).toHaveLength(2)
+  })
+
   it('skips entries without a class name', () => {
     expect(findDuplicateEntityClassNames([{ className: '' }, { className: '' }])).toEqual([])
   })

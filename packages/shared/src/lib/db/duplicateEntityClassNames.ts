@@ -42,8 +42,16 @@ export type DuplicateEntityClassNameGroup = {
   sources: DuplicateEntityClassNameSource[]
 }
 
+/**
+ * Prefer the runtime class, then the declaring module and file. When an entry carries
+ * none of those, fall back to the entry itself so it stays distinct: an unidentifiable
+ * entry should fail open and surface a possible collision rather than collapse into a
+ * shared bucket key and hide one.
+ */
 function identify(entry: EntityClassNameEntry): unknown {
-  return entry.target ?? `${entry.moduleId ?? ''}|${entry.sourcePath ?? ''}`
+  if (entry.target) return entry.target
+  if (entry.moduleId || entry.sourcePath) return `${entry.moduleId ?? ''}|${entry.sourcePath ?? ''}`
+  return entry
 }
 
 /**
