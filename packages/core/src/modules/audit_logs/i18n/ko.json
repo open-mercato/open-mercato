@@ -62,5 +62,9 @@
   "audit_logs.version_history.status.failed": "실패",
   "audit_logs.version_history.status.redone": "다시 실행됨",
   "audit_logs.version_history.status.undone": "실행 취소됨",
-  "audit_logs.version_history.title": "버전 기록"
+  "audit_logs.version_history.title": "버전 기록",
+  "audit_logs.upgradeActions.accessLogRetention.cta": "접근 로그 보존 예약",
+  "audit_logs.upgradeActions.accessLogRetention.loading": "접근 로그 보존 예약 중…",
+  "audit_logs.upgradeActions.accessLogRetention.message": "설정된 보존 기간이 지난 접근 로그를 테넌트 범위에서 매일 정리하도록 등록합니다.",
+  "audit_logs.upgradeActions.accessLogRetention.success": "접근 로그 보존이 예약되었습니다."
 }

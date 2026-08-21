@@ -36,13 +36,22 @@ Non-numeric, zero, or negative values fall back to the 10s default. The variable
 
 ## Retention
 
-Access log retention is automatic and environment-configurable:
+Access logs are retained for **90 days** by default. You may increase this period with `AUDIT_LOGS_RETENTION_DAYS`; values below 90 days are raised to the minimum. `AUDIT_LOGS_RETENTION_BATCH_SIZE` controls how many rows one worker job deletes and defaults to 1000.
 
-- **Core resources** (`auth.user`, `auth.role`) are retained for **7 days** by default. Override with `AUDIT_LOGS_CORE_RETENTION_DAYS`.
-- **All other resources** rotate after **8 hours** by default. Override with `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`.
-- **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
+Cleanup runs outside the request path through the queue worker registered by the module. If the scheduler module is not enabled, logging continues and an operator can run cleanup manually:
 
-Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.
+```bash
+yarn mercato audit_logs access-retention:prune --dry-run --tenant <uuid> --org <uuid>
+yarn mercato audit_logs access-retention:prune --tenant <uuid> --org <uuid>
+```
+
+Use `--class core` or `--class non_core` for class-specific runs, `--retention-days` to increase the period, and `--batch` to adjust the bounded batch size. A global run requires the explicit `--all-scopes` flag.
+
+CRUD access-log writes are blocking by default: a successful response is not returned until the log insert succeeds. `OM_CRUD_ACCESS_LOG_MODE=async` is available for low-assurance deployments that explicitly accept possible log loss on process failure.
+
+The Access Log page shows the normalized request context, including method, path, request and session identifiers, result, user agent, and source IP when trusted proxy depth is configured. The source IP uses the same `RATE_LIMIT_TRUST_PROXY_DEPTH` safety rule as rate limiting; forwarded headers are ignored by default.
+
+Access records can be downloaded from `GET /api/audit_logs/audit-logs/access/export`. The CSV export applies the same tenant, organization and actor scope as the Access Log list.
 
 ## Removing credentials from older action logs
 

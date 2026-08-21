@@ -21,6 +21,7 @@ import { getAllSyncSubscribers } from './sync-subscriber-store'
 import { collectSyncSubscribers, runSyncBeforeEvent, runSyncAfterEvent } from './sync-event-runner'
 import type { SyncCrudEventPayload } from './sync-event-types'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
+import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type {
   CrudEventAction,
   CrudEventsConfig,
@@ -761,6 +762,10 @@ type AccessLogServiceLike = {
   flush?: () => Promise<void> | void
 }
 
+type RateLimiterServiceLike = {
+  trustProxyDepth: number
+}
+
 function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
   const registrations = (container as { registrations?: Record<string, unknown> }).registrations
   if (registrations && !Object.prototype.hasOwnProperty.call(registrations, 'accessLogService')) {
@@ -776,8 +781,38 @@ function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLi
   return null
 }
 
+let invalidAccessLogModeWarningLogged = false
+
 function shouldBlockAccessLogWrites(): boolean {
-  return process.env.OM_CRUD_ACCESS_LOG_BLOCKING === '1'
+  const mode = process.env.OM_CRUD_ACCESS_LOG_MODE?.trim().toLowerCase()
+  if (mode === 'blocking') return true
+  if (mode === 'async') return false
+  if (mode && !invalidAccessLogModeWarningLogged) {
+    invalidAccessLogModeWarningLogged = true
+    logger.warn('Invalid OM_CRUD_ACCESS_LOG_MODE; using blocking access-log writes', { mode })
+  }
+
+  const legacy = process.env.OM_CRUD_ACCESS_LOG_BLOCKING?.trim()
+  if (legacy === '0') return false
+  if (legacy === '1') return true
+  return true
+}
+
+function resolveRateLimiterService(container: AwilixContainer): RateLimiterServiceLike | null {
+  const registrations = (container as { registrations?: Record<string, unknown> }).registrations
+  if (registrations && !Object.prototype.hasOwnProperty.call(registrations, 'rateLimiterService')) return null
+  try {
+    const service = container.resolve?.('rateLimiterService') as RateLimiterServiceLike | undefined
+    return service && Number.isInteger(service.trustProxyDepth) ? service : null
+  } catch {
+    return null
+  }
+}
+
+function normalizedHeaderValue(value: string | null, maxLength: number): string | null {
+  const normalized = value?.trim()
+  if (!normalized) return null
+  return normalized.slice(0, maxLength)
 }
 
 // Module-level set of in-flight access-log writes started by the CRUD factory.
@@ -851,6 +886,7 @@ export type LogCrudAccessOptions = {
   query?: unknown
   accessType?: string
   fields?: string[]
+  statusCode?: number
 }
 
 export type LogCrudAccessResult = {
@@ -872,10 +908,21 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
   const actorUserId = (auth.keyId ?? auth.sub) ?? null
   const fields = options.fields && options.fields.length ? options.fields : collectFieldNames(items)
   const accessType = options.accessType ?? determineAccessType(options.query, items.length, idField)
+  const statusCode = Number.isInteger(options.statusCode) ? Number(options.statusCode) : 200
 
   const context: Record<string, unknown> = {
     resultCount: items.length,
     accessType,
+    operation: accessType,
+    result: statusCode >= 400 ? 'failure' : 'success',
+    statusCode,
+    requestId: normalizedHeaderValue(request?.headers.get('x-request-id') ?? null, 200) ?? crypto.randomUUID(),
+    sessionId: typeof auth.sid === 'string' && auth.sid.length > 0 ? auth.sid : null,
+    method: request?.method ?? null,
+    sourceIp: request
+      ? getClientIp(request, resolveRateLimiterService(container)?.trustProxyDepth ?? 0)
+      : null,
+    userAgent: normalizedHeaderValue(request?.headers.get('user-agent') ?? null, 1024),
   }
   if (options.query && typeof options.query === 'object' && options.query !== null) {
     context.queryKeys = Object.keys(options.query as Record<string, unknown>)
@@ -913,34 +960,17 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
 
   const blocking = shouldBlockAccessLogWrites()
   const dispatchMode: 'batch' | 'fanout' = typeof service.logMany === 'function' ? 'batch' : 'fanout'
-  const writePromise = (async () => {
-    try {
-      if (typeof service.logMany === 'function') {
-        await service.logMany(payloads)
-      } else {
-        // Legacy fallback for service mocks/implementations without logMany.
-        await Promise.all(
-          payloads.map((payload) =>
-            Promise.resolve(service.log(payload)).catch((err) => {
-              try {
-                logger.error('Failed to record access log', { err, payload })
-              } catch {}
-              return undefined
-            }),
-          ),
-        )
-      }
-    } catch (err) {
-      try {
-        logger.error('Failed to record access logs (batch)', { err, count: payloads.length })
-      } catch {}
-    }
-  })()
+  const writePromise = typeof service.logMany === 'function'
+    ? Promise.resolve(service.logMany(payloads))
+    : Promise.all(payloads.map((payload) => Promise.resolve(service.log(payload))))
   trackPendingCrudAccessLogPromise(writePromise)
   if (blocking) {
     await writePromise
     return { mode: 'blocking', count: payloads.length, pending: pendingCrudAccessLogPromises.size }
   }
+  void writePromise.catch((err) => {
+    logger.error('Failed to record asynchronous access logs', { err, count: payloads.length })
+  })
   return { mode: dispatchMode, count: payloads.length, pending: pendingCrudAccessLogPromises.size }
 }
 
