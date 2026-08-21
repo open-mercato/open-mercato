@@ -25,6 +25,15 @@ env:
   # Keep build-time and runtime onboarding config aligned so the browser
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
+  # NEXT_PUBLIC_* values are inlined by Next.js at build time, so this MUST be
+  # workflow-wide: `prepare` builds the app once (`yarn build:app`) and every
+  # `ephemeral-integration` shard reuses that artifact. Declaring it only on
+  # the shard job would leave the built bundle with collaboration disabled and
+  # TC-DOCUMENTS-017 unable to reach the sidecar. The Docker image builds are
+  # unaffected — `docker/build-push-action` forwards no job env. Production
+  # runtime validation ignores loopback endpoints unless the integration flag
+  # explicitly allows them.
+  NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
 
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
 # `develop`, and while it is absent from these lists no job is scheduled for them at all.
@@ -195,6 +204,10 @@ jobs:
         if: steps.integration-scope.outputs.skip != 'true'
         run: yarn build:app
 
+      - name: Check Documents bundle budgets
+        if: steps.integration-scope.outputs.skip != 'true'
+        run: yarn documents:check-bundles
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -320,6 +333,17 @@ jobs:
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
+
+      - name: Check for dead resolution keys
+        # Runs before the audit because a dead `resolutions` key is a *cause* of the
+        # failure the next step reports, and nothing else surfaces it: Yarn silently
+        # ignores a resolution whose `@npm:<descriptor>` suffix matches no descriptor
+        # in the tree, so a security pin stops applying the moment its requester bumps
+        # its declared range. All four `undici` keys had rotted that way before #5085,
+        # and the only symptom was a red audit with nothing in the diff to explain it
+        # (#5098). This job is the right home for the check because `audit-scope` gates
+        # it on exactly the inputs that can rot a key — manifests and lockfiles.
+        run: yarn check:resolutions
 
       - name: Audit dependencies for known CVEs
         # Uses scripts/audit-ci.mjs instead of `yarn npm audit` as a workaround for
@@ -673,6 +697,62 @@ jobs:
         # scans — the whole set is ~10 s, so it stays on the common PR path.
         run: yarn test:repo-wide-guards
 
+  # ── Documents multi-instance durability ────────────────────────────────────
+  # The standard Documents Jest suite intentionally skips this infrastructure
+  # regression. Run it as a dedicated required job on GitHub's Docker-capable
+  # runner so every change proves the two-sidecar Redis/PostgreSQL persistence
+  # path rather than relying on an opt-in local command.
+  documents-multi-instance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run real two-sidecar durability regression
+        run: yarn workspace @open-mercato/documents test:multi-instance
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -702,6 +782,13 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
+      # the same ephemeral database. The separate documents-multi-instance job
+      # proves the Redis-backed two-sidecar path.
+      # NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is declared at workflow level so the
+      # reused `prepare` app build agrees with this runtime environment.
+      OM_DOCUMENTS_COLLAB_INTEGRATION: '1'
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
@@ -889,7 +976,7 @@ jobs:
   # On push: downloads per-shard artifacts, merges coverage reports, writes summary.
   merge-coverage:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [prepare, test, ephemeral-integration]
+    needs: [prepare, test, documents-multi-instance, ephemeral-integration]
     if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
