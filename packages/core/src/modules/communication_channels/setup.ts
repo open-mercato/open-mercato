@@ -29,6 +29,24 @@ type SchedulerServiceLike = {
   }) => Promise<void>
 }
 
+type CredentialsServiceLike = {
+  resolve: (
+    integrationId: string,
+    scope: { organizationId: string; tenantId: string; userId?: string | null },
+  ) => Promise<Record<string, unknown> | null>
+  save: (
+    integrationId: string,
+    credentials: Record<string, unknown>,
+    scope: { organizationId: string; tenantId: string; userId?: string | null },
+  ) => Promise<void>
+}
+
+/**
+ * Sender the test-seed channel presents. Shared by the channel row's
+ * `externalIdentifier` and its seeded credentials so both describe one address.
+ */
+const TEST_SEED_FROM_ADDRESS = 'system@test-seed.local'
+
 /**
  * Tick interval in seconds. Default 60s per email integration spec
  * § Hub Deltas → Delta 6 (scheduler mechanism).
@@ -113,7 +131,7 @@ export const setup: ModuleSetupConfig = {
           providerKey: TEST_SEED_PROVIDER_KEY,
           channelType: 'email',
           displayName: 'Test Seed System Email',
-          externalIdentifier: 'system@test-seed.local',
+          externalIdentifier: TEST_SEED_FROM_ADDRESS,
           userId: null,
           isPrimary: false,
           isActive: true,
@@ -122,6 +140,30 @@ export const setup: ModuleSetupConfig = {
           organizationId,
         }))
         await em.flush()
+      }
+
+      /**
+       * Seeding the channel row without credentials is not a neutral state — it is a
+       * fail-closed one. Once a tenant owns a Hub channel, `resolveTenantCredentials`
+       * deliberately refuses to fall back to instance-wide env credentials, so every
+       * tenant-scoped send throws `SYSTEM_EMAIL_CREDENTIALS_NOT_CONFIGURED`. Callers that
+       * treat a failed send as a failed write (customer invitations roll back and return
+       * 502) then fail outright rather than merely losing the email.
+       *
+       * Seeding credentials alongside the row makes the harness model a tenant that
+       * finished configuring its provider, which is also the only one of the three
+       * credential cases the integration suite would otherwise never exercise.
+       */
+      const credentialsService = container.resolve('integrationCredentialsService') as CredentialsServiceLike
+      const testSeedIntegrationId = `channel_${TEST_SEED_PROVIDER_KEY}`
+      const credentialScope = { tenantId, organizationId, userId: null }
+      const existingCredentials = await credentialsService.resolve(testSeedIntegrationId, credentialScope)
+      if (!existingCredentials) {
+        await credentialsService.save(
+          testSeedIntegrationId,
+          { testSeed: true, fromAddress: TEST_SEED_FROM_ADDRESS },
+          credentialScope,
+        )
       }
     }
 
