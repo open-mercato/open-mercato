@@ -68,7 +68,22 @@ describe('customers deals list filters', () => {
   it('applies $in when multiple statuses are provided', async () => {
     const parsed = dealListQuerySchema.parse({ status: ['open', 'won'] })
     const filters = await buildDealListFilters(parsed)
-    expect(filters.status).toEqual({ $in: ['open', 'won'] })
+    // 'won' expands to canonical 'win' + alias 'won' so kanban + list agree regardless of spelling
+    expect(filters.status).toEqual({ $in: ['open', 'win', 'won'] })
+  })
+
+  it('expands won/lost synonyms so kanban Win/Lose filters match list semantics', async () => {
+    const wonParsed = dealListQuerySchema.parse({ status: ['won'] })
+    const wonFilters = await buildDealListFilters(wonParsed)
+    expect(wonFilters.status).toEqual({ $in: ['win', 'won'] })
+
+    const winParsed = dealListQuerySchema.parse({ status: ['win'] })
+    const winFilters = await buildDealListFilters(winParsed)
+    expect(winFilters.status).toEqual({ $in: ['win', 'won'] })
+
+    const lostParsed = dealListQuerySchema.parse({ status: ['lost'] })
+    const lostFilters = await buildDealListFilters(lostParsed)
+    expect(lostFilters.status).toEqual({ $in: ['loose', 'lost'] })
   })
 
   it('applies $eq when a single status is provided', async () => {
@@ -116,7 +131,8 @@ describe('customers deals list filters', () => {
     const parsed = dealListQuerySchema.parse({ isOverdue: 'true', status: ['open', 'won'] })
     const filters = await buildDealListFilters(parsed)
     // Caller-supplied status wins; we only inject status=open when none was provided.
-    expect(filters.status).toEqual({ $in: ['open', 'won'] })
+    // 'won' expands to win+won so the filter covers both spellings stored in the DB.
+    expect(filters.status).toEqual({ $in: ['open', 'win', 'won'] })
     expect(filters.expected_close_at).toMatchObject({ $lt: expect.any(Date) })
   })
 

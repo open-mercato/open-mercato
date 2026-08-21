@@ -31,6 +31,26 @@ const rawBodySchema = z.object({}).passthrough()
 
 const stringOrStringArray = z.union([z.string(), z.array(z.string())])
 const OPEN_DEAL_STATUSES = ['open', 'in_progress'] as const
+const STATUS_SYNONYM_GROUPS: Record<string, string[]> = {
+  win: ['win', 'won'],
+  won: ['win', 'won'],
+  loose: ['loose', 'lost'],
+  lost: ['loose', 'lost'],
+}
+
+function expandStatusList(list: string[]): string[] {
+  const expanded = new Set<string>()
+  for (const value of list) {
+    const lower = value.toLowerCase()
+    const group = STATUS_SYNONYM_GROUPS[lower]
+    if (group) {
+      group.forEach((entry) => expanded.add(entry))
+    } else {
+      expanded.add(value)
+    }
+  }
+  return Array.from(expanded)
+}
 const booleanQueryParam = z.preprocess((value) => {
   const parsed = parseBooleanFromUnknown(value)
   return parsed === null ? value : parsed
@@ -300,7 +320,8 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     }
   }
 
-  const statusList = query.status ? normalizeStringList(query.status) : []
+  const rawStatusList = query.status ? normalizeStringList(query.status) : []
+  const statusList = expandStatusList(rawStatusList)
   if (statusList.length > 0) {
     filters.status = statusList.length === 1 ? { $eq: statusList[0] } : { $in: statusList }
   }

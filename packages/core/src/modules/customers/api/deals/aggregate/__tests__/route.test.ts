@@ -126,4 +126,35 @@ describe('customers deals aggregate route', () => {
       else process.env.TENANT_DATA_ENCRYPTION = prev
     }
   })
+
+  it('expands won/lost synonyms so kanban and list won filters agree on stored spellings', async () => {
+    const response = await GET(
+      new Request(
+        `http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=won`,
+      ),
+    )
+    expect(response.status).toBe(200)
+    const aggregateCall = executeMock.mock.calls[0]
+    const sql = String(aggregateCall[0])
+    const values = aggregateCall[1] as string[]
+    expect(sql).toContain('status IN')
+    // won expands to win + won so both spellings are matched in one query
+    expect(values).toContain('win')
+    expect(values).toContain('won')
+  })
+
+  it('keeps aggregate and list status semantics aligned for win alias', async () => {
+    executeMock.mockClear()
+    findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
+    const response = await GET(
+      new Request(
+        `http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=win&status=lost`,
+      ),
+    )
+    expect(response.status).toBe(200)
+    const aggregateCall = executeMock.mock.calls[0]
+    const values = aggregateCall[1] as string[]
+    // win -> win,won and lost -> loose,lost, so all four spellings appear
+    expect(values).toEqual(expect.arrayContaining(['win', 'won', 'loose', 'lost']))
+  })
 })

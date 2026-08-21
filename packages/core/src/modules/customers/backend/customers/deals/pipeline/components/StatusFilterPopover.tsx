@@ -10,25 +10,57 @@ import {
 } from '@open-mercato/ui/primitives/popover'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
+import { useCustomerDictionary } from '../../../../../components/detail/hooks/useCustomerDictionary'
 import { ChipButton } from './ChipButton'
 import { FilterPopoverShell } from './FilterPopoverShell'
+
+const STATUS_SYNONYMS: Record<string, string> = {
+  won: 'win',
+  lost: 'loose',
+}
+
+function normalizeStatusValue(value: string): string {
+  const lower = value.toLowerCase()
+  return STATUS_SYNONYMS[lower] ?? value
+}
+
+function toneToDotClass(tone: string | null | undefined): string {
+  switch (tone) {
+    case 'success':
+      return 'bg-status-success-icon'
+    case 'warning':
+      return 'bg-status-warning-icon'
+    case 'error':
+      return 'bg-status-error-icon'
+    case 'info':
+      return 'bg-status-info-icon'
+    case 'brand':
+      return 'bg-status-brand-icon'
+    default:
+      return 'bg-status-neutral-icon'
+  }
+}
 
 /**
  * Filter options exposed to the operator.
  *
- * The deal `status` column accepts the historical 4-value enum (`open` | `closed` | `win` |
- * `loose`), but the codebase only ever **writes** `loose` for a lost deal — `closed` was a
- * latent unused state from an earlier iteration. Exposing a separate "Lost (closed)" filter
- * option therefore filtered to nothing and confused operators. We display a single "Lost"
- * choice and intentionally map it to the canonical wire value `loose` so the filter matches
- * what the rest of the app actually persists. (Renaming the column / migrating the data to
- * `lost` is a deeper data-model change tracked separately.)
+ * The deal `status` column is dictionary-driven (`deal-statuses`), but the seeded defaults
+ * are the historical 3-value set (`open` | `win` | `loose`) plus optional tenant-custom values.
+ * We source options from the dictionary so the kanban Status pill stays aligned with the list
+ * page's advanced filter (which also uses the dictionary). A hard-coded fallback keeps the
+ * popover usable when the dictionary is still loading or the tenant has no custom entries.
+ *
+ * `won` / `lost` are accepted as aliases for `win` / `loose` at the API layer (see
+ * `api/deals/route.ts:expandStatusList`). The UI only exposes the canonical values to avoid
+ * duplicate pills, but `normalizeStatusValue` ensures a URL that carries an alias still
+ * renders the correct label.
  */
-const STATUS_OPTIONS: Array<{
+const FALLBACK_STATUS_OPTIONS: Array<{
   value: string
   labelKey: string
   labelFallback: string
-  /** Tone selects the small ●-dot color on the pill (per Figma: green / amber / gray) */
   dotClass: string
 }> = [
   {
@@ -58,29 +90,60 @@ type StatusFilterPopoverProps = {
 
 export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProps): React.ReactElement {
   const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
+  const { data: dictionaryData } = useCustomerDictionary('deal-statuses', scopeVersion)
   const [open, setOpen] = React.useState(false)
-  const [draft, setDraft] = React.useState<string[]>(values)
+  const normalizedValues = React.useMemo(() => values.map(normalizeStatusValue), [values])
+  const [draft, setDraft] = React.useState<string[]>(normalizedValues)
 
   React.useEffect(() => {
-    if (open) setDraft(values)
-  }, [open, values])
+    if (open) setDraft(normalizedValues)
+  }, [open, normalizedValues])
+
+  const statusOptions = React.useMemo(() => {
+    const entries = dictionaryData?.entries
+    if (entries && entries.length > 0) {
+      return (entries as Array<{ value: string; label: string; color?: string | null }>).map((entry) => {
+        const tone = mapDictionaryColorToTone(entry.color ?? null)
+        return {
+          value: entry.value,
+          label: entry.label,
+          dotClass: toneToDotClass(tone),
+        }
+      })
+    }
+    return FALLBACK_STATUS_OPTIONS.map((entry) => ({
+      value: entry.value,
+      label: translateWithFallback(t, entry.labelKey, entry.labelFallback),
+      dotClass: entry.dotClass,
+    }))
+  }, [dictionaryData, t])
+
+  const labelByValue = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const option of statusOptions) {
+      map.set(option.value, option.label)
+    }
+    for (const fallback of FALLBACK_STATUS_OPTIONS) {
+      if (!map.has(fallback.value)) {
+        map.set(fallback.value, translateWithFallback(t, fallback.labelKey, fallback.labelFallback))
+      }
+    }
+    return map
+  }, [statusOptions, t])
 
   const chipLabel = translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')
   const chipValue =
-    values.length === 0
+    normalizedValues.length === 0
       ? translateWithFallback(t, 'customers.deals.kanban.filter.all', 'All')
-      : values
-          .map((value) => {
-            const option = STATUS_OPTIONS.find((entry) => entry.value === value)
-            return option
-              ? translateWithFallback(t, option.labelKey, option.labelFallback)
-              : value
-          })
+      : normalizedValues
+          .map((value) => labelByValue.get(value) ?? value)
           .join(', ')
 
   const toggleDraft = (value: string) => {
+    const normalized = normalizeStatusValue(value)
     setDraft((prev) =>
-      prev.includes(value) ? prev.filter((entry) => entry !== value) : [...prev, value],
+      prev.includes(normalized) ? prev.filter((entry) => entry !== normalized) : [...prev, normalized],
     )
   }
 
@@ -133,9 +196,9 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
             {translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')}
           </span>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-            {STATUS_OPTIONS.map((option) => {
+            {statusOptions.map((option: { value: string; label: string; dotClass: string }) => {
               const isSelected = draft.includes(option.value)
-              const label = translateWithFallback(t, option.labelKey, option.labelFallback)
+              const label = option.label
               return (
                 <Button
                   key={option.value}

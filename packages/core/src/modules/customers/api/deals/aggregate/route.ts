@@ -24,10 +24,31 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
 }
 
+const STATUS_SYNONYM_GROUPS: Record<string, string[]> = {
+  win: ['win', 'won'],
+  won: ['win', 'won'],
+  loose: ['loose', 'lost'],
+  lost: ['loose', 'lost'],
+}
+
+function expandStatusList(list: string[]): string[] {
+  const expanded = new Set<string>()
+  for (const value of list) {
+    const lower = value.toLowerCase()
+    const group = STATUS_SYNONYM_GROUPS[lower]
+    if (group) {
+      group.forEach((entry) => expanded.add(entry))
+    } else {
+      expanded.add(value)
+    }
+  }
+  return Array.from(expanded)
+}
+
 const querySchema = z.object({
   pipelineId: z.string().uuid().optional(),
   search: z.string().optional(),
-  status: z.array(z.enum(['open', 'closed', 'win', 'loose'])).optional(),
+  status: z.array(z.string()).optional(),
   ownerUserId: z.array(z.string().uuid()).optional(),
   personId: z.array(z.string().uuid()).optional(),
   companyId: z.array(z.string().uuid()).optional(),
@@ -247,9 +268,12 @@ export async function GET(req: Request) {
     }
   }
   if (parsed.data.status && parsed.data.status.length) {
-    const placeholders = parsed.data.status.map(() => '?').join(',')
-    where.push(`status IN (${placeholders})`)
-    values.push(...parsed.data.status)
+    const expandedStatuses = expandStatusList(parsed.data.status)
+    if (expandedStatuses.length) {
+      const placeholders = expandedStatuses.map(() => '?').join(',')
+      where.push(`status IN (${placeholders})`)
+      values.push(...expandedStatuses)
+    }
   }
   if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
     const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')
