@@ -80,6 +80,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('../../../../../../lib/access-control', () => ({
   ChannelAccessDeniedError: ChannelAccessDeniedErrorMock,
   assertCanAccessChannel: (...args: unknown[]) => assertCanAccessChannelMock(...args),
+  channelOrgScopeWhereFromFilter: (filter: { organizationIds: string[] | undefined } | null | undefined) =>
+    filter?.organizationIds?.length
+      ? { $or: [{ organizationId: { $in: filter.organizationIds } }, { organizationId: null }] }
+      : {},
 }))
 
 import { GET } from '../route'

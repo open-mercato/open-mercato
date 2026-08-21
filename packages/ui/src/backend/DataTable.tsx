@@ -295,11 +295,13 @@ export type DataTableProps<T extends RowData> = {
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
+  /** Render the query duration in the pagination footer. Set to false for a count-only footer. */
+  showQueryTime?: boolean
   isLoading?: boolean
   emptyState?: React.ReactNode
   error?: React.ReactNode | string | null
   rowActions?: (row: T) => React.ReactNode
-  onRowClick?: (row: T) => void
+  onRowClick?: (row: T, event: React.MouseEvent<HTMLTableRowElement>) => void
   rowClickActionIds?: string[]
   disableRowClick?: boolean
   bulkActions?: BulkAction<T>[]
@@ -1206,6 +1208,7 @@ export function DataTable<T extends RowData>({
   sorting: sortingProp,
   onSortingChange,
   pagination,
+  showQueryTime = true,
   isLoading,
   emptyState,
   error,
@@ -2615,7 +2618,7 @@ export function DataTable<T extends RowData>({
     const effectiveDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0)
       ? durationMs
       : measuredDurationMs ?? undefined
-    const durationLabel = formatDurationLabel(effectiveDuration)
+    const durationLabel = showQueryTime ? formatDurationLabel(effectiveDuration) : ''
     const normalizedCacheStatus = cacheStatus === 'hit' || cacheStatus === 'miss' ? cacheStatus : null
     const cacheBadge = normalizedCacheStatus ? (
       <span
@@ -2669,7 +2672,7 @@ export function DataTable<T extends RowData>({
         />
       </div>
     )
-  }, [pagination, measuredDurationMs, scrollTableIntoView, t])
+  }, [pagination, showQueryTime, measuredDurationMs, scrollTableIntoView, t])
 
   // Auto filters: fetch custom field defs when requested
   const resolvedEntityIds = React.useMemo(() => {
@@ -3190,7 +3193,10 @@ export function DataTable<T extends RowData>({
   const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
   const containerClassName = embedded ? '' : 'rounded-lg border bg-card mx-1 sm:mx-2'
   const headerWrapperClassName = embedded ? 'pb-3' : 'px-4 py-3 border-b'
-  const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'
+  // The header row wraps once the actions no longer fit beside the title (the
+  // title keeps a 12rem floor); before, the title collapsed to a sliver and
+  // the wrapped action buttons rendered over it on narrow layouts.
+  const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
   const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
 
@@ -3246,11 +3252,11 @@ export function DataTable<T extends RowData>({
         <div className={headerWrapperClassName}>
           {(hasTitle || shouldRenderActionsWrapper || renderToolbarInline) && (
             <div className={headerContentClassName}>
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 sm:basis-48">
                 {renderToolbarInline ? builtToolbar : titleContent}
               </div>
               {shouldRenderActionsWrapper ? (
-                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem]">
+                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem] sm:ml-auto sm:justify-end">
                   {refreshButtonConfig ? (
                     <Button
                       type="button"
@@ -3461,7 +3467,7 @@ export function DataTable<T extends RowData>({
                       }
                       
                       if (onRowClick) {
-                        onRowClick(row.original as T)
+                        onRowClick(row.original as T, e)
                       } else if (defaultRowAction) {
                         if (defaultRowAction.href) {
                           router.push(defaultRowAction.href)

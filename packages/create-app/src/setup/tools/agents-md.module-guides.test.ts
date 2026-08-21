@@ -48,7 +48,8 @@ function makeFactSheetDir(modules: string[]): string {
   const modulesSubdir = join(makeTmpDir(), 'modules')
   fs.mkdirSync(modulesSubdir, { recursive: true })
   for (const moduleId of modules) {
-    fs.writeFileSync(join(modulesSubdir, `${moduleId}.md`), `# ${moduleId} facts\n`)
+    fs.mkdirSync(join(modulesSubdir, moduleId), { recursive: true })
+    fs.writeFileSync(join(modulesSubdir, moduleId, 'index.md'), `# ${moduleId} facts\n`)
   }
   return modulesSubdir
 }
@@ -113,7 +114,7 @@ test('injectModuleGuides writes exactly the selected ID index, drops the hedge, 
   const firstPass = fs.readFileSync(agentsPath, 'utf8')
 
   assert.match(firstPass, /Enabled module facts: `customers`,`sales`\./)
-  assert.match(firstPass, /Load `\.ai\/guides\/modules\/<id>\.md` only for a named or targeted installed module\/host/)
+  assert.match(firstPass, /Load `\.ai\/guides\/modules\/<id>\/index\.md` only for a targeted installed module\/host/)
   assert.equal((firstPass.match(/\.ai\/guides\/modules\//g) ?? []).length, 1, 'the reusable path pattern appears once')
   assert.ok(!firstPass.includes('modules/customers.md'), 'module IDs must not expand into per-module paths')
   assert.ok(!firstPass.includes('modules/sales.md'), 'module IDs must not expand into per-module paths')
@@ -188,7 +189,7 @@ test('injectModuleGuides keeps a large enabled set compact and never embeds fact
 
   assert.ok(Buffer.byteLength(block) < 1_200, `compact module index is ${Buffer.byteLength(block)} bytes`)
   assert.equal(block.split('\n').length, 3)
-  assert.equal((block.match(/\.ai\/guides\/modules\/<id>\.md/g) ?? []).length, 1)
+  assert.equal((block.match(/\.ai\/guides\/modules\/<id>\/index\.md/g) ?? []).length, 1)
   assert.ok(!block.includes('Core CRM capabilities'))
   assert.ok(!block.includes('| Task | Load |'))
 })
