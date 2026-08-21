@@ -5,7 +5,7 @@
 
 ## TLDR
 
-When the shared AI runtime profile is `hardened`, Agent Orchestrator accepts only native agents, routes every proposal to human review, makes native trace persistence synchronous, and fails the run when required trace or encrypted artifact storage cannot be written.
+When the shared AI runtime profile is `hardened`, Agent Orchestrator routes every proposal to human review, requires trace persistence, and fails the run when required trace or encrypted artifact storage cannot be written. OpenCode was initially rejected and is now admitted only through the parity controls defined in `2026-08-21-opencode-security-parity-and-model-usage.md`.
 
 ## Overview
 
@@ -17,7 +17,7 @@ OpenCode agents and threshold-based auto-approval were valid standard-mode choic
 
 ## Proposed Solution
 
-- Reject `runtime: opencode` before dispatch in hardened mode.
+- Reject `runtime: opencode` before dispatch in hardened mode until equivalent controls are present. This restriction is superseded by the OpenCode parity specification.
 - Force the production disposition service to apply `alwaysAsk` regardless of a lower workflow threshold.
 - Ignore `OM_AGENT_TRACE_CAPTURE=off` in hardened mode.
 - Await trace persistence before a successful run can reach disposition.
@@ -33,7 +33,7 @@ No schema change is required. Existing encrypted `AgentRun`, `AgentProposal`, an
 
 ## API Contracts
 
-No route, method, response schema, event ID, ACL feature, or DI token changes. A hardened run configured for OpenCode fails with `agent_runtime_profile_restricted` before a session is created.
+This first phase changed no route, method, response schema, event ID, ACL feature, or DI token. The later parity phase keeps the error class for compatibility but permits hardened OpenCode dispatch after all required controls are installed.
 
 ## Integration Coverage
 
@@ -55,10 +55,11 @@ All checks are gated by the additive shared profile. Standard mode is unchanged.
 ## Final Compliance Report
 
 - Every hardened proposal reaches an authorized human review task.
-- Hardened runs cannot use the external OpenCode runtime.
+- Hardened OpenCode runs require the parity controls from `2026-08-21-opencode-security-parity-and-model-usage.md`.
 - Native trace persistence completes before disposition and cannot be disabled.
 - Large trace artifacts require both storage and tenant encryption.
 
 ## Changelog
 
 - **2026-08-21:** Implemented native-only dispatch, mandatory human disposition, synchronous trace persistence, and fail-closed encrypted artifact offload for the hardened profile.
+- **2026-08-21:** Superseded the native-only restriction after OpenCode gained equivalent content-safety, tool-scope, trace, and model-use evidence controls.

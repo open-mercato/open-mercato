@@ -80,6 +80,8 @@ One domain concept, three records — do not reintroduce the "task vs process" s
 9. **MUST treat trace/eval/guardrail/context rows as append-only** — `AgentSpan`, `AgentToolCall`, `AgentEvalResult`, `AgentGuardrailCheck`, `AgentContextBundle` (and `AgentRun` once terminal) are immutable audit records; they omit `updated_at`/`deleted_at`. Insert new rows, never mutate.
 10. **MUST reuse `agent_orchestrator.agents.run`** for new file-agent MCP tools' `requiredFeatures` — do not add new ACL features for the file-agent path. **Exception — network egress:** the `web_search`/`web_fetch` tools gate on a dedicated default-off `agent_orchestrator.web_search` feature (spec 2026-07-11-agent-web-search-tool) so web access is an explicit, separately-grantable capability. Any *new* egress/side-effecting tool should follow that precedent (dedicated default-off feature), not reuse `agents.run`.
 11. **MUST add new `acl.ts` features to `setup.ts` `defaultRoleFeatures`** and run `yarn mercato auth sync-role-acls` so existing tenants receive the grant.
+12. **MUST keep hardened OpenCode parity** — scan input, captured tool results, and output; persist guardrail verdicts and the required trace before marking the run complete or creating a proposal.
+13. **MUST record the resolved provider and model** through `agentModelUsageService`. Configure location and retention metadata with `OM_AI_PROVIDER_COMPLIANCE_JSON`; the scoped registry and CSV export must never include prompts, outputs, or credentials.
 
 ## Ask First
 

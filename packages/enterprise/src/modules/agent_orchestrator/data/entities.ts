@@ -214,6 +214,47 @@ export class AgentRun {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'agent_model_usages' })
+@Index({ name: 'agent_model_usages_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_model_usages_provider_model_idx', properties: ['organizationId', 'providerId', 'modelId'] })
+@Unique({ name: 'agent_model_usages_run_provider_model_uq', properties: ['agentRunId', 'providerId', 'modelId'] })
+export class AgentModelUsage {
+  [OptionalProps]?: 'dataLocation' | 'retentionPolicy' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'agent_run_id', type: 'uuid' })
+  agentRunId!: string
+
+  @Property({ name: 'agent_id', type: 'varchar', length: 100 })
+  agentId!: string
+
+  @Property({ name: 'runtime', type: 'varchar', length: 50 })
+  runtime!: string
+
+  @Property({ name: 'provider_id', type: 'varchar', length: 100 })
+  providerId!: string
+
+  @Property({ name: 'model_id', type: 'varchar', length: 200 })
+  modelId!: string
+
+  @Property({ name: 'data_location', type: 'varchar', length: 200, nullable: true })
+  dataLocation?: string | null
+
+  @Property({ name: 'retention_policy', type: 'varchar', length: 500, nullable: true })
+  retentionPolicy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 /**
  * One step in an agent run's execution trace (an LLM call, a tool invocation, or
  * a system step). Append-only telemetry: omits `updated_at`/`deleted_at`. High

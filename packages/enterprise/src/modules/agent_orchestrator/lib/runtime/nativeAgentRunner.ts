@@ -42,6 +42,7 @@ import {
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
+import type { AgentModelUsageService } from '../compliance/modelUsageService'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
 
@@ -398,6 +399,26 @@ export class NativeAgentRunner {
             // generate when no tools resolve, so toolless agents are unaffected.
             // Writes never execute directly (read-only policy + proposal → effector).
             enableTools: true,
+            onModelResolved: async (resolution) => {
+              try {
+                const service = this.container.resolve<AgentModelUsageService>('agentModelUsageService')
+                await service.record({
+                  tenantId: ctx.tenantId,
+                  organizationId: ctx.organizationId,
+                  agentRunId: runId,
+                  agentId,
+                  runtime: 'native',
+                  providerId: resolution.providerId,
+                  modelId: resolution.modelId,
+                })
+              } catch (error) {
+                if (hardenedProfile) throw error
+                logger.warn('model usage evidence could not be recorded', {
+                  runId,
+                  error: error instanceof Error ? error.message : String(error),
+                })
+              }
+            },
             ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
           })
           // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.

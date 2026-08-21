@@ -14,6 +14,7 @@ import {
   AgentEvalSuiteRun,
   AgentGuardrailCheck,
   AgentMetricRollup,
+  AgentModelUsage,
   AgentProcess,
   AgentProcessRun,
   AgentProposal,
@@ -84,6 +85,7 @@ export class AgentOrchestratorEnvironmentPrivacyHandler implements PrivacyDataCl
     await this.em.nativeDelete(AgentProcess, scope)
     await this.em.nativeDelete(AgentEvalCase, scope)
     await this.em.nativeDelete(AgentMetricRollup, scope)
+    await this.em.nativeDelete(AgentModelUsage, scope)
     await this.em.nativeDelete(AgentRun, scope)
     return { matched, affected: matched }
   }
@@ -114,6 +116,7 @@ export class AgentOrchestratorEnvironmentPrivacyHandler implements PrivacyDataCl
       this.em.count(AgentProcess, scope),
       this.em.count(AgentEvalCase, scope),
       this.em.count(AgentMetricRollup, scope),
+      this.em.count(AgentModelUsage, scope),
       this.em.count(AgentRun, scope),
     ])
     return counts.reduce((total, count) => total + count, 0)
