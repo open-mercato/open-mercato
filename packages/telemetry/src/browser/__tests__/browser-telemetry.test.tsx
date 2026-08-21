@@ -23,6 +23,12 @@ const mockProviderInstances: Array<{
   forceFlush: jest.Mock
 }> = []
 const mockFetchInstrumentationConfigs: Array<{ ignoreUrls?: RegExp[] }> = []
+/**
+ * Arms the next `new FetchInstrumentation(...)` to throw. The constructors are evaluated as
+ * arguments to `registerInstrumentations`, i.e. while the native fetch is swapped in — so this is
+ * the seam that reproduces a throw landing mid-swap (SDK version skew, a missing browser API).
+ */
+const mockFetchInstrumentationFailure: { next: Error | null } = { next: null }
 const mockExporterConfigs: Array<{ url?: string }> = []
 const mockRegisterInstrumentations = jest.fn()
 /** Stands in for the fetch OTel's FetchInstrumentation.enable() installs, synchronously. */
@@ -89,6 +95,11 @@ jest.mock('@opentelemetry/instrumentation-fetch', () =>
   record('@opentelemetry/instrumentation-fetch', {
     FetchInstrumentation: class {
       constructor(config: { ignoreUrls?: RegExp[] }) {
+        if (mockFetchInstrumentationFailure.next) {
+          const failure = mockFetchInstrumentationFailure.next
+          mockFetchInstrumentationFailure.next = null
+          throw failure
+        }
         mockFetchInstrumentationConfigs.push(config)
       }
     },
@@ -148,6 +159,7 @@ describe('BrowserTelemetry', () => {
     mockFetchInstrumentationConfigs.length = 0
     mockExporterConfigs.length = 0
     mockRegisterInstrumentations.mockClear()
+    mockFetchInstrumentationFailure.next = null
     window.fetch = nativeFetch
     delete (window as { __omOriginalFetch?: unknown }).__omOriginalFetch
   })
@@ -243,6 +255,23 @@ describe('BrowserTelemetry', () => {
 
       expect(window.fetch).toBe(mockOtelPatchedFetch)
       expect((window as { __omOriginalFetch?: typeof window.fetch }).__omOriginalFetch).toBeUndefined()
+    })
+
+    it('puts the framework wrapper back when instrumentation setup throws mid-swap', async () => {
+      const pristineFetch = jest.fn() as unknown as typeof window.fetch
+      const frameworkFetch = jest.fn() as unknown as typeof window.fetch
+      ;(window as { __omOriginalFetch?: typeof window.fetch }).__omOriginalFetch = pristineFetch
+      window.fetch = frameworkFetch
+      mockFetchInstrumentationFailure.next = new Error('SDK version skew')
+
+      await renderAndSettle(<BrowserTelemetry config={CONFIG} />)
+
+      // Without the `finally`, `window.fetch` would stay the raw native fetch for the rest of the
+      // page's life and every stray caller would silently lose the 401 session-refresh and 403
+      // banner behaviour the framework wrapper exists for. Nothing logs, so it would be invisible.
+      expect(window.fetch).toBe(frameworkFetch)
+      expect((window as { __omOriginalFetch?: typeof window.fetch }).__omOriginalFetch).toBe(pristineFetch)
+      expect(mockRegisterInstrumentations).not.toHaveBeenCalled()
     })
   })
 

@@ -115,25 +115,37 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     window.fetch = patchTarget.__omOriginalFetch
   }
 
-  registerInstrumentations({
-    tracerProvider: provider,
-    instrumentations: [
-      // Navigation + resource timings: chunk download vs. parse vs. hydrate.
-      new DocumentLoadInstrumentation(),
-      // The client-side START of each API call — the number the server can never see.
-      new FetchInstrumentation({
-        // Never instrument our own export, or each batch would generate the next one.
-        ignoreUrls: [new RegExp(escapeRegExp(config.endpoint))],
-        clearTimingResources: true,
-      }),
-      // Ties a fetch to the click that caused it (tab click vs. remount).
-      new UserInteractionInstrumentation(),
-    ],
-  })
-
-  if (frameworkFetch) {
-    patchTarget.__omOriginalFetch = window.fetch
-    window.fetch = frameworkFetch
+  // `finally`, not a plain sequence: the instrumentation constructors below are evaluated inside
+  // this window, and a throw from any of them (SDK version skew, a browser missing an API an
+  // instrumentation touches) would otherwise leave `window.fetch` as the raw native fetch stashed
+  // above. `apiFetch` would keep working — it reads `__omOriginalFetch` — but every stray
+  // `window.fetch(...)` would silently bypass the framework wrapper's 401 session-refresh and 403
+  // banner behaviour for the rest of the page's life. This is the one path where the file's
+  // "every failure is swallowed" rule would leave global state degraded.
+  try {
+    registerInstrumentations({
+      tracerProvider: provider,
+      instrumentations: [
+        // Navigation + resource timings: chunk download vs. parse vs. hydrate.
+        new DocumentLoadInstrumentation(),
+        // The client-side START of each API call — the number the server can never see.
+        new FetchInstrumentation({
+          // Never instrument our own export, or each batch would generate the next one.
+          ignoreUrls: [new RegExp(escapeRegExp(config.endpoint))],
+          clearTimingResources: true,
+        }),
+        // Ties a fetch to the click that caused it (tab click vs. remount).
+        new UserInteractionInstrumentation(),
+      ],
+    })
+  } finally {
+    if (frameworkFetch) {
+      // On the success path `window.fetch` is OTel's patched native fetch; on the throw path it is
+      // the pristine native one. Either way this restores the framework wrapper on top of whatever
+      // the stash should now hold, so the pre-swap contract holds in both.
+      patchTarget.__omOriginalFetch = window.fetch
+      window.fetch = frameworkFetch
+    }
   }
 
   // BatchSpanProcessor would otherwise drop whatever is still queued when the user navigates away
