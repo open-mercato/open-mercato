@@ -106,4 +106,29 @@ describe('ComboboxInput inside a Dialog', () => {
     expect(document.querySelector('[data-dialog-content]')).not.toBeNull()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
+
+  it('still dismisses the dialog on a genuinely outside pointer down', async () => {
+    render(<DialogHarness />)
+    openSuggestions()
+
+    await act(async () => {
+      await Promise.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // Control for the case above: the suppression must be scoped to the portaled
+    // list, not a blanket block on the dialog's outside-interaction handling.
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    try {
+      await act(async () => {
+        fireEvent.pointerDown(outside, { bubbles: true })
+        fireEvent.mouseDown(outside, { bubbles: true })
+        fireEvent.click(outside)
+      })
+      expect(document.querySelector('[data-dialog-content]')).toBeNull()
+    } finally {
+      outside.remove()
+    }
+  })
 })

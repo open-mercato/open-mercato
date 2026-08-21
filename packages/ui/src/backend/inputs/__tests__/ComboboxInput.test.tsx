@@ -415,6 +415,10 @@ describe('ComboboxInput accessibility', () => {
     const listbox = screen.getByRole('listbox')
     expect(within(listbox).getAllByRole('option')).toHaveLength(2)
     expect(input).toHaveAttribute('aria-controls', listbox.id)
+    // The listbox is portaled out of the input's subtree, so aria-activedescendant
+    // is only valid while aria-owns makes it a logical descendant.
+    expect(input).toHaveAttribute('aria-owns', listbox.id)
+    expect(listbox.contains(input)).toBe(false)
   })
 })
 

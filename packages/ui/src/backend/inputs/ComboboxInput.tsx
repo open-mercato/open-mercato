@@ -428,6 +428,9 @@ export function ComboboxInput({
             role="combobox"
             aria-expanded={listboxVisible}
             aria-controls={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
+            // The listbox is portaled out of the input's subtree, so `aria-owns` is what
+            // makes it a logical descendant and keeps `aria-activedescendant` below valid.
+            aria-owns={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
             aria-autocomplete="list"
             aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
             onFocus={() => {
@@ -484,7 +487,6 @@ export function ComboboxInput({
           strand the popup's host (see AdvancedFilterPanel for that failure mode). */}
       {listboxVisible ? (
         <PopoverContent
-          align="start"
           // Radix hardcodes `role="dialog"` on popover content. This popup is a
           // positioning shell around the listbox below, and a second dialog node
           // would both misdescribe it and break `getByRole('dialog')` for anything
