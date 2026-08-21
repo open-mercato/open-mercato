@@ -9,7 +9,7 @@ describe('reconcileEventsSingleDelivery', () => {
     expect(reconcileEventsSingleDelivery({}, 'lazy')).toEqual({ effective: true })
   })
 
-  it('falls back to inline dual-dispatch (with a warning) when no worker runs', () => {
+  it('falls back to inline delivery (with a warning) when no worker runs', () => {
     const result = reconcileEventsSingleDelivery({}, 'off')
     expect(result.effective).toBe(false)
     expect(result.warning).toContain('OM_EVENTS_SINGLE_DELIVERY')
@@ -64,5 +64,21 @@ describe('applyEventsSingleDeliveryGuard', () => {
     expect(runtimeEnv.OM_EVENTS_SINGLE_DELIVERY).toBe('true')
     expect(errorSpy).not.toHaveBeenCalled()
     errorSpy.mockRestore()
+  })
+
+  // The written value is what the spawned children actually consume: the guard
+  // copies it into the child `runtimeEnv`, so a Next.js or worker process started
+  // by `mercato server` reads this explicit token instead of re-deriving the
+  // default. An empty or non-boolean value would silently hand children the
+  // default-on behaviour the guard just decided against, so pin the token here.
+  it('writes an explicit boolean token into the env handed to spawned children', () => {
+    const processEnv: NodeJS.ProcessEnv = {}
+    const runtimeEnv: NodeJS.ProcessEnv = {}
+
+    applyEventsSingleDeliveryGuard({ processEnv, runtimeEnv, autoSpawnWorkersMode: 'lazy' })
+
+    for (const value of [processEnv.OM_EVENTS_SINGLE_DELIVERY, runtimeEnv.OM_EVENTS_SINGLE_DELIVERY]) {
+      expect(['1', 'true', 'yes', 'on']).toContain(value)
+    }
   })
 })

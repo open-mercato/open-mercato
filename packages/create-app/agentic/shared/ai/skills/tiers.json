@@ -169,7 +169,8 @@
       "description": "One-shot, version-pinned migrations. Install only for the named upgrade.",
       "skills": [
         "om-auto-upgrade-0.4.10-to-0.5.0",
-        "om-auto-upgrade-0.6.6-to-0.6.7"
+        "om-auto-upgrade-0.6.6-to-0.6.7",
+        "om-auto-upgrade-0.6.7-to-0.7.0"
       ]
     }
   }

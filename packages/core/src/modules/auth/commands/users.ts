@@ -13,10 +13,11 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { UniqueConstraintViolationException, LockMode } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { E } from '#generated/entities.ids.generated'
 import { z } from 'zod'
 import {
@@ -34,6 +35,7 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
@@ -41,6 +43,12 @@ import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  assertActorCanAssignUserDestination,
+  resolveUserDestinationRoles,
+  throwUserDestinationOrganizationNotFound,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 
@@ -122,6 +130,7 @@ const updateSchema = z.object({
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
+  isConfirmed: z.boolean().optional(),
 })
 
 export const userCrudEvents: CrudEventsConfig = {
@@ -329,9 +338,22 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
+    // Evaluate the floor against the user's CURRENT tenant, not the one recorded at
+    // creation. A user moved to another tenant after being created would otherwise be
+    // checked against the origin tenant — where they no longer hold anything — and the
+    // undo would hard-delete the destination tenant's last administrator unchecked.
+    // The create snapshot is only a fallback for a row that is already gone.
     let removed: User | null = null
     await withAtomicFlush(em, [
       async () => {
+        const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+        const floorTenantId = current?.tenantId ? String(current.tenantId) : (snapshot?.tenantId ?? null)
+
+        // Undoing a create hard-deletes the user, so it can strip a tenant's last active
+        // admin exactly like `auth.users.delete` can — promote a second admin, delete the
+        // first, then undo the promotion's create. Same guard applies.
+        await enforceProtectedRoleFloor(em, floorTenantId, userId, { deleting: true }, ctx)
+
         await em.nativeDelete(UserAcl, { user: userId })
         await em.nativeDelete(UserRole, { user: userId })
         await em.nativeDelete(Session, { user: userId })
@@ -357,7 +379,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
           soft: false,
         })
       },
-    ], { transaction: true })
+    ], { transaction: true, label: 'auth.users.create.undo' })
 
     await emitCrudUndoSideEffects({
       dataEngine: de,
@@ -522,15 +544,19 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
+    if (actorTenantScope && existing.tenantId && String(existing.tenantId) !== actorTenantScope) {
+      throw new CrudHttpError(404, { error: 'User not found' })
+    }
+
     const rolesBefore = Array.isArray(parsed.roles)
       ? await loadUserRoleNames(em, parsed.id)
       : null
 
-    // Resolve the tenant the user will belong to after this update first, so the email
-    // duplicate check below can be scoped to it. Email is unique per-tenant, not globally
-    // (see Migration20260610120000: users_tenant_email_hash_uniq) — a matching email in another
-    // tenant must not block the update or leak cross-tenant account existence (#2934).
     let tenantId: string | null | undefined
+    let destinationChanged = false
     if (parsed.organizationId !== undefined) {
       const organization = await findOneWithDecryption(
         em,
@@ -539,29 +565,59 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         { populate: ['tenant'] },
         { tenantId: null, organizationId: parsed.organizationId ?? null },
       )
-      if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+      if (!organization) return throwUserDestinationOrganizationNotFound(400)
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
-    }
-
-    if (parsed.email !== undefined) {
-      const targetTenantId = tenantId !== undefined
-        ? tenantId
-        : await resolveUserTenantId(em, parsed.id)
-      const duplicate = await findOneWithDecryption(
+      if (!tenantId) return throwUserDestinationOrganizationNotFound(400)
+      const currentUser = await findOneWithDecryption(
         em,
         User,
-        {
-          $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
-          deletedAt: null,
-          tenantId: targetTenantId,
-          id: { $ne: parsed.id } as any,
-        } as FilterQuery<User>,
+        { id: parsed.id, deletedAt: null },
         {},
         { tenantId: null, organizationId: null },
       )
-      if (duplicate) await throwDuplicateEmailError()
+      if (!currentUser) throw new CrudHttpError(404, { error: 'User not found' })
+      const currentOrganizationId = currentUser.organizationId ? String(currentUser.organizationId) : null
+      const currentTenantId = currentUser.tenantId ? String(currentUser.tenantId) : null
+      destinationChanged = currentOrganizationId !== parsed.organizationId || currentTenantId !== tenantId
+      if (destinationChanged) {
+        const rbacService = ctx.container.resolve('rbacService') as RbacService
+        const destinationRoles = await resolveUserDestinationRoles({
+          em,
+          targetUserId: parsed.id,
+          destinationTenantId: tenantId,
+          roleTokens: parsed.roles,
+        })
+        const actorIsSuperAdmin = ctx.systemActor === true || ctx.auth?.isSuperAdmin === true
+        const organizationScope = ctx.organizationScope?.tenantId === tenantId
+          ? ctx.organizationScope
+          : !actorIsSuperAdmin && ctx.auth?.sub
+            ? await resolveOrganizationScope({
+                em,
+                rbac: rbacService,
+                auth: ctx.auth,
+                tenantId,
+              })
+            : null
+        await assertActorCanAssignUserDestination({
+          em,
+          rbacService,
+          actorUserId: ctx.auth?.sub,
+          actorIsSuperAdmin,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.auth?.orgId ?? null,
+          allowedOrganizationIds: organizationScope?.allowedIds,
+          destinationTenantId: tenantId,
+          destinationOrganizationId: parsed.organizationId,
+          roles: destinationRoles,
+        })
+      }
     }
 
+    const userTenantId = existing.tenantId ? String(existing.tenantId) : null
+    const targetTenantId = tenantId !== undefined ? tenantId : userTenantId
+    const isTenantChanging = targetTenantId !== userTenantId
+
+    // Hash password BEFORE transaction begins to avoid holding locks during CPU-heavy tasks
     let hashed: string | null = null
     let emailHash: string | null = null
     if (parsed.password) {
@@ -572,53 +628,87 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       emailHash = computeEmailHash(parsed.email)
     }
 
-    const actorTenantScope = resolveActorTenantScope(ctx)
     const updateWhere: Record<string, unknown> = { id: parsed.id, deletedAt: null }
     if (actorTenantScope) updateWhere.tenantId = actorTenantScope
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let user: User | null
-    try {
-      user = await de.updateOrmEntity({
-        entity: User,
-        where: updateWhere as FilterQuery<User>,
-        apply: (entity) => {
-          if (parsed.email !== undefined) {
-            entity.email = parsed.email
-            entity.emailHash = emailHash
-          }
-          if (parsed.name !== undefined) {
-            entity.name = parsed.name
-          }
-          if (parsed.organizationId !== undefined) {
-            entity.organizationId = parsed.organizationId
-            entity.tenantId = tenantId ?? null
-          }
-          if (hashed) entity.passwordHash = hashed
-        },
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) await throwDuplicateEmailError()
-      throw error
-    }
-    if (!user) throw new CrudHttpError(404, { error: 'User not found' })
+    let user!: User
 
-    if (hashed) {
-      await em.nativeDelete(Session, { user: parsed.id })
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        // Floor check must run inside the transaction so that LockMode.PESSIMISTIC_WRITE locks Role rows properly
+        await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
+          deactivating: parsed.isConfirmed === false || isTenantChanging,
+          newRoles: parsed.roles,
+        }, ctx)
 
-    if (Array.isArray(parsed.roles)) {
-      await syncUserRoles(em, user, parsed.roles, user.tenantId ? String(user.tenantId) : tenantId ?? null)
-    }
+        // Email is unique per-tenant, not globally (see Migration20260610120000:
+        // users_tenant_email_hash_uniq) — a matching email in another tenant must not block
+        // the update or leak cross-tenant account existence (#2934). `targetTenantId` is the
+        // tenant the user will belong to after this update, so the check follows a move.
+        if (parsed.email !== undefined) {
+          const duplicate = await findOneWithDecryption(
+            em,
+            User,
+            {
+              $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
+              deletedAt: null,
+              tenantId: targetTenantId,
+              id: { $ne: parsed.id } as any,
+            } as FilterQuery<User>,
+            {},
+            { tenantId: null, organizationId: null },
+          )
+          if (duplicate) await throwDuplicateEmailError()
+        }
 
-    await setCustomFieldsIfAny({
-      dataEngine: de,
-      entityId: E.auth.user,
-      recordId: String(user.id),
-      organizationId: user.organizationId ? String(user.organizationId) : null,
-      tenantId: user.tenantId ? String(user.tenantId) : tenantId ?? null,
-      values: custom,
-    })
+        try {
+          const updated = await de.updateOrmEntity({
+            entity: User,
+            where: updateWhere as FilterQuery<User>,
+            apply: (entity) => {
+              if (parsed.email !== undefined) {
+                entity.email = parsed.email
+                entity.emailHash = emailHash
+              }
+              if (parsed.name !== undefined) {
+                entity.name = parsed.name
+              }
+              if (parsed.organizationId !== undefined) {
+                entity.organizationId = parsed.organizationId
+                entity.tenantId = tenantId ?? null
+              }
+              if (parsed.isConfirmed !== undefined) {
+                entity.isConfirmed = parsed.isConfirmed
+              }
+              if (hashed) entity.passwordHash = hashed
+            },
+          })
+          if (updated) user = updated
+        } catch (error) {
+          if (isUniqueViolation(error)) await throwDuplicateEmailError()
+          throw error
+        }
+        if (!user) throw new CrudHttpError(404, { error: 'User not found' })
+
+        if (hashed || parsed.isConfirmed === false) {
+          await em.nativeDelete(Session, { user: parsed.id })
+        }
+
+        if (Array.isArray(parsed.roles)) {
+          await syncUserRoles(em, user, parsed.roles, user.tenantId ? String(user.tenantId) : tenantId ?? null)
+        }
+
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.user,
+          recordId: String(user.id),
+          organizationId: user.organizationId ? String(user.organizationId) : null,
+          tenantId: user.tenantId ? String(user.tenantId) : tenantId ?? null,
+          values: custom,
+        })
+      }
+    ], { transaction: true, label: destinationChanged ? 'auth.users.update.destination' : 'auth.users.update' })
 
     const identifiers = {
       id: String(user.id),
@@ -634,6 +724,27 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       events: userCrudEvents,
       indexer: userCrudIndexer,
     })
+
+    if (hashed) {
+      const actorId = ctx.auth?.sub ? String(ctx.auth.sub) : null
+      // `system` covers a command invocation with no auth context and one running under
+      // `ctx.systemActor`. Without it those writes would be indistinguishable from an
+      // administrator setting someone else's password, which is exactly the case security
+      // alerting escalates on. Password writes that never reach this command — `mercato
+      // auth set-password`, tenant provisioning — set `passwordHash` directly and emit
+      // nothing, so a subscriber cannot treat this event as covering every credential change.
+      const changedBy = ctx.systemActor === true || !actorId
+        ? 'system'
+        : actorId === identifiers.id ? 'self' : 'admin'
+      void emitAuthEvent('auth.password.changed', {
+        id: identifiers.id,
+        tenantId: identifiers.tenantId,
+        organizationId: identifiers.organizationId,
+        changedBy,
+        changedById: actorId,
+        at: new Date().toISOString(),
+      }, { persistent: true }).catch(() => undefined)
+    }
 
     if (Array.isArray(parsed.roles) && rolesBefore) {
       const rolesAfter = await loadUserRoleNames(em, String(user.id))
@@ -706,23 +817,42 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const userId = before.id
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const updated = await de.updateOrmEntity({
-      entity: User,
-      where: { id: userId, deletedAt: null } as FilterQuery<User>,
-      apply: (entity) => {
-        entity.email = before.email
-        entity.organizationId = before.organizationId ?? null
-        entity.tenantId = before.tenantId ?? null
-        entity.passwordHash = before.passwordHash ?? null
-        entity.name = before.name ?? null
-        entity.isConfirmed = before.isConfirmed
-      },
-    })
 
-    if (updated) {
-      await syncUserRoles(em, updated, before.roles, before.tenantId)
-      await em.flush()
-    }
+    // Reverting an update can drop the tenant below a protected role's floor just as the
+    // forward path can — restoring an empty `before.roles` on what is now the last admin,
+    // or restoring `isConfirmed: false`. Undo is reachable from the audit-log UI, so the
+    // guard has to run here too, inside a transaction so the row lock is valid.
+    const restoredTenantId = before.tenantId ? String(before.tenantId) : null
+
+    let updated: User | null = null
+    await withAtomicFlush(em, [
+      async () => {
+        const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+        const currentTenantId = current?.tenantId ? String(current.tenantId) : null
+
+        await enforceProtectedRoleFloor(em, currentTenantId, userId, {
+          deactivating: before.isConfirmed === false || restoredTenantId !== currentTenantId,
+          newRoles: before.roles,
+        }, ctx)
+
+        updated = await de.updateOrmEntity({
+          entity: User,
+          where: { id: userId, deletedAt: null } as FilterQuery<User>,
+          apply: (entity) => {
+            entity.email = before.email
+            entity.organizationId = before.organizationId ?? null
+            entity.tenantId = before.tenantId ?? null
+            entity.passwordHash = before.passwordHash ?? null
+            entity.name = before.name ?? null
+            entity.isConfirmed = before.isConfirmed
+          },
+        })
+
+        if (updated) {
+          await syncUserRoles(em, updated, before.roles, before.tenantId)
+        }
+      },
+    ], { transaction: true, label: 'auth.users.update.undo' })
 
     const reset = buildCustomFieldResetMap(before.custom, after?.custom)
     if (Object.keys(reset).length) {
@@ -781,12 +911,22 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const actorTenantScope = resolveActorTenantScope(ctx)
+
+    const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+    if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
+    if (actorTenantScope && existing.tenantId && String(existing.tenantId) !== actorTenantScope) {
+      throw new CrudHttpError(404, { error: 'User not found' })
+    }
+
     const deleteWhere: Record<string, unknown> = { id, deletedAt: null }
     if (actorTenantScope) deleteWhere.tenantId = actorTenantScope
 
     let user!: User
     await withAtomicFlush(em, [
       async () => {
+        const userTenantId = existing.tenantId ? String(existing.tenantId) : null
+        await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true }, ctx)
+
         await em.nativeDelete(UserAcl, { user: id })
         await em.nativeDelete(UserRole, { user: id })
         await em.nativeDelete(Session, { user: id })
@@ -1085,11 +1225,6 @@ function arrayEquals(left: string[] | undefined, right: string[]): boolean {
   return left.every((value, idx) => value === right[idx])
 }
 
-async function resolveUserTenantId(em: EntityManager, id: string): Promise<string | null> {
-  const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
-  return existing?.tenantId ? String(existing.tenantId) : null
-}
-
 async function throwDuplicateEmailError(): Promise<never> {
   const { translate } = await resolveTranslations()
   const message = translate('auth.users.errors.emailExists', 'Email already in use')
@@ -1098,4 +1233,109 @@ async function throwDuplicateEmailError(): Promise<never> {
     fieldErrors: { email: message },
     details: [{ path: ['email'], message, code: 'duplicate', origin: 'validation' }],
   })
+}
+
+type ProtectedRoleFloorOptions = {
+  deactivating?: boolean
+  newRoles?: string[]
+  deleting?: boolean
+}
+
+/**
+ * True when the requested mutation can lower a role's active holder count. Guards the
+ * floor check so that ordinary edits (display name, password, email) never take the
+ * tenant-wide role lock — `PUT /api/auth/profile` routes every self-service password
+ * change through `auth.users.update`, so an unconditional lock would serialize them.
+ */
+function couldReduceActiveHolders(options: ProtectedRoleFloorOptions): boolean {
+  return options.deleting === true || options.deactivating === true || options.newRoles !== undefined
+}
+
+async function enforceProtectedRoleFloor(
+  em: EntityManager,
+  tenantId: string | null,
+  userId: string,
+  options: ProtectedRoleFloorOptions,
+  ctx?: CommandRuntimeContext,
+): Promise<void> {
+  // Internal automation (CLI, migrations, tenant teardown) must never be blocked by the
+  // floor. Superadmins are deliberately NOT exempt — see the spec's Risks section.
+  if (ctx?.systemActor === true) return
+  if (!couldReduceActiveHolders(options)) return
+
+  const normalizedTenantId = normalizeTenantId(tenantId) ?? null
+  if (!normalizedTenantId) return
+
+  // Find all protected roles in this tenant, acquiring a pessimistic write lock in a deterministic primary key order
+  const protectedRoles = await findWithDecryption(em, Role, {
+    tenantId: normalizedTenantId,
+    minActiveHolders: { $gt: 0 },
+    deletedAt: null
+  }, {
+    lockMode: LockMode.PESSIMISTIC_WRITE,
+    orderBy: { id: 'ASC' }
+  }, { tenantId: normalizedTenantId, organizationId: null })
+
+  if (protectedRoles.length === 0) return
+
+  const { translate } = await resolveTranslations()
+
+  for (const role of protectedRoles) {
+    const minFloor = role.minActiveHolders ?? 0
+    if (minFloor <= 0) continue
+
+    // Active links for this role, scoped to the tenant by the nested user filter so the
+    // database — not a post-filter — enforces isolation. Deliberately NOT populated:
+    // `findWithDecryption` runs `decryptEntityGraph` over loaded relations, which would
+    // decrypt every admin's email and name on each check just to read their ids.
+    const activeLinks = await findWithDecryption(em, UserRole, {
+      role: role.id,
+      deletedAt: null,
+      user: {
+        deletedAt: null,
+        isConfirmed: true,
+        tenantId: normalizedTenantId
+      }
+    }, {}, { tenantId: null, organizationId: null })
+
+    // Count distinct user IDs in the tenant holding this role to prevent overcounting due to duplicate links
+    const activeUserIds = Array.from(
+      new Set(
+        activeLinks
+          .map((link) => {
+            const userRef = link.user as unknown as { id?: string } | string | null | undefined
+            const linkedUserId = typeof userRef === 'string' ? userRef : userRef?.id
+            return linkedUserId ? String(linkedUserId) : null
+          })
+          .filter((id): id is string => !!id)
+      )
+    )
+
+    // Is the target user currently one of the active holders?
+    if (activeUserIds.includes(userId)) {
+      // Determine if they will remain an active holder
+      let willStillBeActiveHolder = true
+
+      if (options.deleting || options.deactivating) {
+        willStillBeActiveHolder = false
+      } else if (options.newRoles !== undefined) {
+        // Checking role list
+        const desiredUnique = Array.from(new Set(options.newRoles.map((r) => r.trim().toLowerCase()).filter(Boolean)))
+        const roleNameLower = role.name.toLowerCase()
+        const hasRoleByName = desiredUnique.includes(roleNameLower) || desiredUnique.includes(String(role.id).toLowerCase())
+        if (!hasRoleByName) {
+          willStillBeActiveHolder = false
+        }
+      }
+
+      if (!willStillBeActiveHolder) {
+        const remaining = activeUserIds.length - 1
+        if (remaining < minFloor) {
+          throw new CrudHttpError(400, {
+            error: translate('auth.users.errors.lastHolderOfCriticalRole', 'Cannot remove the last active holder of role "{roleName}"', { roleName: role.name })
+          })
+        }
+      }
+    }
+  }
 }
