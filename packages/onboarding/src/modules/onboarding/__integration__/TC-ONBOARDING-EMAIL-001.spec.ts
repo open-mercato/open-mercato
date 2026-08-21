@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import {
   clearCapturedSystemEmails,
   isChannelSeedingAvailable,
@@ -9,15 +10,24 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 
+// `onboarding_requests.email` is encrypted at rest, so a plaintext `where email = $1` matches
+// nothing. `email_hash` is the deterministic lookup key the service itself uses; the candidate
+// list covers key rotation the same way `lookupHashCandidates` does for the application.
+function emailLookup(email: string): { clause: string; values: string[] } {
+  return { clause: 'email_hash = any($1)', values: emailHashLookupValues(email) }
+}
+
 async function deleteOnboardingRequest(email: string): Promise<void> {
+  const lookup = emailLookup(email)
   await withClient(async (client) => {
-    await client.query('delete from onboarding_requests where email = $1', [email])
+    await client.query(`delete from onboarding_requests where ${lookup.clause}`, [lookup.values])
   }).catch(() => undefined)
 }
 
 async function markOnboardingReady(email: string, tenantId: string, organizationId: string, userId: string): Promise<void> {
+  const lookup = emailLookup(email)
   await withClient(async (client) => {
-    await client.query(
+    const result = await client.query(
       `update onboarding_requests
        set status = 'completed',
            tenant_id = $2,
@@ -25,9 +35,11 @@ async function markOnboardingReady(email: string, tenantId: string, organization
            user_id = $4,
            preparation_completed_at = now(),
            ready_email_sent_at = null
-       where email = $1`,
-      [email, tenantId, organizationId, userId],
+       where ${lookup.clause}`,
+      [lookup.values, tenantId, organizationId, userId],
     )
+    // Fail loudly here rather than let the status call 404 three assertions later.
+    expect(result.rowCount, `markOnboardingReady should match the onboarding request for ${email}`).toBeGreaterThan(0)
   })
 }
 
