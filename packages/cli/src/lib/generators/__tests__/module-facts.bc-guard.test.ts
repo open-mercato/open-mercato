@@ -149,25 +149,34 @@ describe('module-facts BC resolve guard (T2)', () => {
     // wms, staff, integrations and checkout were therefore invisible to every fact
     // consumer — `integrations` published no contributions at all. Reading them costs
     // ~28KB, which is the fix working, not drift.
-    // The additive EUDR module contributes its real routes, ACL, events,
-    // entities, and extension surfaces without changing the extraction shape.
+    // The additive EUDR and Documents modules contribute their real routes, ACL,
+    // events, entities, and extension surfaces without changing the extraction
+    // shape.
     //
     // JSON cap raised a fifth time by the devices/push-notifications stack: the
     // `devices` and `push_notifications` modules plus the `channel-fcm`,
     // `channel-apns` and `channel-expo` provider packages add their own facts,
     // provenance entries and override targets to every render. The
-    // `warranty_claims` module (see above) lands alongside it, so the cap
-    // absorbs both additions.
+    // `warranty_claims` module (see above) and the additive Documents module
+    // land alongside it, so the cap absorbs all three additions. Both sides of
+    // that merge had raised the cap independently (3_950_000 for Documents,
+    // 4_000_000 for the rest); neither number covers the union, which measures
+    // ~4.09MB. Keep bounded headroom over the measured size only.
     //
-    // JSON cap raised a sixth time by the staff time-tracking consulting suite
+    // Raised again by the staff time-tracking consulting suite
     // (2026-08-12-time-tracking-consulting-suite): ten new entities, fourteen
     // events, seven ACL features, ~22 API routes plus the task/report search,
-    // notification, worker and injection-widget surfaces. Measured at 4,055,610
-    // bytes against the previous 4,000,000 cap — 1.4% over, and ordinary linear
-    // growth for a module of that size rather than the multiplicative blow-up
-    // this detector exists to catch. The delta cap absorbed it unchanged.
+    // notification, worker and injection-widget surfaces. That module measured
+    // 4,055,610 bytes on its own branch against the then-4_000_000 cap. This
+    // merge is the union of BOTH growths — Documents and time-tracking — which
+    // measures 4,169,548 bytes, over either side's independent number. The cap
+    // is set from that measurement with bounded headroom, not from either
+    // branch's guess. Ordinary linear growth for modules of that size, not the
+    // multiplicative blow-up this detector exists to catch. The delta cap on
+    // the next line did NOT absorb it — the union measured 1,810,803 against a
+    // 1,800,000 delta, 0.6% over — so it is raised from that measurement too.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(4_250_000)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_900_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution

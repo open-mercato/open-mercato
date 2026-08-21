@@ -40,6 +40,10 @@
       "types": "./src/lib/bootstrap/dynamicLoader.ts",
       "default": "./dist/lib/bootstrap/dynamicLoader.js"
     },
+    "./lib/auth/principal-service": {
+      "types": "./src/lib/auth/principal-service.ts",
+      "default": "./dist/lib/auth/principal-service.js"
+    },
     "./lib/webhooks": {
       "types": "./src/lib/webhooks/index.ts",
       "default": "./dist/lib/webhooks/index.js"

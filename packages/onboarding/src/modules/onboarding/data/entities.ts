@@ -1,9 +1,9 @@
-import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 type OnboardingStatus = 'pending' | 'processing' | 'completed' | 'expired'
 
 @Entity({ tableName: 'onboarding_requests' })
-@Unique({ properties: ['email'] })
+@Index({ name: 'onboarding_requests_email_idx', properties: ['email'] })
 @Unique({ properties: ['emailHash'] })
 @Unique({ properties: ['tokenHash'] })
 export class OnboardingRequest {
