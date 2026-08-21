@@ -257,6 +257,7 @@ describe('auth server integrity checks', () => {
       await expect(resolveAuthFromCookiesDetailed()).resolves.toEqual({ auth: null, status: 'invalid' })
       expect(resolveCanonicalStaffAuthContext).not.toHaveBeenCalled()
     })
+  })
   it('reports a transient DB failure on the api-key path as "error" (retryable 503)', async () => {
     const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
     // Distinct secret so the shared api-key auth cache does not serve a prior miss.
