@@ -513,8 +513,9 @@ after a provider response (normalizer, timestamp parsing, status mapping, URL gu
 | TC-PHONE-HUB-001 | `GET /api/phone_calls/calls` | An ingested call is listed with the declared `listFields` projection |
 | TC-PHONE-HUB-002 | `GET /api/phone_calls/calls` ACL | A role without `phone_calls.view` gets 403; an admin reads the same route |
 | TC-PHONE-HUB-003 | `/backend/phone_calls` | List shell, seven columns, provider-neutral empty state, search |
-| TC-PHONE-HUB-004 | List filters | `q` across all three `$or` columns, `direction`, `status`, `providerKey`, started range, `id`, `sortField` mapping |
+| TC-PHONE-HUB-004 | List filters | `q` across all three `$or` columns, `direction`, `status`, `providerKey`, `id`, `sortField` mapping; a bare `yyyy-MM-dd` bound covers its whole day at both ends, a full timestamp keeps its instant, an unparsable date is a 400 |
 | TC-PHONE-HUB-005 | Organization scope | A user homed in one organization cannot read another organization's calls |
+| TC-PHONE-HUB-006 | List cache | An identical query is served from cache, and an ingest through the command bus makes the next identical query a miss carrying the new call |
 | TC-PHONE-001 | `GET /api/tillio/pull` | Unconfigured environment reports `environment_not_ready` rather than erroring |
 | TC-PHONE-002 | `POST /api/tillio/pull` | Structured 409 before the provider is contacted; reversed day range rejected with 400 |
 | TC-PHONE-003 | Operator routes | Empty listing, attach refused pre-health-check, unsupported plugin rejected, unknown detach is a no-op |
@@ -525,11 +526,14 @@ Hub tests carry the `HUB` infix and live in `packages/core`; provider tests use 
 `packages/tillio`, so each package keeps a contiguous sequence and a second provider starts at `TC-PHONE-006`.
 Widget tests live in the provider package on purpose: the hub must keep passing with Tillio disabled.
 
-Unit tests: Tillio client, adapter fetch, health, normalizer, operators, operators store, pull readiness,
-the pull job (cursor walk, isolated ingest failure, cancellation, operator detached mid-flight), the env
-preset (absent, incomplete, complete, rerun with an occupied slot, unhealthy environment, keep-unless-forced,
-refused and approved environment switches),
-timezone conversion and URL guard (provider package); the ingest command (core).
+Unit tests: Tillio client, adapter fetch (including pagination that does not add up), health, normalizer,
+operators, operators store, pull readiness, the pull request body, the pull route (queued success, a
+guard-rewritten payload, the duplicate-pull 429, an enqueue failure, the disabled integration), the pull job
+(cursor walk, isolated ingest failure, cancellation, operator detached mid-flight, the batch cap and a
+provider that stops echoing the requested page, both failing the job with a resume cursor rather than
+reporting a complete sweep), the env preset (absent, incomplete, complete, rerun with an occupied slot,
+unhealthy environment, keep-unless-forced, refused and approved environment switches), timezone conversion
+and URL guard (provider package); the ingest command and its cache alias (core).
 
 Two constraints worth recording for whoever writes the next test:
 
@@ -539,13 +543,13 @@ Two constraints worth recording for whoever writes the next test:
 - Integration runs enable the CRUD list cache, and an INSERT does not invalidate it the way the ingest command
   does. Seeded rows must be read back through a run-unique query, or a repeating query key is served an earlier
   run's payload.
-- **The cache invalidation that ingest performs is covered at the command seam, not end to end.** Proving it
-  over HTTP needs a real ingest between two identical list requests, and the hub has no route that ingests:
-  the only writer is the command, driven by a Tillio pull. Pointing the provider at a local stub does not work
-  either, because outbound requests go through `safeOutboundFetch`, which refuses loopback and private targets
-  by design. The unit test therefore pins the invariant the route and the bus have to agree on - the alias the
-  command emits canonicalizes to the tag the list route derives from the entity class name - and an end-to-end
-  assertion waits for a provider sandbox that is reachable from CI.
+- **The cache invalidation that ingest performs is covered end to end, but not through a provider.** The hub
+  has no route that writes - the only writer is the command, driven by a Tillio pull - and pointing the
+  provider at a local stub is refused by `safeOutboundFetch`, which rejects loopback and private targets by
+  design. TC-PHONE-HUB-006 therefore drives the command through the bus inside the test process and asserts
+  the running app's list around it: the ephemeral environment puts both processes on one sqlite cache backend,
+  so an invalidation performed in the test is the invalidation the app server observes. A unit test keeps the
+  same invariant reachable without a database.
 
 ---
 

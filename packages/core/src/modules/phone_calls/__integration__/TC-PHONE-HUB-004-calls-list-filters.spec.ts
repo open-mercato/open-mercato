@@ -31,6 +31,9 @@ test.describe('TC-PHONE-HUB-004: phone calls list filters', () => {
   const marker = `qa-phone-hub-004-call-${stamp}`
   const conversationMarker = `qa-phone-hub-004-conv-${stamp}`
   const providerMarker = `qa-phone-hub-004-prov-${stamp}`
+  // The day-boundary rows carry their own marker: the range assertions below need exactly
+  // two rows, and folding them into `marker` would change what every other query returns.
+  const edgeMarker = `qa-phone-hub-004-edge-${stamp}`
   let seeded: string[] = []
   let token = ''
 
@@ -71,6 +74,22 @@ test.describe('TC-PHONE-HUB-004: phone calls list filters', () => {
         direction: 'inbound',
         status: 'answered',
         startedAt: new Date('2026-03-11T09:00:00Z'),
+      },
+      // Both sit on a boundary day, at the hours a bare `yyyy-MM-dd` bound has to reach:
+      // just after midnight on the first day, and late in the evening on the last one.
+      {
+        ...base,
+        externalCallId: `${edgeMarker}-first-day`,
+        direction: 'inbound',
+        status: 'completed',
+        startedAt: new Date('2026-03-01T00:30:00Z'),
+      },
+      {
+        ...base,
+        externalCallId: `${edgeMarker}-last-day`,
+        direction: 'outbound',
+        status: 'completed',
+        startedAt: new Date('2026-03-15T23:00:00Z'),
       },
     ])
   })
@@ -126,6 +145,32 @@ test.describe('TC-PHONE-HUB-004: phone calls list filters', () => {
       `q=${encodeURIComponent(marker)}&startedFrom=2026-03-01&startedTo=2026-03-15`,
     )
     expect(rows.map((row) => row.external_call_id)).toEqual([`${marker}-inbound-completed`])
+  })
+
+  // The bound that used to be wrong: `startedTo=2026-03-15` parsed to midnight, so every call
+  // later that day fell outside the range the user picked. The row at 23:00 is the whole point.
+  test('a bare day bound covers the whole day at both ends of the range', async ({ request }) => {
+    const rows = await listRows(
+      request,
+      `q=${encodeURIComponent(edgeMarker)}&startedFrom=2026-03-01&startedTo=2026-03-15&sortField=startedAt&sortDir=asc`,
+    )
+    expect(rows.map((row) => row.external_call_id)).toEqual([
+      `${edgeMarker}-first-day`,
+      `${edgeMarker}-last-day`,
+    ])
+  })
+
+  test('a full timestamp bound keeps the instant it names instead of the day', async ({ request }) => {
+    const rows = await listRows(
+      request,
+      `q=${encodeURIComponent(edgeMarker)}&startedTo=${encodeURIComponent('2026-03-15T12:00:00.000Z')}`,
+    )
+    expect(rows.map((row) => row.external_call_id)).toEqual([`${edgeMarker}-first-day`])
+  })
+
+  test('an unparsable date is rejected rather than dropped', async ({ request }) => {
+    const response = await apiRequest(request, 'GET', '/api/phone_calls/calls?startedTo=not-a-date', { token })
+    expect(response.status()).toBe(400)
   })
 
   test('id narrows the list to a single call', async ({ request }) => {
