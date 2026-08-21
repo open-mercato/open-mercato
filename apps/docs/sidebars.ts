@@ -364,6 +364,7 @@ const sidebars: SidebarsConfig = {
           label: "Modules",
           items: [
             "framework/modules/overview",
+            "framework/modules/reference-example-module",
             {
               type: "category",
               label: "Core Modules",

@@ -149,16 +149,20 @@ describe('module-facts BC resolve guard (T2)', () => {
     // wms, staff, integrations and checkout were therefore invisible to every fact
     // consumer — `integrations` published no contributions at all. Reading them costs
     // ~28KB, which is the fix working, not drift.
-    // The additive EUDR module contributes its real routes, ACL, events,
-    // entities, and extension surfaces without changing the extraction shape.
+    // The additive EUDR and Documents modules contribute their real routes, ACL,
+    // events, entities, and extension surfaces without changing the extraction
+    // shape.
     //
     // JSON cap raised a fifth time by the devices/push-notifications stack: the
     // `devices` and `push_notifications` modules plus the `channel-fcm`,
     // `channel-apns` and `channel-expo` provider packages add their own facts,
     // provenance entries and override targets to every render. The
-    // `warranty_claims` module (see above) lands alongside it, so the cap
-    // absorbs both additions.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_000_000)
+    // `warranty_claims` module (see above) and the additive Documents module
+    // land alongside it, so the cap absorbs all three additions. Both sides of
+    // that merge had raised the cap independently (3_950_000 for Documents,
+    // 4_000_000 for the rest); neither number covers the union, which measures
+    // ~4.09MB. Keep bounded headroom over the measured size only.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_150_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES

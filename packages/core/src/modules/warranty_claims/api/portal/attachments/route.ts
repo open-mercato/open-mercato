@@ -19,7 +19,7 @@ import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/l
 import { clearAttachmentThumbnailCache } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
 import { isMultipartRequestWithinUploadLimit } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
-  ScopedAttachmentUploadError,
+  isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
 } from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -413,7 +413,7 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
       tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG],
     })
   } catch (error) {
-    if (error instanceof ScopedAttachmentUploadError) {
+    if (isScopedAttachmentUploadError(error)) {
       const { t } = await resolveTranslations()
       const [key, fallback] = ATTACHMENT_ERROR_TRANSLATIONS[error.code]
         ?? ['warranty_claims.portal.detail.attachmentError', 'Attachment upload failed.']
