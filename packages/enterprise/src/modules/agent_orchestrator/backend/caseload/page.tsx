@@ -70,6 +70,7 @@ import {
 } from './hooks'
 
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
+const OPTIONAL_READ_HEADERS = { 'x-om-forbidden-redirect': '0' } as const
 // A single status taxonomy drives the tiles, the filter segment, and the table
 // Status column so the operator never has to reconcile two vocabularies.
 // `autoApproved` is a badge-level split of the approved family — the Approved
@@ -240,7 +241,7 @@ function matchesFilters(row: QueueRow, agentFilters: string[], proposesFilters: 
   return true
 }
 async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
-  const call = await apiCall<ListResponse>(path, undefined, { fallback: { items: [] } })
+  const call = await apiCall<ListResponse>(path, { headers: OPTIONAL_READ_HEADERS }, { fallback: { items: [] } })
   return call.ok && Array.isArray(call.result?.items) ? call.result!.items : []
 }
 
@@ -324,7 +325,11 @@ export default function AgentCaseloadPage() {
           apiCall<ListResponse>(`/api/agent_orchestrator/proposals?${params.toString()}`, undefined, { fallback: { items: [] } }),
           apiCall<Record<string, unknown>>('/api/agent_orchestrator/metrics/overview?window=7d'),
           fetchItems('/api/agent_orchestrator/agents'),
-          apiCall<ListResponse>('/api/agent_orchestrator/runs?status=running&pageSize=1', undefined, { fallback: { items: [] } }),
+          apiCall<ListResponse>(
+            '/api/agent_orchestrator/runs?status=running&pageSize=1',
+            { headers: OPTIONAL_READ_HEADERS },
+            { fallback: { items: [] } },
+          ),
         ])
         if (cancelled) return
         if (!proposalsCall.ok) {
@@ -1724,4 +1729,3 @@ function DecisionPane({
     </div>
   )
 }
-
