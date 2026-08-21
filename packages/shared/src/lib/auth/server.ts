@@ -1,7 +1,16 @@
 import { cookies } from 'next/headers.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { verifyJwt } from './jwt'
+import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
+import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
+
+function readRequestPathname(req: Request): string | null {
+  try {
+    return new URL(req.url).pathname
+  } catch {
+    return null
+  }
+}
 
 const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
@@ -276,6 +285,9 @@ export async function resolveAuthFromCookiesDetailed(): Promise<AuthResolution> 
     const payload = verifyJwt(token) as AuthContext
     if (!payload) return { auth: null, status: 'invalid' }
     if (payload.type === 'customer') return { auth: null, status: 'invalid' }
+    // MFA-pending tokens are provisional: pages never complete the second factor, so they
+    // must not resolve to an authenticated context anywhere in the RSC/page flow.
+    if (isMfaPendingJwtPayload(payload)) return { auth: null, status: 'invalid' }
     const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
     if (!canonicalAuth) return { auth: null, status: 'invalid' }
     const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
@@ -316,6 +328,14 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
     try {
       const payload = verifyJwt(token) as AuthContext
       if (payload && payload.type === 'customer') return { auth: null, status: 'invalid' }
+      if (payload && isMfaPendingJwtPayload(payload)) {
+        // MFA-pending tokens authenticate only the registered challenge-completion routes;
+        // everywhere else they resolve to `invalid` so the dispatcher answers 401 (clearing
+        // staff auth cookies) instead of restoring the account's roles/features.
+        if (!isMfaPendingAccessAllowed(req.method, readRequestPathname(req))) {
+          return { auth: null, status: 'invalid' }
+        }
+      }
       if (payload) {
         const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
         if (canonicalAuth) {

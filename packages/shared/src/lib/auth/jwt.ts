@@ -235,3 +235,15 @@ export function signAudienceJwt(
 export function verifyAudienceJwt(audience: string, token: string): JwtPayload | null {
   return verifyJwt(token, { audience })
 }
+
+/**
+ * True when a verified JWT payload represents an MFA challenge in progress: the second factor
+ * has not been completed yet (`mfa_pending: true`, `mfa_verified` not `true`). Such tokens are
+ * provisional — general staff APIs must reject them and only the MFA completion routes may
+ * accept them (see `@open-mercato/shared/lib/auth/mfaPendingAccess`).
+ */
+export function isMfaPendingJwtPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false
+  const record = payload as Record<string, unknown>
+  return record.mfa_pending === true && record.mfa_verified !== true
+}

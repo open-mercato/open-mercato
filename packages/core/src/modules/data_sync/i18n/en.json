@@ -110,6 +110,7 @@
   "data_sync.runs.detail.logs.message": "Message",
   "data_sync.runs.detail.logs.time": "Time",
   "data_sync.runs.detail.noLogs": "No log entries",
+  "data_sync.runs.detail.notFound": "Sync run not found.",
   "data_sync.runs.detail.progress": "Progress",
   "data_sync.runs.detail.progress.batches": "{count} batches",
   "data_sync.runs.detail.progress.eta": "{eta} remaining",
