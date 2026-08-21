@@ -91,4 +91,8 @@ describe('agent_orchestrator overview honesty invariants (spec 3 phase 4)', () =
     expect(overviewSource).toContain('caption={windowLabel}')
     expect(overviewSource).toContain("caption={t('agent_orchestrator.overview.window.now'")
   })
+
+  it('keeps system health available before the first agent run', () => {
+    expect(overviewSource).toMatch(/empty \? \(\s*<div[\s\S]*?<SystemHealthTile \/>[\s\S]*?<EmptyState/)
+  })
 })

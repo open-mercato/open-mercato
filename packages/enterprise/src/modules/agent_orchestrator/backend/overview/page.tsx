@@ -380,10 +380,15 @@ export default function AgentFleetOverviewPage() {
         ) : error ? (
           <ErrorMessage label={error} />
         ) : empty ? (
-          <EmptyState
-            title={t('agent_orchestrator.overview.empty')}
-            description={t('agent_orchestrator.overview.emptyDescription')}
-          />
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <SystemHealthTile />
+            </div>
+            <EmptyState
+              title={t('agent_orchestrator.overview.empty')}
+              description={t('agent_orchestrator.overview.emptyDescription')}
+            />
+          </div>
         ) : (
           <>
             <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${previewUi ? 'lg:grid-cols-5' : 'lg:grid-cols-3'}`}>
