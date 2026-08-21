@@ -282,6 +282,31 @@ console.log(`By provider:`, result.byProvider)
 console.log(`Errors:`, result.errors)
 ```
 
+### Which Currencies Get Rates
+
+`fetchRatesForDate` first resolves the set of currency codes worth storing rates for, then filters
+every provider response against it — a rate is kept only when **both** legs of its pair are in the
+set. The set is every currency in the tenant/organization scope that is not soft-deleted.
+
+`isActive` deliberately plays no part here. That flag answers whether a currency may be **selected**
+for something new (it gates `api/currencies/options`, the `?isActive` list filter and the
+exchange-rate form's currency select), which says nothing about whether records already denominated
+in it must stay convertible. Deactivating a currency while existing records still reference it is
+the normal way to grandfather it, and those records keep needing a rate — otherwise conversions out
+of the currency start failing once the stored rates fall outside the consumer's lookback window
+(`ExchangeRateService` defaults to `maxDaysBack: 30`).
+
+**Soft delete is the way to stop fetching a currency.** `deletedAt` excludes it from the set, and
+nothing else does.
+
+Note that both bundled providers (NBP, Raiffeisen) return `[]` outright when `PLN` is missing from
+the set, so a `PLN` that fell out of it silenced the entire provider rather than just `PLN`'s own
+pairs — another reason the set is not narrowed by selectability.
+
+Keeping the set wide costs no extra provider calls: both providers fetch a full table in a single
+request per date and the set is applied locally. The only cost is additional `exchange_rates` rows,
+bounded by what the provider returns anyway.
+
 ### When to Use RateFetchingService Directly
 
 - Scheduled/batch fetching of rates
