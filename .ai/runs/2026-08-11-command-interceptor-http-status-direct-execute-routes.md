@@ -85,4 +85,14 @@ answered, which is a behavior change of its own. They are pinned in
       mapper, so nothing was unmapped — but the false exemption would have hidden a future removal). The
       exemption list is gone, and a new AST-based case re-derives "no enclosing `try/catch`" for every
       remaining exemption, so a route that later grows one drops out and must adopt the mapper.
+- [x] Maintainer review by `@adeptofvoltron` (2026-08-14) worked through: the two `eudr` batch routes are
+      now an explicit, AST-derived exemption instead of a vacuously "covered" pair, the guard became
+      path-scoped so a partially-migrated file fails, its boundaries are recorded in the header comment,
+      and the catch-less gap has a tracked follow-up issue instead of living only in a test constant.
+- [x] Base merge (2026-08-21) followed through: `develop` shipped the `warranty_claims` module and two new
+      `communication_channels` routes after this branch last merged. 16 warranty-claims routes adopted the
+      mapper, the two catch-less `communication_channels` routes joined the uncaught list, and the
+      path-scoped guard surfaced one genuine pre-existing gap — `messages/api/[id]` `GET` dispatches
+      `messages.recipients.mark_read` outside any `try`, so the file is recorded as uncaught for that
+      handler while its `PATCH`/`DELETE` stay covered.
 - [ ] CI green on the PR head

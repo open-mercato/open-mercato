@@ -71,19 +71,26 @@ interceptor rejection carrying an **integer status in 400–599**. The bound is 
 |---|---|---|
 | `makeCrudRoute` handlers (`POST`/`PUT`/`PATCH`/`DELETE`) | ✅ via `handleError` | The `beforeExecute` path. |
 | `POST /api/audit_logs/audit-logs/actions/undo` | ✅ | The only route in the repository that undoes a command — the `beforeUndo` path. |
-| Routes calling `commandBus.execute` with their own `catch` | ✅ (#5097) | 53 core routes map the rejection inline, ahead of their generic fallback; the 5 checkout routes and 7 enterprise-security routes inherit it from their module-level error mappers (`handleCheckoutRouteError`, `mapSudoError`, `mapMfaError`, `mapEnforcementError`, `mapSecurityUsersError`). |
-| Routes calling `commandBus.execute` **without** their own `catch` (12) | ❌ | The rejection propagates out of the handler, so there is no `catch` to map it in — they answer with the framework's unhandled-error response. Listed in `ROUTES_WITHOUT_OWN_ERROR_HANDLING` in `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`; giving them error handling is a behavior change of its own. |
+| Routes calling `commandBus.execute` with their own `catch` | ✅ (#5097) | 67 core routes map the rejection inline, ahead of their generic fallback; the 5 checkout routes and 7 enterprise-security routes inherit it from their module-level error mappers (`handleCheckoutRouteError`, `mapSudoError`, `mapMfaError`, `mapEnforcementError`, `mapSecurityUsersError`). |
+| Routes with a `commandBus.execute` call **no** `catch` can receive (15) | ❌ | The rejection propagates out of the handler, so there is nothing to map it in — they answer with the framework's unhandled-error response. Listed in `ROUTES_WITH_UNCAUGHT_COMMAND_BUS_CALLS` in `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`; giving them error handling is a behavior change of its own, tracked as a follow-up in #5435. |
+| Batch routes with a per-item failure list (2) | ❌ by design | `eudr/api/plots/import` and `eudr/api/product-mappings/suggestions/apply` reach the bus only from inside a per-item `try/catch` that records the failure in `failed[]` and continues, so a rejection never reaches the route-level `catch`. Their contract is `HTTP 200` with a per-item failure entry, and it is deliberately unchanged; they carry no route-level mapper branch, because one would be unreachable for bus rejections. Listed in `ROUTES_WITH_BATCH_ITEM_ERROR_HANDLING`. |
 | App catch-all (`apps/mercato/src/app/api/[...slug]/route.ts`) | ❌ | Keeps its narrow tenant-guard mapping; it is not a general error handler. |
 
-Two of those routes — `eudr/api/plots/import` and `eudr/api/product-mappings/suggestions/apply` — import a batch and catch
-each item's failure inside the loop, reporting it as a `failed[]` entry rather than as an HTTP status. They map the rejection
-in their route-level `catch` like every other route, so a rejection raised outside the loop is honoured, while an individual
-item blocked by an interceptor stays an item failure; their batch semantics are deliberately unchanged.
+`messages/api/[id]/route.ts` appears in the uncaught list for its `GET` handler only — the `mark_read` command it dispatches
+runs outside any `try` — while its `PATCH` and `DELETE` handlers catch their own failures and do map the rejection.
 
-Adoption is pinned by `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`: every core route that calls
-the command bus and catches its own failures must consult the mapper, the exemption list must stay free of stale entries, and
-every exemption must still hold structurally — the guard re-derives "the bus call sits outside every `try/catch`"
-from the AST, so a route that later grows one drops out of the exemption and has to adopt the mapper.
+Adoption is pinned by `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`. The guard is **path-scoped**,
+not file-scoped: for every command-bus call site it walks the chain of `catch` clauses that can actually receive that call's
+rejection — following through the call sites of a helper that wraps the bus — and requires the mapper on every non-empty
+chain, so a file where only one of several handlers adopted the branch fails. Both exemptions are re-derived from the AST:
+the uncaught list is asserted in **both** directions (every route with an unreachable-by-`catch` bus call is listed, and every
+listed route still has one), and a batch-exempt route must keep every bus call behind at least one `catch` nested inside its
+route-level one, so moving a bus call up to the handler drops it out of the exemption.
+
+Two boundaries the guard does not cover, recorded in its header comment: it scans `packages/core` only, so a future
+`checkout` or `enterprise-security` route that owns its `catch` instead of delegating to the shared mapper is not caught by
+it; and a `catch` that swallows rather than rethrows still satisfies the chain check when an outer clause maps the rejection —
+the shape the batch exemption exists for, which has to be classified by hand.
 
 ## Non-goals
 
@@ -100,9 +107,17 @@ from the AST, so a route that later grows one drops out of the exemption and has
   wrapper would only inline the `NextResponse.json(...)` call while splitting the idiom away from the two
   transports that shipped first. Where a module already funnels route errors through one mapper
   (checkout, enterprise security), the branch went into that mapper instead of into each route.
-- **Routes without their own error handling keep the framework response.** The twelve routes that call
-  the bus outside any `try/catch` still surface an unhandled error; adding a `catch` to them changes how
-  every other failure is answered, which is out of scope for a status-mapping change.
+- **Routes without their own error handling keep the framework response.** The fifteen routes with a
+  bus call no `catch` can receive still surface an unhandled error; adding a `catch` to them changes how
+  every other failure is answered, which is out of scope for a status-mapping change. Tracked in #5435
+  rather than left only in a test constant.
+- **Batch routes keep their per-item failure contract.** `eudr/api/plots/import` and
+  `eudr/api/product-mappings/suggestions/apply` answer `HTTP 200` with a `failed[]` list, and an item
+  blocked by an interceptor stays an item failure. Surfacing the interceptor's status per item would add
+  fields to a published response shape — a wire change of its own, and one that only makes sense once a
+  batch-error convention exists repo-wide. Because every path to their command bus runs through the
+  per-item `catch`, they carry **no** route-level mapper branch: one would be dead code that made the
+  guard claim a coverage the route does not deliver.
 
 ## Migration & Backward Compatibility
 
@@ -160,6 +175,7 @@ instead of a generic 500. Omitting `status` keeps the historical behaviour.
 | Bus forwarding | `packages/shared/src/lib/commands/__tests__/command-bus.test.ts` | A registered interceptor blocking a real `commandBus.execute` — status and derived body forwarded, explicit body forwarded verbatim, no status leaves both undefined, and the command never executes. |
 | CRUD transport | `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts` | A real `makeCrudRoute` POST returning 500 (no status), 422 (status), the explicit body, and 500 again for an out-of-range status. |
 | Undo transport | `packages/core/src/modules/audit_logs/api/__tests__/undo.route.test.ts` | 409 with the message, 422 with an explicit body, generic 400 without a status, generic 400 for an unrelated failure. |
-| Direct-`execute` adoption (#5097) | `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts` | Static guard: every core command-bus route that catches its own failures consults the mapper; the exemption list carries no stale entries and every exemption is re-derived from the AST. |
-| Direct-`execute` behavior (#5097) | One route test per module family with edited routes: `audit_logs` (redo), `auth` (profile PUT), `customers` (todos), `dictionaries` (entries reorder), `directory` (organization-branding), `feature_toggles` (overrides), `messages` (reply), `resources` (tags assign), `sales` (quotes accept), `staff` (leave-requests accept), `translations` (entity PUT), `wms` (warehouse-assignment DELETE) | Each asserts both directions: 422 with the explicit body, and the route's own historical answer for a statusless rejection — generic 400, generic 500, adapter headers preserved (customers), or a rethrow (messages reply, whose catch rethrows unmapped errors). `communication_channels` has no edited route: all seven of its bus call sites are in the catch-less exemption list. |
+| Direct-`execute` adoption (#5097) | `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts` | Static guard, six assertions: the scan finds a non-trivial route set; every **catch chain** that can receive a command-bus failure consults the mapper (path-scoped, so a partially-migrated file fails); the uncaught-call list matches the AST exactly in both directions; the batch exemption carries no stale entries; every batch-exempt route still keeps its bus calls behind a per-item `catch`; and no route sits in both exemptions. |
+| Direct-`execute` behavior (#5097) | One route test per module family with edited routes: `audit_logs` (redo), `auth` (profile PUT), `customers` (todos), `dictionaries` (entries reorder), `directory` (organization-branding), `feature_toggles` (overrides), `messages` (reply), `resources` (tags assign), `sales` (quotes accept), `staff` (leave-requests accept), `translations` (entity PUT), `warranty_claims` (transition, plus the portal withdraw action), `wms` (warehouse-assignment DELETE) | Each asserts both directions: 422 with the explicit body, and the route's own historical answer for a statusless rejection — generic 400, generic 500, adapter headers preserved (customers), or a rethrow (messages reply and the warranty-claims portal actions, whose catches rethrow unmapped errors). `communication_channels` has no edited route: all nine of its bus call sites are in the uncaught list. |
+| Batch-route behavior (#5097) | `packages/core/src/modules/eudr/api/plots/import/__tests__/route.interceptor.test.ts` | Pins what the batch exemption actually buys: an interceptor block on one feature — with or without a status — stays a `failed[]` entry on an `HTTP 200` while the rest of the batch imports, and a failure raised outside the per-item loop still reaches the route-level generic 500. |
 | Module-level mappers (#5097) | `packages/checkout/src/modules/checkout/api/__tests__/helpers.error-mapping.test.ts`, `packages/enterprise/src/modules/security/api/__tests__/error-mapping.interceptor.test.ts` | Status-carrying rejection, message-derived body, statusless rejection keeping the generic 500, and `CrudHttpError` still mapped first. |
