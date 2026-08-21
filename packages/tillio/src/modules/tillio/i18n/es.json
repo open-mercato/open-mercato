@@ -5,6 +5,7 @@
   "tillio.errors.detachFailed": "No se pudo desvincular el operador.",
   "tillio.errors.environmentDrift": "El entorno cambió después de adjuntar el operador. Desvincúlalo y vuelve a adjuntarlo.",
   "tillio.errors.environmentNotReady": "Configura primero las credenciales de Tillio y ejecuta la comprobación de estado.",
+  "tillio.errors.integrationDisabled": "La integración de Tillio está desactivada. Actívala primero.",
   "tillio.errors.invalidOperatorId": "Ese identificador de operador no es válido.",
   "tillio.errors.invalidPayload": "La solicitud se rechazó por no ser válida.",
   "tillio.errors.operatorLimit": "Ya hay un operador adjunto. Desvincúlalo primero.",

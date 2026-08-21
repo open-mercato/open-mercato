@@ -93,10 +93,22 @@ export async function resolveEnvironment(
   }
 }
 
-export async function isTillioEnvironmentHealthy(
+export type TillioIntegrationState = {
+  /** The administrator's switch. Provisioning and sweeps stay off while it is false. */
+  enabled: boolean
+  /** The last probe result. Says Tillio answers, not that anybody wants us talking to it. */
+  healthy: boolean
+}
+
+// Both signals come off one row, and they fail for different reasons a user fixes in different
+// places, so callers get them apart rather than folded into a single boolean. A missing row
+// reads as disabled, matching `integrationStateService.resolveState`, which falls back to the
+// descriptor's `defaultState` and to `false` without one. The Tillio descriptor declares no
+// `defaultState`, so adding one there means switching this over to that service.
+export async function readTillioIntegrationState(
   em: EntityManager,
   scope: IntegrationScope,
-): Promise<boolean> {
+): Promise<TillioIntegrationState> {
   const state = await findOneWithDecryption(
     em,
     IntegrationState,
@@ -109,7 +121,10 @@ export async function isTillioEnvironmentHealthy(
     undefined,
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
-  return state?.lastHealthStatus === 'healthy'
+  return {
+    enabled: state?.isEnabled ?? false,
+    healthy: state?.lastHealthStatus === 'healthy',
+  }
 }
 
 function operatorIdForPlugin(plugin: TillioOperatorPlugin): string {

@@ -30,6 +30,17 @@ const listSchema = z
   })
   .passthrough()
 
+const dayOnlySchema = z.iso.date()
+
+// A day is a range, not an instant. `new Date('2026-08-20')` is midnight UTC, so using it as
+// the upper bound drops every call on the day the user picked. The filter bar sends bare
+// `yyyy-MM-dd` for both ends, so each is widened to the day it names; a caller that sends a
+// full timestamp keeps the instant it asked for.
+function rangeBoundary(value: string, edge: 'start' | 'end'): Date {
+  if (!dayOnlySchema.safeParse(value).success) return new Date(value)
+  return new Date(`${value}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}Z`)
+}
+
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['phone_calls.view'] },
 }
@@ -100,8 +111,8 @@ const crud = makeCrudRoute({
         ]
       }
       const startedRange: Record<string, Date> = {}
-      if (query.startedFrom) startedRange.$gte = new Date(query.startedFrom)
-      if (query.startedTo) startedRange.$lte = new Date(query.startedTo)
+      if (query.startedFrom) startedRange.$gte = rangeBoundary(query.startedFrom, 'start')
+      if (query.startedTo) startedRange.$lte = rangeBoundary(query.startedTo, 'end')
       if (Object.keys(startedRange).length) filters.started_at = startedRange
       return filters
     },

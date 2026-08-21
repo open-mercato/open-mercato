@@ -17,7 +17,7 @@ import {
 import {
   attachOperator,
   classifyTillioError,
-  isTillioEnvironmentHealthy,
+  readTillioIntegrationState,
   resolveEnvironment,
   TILLIO_OPERATOR_RESOURCE_KIND,
   TillioEnvironmentNotReadyError,
@@ -54,7 +54,8 @@ export async function GET(req: Request) {
   const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
   const environment = await resolveEnvironment(credentialsService, scope)
-  const environmentReady = Boolean(environment) && (await isTillioEnvironmentHealthy(em, scope))
+  const integrationState = await readTillioIntegrationState(em, scope)
+  const environmentReady = Boolean(environment) && integrationState.enabled && integrationState.healthy
   const blob = await readOperatorsBlob(credentialsService, scope)
   const currentFingerprint = environment ? computeEnvFingerprint(environment) : null
 
@@ -93,7 +94,16 @@ export async function POST(req: Request) {
   const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
   const environment = await resolveEnvironment(credentialsService, scope)
-  const environmentReady = Boolean(environment) && (await isTillioEnvironmentHealthy(em, scope))
+  const integrationState = await readTillioIntegrationState(em, scope)
+  // Provisioning an operator registers a config on Tillio's side, so a switched-off integration
+  // is refused here rather than left to the pull to discover.
+  if (!integrationState.enabled) {
+    return NextResponse.json(
+      { ok: false, code: 'integration_disabled', section: 'environment', message: 'The Tillio integration is disabled. Enable it before attaching an operator.' },
+      { status: 409 },
+    )
+  }
+  const environmentReady = Boolean(environment) && integrationState.healthy
   if (!environmentReady) {
     return NextResponse.json(
       { ok: false, code: 'environment_not_ready', section: 'environment', message: 'Run the Tillio environment health check before attaching an operator.' },

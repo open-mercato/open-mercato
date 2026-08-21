@@ -7,7 +7,7 @@ import { runTillioPullJob, type TillioPullJobPayload } from '../lib/pull-job'
 jest.mock('../lib/operators', () => ({
   ...jest.requireActual('../lib/operators'),
   resolveEnvironment: jest.fn(),
-  isTillioEnvironmentHealthy: jest.fn(),
+  readTillioIntegrationState: jest.fn(),
 }))
 
 jest.mock('../lib/operators-store', () => ({
@@ -15,7 +15,7 @@ jest.mock('../lib/operators-store', () => ({
   readOperatorsBlob: jest.fn(),
 }))
 
-const { resolveEnvironment, isTillioEnvironmentHealthy } = jest.requireMock('../lib/operators')
+const { resolveEnvironment, readTillioIntegrationState } = jest.requireMock('../lib/operators')
 const { readOperatorsBlob } = jest.requireMock('../lib/operators-store')
 
 const environment = { apiUrl: 'https://api.example.com', apiKey: 'key', tenantSystemId: 'OM-1' }
@@ -69,7 +69,7 @@ function createAdapter(pages: Array<{ calls: NormalizedPhoneCall[]; nextCursor: 
 
 beforeEach(() => {
   resolveEnvironment.mockResolvedValue(environment)
-  isTillioEnvironmentHealthy.mockResolvedValue(true)
+  readTillioIntegrationState.mockResolvedValue({ enabled: true, healthy: true })
   readOperatorsBlob.mockResolvedValue({ operators: [operator], defaultOperatorId: operator.id })
 })
 

@@ -5,6 +5,7 @@
   "tillio.errors.detachFailed": "Der Operator konnte nicht getrennt werden.",
   "tillio.errors.environmentDrift": "Die Umgebung hat sich nach dem Verbinden des Operators geändert. Trenne ihn und verbinde ihn erneut.",
   "tillio.errors.environmentNotReady": "Konfiguriere zuerst die Tillio-Zugangsdaten und führe die Zustandsprüfung aus.",
+  "tillio.errors.integrationDisabled": "Die Tillio-Integration ist deaktiviert. Aktiviere sie zuerst.",
   "tillio.errors.invalidOperatorId": "Diese Operator-ID ist ungültig.",
   "tillio.errors.invalidPayload": "Die Anfrage wurde als ungültig abgelehnt.",
   "tillio.errors.operatorLimit": "Es ist bereits ein Operator verbunden. Trenne ihn zuerst.",

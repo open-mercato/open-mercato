@@ -22,7 +22,7 @@ import { tillioAdapter } from './adapter'
 import { TillioApiError } from './errors'
 import {
   classifyTillioError,
-  isTillioEnvironmentHealthy,
+  readTillioIntegrationState,
   resolveEnvironment,
   type TillioResolvedEnvironment,
 } from './operators'
@@ -87,13 +87,18 @@ export async function resolvePullContext(
   scope: IntegrationScope,
 ): Promise<TillioPullContext> {
   const environment = await resolveEnvironment(credentialsService, scope)
-  const environmentHealthy = environment ? await isTillioEnvironmentHealthy(em, scope) : false
+  const integrationState = await readTillioIntegrationState(em, scope)
   const blob = await readOperatorsBlob(credentialsService, scope)
   const operator =
     blob.operators.find((entry) => entry.id === blob.defaultOperatorId) ?? blob.operators[0] ?? null
 
   return {
-    readiness: evaluatePullReadiness({ environment, environmentHealthy, operator }),
+    readiness: evaluatePullReadiness({
+      environment,
+      integrationEnabled: integrationState.enabled,
+      environmentHealthy: integrationState.healthy,
+      operator,
+    }),
     environment,
     operator,
   }

@@ -5,6 +5,7 @@
   "tillio.errors.detachFailed": "Nie udało się odłączyć operatora.",
   "tillio.errors.environmentDrift": "Środowisko zmieniło się po podłączeniu operatora. Odłącz go i podłącz ponownie.",
   "tillio.errors.environmentNotReady": "Najpierw skonfiguruj poświadczenia Tillio i uruchom sprawdzenie połączenia.",
+  "tillio.errors.integrationDisabled": "Integracja Tillio jest wyłączona. Najpierw ją włącz.",
   "tillio.errors.invalidOperatorId": "Ten identyfikator operatora jest nieprawidłowy.",
   "tillio.errors.invalidPayload": "Żądanie zostało odrzucone jako nieprawidłowe.",
   "tillio.errors.operatorLimit": "Operator jest już podłączony. Najpierw go odłącz.",

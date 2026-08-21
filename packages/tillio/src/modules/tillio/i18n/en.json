@@ -5,6 +5,7 @@
   "tillio.errors.detachFailed": "Could not detach the operator.",
   "tillio.errors.environmentDrift": "The environment changed after the operator was attached. Detach and attach it again.",
   "tillio.errors.environmentNotReady": "Configure the Tillio credentials and run the health check first.",
+  "tillio.errors.integrationDisabled": "The Tillio integration is disabled. Enable it first.",
   "tillio.errors.invalidOperatorId": "That operator id is not valid.",
   "tillio.errors.invalidPayload": "The request was rejected as invalid.",
   "tillio.errors.operatorLimit": "An operator is already attached. Detach it first.",

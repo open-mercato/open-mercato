@@ -18,7 +18,9 @@ const attachedOperator = operatorWith(computeEnvFingerprint(environment))
 
 describe('evaluatePullReadiness', () => {
   it('clears the pull when the environment is healthy and an operator is attached', () => {
-    expect(evaluatePullReadiness({ environment, environmentHealthy: true, operator: attachedOperator })).toEqual({
+    expect(
+      evaluatePullReadiness({ environment, integrationEnabled: true, environmentHealthy: true, operator: attachedOperator }),
+    ).toEqual({
       environmentReady: true,
       operatorAttached: true,
       envDrift: false,
@@ -27,18 +29,31 @@ describe('evaluatePullReadiness', () => {
   })
 
   it('blocks on a missing environment', () => {
-    const readiness = evaluatePullReadiness({ environment: null, environmentHealthy: false, operator: null })
+    const readiness = evaluatePullReadiness({ environment: null, integrationEnabled: true, environmentHealthy: false, operator: null })
     expect(readiness.blocker).toBe('environment_not_ready')
     expect(readiness.environmentReady).toBe(false)
   })
 
   it('blocks when the environment was never checked as healthy', () => {
-    const readiness = evaluatePullReadiness({ environment, environmentHealthy: false, operator: attachedOperator })
+    const readiness = evaluatePullReadiness({ environment, integrationEnabled: true, environmentHealthy: false, operator: attachedOperator })
     expect(readiness.blocker).toBe('environment_not_ready')
   })
 
+  // A disabled integration passes every other check, so without its own blocker the UI would
+  // tell the user to re-run a health check that cannot change the outcome.
+  it('blocks a disabled integration even when everything else is ready', () => {
+    const readiness = evaluatePullReadiness({
+      environment,
+      integrationEnabled: false,
+      environmentHealthy: true,
+      operator: attachedOperator,
+    })
+    expect(readiness.blocker).toBe('integration_disabled')
+    expect(readiness.environmentReady).toBe(false)
+  })
+
   it('blocks when no operator is attached', () => {
-    const readiness = evaluatePullReadiness({ environment, environmentHealthy: true, operator: null })
+    const readiness = evaluatePullReadiness({ environment, integrationEnabled: true, environmentHealthy: true, operator: null })
     expect(readiness.blocker).toBe('operator_missing')
     expect(readiness.operatorAttached).toBe(false)
   })
@@ -46,6 +61,7 @@ describe('evaluatePullReadiness', () => {
   it('blocks when the environment drifted after the operator was attached', () => {
     const readiness = evaluatePullReadiness({
       environment,
+      integrationEnabled: true,
       environmentHealthy: true,
       operator: operatorWith('stale-fingerprint'),
     })
@@ -54,11 +70,12 @@ describe('evaluatePullReadiness', () => {
   })
 
   it('reports an unready environment before a missing operator', () => {
-    const readiness = evaluatePullReadiness({ environment: null, environmentHealthy: false, operator: null })
+    const readiness = evaluatePullReadiness({ environment: null, integrationEnabled: true, environmentHealthy: false, operator: null })
     expect(readiness.blocker).toBe('environment_not_ready')
   })
 
   it('maps blockers to the section the UI highlights', () => {
+    expect(blockerSection('integration_disabled')).toBe('environment')
     expect(blockerSection('environment_not_ready')).toBe('environment')
     expect(blockerSection('operator_missing')).toBe('operator')
     expect(blockerSection('environment_drift')).toBe('operator')
