@@ -21100,5 +21100,172 @@
       "OMH-039",
       "OMH-232"
     ]
+  },
+  {
+    "id": "OMH-234",
+    "title": "Keep a searchable history of phone calls without a bespoke call table",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, support wants every inbound and outbound phone call kept so an agent can search the history by number, direction and outcome and open a recording where one exists. Before proposing any schema, establish whether an installed module already owns call records and name it, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: which record holds a call and which holds the people on it, which call fields are held encrypted and what reading them back therefore requires, and how a call reaches the application given that no screen in this module creates one. Keep tenant and organization boundaries intact, state the access-control posture for reading calls versus managing ingestion, and identify the smallest relevant validation. Do not design your own calls table, participant table, or recording store before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "call-history",
+      "encrypted-pii"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/phone_calls/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "integration",
+        "module-data",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/phone_calls/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/integrations.md",
+        ".ai/guides/contracts.md",
+        ".ai/guides/modules/tillio/index.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "encrypted-pii",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-233",
+      "OMH-235"
+    ]
+  },
+  {
+    "id": "OMH-235",
+    "title": "Connect the telephony provider the business already pays for without a new client",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, operations already run their telephony on Tillio and want the calls it records to reach this application on a schedule instead of being exported by hand. Before proposing any connector, establish whether an installed provider module already owns this connection, and name both it and the module that owns the stored calls, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: how that provider package is turned on for this application, which access-control features gate attaching an operator versus starting a pull, and how a pull that runs for minutes is carried out without holding the request that asked for it. Keep tenant and organization boundaries intact and identify the smallest relevant validation. Do not write your own Tillio client, credential store, or import endpoint before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "telephony-provider",
+      "provider-package"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/tillio/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "integration",
+        "module-data",
+        "framework-context",
+        "umes"
+      ]
+    },
+    "requiredSkills": [
+      "om-integration-builder"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
+        ".ai/guides/modules/tillio/index.md",
+        ".ai/guides/modules/phone_calls/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/integrations.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/integrations/index.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "app-module-activation",
+      "tenant-scope",
+      "provider-package",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:token|secret|password).{0,20}(?:console|log)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-201",
+      "OMH-234"
+    ]
   }
 ]
