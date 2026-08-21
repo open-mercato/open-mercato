@@ -31,6 +31,7 @@ import { ScheduledJob } from '../data/entities.js'
 import { resolveScheduleAccess } from '../lib/scheduleAccess.js'
 import {
   assertSchedulerSafeCommandAuthorized,
+  SchedulerCommandAuthorizationError,
   type SchedulerCommandRbacService,
 } from '../lib/scheduler-safe-commands.js'
 import { resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
@@ -147,16 +148,32 @@ const triggerScheduleCommand: CommandHandler<ScheduleTriggerInput, TriggerSchedu
           rbacService: ctx.container.resolve<SchedulerCommandRbacService>('rbacService'),
         })
       } catch (error) {
-        logger.info('Manual trigger refused by scheduled-command authorization', {
-          scheduleId: schedule.id,
-          commandId: schedule.targetCommand,
-          err: error,
-        })
+        // Only an authorization decision is a refusal. `userHasAllFeatures` can
+        // also fail because its store is down, and answering `403` to an outage
+        // would tell the caller they lack access they may well hold, and file an
+        // audit row claiming a refusal that was never decided. Those become
+        // `failed`, the same outcome an unreachable queue produces — still audited,
+        // because a handler that throws writes no row at all.
+        const refused = error instanceof SchedulerCommandAuthorizationError
+        const message = error instanceof Error ? error.message : null
+        if (refused) {
+          logger.info('Manual trigger refused by scheduled-command authorization', {
+            scheduleId: schedule.id,
+            commandId: schedule.targetCommand,
+            reason: message,
+          })
+        } else {
+          logger.error('Scheduled-command authorization check failed', {
+            err: error,
+            scheduleId: schedule.id,
+            commandId: schedule.targetCommand,
+          })
+        }
         return {
           ...details,
-          outcome: 'forbidden',
+          outcome: refused ? 'forbidden' : 'failed',
           queueJobId: null,
-          error: error instanceof Error ? error.message : null,
+          error: message,
         }
       }
     }

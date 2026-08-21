@@ -102,6 +102,12 @@ A refusal becomes `outcome: 'forbidden'` — the caller's `403` and the audit ro
 where the row is written. Unlike an access refusal it carries the schedule's details, because access
 to the row has already been granted and naming it discloses nothing the decision withholds.
 
+Only an authorization *decision* becomes `forbidden`, discriminated on
+`SchedulerCommandAuthorizationError`. A `userHasAllFeatures` whose store is down, or an unresolvable
+`rbacService`, is not a decision: answering `403` would tell the caller they lack access they may well
+hold, and file an audit row claiming a refusal nobody made. Those return `failed`, the same outcome an
+unreachable queue produces — still audited, since a handler that throws writes no row at all.
+
 The worker keeps its gate: the pre-check can go stale between enqueue and execution, and unattended
 runs never pass through the trigger command at all. What changed there is the shape of the refusal.
 `assertSchedulerSafeCommandAuthorized` now raises `SchedulerCommandAuthorizationError` — every
@@ -172,7 +178,9 @@ Not changed: database schema, ACL features, event ids, DI keys, response shapes.
   API-key fallback, and `buildLog` output for a success and a refusal. Plus the trigger-time
   scheduled-command gate: an unauthorized actor gets `forbidden` with the schedule's details and no
   enqueue, the gate authorizes the actor the worker will resolve (the creator, for a key-only caller),
-  a command schedule with no resolvable actor is refused, and a queue schedule bypasses the gate.
+  a command schedule with no resolvable actor is refused, and a queue schedule bypasses the gate. Plus
+  the refusal/outage split — a rejecting RBAC lookup gives `forbidden`, while a *failing* one and an
+  unresolvable `rbacService` both give `failed`.
 - `lib/__tests__/commandContext.test.ts` — triggering user wins, falls back to creator, then to the
   system actor; direct coverage of `resolveScheduledCommandActorUserId` including blank ids.
 - `workers/__tests__/execute-schedule.worker.test.ts` — a manual run gates and executes as the
@@ -186,7 +194,14 @@ Not changed: database schema, ACL features, event ids, DI keys, response shapes.
 ## Backward Compatibility
 
 No contract surface changes. `SchedulerCommandAuthorizationError` is an additive export and a subclass
-of `Error`, so callers matching on the existing messages are unaffected — the messages are unchanged.
+of `Error`, so an existing `catch (error)` keeps working unchanged.
+
+Two of the four messages it carries **did** change in this release — `Scheduled command requires an
+authenticated creator` → `...actor`, and `Scheduled command creator is not authorized` → `...actor` —
+following the identity the gate now authorizes. Those strings are diagnostic, not a contract: they are
+neither user-facing nor translated, and nothing in the repo branches on them outside tests. Anything
+that does should branch on the error type instead, which is why the type was introduced.
+
 The command id and the `scheduler.audit.trigger` i18n key are additive;
 the route's request/response shapes, status codes and feature gate are untouched. The behavior changes
 are confined to which identity a manually triggered command schedule runs as, and which identity the

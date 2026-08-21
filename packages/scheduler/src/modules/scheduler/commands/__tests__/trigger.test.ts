@@ -262,6 +262,34 @@ describe('scheduler.jobs.trigger', () => {
     expect(enqueue).not.toHaveBeenCalled()
   })
 
+  it('reports a failing authorization lookup as failed, not as a refusal', async () => {
+    // An RBAC store outage is not a decision about the actor. Calling it `forbidden`
+    // would tell the caller they lack access they may well hold, and file an audit
+    // row claiming a refusal that was never made.
+    userHasAllFeatures.mockRejectedValue(new Error('rbac store unavailable'))
+    const trigger = loadTriggerCommand()
+    const em = makeEm(makeSchedule({ targetType: 'command', targetQueue: null, targetCommand: 'scheduler.test.echo' }))
+
+    const result = await trigger.execute({ id: SCHEDULE_ID }, makeCtx(tenantActor, em))
+
+    expect(result).toMatchObject({ outcome: 'failed', error: 'rbac store unavailable' })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('reports an unresolvable rbacService as failed rather than throwing away the audit row', async () => {
+    const trigger = loadTriggerCommand()
+    const em = makeEm(makeSchedule({ targetType: 'command', targetQueue: null, targetCommand: 'scheduler.test.echo' }))
+    const ctx = makeCtx(tenantActor, em)
+    ctx.container.resolve = jest.fn((name: string) => {
+      if (name === 'rbacService') throw new Error('Could not resolve rbacService')
+      return em
+    })
+
+    const result = await trigger.execute({ id: SCHEDULE_ID }, ctx)
+
+    expect(result).toMatchObject({ outcome: 'failed', error: 'Could not resolve rbacService' })
+  })
+
   it('leaves a queue schedule untouched by the scheduled-command gate', async () => {
     userHasAllFeatures.mockResolvedValue(false)
     const trigger = loadTriggerCommand()

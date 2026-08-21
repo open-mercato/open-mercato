@@ -17,9 +17,13 @@ export type SchedulerCommandRbacService = {
  * Every rejection `assertSchedulerSafeCommandAuthorized` raises is a decision
  * about the actor and the command, not a transient failure: the command is off
  * the allowlist, there is no actor to authorize, the RBAC service is missing, or
- * the actor lacks the required features. Callers running inside a retrying queue
- * need to tell that apart from a genuine outage, so it is thrown as its own type
- * rather than left for message matching. The messages themselves are unchanged.
+ * the actor lacks the required features. A `userHasAllFeatures` implementation
+ * whose store is down throws straight through instead, so callers can tell a
+ * refusal from an outage.
+ *
+ * Branch on this type, never on the message text: the wording is diagnostic and
+ * changes with the code — this release alone renamed `creator` to `actor` in two
+ * of the four — which is the fragility this type exists to remove.
  */
 export class SchedulerCommandAuthorizationError extends Error {
   constructor(message: string) {
