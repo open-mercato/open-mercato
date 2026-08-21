@@ -127,7 +127,7 @@ test.describe('TC-AGENT-UXC-006: PL locale smoke', () => {
 
       // 1. Caseload — the view toggle reads „Skrzynka" (was untranslated "Inbox").
       await page.goto('/backend/caseload', { waitUntil: 'domcontentloaded' })
-      await expect(page.getByRole('button', { name: 'Skrzynka' })).toBeVisible({ timeout: 15_000 })
+      await expect(page.getByRole('radio', { name: 'Skrzynka' })).toBeVisible({ timeout: 15_000 })
 
       // 2. Flagged-guardrail copy is translated AND interpolated — open the
       //    seeded proposal's pane and check the reasoning/guard section.
