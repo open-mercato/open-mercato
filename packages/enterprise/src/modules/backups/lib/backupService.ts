@@ -905,8 +905,9 @@ function isBackupManifest(value: unknown): value is BackupManifest {
 }
 
 function readPackageVersion(): string {
+  const packageUrl = new URL('../../../../package.json', import.meta.url)
   const parsed: unknown = JSON.parse(
-    readFileSync(fileURLToPath(new URL('../../../../package.json', import.meta.url)), 'utf8'),
+    readFileSync(fileURLToPath(packageUrl.href), 'utf8'),
   )
   if (!parsed || typeof parsed !== 'object' || typeof (parsed as Record<string, unknown>).version !== 'string') {
     throw new BackupServiceError('Could not read the Open Mercato package version.', 'APPLICATION_VERSION_UNAVAILABLE')
