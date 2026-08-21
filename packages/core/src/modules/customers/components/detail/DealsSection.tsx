@@ -13,6 +13,7 @@ import { createDealLinkAdapter } from '../linking/adapters/dealAdapter'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
@@ -545,17 +546,11 @@ export function DealsSection({
         return [...updatedPrev, ...appended]
       })
       pageRef.current = nextPage
-      const totalPagesRaw = payload?.totalPages
-      const totalPages =
-        typeof totalPagesRaw === 'number'
-          ? totalPagesRaw
-          : typeof totalPagesRaw === 'string' && totalPagesRaw.trim().length
-            ? Number(totalPagesRaw)
-            : null
-      const nextHasMore =
-        totalPages && Number.isFinite(totalPages)
-          ? nextPage < totalPages
-          : mapped.length === DEALS_PAGE_SIZE
+      // Short-page termination, unconditionally — see `hasMoreFromPage`.
+      // Preferring `totalPages` here hid deals that do exist. Measured on
+      // `rawItems`, which is what the server served, rather than on the
+      // deduped rows appended above.
+      const nextHasMore = hasMoreFromPage(rawItems.length, DEALS_PAGE_SIZE)
       hasMoreRef.current = nextHasMore
       setHasMore(nextHasMore)
       setLoadError(null)

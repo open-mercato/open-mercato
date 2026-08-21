@@ -11,6 +11,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { eventDisplayTitle, pluralCategory } from '../../lib/calendar/labels'
+import { formatTimeLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { AgendaListProps, CalendarCategory, CalendarItem } from './types'
 
 const MAX_AVATARS_PER_ROW = 2
@@ -42,10 +43,6 @@ function formatUrlHost(location: string): string {
   } catch {
     return location
   }
-}
-
-function formatTime(locale: string, date: Date): string {
-  return date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
 }
 
 function groupLabelOf(locale: string, date: Date): string {
@@ -132,9 +129,9 @@ function AgendaRow({
     : item.locationKind === 'url' && item.location
       ? formatUrlHost(item.location)
       : item.location
-  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTime(locale, item.start)
-  const endLabel = item.allDay ? null : formatTime(locale, item.end)
-  const ariaTime = item.allDay ? startLabel : `${startLabel} – ${endLabel}`
+  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTimeLabel(locale, item.start)
+  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end)
+  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end)
   return (
     <Button
       type="button"

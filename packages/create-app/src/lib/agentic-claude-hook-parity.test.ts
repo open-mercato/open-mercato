@@ -50,8 +50,8 @@ test('mercato agentic:init installs Claude hooks from disk rather than a hand-ke
   // enumerated list is exactly how gate-evidence.ts came to be registered but never copied.
   const body = claudeGeneratorBody()
   assert.ok(
-    body.includes('claudeHookFiles()'),
-    'generateClaudeCode should install hooks via the disk-derived claudeHookFiles() helper',
+    body.includes('claudeHookFiles(config.experimentalHooksValidator)'),
+    'generateClaudeCode should install hooks via the policy-filtered disk-derived helper',
   )
   assert.ok(
     !/copyFile\(srcDir, `?'?hooks\/[A-Za-z]/.test(body),
@@ -66,7 +66,7 @@ test('mercato agentic:init claims every installed hook in its ownership manifest
     cliSetupSource.indexOf("paths.add(join(targetDir, 'CLAUDE.md'))"),
   )
   assert.ok(
-    ownershipBlock.includes("for (const hook of claudeHookFiles()) paths.add(join(targetDir, '.claude', 'hooks', hook))"),
+    ownershipBlock.includes('for (const hook of claudeHookFiles(config.experimentalHooksValidator))'),
     'agentic-setup.ts ownership manifest should claim every disk-derived Claude hook',
   )
 })
