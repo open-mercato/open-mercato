@@ -80,12 +80,13 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
     await page.goto('/backend/processes/definitions', { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: /new definition/i }).click()
 
+    await page.locator('[data-crud-field-id="name"] input').fill(`TC-UXC-003 preview ${Date.now()}`)
     await page.getByRole('button', { name: /add schedule/i }).click()
     const cronInput = page.getByLabel(/cron expression/i)
     await expect(cronInput).toBeVisible({ timeout: 10_000 })
 
     await cronInput.fill('0 7 * * 1')
-    const preview = page.getByText(/next runs:/i)
+    const preview = page.locator('p').filter({ hasText: /next runs:/i })
     await expect(preview).toBeVisible({ timeout: 5_000 })
     // Three occurrences joined by the " · " separator → exactly two separators.
     const previewText = (await preview.textContent()) ?? ''
