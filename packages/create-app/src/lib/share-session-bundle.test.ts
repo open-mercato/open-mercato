@@ -334,6 +334,75 @@ test('session-share preparer recognizes messages nested in native Codex turns', 
   }
 })
 
+test('session-share preparer records a sanitized deterministic stop cause', async (t) => {
+  const prepare = (session: unknown) => {
+    const fixture = createFixture()
+    fs.writeFileSync(fixture.sessionPath, JSON.stringify(session))
+    fs.writeFileSync(path.join(fixture.root, 'src', 'generated.ts'), 'export {}\n')
+    fs.writeFileSync(fixture.manifestPath, 'src/generated.ts\n')
+    const result = runPreparer(fixture)
+    assert.equal(result.status, 0, result.stderr)
+    const manifest = JSON.parse(fs.readFileSync(path.join(fixture.outputPath, 'manifest.json'), 'utf8')) as {
+      stopCause: {
+        classification: string
+        lastEntryError: { name: string; statusCode: number | null; message: string } | null
+      }
+    }
+    return { fixture, manifest }
+  }
+
+  await t.test('provider limit', () => {
+    const { fixture, manifest } = prepare([
+      { type: 'user', message: { role: 'user', content: 'Run the task' } },
+      {
+        type: 'assistant',
+        message: { role: 'assistant', content: 'Working' },
+        info: {
+          error: {
+            name: 'ProviderError',
+            status: 429,
+            message: 'Rate limit for alice@example.com resets at 1786374512345',
+          },
+        },
+      },
+    ])
+    try {
+      assert.equal(manifest.stopCause.classification, 'provider-limit')
+      assert.equal(manifest.stopCause.lastEntryError?.name, 'ProviderError')
+      assert.equal(manifest.stopCause.lastEntryError?.statusCode, 429)
+      assert.doesNotMatch(manifest.stopCause.lastEntryError?.message ?? '', /alice@example\.com|1786374512345/)
+      assert.match(manifest.stopCause.lastEntryError?.message ?? '', /redacted:email/)
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  await t.test('clean completion', () => {
+    const { fixture, manifest } = prepare([
+      { type: 'user', message: { role: 'user', content: 'Run the task' } },
+      { type: 'assistant', message: { role: 'assistant', content: 'Done' } },
+    ])
+    try {
+      assert.deepEqual(manifest.stopCause, { classification: 'completed', lastEntryError: null })
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  await t.test('malformed tail', () => {
+    const { fixture, manifest } = prepare([
+      { type: 'user', message: { role: 'user', content: 'Run the task' } },
+      { type: 'assistant', message: { role: 'assistant', content: 'Working' } },
+      { info: { error: { name: 42, status: '429', message: null } } },
+    ])
+    try {
+      assert.deepEqual(manifest.stopCause, { classification: 'unknown', lastEntryError: null })
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+})
+
 test('session-share preparer accepts migration timestamps without weakening phone detection in paths', () => {
   const fixture = createFixture()
   try {

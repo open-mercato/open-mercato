@@ -47,7 +47,7 @@ Usage:
 Options:
   --root <absolute-app>          Controller/generated app root (default: current directory)
   --runner <codex|claude>        Required primary runner for every blocking live lane
-  --portability-runner <runner> Optional different runner for the 48-case read-only portability lane
+  --portability-runner <runner> Optional different runner for the 49-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
   --case-timeout <ms>           Per-model invocation timeout floor (default: 120000; a writable case may raise it)
