@@ -107,14 +107,14 @@ test.describe('TC-AGENT-UXC-004: run-id prefix search on Traces', () => {
 
       // Positive leg: prefix finds exactly the target run, across page bounds.
       await searchBox.fill(targetPrefix)
-      const bodyRows = page.locator('table tbody tr')
-      await expect(bodyRows).toHaveCount(1, { timeout: 15_000 })
+      const dataRows = page.locator('table tbody tr:has(td:not([colspan]))')
+      await expect(dataRows).toHaveCount(1, { timeout: 15_000 })
 
       // Negative leg: an unrelated prefix yields no rows (server-filtered).
       await page.goto('/backend/traces', { waitUntil: 'domcontentloaded' })
       await expect(page.getByPlaceholder(/run id/i)).toBeVisible({ timeout: 15_000 })
       await page.getByPlaceholder(/run id/i).fill('deadbeefdead')
-      await expect(page.locator('table tbody tr')).toHaveCount(0, { timeout: 15_000 })
+      await expect(dataRows).toHaveCount(0, { timeout: 15_000 })
     } finally {
       await deleteAgentOrchestratorRowsForOrganization(orgId).catch(() => {})
       await deleteUserIfExists(request, superadminToken, userId).catch(() => {})
