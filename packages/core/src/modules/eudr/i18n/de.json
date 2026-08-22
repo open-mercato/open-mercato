@@ -239,7 +239,7 @@
   "eudr.lifecycle.amendWindowClosed": "Änderungsfenster geschlossen",
   "eudr.lifecycle.amendWindowRemaining": "Verbleibendes Änderungsfenster: {hours} Std. {minutes} Min.",
   "eudr.lifecycle.confirmArchive": "Erklärung archivieren?",
-  "eudr.lifecycle.confirmArchiveBody": "Die Erklärung wird archiviert.",
+  "eudr.lifecycle.confirmArchiveBody": "Die Erklärung wird archiviert. Archivierte Erklärungen sind schreibgeschützt und können nicht bearbeitet, wiederhergestellt oder gelöscht werden.",
   "eudr.lifecycle.confirmMarkAvailable": "Erklärung als verfügbar markieren?",
   "eudr.lifecycle.confirmMarkAvailableBody": "Referenzdetails sind erforderlich, bevor die Erklärung verfügbar wird.",
   "eudr.lifecycle.confirmReturnToDraft": "Erklärung in Entwurf zurücksetzen?",

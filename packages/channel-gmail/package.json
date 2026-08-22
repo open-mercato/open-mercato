@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/channel-gmail",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
