@@ -44,11 +44,14 @@ const akeneoSchema: IntegrationCredentialsSchema = {
   ],
 }
 
-function buildRequest(credentials: Record<string, unknown>): Request {
+function buildRequest(
+  credentials: Record<string, unknown>,
+  unchangedSecretFields?: string[],
+): Request {
   return new Request('http://localhost/api/integrations/sync_akeneo/credentials', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ credentials }),
+    body: JSON.stringify({ credentials, unchangedSecretFields }),
   })
 }
 
@@ -190,6 +193,46 @@ describe('integrations credentials route — secret masking (issue #2253)', () =
     expect(saveMock).toHaveBeenCalledWith(
       'sync_akeneo',
       { apiUrl: 'https://akeneo.example', clientSecret: 'rotated-secret' },
+      { organizationId: 'o1', tenantId: 't1' },
+    )
+  })
+
+  it('PUT preserves a listed omitted secret without changing plain omission semantics', async () => {
+    resolveMock.mockResolvedValue({ apiUrl: 'https://akeneo.example', clientSecret: 'stored-secret' })
+    const preserveResponse = await PUT(
+      buildRequest({ apiUrl: 'https://akeneo.example' }, ['clientSecret']),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(preserveResponse.status).toBe(200)
+    expect(saveMock).toHaveBeenLastCalledWith(
+      'sync_akeneo',
+      { apiUrl: 'https://akeneo.example', clientSecret: 'stored-secret' },
+      { organizationId: 'o1', tenantId: 't1' },
+    )
+
+    saveMock.mockClear()
+    const clearResponse = await PUT(
+      buildRequest({ apiUrl: 'https://akeneo.example' }),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(clearResponse.status).toBe(200)
+    expect(saveMock).toHaveBeenCalledWith(
+      'sync_akeneo',
+      { apiUrl: 'https://akeneo.example' },
+      { organizationId: 'o1', tenantId: 't1' },
+    )
+  })
+
+  it('PUT keeps explicit empty-string clearing when a secret is configured', async () => {
+    resolveMock.mockResolvedValue({ clientSecret: 'stored-secret' })
+    const response = await PUT(
+      buildRequest({ clientSecret: '' }),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(response.status).toBe(200)
+    expect(saveMock).toHaveBeenCalledWith(
+      'sync_akeneo',
+      { clientSecret: '' },
       { organizationId: 'o1', tenantId: 't1' },
     )
   })

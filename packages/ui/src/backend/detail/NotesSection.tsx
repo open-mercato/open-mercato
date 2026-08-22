@@ -7,6 +7,7 @@ import { AppearanceDialog } from '@open-mercato/core/modules/customers/component
 import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -27,6 +28,8 @@ import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widget
 import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+const NOTES_PAGE_SIZE = 20
 
 const isTestEnv =
   typeof process !== 'undefined' &&
@@ -204,7 +207,20 @@ export type NotesSectionProps<C = unknown> = {
   iconSuggestions?: IconOption[]
   readMarkdownPreference?: () => boolean | null
   writeMarkdownPreference?: (value: boolean) => void
+  /** Force the plain textarea and hide the markdown toggle. Wins over `forceMarkdown`. */
   disableMarkdown?: boolean
+  /**
+   * Keep the rich markdown editor active for every note and hide the markdown toggle,
+   * so the editor shape cannot be switched. Ignored when `disableMarkdown` is set.
+   */
+  forceMarkdown?: boolean
+  /**
+   * Hide the markdown toggle without changing which editor renders — the seeded
+   * `readMarkdownPreference` value stays in effect. Implied by `forceMarkdown`.
+   */
+  hideMarkdownToggle?: boolean
+  /** Hide the appearance (icon/color) affordances: the palette buttons and the appearance dialog. */
+  disableAppearance?: boolean
 }
 
 export function sanitizeHexColor(value: string | null): string | null {
@@ -310,6 +326,9 @@ function NotesSectionImpl<C = unknown>({
   readMarkdownPreference,
   writeMarkdownPreference,
   disableMarkdown,
+  forceMarkdown,
+  hideMarkdownToggle,
+  disableAppearance,
 }: NotesSectionProps<C>) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
@@ -445,13 +464,16 @@ function NotesSectionImpl<C = unknown>({
   const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
   const [draftColor, setDraftColor] = React.useState<string | null>(null)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
+  const isMarkdownActive = !disableMarkdown && (Boolean(forceMarkdown) || isMarkdownEnabled)
+  const showMarkdownToggle = !disableMarkdown && !forceMarkdown && !hideMarkdownToggle
+  const showAppearanceControls = !disableAppearance
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const formRef = React.useRef<HTMLFormElement | null>(null)
   const focusComposer = React.useCallback(() => {
     if (!hasEntity) return
     setComposerOpen(true)
     window.requestAnimationFrame(() => {
-      if (isMarkdownEnabled) {
+      if (isMarkdownActive) {
         const markdownTextarea = formRef.current?.querySelector('textarea')
         if (markdownTextarea instanceof HTMLTextAreaElement) {
           markdownTextarea.focus()
@@ -464,7 +486,7 @@ function NotesSectionImpl<C = unknown>({
       element.focus()
       element.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
-  }, [formRef, hasEntity, isMarkdownEnabled])
+  }, [formRef, hasEntity, isMarkdownActive])
   const [appearanceDialogState, setAppearanceDialogState] = React.useState<
     | { mode: 'create'; icon: string | null; color: string | null }
     | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
@@ -478,7 +500,10 @@ function NotesSectionImpl<C = unknown>({
   const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [visibleCount, setVisibleCount] = React.useState(0)
   const [currentPage, setCurrentPage] = React.useState(1)
-  const [totalPages, setTotalPages] = React.useState(1)
+  // Short-page termination instead of `currentPage >= totalPages` — see
+  // `hasMoreFromPage`. `/api/customers/comments` is a `makeCrudRoute` list, so
+  // a page past the end comes back empty rather than clamped.
+  const [hasMore, setHasMore] = React.useState(false)
   const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
   const pagedMode = typeof dataAdapter.listPage === 'function'
 
@@ -490,7 +515,7 @@ function NotesSectionImpl<C = unknown>({
       setLoadError(null)
       setIsLoading(false)
       setCurrentPage(1)
-      setTotalPages(1)
+      setHasMore(false)
       return
     }
     let cancelled = false
@@ -504,13 +529,13 @@ function NotesSectionImpl<C = unknown>({
             entityId: queryEntityId || null,
             dealId: queryDealId || null,
             page: 1,
-            pageSize: 20,
+            pageSize: NOTES_PAGE_SIZE,
             context: dataContext,
           })
           if (cancelled) return
           setNotes(pageResult.items)
           setCurrentPage(pageResult.page)
-          setTotalPages(pageResult.totalPages)
+          setHasMore(hasMoreFromPage(pageResult.items.length, NOTES_PAGE_SIZE))
           return
         }
         const mapped = await dataAdapter.list({
@@ -521,7 +546,7 @@ function NotesSectionImpl<C = unknown>({
         if (cancelled) return
         setNotes(mapped)
         setCurrentPage(1)
-        setTotalPages(1)
+        setHasMore(false)
       } catch (err) {
         if (cancelled) return
         const message =
@@ -529,7 +554,7 @@ function NotesSectionImpl<C = unknown>({
         setNotes([])
         setLoadError(message)
         setCurrentPage(1)
-        setTotalPages(1)
+        setHasMore(false)
         flash(message, 'error')
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -578,7 +603,7 @@ function NotesSectionImpl<C = unknown>({
 
   React.useEffect(() => {
     adjustTextareaSize(textareaRef.current)
-  }, [adjustTextareaSize, draftBody, isMarkdownEnabled, composerOpen])
+  }, [adjustTextareaSize, draftBody, isMarkdownActive, composerOpen])
 
   React.useEffect(() => {
     const preference = readMarkdownPreference ? readMarkdownPreference() : null
@@ -787,7 +812,7 @@ function NotesSectionImpl<C = unknown>({
 
   const handleLoadMore = React.useCallback(() => {
     if (pagedMode && dataAdapter.listPage) {
-      if (currentPage >= totalPages || isLoading) return
+      if (!hasMore || isLoading) return
       const queryEntityId = typeof entityId === 'string' ? entityId : ''
       const queryDealId = typeof dealId === 'string' ? dealId : ''
       setIsLoading(true)
@@ -796,13 +821,17 @@ function NotesSectionImpl<C = unknown>({
         entityId: queryEntityId || null,
         dealId: queryDealId || null,
         page: currentPage + 1,
-        pageSize: 20,
+        pageSize: NOTES_PAGE_SIZE,
         context: dataContext,
       })
         .then((pageResult) => {
-          setNotes((prev) => [...prev, ...pageResult.items])
+          setNotes((prev) => {
+            const merged = new Map(prev.map((note) => [note.id, note]))
+            pageResult.items.forEach((note) => merged.set(note.id, note))
+            return Array.from(merged.values())
+          })
           setCurrentPage(pageResult.page)
-          setTotalPages(pageResult.totalPages)
+          setHasMore(hasMoreFromPage(pageResult.items.length, NOTES_PAGE_SIZE))
         })
         .catch((error) => {
           const message =
@@ -819,7 +848,7 @@ function NotesSectionImpl<C = unknown>({
       if (prev >= notes.length) return prev
       return Math.min(prev + 5, notes.length)
     })
-  }, [currentPage, dataAdapter, dataContext, dealId, entityId, flash, isLoading, label, notes.length, pagedMode, popLoading, pushLoading, totalPages])
+  }, [currentPage, dataAdapter, dataContext, dealId, entityId, flash, hasMore, isLoading, label, notes.length, pagedMode, popLoading, pushLoading])
 
   const handleAppearanceDialogSubmit = React.useCallback(async () => {
     if (!appearanceDialogState) return
@@ -980,31 +1009,33 @@ function NotesSectionImpl<C = unknown>({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium">{label('addLabel')}</h3>
               <div className="flex flex-wrap items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setAppearanceDialogError(null)
-                    setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
-                  }}
-                  disabled={isSubmitting || isLoading || !hasEntity}
-                >
-                  <span className="sr-only">{label('appearance.toggleOpen', 'Customize appearance')}</span>
-                  <Palette className="h-4 w-4" />
-                </Button>
-                {disableMarkdown ? null : (
+                {showAppearanceControls ? (
                   <Button
                     type="button"
-                    variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setAppearanceDialogError(null)
+                      setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
+                    }}
+                    disabled={isSubmitting || isLoading || !hasEntity}
+                  >
+                    <span className="sr-only">{label('appearance.toggleOpen', 'Customize appearance')}</span>
+                    <Palette className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                {showMarkdownToggle ? (
+                  <Button
+                    type="button"
+                    variant={isMarkdownActive ? 'secondary' : 'ghost'}
                     size="icon"
                     onClick={handleMarkdownToggle}
-                    aria-pressed={isMarkdownEnabled}
+                    aria-pressed={isMarkdownActive}
                     disabled={isSubmitting || isLoading}
                   >
                     <FileCode className="h-4 w-4" />
                   </Button>
-                )}
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -1080,7 +1111,7 @@ function NotesSectionImpl<C = unknown>({
             <SwitchableMarkdownInput
               value={draftBody}
               onChange={setDraftBody}
-              isMarkdownEnabled={isMarkdownEnabled}
+              isMarkdownEnabled={isMarkdownActive}
               disableMarkdown={disableMarkdown}
               rows={1}
               placeholder={label('placeholder')}
@@ -1204,24 +1235,26 @@ function NotesSectionImpl<C = unknown>({
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setAppearanceDialogError(null)
-                        setAppearanceDialogState({
-                          mode: 'edit',
-                          noteId: note.id,
-                          icon: note.appearanceIcon ?? null,
-                          color: note.appearanceColor ?? null,
-                        })
-                      }}
-                      disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
-                    >
-                      {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
-                    </Button>
+                    {showAppearanceControls ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setAppearanceDialogError(null)
+                          setAppearanceDialogState({
+                            mode: 'edit',
+                            noteId: note.id,
+                            icon: note.appearanceIcon ?? null,
+                            color: note.appearanceColor ?? null,
+                          })
+                        }}
+                        disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
+                      >
+                        {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       variant="ghost"
@@ -1247,7 +1280,7 @@ function NotesSectionImpl<C = unknown>({
                     <SwitchableMarkdownInput
                       value={contentEditor.value}
                       onChange={(nextValue) => setContentEditor((prev) => ({ ...prev, value: nextValue }))}
-                      isMarkdownEnabled={isMarkdownEnabled}
+                      isMarkdownEnabled={isMarkdownActive}
                       disableMarkdown={disableMarkdown}
                       rows={3}
                       textareaRef={contentTextareaRef}
@@ -1268,19 +1301,19 @@ function NotesSectionImpl<C = unknown>({
                           inlineLabel('saveShortcut')
                         )}
                       </Button>
-                      {disableMarkdown ? null : (
+                      {showMarkdownToggle ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           onClick={handleMarkdownToggle}
-                          aria-pressed={isMarkdownEnabled}
-                          className={isMarkdownEnabled ? 'text-primary' : undefined}
+                          aria-pressed={isMarkdownActive}
+                          className={isMarkdownActive ? 'text-primary' : undefined}
                           disabled={contentSavingId === note.id}
                         >
                           <FileCode className="h-4 w-4" />
                         </Button>
-                      )}
+                      ) : null}
                       <Button
                         type="button"
                         size="sm"
@@ -1322,7 +1355,7 @@ function NotesSectionImpl<C = unknown>({
             }}
           />
         )}
-        {isLoading || (pagedMode ? currentPage >= totalPages : visibleCount >= notes.length) ? null : (
+        {isLoading || (pagedMode ? !hasMore : visibleCount >= notes.length) ? null : (
           <div className="flex justify-center">
             <Button variant="outline" size="sm" onClick={handleLoadMore}>
               {loadMoreLabel}
@@ -1330,29 +1363,31 @@ function NotesSectionImpl<C = unknown>({
           </div>
         )}
       </div>
-      <AppearanceDialog
-        open={appearanceDialogOpen}
-        title={
-          appearanceDialogState?.mode === 'edit'
-            ? label('appearance.edit')
-            : label('appearance.toggleOpen', 'Customize appearance')
-        }
-        icon={appearanceDialogState?.icon ?? null}
-        color={appearanceDialogState?.color ?? null}
-        labels={noteAppearanceLabels}
-        iconSuggestions={iconSuggestions}
-        onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
-        onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
-        onSubmit={() => {
-          void handleAppearanceDialogSubmit()
-        }}
-        onClose={handleAppearanceDialogClose}
-        isSaving={appearanceDialogSaving}
-        errorMessage={appearanceDialogError}
-        primaryLabel={appearanceDialogPrimaryLabel}
-        savingLabel={appearanceDialogSavingLabel}
-        cancelLabel={label('appearance.cancel')}
-      />
+      {showAppearanceControls ? (
+        <AppearanceDialog
+          open={appearanceDialogOpen}
+          title={
+            appearanceDialogState?.mode === 'edit'
+              ? label('appearance.edit')
+              : label('appearance.toggleOpen', 'Customize appearance')
+          }
+          icon={appearanceDialogState?.icon ?? null}
+          color={appearanceDialogState?.color ?? null}
+          labels={noteAppearanceLabels}
+          iconSuggestions={iconSuggestions}
+          onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
+          onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
+          onSubmit={() => {
+            void handleAppearanceDialogSubmit()
+          }}
+          onClose={handleAppearanceDialogClose}
+          isSaving={appearanceDialogSaving}
+          errorMessage={appearanceDialogError}
+          primaryLabel={appearanceDialogPrimaryLabel}
+          savingLabel={appearanceDialogSavingLabel}
+          cancelLabel={label('appearance.cancel')}
+        />
+      ) : null}
       {ConfirmDialogElement}
     </div>
   )
