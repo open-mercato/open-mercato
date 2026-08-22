@@ -106,6 +106,11 @@ function writeStandaloneEnv(appDir: string): void {
     // verifies the tokens this app mints, so both halves share one secret.
     'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101',
     'DOCUMENTS_COLLAB_JWT_SECRET_V2=local-standalone-documents-collab-v2-secret-32b',
+    // Required for the loopback collab URL above to be accepted: the server runs
+    // with NODE_ENV=production and resolveDocumentsCollaborationEndpoint() rejects a
+    // loopback ws:// host there unless this opts in. App-side only — in the Playwright
+    // process the same variable opts TC-DOCUMENTS-017's realtime spec in instead.
+    'OM_DOCUMENTS_COLLAB_INTEGRATION=1',
     'OM_DISABLE_EMAIL_DELIVERY=1',
     'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
