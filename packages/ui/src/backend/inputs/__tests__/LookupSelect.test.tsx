@@ -162,4 +162,56 @@ describe('LookupSelect keyboard accessibility', () => {
     expect(input.value).toBe('')
     expect(escapeSpy).not.toHaveBeenCalled()
   })
+
+  // Issue #5456 item 3: a `minQuery` of 0 makes `shouldSearch` true for the empty
+  // query, so the full option list renders before any interaction. Callers that
+  // want the collapsed "start typing" affordance must keep minQuery >= 1.
+  it('renders pre-expanded with minQuery=0 and collapsed with minQuery=1', async () => {
+    const expanded = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={0} />,
+    )
+    expect(await expanded.findAllByRole('option')).toHaveLength(2)
+    expanded.unmount()
+
+    const collapsed = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={1} />,
+    )
+    expect(collapsed.queryByRole('listbox')).toBeNull()
+    expect(collapsed.getByText('Start typing to search.')).toBeInTheDocument()
+
+    fireEvent.change(getInput(collapsed.container), { target: { value: 'F' } })
+    expect(await collapsed.findAllByRole('option')).toHaveLength(2)
+  })
+
+  // A selection must never be invisible. Before this, `shouldSearch` only made an
+  // exception for a set `value` when the caller ALSO passed `options`, so a
+  // minQuery >= 1 lookup without that prop collapsed over its own selection: no
+  // selected row, no checkmark and no clear control — the user could not see or
+  // undo what was chosen (review of #5481, order-line Status field).
+  it('keeps a made selection visible while collapsed, without an options prop', async () => {
+    const onChange = jest.fn()
+    const view = render(
+      <LookupSelect
+        value="plot-1"
+        onChange={onChange}
+        fetchItems={async () => ITEMS}
+        minQuery={1}
+      />,
+    )
+
+    const selected = await view.findByRole('option', { selected: true })
+    expect(selected).toHaveTextContent(ITEMS[0].title)
+
+    const clear = view.getByRole('button', { name: 'Clear selection' })
+    fireEvent.click(clear)
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('stays collapsed at minQuery >= 1 once the selection is cleared', async () => {
+    const view = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={1} />,
+    )
+    expect(view.queryByRole('listbox')).toBeNull()
+    expect(view.getByText('Start typing to search.')).toBeInTheDocument()
+  })
 })
