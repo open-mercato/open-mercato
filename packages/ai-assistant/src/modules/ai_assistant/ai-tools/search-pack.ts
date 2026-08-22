@@ -11,10 +11,12 @@ import {
   canReadSearchEntity,
   filterSearchResultsByEntityAccess,
   resolveReadableEntityTypes,
+  type SearchEntityAccessSubject,
   type SearchEntityConfigLookup,
+  type SearchEntityDenyReason,
 } from '@open-mercato/shared/lib/search/entityAccess'
 import { defineAiTool } from '../lib/ai-tool-definition'
-import type { AiToolDefinition } from '../lib/types'
+import type { AiToolDefinition, McpToolContext } from '../lib/types'
 
 type SearchServiceLike = {
   search: (query: string, options: SearchOptions) => Promise<SearchResult[]>
@@ -27,7 +29,7 @@ class SearchToolAuthorizationError extends Error {
   }
 }
 
-function resolveSearchIndexer(ctx: { container: { resolve: (name: string) => unknown } }): SearchEntityConfigLookup {
+function resolveSearchIndexer(ctx: McpToolContext): SearchEntityConfigLookup {
   try {
     const indexer = ctx.container.resolve('searchIndexer') as SearchEntityConfigLookup | undefined
     if (indexer && typeof indexer.getEntityConfig === 'function' && typeof indexer.getAllEntityConfigs === 'function') {
@@ -39,22 +41,32 @@ function resolveSearchIndexer(ctx: { container: { resolve: (name: string) => unk
   throw new SearchToolAuthorizationError('[internal] Search entity registry unavailable')
 }
 
-function authorizeEntityAccess(entityType: string, ctx: { container: { resolve: (name: string) => unknown }; userFeatures: string[]; isSuperAdmin: boolean }): void {
-  const lookup = resolveSearchIndexer(ctx as any)
-  if (ctx.isSuperAdmin) return
-  const config = lookup.getEntityConfig(entityType)
-  if (!config) {
+function authorizeEntityAccess(
+  entityType: string,
+  lookup: SearchEntityConfigLookup,
+  subject: SearchEntityAccessSubject,
+): void {
+  if (subject.isSuperAdmin) return
+  let denial: SearchEntityDenyReason | undefined
+  const allowed = canReadSearchEntity(entityType, lookup, subject, {
+    onDeny: (_, reason) => {
+      denial = reason
+    },
+  })
+  if (allowed) return
+  if (denial === 'unconfigured') {
     throw new SearchToolAuthorizationError(`[internal] Entity type "${entityType}" is not configured for search`)
   }
-  const required = config.aclFeatures
-  if (!required || required.length === 0) {
-    throw new SearchToolAuthorizationError(`[internal] Entity type "${entityType}" does not declare aclFeatures; access denied`)
-  }
-  if (!canReadSearchEntity(entityType, lookup, { grantedFeatures: ctx.userFeatures, isSuperAdmin: ctx.isSuperAdmin })) {
+  if (denial === 'no-acl-features') {
     throw new SearchToolAuthorizationError(
-      `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`,
+      `[internal] Entity type "${entityType}" does not declare aclFeatures; access denied`,
     )
   }
+  const config = lookup.getEntityConfig(entityType)
+  const required = config?.aclFeatures ?? []
+  throw new SearchToolAuthorizationError(
+    `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`,
+  )
 }
 
 const hybridSearchInput = z.object({
@@ -92,9 +104,33 @@ const hybridSearchTool = defineAiTool({
     const service = ctx.container.resolve<SearchServiceLike>('searchService')
     const limit = input.limit ?? 20
     const started = Date.now()
+    const subject: SearchEntityAccessSubject = {
+      grantedFeatures: ctx.userFeatures,
+      isSuperAdmin: ctx.isSuperAdmin,
+    }
 
-    const lookup = resolveSearchIndexer(ctx as any)
-    const subject = { grantedFeatures: ctx.userFeatures, isSuperAdmin: ctx.isSuperAdmin }
+    if (ctx.isSuperAdmin) {
+      const results = await service.search(input.q, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        limit,
+        strategies: input.strategies as SearchStrategyId[] | undefined,
+        entityTypes: input.entityTypes,
+      })
+      const timingMs = Date.now() - started
+      const strategiesUsed = Array.from(
+        new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
+      )
+      return {
+        query: input.q,
+        totalResults: results.length,
+        results,
+        strategiesUsed,
+        timing: { ms: timingMs },
+      }
+    }
+
+    const lookup = resolveSearchIndexer(ctx)
     const readableEntityTypes = resolveReadableEntityTypes(lookup, subject, input.entityTypes)
     if (readableEntityTypes && readableEntityTypes.length === 0) {
       return {
@@ -146,20 +182,25 @@ const getRecordContextTool = defineAiTool({
       throw new Error('Tenant context is required for search.get_record_context')
     }
     const input = getRecordContextInput.parse(rawInput)
+    const subject: SearchEntityAccessSubject = {
+      grantedFeatures: ctx.userFeatures,
+      isSuperAdmin: ctx.isSuperAdmin,
+    }
 
-    authorizeEntityAccess(input.entityId, ctx as any)
+    let lookup: SearchEntityConfigLookup | undefined
+    if (!ctx.isSuperAdmin) {
+      lookup = resolveSearchIndexer(ctx)
+      authorizeEntityAccess(input.entityId, lookup, subject)
+    }
 
     const service = ctx.container.resolve<SearchServiceLike>('searchService')
-    const lookup = resolveSearchIndexer(ctx as any)
-    const subject = { grantedFeatures: ctx.userFeatures, isSuperAdmin: ctx.isSuperAdmin }
-
     const rawResults = await service.search(input.recordId, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       limit: 5,
       entityTypes: [input.entityId],
     })
-    const results = filterSearchResultsByEntityAccess(rawResults, lookup, subject)
+    const results = lookup ? filterSearchResultsByEntityAccess(rawResults, lookup, subject) : rawResults
     const match = results.find((result) => result.recordId === input.recordId)
     if (!match) {
       return {
