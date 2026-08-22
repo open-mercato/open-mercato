@@ -3,9 +3,10 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '../../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const querySchema = z.object({
   digits: z
@@ -45,18 +46,34 @@ export async function GET(req: Request) {
     return NextResponse.json({ match: null })
   }
 
-  const qb = em.createQueryBuilder(CustomerEntity, 'person')
-  qb.select(['person.id', 'person.displayName'])
-  qb.where({ kind: 'person', deletedAt: null })
-  qb.andWhere('person.primary_phone is not null')
-  qb.andWhere("regexp_replace(person.primary_phone, '\\D', '', 'g') = ?", [parse.data.digits])
-  if (auth.tenantId) {
-    qb.andWhere({ tenantId: auth.tenantId })
+  // `primary_phone` is encrypted at rest (customers/encryption.ts), so digit
+  // normalization must run in application code over decrypted rows: a SQL
+  // comparison against the stored column silently never matches once tenant
+  // data encryption is on (issue #3840).
+  const where: FilterQuery<CustomerEntity> = {
+    kind: 'person',
+    deletedAt: null,
+    primaryPhone: { $ne: null },
+    organizationId: { $in: Array.from(allowedOrgIds) },
   }
-  qb.andWhere({ organizationId: { $in: Array.from(allowedOrgIds) } })
-  qb.limit(1)
+  if (auth.tenantId) {
+    where.tenantId = auth.tenantId
+  }
 
-  const match = await qb.getSingleResult()
+  const candidates = await findWithDecryption(
+    em,
+    CustomerEntity,
+    where,
+    undefined,
+    {
+      tenantId: auth.tenantId ?? null,
+      organizationId: scope?.selectedId ?? auth.orgId ?? null,
+    },
+  )
+
+  const match = candidates.find(
+    (candidate) => normalizePhoneDigits(candidate.primaryPhone) === parse.data.digits,
+  )
   if (!match) {
     return NextResponse.json({ match: null })
   }
@@ -64,9 +81,13 @@ export async function GET(req: Request) {
   return NextResponse.json({
     match: {
       id: match.id,
-      displayName: match.displayName,
+      displayName: match.displayName ?? null,
     },
   })
+}
+
+function normalizePhoneDigits(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.replace(/\D/g, '') : ''
 }
 
 const phoneCheckSuccessSchema = z.object({
