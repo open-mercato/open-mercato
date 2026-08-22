@@ -76,6 +76,11 @@ async function expectNoErrorState(page: Page): Promise<void> {
  */
 test.describe('TC-EUDR-010: Searchable product picker', () => {
   test('searches products by name fragment, saves the mapping, and never surfaces raw UUIDs', async ({ page, request }) => {
+    // The picker's own waits (30s for the search request, 30s for the post-save
+    // navigation) each exceed the config's 20s test budget, so on a loaded server
+    // the test timeout fires before any step gets to spend its allowance — this
+    // spec was flaky-on-retry in the standalone run for exactly that reason.
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`
     const productTitle = `TC-EUDR-010 Product ${stamp}`

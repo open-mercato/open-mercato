@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 import { formatMoney } from '../../components/documents/lineItemUtils'
 import { useSalesDocumentTotals } from './useSalesDocumentTotals'
@@ -28,6 +28,7 @@ export function SalesOrderCreatedRenderer({
   actions = [],
 }: NotificationRendererProps) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
@@ -57,7 +58,7 @@ export function SalesOrderCreatedRenderer({
     }
   }
 
-  const timeAgo = formatRelativeTime(notification.createdAt, { translate: t }) ?? ''
+  const timeAgo = formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''
 
   return (
     <div

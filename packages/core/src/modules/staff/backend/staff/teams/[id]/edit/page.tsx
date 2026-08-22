@@ -60,6 +60,7 @@ type TeamMembersResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function StaffTeamEditPage({ params }: { params?: { id?: string } }) {
@@ -76,6 +77,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
   const [memberRows, setMemberRows] = React.useState<TeamMemberRow[]>([])
   const [memberPage, setMemberPage] = React.useState(1)
   const [memberTotal, setMemberTotal] = React.useState(0)
+  const [memberTotalIsCapped, setMemberTotalIsCapped] = React.useState(false)
   const [memberTotalPages, setMemberTotalPages] = React.useState(1)
   const [memberSorting, setMemberSorting] = React.useState<SortingState>([{ id: 'displayName', desc: false }])
   const [memberSearch, setMemberSearch] = React.useState('')
@@ -263,6 +265,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
       const items = Array.isArray(payload.items) ? payload.items : []
       setMemberRows(items.map(mapApiTeamMember))
       setMemberTotal(typeof payload.total === 'number' ? payload.total : items.length)
+      setMemberTotalIsCapped(payload.totalIsCapped === true)
       setMemberTotalPages(
         typeof payload.totalPages === 'number'
           ? payload.totalPages
@@ -434,6 +437,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
                 pageSize: TEAM_MEMBERS_PAGE_SIZE,
                 total: memberTotal,
                 totalPages: memberTotalPages,
+                totalIsCapped: memberTotalIsCapped,
                 onPageChange: setMemberPage,
               }}
               rowActions={(row) => (

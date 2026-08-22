@@ -96,6 +96,11 @@ function writeStandaloneEnv(appDir: string): void {
     'NODE_ENV=test',
     'OM_TEST_MODE=1',
     'OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in',
+    // Registers the network-free `push_stub` channel adapter (inert unless a
+    // delivery row carries provider='push_stub'). Mirrors the ephemeral harness,
+    // which sets it on both the app server and the Playwright process; without it
+    // TC-PUSH-003 resolves no adapter and every delivery lands in `failed`.
+    'OM_ENABLE_PUSH_STUB_ADAPTER=1',
     'OM_DISABLE_EMAIL_DELIVERY=1',
     'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
@@ -235,6 +240,10 @@ async function main(): Promise<void> {
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Second half of the pairing above: with AUTO_SPAWN_WORKERS=false the
+    // `push-deliveries` job runs in a drain child of THIS process, which never
+    // reads the scaffolded app's .env.
+    OM_ENABLE_PUSH_STUB_ADAPTER: '1',
     OM_DISABLE_EMAIL_DELIVERY: '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',

@@ -3,7 +3,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
-import { cancelWorkflowInstanceIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import { cancelWorkflowInstanceIfExists, pollWorkflowInstance } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import { expectId } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 
 /**
  * TC-WF-030: Checkout demo reaches customer information
@@ -59,24 +60,43 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
       expect(startResponse.status()).toBe(201)
       const started = await startResponse.json() as StartResponse
       instanceId = started?.data?.instance?.id ?? null
-      expect(instanceId).toBeTruthy()
+      const startedInstanceId = expectId(instanceId, 'Checkout demo should return a started workflow instance id')
 
-      // The demo exposes manual progression while an automated step is RUNNING.
-      // Advance at most twice: START -> Cart Validation -> Customer Information.
+      // Every checkout-demo transition is `trigger: 'auto'`, so the executor walks
+      // START -> Cart Validation -> Customer Information on its own and parks on the
+      // USER_TASK. The demo's manual progression is only a fallback for a stalled
+      // executor, and it must be driven off the *server's* current step: clicking it
+      // against a page that still renders the previous step advances the instance one
+      // step too far, skipping the user task and leaving the run paused on payment
+      // confirmation — the race that made this spec flaky in CI.
       const advanceButton = page.getByRole('button', { name: 'Advance to Next Step →', exact: true })
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const customerStep = page.getByRole('heading', { name: 'Customer Information', exact: true })
-        if (await customerStep.isVisible()) break
+      const stepsBeforeCustomerInfo = new Set(['start', 'cart_validation'])
+
+      // Poll budgets stay well inside the spec's 20 s timeout: they only elapse in full
+      // when the executor really has stalled, which is exactly when the manual fallback
+      // is supposed to fire. A healthy run leaves `start`/`cart_validation` in well
+      // under a second and never waits.
+      const stallBudgetsMs = [4_000, 3_000]
+
+      for (let attempt = 0; attempt < stallBudgetsMs.length; attempt += 1) {
+        const snapshot = await pollWorkflowInstance(
+          request,
+          token,
+          startedInstanceId,
+          (instance) => !stepsBeforeCustomerInfo.has(instance.currentStepId ?? ''),
+          { timeoutMs: stallBudgetsMs[attempt] },
+        )
+        if (!stepsBeforeCustomerInfo.has(snapshot?.currentStepId ?? '')) break
         await expect(advanceButton).toBeVisible()
         await Promise.all([
           page.waitForResponse((response) =>
-            response.url().includes(`/api/workflows/instances/${instanceId}/advance`)
+            response.url().includes(`/api/workflows/instances/${startedInstanceId}/advance`)
             && response.request().method() === 'POST'),
           advanceButton.click(),
         ])
       }
 
-      await expect(page.getByRole('heading', { name: 'Customer Information', exact: true })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Customer Information Required', exact: true })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Order Failed' })).toHaveCount(0)
       await expect(page.getByText(/CALL_WEBHOOK rejected unsafe URL|reason=invalid_url/)).toHaveCount(0)
     } finally {

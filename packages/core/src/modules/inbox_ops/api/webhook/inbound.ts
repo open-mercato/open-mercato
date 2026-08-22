@@ -396,6 +396,10 @@ export async function POST(req: Request) {
       organizationId: settings.organizationId,
       forwardedByAddress: parsed.from.email,
       subject: parsed.subject,
+    }, {
+      persistent: true,
+      tenantId: settings.tenantId,
+      organizationId: settings.organizationId,
     })
   } catch (eventError) {
     logger.error('Failed to emit email.received event', { err: eventError })

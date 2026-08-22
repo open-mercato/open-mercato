@@ -57,7 +57,7 @@ const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { te
 const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[]; ttl?: number }]>()
 const mockCacheGet = jest.fn<Promise<null>, [string]>()
 const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[]) => groups)
-const mockLoadSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
+const mockFindSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
 const mockLoadFirstRoleSidebarPreference = jest.fn<Promise<null>, [unknown, { roleIds: string[]; tenantId: string | null; locale: string }]>()
 const mockResolveFeatureCheckContext = jest.fn<
   Promise<{ organizationId: string | null; scope: { tenantId: string | null; selectedId: string | null }; allowedOrganizationIds: string[] | null }>,
@@ -99,8 +99,8 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', () => ({
   applySidebarPreference: <T extends SidebarGroup>(groups: T[]) => mockApplySidebarPreference(groups),
-  loadSidebarPreference: (em: unknown, scope: { userId: string; tenantId: string | null; organizationId: string | null; locale: string }) =>
-    mockLoadSidebarPreference(em, scope),
+  findSidebarPreference: (em: unknown, scope: { userId: string; tenantId: string | null; organizationId: string | null; locale: string }) =>
+    mockFindSidebarPreference(em, scope),
   loadFirstRoleSidebarPreference: (em: unknown, scope: { roleIds: string[]; tenantId: string | null; locale: string }) =>
     mockLoadFirstRoleSidebarPreference(em, scope),
 }))
@@ -166,7 +166,7 @@ describe('GET /api/auth/admin/nav', () => {
       'customer_accounts.view',
     ])
     mockUserHasAllFeatures.mockResolvedValue(true)
-    mockLoadSidebarPreference.mockResolvedValue(null)
+    mockFindSidebarPreference.mockResolvedValue(null)
     mockLoadFirstRoleSidebarPreference.mockResolvedValue(null)
     mockCacheGet.mockResolvedValue(null)
     mockCacheSet.mockResolvedValue(undefined)
