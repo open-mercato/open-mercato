@@ -1,4 +1,4 @@
-import { type APIRequestContext } from '@playwright/test';
+import { request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
 const BASE_URL = process.env.BASE_URL?.trim() || null;
@@ -140,4 +140,32 @@ export async function postForm(
     },
     data: form.toString(),
   });
+}
+
+/**
+ * Runs `use` against a request context that shares no cookies with the caller's.
+ *
+ * The `request` fixture keeps a cookie jar, and `/api/auth/login` sets `auth_token`
+ * on it. Every later call through that fixture therefore carries the LAST logged-in
+ * user's session, even one that deliberately sends no Authorization header or an
+ * `ApiKey` one. Whether that cookie is stored at all depends on the deployment:
+ * the login route marks it `secure` only when `NODE_ENV === 'production'`, so a lane
+ * that serves the app with any other NODE_ENV over http keeps it while a production
+ * lane silently drops it.
+ *
+ * A spec asserting "no credentials are rejected" or "this API key alone decides
+ * access" must not depend on which lane it happens to run in — it must issue the
+ * request from a jar that never saw a login. TC-DOCUMENTS-009 and TC-DOCUMENTS-018
+ * both failed in the standalone lane for exactly that reason while passing in the
+ * ephemeral one.
+ */
+export async function withCredentialIsolatedRequest<T>(
+  use: (request: APIRequestContext) => Promise<T>,
+): Promise<T> {
+  const context = await playwrightRequest.newContext(BASE_URL ? { baseURL: BASE_URL } : {});
+  try {
+    return await use(context);
+  } finally {
+    await context.dispose();
+  }
 }

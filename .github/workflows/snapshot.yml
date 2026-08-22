@@ -234,10 +234,16 @@ jobs:
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL=http://localhost:3001
           NEXT_PUBLIC_APP_URL=http://localhost:3001
-          # `yarn start` serves a production build, so NODE_ENV is production in
-          # the server process regardless of the NODE_ENV=test line below, and
-          # customer-portal email links refuse to fall back to localhost there.
-          # Without this every portal invite 502s (TC-AUTH-032/033, TC-CACC-INVITE-PERSON-001).
+          # Customer-portal email links refuse to fall back to a localhost origin,
+          # so every portal invite 502s without this (TC-AUTH-032/033,
+          # TC-CACC-INVITE-PERSON-001).
+          # NOTE: this lane's server process really does run with NODE_ENV=test —
+          # the .env value below wins, unlike the ephemeral harness which pins
+          # NODE_ENV=production for both the app and the Playwright process. That
+          # divergence is observable: the login route marks its auth_token cookie
+          # `secure` only under NODE_ENV=production, so here the cookie is stored by
+          # the Playwright request jar and replayed on later calls. Specs must not
+          # depend on that jar being empty — see withCredentialIsolatedRequest.
           PLATFORM_PORTAL_BASE_URL=http://localhost:3001
           AUTH_SECRET=ci-standalone-test-auth-secret
           JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min
@@ -253,6 +259,15 @@ jobs:
           # app from its own .env instead, so without the mirror TC-PUSH-003 can
           # never resolve an adapter and every delivery lands in `failed`.
           OM_ENABLE_PUSH_STUB_ADAPTER=1
+          # Documents collaboration. The ephemeral lane configures it at the ci.yml
+          # workflow level; this lane configured none of it, so the collab-token route
+          # took its graceful "not ready" branch and returned an EMPTY token
+          # (TC-DOCUMENTS-009), and the editor never left single-user mode so the
+          # read-only banner never rendered (TC-DOCUMENTS-013).
+          # NEXT_PUBLIC_* is inlined at build time, so it MUST be written here, before
+          # the `Build standalone app` step, not only on the test-run env.
+          NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101
+          DOCUMENTS_COLLAB_JWT_SECRET_V2=ci-standalone-documents-collab-v2-secret-32b
           OM_DISABLE_EMAIL_DELIVERY=1
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
@@ -385,6 +400,12 @@ jobs:
           # enabled here too, exactly as the ephemeral harness sets it on both the
           # Playwright process and the app server (TC-PUSH-003).
           OM_ENABLE_PUSH_STUB_ADAPTER: '1'
+          # The Playwright process starts the collaboration sidecar itself
+          # (ensureManagedCollabSidecar reads NEXT_PUBLIC_DOCUMENTS_COLLAB_URL) and the
+          # sidecar verifies the tokens the app mints, so both halves need the same
+          # secret. Mirrors the app .env written above.
+          NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
+          DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-standalone-documents-collab-v2-secret-32b'
         run: yarn test:integration
 
       - name: Print standalone app log on test failure

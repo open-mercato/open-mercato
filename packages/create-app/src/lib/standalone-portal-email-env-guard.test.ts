@@ -33,6 +33,15 @@ const REQUIRED_VARIABLES = [
   'PLATFORM_PORTAL_BASE_URL',
   'OM_TEST_EMAIL_CAPTURE_PATH',
   'OM_ENABLE_PUSH_STUB_ADAPTER',
+  // NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is inlined into the bundle at build time, so the
+  // app .env copy is what the browser sees; the test-process copy is what
+  // `ensureManagedCollabSidecar` reads to decide whether to start a sidecar at all.
+  // DOCUMENTS_COLLAB_JWT_SECRET_V2 has to match on both sides too: the app mints the
+  // collaboration token and the sidecar verifies it. With neither configured the
+  // collab-token route returns an empty token (TC-DOCUMENTS-009) and the editor stays
+  // in single-user mode (TC-DOCUMENTS-013).
+  'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL',
+  'DOCUMENTS_COLLAB_JWT_SECRET_V2',
 ]
 
 const STANDALONE_LANES = [
