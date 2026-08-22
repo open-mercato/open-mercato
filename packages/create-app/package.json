@@ -1,6 +1,6 @@
 {
   "name": "create-mercato-app",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "type": "module",
   "description": "Create a new Open Mercato application",
   "main": "./dist/index.js",
@@ -13,21 +13,28 @@
   ],
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --import tsx --test --test-timeout=120000 src/**/*.test.ts",
+    "harness:validate-knowledge-change": "node ./agentic/shared/scripts/validate-knowledge-change.mjs",
+    "harness:validate-source-links": "node ./scripts/validate-source-links.mjs",
+    "harness:generate-source-link-inventory": "node ./scripts/generate-source-link-inventory.mjs",
+    "harness:check-source-link-inventory": "node ./scripts/generate-source-link-inventory.mjs --check",
+    "harness:generate-design-system-inventory": "node ./scripts/generate-design-system-inventory.mjs",
+    "harness:check-design-system-inventory": "node ./scripts/generate-design-system-inventory.mjs --check",
+    "test": "node build.mjs && node scripts/prepare-test-git-history.mjs && node --import tsx --test --test-timeout=120000 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/report-truncation.mjs --test-reporter-destination=stdout src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "picocolors": "^1.1.0",
-    "tar": "^7.5.20",
+    "tar": "^7.5.22",
     "ts-morph": "^28.0.0"
   },
   "devDependencies": {
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/shared": "workspace:*",
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.1.2",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "typescript-standalone": "npm:typescript@6.0.3"
   },
   "publishConfig": {
     "access": "public"

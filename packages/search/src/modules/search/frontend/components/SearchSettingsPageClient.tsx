@@ -118,6 +118,8 @@ type VectorDriverStatus = {
   name: string
   configured: boolean
   implemented: boolean
+  available?: boolean | null
+  unavailableReason?: string | null
   envVars: VectorDriverEnvVar[]
 }
 

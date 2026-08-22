@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooki",
   "webhooks.deliveries.actions.retry": "Ponów",
   "webhooks.deliveries.actions.viewDetails": "Zobacz szczegóły",
   "webhooks.deliveries.autoRefreshHint": "Log dostaw odświeża się automatycznie, dopóki ta strona jest otwarta.",
@@ -80,7 +81,7 @@
   "webhooks.form.name": "Nazwa",
   "webhooks.form.namePlaceholder": "Mój webhook",
   "webhooks.form.rateLimitPerMinute": "Limit na minutę",
-  "webhooks.form.rateLimitPerMinuteHint": "Maksymalna liczba dostaw na minutę dla tego endpointu (0 oznacza brak limitu).",
+  "webhooks.form.rateLimitPerMinuteHint": "Maksymalna liczba dostaw na minutę dla tego endpointu (0 oznacza brak limitu). Wartość jest zapisywana, ale nie jest jeszcze wymuszana przy dostarczaniu.",
   "webhooks.form.secret": "Sekret podpisujący",
   "webhooks.form.secretCopied": "Skopiowano sekret do schowka.",
   "webhooks.form.secretCopy": "Kopiuj sekret",

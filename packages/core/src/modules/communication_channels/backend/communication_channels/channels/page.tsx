@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Tag } from '@open-mercato/ui/primitives/tag'
@@ -33,7 +34,16 @@ export default function ChannelsListPage() {
   const [page, setPage] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  // Bumped by injected connect widgets (FCM/APNs/Expo) so a freshly connected
+  // tenant-wide channel appears without a manual page reload.
+  const [reloadToken, setReloadToken] = React.useState(0)
   const pageSize = 50
+
+  const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
+  const injectionContext = React.useMemo(
+    () => ({ tableId: extensionPoints.hosts.channelsTable.tableId, reload }),
+    [reload],
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -69,7 +79,7 @@ export default function ChannelsListPage() {
     return () => {
       cancelled = true
     }
-  }, [page, t])
+  }, [page, reloadToken, t])
 
   const columns = React.useMemo<ColumnDef<ChannelRow>[]>(
     () => [
@@ -114,7 +124,8 @@ export default function ChannelsListPage() {
       <PageBody>
         <DataTable<ChannelRow>
           title={t('communication_channels.nav.title', 'Communication Channels')}
-          extensionTableId="communication_channels.channels"
+          extensionTableId={extensionPoints.hosts.channelsTable.tableId}
+          injectionContext={injectionContext}
           columns={columns}
           data={rows}
           isLoading={isLoading}

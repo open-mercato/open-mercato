@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -369,7 +370,7 @@ export function MessagesInboxPageClient() {
         // UMES extension surface — opt into widget injection at:
         //   data-table:messages:columns / :row-actions / :bulk-actions / :filters / :toolbar / :search-trailing
         // (SPEC-045d §9.3a — communication_channels hub renders channel badge + delivery status here)
-        extensionTableId="messages"
+        extensionTableId={extensionPoints.hosts.inboxTable.tableId}
         columns={columns}
         data={rows}
         bulkActions={bulkActions}

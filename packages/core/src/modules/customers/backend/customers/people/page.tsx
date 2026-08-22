@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -914,7 +916,7 @@ export default function CustomersPeoplePage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customers.people.list.searchPlaceholder')}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
-          perspective={{ tableId: 'customers.people.list' }}
+          perspective={{ tableId: extensionPoints.hosts.peopleTable.tableId }}
           onRowClick={(row) => router.push(`/backend/customers/people-v2/${row.id}`)}
           sortable
           manualSorting

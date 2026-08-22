@@ -18,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 import '@open-mercato/core/modules/auth/commands/users'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import type { User } from '../../data/entities'
+import { User } from '../../data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -68,12 +68,22 @@ describe('auth.users.update undo custom fields', () => {
 
     const em = {
       find: async () => [],
+      begin: async () => undefined,
+      commit: async () => undefined,
+      rollback: async () => undefined,
       remove: () => undefined,
       persist: () => undefined,
       flush: async () => undefined,
       nativeDelete: async () => 0,
       create: (_entity: unknown, data: unknown) => data,
-      findOne: async () => null,
+      findOne: async (entity: unknown) => (entity === User
+        ? {
+            id: '523e4567-e89b-12d3-a456-426614174901',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            deletedAt: null,
+          }
+        : null),
     } as unknown as EntityManager
 
     const container = {
@@ -176,12 +186,22 @@ describe('auth.users.update undo custom fields', () => {
 
     const em = {
       find: async () => [],
+      begin: async () => undefined,
+      commit: async () => undefined,
+      rollback: async () => undefined,
       remove: () => undefined,
       persist: () => undefined,
       flush: async () => undefined,
       nativeDelete: async () => 0,
       create: (_entity: unknown, data: unknown) => data,
-      findOne: async () => null,
+      findOne: async (entity: unknown) => (entity === User
+        ? {
+            id: '523e4567-e89b-12d3-a456-426614174901',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            deletedAt: null,
+          }
+        : null),
     } as unknown as EntityManager
 
     const container = {

@@ -16,7 +16,7 @@ import { ExecutionDetailsDialog } from '../../../../components/ExecutionDetailsD
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { formatDistanceToNow } from 'date-fns'
 
 type ScheduleDetail = {

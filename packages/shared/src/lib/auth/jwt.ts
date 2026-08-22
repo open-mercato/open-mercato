@@ -1,4 +1,8 @@
 import crypto from 'node:crypto'
+import { createLogger } from '../logger'
+import { parseNumberWithDefault } from '../number'
+
+const logger = createLogger('auth').child({ component: 'jwt' })
 
 function base64url(input: Buffer | string) {
   return (typeof input === 'string' ? Buffer.from(input) : input)
@@ -29,23 +33,134 @@ const DEFAULT_ISSUER = 'open-mercato'
 const DEFAULT_STAFF_AUDIENCE: JwtAudience = 'staff'
 const AUDIENCE_SECRET_LABEL = 'open-mercato:jwt:v1'
 
+const LEGACY_GRACE_DEFAULT_MINUTES = 480
+const LEGACY_TOKEN_CLOCK_SKEW_SECONDS = 60
+
 /**
- * When set to a positive number (minutes), `verifyJwt` will attempt a legacy fallback using the
- * raw `JWT_SECRET` when the audience-derived verification fails. This supports rolling deployments
- * and lets existing sessions expire gracefully instead of force-logging-out every user on deploy.
+ * How long after a token was issued (`iat`) the raw-`JWT_SECRET` fallback in `verifyJwt` keeps
+ * accepting it. The fallback exists so a rolling deployment of the audience-derived signing
+ * scheme does not force-log-out every user; it is a migration window, not a permanent mode.
  *
- * Set via `JWT_LEGACY_GRACE_MINUTES` env var. Defaults to 480 (8 hours — one full token TTL).
- * Set to 0 to disable the fallback (hard cutover).
+ * Set via `JWT_LEGACY_GRACE_MINUTES`. Defaults to 480 (8 hours — one full token TTL).
+ * `0`, `false` or `off` disables the fallback entirely (hard cutover). Values that do not parse
+ * fall back to the default rather than silently disabling authentication.
  */
-function getLegacyGraceEnabled(): boolean {
+function getLegacyGraceMinutes(): number {
   const raw = process.env.JWT_LEGACY_GRACE_MINUTES
-  if (raw === '0' || raw === 'false' || raw === 'off') return false
-  return true
+  const normalized = typeof raw === 'string' ? raw.trim().toLowerCase() : raw
+  if (normalized === 'false' || normalized === 'off') return 0
+  return parseNumberWithDefault(normalized, LEGACY_GRACE_DEFAULT_MINUTES, { min: 0, integer: true })
+}
+
+/**
+ * Required absolute deadline for the legacy fallback, as an ISO-8601 instant in
+ * `JWT_LEGACY_CUTOVER_AT`. Without a valid deadline the fallback stays disabled: token `iat` is
+ * attacker-controlled by anyone who knows the former raw secret, so a relative age check alone
+ * cannot make the migration window finite.
+ */
+function getLegacyCutoverEpochSeconds(): number | null {
+  const raw = process.env.JWT_LEGACY_CUTOVER_AT
+  if (!raw || !raw.trim()) return null
+  const parsed = Date.parse(raw.trim())
+  if (Number.isNaN(parsed)) {
+    warnOnce(
+      'jwt-legacy-cutover-unparseable',
+      'JWT_LEGACY_CUTOVER_AT is not a valid ISO-8601 instant — legacy JWT fallback remains disabled.',
+    )
+    return null
+  }
+  return Math.floor(parsed / 1000)
+}
+
+const MIN_SECRET_LENGTH = 32
+
+/**
+ * Signing secrets that ship in this repository's own examples, compose files, and docs. A
+ * deployment reaching production with one of these is not "weakly configured" — it is publicly
+ * forgeable by anyone who has read the repository.
+ */
+const PLACEHOLDER_SECRETS = new Set([
+  'jwt',
+  'jwt-secret',
+  'jwtsecret',
+  'secret',
+  'password',
+  'changeme',
+  'change-me',
+  'change-me-dev-secret',
+  'change-me-dev-auth-secret',
+  'your-strong-jwt-secret',
+  'your-secure-jwt-secret-change-me',
+  'dev',
+  'development',
+  'test',
+])
+
+export type JwtSecretViolation = 'missing' | 'placeholder' | 'too_short'
+
+const warnedKeys = new Set<string>()
+
+function warnOnce(key: string, message: string): void {
+  if (warnedKeys.has(key)) return
+  warnedKeys.add(key)
+  logger.warn(message)
+}
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+
+function inspectSecret(secret: string | undefined | null): JwtSecretViolation | null {
+  const value = typeof secret === 'string' ? secret.trim() : ''
+  if (!value) return 'missing'
+  if (PLACEHOLDER_SECRETS.has(value.toLowerCase())) return 'placeholder'
+  if (value.length < MIN_SECRET_LENGTH) return 'too_short'
+  return null
+}
+
+function describeViolation(name: string, violation: JwtSecretViolation): string {
+  switch (violation) {
+    case 'missing':
+      return `${name} is not set. Generate one with \`openssl rand -hex 32\`.`
+    case 'placeholder':
+      return `${name} is set to a placeholder value published in this repository's examples, so anyone can forge tokens for this deployment. Generate a real one with \`openssl rand -hex 32\`.`
+    case 'too_short':
+      return `${name} is shorter than ${MIN_SECRET_LENGTH} characters. Generate a stronger one with \`openssl rand -hex 32\`.`
+  }
+}
+
+/**
+ * Fail closed in production, warn in every other environment. Called on every secret read so
+ * worker, scheduler, and CLI processes — which never run the app's startup hook — are covered
+ * too. `assertJwtSecretPolicy` runs the same check eagerly at server startup.
+ */
+function enforceSecretPolicy(name: string, secret: string | undefined | null): void {
+  const violation = inspectSecret(secret)
+  if (!violation) return
+  const message = describeViolation(name, violation)
+  if (isProduction()) {
+    throw new Error(`[auth.jwt] Refusing to run in production with an unsafe signing secret: ${message}`)
+  }
+  warnOnce(`secret-policy:${name}:${violation}`, `${message} This is tolerated outside production only.`)
+}
+
+/**
+ * Validate every JWT signing secret this process would use. Call it once at startup so a
+ * misconfigured production deployment fails immediately and loudly instead of at the first login
+ * attempt. Throws in production; logs a warning elsewhere.
+ */
+export function assertJwtSecretPolicy(): void {
+  enforceSecretPolicy('JWT_SECRET', process.env.JWT_SECRET)
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!/^JWT_[A-Z0-9]+(?:_[A-Z0-9]+)*_SECRET$/.test(key)) continue
+    enforceSecretPolicy(key, value)
+  }
 }
 
 function readBaseSecret(explicit?: string): string {
   const secret = explicit ?? process.env.JWT_SECRET
   if (!secret) throw new Error('JWT_SECRET is not set')
+  if (explicit === undefined) enforceSecretPolicy('JWT_SECRET', secret)
   return secret
 }
 
@@ -80,7 +195,10 @@ export function deriveJwtAudienceSecret(audience: string, baseSecret?: string): 
   if (!normalized) throw new Error('Audience is required to derive a JWT secret')
   const overrideName = `JWT_${normalized.toUpperCase()}_SECRET`
   const override = process.env[overrideName]
-  if (override && override.trim().length > 0) return override
+  if (override && override.trim().length > 0) {
+    enforceSecretPolicy(overrideName, override)
+    return override
+  }
   const base = readBaseSecret(baseSecret)
   return deriveAudienceSecretFromBase(normalized, base)
 }
@@ -192,19 +310,43 @@ function verifyWithOptions(token: string, options: { secret: string; audience?: 
   return payload
 }
 
+/**
+ * Whether a raw-secret token is still inside the migration window. A token is only ever legacy
+ * for a bounded period after it was issued, so `iat` is mandatory: a token that cannot prove its
+ * age cannot prove it is inside the window either, and accepting it would make the window
+ * unbounded — which is exactly the defect this guard closes.
+ */
+function isWithinLegacyWindow(payload: JwtPayload, graceMinutes: number): boolean {
+  const cutoverAt = getLegacyCutoverEpochSeconds()
+  const now = Math.floor(Date.now() / 1000)
+  if (cutoverAt === null || now >= cutoverAt) return false
+  const issuedAt = payload.iat
+  if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) return false
+  if (issuedAt > now + LEGACY_TOKEN_CLOCK_SKEW_SECONDS) return false
+  return now - issuedAt <= graceMinutes * 60
+}
+
 export function verifyJwt(token: string, secretOrOptions?: string | VerifyJwtOptions) {
   const options = toVerifyOptions(secretOrOptions)
   const result = verifyWithOptions(token, options)
-  if (result) return result
+  if (result) {
+    // `_legacyToken` is assigned by this function alone. Strip any same-named claim carried in
+    // the token body so a payload can never talk callers (staff session integrity, portal auth)
+    // into treating a modern, session-bound token as a sessionless legacy one.
+    if (result._legacyToken !== undefined) delete result._legacyToken
+    return result
+  }
 
   // Legacy fallback: when the caller used the default path (no explicit secret) and the new
-  // audience-derived verification failed, try verifying with the raw JWT_SECRET. This allows
-  // pre-migration tokens to remain valid during rolling deployments and graceful migration.
-  if (secretOrOptions === undefined && getLegacyGraceEnabled()) {
+  // audience-derived verification failed, try verifying with the raw JWT_SECRET. This keeps
+  // pre-migration tokens working across a rolling deployment — but only until the token's own
+  // `iat` leaves the configured grace window, or the configured cutover instant passes.
+  if (secretOrOptions === undefined) {
+    const graceMinutes = getLegacyGraceMinutes()
     const rawSecret = process.env.JWT_SECRET
-    if (rawSecret) {
+    if (graceMinutes > 0 && rawSecret) {
       const legacyResult = verifyWithOptions(token, { secret: rawSecret })
-      if (legacyResult) {
+      if (legacyResult && isWithinLegacyWindow(legacyResult, graceMinutes)) {
         legacyResult._legacyToken = true
         return legacyResult
       }

@@ -4,6 +4,14 @@ export const exampleItemCreateSchema = z.object({
   title: z.string().min(1).max(200),
 })
 
+/**
+ * Free-text notes on a todo. Encrypted at rest via the module's `encryption.ts`,
+ * so the bound is deliberate: ciphertext is materially larger than its plaintext
+ * and an unbounded column would let a single record dominate an index doc.
+ * `nullable` (not just optional) so a client can clear the field explicitly.
+ */
+export const todoNotesSchema = z.string().max(5000).nullable()
+
 export type ExampleItemCreateInput = z.infer<typeof exampleItemCreateSchema>
 
 export const customerPriorityValueSchema = z.enum(['low', 'normal', 'high', 'critical'])

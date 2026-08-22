@@ -271,6 +271,7 @@ const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ep
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
 const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
 const EPHEMERAL_CACHE_DB_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-cache.sqlite')
+const EPHEMERAL_EMAIL_CAPTURE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'email-capture.jsonl')
 const EPHEMERAL_QUEUE_BASE_DIR = path.join(appDirectory, '.mercato', 'queue')
 const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
 const EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT = path.join(
@@ -1943,6 +1944,7 @@ function buildReusableEnvironment(
     BASE_URL: baseUrl,
     APP_URL: baseUrl,
     NEXT_PUBLIC_APP_URL: baseUrl,
+    PLATFORM_PORTAL_BASE_URL: baseUrl,
     NODE_ENV: 'production',
     // Share the app server's cache backend with the test process and the
     // queue-drain runners it spawns (drainIntegrationQueue children inherit
@@ -1968,12 +1970,31 @@ function buildReusableEnvironment(
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
+    OM_TEST_EMAIL_CAPTURE_PATH: EPHEMERAL_EMAIL_CAPTURE_PATH,
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Register the test-only `push_stub` channel adapter in the reused Playwright
+    // process (and any drain/worker child it spawns) so push integration specs can
+    // drive real delivery. Production-safe + inert unless a delivery row carries
+    // `provider='push_stub'`. Mirrors the fresh-environment app server env below.
+    OM_ENABLE_PUSH_STUB_ADAPTER: process.env.OM_ENABLE_PUSH_STUB_ADAPTER ?? '1',
+    // Swap the FCM/APNs/Expo SDK clients for network-free fakes so the REAL provider
+    // adapters run end-to-end. Unlike `push_stub` (which replaces the whole adapter),
+    // this replaces only each SDK client. Mirrors the fresh-environment env below.
+    OM_PUSH_FAKE_PROVIDERS: process.env.OM_PUSH_FAKE_PROVIDERS ?? '1',
+    // Expo's receipt reaper ignores rows younger than 15 minutes by default, which no
+    // integration test can wait out. Poll immediately instead.
+    OM_PUSH_RECEIPT_MIN_AGE_MINUTES: process.env.OM_PUSH_RECEIPT_MIN_AGE_MINUTES ?? '0',
     // Tests assert on access_logs immediately after CRUD reads; keep the
     // blocking write path on inside the integration runtime so tests do
     // not have to call flushPendingCrudAccessLogs() explicitly.
     OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
+    // TC-ONB-001/002 drive the self-service signup flow, whose routes are not
+    // mounted while the feature is off. `apps/mercato/.env` ships it disabled,
+    // so both specs 404'd on every local run while CI stayed green — it exports
+    // the var at the workflow level, the same gap the MOCK_INBOUND_WEBHOOK_SECRET
+    // note below describes. Keep in sync with the app-server env block.
+    SELF_SERVICE_ONBOARDING_ENABLED: process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? 'true',
     // Keep the bus in the Playwright process (used by in-test queue-drain helpers)
     // on the same delivery mode as the app server it drives: inline persistent
     // delivery so event side effects are deterministic for assertions. See the
@@ -1983,7 +2004,6 @@ function buildReusableEnvironment(
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
     MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
-    NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
@@ -3293,6 +3313,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       BASE_URL: applicationBaseUrl,
       APP_URL: applicationBaseUrl,
       NEXT_PUBLIC_APP_URL: applicationBaseUrl,
+      PLATFORM_PORTAL_BASE_URL: applicationBaseUrl,
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
@@ -3321,9 +3342,32 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
       OM_TEST_MODE: '1',
+      OM_TEST_EMAIL_CAPTURE_PATH: EPHEMERAL_EMAIL_CAPTURE_PATH,
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+      // Register the network-free `push_stub` channel adapter so push integration
+      // specs (TC-PUSH-003) can drive the strategy → delivery-row → send-push worker
+      // → sendMessage chain end-to-end without a real FCM/APNs/Expo provider. The
+      // adapter is production-safe (registered only under this flag) and inert unless
+      // a delivery row carries `provider='push_stub'` — i.e. a test seeded a matching
+      // push channel + device. Applies to the app server, the Playwright process, and
+      // any drain/worker child that inherits this environment.
+      OM_ENABLE_PUSH_STUB_ADAPTER: process.env.OM_ENABLE_PUSH_STUB_ADAPTER ?? '1',
+      // Swap the FCM/APNs/Expo SDK clients for network-free fakes (TC-CHANNEL-PUSH-005+) so the REAL
+      // provider adapters — native message construction, credential parsing, client caching, and every
+      // error → `device_unregistered` mapping — run end-to-end without live keys. Unlike
+      // `push_stub`, which replaces the whole adapter, this replaces only each SDK client, and is
+      // registered only under this flag. Applies to the app server, the Playwright process, and any
+      // drain/worker child that inherits this environment.
+      OM_PUSH_FAKE_PROVIDERS: process.env.OM_PUSH_FAKE_PROVIDERS ?? '1',
+      // Expo's receipt reaper ignores rows younger than 15 minutes by default (it polls a real
+      // provider's async receipts). No integration test can wait that out — poll immediately.
+      OM_PUSH_RECEIPT_MIN_AGE_MINUTES: process.env.OM_PUSH_RECEIPT_MIN_AGE_MINUTES ?? '0',
       OM_DISABLE_EMAIL_DELIVERY: '1',
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
+      // Read at build time as well as at runtime, so this block has to carry it:
+      // the app build and `yarn start` both run with this environment. See the
+      // matching note on the Playwright-process env block above.
+      SELF_SERVICE_ONBOARDING_ENABLED: process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? 'true',
       ENABLE_CRUD_API_CACHE: 'true',
       MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
       MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
@@ -3333,7 +3377,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // var at the workflow level, masking the gap). Keep in sync with the
       // Playwright-process env block above.
       MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
-      NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',

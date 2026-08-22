@@ -1,11 +1,12 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/currencies/extension-points'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -333,7 +334,7 @@ export default function ExchangeRatesPage() {
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
-          perspective={{ tableId: 'exchange-rates.list' }}
+          perspective={{ tableId: extensionPoints.hosts.exchangeRatesTable.tableId }}
         />
       </PageBody>
       {ConfirmDialogElement}

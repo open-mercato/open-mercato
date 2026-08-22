@@ -1,28 +1,56 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { ProgressJob } from '../data/entities'
+import { raw } from '@mikro-orm/core'
+import type { EntityData, FilterQuery } from '@mikro-orm/core'
+import { ProgressJob, type ProgressJobStatus } from '../data/entities'
 import type { ProgressService, ProgressServiceContext } from './progressService'
-import { calculateEta, calculateProgressPercent, STALE_JOB_TIMEOUT_SECONDS } from './progressService'
+import {
+  calculateEta,
+  calculateProgressPercent,
+  HEARTBEAT_INTERVAL_MS,
+  STALE_JOB_TIMEOUT_SECONDS,
+  STALE_PENDING_TIMEOUT_SECONDS,
+  STALE_SWEEP_ERROR_PREFIX,
+} from './progressService'
 import { PROGRESS_EVENTS } from './events'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const DEFAULT_BROADCAST_MIN_INTERVAL_MS = 250
 
-// Minimum elapsed time between coalesced `progress.job.updated` flush+broadcasts for a
+// Minimum elapsed time between coalesced `progress.job.updated` broadcasts for a
 // single job. Bulk workers call updateProgress/incrementProgress once per record, and
 // every emit of the `clientBroadcast: true` event pays a serialized pg_notify roundtrip
 // plus a tenant-wide SSE fan-out. Setting the knob to 0 restores per-record emission.
+// Persistence is throttled separately: heartbeats hit the database at least every
+// HEARTBEAT_INTERVAL_MS regardless of this knob, so a high broadcast interval can
+// never starve the stale-job sweep of heartbeats.
 function resolveBroadcastMinIntervalMs(): number {
-  const raw = process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS
-  if (raw == null || raw.trim() === '') return DEFAULT_BROADCAST_MIN_INTERVAL_MS
-  const parsed = Number.parseInt(raw, 10)
+  const rawValue = process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS
+  if (rawValue == null || rawValue.trim() === '') return DEFAULT_BROADCAST_MIN_INTERVAL_MS
+  const parsed = Number.parseInt(rawValue, 10)
   if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_BROADCAST_MIN_INTERVAL_MS
   return parsed
 }
 
+// Statuses a given transition is allowed to move FROM. Every write below is a
+// compare-and-swap (`nativeUpdate` guarded on status), so concurrent writers in other
+// processes can never resurrect a terminal job or double-apply a transition — the
+// UPDATE that matches zero rows simply lost the race and must not emit events.
+const TERMINAL_STATUSES: readonly ProgressJobStatus[] = ['completed', 'failed', 'cancelled']
+const PROGRESS_WRITABLE_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running']
+// `failed` is restartable/completable so a job wrongly swept as stale (worker alive but
+// slow) or retried by an at-least-once queue converges to its true outcome.
+const START_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'failed']
+const COMPLETE_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running', 'failed']
+const FAIL_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running']
+const CANCEL_FROM_STATUSES: readonly ProgressJobStatus[] = ['pending', 'running', 'failed']
+
 type JobUpdateThrottleEntry = {
   job: ProgressJob
   lastBroadcastAt: number
+  lastPersistedAt: number
   lastBroadcastPercent: number
+  pendingDelta: number
+  absoluteCountsPending: boolean
 }
 
 function buildJobPayload(job: ProgressJob): Record<string, unknown> {
@@ -46,10 +74,10 @@ function buildJobPayload(job: ProgressJob): Record<string, unknown> {
 export function createProgressService(em: EntityManager, eventBus: { emit: (event: string, payload: Record<string, unknown>) => Promise<void> }): ProgressService {
   const broadcastMinIntervalMs = resolveBroadcastMinIntervalMs()
   // Per-job coalescing state, scoped to this service instance (request/worker scope).
-  // The cached managed entity doubles as the in-memory buffer: intermediate updates mutate
-  // it without flushing, and a single flush+emit at the throttle boundary persists the
-  // accumulated change. Domain commands fork their own EntityManager, so no other operation
-  // queries this job on `em` between calls, keeping the buffered changes safe until flush.
+  // The cached entity is a DETACHED snapshot (loaded with disableIdentityMap) that doubles
+  // as the in-memory buffer: intermediate updates mutate it without touching the shared
+  // identity map or UnitOfWork, so an unrelated em.flush() elsewhere can never write the
+  // buffered values. Persistence happens exclusively through the CAS nativeUpdate below.
   const jobUpdateThrottle = new Map<string, JobUpdateThrottleEntry>()
 
   function jobScopeFilter(jobId: string, ctx: ProgressServiceContext) {
@@ -60,42 +88,169 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     }
   }
 
-  async function loadUpdatableJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob> {
-    const cached = jobUpdateThrottle.get(jobId)
-    if (cached) return cached.job
-    return em.findOneOrFail(ProgressJob, jobScopeFilter(jobId, ctx))
+  async function loadFreshJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob | null> {
+    return em.findOne(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
   }
 
-  async function commitJobUpdate(job: ProgressJob, ctx: ProgressServiceContext): Promise<ProgressJob> {
-    const now = Date.now()
-    const cached = jobUpdateThrottle.get(job.id)
-    const shouldBroadcast =
-      broadcastMinIntervalMs <= 0 ||
-      cached == null ||
-      now - cached.lastBroadcastAt >= broadcastMinIntervalMs ||
-      Math.abs(job.progressPercent - cached.lastBroadcastPercent) >= 1
-
-    if (shouldBroadcast) {
-      await em.flush()
-      await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
-        ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      })
-      jobUpdateThrottle.set(job.id, { job, lastBroadcastAt: now, lastBroadcastPercent: job.progressPercent })
-    } else {
-      jobUpdateThrottle.set(job.id, {
-        job,
-        lastBroadcastAt: cached.lastBroadcastAt,
-        lastBroadcastPercent: cached.lastBroadcastPercent,
-      })
+  async function ensureThrottleEntry(jobId: string, ctx: ProgressServiceContext): Promise<JobUpdateThrottleEntry> {
+    const cached = jobUpdateThrottle.get(jobId)
+    if (cached) return cached
+    const job = await em.findOneOrFail(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
+    const entry: JobUpdateThrottleEntry = {
+      job,
+      lastBroadcastAt: 0,
+      lastPersistedAt: 0,
+      lastBroadcastPercent: job.progressPercent,
+      pendingDelta: 0,
+      absoluteCountsPending: false,
     }
-
-    return job
+    jobUpdateThrottle.set(jobId, entry)
+    return entry
   }
 
   function forgetJobThrottle(jobId: string) {
     jobUpdateThrottle.delete(jobId)
+  }
+
+  function buildBufferedCountData(entry: JobUpdateThrottleEntry): EntityData<ProgressJob> {
+    if (entry.absoluteCountsPending || !Number.isSafeInteger(entry.pendingDelta)) {
+      return { processedCount: entry.job.processedCount }
+    }
+    if (entry.pendingDelta !== 0) {
+      const processedCount = raw(`processed_count + ${entry.pendingDelta}`)
+      const totalCount = entry.job.totalCount
+      if (Number.isSafeInteger(totalCount) && totalCount != null && totalCount > 0) {
+        return {
+          processedCount,
+          progressPercent: raw(
+            `least(100, round(((processed_count + ${entry.pendingDelta})::numeric / ${totalCount}) * 100))`,
+          ),
+        }
+      }
+      return { processedCount }
+    }
+    return {}
+  }
+
+  // The start transition (START_FROM_STATUSES) doubles as the recovery path for jobs a
+  // stale sweep flipped to `failed` while their producer was alive but slow. Callers pass
+  // the EM to run against so the forked heartbeat path can reuse the same CAS.
+  //
+  // `staleSweptOnly` is for the revive paths: a live write proves the producer is alive,
+  // but it does NOT prove the recorded failure was the sweep's. Narrowing the CAS to rows
+  // the sweep tagged keeps a genuine failure's message and stack intact instead of
+  // resurrecting the job and erasing why it died. `startJob` stays unrestricted so an
+  // at-least-once queue can still retry a genuinely failed job from the top.
+  async function startJobViaCas(
+    targetEm: EntityManager,
+    job: ProgressJob,
+    ctx: ProgressServiceContext,
+    options: { staleSweptOnly?: boolean } = {},
+  ): Promise<ProgressJob | null> {
+    const now = new Date()
+    // Progress counts are absolute and survive across deliveries, so the elapsed window
+    // calculateEta divides them by has to survive too. Resetting it on every revive makes
+    // a job with hours of work left report seconds remaining.
+    const startedAt = job.startedAt ?? now
+    const filter: Record<string, unknown> = {
+      ...jobScopeFilter(job.id, ctx),
+      status: { $in: START_FROM_STATUSES as ProgressJobStatus[] },
+    }
+    if (options.staleSweptOnly) filter.errorMessage = { $like: `${STALE_SWEEP_ERROR_PREFIX}%` }
+    const affected = await targetEm.nativeUpdate(ProgressJob, filter as FilterQuery<ProgressJob>, {
+      status: 'running',
+      startedAt,
+      heartbeatAt: now,
+      finishedAt: null,
+      errorMessage: null,
+      errorStack: null,
+      updatedAt: now,
+    })
+    if (affected === 0) return null
+
+    job.status = 'running'
+    job.startedAt = startedAt
+    job.heartbeatAt = now
+    job.finishedAt = null
+    job.errorMessage = null
+    job.errorStack = null
+
+    await eventBus.emit(PROGRESS_EVENTS.JOB_STARTED, {
+      ...buildJobPayload(job),
+      tenantId: ctx.tenantId,
+      organizationId: job.organizationId ?? null,
+    })
+
+    return job
+  }
+
+  async function persistAndMaybeBroadcast(entry: JobUpdateThrottleEntry, ctx: ProgressServiceContext): Promise<ProgressJob> {
+    const job = entry.job
+    const now = Date.now()
+    const shouldBroadcast =
+      broadcastMinIntervalMs <= 0 ||
+      now - entry.lastBroadcastAt >= broadcastMinIntervalMs ||
+      Math.abs(job.progressPercent - entry.lastBroadcastPercent) >= 1
+    const shouldPersist = shouldBroadcast || now - entry.lastPersistedAt >= HEARTBEAT_INTERVAL_MS
+
+    if (!shouldPersist) return job
+
+    const usesAtomicIncrement =
+      !entry.absoluteCountsPending && Number.isSafeInteger(entry.pendingDelta) && entry.pendingDelta !== 0
+    const data: EntityData<ProgressJob> = {
+      progressPercent: job.progressPercent,
+      totalCount: job.totalCount ?? null,
+      etaSeconds: job.etaSeconds ?? null,
+      meta: job.meta ?? null,
+      heartbeatAt: job.heartbeatAt ?? new Date(),
+      updatedAt: new Date(),
+      ...buildBufferedCountData(entry),
+    }
+    const writableFilter = {
+      ...jobScopeFilter(job.id, ctx),
+      status: { $in: PROGRESS_WRITABLE_STATUSES as ProgressJobStatus[] },
+    } as FilterQuery<ProgressJob>
+    let affected = await em.nativeUpdate(ProgressJob, writableFilter, data)
+
+    if (affected === 0) {
+      // A stale sweep may have flipped a live job to `failed` between writes. Revive it
+      // through the start CAS and retry once so the buffered delta isn't silently dropped.
+      const fresh = await loadFreshJob(job.id, ctx)
+      let revived = false
+      if (fresh && fresh.status === 'failed' && (await startJobViaCas(em, fresh, ctx, { staleSweptOnly: true }))) {
+        revived = true
+        job.status = 'running'
+        job.startedAt = fresh.startedAt
+        job.finishedAt = null
+        job.errorMessage = null
+        job.errorStack = null
+        affected = await em.nativeUpdate(ProgressJob, writableFilter, data)
+      }
+      if (affected === 0) {
+        // The job reached a genuinely terminal state in another process; stop writing to it.
+        forgetJobThrottle(job.id)
+        const latest = revived ? await loadFreshJob(job.id, ctx) : fresh
+        return latest ?? job
+      }
+    }
+
+    const persistedJob = usesAtomicIncrement ? (await loadFreshJob(job.id, ctx)) ?? job : job
+    entry.job = persistedJob
+    entry.pendingDelta = 0
+    entry.absoluteCountsPending = false
+    entry.lastPersistedAt = now
+
+    if (shouldBroadcast) {
+      await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
+        ...buildJobPayload(persistedJob),
+        tenantId: ctx.tenantId,
+        organizationId: persistedJob.organizationId ?? null,
+      })
+      entry.lastBroadcastAt = now
+      entry.lastBroadcastPercent = persistedJob.progressPercent
+    }
+
+    return persistedJob
   }
 
   return {
@@ -128,39 +283,59 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     },
 
     async startJob(jobId, ctx) {
-      const job = await em.findOneOrFail(ProgressJob, {
-        id: jobId,
-        tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
-      })
-      if (job.status === 'cancelled') {
+      const job = await em.findOneOrFail(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
+      if (job.status === 'running' || job.status === 'cancelled' || job.status === 'completed') {
         return job
       }
 
-      job.status = 'running'
-      job.startedAt = new Date()
-      job.heartbeatAt = new Date()
+      const started = await startJobViaCas(em, job, ctx)
+      if (started) return started
 
-      await em.flush()
+      const fresh = await loadFreshJob(jobId, ctx)
+      return fresh ?? job
+    },
 
-      await eventBus.emit(PROGRESS_EVENTS.JOB_STARTED, {
-        ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
+    async touchJobHeartbeat(jobId, ctx) {
+      // Forked EM: keepalive timers call this while the shared EM may be mid-transaction
+      // inside a producer's own writes, so the heartbeat must not join that unit of work.
+      const fork = em.fork()
+      const now = new Date()
+      const affected = await fork.nativeUpdate(ProgressJob, {
+        ...jobScopeFilter(jobId, ctx),
+        status: { $in: PROGRESS_WRITABLE_STATUSES as ProgressJobStatus[] },
+      } as FilterQuery<ProgressJob>, {
+        heartbeatAt: now,
+        updatedAt: now,
       })
+      if (affected > 0) return
 
-      return job
+      const job = await fork.findOne(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
+      if (!job || job.status !== 'failed') return
+      // A live producer heartbeating a `failed` job means a stale sweep false-positived;
+      // revive through the start CAS so the card recovers without waiting for a batch boundary.
+      await startJobViaCas(fork, job, ctx, { staleSweptOnly: true })
     },
 
     async updateProgress(jobId, input, ctx) {
-      const job = await loadUpdatableJob(jobId, ctx)
-      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-        forgetJobThrottle(jobId)
-        return job
+      const entry = await ensureThrottleEntry(jobId, ctx)
+      const job = entry.job
+      if (TERMINAL_STATUSES.includes(job.status)) {
+        // `failed` may be a false-positive stale sweep on a slow-but-alive producer; the
+        // fact that this write is happening proves the producer is alive, so revive and
+        // apply the update. `completed`/`cancelled` stay terminal, and a failure the sweep
+        // did not write keeps its diagnostics (see startJobViaCas).
+        const revived = job.status === 'failed' && (await startJobViaCas(em, job, ctx, { staleSweptOnly: true }))
+        if (!revived) {
+          forgetJobThrottle(jobId)
+          return job
+        }
+        entry.lastPersistedAt = 0
       }
 
       if (input.processedCount !== undefined) {
         job.processedCount = input.processedCount
+        entry.absoluteCountsPending = true
+        entry.pendingDelta = 0
       }
       if (input.totalCount !== undefined) {
         job.totalCount = input.totalCount
@@ -183,17 +358,23 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
       job.heartbeatAt = new Date()
 
-      return commitJobUpdate(job, ctx)
+      return persistAndMaybeBroadcast(entry, ctx)
     },
 
     async incrementProgress(jobId, delta, ctx) {
-      const job = await loadUpdatableJob(jobId, ctx)
-      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-        forgetJobThrottle(jobId)
-        return job
+      const entry = await ensureThrottleEntry(jobId, ctx)
+      const job = entry.job
+      if (TERMINAL_STATUSES.includes(job.status)) {
+        const revived = job.status === 'failed' && (await startJobViaCas(em, job, ctx, { staleSweptOnly: true }))
+        if (!revived) {
+          forgetJobThrottle(jobId)
+          return job
+        }
+        entry.lastPersistedAt = 0
       }
 
       job.processedCount += delta
+      entry.pendingDelta += delta
       job.heartbeatAt = new Date()
 
       if (job.totalCount) {
@@ -203,88 +384,176 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         }
       }
 
-      return commitJobUpdate(job, ctx)
+      return persistAndMaybeBroadcast(entry, ctx)
     },
 
     async completeJob(jobId, input, ctx) {
-      const job = await em.findOne(ProgressJob, {
-        id: jobId,
-        tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
-      })
+      const job = await loadFreshJob(jobId, ctx)
       if (!job) throw new Error(`Job ${jobId} not found`)
-      if (job.status === 'cancelled') {
+      if (job.status === 'cancelled' || job.status === 'completed') {
+        forgetJobThrottle(jobId)
         return job
       }
 
-      job.status = 'completed'
-      job.finishedAt = new Date()
-      job.progressPercent = 100
-      job.etaSeconds = 0
-      if (input?.resultSummary) {
-        job.resultSummary = input.resultSummary
+      const entry = jobUpdateThrottle.get(jobId)
+      const snapshot = entry?.job ?? job
+      const now = new Date()
+      const data: EntityData<ProgressJob> = {
+        status: 'completed',
+        finishedAt: now,
+        etaSeconds: 0,
+        updatedAt: now,
+        ...(input?.resultSummary ? { resultSummary: input.resultSummary } : {}),
+        ...(entry
+          ? {
+              totalCount: snapshot.totalCount ?? null,
+              meta: snapshot.meta ?? null,
+              ...buildBufferedCountData(entry),
+            }
+          : {}),
+        progressPercent: 100,
       }
 
-      await em.flush()
+      const affected = await em.nativeUpdate(ProgressJob, {
+        ...jobScopeFilter(jobId, ctx),
+        status: { $in: COMPLETE_FROM_STATUSES as ProgressJobStatus[] },
+      } as FilterQuery<ProgressJob>, data)
+      forgetJobThrottle(jobId)
+
+      if (affected === 0) {
+        const fresh = await loadFreshJob(jobId, ctx)
+        return fresh ?? job
+      }
+
+      snapshot.status = 'completed'
+      snapshot.finishedAt = now
+      snapshot.progressPercent = 100
+      snapshot.etaSeconds = 0
+      if (input?.resultSummary) {
+        snapshot.resultSummary = input.resultSummary
+      }
+
+      const persistedJob = (await loadFreshJob(jobId, ctx)) ?? snapshot
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_COMPLETED, {
-        ...buildJobPayload(job),
-        resultSummary: job.resultSummary,
+        ...buildJobPayload(persistedJob),
+        resultSummary: persistedJob.resultSummary,
         tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
+        organizationId: persistedJob.organizationId ?? null,
       })
 
-      forgetJobThrottle(jobId)
-      return job
+      return persistedJob
     },
 
     async failJob(jobId, input, ctx) {
-      const job = await em.findOne(ProgressJob, {
-        id: jobId,
-        tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
-      })
+      const job = await loadFreshJob(jobId, ctx)
       if (!job) throw new Error(`Job ${jobId} not found`)
-      if (job.status === 'cancelled') {
+      if (TERMINAL_STATUSES.includes(job.status)) {
+        forgetJobThrottle(jobId)
         return job
       }
 
-      job.status = 'failed'
-      job.finishedAt = new Date()
-      job.errorMessage = input.errorMessage
-      job.errorStack = input.errorStack
+      const entry = jobUpdateThrottle.get(jobId)
+      const snapshot = entry?.job ?? job
+      const now = new Date()
+      const data: EntityData<ProgressJob> = {
+        status: 'failed',
+        finishedAt: now,
+        errorMessage: input.errorMessage,
+        errorStack: input.errorStack,
+        ...(input.resultSummary ? { resultSummary: input.resultSummary } : {}),
+        updatedAt: now,
+        ...(entry
+          ? {
+              totalCount: snapshot.totalCount ?? null,
+              meta: snapshot.meta ?? null,
+              ...buildBufferedCountData(entry),
+            }
+          : {}),
+      }
 
-      await em.flush()
+      const affected = await em.nativeUpdate(ProgressJob, {
+        ...jobScopeFilter(jobId, ctx),
+        status: { $in: FAIL_FROM_STATUSES as ProgressJobStatus[] },
+      } as FilterQuery<ProgressJob>, data)
+      forgetJobThrottle(jobId)
+
+      if (affected === 0) {
+        const fresh = await loadFreshJob(jobId, ctx)
+        return fresh ?? job
+      }
+
+      snapshot.status = 'failed'
+      snapshot.finishedAt = now
+      snapshot.errorMessage = input.errorMessage
+      snapshot.errorStack = input.errorStack
+      if (input.resultSummary) {
+        snapshot.resultSummary = input.resultSummary
+      }
+
+      const persistedJob = (await loadFreshJob(jobId, ctx)) ?? snapshot
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_FAILED, {
-        ...buildJobPayload(job),
-        errorMessage: job.errorMessage,
+        ...buildJobPayload(persistedJob),
+        errorMessage: persistedJob.errorMessage,
         tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
+        organizationId: persistedJob.organizationId ?? null,
       })
 
-      forgetJobThrottle(jobId)
-      return job
+      return persistedJob
     },
 
     async cancelJob(jobId, ctx) {
-      const job = await em.findOneOrFail(ProgressJob, {
-        id: jobId,
-        tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
-        cancellable: true,
-        status: { $in: ['pending', 'running'] },
-      })
-
-      job.cancelRequestedAt = new Date()
-      job.cancelledByUserId = ctx.userId
-
-      if (job.status === 'pending') {
-        job.status = 'cancelled'
-        job.finishedAt = new Date()
+      const job = await em.findOneOrFail(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
+      if (TERMINAL_STATUSES.includes(job.status)) {
+        // The job finished while the user clicked cancel — a benign race, not an error.
+        return job
+      }
+      if (!job.cancellable) {
+        throw new Error(`Job ${jobId} is not cancellable`)
       }
 
-      await em.flush()
+      const now = new Date()
+      const cancelledNow = await em.nativeUpdate(ProgressJob, {
+        ...jobScopeFilter(jobId, ctx),
+        cancellable: true,
+        status: 'pending',
+      } as FilterQuery<ProgressJob>, {
+        status: 'cancelled',
+        cancelRequestedAt: now,
+        cancelledByUserId: ctx.userId ?? null,
+        finishedAt: now,
+        etaSeconds: 0,
+        updatedAt: now,
+      })
+
+      let requested = 0
+      if (cancelledNow === 0) {
+        requested = await em.nativeUpdate(ProgressJob, {
+          ...jobScopeFilter(jobId, ctx),
+          cancellable: true,
+          status: 'running',
+        } as FilterQuery<ProgressJob>, {
+          cancelRequestedAt: now,
+          cancelledByUserId: ctx.userId ?? null,
+          updatedAt: now,
+        })
+      }
+
+      if (cancelledNow === 0 && requested === 0) {
+        // Raced into a terminal state between the read and the CAS.
+        const fresh = await loadFreshJob(jobId, ctx)
+        return fresh ?? job
+      }
+
+      forgetJobThrottle(jobId)
+      if (cancelledNow > 0) {
+        job.status = 'cancelled'
+        job.finishedAt = now
+        job.etaSeconds = 0
+      }
+      job.cancelRequestedAt = now
+      job.cancelledByUserId = ctx.userId ?? null
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_CANCELLED, {
         ...buildJobPayload(job),
@@ -292,28 +561,45 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         organizationId: job.organizationId ?? null,
       })
 
-      forgetJobThrottle(jobId)
       return job
     },
 
     async markCancelled(jobId, ctx) {
-      const job = await em.findOne(ProgressJob, {
-        id: jobId,
-        tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
-      })
+      const job = await loadFreshJob(jobId, ctx)
       if (!job) throw new Error(`Job ${jobId} not found`)
-      if (job.status === 'cancelled') {
+      if (job.status === 'cancelled' || job.status === 'completed') {
+        forgetJobThrottle(jobId)
         return job
       }
 
-      job.cancelRequestedAt = job.cancelRequestedAt ?? new Date()
-      job.cancelledByUserId = ctx.userId
-      job.status = 'cancelled'
-      job.finishedAt = job.finishedAt ?? new Date()
-      job.etaSeconds = 0
+      const now = new Date()
+      const cancelRequestedAt = job.cancelRequestedAt ?? now
+      const cancelledByUserId = job.cancelledByUserId ?? ctx.userId ?? null
+      const finishedAt = job.finishedAt ?? now
 
-      await em.flush()
+      const affected = await em.nativeUpdate(ProgressJob, {
+        ...jobScopeFilter(jobId, ctx),
+        status: { $in: CANCEL_FROM_STATUSES as ProgressJobStatus[] },
+      } as FilterQuery<ProgressJob>, {
+        status: 'cancelled',
+        cancelRequestedAt,
+        cancelledByUserId,
+        finishedAt,
+        etaSeconds: 0,
+        updatedAt: now,
+      })
+      forgetJobThrottle(jobId)
+
+      if (affected === 0) {
+        const fresh = await loadFreshJob(jobId, ctx)
+        return fresh ?? job
+      }
+
+      job.status = 'cancelled'
+      job.cancelRequestedAt = cancelRequestedAt
+      job.cancelledByUserId = cancelledByUserId
+      job.finishedAt = finishedAt
+      job.etaSeconds = 0
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_CANCELLED, {
         ...buildJobPayload(job),
@@ -321,16 +607,18 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         organizationId: job.organizationId ?? null,
       })
 
-      forgetJobThrottle(jobId)
       return job
     },
 
     async isCancellationRequested(jobId, tenantId, organizationId) {
+      // disableIdentityMap forces a fresh read: a managed copy of the job in this
+      // EntityManager (loaded by updateProgress) must never mask a cancellation
+      // requested from another process.
       const job = await findOneWithDecryption(em, ProgressJob, {
         id: jobId,
         tenantId,
         ...(organizationId ? { organizationId } : {}),
-      })
+      }, { disableIdentityMap: true })
       return job?.cancelRequestedAt != null
     },
 
@@ -369,12 +657,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     },
 
     async markStaleJobsFailed(tenantId: string, timeoutSeconds = STALE_JOB_TIMEOUT_SECONDS, organizationId?: string | null) {
-      const cutoff = new Date(Date.now() - timeoutSeconds * 1000)
-
-      const staleJobs = await em.find(ProgressJob, {
+      const now = new Date()
+      const cutoff = new Date(now.getTime() - timeoutSeconds * 1000)
+      const scope = {
         tenantId,
         ...(organizationId ? { organizationId } : {}),
-        status: 'running',
+      }
+      let failedCount = 0
+
+      const staleFilter = {
+        status: 'running' as ProgressJobStatus,
         $or: [
           { heartbeatAt: { $lt: cutoff } },
           {
@@ -382,12 +674,29 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
             startedAt: { $lt: cutoff },
           },
         ],
-      })
+      }
+      const staleRunning = await em.find(ProgressJob, { ...scope, ...staleFilter }, { disableIdentityMap: true })
 
-      for (const job of staleJobs) {
+      for (const job of staleRunning) {
+        const errorMessage = `${STALE_SWEEP_ERROR_PREFIX} no heartbeat for ${timeoutSeconds} seconds`
+        // Per-row CAS (re-checking the staleness condition): exactly one concurrent
+        // sweeper wins, and a heartbeat that landed after the SELECT aborts the failure.
+        const affected = await em.nativeUpdate(ProgressJob, {
+          id: job.id,
+          tenantId: job.tenantId,
+          ...staleFilter,
+        } as FilterQuery<ProgressJob>, {
+          status: 'failed',
+          finishedAt: now,
+          errorMessage,
+          updatedAt: now,
+        })
+        if (affected === 0) continue
+
+        failedCount += 1
         job.status = 'failed'
-        job.finishedAt = new Date()
-        job.errorMessage = `Job stale: no heartbeat for ${timeoutSeconds} seconds`
+        job.finishedAt = now
+        job.errorMessage = errorMessage
 
         await eventBus.emit(PROGRESS_EVENTS.JOB_FAILED, {
           ...buildJobPayload(job),
@@ -398,8 +707,45 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         })
       }
 
-      await em.flush()
-      return staleJobs.length
+      // Jobs stuck in `pending` (enqueue failed, worker died before startJob) have no
+      // heartbeat, so they need their own sweep or they stay in the active list forever.
+      // A late queue delivery still recovers such a job: startJob transitions failed → running.
+      const pendingCutoff = new Date(now.getTime() - STALE_PENDING_TIMEOUT_SECONDS * 1000)
+      const stalePendingFilter = {
+        status: 'pending' as ProgressJobStatus,
+        createdAt: { $lt: pendingCutoff },
+      }
+      const stalePending = await em.find(ProgressJob, { ...scope, ...stalePendingFilter }, { disableIdentityMap: true })
+
+      for (const job of stalePending) {
+        const errorMessage = `${STALE_SWEEP_ERROR_PREFIX} never started within ${STALE_PENDING_TIMEOUT_SECONDS} seconds`
+        const affected = await em.nativeUpdate(ProgressJob, {
+          id: job.id,
+          tenantId: job.tenantId,
+          ...stalePendingFilter,
+        } as FilterQuery<ProgressJob>, {
+          status: 'failed',
+          finishedAt: now,
+          errorMessage,
+          updatedAt: now,
+        })
+        if (affected === 0) continue
+
+        failedCount += 1
+        job.status = 'failed'
+        job.finishedAt = now
+        job.errorMessage = errorMessage
+
+        await eventBus.emit(PROGRESS_EVENTS.JOB_FAILED, {
+          ...buildJobPayload(job),
+          errorMessage: job.errorMessage,
+          tenantId: job.tenantId,
+          stale: true,
+          organizationId: job.organizationId ?? null,
+        })
+      }
+
+      return failedCount
     },
   }
 }

@@ -1,8 +1,19 @@
+import {
+  Kysely,
+  PostgresAdapter,
+  PostgresQueryCompiler,
+  PostgresIntrospector,
+  DummyDriver,
+} from 'kysely'
 import { createNotificationService } from '../lib/notificationService'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+// Read filters AND-compose the organization read scope with the in-app visibility gate: both
+// fragments carry their own `$or`, so they cannot be spread into a single filter object.
+import { inAppVisibleFilter } from '../lib/notificationVisibility'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
@@ -13,6 +24,10 @@ jest.mock('../lib/notificationRecipients', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  invalidateCrudCache: jest.fn().mockResolvedValue(undefined),
 }))
 
 const baseNotificationInput = {
@@ -26,6 +41,16 @@ const baseCtx = {
   organizationId: null,
   userId: '2d4a4c33-9c4b-4e39-8e15-0a3cd9a7f432',
 }
+
+const createCompileKysely = (): Kysely<any> =>
+  new Kysely<any>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => new DummyDriver(),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+      createIntrospector: (instance: Kysely<any>) => new PostgresIntrospector(instance),
+    },
+  })
 
 const buildEm = () => {
   const em = {
@@ -44,11 +69,15 @@ const buildEm = () => {
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
   em.persist.mockImplementation(() => ({ flush: em.flush }))
   em.getKysely.mockReturnValue({
-    selectFrom: () => ({
-      select: () => ({
-        where: () => ({ executeTakeFirst: async () => undefined, execute: async () => [] }),
-      }),
-    }),
+    selectFrom: () => {
+      const chain: any = {
+        select: () => chain,
+        where: () => chain,
+        executeTakeFirst: async () => undefined,
+        execute: async () => [],
+      }
+      return chain
+    },
     updateTable: () => ({
       set: () => {
         const chain: any = {
@@ -237,6 +266,40 @@ describe('notification service', () => {
     expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
+  it('invalidates cached reads after creating notifications for a feature', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const container = { resolve: jest.fn() }
+
+    ;(getRecipientUserIdsForFeature as jest.Mock).mockResolvedValue([baseCtx.userId])
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: 'note-feature-cache',
+      ...data,
+    }))
+
+    const service = createNotificationService({ em, eventBus, container })
+    await service.createForFeature(
+      {
+        type: 'system',
+        title: 'Hello',
+        requiredFeature: 'notifications.view',
+      },
+      baseCtx,
+    )
+
+    expect(invalidateCrudCache).toHaveBeenCalledWith(
+      container,
+      'notifications.notification',
+      {
+        id: undefined,
+        tenantId: baseCtx.tenantId,
+        organizationId: null,
+      },
+      baseCtx.tenantId,
+      'created',
+    )
+  })
+
   it('marks a notification as read and emits event', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
@@ -355,6 +418,16 @@ describe('notification service', () => {
     expect(tenantWhere.length).toBeGreaterThanOrEqual(2)
     expect(statusWhere[0]).toEqual(['select', 'status', '=', 'unread'])
     expect(orgWhere[0]).toEqual(['select', 'organization_id', '=', 'org-1'])
+    // markAllAsRead must scope to the SAME in-app-visible set as the badge (getUnreadCount): a single
+    // raw predicate (`channels IS NULL OR channels @> '["in_app"]'`) applied to BOTH the SELECT that
+    // collects targets and the UPDATE that flips them, so push/email-only rows are never marked read.
+    const rawWhere = whereCalls.filter((call) => call.length === 2)
+    expect(rawWhere.filter((call) => call[0] === 'select')).toHaveLength(1)
+    expect(rawWhere.filter((call) => call[0] === 'update')).toHaveLength(1)
+    const compiledPredicate = (rawWhere[0][1] as { compile: (db: Kysely<any>) => { sql: string } }).compile(
+      createCompileKysely(),
+    )
+    expect(compiledPredicate.sql).toBe('("channels" is null or "channels" @> $1::jsonb)')
     expect(findWithDecryption).toHaveBeenCalledWith(
       em,
       expect.anything(),
@@ -378,6 +451,120 @@ describe('notification service', () => {
         })
       )
     }
+  })
+
+  it('counts unread notifications in the selected organization plus tenant-wide scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.count.mockResolvedValue(2)
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.getUnreadCount({
+      ...baseCtx,
+      organizationId: 'org-1',
+      organizationIds: ['org-1', 'org-1-child'],
+    })).resolves.toBe(2)
+
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      $and: [
+        {
+          $or: [
+            { organizationId: { $in: ['org-1', 'org-1-child'] } },
+            { organizationId: null },
+          ],
+        },
+        inAppVisibleFilter(),
+      ],
+    })
+  })
+
+  it('polls only tenant-wide notifications when no organization is accessible', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.find.mockResolvedValue([])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    await service.getPollData({
+      ...baseCtx,
+      organizationId: null,
+      organizationIds: [],
+    })
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      $and: [{ organizationId: null }, inAppVisibleFilter()],
+    }, {
+      orderBy: { createdAt: 'desc' },
+      limit: 50,
+    })
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      $and: [{ organizationId: null }, inAppVisibleFilter()],
+    })
+  })
+
+  it('polls all tenant notifications for unrestricted all-organizations scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.find.mockResolvedValue([])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    await service.getPollData({
+      ...baseCtx,
+      organizationId: null,
+      organizationIds: null,
+    })
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      $and: [{}, inAppVisibleFilter()],
+    }, {
+      orderBy: { createdAt: 'desc' },
+      limit: 50,
+    })
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      $and: [{}, inAppVisibleFilter()],
+    })
+  })
+
+  it('preserves tenant-wide reads for legacy callers that omit organizationIds', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.find.mockResolvedValue([])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    await service.getPollData({
+      ...baseCtx,
+      organizationId: 'legacy-org-id-that-was-not-a-read-filter',
+    })
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      $and: [{}, inAppVisibleFilter()],
+    }, {
+      orderBy: { createdAt: 'desc' },
+      limit: 50,
+    })
+    expect(em.count).toHaveBeenCalledWith(expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      $and: [{}, inAppVisibleFilter()],
+    })
   })
 
   it('executes notification action via command bus', async () => {

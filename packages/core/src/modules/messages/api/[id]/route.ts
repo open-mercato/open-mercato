@@ -402,6 +402,27 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
+  const isSender = message.senderUserId === scope.userId
+  // Only look the recipient row up when the actor is not the sender: deleting one's own
+  // message is the common path, and the lookup is a decryption-aware query.
+  const isRecipient = isSender
+    ? false
+    : Boolean(await findOneWithDecryption(
+      em,
+      MessageRecipient,
+      {
+        messageId: params.id,
+        recipientUserId: scope.userId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    ))
+
+  if (!isSender && !isRecipient) {
+    return Response.json({ error: 'Access denied' }, { status: 403 })
+  }
+
   const guardResult = await runMessageMutationGuards(
     ctx.container,
     {

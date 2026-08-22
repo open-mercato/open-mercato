@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/storage-s3",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,6 +16,7 @@
       "types": "./src/*.ts",
       "default": "./dist/*.js"
     },
+    "./*.json": "./src/*.json",
     "./*": {
       "types": [
         "./src/*.ts",
@@ -23,6 +24,7 @@
       ],
       "default": "./dist/*.js"
     },
+    "./*/*.json": "./src/*/*.json",
     "./*/*": {
       "types": [
         "./src/*/*.ts",
@@ -30,6 +32,7 @@
       ],
       "default": "./dist/*/*.js"
     },
+    "./*/*/*.json": "./src/*/*/*.json",
     "./*/*/*": {
       "types": [
         "./src/*/*/*.ts",
@@ -37,6 +40,7 @@
       ],
       "default": "./dist/*/*/*.js"
     },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
     "./*/*/*/*": {
       "types": [
         "./src/*/*/*/*.ts",
@@ -44,6 +48,7 @@
       ],
       "default": "./dist/*/*/*/*.js"
     },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
     "./*/*/*/*/*": {
       "types": [
         "./src/*/*/*/*/*.ts",
@@ -69,7 +74,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",
     "@aws-sdk/s3-request-presigner": "^3.1085.0",
-    "@open-mercato/core": "workspace:*"
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/queue": "workspace:*"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^6.6.10",
@@ -81,7 +87,7 @@
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },
   "publishConfig": {

@@ -332,6 +332,69 @@ describe('Activity Executor (Unit Tests)', () => {
       }
     })
 
+    test('should fail EMIT_EVENT when a payload value stays unresolved', async () => {
+      // The original bug was invisible because nothing objected. On the emit path
+      // that is worse than on the command path: the emission is fire-and-forget and
+      // no subscriber validates the shape, so a literal '{{context.orderId}}' would
+      // reach every consumer silently (issue #4334).
+      const mockEventBus = {
+        emitEvent: jest.fn().mockResolvedValue(undefined),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEventBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-5d',
+        activityName: 'Approval Event With Missing Context Key',
+        activityType: 'EMIT_EVENT',
+        config: {
+          eventName: 'sales.order.approval.approved',
+          payload: { orderId: '{{context.id}}', decidedBy: 'user-1' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('unresolved template variables')
+      expect(result.error).toContain('orderId')
+      expect(mockEventBus.emitEvent).not.toHaveBeenCalled()
+    })
+
+    test('should fail EMIT_EVENT when a nested payload value stays unresolved', async () => {
+      const mockEventBus = {
+        emitEvent: jest.fn().mockResolvedValue(undefined),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEventBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-5e',
+        activityName: 'Approval Event With Nested Missing Key',
+        activityType: 'EMIT_EVENT',
+        config: {
+          eventName: 'sales.order.approval.approved',
+          payload: { order: { id: '{{context.missing}}' }, decidedBy: 'user-1' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('order.id')
+      expect(mockEventBus.emitEvent).not.toHaveBeenCalled()
+    })
+
     test('should fail EMIT_EVENT if event bus not available', async () => {
       mockContainer.resolve.mockImplementation(() => {
         throw new Error('eventBus not registered')
@@ -400,7 +463,7 @@ describe('Activity Executor (Unit Tests)', () => {
         }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([
@@ -436,10 +499,11 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.executed).toBe(true)
       expect(result.output.commandId).toBe('sales.orders.update')
-      expect(mockRbacService.getGrantedFeatures).toHaveBeenCalledWith('user-123', {
-        tenantId: testTenantId,
-        organizationId: testOrgId,
-      })
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-123',
+        ['sales.orders.manage'],
+        { tenantId: testTenantId, organizationId: testOrgId },
+      )
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
         'sales.orders.update',
         expect.objectContaining({
@@ -455,6 +519,141 @@ describe('Activity Executor (Unit Tests)', () => {
           }),
         })
       )
+    })
+
+    test('should fail UPDATE_ENTITY when a template variable stays unresolved', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {}, logEntry: { id: 'log-1' } }),
+      }
+
+      const mockRbacService = {
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8b',
+        activityName: 'Update Order With Missing Context Key',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: '{{context.id}}', statusEntryId: 'status-approved-id' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('unresolved template variables')
+      expect(result.error).toContain('id')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should execute UPDATE_ENTITY when the context provides the templated id', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({
+          result: { id: 'order-456' },
+          logEntry: { id: 'log-456' },
+        }),
+      }
+
+      const mockRbacService = {
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
+      mockContext.workflowContext.orderId = 'order-456'
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8c',
+        activityName: 'Update Order From Context',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: '{{context.orderId}}', statusEntryId: 'status-approved-id' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'sales.orders.update',
+        expect.objectContaining({
+          input: expect.objectContaining({ id: 'order-456' }),
+        })
+      )
+    })
+
+    test('should fail UPDATE_ENTITY when a nested input value stays unresolved', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {}, logEntry: { id: 'log-2' } }),
+      }
+
+      const mockRbacService = {
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
+      }
+
+      registerWorkflowSafeCommands([
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+      ])
+
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8d',
+        activityName: 'Update Order With Nested Missing Key',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: {
+            id: '{{context.orderId}}',
+            metadata: { approvedBy: '{{context.completedBy}}' },
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('metadata.approvedBy')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
     })
 
     test('should fail UPDATE_ENTITY if command is not workflow-safe', async () => {
@@ -523,7 +722,7 @@ describe('Activity Executor (Unit Tests)', () => {
         execute: jest.fn().mockResolvedValue({ result: {} }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.view']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(false),
       }
 
       registerWorkflowSafeCommands([
@@ -559,7 +758,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([
@@ -1596,6 +1795,52 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('timeout after 50ms')
     })
+
+    test('should abort an in-flight synchronous webhook when its timeout elapses', async () => {
+      const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+      let capturedSignal: AbortSignal | undefined
+
+      ;(global.fetch as jest.Mock).mockImplementation(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            capturedSignal = init?.signal ?? undefined
+            capturedSignal?.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+            })
+          })
+      )
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-timeout-webhook',
+        activityName: 'Slow webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://127.0.0.1/webhook',
+          method: 'POST',
+        },
+        timeoutMs: 10,
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('timeout after 10ms')
+        expect(capturedSignal?.aborted).toBe(true)
+      } finally {
+        if (originalAllowPrivate === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+        }
+      }
+    })
   })
 
   // ============================================================================
@@ -1987,7 +2232,7 @@ describe('Activity Executor (Unit Tests)', () => {
         }),
       }
       const mockRbacService = {
-        getGrantedFeatures: jest.fn().mockResolvedValue(['sales.orders.manage']),
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
       }
 
       registerWorkflowSafeCommands([
@@ -2330,5 +2575,34 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.output.waited).toBe(true)
       expect(result.output.durationMs).toBe(10000)
     })
+  })
+})
+
+describe('resolveActivityTimeoutMs', () => {
+  const resolve = activityExecutor.resolveActivityTimeoutMs
+
+  test('prefers the canonical timeoutMs over the deprecated alias', () => {
+    expect(resolve({ timeoutMs: 5000, timeout: 'PT30S' })).toBe(5000)
+  })
+
+  test('reads a plain millisecond string from the deprecated alias', () => {
+    expect(resolve({ timeout: '30000' })).toBe(30000)
+  })
+
+  test('reads a duration string from the deprecated alias', () => {
+    expect(resolve({ timeout: 'PT30S' })).toBe(30 * 1000)
+    expect(resolve({ timeout: '5m' })).toBe(5 * 60 * 1000)
+  })
+
+  test('falls back to the alias when timeoutMs is not a usable value', () => {
+    expect(resolve({ timeoutMs: 0, timeout: '30000' })).toBe(30000)
+  })
+
+  test('ignores a malformed alias rather than throwing mid-execution', () => {
+    expect(resolve({ timeout: 'not-a-duration' })).toBeUndefined()
+  })
+
+  test('returns undefined when no timeout is configured', () => {
+    expect(resolve({})).toBeUndefined()
   })
 })
