@@ -60,7 +60,7 @@ jobs:
   # matrix when nothing is in scope, which skips the mutate job entirely rather
   # than reporting a synthetic score.
   scope:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       matrix: ${{ steps.scope.outputs.matrix }}
       has_work: ${{ steps.scope.outputs.has_work }}
@@ -82,7 +82,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       # Every value that originates outside this file is read from the environment
       # rather than interpolated into the script. `${{ … }}` expands as text before
@@ -117,8 +117,8 @@ jobs:
   mutate:
     needs: scope
     if: needs.scope.outputs.has_work == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 60
     # Advisory: a low score annotates the PR, it does not fail the check. Flipping
     # MUTATION_ENFORCE to 'true' is what turns this into a real gate.
     continue-on-error: ${{ vars.MUTATION_ENFORCE != 'true' }}
@@ -137,7 +137,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -158,6 +158,18 @@ jobs:
       - name: Build packages
         run: yarn build:packages
 
+      # A file Jest has no related test for makes Stryker's `enableFindRelatedTests`
+      # dry run execute zero tests, which throws `ConfigError: No tests were executed`
+      # and aborts the whole job instead of scoring (issue #5281). Filter those files
+      # out before Stryker ever runs; `covered`/`uncovered` go through step outputs so
+      # later steps can read them without re-deriving the split.
+      - name: Partition files by related test coverage
+        id: partition
+        working-directory: packages/${{ matrix.package }}
+        env:
+          MUTATE_LIST: ${{ matrix.mutate }}
+        run: node ../../scripts/stryker/relatedTests.mjs --mutate "$MUTATE_LIST" >> "$GITHUB_OUTPUT"
+
       # MUTATE_LIST goes through the environment, never into the `run:` script.
       # `${{ … }}` is expanded as text before bash parses the line, so an
       # interpolated mutate list would be shell source: it is built from the changed
@@ -165,37 +177,54 @@ jobs:
       # quotes. Through the environment the shell sees a value, never code.
       # `${{ matrix.package }}` below is safe as interpolation because it can only be
       # a member of the frozen ALLOWLISTED_PACKAGES array in scripts/stryker/scope.mjs.
+      #
+      # Skipped when every file in this package's diff has no related test — nothing
+      # covered means nothing for Stryker to run, not a failure.
       - name: Run mutation testing
         id: mutate
+        if: steps.partition.outputs.covered != ''
         working-directory: packages/${{ matrix.package }}
         env:
-          MUTATE_LIST: ${{ matrix.mutate }}
+          MUTATE_LIST: ${{ steps.partition.outputs.covered }}
         run: node ../../node_modules/.bin/stryker run --mutate "$MUTATE_LIST"
 
-      # Runs even when the mutation step failed: a low score is exactly when the
-      # survivor list is worth reading.
+      # Runs even when the mutation step failed or was skipped: a low score, or a
+      # "these files need tests" note, is exactly what's worth reading.
       - name: Write the survivor report to the job summary
         if: always()
         env:
           MUTATE_PACKAGE: ${{ matrix.package }}
           ENFORCED: ${{ vars.MUTATION_ENFORCE == 'true' && '--enforced' || '' }}
+          COVERED_FILES: ${{ steps.partition.outputs.covered }}
+          UNCOVERED_FILES: ${{ steps.partition.outputs.uncovered }}
         run: |
           node scripts/stryker/report.mjs \
             "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json" \
             --package "${MUTATE_PACKAGE}" \
+            --covered "${COVERED_FILES}" \
+            --uncovered "${UNCOVERED_FILES}" \
             ${ENFORCED}
 
       # Owns the pass/fail decision instead of Stryker's own thresholds.break, so
       # the minimum-mutant floor can veto it. While MUTATION_ENFORCE is not 'true'
       # this only prints its reasoning and always exits 0.
+      #
+      # The partition outputs matter here for the same reason they do in the report
+      # step: a missing mutation.json means a crash when Stryker ran, but merely a
+      # skip when nothing was covered. Without them an enforced gate would fail on
+      # the skip and re-create the very red check issue #5281 removed.
       - name: Enforce the mutation threshold
         if: always()
         env:
           MUTATION_ENFORCE: ${{ vars.MUTATION_ENFORCE || 'false' }}
           MUTATE_PACKAGE: ${{ matrix.package }}
+          COVERED_FILES: ${{ steps.partition.outputs.covered }}
+          UNCOVERED_FILES: ${{ steps.partition.outputs.uncovered }}
         run: |
           node scripts/stryker/enforce.mjs \
-            "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json"
+            "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json" \
+            --covered "${COVERED_FILES}" \
+            --uncovered "${UNCOVERED_FILES}"
 
       - name: Upload the mutation report
         if: always()
@@ -217,7 +246,7 @@ jobs:
       always() &&
       needs.scope.outputs.has_work == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Convenience surface only: the job summary is primary and needs no token. See
     # the per-job note at the top of this file.
     continue-on-error: true
@@ -231,7 +260,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Download mutation reports
         uses: actions/download-artifact@v6

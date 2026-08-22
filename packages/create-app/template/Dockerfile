@@ -3,6 +3,8 @@ FROM node:24-alpine AS builder
 ENV NEXT_TELEMETRY_DISABLED=1 \
     PATH=/app/node_modules/.bin:$PATH
 ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
+ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
+ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL}
 
 WORKDIR /app
 
@@ -58,22 +60,31 @@ COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
 RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
 
-EXPOSE 3000
+EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
 FROM node:24-alpine AS runner
 
 ARG CONTAINER_PORT=3000
+ARG DOCUMENTS_COLLAB_PORT=4101
 ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
+# Chromium backs the Documents PDF export (puppeteer-core). Build with
+# --build-arg INSTALL_CHROMIUM=1 to include it; PDF export otherwise returns 503.
+ARG INSTALL_CHROMIUM=0
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PATH=/app/node_modules/.bin:$PATH \
-    PORT=${CONTAINER_PORT}
+    PORT=${CONTAINER_PORT} \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates openssl
+RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
+      apk add --no-cache ca-certificates chromium openssl; \
+    else \
+      apk add --no-cache ca-certificates openssl; \
+    fi
 RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml ./
@@ -107,5 +118,5 @@ RUN adduser -D -u 1001 omuser \
 
 USER omuser
 
-EXPOSE ${CONTAINER_PORT}
+EXPOSE ${CONTAINER_PORT} ${DOCUMENTS_COLLAB_PORT}
 CMD ["yarn", "start"]

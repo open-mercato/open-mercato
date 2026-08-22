@@ -358,20 +358,54 @@ type CompileAndImportOptions = {
 }
 
 /**
- * Compile a TypeScript file to JavaScript using esbuild bundler.
- * This bundles the file and all its dependencies, handling JSON imports properly.
- * The compiled file is written next to the source file with a .mjs extension unless
- * `outFile` says otherwise.
+ * Options for `compileAppSourceFile`.
+ *
+ * `appRoot` anchors the tsconfig, the `@/` alias resolution and the dependency
+ * cache; `outFile` is the absolute path of the artifact to write. `format`
+ * selects the module system of that artifact — `'cjs'` exists for the Jest
+ * runtime, which cannot `import()` an ESM sibling.
  */
-async function compileAndImport(
+export type CompileAppSourceOptions = {
+  appRoot: string
+  outFile: string
+  format?: 'esm' | 'cjs'
+}
+
+/**
+ * Compile one app-owned TypeScript source and its relative import graph into a
+ * single JavaScript artifact, leaving every package import external.
+ *
+ * This is the only supported way to load app source (`apps/<app>/src/**`,
+ * `.mercato/generated/**`) from a plain Node process. Those files are never
+ * compiled to `dist`, and Node's own type stripping cannot load them: it
+ * requires explicit file extensions on relative specifiers and rejects the
+ * decorator and enum syntax the entities and DI files use.
+ *
+ * The artifact is cached against the content of the entry, its whole bundled
+ * dependency graph, and the tsconfig chain, so an edit anywhere in the graph
+ * invalidates it.
+ *
+ * The build runs inside the shared esbuild lifecycle. Callers outside a
+ * bootstrap load — the generated-registry loader compiling an `@app` module —
+ * would otherwise hold a build on a service another scope is entitled to
+ * `stop()`, and would leave the helper process running afterwards. Nesting is
+ * safe: the scope only releases the service when the last participant exits.
+ */
+export async function compileAppSourceFile(
   tsPath: string,
-  options: CompileAndImportOptions = {},
-): Promise<Record<string, unknown>> {
-  const allowRecovery = options.allowRecovery ?? true
-  const jsPath = options.outFile ?? tsPath.replace(/\.ts$/, '.mjs')
-  const appRoot = options.appRoot ?? path.dirname(path.dirname(path.dirname(tsPath)))
+  options: CompileAppSourceOptions,
+): Promise<string> {
+  return withEsbuildLifecycle(() => compileAppSourceFileWithActiveEsbuild(tsPath, options))
+}
+
+async function compileAppSourceFileWithActiveEsbuild(
+  tsPath: string,
+  options: CompileAppSourceOptions,
+): Promise<string> {
+  const { appRoot, outFile } = options
+  const format = options.format ?? 'esm'
   const appTsconfig = path.join(appRoot, 'tsconfig.json')
-  const metadataPath = cacheMetadataPath(jsPath)
+  const metadataPath = cacheMetadataPath(outFile)
 
   const tsExists = fs.existsSync(tsPath)
   const tsconfigExists = fs.existsSync(appTsconfig)
@@ -385,39 +419,59 @@ async function compileAndImport(
 
   const tsconfigPaths = collectTsconfigPaths(appTsconfig)
   const expectedInputHash = cacheInputHash(tsPath, appRoot, tsconfigPaths)
-  const needsCompile = !cacheIsValid(appRoot, jsPath, metadataPath, expectedInputHash)
 
-  if (needsCompile) {
-    fs.mkdirSync(path.dirname(jsPath), { recursive: true })
-    // Dynamically import esbuild only when needed
-    const esbuild = await getEsbuildRuntime()
-
-    // Use esbuild.build with bundling to handle JSON imports
-    const result = await esbuild.build({
-      entryPoints: [tsPath],
-      outfile: jsPath,
-      absWorkingDir: appRoot,
-      bundle: true,
-      metafile: true,
-      format: 'esm',
-      platform: 'node',
-      target: 'node18',
-      tsconfig: appTsconfig,
-      plugins: createCliBundlePlugins(appRoot),
-      // Allow JSON imports
-      loader: { '.json': 'json' },
-    })
-    const metadata: DynamicLoaderCacheMetadata = {
-      version: DYNAMIC_LOADER_CACHE_VERSION,
-      inputHash: expectedInputHash,
-      outputHash: contentHash(fs.readFileSync(jsPath)),
-      dependencies: {
-        ...collectDependencyHashes(appRoot, result.metafile.inputs),
-        ...hashFilesRelativeTo(appRoot, tsconfigPaths),
-      },
-    }
-    fs.writeFileSync(metadataPath, JSON.stringify(metadata))
+  if (cacheIsValid(appRoot, outFile, metadataPath, expectedInputHash)) {
+    return outFile
   }
+
+  fs.mkdirSync(path.dirname(outFile), { recursive: true })
+  // Dynamically import esbuild only when needed
+  const esbuild = await getEsbuildRuntime()
+
+  // Use esbuild.build with bundling to handle JSON imports
+  const result = await esbuild.build({
+    entryPoints: [tsPath],
+    outfile: outFile,
+    absWorkingDir: appRoot,
+    bundle: true,
+    metafile: true,
+    format,
+    platform: 'node',
+    target: 'node18',
+    tsconfig: appTsconfig,
+    plugins: createCliBundlePlugins(appRoot),
+    // Allow JSON imports
+    loader: { '.json': 'json' },
+  })
+  const metadata: DynamicLoaderCacheMetadata = {
+    version: DYNAMIC_LOADER_CACHE_VERSION,
+    inputHash: expectedInputHash,
+    outputHash: contentHash(fs.readFileSync(outFile)),
+    dependencies: {
+      ...collectDependencyHashes(appRoot, result.metafile.inputs),
+      ...hashFilesRelativeTo(appRoot, tsconfigPaths),
+    },
+  }
+  fs.writeFileSync(metadataPath, JSON.stringify(metadata))
+
+  return outFile
+}
+
+/**
+ * Compile a TypeScript file to JavaScript using esbuild bundler.
+ * This bundles the file and all its dependencies, handling JSON imports properly.
+ * The compiled file is written next to the source file with a .mjs extension unless
+ * `outFile` says otherwise.
+ */
+async function compileAndImport(
+  tsPath: string,
+  options: CompileAndImportOptions = {},
+): Promise<Record<string, unknown>> {
+  const allowRecovery = options.allowRecovery ?? true
+  const jsPath = options.outFile ?? tsPath.replace(/\.ts$/, '.mjs')
+  const appRoot = options.appRoot ?? path.dirname(path.dirname(path.dirname(tsPath)))
+
+  await compileAppSourceFile(tsPath, { appRoot, outFile: jsPath })
 
   // Import the compiled JavaScript
   try {

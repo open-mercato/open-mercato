@@ -22,7 +22,105 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.7 → 0.6.8 (unreleased)
+## 0.7.0 → 0.7.1 (unreleased)
+
+### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+
+The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+
+- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
+- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+
+**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
+
+---
+
+## 0.6.7 → 0.7.0 (2026-08-12)
+
+### Passkey MFA verification requires a real WebAuthn assertion (#3852)
+
+`PasskeyProvider.verify()` used to accept a second payload shape — `{ credentialId, challenge }` — beside the genuine `{ response }` assertion, and approved it by string comparison. Both compared values are public: `prepareChallenge()` returns the credential id and the challenge to the caller, and `GET /api/security/mfa/methods` discloses `providerMetadata.credentialId`. A third shape needed even less: with no prepared challenge at all, only the disclosed credential id was compared. Anyone who could reach the verify step for a session therefore passed the passkey second factor with no authenticator private key and no signature, in both login-time MFA and passkey-as-sudo step-up.
+
+**`POST /api/security/mfa/verify` and `POST /api/security/sudo/verify` now answer `401` for a passkey payload that is not a WebAuthn assertion.** This is a deliberate break of the request-shape contract with no deprecation window, because the shape being removed *is* the vulnerability — see the matching entry in [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md).
+
+**Action for client authors:** send the object returned by `@simplewebauthn/browser`'s `startAuthentication()` as `payload.response`. The first-party UI already does this, so no change is needed for apps that use the shipped `PasskeyChallengeVerify` component. A client that submitted the credential id and challenge was, by construction, not performing cryptographic verification.
+
+**Action for operators — read this before upgrading.** The passkey *enrollment* path still accepts a client-supplied `publicKey` with no attestation (tracked as #5296; **this release does not close it**). A credential stored through that shortcut can be one of two things, and the row does not say which:
+
+- **An unusable key** — the caller supplied a value no authenticator holds the private half of. It can never produce a verifiable assertion, so it now fails every login. A user whose only MFA method is such a credential is locked out until an admin resets it.
+- **An attacker-controlled but perfectly valid keypair** — the caller generated a real P-256 keypair in software and enrolled its COSE public key. That credential signs assertions this release accepts, exactly as a genuine authenticator would. Requiring a real assertion does not help here; the key is real, it is simply not the user's.
+
+The second case is an account-takeover path, not a lockout inconvenience, so **treat every shortcut-enrolled passkey as potentially hostile rather than merely broken.** It matters most for a user who already holds a password-only (`mfa_pending`) session: `authorizeMfaEnrollmentMutation` in `api/mfa/_shared.ts` authorizes enrollment on `auth.sub` and does not reject a pending token, so an attacker with a stolen password may be able to enroll a key they control and then satisfy the second factor with it.
+
+**Provenance cannot be reconstructed from the stored row.** Both enrollment paths write the same `provider_metadata` keys (`credentialId`, `credentialPublicKey`, `counter`, `transports`, `label`), and the shortcut lets the caller choose all of them, so there is no field that reliably distinguishes a browser-ceremony credential from an API-provisioned one. Do not assume a query can single out the affected rows.
+
+Effective mitigations, strongest first:
+
+1. **Sequence #5296 ahead of this upgrade** if you can, so no new shortcut credential can be enrolled after the audit.
+2. **Reset and re-enroll every passkey method** on any deployment that ever provisioned passkeys through the API, rather than trying to identify individual rows. Enumerate them with:
+
+   ```sql
+   SELECT id, user_id, tenant_id, label, created_at, last_used_at
+     FROM user_mfa_methods
+    WHERE type = 'passkey'
+      AND deleted_at IS NULL
+      AND is_active = true
+    ORDER BY created_at;
+   ```
+
+   Then reset each affected user with `POST /api/security/users/{id}/mfa/reset` and have them re-enroll through the browser ceremony. Communicate the reset in advance: for users whose only method is a passkey it is a lockout until they re-enroll.
+3. If a full re-enrollment is not feasible, at minimum reset the passkey methods of users who hold `security.mfa.manage` or an admin role, since those are the accounts a forged credential is worth targeting.
+
+### Standalone apps gain deterministic design-system and i18n checks
+
+New scaffolds ship `scripts/ds-check.mjs` as the hard-failing `yarn ds:check` gate and
+`scripts/i18n-check-hardcoded.mjs` as the advisory `yarn i18n:check-hardcoded` report. Their
+`typecheck` script also uses the same `NODE_OPTIONS=--max-old-space-size=8192` headroom as
+`build`. Existing apps keep their user-owned package scripts and `.ai/agentic.config.json`, so
+adoption is manual:
+
+1. Copy `packages/create-app/template/scripts/ds-check.mjs`,
+   `packages/create-app/template/scripts/i18n-check-hardcoded.mjs`, and the reasoned
+   `.ds-check-ignore` baseline into the matching app paths, then remove baseline entries as
+   their files move to semantic tokens.
+2. Add `"ds:check": "node scripts/ds-check.mjs"` and
+   `"i18n:check-hardcoded": "node scripts/i18n-check-hardcoded.mjs"` to `package.json`, and
+   change `typecheck` to
+   `cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit`.
+3. Add `"yarn ds:check"` immediately after `"yarn lint"` in
+   `.ai/agentic.config.json` `validation.commands`. Keep the i18n command advisory until a
+   project-specific allowlist has been reviewed.
+
+The design-system checker supports `--json` and fails on findings, malformed ignore data, or
+stale ignore entries. The i18n checker also supports `--json`, reports JSX and message-call
+findings, honors module `i18n/.hardcoded-allowlist.json` files and `[internal]` messages, and
+returns success for findings while it remains advisory.
+
+### Generated module fact-sheets moved to per-module directories
+
+`agentic:init` now writes each installed module's generated Markdown facts under `.ai/guides/modules/<id>/`, with `index.md` as the entry point and one file per non-empty section. Local reference projections use the matching `.ai/guides/reference-modules/<id>/index.md` layout. The JSON sidecars remain at `.ai/guides/module-facts.json`, `.ai/guides/module-facts.v2.json`, and `.ai/guides/reference-module-facts.json` with unchanged schemas.
+
+**Action for harness and automation authors:** replace literal `.ai/guides/modules/<id>.md` reads with `.ai/guides/modules/<id>/index.md`, then follow the section links needed for the task. The update harness removes prior-manifest-owned flat sheets, including locally modified generated copies, because retaining them would leave stale facts beside the authoritative directory. Unknown files that were never owned by the generated harness remain untouched.
+
+### `JWT_SECRET` is required, and the legacy token grace period is now time-bounded (#5174)
+
+Three related changes close an authentication-bypass path on deployments that kept the documented Docker defaults. **Operator action is required before upgrading a Docker deployment.**
+
+**The full-app compose stacks no longer default `JWT_SECRET`.** `docker-compose.fullapp.yml` and its create-app template twin used to resolve `${JWT_SECRET:-JWT}`, so a deployment that never set the variable signed its tokens with the literal `JWT` — a value published in this repository. Both files now declare `${JWT_SECRET:?…}`, so `docker compose up` fails fast with an explanatory message instead of starting an impersonatable stack. The same files also stopped pinning `NODE_ENV: development` over an image whose `runner` stage already sets `NODE_ENV=production`; they now default to `${NODE_ENV:-production}`. The Next.js server child was already insulated (the CLI forces production for it), but the pin leaked into every other process in those containers — `mercato init`, migrations, the auto-spawned worker supervisor and scheduler, and the entire MCP sidecar — which is where a `NODE_ENV`-keyed safety check like the one below would otherwise have downgraded itself to a warning.
+
+Set the variable in the `.env` file **next to the compose file** (the repository root) — not in `apps/mercato/.env`, which cannot override a variable the compose file passes into the container:
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+```
+
+**The app refuses to run in production with an unsafe signing secret.** At startup (and on every secret read, which covers worker, scheduler, and CLI processes) Open Mercato now rejects a `JWT_SECRET` — or a per-audience `JWT_<AUDIENCE>_SECRET` override — that is missing, shorter than 32 characters, or one of the placeholder values shipped in this repository's examples, including the old 32-character guide value `your-secure-jwt-secret-change-me`. Outside production the same conditions only log a warning, so local development is unaffected. If your production deployment currently uses a short-but-real secret, rotate it to `openssl rand -hex 32` **before** upgrading; rotating logs every user out.
+
+**Legacy fallback now requires a fixed cutover.** `JWT_LEGACY_GRACE_MINUTES` was read as an on/off switch: any value other than `0`, `false`, or `off` enabled raw-secret verification of pre-migration tokens *forever*, and those tokens are accepted without a session id — so they survive logout and password reset. The value is now honored as minutes measured against the token's own `iat`, but that relative age is not sufficient by itself because anyone holding the former secret can choose a fresh `iat`. Raw-secret fallback therefore stays disabled unless `JWT_LEGACY_CUTOVER_AT` contains a valid future ISO-8601 instant. Tokens issued more than 60 seconds in the future are also rejected.
+
+For a rolling deployment that must preserve pre-migration sessions, set both `JWT_LEGACY_GRACE_MINUTES=480` and a near-term `JWT_LEGACY_CUTOVER_AT` before rollout. The 480-minute age cap remains the default once a cutover is configured. Deployments that have already migrated should set `JWT_LEGACY_GRACE_MINUTES=0`; fresh installs have no pre-migration tokens and should start there. Without a valid cutover, pre-migration tokens are rejected and those users must sign in again.
 
 ### Login rejects users with `isConfirmed: false` (#4541)
 
@@ -49,11 +147,58 @@ The key is `logContext`, not `context`, specifically so that the generic `metada
 
 **Also changed:** `ActionLog.context_json` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context` (in ascending precedence). Previously `buildLog().context` replaced `options.metadata.context` wholesale, so entries where both were set now carry the union of their keys rather than only the former's. **Action:** if you read `context_json` and relied on absent base keys, key off the specific fields you own rather than the object's shape.
 
+### List totals are capped at 10 000 by default — treat `total` as a floor when `totalIsCapped` is true
+
+Every CRUD list count is now bounded: the database stops counting after
+`OM_LIST_COUNT_CAP` (default `10000`) matching rows. Below the cap, `total` stays
+exact and responses are byte-identical to before. At the cap, the response
+reports `total: <cap>` together with a new optional `totalIsCapped: true` field
+(and `meta.listCountCapWarning` from the query engine). **When `totalIsCapped`
+is true, both `total` and `totalPages` are floors, not values** — rows past the
+cap exist and remain servable (data queries are offset-based and independent of
+the count), but any pager that derives its page count from `total` will stop
+offering them. The platform's `Pagination`/`DataTable` handle this: a capped
+pager never clamps the current page down to the floor, suppresses the last-page
+jump, and keeps Next available through short-page detection while pages come
+back full. A custom pager built on `total` must do the same or its users cannot
+reach rows past the cap. This is a **value-level behavior change on a STABLE
+response surface**, shipped enabled, because an exact `COUNT` over arbitrary
+filters is `O(matching rows)` and dominates list latency on large tables.
+
+**Action for API clients:** wherever you consume `total` as ground truth about
+the full result set (loop bounds, "N results" labels, reconciliation), treat it
+as a floor whenever `totalIsCapped` is `true`. To enumerate a full result set,
+page until a page comes back with fewer rows than requested — never until you
+have collected `total` rows.
+
+**Action for UI authors:** thread `totalIsCapped` from your list response into
+`DataTable`'s `pagination` prop. Every in-tree list does this already, and a
+CI guard (`yarn check:pagination-capped`) keeps the set closed, so this applies
+to tables you maintain outside the repo. It is not only a labelling concern: an
+unadopted table renders the floor as if it were exact **and stops offering rows
+past it**, because its page count is derived from a capped `total`. With the
+flag threaded, `DataTable` renders "10 000+", keeps Next available while pages
+come back full, and never clamps a deep-linked page down to the floor.
+
+**Escape hatch:** `OM_LIST_COUNT_CAP=0` disables capping and restores exact
+count *values* globally. It is read per request from the environment, is
+permanently supported, and needs no redeploy. Note it restores the values, not
+the previous query shape: counts keep running through the rebuilt
+scope-and-filters query (with filters as `EXISTS` semi-joins), which is
+strictly lighter on unfiltered lists and plans set-oriented on filtered ones.
+
+**Doc-storage counts count rows, not distinct record ids.** Custom-entity
+(doc-storage) list counts changed from `count(distinct entity_id)` to
+`count(*)`. Within one organization the two are identical. Across a scope
+spanning several organizations that hold a row for the same record id, the
+count now matches the item list — which returns one row per storage row — where
+it previously under-reported relative to the items.
+
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
 Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.
 
-**The feature gate moved from `search.view` to `search.global`.** The topbar has always rendered the palette on `search.global` while the endpoint enforced `search.view`, so the two gates could disagree in either direction: a role holding only `search.global` got a focusable search box that 403'd on every keystroke, and a role holding only `search.view` could query the endpoint with no UI to reach it. `admin` holds `search.*`, which is why nobody noticed. Neither feature id was renamed or removed — ACL feature ids are FROZEN under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §10 — and `search.view` keeps gating the search administration endpoints under `api/search/settings/**`, plus the unchanged `GET /api/search/search`.
+**The feature gate moved from `search.view` to `search.global`.** The topbar has always rendered the palette on `search.global` while the endpoint enforced `search.view`, so the two gates could disagree in either direction: a role holding only `search.global` got a focusable search box that 403'd on every keystroke, and a role holding only `search.view` could query the endpoint with no UI to reach it. `admin` holds `search.*`, which is why nobody noticed. Neither feature id was renamed or removed — ACL feature ids are FROZEN under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §10 — and `search.view` keeps gating the search administration endpoints under `api/search/settings/**`, plus `GET /api/search/search`, whose gate is unchanged (see the per-entity filter note below).
 
 **Action for API consumers:** this is a **narrowing** for any integration that calls the global endpoint with a token holding `search.view` alone. Grant those callers `search.global`. Because the new employee default (below) only reaches existing roles through a sync, run `yarn mercato auth sync-role-acls` after upgrading.
 
@@ -61,11 +206,38 @@ Two changes ship together on `GET /api/search/search/global`, the endpoint the C
 
 **Action for module authors:** the filter **fails closed**. An entity type whose config declares no `aclFeatures` — or that no `search.ts` declares at all, which includes user-defined custom entities projected into `search_tokens` by `query_index` — no longer appears in global-search results for any non-superadmin caller. Every enabled entity shipped by `@open-mercato/core` and `@open-mercato/checkout` has been backfilled. `messages:message`, `sales:sales_note`, and `sales:sales_document_address` are disabled because their APIs enforce participant-, record-, or document-kind-specific access that a static entity feature cannot represent safely; they can return only after search supports the same row-aware checks. If results disappeared for your own module, add `aclFeatures: ['<module>.<entity>.view']` to that entity's config; run with `OM_SEARCH_DEBUG=true` and look for `search.api.global entity-filtered` to see which entity types were dropped and why.
 
+### The hybrid search endpoint filters results per entity too (#5168)
+
+`GET /api/search/search` — the endpoint behind the Vector Search playground in search administration — applied tenant and organization scoping but no per-entity ACL, so a caller past its single `search.view` gate received presenter titles, subtitles and deep links for every indexed entity type. It now applies exactly the same per-entity `aclFeatures` filter as the global endpoint above: the query is narrowed to the entity types the caller may read, and the results are filtered again on the way out as defense in depth. Superadmins are exempt.
+
+**Its `requireFeatures` gate is deliberately unchanged** — `search.view` is the correct gate for an administration surface, and it is pinned by `TC-SEARCH-003`.
+
+**Action for API consumers:** this is a **narrowing** for an integration whose token holds `search.view` but not the view feature of the entity types it searches. Grant those callers the per-entity view features they need, or call the endpoint as a superadmin. Like the global endpoint, the filter fails closed for an entity type that declares no `aclFeatures`; run with `OM_SEARCH_DEBUG=true` and look for `search.api.search entity-filtered` to see which types were dropped and why. The endpoint also answers `503` when `rbacService` or `searchIndexer` is not registered, since neither the narrowing nor the filter can be evaluated without them.
+
+**The example module's `search.ts` is what keeps example todos visible.** `example:todo` is indexed through its CRUD route's `indexer: { entityType }`, so before that config existed the fail-closed filter hid it from every non-superadmin — the concrete symptom being `TC-EXAMPLE-001`, which searches todos as `admin`. The config (shipped separately, in the app and in the create-app template) declares `aclFeatures: ['example.todos.view']`, the same feature `GET /api/example/todos` enforces, and the drift guard now pins that mapping so the hybrid filter cannot regress it again. `example:example_customer_priority` stays unconfigured: it holds a customer id and a priority enum with no human-readable text.
+
 ### The `empty` and `crm` starter presets now enable the `search` module (#5164)
 
 `create-mercato-app --preset crm` and `--preset empty` produced apps with no Cmd+K palette at all, not even for a superadmin: the app shell renders the palette on `search.global`, and `filterGrantsByEnabledModules` strips every feature whose owning module is absent from the enabled-modules registry, so the grant never survived. Only the `classic` preset — which keeps the template's own `src/modules.ts` — had it.
 
 **Action:** none for existing apps. This changes only what *new* scaffolds generate. An app already scaffolded from `crm` or `empty` can add `{ id: 'search', from: '@open-mercato/search' }` to its `src/modules.ts`; the package is already pinned in the generated `package.json`, and the token strategy runs on the `search_tokens` table `query_index` maintains, so no Meilisearch and no embedding provider are needed.
+
+### Data sync batches now emit their own traces instead of nesting under the trigger
+
+Only relevant if you run telemetry (`TELEMETRY_BACKEND` set to an enabled backend). Trace context propagates from the request that starts a sync, through the queue, into the worker — and `ParentBasedSampler` only decides sampling at a trace's **root**. A run lasting hours therefore inherited one decision taken on a request from long before it: below `TELEMETRY_SAMPLING_RATIO=1.0` an entire run could emit nothing at all, and at `1.0` a single backfill produced one unrenderable million-span trace.
+
+The `data_sync` engine now wraps each batch in a **root** span (`data_sync.import.batch` / `data_sync.export.batch`) linked back to the run's trace, so every batch samples independently and each trace stays renderable.
+
+Sampling stays probabilistic — at ratio `p` a run of `n` batches still emits nothing with probability `(1 - p)^n` (75% for one batch at `p = 0.25`, 0.3% for twenty) — but a long run is no longer one coin flip, and at `1.0` each trace is now bounded instead of unrenderable.
+
+**Action for operators:** none required, but expect the new shape in your tracing backend. Sync work no longer appears inside the triggering request's trace; look for `data_sync.*.batch` root traces instead, and follow the span **link** to get back to the trigger. Saved views or dashboards that assumed the old nesting need repointing. Batch spans carry `data_sync.run_id`, `data_sync.integration_id`, `data_sync.entity_type`, `data_sync.batch_index`, `om.tenant_id` and `om.organization_id` for filtering. The read that finds the stream drained is traced separately as `data_sync.import.drain` / `data_sync.export.drain`, so a panel counting or averaging `*.batch` sees batches only.
+
+**Action for adapter authors:** none — `streamImport`/`streamExport` are unchanged, and generator `finally` blocks still run on cancellation and failure. If your adapter hand-rolls its own per-batch span, you can delete it: the engine's span now covers the same work, and an adapter-created span could never actually root itself. Any inner spans you create nest under the engine's batch span as before.
+
+One contract detail is now enforced where it previously was not: the engine drives your iterator directly instead of using `for await`, so the returned value must be a genuine `AsyncIterable` (an `async function*`, or an object with `[Symbol.asyncIterator]`) — which is what `streamImport`/`streamExport` have always been typed as. `for await` also happened to accept a *synchronous* iterable of promises; that was never part of the declared contract, and an untyped adapter relying on it now fails immediately with a `TypeError` on the first batch rather than silently. TypeScript adapters are unaffected.
+
+**For module authors:** the underlying mechanism is two new optional `SpanOptions` fields in `@open-mercato/telemetry` — `root?: boolean` (start a new trace, taking a fresh sampling decision) and `links?: TraceCarrier[]` (causal links as W3C carriers). Both are additive; a call that sets neither behaves exactly as before. Packages that cannot depend on `@open-mercato/telemetry` reach the same primitives through `withTelemetrySpan` / `captureTelemetryTrace` in `@open-mercato/shared/lib/telemetry/runtime`.
+
 ### TanStack Table upgraded to v9 — `ColumnDef` imports must move to the legacy entry point
 
 The platform now depends on `@tanstack/react-table@^9.0.0`. v9 is an API rewrite: `useReactTable` and the `get*RowModel` factories moved out of the package root, and `ColumnDef` gained a leading `TFeatures` generic (`ColumnDef<TFeatures, TData, TValue>` instead of `ColumnDef<TData, TValue>`). Because module code imports these types **directly from `@tanstack/react-table`** rather than through `@open-mercato/ui`, no bridge inside the platform can shield you from it — a module that declares `ColumnDef<MyRow>[]` stops compiling after the upgrade.
@@ -135,6 +307,159 @@ const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
 
 If you hit this, the fix is to stop routing literal `{{...}}` text through `UPDATE_ENTITY` input or `EMIT_EVENT` payload fields — escape it, or move the templating to the consumer that is supposed to render it. Search stored definitions for `{{` in activity `config.input` and `config.payload` before upgrading if you want to find these ahead of time.
 
+### Credential-free integrations now resolve as configured (#4897)
+
+An integration whose effective credentials schema declares `fields: []` now resolves through the
+payment-gateway descriptor as credential-free: `requiresConfiguration: false`, `isConfigured: true`,
+and `configurationStatus: 'unmanaged'`. Previously the descriptor attempted a credential lookup and
+reported `requiresConfiguration: true`, `isConfigured: false`, and
+`configurationStatus: 'missing_credentials'`, which could disable an otherwise usable provider.
+
+**Action for integration authors:** none. Providers that declare one or more credential fields keep
+the existing credential and state checks. If an integration inherits credentials from its bundle,
+the bundle's effective schema is still used, so declaring `fields: []` on the integration does not
+bypass required bundle credentials.
+
+### `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` is removed
+
+The `example` module's `widgets/injection-table.ts` used to export a value chosen by a
+ternary — `(NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED || NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED)
+? { …always, …crossModule } : always` — and `widgets/components.ts` exported a
+conditionally spread array keyed on `NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED`.
+Both exports are now single, unconditional literals.
+
+The reason is not cosmetic. The module fact extractor
+(`packages/cli/src/lib/generators/module-extension-facts.ts` → `readRootObject` /
+`extractObjectConvention` → `staticValue`) folds only statically known values, and it folds a
+ternary solely when both branches are deeply equal. Neither export qualified, so the
+framework's own reader published **zero** contributions for both files: every scaffolded app
+and every agent fact-sheet saw the canonical reference module as contributing no widget
+injection and no component override at all. Running the real extractor over the module now
+reads 26 injection-table contributions and 3 component-override contributions where it
+previously read 0 and 0.
+
+**What replaces the flag.** Nothing, by design. The cross-module entries (customers, catalog,
+sales) ship unconditionally, and they are inert without their host module: each of them is
+keyed on a spot id that only `customers`, `catalog`, or `sales` renders, and a module that is
+not installed renders no spot. The change also adds nothing to the widget registry — the
+loader reads widget entries (`loadWidgetEntries`) and injection tables (`loadInjectionTable`)
+from two independent sources, so every `example` widget was already enumerated regardless of
+what the table said. On top of that, `injection-loader.ts` skips any widget whose
+`metadata.requiredModules` names a module that is not in the enabled set; the `example`
+widgets do not declare `requiredModules` today, which is the mechanism to reach for if you
+copy one of these entries into a widget that calls another module's API directly. The two
+checkout demo overrides also register unconditionally, but their `wrapper`
+returns the original component **by identity** while
+`NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED` is off. Because
+`resolveRegisteredComponent` does `resolved = override.wrapper(resolved)`, an identity return
+is indistinguishable from no override, so the rendered DOM is unchanged and that flag keeps
+its existing meaning and default.
+
+**Which behavior this settles on.** The documented default was misleading. `apps/mercato/.env.example`
+ships `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=true`, and that flag was OR-ed into the
+same condition, so any app started from the monorepo `.env.example` already had every
+cross-module example injection **enabled** — directly contradicting the
+`NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=false` line and its `(default: false)` comment
+sitting a few lines below it. This change settles on the behavior those apps were actually
+getting: cross-module example injections are always on. It also decouples them from
+`NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED`, which is a `CrudForm` event-emission switch
+and never should have gated an injection table.
+
+**This is a real default change for scaffolded standalone apps.** An app created by
+`create-mercato-app` sets neither flag, so before this change it registered only the
+example-owned demo surfaces; now it also registers the cross-module entries targeting
+`customers`, `catalog` and `sales`. They stay inert unless the host module is enabled — a
+cross-module entry is keyed on a spot id only its host renders — but the registrations are
+present, and the UMES DevTool will list them. If you want a scaffolded app to carry the
+example's source without its cross-module injections, remove the entries from
+`src/modules/example/widgets/injection-table.ts` in your app, or disable the `example`
+module entirely (it ships unregistered in every built-in preset).
+
+**Action for downstream apps:** delete `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` from
+your `.env` files and from any CI/deployment environment that exports it; it is now dead
+configuration and setting it has no effect. It has been removed from
+`apps/mercato/.env.example` (`packages/create-app/template/.env.example` never documented it).
+If you copied `example/widgets/injection-table.ts` into your own module and kept the
+`false` branch to hide the cross-module entries, delete the entries you do not want instead of
+gating them — an env-gated export is unreadable to the fact extractor and will make your
+module look empty to the agent harness.
+
+**Action for module authors generally:** export `injectionTable` and `componentOverrides` as
+plain literals. Gate behavior *inside* a widget or wrapper, or declare
+`metadata.requiredModules` on the widget; do not branch the exported registry value itself.
+
+
+### Generated facts gain a v2 sidecar, and extension joins now derive irregular plurals (#4897)
+
+`BACKWARD_COMPATIBILITY.md` §14 freezes the `hosts`, `contributions`, and `unresolved` arrays of
+generated `.ai/guides/module-facts.json`, together with their correlation-resolution values and
+exact public IDs, as STABLE once published. Four changes land against that surface and the
+adjacent generator/query types. Three correct values that named something nonexistent, and the
+fourth fixes a join that resolved to a table that does not exist, but correctness does not erase
+the published contract: each is a visible value change for anyone who reads the generated facts
+or extends an entity.
+
+The generated-facts boundary is now explicitly versioned. `.ai/guides/module-facts.json` remains
+the v1 compatibility artifact: its stable extension-surface arrays, exact contribution IDs,
+classification modes, and correlation behavior are generated with the legacy reader contract.
+`.ai/guides/module-facts.v2.json` is an additive sibling containing the corrected reader facts.
+Newly generated harness consumers prefer v2 and fall back to v1, while downstream tools that have
+not migrated keep reading the original path without observing stable-value changes. Both files
+retain the frozen top-level `Record<moduleId, ModuleFactsJsonEntry>` shape; the version is carried
+by the filename rather than an invented non-module key.
+
+**Action for direct extractor callers:** omission of `factsContractVersion` selects v2. Pass
+`factsContractVersion: 1` only while reproducing the legacy sidecar during the compatibility
+window; migrate comparisons and pinned IDs to v2, then remove the explicit v1 selection.
+
+**1. Contribution IDs from `ComponentReplacementHandles` gain their component segment.**
+`packages/cli/src/lib/generators/module-extension-facts.ts` now folds
+`ComponentReplacementHandles.section('ui.detail', 'NotesSection')` into the handle the runtime
+actually registers, so the contribution publishes `section:ui.detail.NotesSection` where it
+previously published `ui.detail`. The old value named no component — `ui.detail` is the section
+namespace, not a component id — so nothing could have correlated against it successfully. Still,
+it is an exact public ID changing: a scaffolded app or downstream tool that pinned the old string
+should move to `module-facts.v2.json` and repin. The same applies to the sibling `page`,
+`dataTable`, and `crudForm` formulas. The legacy sidecar keeps the old strings during the bridge.
+
+**2. One published `mode` value changes: `section:auth.login.form` moves `replace` → `wrapper`.**
+The component-override reader used to discriminate `mode` on an `entry.props` property that the
+`ComponentOverride` union has no member for; together with the other reader fixes in this change it
+now discriminates on the union's real members (`wrapper` / `propsTransform` / `replacement`).
+Measured across a 55-module corpus, `section:auth.login.form` (enterprise `security`) is the only
+leaf whose value changes in v2; every other contribution keeps the mode it published. `wrapper` is
+what that entry has always done at runtime — the v1 fact sheet was wrong, not the module. The v1
+sidecar continues to publish `replace` during the bridge.
+
+**3. Recovered injection-table contributions (additive).** The extractor silently dropped every
+string-form and single-object-form slot declaration, hiding twelve real contributions across six
+modules — `integrations` published none at all. Those contributions appear in v2. This is additive:
+no previously published ID disappears or changes. The v1 sidecar preserves its published arrays;
+the generated-facts JSON budget was raised 3.50MB → 3.56MB to hold the corrected projection.
+
+**4. `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`.**
+`packages/shared/src/lib/query/engine.ts` derived an extension's physical table by appending an
+`s` to the entity segment, while the same file already used `pluralizeBaseName` for every other
+table-name fallback. Any third-party extension whose entity segment ends in `y` therefore joined
+a table that does not exist: `foo:company` derived `companys`. It now derives `companies`.
+
+**Action for module authors:** this is a runtime behavior change in the shared query engine. If
+you worked around the old derivation by adding a `y`-ending entity's real table under
+`EntityExtension.table`, that declaration is now redundant but still honored — an explicit
+`table` always wins, so nothing breaks either way. Keep `table` for plurals no guesser can win
+(`person` → `people`) and for any entity whose `@Entity({ tableName })` simply does not match the
+derived name. Behavior is unchanged for every entity segment that does not end in `y`.
+
+**Type-surface note (#4897).** `ExtractAllModuleFactsResult`
+(`packages/cli/src/lib/generators/module-facts.ts`) gains optional
+`unresolvedFirstPartyTargets?: string[]` and `factCoverage?: ModuleFactCoverageFamily[]` fields.
+The implementation always populates both, while optionality preserves source compatibility for
+existing constructors, mocks, and wrappers. `ListConfig.csv` (`packages/shared/src/lib/crud/factory.ts`) widens
+in the other direction and needs no action: `headers` accepts a function in addition to
+`string[]`, and `row` gains a second `ctx` parameter, so every existing `(item) => …`
+implementation stays assignable.
+
+
 ### Settings sections are identified by their untranslated group id (#4843)
 
 `buildSettingsSections` used to identify each settings section by slugging the **rendered** group label, so `SettingsSection.id` was locale-dependent — `module-configs` in one deployment, `konfiguracja-modu` in another. Sections now carry the untranslated group id instead: the `pageGroupKey` a settings page declares (for example `settings.sections.moduleConfigs`), falling back to its raw `pageGroup` label when it declares no key. This matches how the main sidebar already identifies its nav groups, and it is what makes the ordering in `settingsSectionOrder` locale-independent.
@@ -159,6 +484,19 @@ Fresh applications generated by `create-mercato-app` now include the same respon
 
 This is an opt-in security hardening step for existing apps and the default for newly scaffolded apps. It does not change Open Mercato API, event, DI, ACL, or database contracts.
 
+### The unique constraint on `onboarding_requests.email` is dropped (#4514)
+
+`onboarding_requests.email` has held system-scoped AES-256-GCM ciphertext since #4160, and every write uses a fresh random IV, so two rows for the same address never store the same value. The `onboarding_requests_email_unique` constraint left over from the plaintext era could therefore never fire. It is now dropped, leaving `onboarding_requests_email_hash_unique` as the single deduplication contract — the one the platform has actually enforced since #4160, through `hashForLookup`/`lookupHashCandidates`. The same migration adds a non-unique `onboarding_requests_email_idx` in its place, because the resubmission lookup still has a legacy `(email = input AND email_hash IS NULL)` arm and Postgres can only combine an `OR` through a bitmap when every arm is indexable — without a replacement index the whole disjunction, hash arm included, would fall back to a sequential scan.
+
+**Action for module authors:** none, unless you write to `onboarding_requests` directly. Deduplicating a signup request means matching `email_hash`, never `email`; code that already does that is unaffected. The one pattern that changes behavior is an upsert declaring `ON CONFLICT (email)` — Postgres requires a unique index for that inference, so such a statement now raises an error instead of silently never conflicting. Rewrite it against `email_hash`. Nothing else changes: no column, table, type, or API is renamed or removed, and every insert or update accepted before is still accepted.
+
+### `GET /api/attachments` serves an empty page past the end instead of clamping (#5299)
+
+The record-scoped attachments list was the only paged endpoint that clamped a requested page down to the last existing page — both for the database offset it used and for the `page` value it echoed back. Asking for page 7 of a 3-page result returned page 3's items labelled `page: 3`. It now behaves like every other query-engine-backed list: the offset is `(page - 1) * pageSize` unclamped, so a page past the end returns an empty `items` array, and `page` echoes exactly what was requested.
+
+**Action for API consumers:** none, unless you relied on the clamp. The route, method, and response shape are unchanged — `items`, `total`, `page`, `pageSize`, and `totalPages` are all still returned, and `page` is still an integer of at least `1`. Two patterns are worth checking. A loop that pages while the returned page is full previously never terminated on this endpoint and now does, which is the point of the change. A caller that used a deliberately large page number as a shorthand for "give me the last page" now receives an empty page instead, and must compute the last page from `totalPages` itself.
+
+**For module authors:** a client-side workaround that treated an echoed page lower than the requested one as the end of the list — the pattern `AttachmentsSection` adopted in #5274 — remains correct; it simply never triggers now. You can drop it when convenient, but nothing forces you to.
 
 ## 0.6.6 → 0.6.7 (2026-08-05)
 
@@ -283,6 +621,25 @@ export const bootstrap = createBootstrap(
 
 Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
 
+### `ComboboxInput` shows a "no matches" row for a non-empty query
+
+When the user has typed and the filtered suggestion list is empty, the popover now stays open and renders `ui.inputs.comboboxInput.noMatches` instead of closing silently. The loading affordance is unchanged: while a fetch is in flight the popover still shows `ui.inputs.comboboxInput.loading`, including when a stale suggestion list is present. The new key ships in every bundled locale.
+
+### `customers/components/detail/assignableStaff` moved to `customers/lib/assignableStaff`
+
+The implementation moved so non-component callers (API routes, commands) can import it without reaching into a `components/` path. The old path re-exports every public symbol and is marked `@deprecated`; it keeps working through 0.6.x and will be removed in 0.7.0. Update imports:
+
+```diff
+- import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
++ import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/lib/assignableStaff'
+```
+
+### Credit memo creation now persists validated order and invoice links
+
+`sales.credit_memos.create` now persists its validated `orderId` and `invoiceId` as the credit memo's `order` and `invoice` relations. `SalesCreditMemo` exposes both only as relations (`@ManyToOne` on `order_id` / `invoice_id`) and has never had scalar `orderId` / `invoiceId` properties, so earlier releases validated each reference and then silently dropped it — reads returned a null `order_id` and `invoice_id`. The delete snapshot and its undo path read and restore both links through the relation as well.
+
+`TC-SALES-031` asserts the persisted order link, and `credit-memo-document-links.test.ts` covers both relations on create and on delete-snapshot. No caller changes are required.
+
 ### Opt-in per-entity ACL for custom-entity records (#3857)
 
 Follow-up to the #2612 records-API hardening, which deliberately left custom/EAV entities on the coarse `entities.records.view` / `entities.records.manage` path. Those two features were **entity-agnostic**: any holder could read/modify/delete records of *every* custom entity in their tenant, so sensitive custom entities (salaries, board minutes) could not be compartmentalized from ordinary ones (intra-tenant horizontal privilege; cross-tenant was already blocked).
@@ -316,6 +673,19 @@ Contributor action:
 - If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
 - To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
 
+### Documents module — optional realtime-collaboration sidecar and env vars
+
+The new `documents` module ships an optional realtime-collaboration sidecar: the `documents-collab` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the create-app template equivalents), started with `yarn documents:collab`. Every related environment variable is **optional** and the stack degrades gracefully when they are unset:
+
+- `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` — browser-reachable `ws(s)://` endpoint, embedded into the client at **build time**. Unset → the document editor works in single-user mode (no realtime collaboration). A malformed or loopback production value is logged and ignored at runtime, so an optional collaboration misconfiguration cannot abort the platform image build.
+- `DOCUMENTS_COLLAB_JWT_SECRET_V2` — shared secret between the app and the sidecar; required only when collaboration is enabled. Must contain at least 32 UTF-8 bytes; the sidecar fails closed (refuses to serve collaboration tokens, `/healthz` reports 503) when it is missing or too short.
+- `DOCUMENTS_COLLAB_REDIS_URL` (falls back to `REDIS_URL`) — Redis endpoint used for multi-instance collaboration sync. The bundled compose files wire both to the stack's Redis out of the box.
+- `DOCUMENTS_COLLAB_REDIS_PREFIX` — deployment-scoped collaboration namespace. It is required when Redis is configured in production; use one shared value for all replicas of a deployment and a different value for every deployment sharing the Redis database. Bundled compose files derive an isolated default from `DEPLOY_ENV`.
+- `TENANT_DATA_ENCRYPTION_KEY` and the other `TENANT_DATA_ENCRYPTION*` vars — the sidecar decrypts the same tenant data as the app, so the compose files now pass the app service's encryption configuration to `documents-collab` too. If you run the sidecar outside the bundled compose files, forward your encryption configuration to it yourself.
+- PDF export requires Chromium. Both production Dockerfiles default `INSTALL_CHROMIUM=0`; opt in with `--build-arg INSTALL_CHROMIUM=1` (or `INSTALL_CHROMIUM=1 docker compose build app`). Without it, PDF export returns 503 and everything else keeps working. The measured Alpine runtime-image cost is **236 MB → 1.26 GB** (**+1.02 GB**), so deployments that need PDF export take that cost explicitly.
+
+*Action for downstream:* none for existing deployments — with no documents env vars set, images build and `docker compose config/ps/up` run exactly as before (the compose files use `:-` defaults, never `:?` required interpolation, and `APP_URL` keeps its `http://localhost:3000` default). The sidecar is behind the `documents-collab` Compose profile and no longer starts or binds port 4101 during a normal `up`. In the monorepo Compose files it reuses the exact image built by the `app` service rather than rebuilding the same tag with a different build-argument set; standalone templates retain Compose's project-scoped service images. To enable collaboration, set the collaboration URL and v2 secret, rebuild the app image, and start with `docker compose --profile documents-collab up`. Set `INSTALL_CHROMIUM=1` only when the deployment needs PDF export.
+
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
 The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).
@@ -346,6 +716,66 @@ Vector/fulltext search settings (Cmd+K strategies, embedding provider/model, aut
 4. **Provider availability is now verified (behavior fix).** `isProviderConfigured('ollama')` previously returned `true` unconditionally. A new cached, fail-closed `embeddingProviderProbe` (additive DI key) actively checks Ollama via `GET {OLLAMA_BASE_URL}/api/tags` (key-presence for the other providers). The embeddings settings `GET` returns per-provider `available`/`reason`, and the embeddings `POST` rejects selecting an unreachable provider with `409 { error, reason }`. *Action for downstream:* environments that relied on Ollama always reporting "available" must ensure Ollama is actually reachable at `OLLAMA_BASE_URL` (which was already required for embedding to function).
 
 All changes are additive at the contract surface. No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands changed. The vector index (shared pgvector table) remains instance-level; per-tenant scoping covers settings selection, not stored vectors. See [`.ai/specs/2026-06-15-tenant-scoped-search-settings.md`](.ai/specs/2026-06-15-tenant-scoped-search-settings.md) (tracking issue #3092).
+
+### Notification channels unified on the delivery-strategy seam (Phase 7)
+
+All notification channels now flow through one seam and one gate. This is additive and backward-compatible, with one **intentional corrective behavior change** and one **deprecation** relevant to module authors.
+
+**Behavior change (corrective).** Per-channel opt-out and the `nonOptOut`/`silent` type flags are now enforced on **every** channel, not just push. Previously, disabling `in_app` or `email` for a notification type in a user's preferences was silently ignored — those channels always delivered. After upgrading, an `in_app` opt-out hides the notification from the bell/inbox/unread-count (the row is still written as a durable record), and an `email` opt-out suppresses the email. A user who has **never changed their preferences sees no difference** (preferences default to on). No action required unless you relied on opt-outs being ignored.
+
+**`Notification.channels` is now authoritative.** The new nullable `channels` JSONB column stores the resolved delivery-channel set. A create call with no `channels` still fans out to every registered channel (unchanged); pass `channels: ['push']` (etc.) to a `notificationService.create(...)` call to target specific channels. Legacy rows (`channels = NULL`) are treated as "all channels / visible".
+
+**Deprecation — `NotificationDeliveryContext` email fields.** For authors of custom `NotificationDeliveryStrategy` implementations: the context is now split into a channel-agnostic core (`NotificationDeliveryContextCore`) and `EmailDeliveryExtras` (`panelUrl`, `panelLink`, `actionLinks` — and `recipient.email` is email-specific). The flat shape is unchanged (all fields still present) so existing strategies compile and run as-is, but the email-shaped fields are now `@deprecated`: a non-email strategy MUST NOT depend on them and should derive whatever it needs from `notification`. They will move behind an email-scoped accessor in a future major.
+
+**New capability hooks.** `NotificationDeliveryStrategy` gained optional `isConfigured(ctx)` and `supports(notification)`; the dispatcher skips a channel when either returns `false`. Use `isConfigured` for tenant-config/technical deliverability (not per-user opt-out, which the create-time gate already handles).
+
+**Behavior change — built-in notification types no longer deliver push.** Every built-in notification type (auth, sales, messages, catalog, workflows, customers, customer accounts, staff, inbox ops, business rules, communication channels — 28 types) now declares the channel eligibility `channels: ['in_app', 'email']`: push is completely off for these types — it never delivers and users cannot enable it from their preferences (the push cell renders locked). Connecting FCM/APNs/Expo therefore no longer floods devices with **these built-in core types**; `nonOptOut` types (security alerts) are governed by the same eligibility, while the admin custom-send types stay unrestricted. **Caveat — this does not yet hold platform-wide.** Any notification type that *omits* `channels` still resolves to **every** registered channel, push included, the moment a push channel is connected. Types that ship without `channels` today — `enterprise/security`, `enterprise/record_locks`, `checkout`, both `example` modules, `webhooks`, `ai_assistant`, and every module scaffolded from the CLI generator template — are push-eligible by default. Whether the platform-wide default for a `channels`-less type should stay **opt-out-per-type** or become **push-opt-in** (a type must list `push` explicitly) is an open maintainer policy decision — see the spec's § Deferred Follow-ups. Module authors: declare `channels` on your own `NotificationTypeDefinition`s to choose the shipped channel set; **omitting it keeps the every-channel, push-eligible default** — set `channels: ['in_app', 'email']` to keep push off.
+
+**New capability — operators edit a type's channels without a code change, per tenant.** The new `notification_type_overrides` table (apply the notifications module migration; unique per `(tenant_id, notification_type_id)`) stores a tenant-scoped override of the code-declared eligibility: a stored array replaces the code set, an absent row inherits it, and one tenant's edit never changes delivery for another tenant. Edit it from the type-catalogue table on the **Notification Delivery** settings page or via `PATCH /api/notifications/types` with `{ "id": "<type>", "channels": ["in_app","email","push"] }` (pass `channels: null` to clear the override) — e.g. flip push back on for `messages.new` in a tenant that wants it. A channel outside the effective set is rejected by the delivery gate before both user preferences and the `nonOptOut` bypass, `setPreferences` drops writes for it server-side, and both preference UIs render the cell locked off. `GET /api/notifications/types` now returns `channels` (effective set for the caller's tenant, `null` = every channel), `storedChannels`/`storedNonOptOut` (the raw override), and `updatedAt` (the override row's optimistic-lock version — the PATCH honors the standard `x-om-ext-optimistic-lock-expected-updated-at` header and 409s a stale write, since the full `channels` array replaces). The same PATCH also accepts `nonOptOut: true | false | null` on the same row: `true` forces a type on for the tenant's users, `false` makes a code-required type user-editable, `null` inherits the code flag (`notification_types.non_opt_out` remains a pure code mirror). The catalogue re-sync never touches the overrides table, so operator edits survive upgrades; clearing both fields deletes the row.
+
+### Device `push_token` is encrypted at rest — existing tenants get a backfilled encryption map
+
+The devices module registers a new encrypted entity: `push_token` on `devices:user_device` is encrypted at rest via the standard tenant-data-encryption seam. Encryption is driven by an `encryption_maps` row that declares which fields to encrypt, and those rows are normally seeded **once at tenant creation** (`entities seed-encryption`). A pre-existing tenant therefore has **no map for the new device entity**, and `encryptEntityPayload` no-ops when no map resolves — so a device registered after the upgrade would have its `push_token` written as **plaintext**, silently.
+
+**This heals automatically on `yarn db:migrate`.** A forward-only, idempotent data migration (`entities` module, `Migration20260722120000`) inserts the `devices:user_device` map for every `(tenant, organization)` scope that already has active encryption maps — mirroring what `seed-encryption` does, and correctly skipping tenants that run with encryption disabled (they have no maps at all). New tenants continue to get the map from `seed-encryption` at creation. **No operator action is required** for the standard migrate-then-deploy flow, and there is no plaintext window because the map exists before the new code serves traffic.
+
+Two additional heal paths are available if you need them:
+
+- **Upgrade Action** (`devices.seed-push-token-encryption-map`, version `0.6.6`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). Use it if you skip migrations or want to re-assert the map from the admin banner.
+- **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including the device one.
+
+Note: only push tokens **written after** the map exists are encrypted. If a tenant already ran a build that wrote plaintext tokens before the map was present, those rows stay plaintext until the device re-registers (or you run `entities rotate-encryption` / `decrypt-database` tooling). The map is a declaration only — the tenant DEK drives the actual crypto, so seeding it is safe even when encryption is currently disabled; it simply activates once encryption is enabled.
+
+### Run `yarn mercato auth sync-role-acls` after upgrading — new devices/push ACL features
+
+This release adds new ACL feature IDs across the devices/push stack: `devices.*` (`view`/`manage`/`admin`), `push_notifications.view_deliveries` / `push_notifications.send_custom`, the tenant push-channel grants `communication_channels.connect_tenant_channel` / `communication_channels.channel.push.manage`, `notifications.manage_preferences` / `notifications.manage_user_preferences`, and the per-provider `channel_{fcm,apns,expo}.{view,configure}` features.
+
+New tenants receive these through each module's `setup.ts` `defaultRoleFeatures` at creation. **Existing tenants do not** — their role ACLs were written before these features existed, so until you sync them an admin gets `403`/blank UI on the new **Devices** page, the **Push Delivery Log**, the notification-preferences grid, and the push-channel connect flow. Run the idempotent sync once per upgrade:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It only *adds* the newly declared default grants to existing roles and never removes an operator's customizations. Target one tenant with `--tenant <tenantId>` if you prefer a staged rollout.
+
+### Advanced-filter conditions whose field names a Where combinator are now ignored
+
+`deserializeAdvancedFilter` (flat, v1) and `deserializeTree` (v2) — the shared parsers behind the `filter[...]` query params on every CRUD list route — now drop a condition whose `field` starts with `$`, i.e. names a Where combinator such as `$and`, `$or` or `$not`. A filter built only from such conditions deserializes to `null` and the route lists as if no filter were supplied.
+
+Condition field names are never validated against a route's field allowlist, so a combinator-named field previously compiled into a Where key sharing the namespace with real column names — reaching the query engine either as a filter on a non-existent column (matching every indexed row) or colliding with a key the route itself emitted. Dropping it matches how an unrecognized operator is already handled.
+
+**Action for module authors:** none expected — there is no legitimate `$`-prefixed column, so no real caller can be relying on this. It is documented because these two functions are shared surface used by every list route: if you are debugging a saved view or a hand-built filter that used to reach the engine and now appears to be ignored, check whether one of its conditions names a combinator. Route-level defence is independent of the parser — a route that consumes the filter itself via `consumeAdvancedFilterState` + `mergeAdvancedFilterTree` (customers/people, companies, deals, devices) already AND-combines it under its own filters, so no client key can overwrite a server-enforced scope. See [`.ai/specs/2026-04-28-push-notifications-and-devices.md`](.ai/specs/2026-04-28-push-notifications-and-devices.md) § Changelog.
+
+### New root `resolutions` entry: `node-forge@1.4.0`
+
+The new `@open-mercato/channel-apns` package depends on `@parse/node-apn@6.5.0`, which declares `node-forge` as an **exact** version (`node-forge: "npm:1.3.1"`) rather than a range — so no install can ever pick up a patched `node-forge`, including a security patch. The root `package.json` now pins `node-forge` to `1.4.0` in `resolutions`, alongside the other security-hygiene pins there.
+
+This applies monorepo-wide, so it also lifts `node-forge` for any other workspace that resolves it transitively. It is safe to leave in place; do not remove it while `channel-apns` is present, or the graph silently reverts to the exact 1.3.1 the SDK hard-codes. See `packages/channel-apns/AGENTS.md`.
+
+### New root `resolutions` entry: `websocket-driver@0.7.5`
+
+GHSA-xv26-6w52-cph6 (critical, published 2026-07-15) affects `websocket-driver < 0.7.5`, which the graph resolves transitively via two chains: `@docusaurus/core → webpack-dev-server → sockjs → faye-websocket` (already present on `develop`) and `@firebase/database → faye-websocket` (new with `channel-fcm`). Both declare ranges that satisfy `0.7.5`, so a plain re-resolve would eventually pick it up — the pin makes the floor explicit and keeps `yarn npm audit` (the CI `audit` job) green deterministically. Safe to remove once every chain's own minimum moves past 0.7.5.
+
 
 ### Versioned browser-storage envelopes for shared UI preference slots (#3457)
 
@@ -420,6 +850,42 @@ The heal is delivered as a version-gated **Upgrade Action** (`attachments.reconc
    Attachments whose parent record's org cannot be resolved (custom/legacy `entityId`s, hard-deleted parents, the virtual `attachments:library` entity) are counted and **left untouched** — nothing is deleted or blanked. Re-running after already-correct data is a no-op (`already_completed`).
 
 *Action for downstream:* if you ran a multi-org setup on an affected build, enable Upgrade Actions and run `attachments.reconcile-organization` once per tenant to heal misfiled attachments; a self-hoster with single-org or clean data can leave Upgrade Actions off. No contract surface changed (the reconciliation helper and upgrade-action entry are additive). See [`.ai/specs`](.ai/specs/) and issue #3765.
+
+### Role ACL organization semantics widened — review `role_acls` rows before upgrading
+
+`RbacService` changed how a role's organization grant is interpreted. Both changes widen access, so review your `role_acls` data before deploying.
+
+**1. An empty `organizations_json` array widens access for API-key principals only — human principals are unchanged.**
+
+For a **human user**, an empty array remains a deny-all organization scope: it projects to an empty accessible set, so `resolveOrganizationScope` still falls back to the user's **account organization and its descendants** and scoped reads and deletes fail closed. This is deliberate — collapsing it to `null` (unrestricted) would reopen the scoped-deletion hole closed by #4033, where a deny-all actor could delete an organization-bound API key. The role's *features* still apply; only its organization reach stays empty.
+
+For an **API-key principal**, an empty role allowlist now means "inherit the key's own organization binding" rather than contributing nothing. A key with a concrete `organization_id` therefore stays bound to that organization; only a key without one widens to the tenant.
+
+Find rows whose meaning depends on this distinction:
+
+```sql
+SELECT role_id, tenant_id FROM role_acls WHERE organizations_json = '[]'::jsonb AND deleted_at IS NULL;
+```
+
+No action is required for human-facing roles. Review these rows only where the role is assigned to API keys, and set an explicit allowlist (`'["<org-uuid>", …]'::jsonb`) if a key should stay narrower than its own binding. Use the explicit `["__all__"]` sentinel when tenant-wide access is what you actually want — it has always meant that and is unambiguous.
+
+**2. A role's organization grants now match the selected organization's ancestor chain.**
+
+`roleAclAllowsOrganization` used to require the selected organization to appear literally in `organizations_json`. It now also matches when any **ancestor** of the selected organization is listed, so a role scoped to a parent organization applies in that parent's descendants. This mirrors what `resolveOrganizationScope` already did when expanding parent grants to descendants, so most deployments see no change — but a role deliberately pinned to a parent org *without* wanting it to reach children now reaches them. Ancestor expansion requires the Directory hierarchy service; when Directory is disabled, matching stays exact and fails closed.
+
+**3. An organization-restricted role-level super-admin grant is no longer global.**
+
+A `RoleAcl` with `is_super_admin = true` *and* a non-empty, non-`__all__` `organizations_json` no longer short-circuits to global super-admin. It is now evaluated through the scoped ACL projection and stays bounded by its organization list. This is a **narrowing** — an operator relying on such a row for tenant-wide administration will lose that reach. Clear the row's `organizations_json` (or set `["__all__"]`) to restore global super-admin.
+
+Find affected rows:
+
+```sql
+SELECT role_id, tenant_id, organizations_json FROM role_acls
+WHERE is_super_admin = true AND jsonb_array_length(COALESCE(organizations_json, '[]'::jsonb)) > 0
+  AND NOT organizations_json ? '__all__' AND deleted_at IS NULL;
+```
+
+*Action for downstream:* run both queries against each tenant, decide per row, and adjust before deploying. No API, DI, or type surface changed — `RbacService` gained an optional third constructor argument (the Directory hierarchy seam) and keeps working without it.
 
 ### Removed — `MODULE_FACTS_ALLOWLIST` export (module fact-sheet auto-discovery) (#3752, #3798, #3754)
 

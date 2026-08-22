@@ -334,7 +334,7 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
   return modules
 }
 
-function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
+export function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
   const source = fs.readFileSync(cfgPath, 'utf8')
   return parseModulesFromSource(source)
 }
@@ -488,6 +488,11 @@ function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; m
   }
 
   const corePkgPath = path.join(nodeModulesRoot, 'node_modules', '@open-mercato', 'core')
+
+  const workspaceCoreModules = path.join(nodeModulesRoot, 'packages', 'core', 'src', 'modules')
+  if (fs.existsSync(workspaceCoreModules)) {
+    return { isMonorepo: true, monorepoRoot: nodeModulesRoot, nodeModulesRoot }
+  }
 
   try {
     const stat = fs.lstatSync(corePkgPath)

@@ -9,6 +9,13 @@ import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
+import {
+  EXAMPLE_ACTIVATION_ENTRY,
+  assertExampleActivation,
+  assertModulesUnregistered,
+  enableModuleEntry,
+  modulesConfigPath,
+} from './lib/module-activation-fixtures'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -84,17 +91,26 @@ function writeStandaloneEnv(appDir: string): void {
     // the captured-email path must be absolute and identical on both sides.
     `OM_TEST_EMAIL_CAPTURE_PATH=${standaloneEmailCapturePath()}`,
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
-    'JWT_SECRET=ci-standalone-test-jwt-secret',
+    'JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
     'NODE_ENV=test',
     'OM_TEST_MODE=1',
     'OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in',
+    // Registers the network-free `push_stub` channel adapter (inert unless a
+    // delivery row carries provider='push_stub'). Mirrors the ephemeral harness,
+    // which sets it on both the app server and the Playwright process; without it
+    // TC-PUSH-003 resolves no adapter and every delivery lands in `failed`.
+    'OM_ENABLE_PUSH_STUB_ADAPTER=1',
+    // Documents collaboration. NEXT_PUBLIC_* is inlined at build time, so it must be
+    // in the app .env before the build; the sidecar the Playwright process starts
+    // verifies the tokens this app mints, so both halves share one secret.
+    'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101',
+    'DOCUMENTS_COLLAB_JWT_SECRET_V2=local-standalone-documents-collab-v2-secret-32b',
     'OM_DISABLE_EMAIL_DELIVERY=1',
     'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
     'MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret',
     'MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret',
-    'NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true',
     'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',
@@ -224,17 +240,22 @@ async function main(): Promise<void> {
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     PLATFORM_PORTAL_BASE_URL: 'http://localhost:3000',
     OM_TEST_EMAIL_CAPTURE_PATH: standaloneEmailCapturePath(),
-    JWT_SECRET: 'ci-standalone-test-jwt-secret',
+    JWT_SECRET: 'ci-standalone-test-jwt-secret-32-chars-min',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Second half of the pairing above: with AUTO_SPAWN_WORKERS=false the
+    // `push-deliveries` job runs in a drain child of THIS process, which never
+    // reads the scaffolded app's .env.
+    OM_ENABLE_PUSH_STUB_ADAPTER: '1',
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101',
+    DOCUMENTS_COLLAB_JWT_SECRET_V2: 'local-standalone-documents-collab-v2-secret-32b',
     OM_DISABLE_EMAIL_DELIVERY: '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
-    NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',
@@ -255,10 +276,15 @@ async function main(): Promise<void> {
   try {
     await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio', '--skip-agentic-setup'], { cwd: ROOT })
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'], { cwd: ROOT })
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded standalone app created')
     assertExists(path.join(appDir, '.ai', 'qa', 'tests', 'playwright.config.ts'), 'Standalone QA config present')
+    const yarnConfig = fs.readFileSync(path.join(appDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error(`Scaffolded standalone app does not use the published Verdaccio registry: ${VERDACCIO_URL}`)
+    }
+    console.log(green(`✔ Scaffolded standalone app uses Verdaccio at ${VERDACCIO_URL}`))
 
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)
@@ -267,12 +293,24 @@ async function main(): Promise<void> {
       env: standaloneInstallEnv,
     })
 
-    console.log(cyan('Building the scaffolded app in production mode'))
+    console.log(cyan('Building the runtime-disabled scaffold baseline in production mode'))
     runCommand('yarn', ['build'], {
       cwd: appDir,
       env: { ...integrationEnv, NODE_ENV: 'production' },
     })
     assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
+    await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+    console.log(green('✔ Runtime-disabled scaffold baseline contains no reference-module output'))
+
+    enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
+    console.log(cyan('Building the explicitly activated example fixture in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ Activated ${label}`)) })
+    await assertExampleActivation(appDir)
+    console.log(green('✔ Activated disposable app exposes example without design_system'))
 
     const standalone = await waitForStandaloneEphemeralApp({
       appDir,

@@ -43,6 +43,29 @@ export type SpanKind = 'internal' | 'server' | 'client' | 'producer' | 'consumer
 export type SpanOptions = {
   kind?: SpanKind
   attributes?: Attributes
+  /**
+   * Start a NEW trace instead of nesting under the active context, so the
+   * sampler takes a fresh decision for this span.
+   *
+   * Without it a long-lived job (a multi-day import, a reindex) is one trace
+   * under one `ParentBased` decision taken on whatever request triggered it:
+   * below ratio 1.0 a whole run can emit nothing, and at ratio 1.0 it becomes an
+   * unrenderable million-span trace. Rooting the unit of work the analysis
+   * actually reasons about — a batch, a page — bounds both. Pair with `links` so
+   * the causal chain back to the trigger survives.
+   *
+   * Meaningful for `withSpan` only. Passing it through `continueTrace` would
+   * discard the very parent the carrier supplies, defeating that call's purpose;
+   * link to the carrier instead of continuing it if that is what you want.
+   */
+  root?: boolean
+  /**
+   * Causal links to other traces, as W3C carriers — `captureTraceContext()` for
+   * the currently active trace, or the `_trace` carrier off a queue/event
+   * payload for a remote one. Empty or malformed carriers are dropped rather
+   * than emitted as invalid links.
+   */
+  links?: TraceCarrier[]
 }
 
 /**
@@ -52,6 +75,17 @@ export type SpanOptions = {
 export interface Span {
   setAttribute(key: string, value: AttributeValue): void
   setAttributes(attributes: Attributes): void
+  /**
+   * Rename an in-flight span, for work whose identity is only known once it has
+   * run — a read that turns out to have drained its stream rather than produced
+   * a batch. Keeping such a span under the batch name would over-count batches
+   * and add an unlabelled latency sample to every dashboard built on that name.
+   *
+   * Optional so a third-party `TelemetryProvider` predating it still satisfies
+   * the interface. Call it as `span.updateName?.(…)` and treat "not renamed" as
+   * a tolerable degradation, never a correctness requirement.
+   */
+  updateName?(name: string): void
   recordException(error: unknown): void
   setStatus(status: 'ok' | 'error', message?: string): void
   end(): void
