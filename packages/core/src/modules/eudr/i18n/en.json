@@ -239,7 +239,7 @@
   "eudr.lifecycle.amendWindowClosed": "Amend window closed",
   "eudr.lifecycle.amendWindowRemaining": "Amend window remaining: {hours} h {minutes} min",
   "eudr.lifecycle.confirmArchive": "Archive statement?",
-  "eudr.lifecycle.confirmArchiveBody": "The statement will be archived.",
+  "eudr.lifecycle.confirmArchiveBody": "The statement will be archived. Archived statements are read-only and cannot be edited, restored, or deleted.",
   "eudr.lifecycle.confirmMarkAvailable": "Mark statement available?",
   "eudr.lifecycle.confirmMarkAvailableBody": "Reference details are required before the statement becomes available.",
   "eudr.lifecycle.confirmReturnToDraft": "Return statement to draft?",
