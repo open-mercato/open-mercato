@@ -44,6 +44,16 @@ const REQUIRED_VARIABLES = [
   'DOCUMENTS_COLLAB_JWT_SECRET_V2',
 ]
 
+// The inverse of REQUIRED_VARIABLES: variables that must be set exactly ONCE per lane,
+// on the standalone app's .env side only. OM_DOCUMENTS_COLLAB_INTEGRATION means two
+// unrelated things depending on which process reads it. In the app server it is the
+// permission that lets resolveDocumentsCollaborationEndpoint() accept the loopback
+// ws:// URL above under NODE_ENV=production; in the Playwright process it is the gate
+// that opts TC-DOCUMENTS-017's realtime UI spec in. Mirroring it onto the
+// integration-test env the way the variables above are mirrored would silently enable
+// a heavy realtime spec in a lane that has never run it.
+const APP_ONLY_VARIABLES = ['OM_DOCUMENTS_COLLAB_INTEGRATION']
+
 const STANDALONE_LANES = [
   '.github/workflows/snapshot.yml',
   '.github/workflows/npm-snapshot-preview.yml',
@@ -66,6 +76,19 @@ for (const lane of STANDALONE_LANES) {
       assert.ok(
         countAssignments(source, variable) >= 2,
         `${lane} must set ${variable} for the standalone app .env AND the integration-test env; the two run in different processes with different working directories`,
+      )
+    })
+  }
+}
+
+for (const lane of STANDALONE_LANES) {
+  for (const variable of APP_ONLY_VARIABLES) {
+    test(`${lane} pins ${variable} for the app process only`, () => {
+      const source = readRepoFile(lane)
+      assert.equal(
+        countAssignments(source, variable),
+        1,
+        `${lane} must set ${variable} exactly once, on the standalone app .env side. In the Playwright process the same variable is a spec gate, not the server-side loopback permission, so a second assignment opts TC-DOCUMENTS-017's realtime UI spec into a lane that has never run it`,
       )
     })
   }

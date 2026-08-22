@@ -21,6 +21,8 @@ import {
 import { expectId, getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import {
+  COLLAB_INTEGRATION_ENABLED,
+  COLLAB_INTEGRATION_SKIP_REASON,
   startManagedCollabSidecar,
   type ManagedCollabSidecar,
 } from './helpers/collabSidecar'
@@ -33,7 +35,6 @@ type CreatedDocument = { id: string; updatedAt: string }
 type TestUser = { id: string; roleId: string; email: string; name: string; token: string }
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const PASSWORD = 'DocsRecovery1!Pass'
-const COLLAB_INTEGRATION_ENABLED = process.env.OM_DOCUMENTS_COLLAB_INTEGRATION === '1'
 
 // The sidecar starter used to be duplicated here, byte-for-byte apart from taking
 // its base URL from the module constant. The copy kept the monorepo-only entry path
@@ -262,10 +263,7 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
   })
 
   test('keeps realtime live and inserts authorized record fields into a paginated export', async ({ browser, page, request }) => {
-    test.skip(
-      !COLLAB_INTEGRATION_ENABLED,
-      'Realtime Documents coverage runs in CI with OM_DOCUMENTS_COLLAB_INTEGRATION=1 and a managed sidecar.',
-    )
+    test.skip(!COLLAB_INTEGRATION_ENABLED, COLLAB_INTEGRATION_SKIP_REASON)
     test.slow()
     test.setTimeout(120_000)
     const stamp = Date.now()
