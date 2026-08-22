@@ -82,6 +82,9 @@ test('the release gate owns --case-timeout and rejects the evaluator flag --time
   const help = spawnSync(process.execPath, [releaseScript, '--help'], { encoding: 'utf8' })
   assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
   assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor for the routing, writable, and review lanes \\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}\\)`))
+  // The help text's own claim that the model-free steps do not read this flag is the operator-facing
+  // half of #5184; pinning it keeps the sentence from outliving the behaviour it describes.
+  assert.match(help.stdout, /The model-free deterministic and fixture-preparation steps carry their own flat ceilings and do not read it\./)
   assert.equal(release.DEFAULT_CASE_TIMEOUT_MS, 600_000)
   // The help line derives from the constant, but RELEASE.md restates it as prose an operator reads
   // before ever running --help. Left unpinned it is the one copy that can silently keep the old
@@ -123,6 +126,13 @@ test('the deterministic step budgets its process independently of the per-model 
     release.deterministicInvocation({ evaluator: '/other/evaluate.mjs', root: '/other' }).timeout,
     invocation.timeout,
   )
+  // Everything above guards the helper; none of it reaches the call site the helper exists to
+  // protect, so a revert that reinstates the inline scaling while leaving the export in place would
+  // break no assertion. Pin the wiring in the release script's own source, the idiom this file
+  // already uses for execution-sandbox.mjs, so the regression #5184 names cannot come back green.
+  const releaseSource = fs.readFileSync(releaseScript, 'utf8')
+  assert.match(releaseSource, /const deterministic = deterministicInvocation\(\{ evaluator, root \}\)/)
+  assert.doesNotMatch(releaseSource, /caseTimeout \* Math\.max\(1, plan\.catalog\.caseCount\)/)
 })
 
 // The routing step feeds one operator value into two coupled budgets: the per-case ceiling the
