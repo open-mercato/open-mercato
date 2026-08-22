@@ -247,6 +247,12 @@ jobs:
           OM_TEST_MODE=1
           OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
           OM_INTEGRATION_TEST=true
+          # Registers the network-free `push_stub` channel adapter (no-op unless a
+          # delivery row carries provider='push_stub'). The ephemeral harness sets
+          # it in buildReusableEnvironment/the app-server env; this job starts the
+          # app from its own .env instead, so without the mirror TC-PUSH-003 can
+          # never resolve an adapter and every delivery lands in `failed`.
+          OM_ENABLE_PUSH_STUB_ADAPTER=1
           OM_DISABLE_EMAIL_DELIVERY=1
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
@@ -373,6 +379,12 @@ jobs:
           # (like the TC-CRM-079 / TC-SX-001 stale-read investigation)
           # undiagnosable from CI logs.
           OM_DRAIN_DEBUG: '1'
+          # Same reason as CACHE_STRATEGY above: with AUTO_SPAWN_WORKERS=false the
+          # `push-deliveries` job is executed by a drain CHILD of this process,
+          # which never reads the app's .env — so the `push_stub` adapter must be
+          # enabled here too, exactly as the ephemeral harness sets it on both the
+          # Playwright process and the app server (TC-PUSH-003).
+          OM_ENABLE_PUSH_STUB_ADAPTER: '1'
         run: yarn test:integration
 
       - name: Print standalone app log on test failure

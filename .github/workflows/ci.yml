@@ -404,6 +404,15 @@ jobs:
       - name: Lint
         run: yarn lint
 
+      - name: Guard against unmet peer dependencies in published packages
+        # A peer that only lives in devDependencies resolves fine through the
+        # monorepo's hoisted node_modules but is absent from a standalone app,
+        # which installs dependencies + peerDependencies only. No PR job builds a
+        # standalone app, so without this gate the break first appears post-merge
+        # in the snapshot workflow's `Standalone App Integration Tests`.
+        # Pre-existing cases are pinned in scripts/package-peer-deps-allowlist.json.
+        run: yarn packages:check-peer-deps
+
       - name: Guard against raw console.* logging
         # Blocking since the application-wide migration to the structured
         # logging facade (see .ai/specs/2026-07-02-structured-logging-facade.md).

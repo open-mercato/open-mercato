@@ -16,14 +16,24 @@ import { fileURLToPath } from 'node:url'
 // monorepo root, so an unset OM_TEST_EMAIL_CAPTURE_PATH leaves each side on a
 // different default path and TC-AUTH-033 never sees the invitation email.
 //
-// Both variables must appear twice per lane: once in the standalone app's .env
-// (the server process) and once in the integration-test step env (the specs and
-// the queue-drain children, which do not read the app's .env).
+// OM_ENABLE_PUSH_STUB_ADAPTER is the same shape again. The network-free
+// `push_stub` channel adapter is registered by push_notifications/di.ts only when
+// the flag is set, and the ephemeral harness sets it on both the app server and
+// the Playwright process. The standalone lanes originally set it on neither, so
+// TC-PUSH-003 could not resolve an adapter and every delivery landed in `failed`.
+//
+// Every variable here must appear twice per lane: once in the standalone app's
+// .env (the server process) and once in the integration-test step env (the specs
+// and the queue-drain children, which do not read the app's .env).
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..')
 
-const REQUIRED_VARIABLES = ['PLATFORM_PORTAL_BASE_URL', 'OM_TEST_EMAIL_CAPTURE_PATH']
+const REQUIRED_VARIABLES = [
+  'PLATFORM_PORTAL_BASE_URL',
+  'OM_TEST_EMAIL_CAPTURE_PATH',
+  'OM_ENABLE_PUSH_STUB_ADAPTER',
+]
 
 const STANDALONE_LANES = [
   '.github/workflows/snapshot.yml',
