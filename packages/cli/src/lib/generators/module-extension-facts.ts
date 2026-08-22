@@ -60,6 +60,8 @@ export interface ExtractModuleExtensionFactsOptions {
   notifications?: readonly string[]
   aiTools?: ReadonlyArray<{ name: string; sourcePath: string }>
   aiAgents?: ReadonlyArray<{ id: string; sourcePath: string }>
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 export interface CorrelateExtensionFactsOptions {
@@ -69,12 +71,15 @@ export interface CorrelateExtensionFactsOptions {
   apiRoutes: ReadonlySet<string>
   commandIds?: ReadonlySet<string>
   contributingModuleId?: string
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 type StaticContext = {
   initializers: Map<string, ts.Expression | ts.FunctionDeclaration>
   sourceFile: ts.SourceFile
   resolving: Set<string>
+  factsContractVersion: 1 | 2
 }
 
 type ApiExtensionHostIds = {
@@ -229,7 +234,7 @@ function propertyName(node: ts.PropertyName): string | null {
   return null
 }
 
-function buildStaticContext(file: ts.SourceFile): StaticContext {
+function buildStaticContext(file: ts.SourceFile, factsContractVersion: 1 | 2 = 2): StaticContext {
   const initializers = new Map<string, ts.Expression | ts.FunctionDeclaration>()
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
@@ -241,7 +246,7 @@ function buildStaticContext(file: ts.SourceFile): StaticContext {
     node.forEachChild(visit)
   }
   file.forEachChild(visit)
-  return { initializers, sourceFile: file, resolving: new Set() }
+  return { initializers, sourceFile: file, resolving: new Set(), factsContractVersion }
 }
 
 function entityRegistryValue(expression: ts.PropertyAccessExpression): string | null {
@@ -266,6 +271,26 @@ function staticTemplate(expression: ts.TemplateExpression, context: StaticContex
   return value
 }
 
+/**
+ * A function-valued property carries no statically readable value, but its
+ * PRESENCE is the discriminant several conventions are keyed on (a
+ * `ComponentOverride` is a wrapper/props-transform/replacement depending on
+ * which callable it declares; an enricher declares `enrichOne`/`enrichMany`).
+ * Method shorthand (`enrichOne() {}`) is already recorded as `true`, so an
+ * arrow/function-expression property — or an identifier bound to one — records
+ * the same marker instead of vanishing from the object.
+ */
+function isFunctionLikeInitializer(expression: ts.Expression, context: StaticContext): boolean {
+  const current = unwrap(expression)
+  if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) return true
+  if (!ts.isIdentifier(current)) return false
+  const initializer = context.initializers.get(current.text)
+  if (!initializer) return false
+  if (ts.isFunctionDeclaration(initializer)) return true
+  const resolved = unwrap(initializer)
+  return ts.isArrowFunction(resolved) || ts.isFunctionExpression(resolved)
+}
+
 function staticObject(expression: ts.ObjectLiteralExpression, context: StaticContext): StaticObject {
   const result: StaticObject = {}
   for (const property of expression.properties) {
@@ -274,6 +299,7 @@ function staticObject(expression: ts.ObjectLiteralExpression, context: StaticCon
       if (!name) continue
       const value = staticValue(property.initializer, context)
       if (value !== undefined) result[name] = value
+      else if (context.factsContractVersion === 2 && isFunctionLikeInitializer(property.initializer, context)) result[name] = true
       continue
     }
     if (ts.isShorthandPropertyAssignment(property)) {
@@ -326,6 +352,12 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     return value
   }
   if (ts.isCallExpression(current)) {
+    const handle = componentReplacementHandle(current, context)
+    if (handle) {
+      if (context.factsContractVersion === 2) return handle.resolved
+      const firstArgument = current.arguments[0]
+      return firstArgument ? staticValue(firstArgument, context) : undefined
+    }
     if (ts.isIdentifier(current.expression)) {
       const callable = context.initializers.get(current.expression.text)
       if (callable && (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable) || ts.isFunctionDeclaration(callable))) {
@@ -339,14 +371,19 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
           initializers,
           sourceFile: context.sourceFile,
           resolving: new Set(context.resolving),
+          factsContractVersion: context.factsContractVersion,
         }
         if (callable.body && ts.isExpression(callable.body)) return staticValue(callable.body, childContext)
         const returnStatement = callable.body?.statements.find(ts.isReturnStatement)
         if (returnStatement?.expression) return staticValue(returnStatement.expression, childContext)
       }
     }
+    // Factory-style `defineThing({ … })` calls forward their configuration object,
+    // but a member call (`Handles.section('a', 'b')`) computes a value from its
+    // arguments — forwarding the first one there invents a wrong id, so it stays
+    // unresolved unless a formula above knows the builder.
     const firstArgument = current.arguments[0]
-    if (firstArgument) {
+    if (firstArgument && (context.factsContractVersion === 1 || ts.isIdentifier(current.expression))) {
       const value = staticValue(firstArgument, context)
       if (!isStaticObject(value) || !ts.isIdentifier(current.expression)) return value
       if (current.expression.text === 'dataTableExtensionHost') return { family: 'data-table', ...value }
@@ -361,6 +398,33 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     return left !== undefined && JSON.stringify(left) === JSON.stringify(right) ? left : undefined
   }
   return undefined
+}
+
+/**
+ * `ComponentReplacementHandles` (packages/shared/src/modules/widgets/component-registry.ts)
+ * is the framework-owned builder every `widgets/components.ts` uses to name a
+ * replacement handle. Without these formulas the generic call fallback would read
+ * `ComponentReplacementHandles.section('ui.detail', 'NotesSection')` as its first
+ * argument and publish `ui.detail` as the handle — a target id that exists nowhere.
+ */
+const COMPONENT_REPLACEMENT_HANDLE_BUILDERS: Record<string, (args: Array<string | undefined>) => string | undefined> = {
+  page: ([routePath]) => routePath ? `page:${routePath}` : undefined,
+  dataTable: ([tableId]) => tableId ? `data-table:${tableId}` : undefined,
+  crudForm: ([entityId]) => entityId ? `crud-form:${entityId}` : undefined,
+  section: ([scope, sectionId]) => scope && sectionId ? `section:${scope}.${sectionId}` : undefined,
+}
+
+function componentReplacementHandle(
+  expression: ts.CallExpression,
+  context: StaticContext,
+): { resolved: string | undefined } | null {
+  if (!ts.isPropertyAccessExpression(expression.expression)) return null
+  const callee = expression.expression
+  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'ComponentReplacementHandles') return null
+  const builder = COMPONENT_REPLACEMENT_HANDLE_BUILDERS[callee.name.text]
+  if (!builder) return { resolved: undefined }
+  const args = expression.arguments.map((argument) => stringValue(staticValue(argument, context)))
+  return { resolved: builder(args) }
 }
 
 function isStaticObject(value: StaticValue | undefined): value is StaticObject {
@@ -399,20 +463,32 @@ function conventionPath(moduleRoot: string, relativePath: string): string | null
   return null
 }
 
-export function readConventionObjectArray(filePath: string, exportName: string): StaticObject[] {
+function readConventionObjectArrayForContract(
+  filePath: string,
+  exportName: string,
+  factsContractVersion: 1 | 2,
+): StaticObject[] {
   const file = sourceFile(filePath)
   if (!file) return []
-  const context = buildStaticContext(file)
+  const context = buildStaticContext(file, factsContractVersion)
   const initializer = context.initializers.get(exportName)
   if (!initializer || ts.isFunctionDeclaration(initializer)) return []
   const value = staticValue(initializer, context)
   return Array.isArray(value) ? value.filter(isStaticObject) : []
 }
 
-function readRootObject(filePath: string, variableName: string): StaticObject | null {
+export function readConventionObjectArray(filePath: string, exportName: string): StaticObject[] {
+  return readConventionObjectArrayForContract(filePath, exportName, 2)
+}
+
+function readRootObject(
+  filePath: string,
+  variableName: string,
+  factsContractVersion: 1 | 2 = 2,
+): StaticObject | null {
   const file = sourceFile(filePath)
   if (!file) return null
-  const context = buildStaticContext(file)
+  const context = buildStaticContext(file, factsContractVersion)
   const initializer = context.initializers.get(variableName)
   if (!initializer || ts.isFunctionDeclaration(initializer)) return null
   const value = staticValue(initializer, context)
@@ -1019,20 +1095,36 @@ function contributionBase(
   }
 }
 
+/**
+ * `ModuleInjectionTable` maps a spot to `ModuleInjectionSlot | ModuleInjectionSlot[]`,
+ * and a slot is either a bare widget-id string or a placement object. The runtime
+ * loader normalizes all three shapes (`injection-loader.ts` → `loadInjectionTable`);
+ * reading only the array form here silently dropped every string and single-object
+ * slot from the generated contribution facts.
+ */
+function injectionTableSlots(value: StaticValue | undefined): StaticValue[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
+
 function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): ModuleExtensionContributionFact[] {
   const filePath = conventionPath(options.moduleRoot, 'widgets/injection-table.ts')
   if (!filePath) return []
-  const table = readRootObject(filePath, 'injectionTable')
+  const table = readRootObject(filePath, 'injectionTable', options.factsContractVersion ?? 2)
   if (!table) return []
   const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
   const facts: ModuleExtensionContributionFact[] = []
   for (const targetId of Object.keys(table).sort((left, right) => left.localeCompare(right))) {
-    const entries = table[targetId]
-    if (!Array.isArray(entries)) continue
+    const entries = options.factsContractVersion === 1
+      ? (Array.isArray(table[targetId]) ? table[targetId] as StaticValue[] : [])
+      : injectionTableSlots(table[targetId])
     for (const entry of entries) {
-      if (!isStaticObject(entry)) continue
-      const widgetId = stringValue(entry.widgetId)
+      if (options.factsContractVersion === 1 && !isStaticObject(entry)) continue
+      const slot = isStaticObject(entry) ? entry : null
+      const widgetId = typeof entry === 'string' ? entry : slot ? stringValue(slot.widgetId) : undefined
       if (!widgetId) continue
+      const features = slot ? strings(slot.features) : []
+      const priority = slot ? numberValue(slot.priority) : undefined
       const payload = targetId.endsWith(':columns') ? 'column'
         : targetId.endsWith(':row-actions') ? 'row-action'
           : targetId.endsWith(':bulk-actions') ? 'bulk-action'
@@ -1043,8 +1135,8 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
       const shared = {
         ...base,
         targets: [target(targetId)],
-        features: strings(entry.features),
-        placement: numberValue(entry.priority) !== undefined ? { priority: numberValue(entry.priority) } : undefined,
+        features,
+        placement: priority !== undefined ? { priority } : undefined,
       }
       if (targetId.startsWith('data-table:')) {
         facts.push({
@@ -1053,7 +1145,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: payload === 'field' ? 'render' : payload,
             tableId: targetId.replace(/^data-table:/, '').replace(/:(?:columns|row-actions|bulk-actions|filters|toolbar|header|footer|search-trailing)$/, ''),
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       } else if (targetId.startsWith('crud-form:')) {
@@ -1073,7 +1165,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: 'render',
             registryKey: widgetId,
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       }
@@ -1093,7 +1185,9 @@ function extractObjectConvention(options: {
   if (!filePath) return []
   const exportNames = [options.exportName, ...(options.exportAliases ?? [])]
   const entries = exportNames.reduce<StaticObject[]>((found, exportName) =>
-    found.length > 0 ? found : readConventionObjectArray(filePath, exportName), [])
+    found.length > 0
+      ? found
+      : readConventionObjectArrayForContract(filePath, exportName, options.module.factsContractVersion ?? 2), [])
   const sourcePath = portablePath(options.module.moduleRoot, options.module.sourceRoot, filePath)
   return entries.flatMap((entry, index) => options.build(entry, sourcePath, index) ?? [])
 }
@@ -1353,7 +1447,11 @@ function extractComponentOverrides(options: ExtractModuleExtensionFactsOptions):
       const targetDefinition = isStaticObject(entry.target) ? entry.target : null
       const handle = targetDefinition ? stringValue(targetDefinition.componentId) : undefined
       if (!handle) return null
-      const mode = entry.wrapper !== undefined ? 'wrapper' : entry.props !== undefined ? 'props' : 'replace'
+      // `ComponentOverride` discriminates on `wrapper` / `propsTransform` /
+      // `replacement` — never on a `props` property, which the union has no member for.
+      const mode = options.factsContractVersion === 1
+        ? (entry.wrapper !== undefined ? 'wrapper' : entry.props !== undefined ? 'props' : 'replace')
+        : (entry.wrapper !== undefined ? 'wrapper' : entry.propsTransform !== undefined ? 'props' : 'replace')
       const id = `${options.moduleId}.component-override.${index}:${handle}`
       const contribution = contributionBase(id, sourcePath, 'componentOverrides')
       return {
@@ -1780,6 +1878,22 @@ function targetModuleId(targetId: string): string | null {
   return match?.[1] ?? null
 }
 
+function normalizedEntityId(value: string): string {
+  return value.replace(/^([a-z][a-z0-9_]*):/, '$1.')
+}
+
+function entityFactKeyForTarget(targetId: string, entityIds: ReadonlySet<string>): string | null {
+  const normalizedTarget = normalizedEntityId(targetId)
+  for (const entityId of entityIds) {
+    const normalizedEntity = normalizedEntityId(entityId)
+    if (normalizedTarget === normalizedEntity) return entityId
+    if (normalizedTarget.startsWith(`${normalizedEntity}.`) && /\.(?:creating|created|updating|updated|deleting|deleted)$/.test(normalizedTarget)) {
+      return entityId
+    }
+  }
+  return null
+}
+
 export function correlateExtensionTarget(
   targetFact: ModuleExtensionTargetFact,
   options: CorrelateExtensionFactsOptions,
@@ -1813,8 +1927,11 @@ export function correlateExtensionTarget(
   const framework = allFrameworkHosts().find((host) => patternMatches(host.id, targetFact.id))
     ?? (FRAMEWORK_PREFIXES.some((prefix) => targetFact.id.startsWith(prefix)) ? FRAMEWORK_HOSTS[0] : undefined)
   if (framework) return { id: targetFact.id, resolution: 'framework' }
-  if (options.entityIds.has(targetFact.id)) {
-    return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'entities', factKey: targetFact.id } }
+  const entityFactKey = options.factsContractVersion === 1
+    ? (options.entityIds.has(targetFact.id) ? targetFact.id : null)
+    : entityFactKeyForTarget(targetFact.id, options.entityIds)
+  if (entityFactKey) {
+    return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'entities', factKey: entityFactKey } }
   }
   if (options.eventIds.has(targetFact.id)) {
     return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'events', factKey: targetFact.id } }
@@ -2331,15 +2448,54 @@ export function assertNoUnresolvedExtensionTargets(
  * — spec 2026-08-02-module-facts-exact-override-targets). Keyed by the dotted
  * host id (e.g. `routes.api`, `ai.extensions`, `nav.groupOrder`) so the module
  * override-target adapters share one mode source of truth with the catalog.
+ *
+ * @deprecated Use {@link getFrameworkOverrideHostOperations}. This helper drops any host whose
+ * declared operation is not one of the three recognized modes, which collapses "the catalog does
+ * not describe this host" into "the catalog describes it with a mode this generator has fallen
+ * behind on" — the distinction the `unknown-framework-domain` / `unknown-framework-mode`
+ * diagnostics exist to keep apart. Every in-tree consumer has moved; the export is retained
+ * because `BACKWARD_COMPATIBILITY.md` classifies exported generator helpers as removable only
+ * through the deprecation protocol, and it stays behaviour-identical for as long as it exists.
  */
-export function getFrameworkOverrideModes(): Record<string, 'disable-replace' | 'replace' | 'additive'> {
+export function getFrameworkOverrideModes(
+  hosts: readonly ModuleExtensionHostFact[] = FRAMEWORK_OVERRIDE_HOSTS,
+): Record<string, 'disable-replace' | 'replace' | 'additive'> {
   const modes: Record<string, 'disable-replace' | 'replace' | 'additive'> = {}
-  for (const host of FRAMEWORK_OVERRIDE_HOSTS) {
-    const dotted = host.key.replace(/^framework\.module-override\./, '')
-    const mode = host.operations?.[0]
-    if (mode === 'disable-replace' || mode === 'replace' || mode === 'additive') modes[dotted] = mode
+  for (const [dotted, operation] of Object.entries(getFrameworkOverrideHostOperations(hosts))) {
+    if (operation === 'disable-replace' || operation === 'replace' || operation === 'additive') {
+      modes[dotted] = operation
+    }
   }
   return modes
+}
+
+/**
+ * The catalog's declared first operation for every dotted unified-override host,
+ * **without** validating it against the known mode set.
+ *
+ * {@link getFrameworkOverrideModes} silently drops a host whose operation is not a
+ * recognized mode, which makes "the catalog does not describe this host at all"
+ * indistinguishable from "the catalog describes it with a mode this generator does
+ * not understand". Consumers that must tell those apart (the override-target
+ * adapters, which emit different diagnostics for each) read the raw operations
+ * here instead — spec `2026-07-31-standalone-canonical-example-module.md`,
+ * § PR #4883 Module-Fact and Extension-Topology Contract.
+ *
+ * `hosts` defaults to the framework catalog. Every catalog host declares a valid
+ * mode today, so the pass-through is unobservable against the real catalog; passing
+ * an explicit host list is how `module-override-targets.unknown-mode.test.ts` proves
+ * that an operation this generator does not recognize really does survive here.
+ */
+export function getFrameworkOverrideHostOperations(
+  hosts: readonly ModuleExtensionHostFact[] = FRAMEWORK_OVERRIDE_HOSTS,
+): Record<string, string> {
+  const operations: Record<string, string> = {}
+  for (const host of hosts) {
+    const dotted = host.key.replace(/^framework\.module-override\./, '')
+    const operation = host.operations?.[0]
+    if (typeof operation === 'string') operations[dotted] = operation
+  }
+  return operations
 }
 
 export function getFrameworkExtensionHosts(): ModuleExtensionHostFact[] {

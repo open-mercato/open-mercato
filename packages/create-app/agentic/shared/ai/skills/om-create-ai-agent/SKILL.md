@@ -16,7 +16,7 @@ Choose module AI versus file-agent orchestration, then implement typed inputs/ou
 5. Test missing provider, denied ACL/scope, tool validation, budgets, approval/cancel/expire/stale version, artifact authorization, and generated registration.
 
 An authorized AI file upload stays on the attachment branch; add integration or data-model context only for a custom transport, storage provider, or app-owned persistence.
-An agent/tool that scores or explains customer, contact, lead, or deal records must load `.ai/guides/modules/customers.md`; read-only access still targets that host.
+An agent/tool that scores or explains customer, contact, lead, or deal records must load `.ai/guides/modules/customers/index.md`; read-only access still targets that host.
 
 ## Rules
 

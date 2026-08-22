@@ -16,6 +16,8 @@ export interface McpToolContext {
   apiKeySecret?: string
   /** Session token for memory layer (deduplication of search/GET calls) */
   sessionId?: string
+  /** Pending action that the operator explicitly confirmed before this handler invocation. */
+  approvedPendingActionId?: string
   /**
    * Back-reference to the tool definition the handler is executing. Populated
    * by the runtime (`tool-executor`, `pending-action-executor`, the agent-tools

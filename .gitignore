@@ -1,7 +1,10 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/**/node_modules/
+# No trailing slash: with one, the pattern matches directories only, and a
+# symlink named `node_modules` is a file — trackable, and committed by accident
+# at least once.
+/**/node_modules
 /node_modules
 /.pnp
 .pnp.*
@@ -146,6 +149,7 @@ docker/opencode/opencode.jsonc
 .ai/qa/test-env.lock/
 .ai/qa/test-env-boot.log
 .ai/qa/artifacts_*/
+.ai/qa/email-capture.jsonl
 # entrypoint scripts om-prepare-test-env compiles are bound to the machine that
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*

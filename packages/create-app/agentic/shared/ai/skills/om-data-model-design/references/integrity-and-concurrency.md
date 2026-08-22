@@ -17,3 +17,5 @@ Load this reference for writes, locking, retries, and relation synchronization.
 - Persist external cursor/mapping/progress state only after the batch commits; never mark forward progress on transient failure.
 
 Tests must inject rollback between phases, race two updates, retry one operation twice, clear a nullable value, and verify side effects occur exactly after commit.
+
+Canonical example source: [`commands/todos.ts`](../../../../src/modules/example/commands/todos.ts) for registered handlers, `ensureScope` tenant/organization enforcement, `prepare` snapshots, `captureAfter`/`buildLog`/`buildChanges`, scope-validating undo, `makeCreateRedo`, and the shared `CrudEventsConfig`/`CrudIndexerConfig` pair; [`commands/interceptors.ts`](../../../../src/modules/example/commands/interceptors.ts) for the `beforeExecute` → `afterExecute` metadata hand-off; and [`backend/todos/[id]/edit/page.tsx`](../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx) for the `updatedAt` round trip and 409 conflict surfacing.
