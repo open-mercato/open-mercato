@@ -17,8 +17,8 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/inputs', () => ({
-  LookupSelect: ({ value, onChange }: { value: string | null; onChange: (next: string | null) => void }) => (
-    <button type="button" data-testid="picker" data-value={value ?? ''} onClick={() => onChange('company-2')}>
+  LookupSelect: ({ onChange }: { onChange: (next: string | null) => void }) => (
+    <button type="button" data-testid="picker" onClick={() => onChange('company-2')}>
       pick
     </button>
   ),

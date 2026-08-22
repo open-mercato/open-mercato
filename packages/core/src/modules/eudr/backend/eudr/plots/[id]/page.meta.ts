@@ -9,5 +9,6 @@ export const metadata = {
   breadcrumb: [
     { label: 'EUDR', labelKey: 'eudr.nav.module', href: '/backend/eudr' },
     { label: 'Plots', labelKey: 'eudr.nav.plots', href: '/backend/eudr/plots' },
+    { label: 'Edit plot', labelKey: 'eudr.plots.edit.title' },
   ],
 }
