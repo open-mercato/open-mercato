@@ -39,6 +39,7 @@
   "tillio.operators.forceDetachAction": "Detach anyway",
   "tillio.operators.forceDetachText": "The Tillio token could not be revoked, so it stays active until you remove it in Tillio. Remove the operator here anyway?",
   "tillio.operators.forceDetachTitle": "Detach without revoking?",
+  "tillio.operators.integrationDisabledTitle": "Integration disabled",
   "tillio.operators.keyRequired": "Enter the Ringostat key first.",
   "tillio.operators.loadFailed": "Failed to load Tillio operators.",
   "tillio.operators.loading": "Loading operators...",

@@ -8,6 +8,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { tillioErrorCopy } from '../../../lib/error-codes'
+import type { EnvironmentBlocker } from '../../../lib/pull-readiness'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -26,6 +27,7 @@ type OperatorSummary = {
 type OperatorsResponse = {
   ok: boolean
   environmentReady: boolean
+  environmentBlocker: EnvironmentBlocker | null
   tenantSystemId: string | null
   supportedPlugins: string[]
   operators: OperatorSummary[]
@@ -222,9 +224,15 @@ export default function OperatorsConfigWidget(
 
       {!state.environmentReady ? (
         <Alert status="warning">
-          <AlertTitle>{t('tillio.operators.envNotReadyTitle', 'Environment not ready')}</AlertTitle>
+          <AlertTitle>
+            {state.environmentBlocker === 'integration_disabled'
+              ? t('tillio.operators.integrationDisabledTitle', 'Integration disabled')
+              : t('tillio.operators.envNotReadyTitle', 'Environment not ready')}
+          </AlertTitle>
           <AlertDescription>
-            {t('tillio.operators.envNotReadyText', 'Save the Tillio API URL and key in the Credentials tab, then run the health Check before attaching an operator.')}
+            {state.environmentBlocker === 'integration_disabled'
+              ? t('tillio.errors.integrationDisabled', 'The Tillio integration is disabled. Enable it first.')
+              : t('tillio.operators.envNotReadyText', 'Save the Tillio API URL and key in the Credentials tab, then run the health Check before attaching an operator.')}
           </AlertDescription>
         </Alert>
       ) : null}

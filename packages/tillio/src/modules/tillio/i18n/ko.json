@@ -39,6 +39,7 @@
   "tillio.operators.forceDetachAction": "그래도 연결 해제",
   "tillio.operators.forceDetachText": "Tillio 토큰을 취소하지 못했습니다. Tillio에서 직접 제거할 때까지 토큰은 계속 활성 상태입니다. 그래도 여기에서 오퍼레이터를 제거할까요?",
   "tillio.operators.forceDetachTitle": "토큰 취소 없이 연결을 해제할까요?",
+  "tillio.operators.integrationDisabledTitle": "연동 비활성화됨",
   "tillio.operators.keyRequired": "먼저 Ringostat 키를 입력하세요.",
   "tillio.operators.loadFailed": "Tillio 오퍼레이터를 불러오지 못했습니다.",
   "tillio.operators.loading": "오퍼레이터를 불러오는 중...",

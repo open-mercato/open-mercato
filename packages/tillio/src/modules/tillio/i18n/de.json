@@ -39,6 +39,7 @@
   "tillio.operators.forceDetachAction": "Trotzdem trennen",
   "tillio.operators.forceDetachText": "Das Tillio-Token konnte nicht widerrufen werden und bleibt aktiv, bis Sie es in Tillio entfernen. Den Operator hier trotzdem entfernen?",
   "tillio.operators.forceDetachTitle": "Ohne Widerruf trennen?",
+  "tillio.operators.integrationDisabledTitle": "Integration deaktiviert",
   "tillio.operators.keyRequired": "Geben Sie zuerst den Ringostat-Schlüssel ein.",
   "tillio.operators.loadFailed": "Tillio-Operatoren konnten nicht geladen werden.",
   "tillio.operators.loading": "Operatoren werden geladen...",

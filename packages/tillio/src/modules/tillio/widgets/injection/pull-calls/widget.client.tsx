@@ -19,11 +19,10 @@ import {
 import { DateRangePicker } from '@open-mercato/ui/primitives/date-range-picker'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import type { DateRange } from '@open-mercato/ui/backend/date-range/dateRanges'
-import { tillioErrorCopy } from '../../../lib/error-codes'
+import { PULL_BLOCKER_COPY, tillioErrorCopy } from '../../../lib/error-codes'
+import type { PullBlocker } from '../../../lib/pull-readiness'
 
 const DEFAULT_RANGE_DAYS = 7
-
-type PullBlocker = 'environment_not_ready' | 'operator_missing' | 'environment_drift'
 
 type PullReadiness = {
   ok: boolean
@@ -89,13 +88,9 @@ export default function PullCallsWidget(
 
   const blockerMessage = React.useCallback(
     (blocker: PullBlocker): string => {
-      if (blocker === 'operator_missing') {
-        return t('tillio.pull.operatorMissing', 'Attach a Tillio operator on the integration page before pulling calls.')
-      }
-      if (blocker === 'environment_drift') {
-        return t('tillio.pull.envDrift', 'The Tillio environment changed after the operator was attached. Detach and attach it again before pulling calls.')
-      }
-      return t('tillio.pull.envNotReady', 'Configure the Tillio credentials and run the health check on the integration page first.')
+      // The lookup can still miss at runtime when this bundle is older than the server it talks to.
+      const copy = PULL_BLOCKER_COPY[blocker]
+      return copy ? t(copy.key, copy.fallback) : t('tillio.pull.blocked', 'Pull blocked by validation.')
     },
     [t],
   )

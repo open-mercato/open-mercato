@@ -39,6 +39,7 @@
   "tillio.operators.forceDetachAction": "Odepnij mimo to",
   "tillio.operators.forceDetachText": "Nie udało się unieważnić tokena Tillio, więc pozostaje aktywny, dopóki nie usuniesz go w Tillio. Usunąć operatora tutaj mimo to?",
   "tillio.operators.forceDetachTitle": "Odpiąć bez unieważnienia tokena?",
+  "tillio.operators.integrationDisabledTitle": "Integracja wyłączona",
   "tillio.operators.keyRequired": "Najpierw wpisz klucz Ringostat.",
   "tillio.operators.loadFailed": "Nie udało się wczytać operatorów Tillio.",
   "tillio.operators.loading": "Wczytywanie operatorów...",

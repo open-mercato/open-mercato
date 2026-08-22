@@ -1,3 +1,5 @@
+import type { PullBlocker } from './pull-readiness'
+
 // Routes answer with a stable code and the widgets own the wording, so a non-English user never
 // sees a server string. `message` stays in the payload for API consumers and logs only.
 export const TILLIO_ERROR_CODES = [
@@ -43,4 +45,23 @@ const COPY: Record<TillioErrorCode, TillioErrorCopy> = {
 export function tillioErrorCopy(code: string | null | undefined, fallbackCode: TillioErrorCode): TillioErrorCopy {
   const known = TILLIO_ERROR_CODES.find((entry) => entry === code)
   return COPY[known ?? fallbackCode]
+}
+
+// Keyed by the shared union so a blocker the server learns to report cannot reach the dialog
+// unworded: adding one to `PullBlocker` fails this record until it gets copy of its own. The pull
+// entries are worded for the action in progress, which the generic `COPY` above cannot be.
+export const PULL_BLOCKER_COPY: Record<PullBlocker, TillioErrorCopy> = {
+  integration_disabled: COPY.integration_disabled,
+  environment_not_ready: {
+    key: 'tillio.pull.envNotReady',
+    fallback: 'Configure the Tillio credentials and run the health check on the integration page first.',
+  },
+  operator_missing: {
+    key: 'tillio.pull.operatorMissing',
+    fallback: 'Attach a Tillio operator on the integration page before pulling calls.',
+  },
+  environment_drift: {
+    key: 'tillio.pull.envDrift',
+    fallback: 'The Tillio environment changed after the operator was attached. Detach and attach it again before pulling calls.',
+  },
 }

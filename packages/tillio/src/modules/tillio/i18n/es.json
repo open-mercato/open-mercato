@@ -39,6 +39,7 @@
   "tillio.operators.forceDetachAction": "Desconectar de todos modos",
   "tillio.operators.forceDetachText": "No se pudo revocar el token de Tillio, por lo que sigue activo hasta que lo elimine en Tillio. ¿Eliminar el operador aquí de todos modos?",
   "tillio.operators.forceDetachTitle": "¿Desconectar sin revocar?",
+  "tillio.operators.integrationDisabledTitle": "Integración desactivada",
   "tillio.operators.keyRequired": "Introduzca primero la clave de Ringostat.",
   "tillio.operators.loadFailed": "No se pudieron cargar los operadores de Tillio.",
   "tillio.operators.loading": "Cargando operadores...",

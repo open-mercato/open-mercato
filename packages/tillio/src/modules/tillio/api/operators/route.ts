@@ -63,7 +63,7 @@ export async function GET(req: Request) {
 
   const environment = await resolveEnvironment(credentialsService, scope)
   const integrationState = await readTillioIntegrationState(em, scope)
-  const { ready: environmentReady } = evaluateEnvironmentReadiness({
+  const { ready: environmentReady, blocker: environmentBlocker } = evaluateEnvironmentReadiness({
     environment,
     integrationEnabled: integrationState.enabled,
     environmentHealthy: integrationState.healthy,
@@ -81,6 +81,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     environmentReady,
+    environmentBlocker,
     tenantSystemId: environment?.tenantSystemId ?? null,
     supportedPlugins: SUPPORTED_PLUGINS,
     operators,

@@ -1,5 +1,7 @@
 import { computeEnvFingerprint } from '../lib/operators-store'
-import { blockerSection, evaluateEnvironmentReadiness, evaluatePullReadiness } from '../lib/pull-readiness'
+import { PULL_BLOCKER_COPY } from '../lib/error-codes'
+import { blockerSection, evaluateEnvironmentReadiness, evaluatePullReadiness, type PullBlocker } from '../lib/pull-readiness'
+import englishCatalog from '../i18n/en.json'
 
 const environment = { apiUrl: 'https://x.example.com', apiKey: 'k', tenantSystemId: 'OM-abc' }
 
@@ -109,5 +111,33 @@ describe('evaluatePullReadiness', () => {
     expect(blockerSection('environment_not_ready')).toBe('environment')
     expect(blockerSection('operator_missing')).toBe('operator')
     expect(blockerSection('environment_drift')).toBe('operator')
+  })
+})
+
+// The pull dialog once worded a switched-off integration as an unconfigured environment, so the
+// server told the user to enable the integration and the screen told them to enter credentials
+// they had already entered. Section mapping above was right; the copy was not.
+describe('PULL_BLOCKER_COPY', () => {
+  const blockers: PullBlocker[] = [
+    'integration_disabled',
+    'environment_not_ready',
+    'operator_missing',
+    'environment_drift',
+  ]
+
+  it('gives every blocker its own wording', () => {
+    const keys = blockers.map((blocker) => PULL_BLOCKER_COPY[blocker].key)
+    expect(new Set(keys).size).toBe(blockers.length)
+  })
+
+  it('words a disabled integration as a disabled integration', () => {
+    expect(PULL_BLOCKER_COPY.integration_disabled.key).toBe('tillio.errors.integrationDisabled')
+  })
+
+  it('ships an English string for every key it names', () => {
+    const catalog = englishCatalog as Record<string, string>
+    for (const blocker of blockers) {
+      expect(catalog[PULL_BLOCKER_COPY[blocker].key]).toBeTruthy()
+    }
   })
 })
