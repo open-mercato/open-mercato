@@ -333,7 +333,13 @@ const statementBaseSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
 })
 
-export const statementCreateSchema = rejectServerComputedFields(serverComputedStatementFields).pipe(statementBaseSchema)
+// referenceIssuedAt is server-managed (only set at the submitted->available
+// transition) and is never a create input, so it is dropped from the create
+// schema. A whole-object POST that echoes it (null or a value) is accepted and
+// the field ignored, instead of a self-contradictory 400 (#5508).
+export const statementCreateSchema = rejectServerComputedFields(serverComputedStatementFields).pipe(
+  statementBaseSchema.omit({ referenceIssuedAt: true }),
+)
 
 export const statementUpdateSchema = rejectServerComputedFields(serverComputedStatementFields).pipe(
   z

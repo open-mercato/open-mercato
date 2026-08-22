@@ -237,6 +237,37 @@ async function createSubmittedStatement(
  * TC-EUDR-007: Due diligence statement lifecycle gates.
  */
 test.describe('TC-EUDR-007: Statement lifecycle', () => {
+  test('accepts a no-op referenceIssuedAt on create and keeps it server-managed (regression for #5508)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomUUID()}`
+    const statementIds: string[] = []
+
+    try {
+      // An explicit null referenceIssuedAt equals the value a new draft takes, so a
+      // whole-object POST that echoes it must succeed instead of 400 immutable.
+      const nullIssuedAtId = await createStatement(request, token, `TC-EUDR-007 null issuedAt ${stamp}`, {
+        referenceIssuedAt: null,
+      })
+      statementIds.push(nullIssuedAtId)
+
+      // referenceIssuedAt is server-managed on create, so a serialized date-time is
+      // ignored (record stays a draft with a null issue date) rather than rejected.
+      const datetimeIssuedAtId = await createStatement(request, token, `TC-EUDR-007 datetime issuedAt ${stamp}`, {
+        referenceIssuedAt: new Date().toISOString(),
+      })
+      statementIds.push(datetimeIssuedAtId)
+
+      const rows = await readStatementsByIds(request, token, statementIds)
+      expect(rows.length, 'both created statements should be readable').toBe(2)
+      for (const row of rows) {
+        expect(row.status, 'a created statement is a draft').toBe('draft')
+        expect(row.referenceIssuedAt ?? null, 'create must not persist a reference issue date').toBeNull()
+      }
+    } finally {
+      for (const id of statementIds.reverse()) await deleteByCrudPath(request, token, STATEMENTS_PATH, id)
+    }
+  })
+
   test('requires valid transition order, complete submissions, and risk conclusion before submit', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}-${randomUUID()}`
