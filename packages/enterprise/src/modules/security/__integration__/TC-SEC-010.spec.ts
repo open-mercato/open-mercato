@@ -94,15 +94,14 @@ test.describe('TC-SEC-010: MFA-pending tokens are rejected by general staff APIs
   test('completion routes stay reachable for the pending token and the verified replacement regains access', async ({ request }) => {
     const { token, challengeId } = await pendingLogin(request)
 
-    const prepare = await fetchJson<{ ok?: boolean; challenge_id?: string }>(
+    const prepare = await fetchJson<{ ok?: boolean; clientData?: Record<string, unknown> }>(
       request,
       'POST',
       '/api/security/mfa/prepare',
-      { token },
+      { token, data: { challengeId, methodType: 'totp' } },
     )
     expect(prepare.status).toBe(200)
     expect(prepare.body.ok).toBe(true)
-    expect(typeof prepare.body.challenge_id).toBe('string')
 
     const verify = await verifyTotpChallenge(request, token, challengeId, totpSecret)
     expect(verify.status).toBe(200)
