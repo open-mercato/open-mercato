@@ -371,16 +371,22 @@ CREATE INDEX "idx_sudo_configs_target" ON "sudo_challenge_configs" ("target_iden
 
 ### 4.5 `sudo_sessions`
 
-Tracks active sudo sessions for token validation and expiry.
+Tracks pending and active sudo sessions for challenge binding, single-use verification, token validation, and expiry. Binding columns remain nullable at the database layer for additive deployment compatibility, but every newly initiated challenge populates them and verification fails closed when they are absent.
 
 ```sql
 CREATE TABLE "sudo_sessions" (
   "id"               uuid        NOT NULL DEFAULT gen_random_uuid(),
   "user_id"          uuid        NOT NULL,
   "tenant_id"        uuid        NOT NULL,
+  "scope_tenant_id"  uuid        NULL,       -- exact request tenant scope captured at initiation
+  "scope_organization_id" uuid    NULL,       -- exact request organisation scope captured at initiation
+  "target_identifier" text       NULL,       -- exact protected target captured at initiation
+  "sudo_config_id"   uuid        NULL,       -- resolved sudo configuration captured at initiation
+  "sudo_config_updated_at" timestamptz NULL, -- resolved configuration version captured at initiation
   "session_token"    text        NOT NULL,   -- HMAC-SHA256 signed short-lived token
-  "challenge_method" text        NOT NULL,   -- 'password', 'totp', 'passkey', 'otp_email', or any custom provider type
+  "challenge_method" text        NOT NULL,   -- resolved 'password' or 'mfa' challenge selected at initiation
   "expires_at"       timestamptz NOT NULL,
+  "verified_at"      timestamptz NULL,       -- set atomically when the pending challenge is consumed
   "created_at"       timestamptz NOT NULL,
   PRIMARY KEY ("id")
 );
@@ -620,6 +626,21 @@ export class SudoSession {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
+  @Property({ name: 'scope_tenant_id', type: 'uuid', nullable: true })
+  scopeTenantId?: string | null
+
+  @Property({ name: 'scope_organization_id', type: 'uuid', nullable: true })
+  scopeOrganizationId?: string | null
+
+  @Property({ name: 'target_identifier', type: 'text', nullable: true })
+  targetIdentifier?: string | null
+
+  @Property({ name: 'sudo_config_id', type: 'uuid', nullable: true })
+  sudoConfigId?: string | null
+
+  @Property({ name: 'sudo_config_updated_at', type: Date, nullable: true })
+  sudoConfigUpdatedAt?: Date | null
+
   @Property({ name: 'session_token', type: 'text' })
   sessionToken!: string
 
@@ -629,6 +650,9 @@ export class SudoSession {
 
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
+
+  @Property({ name: 'verified_at', type: Date, nullable: true })
+  verifiedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -943,10 +967,10 @@ Manages sudo challenge lifecycle, token issuance, and token validation. Tokens a
 Methods:
 
 - `isProtected(targetIdentifier: string, tenantId?: string | null, organizationId?: string | null): Promise<{ protected: boolean; config?: SudoChallengeConfig }>` — checks if an action requires sudo by identifier alone, resolving organisation → tenant → platform → developer defaults.
-- `initiate(userId: string, targetIdentifier: string, options?: { tenantId?: string | null; organizationId?: string | null }): Promise<{ required: boolean; sessionId?: string; method?: 'password' | 'mfa'; ... }>` — determines challenge method (`password` if no MFA, `mfa` if MFA enabled), creates a pending `SudoSession`. Emits `security.sudo.challenged`.
-- `verify(sessionId: string, methodType: string, payload: unknown, options: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null; targetIdentifier: string }, req?: Request): Promise<{ sudoToken: string; expiresAt: Date }>` — validates re-authentication, generates HMAC-SHA256 token signed with request scope, stores in `SudoSession`, returns token + expiry. Emits `security.sudo.verified`.
-- `validateToken(token: string, targetIdentifier: string, options?: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null }): Promise<boolean>` — checks HMAC signature, looks up session in database, verifies not expired and scope matches.
-- `registerDeveloperDefault(input: { targetIdentifier: string; targetType?: SudoTargetType; ttlSeconds?: number; challengeMethod?: ChallengeMethod }): Promise<void>` — called during module setup to register developer defaults with `is_developer_default: true`. `targetType` is optional display metadata.
+- `initiate(userId: string, targetIdentifier: string, options?: { tenantId?: string | null; organizationId?: string | null }): Promise<{ required: boolean; sessionId?: string; method?: 'password' | 'mfa'; ... }>` — resolves the effective configuration and challenge method, then persists the exact target, request scope, configuration ID/version, and selected method on a pending `SudoSession`. Emits `security.sudo.challenged`.
+- `verify(sessionId: string, methodType: string, payload: unknown, options: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null; targetIdentifier: string }, req?: Request): Promise<{ sudoToken: string; expiresAt: Date }>` — treats the request target/scope as compatibility assertions, rejects any mismatch before credential verification, validates the persisted challenge method, then locks sudo configuration writes and re-resolves the stored target inside the same transaction that atomically consumes the pending row. The configuration ID/version must still match before a token bound to the stored target/scope is returned. Emits `security.sudo.verified` only after successful consumption.
+- `validateToken(token: string, targetIdentifier: string, options?: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null }): Promise<boolean>` — checks HMAC signature and requires the database row to be verified, unexpired, and durably bound to the same user, target, tenant scope, and organisation scope.
+- `registerDeveloperDefault(input: { targetIdentifier: string; targetType?: SudoTargetType; ttlSeconds?: number; challengeMethod?: ChallengeMethod }): Promise<void>` — called during module setup to register developer defaults with `is_developer_default: true`. Existing defaults are updated only when their effective policy changes so routine protection checks do not invalidate pending challenges by advancing `updated_at`. `targetType` is optional display metadata.
 - `cleanupExpired(): Promise<number>` — deletes expired sudo sessions. Called by scheduled cleanup job.
 
 ### 8.6 `MfaAdminService`
@@ -1848,6 +1872,9 @@ Integration tests for this module must be implemented under the existing QA harn
    - protected endpoint returns sudo-required response without valid token
    - challenge + verify returns short-lived token
    - token accepted within TTL, rejected after expiry
+   - verification rejects target, tenant, or organisation substitution before invoking password/MFA verification
+   - verification rejects a pending challenge when its resolved sudo configuration changes
+   - legacy unbound pending rows fail closed, and a verified challenge cannot be consumed twice
    - admin override disables/enables developer default target
 4. Admin/security operations:
    - superadmin MFA reset path with reason
@@ -1884,6 +1911,9 @@ Integration tests for this module must be implemented under the existing QA harn
 
 - `POST /api/security/mfa/recovery-codes/regenerate` remains the stable, supported path for creating recovery codes and is now the only generation path.
 - MFA provider confirmation routes keep the existing response shape compatibility bridge (`recoveryCodes?: string[]` remains tolerated by local types/OpenAPI), but the platform no longer populates that field during setup. Consumers must call the regeneration endpoint after enrollment when they need a fresh recovery-code set.
+- Sudo challenge request and response contracts remain unchanged. `targetIdentifier`, `tenantId`, and `organizationId` supplied at verification are compatibility assertions and must exactly match the values captured at initiation.
+- The `sudo_sessions` migration is additive: all six new columns are nullable and require no data backfill. The service requires bindings on new pending sessions and intentionally rejects legacy unbound pending or active sessions after deployment; these sessions are short-lived and callers restart the challenge.
+- Sudo sessions are now single-use: `verified_at` is set together with the signed token by an atomic compare-and-swap, and both replayed pending challenges and unverified token rows fail closed.
 - No route URLs, HTTP methods, command IDs, or event IDs changed as part of this adjustment.
 
 ---
@@ -2046,6 +2076,7 @@ security/
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 2 — Recovery-code lifecycle correction | Implemented | 2026-03-16 | Removed automatic recovery-code generation from MFA setup confirmation, kept regeneration exclusively behind the dedicated command/route, and aligned unit + integration coverage |
+| Phase 4 — Sudo challenge invariant binding | Implemented | 2026-08-11 | Bound pending challenges and issued tokens to the initiated target, scope, configuration version, and selected method; added atomic single-use consumption |
 | Phase 4 — Sudo system and protection APIs | In Progress | 2026-03-10 | Implemented sudo service, middleware, commands with undo tests, provider/hook/modal, admin configuration page, and bootstrap developer defaults |
 | Phase 4 — Email templates (OTP/MFA/enforcement) | In Progress | 2026-03-09 | Implemented MFA enrolled/reset/enforcement reminder email templates and notification subscribers |
 | Phase 3 — Enforcement notification handlers | In Progress | 2026-03-09 | Added deadline reminder request event + reminder subscriber for 7/3/1-day windows |
@@ -2068,6 +2099,12 @@ security/
 - [x] Register developer sudo defaults from module setup declarations
 - [x] Implement `withSudoProtection`
 - [ ] Add end-to-end sudo integration coverage
+
+### 2026-08-11 — Bind sudo challenges to initiated target and policy
+
+Pending challenges now persist the initiated target, effective tenant/organisation scope, selected sudo configuration ID/version, and resolved challenge method. Verification rejects substituted targets/scopes, changed or disabled policies, legacy unbound rows, expired rows, and already-consumed rows before issuing a token. After credential verification, the service locks sudo configuration writes and re-resolves the effective policy in the same transaction as the session compare-and-swap, preventing a concurrent update or higher-priority insertion from crossing the token-issuance boundary. Concurrent or sequential replay can produce only one successful token, and token validation requires the durable row bindings and `verified_at` marker.
+
+The public sudo routes, request bodies, response shapes, event IDs, and middleware call signatures remain unchanged. Deployment adds nullable columns only; existing short-lived sessions are invalidated and clients initiate a fresh challenge.
 
 ### 2026-03-17 — Remove `SudoTargetType` from enforcement path
 
