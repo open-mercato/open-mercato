@@ -14,7 +14,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { isContactWidgetHidden } from '@/components/demoFeedbackFlag'
+import { isContactWidgetHidden } from './demoFeedbackFlag'
 
 const SUPPRESS_COOKIE = 'om_feedback_suppress'
 const SHOWN_TODAY_COOKIE = 'om_feedback_shown'

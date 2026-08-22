@@ -30,7 +30,7 @@ describe('isContactWidgetHidden', () => {
   })
 
   it('is false when localStorage access throws', () => {
-    jest.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => {
+    jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('denied')
     })
     expect(isContactWidgetHidden()).toBe(false)
