@@ -43,6 +43,35 @@ describe('validateOutboundRecipient', () => {
     ])('rejects %s', (_label, recipient) => {
       expect(validateOutboundRecipient(recipient, providerNative).ok).toBe(false)
     })
+
+    // The guard exists to stop the recipient steering an adapter that
+    // interpolates it into a REST path. A denylist of raw separators left the
+    // encoded and control-byte variants of exactly that attack untouched, so the
+    // allowlist's promise is pinned down here rather than left to the reader.
+    it.each([
+      ['a percent-encoded path separator', 'C123%2Fmessages'],
+      ['a percent-encoded traversal', 'C123%2e%2e%2fusers%2f@me'],
+      ['a bare percent sign', 'C123%'],
+      ['a NUL byte', 'C123\u0000'],
+      ['a DEL byte', 'C123\u007f'],
+      ['a unit-separator control byte', 'C123\u001f'],
+      ['a full URL', 'https://discord.com/api/channels/C123'],
+      ['a comma-separated recipient list', 'C123,C456'],
+    ])('rejects %s', (_label, recipient) => {
+      expect(validateOutboundRecipient(recipient, providerNative)).toEqual({
+        ok: false,
+        error: 'Recipient may only contain letters, digits, and the characters . _ : @ + -',
+      })
+    })
+
+    it.each([
+      ['a plus-addressed email', 'qa+tag@example.com'],
+      ['an underscored identifier', 'team_alerts'],
+      ['a colon-namespaced identifier', 'workspace:C123'],
+      ['a hyphenated identifier', 'general-chat'],
+    ])('still accepts %s', (_label, recipient) => {
+      expect(validateOutboundRecipient(recipient, providerNative)).toEqual({ ok: true })
+    })
   })
 
   describe('shape guards, both formats', () => {

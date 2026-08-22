@@ -11,13 +11,20 @@ export const MAX_OUTBOUND_RECIPIENT_LENGTH = 320
 const emailRecipientSchema = z.string().email()
 
 /**
- * Characters a provider-native recipient may never contain. CR/LF is the header
- * injection guard (the same one `send-as-user` applies to subject/threading
- * fields); the path separators and `..` stop a caller from steering an adapter
- * that interpolates the recipient into a REST path (Discord posts to
- * `/channels/{recipient}/messages`) at a different resource.
+ * Characters a provider-native recipient may contain. This is an allowlist, not a
+ * denylist, because the recipient reaches adapters that interpolate it into a REST
+ * path (Discord posts to `/channels/{recipient}/messages`), and a denylist fails
+ * open on every character nobody thought of — percent-encoded separators
+ * (`%2F`, `%2e%2e%2f`) and control bytes (NUL, DEL) all walked through the
+ * previous `[\r\n\s/\\?#]` class. An allowlist fails closed instead: the worst
+ * case is a provider whose identifier alphabet needs widening, which is a
+ * reviewable one-line change rather than a silent path-steering primitive.
+ *
+ * The set covers every provider-native identifier shape the hub has to carry
+ * today — Discord snowflakes (digits), Slack-style ids (alphanumerics), and email
+ * addresses, since `'provider-native'` must never narrow what `'email'` accepts.
  */
-const UNSAFE_PROVIDER_NATIVE = /[\r\n\s/\\?#]/
+const PROVIDER_NATIVE_ALLOWED = /^[A-Za-z0-9._:@+-]+$/
 
 export type OutboundRecipientCheck = { ok: true } | { ok: false; error: string }
 
@@ -49,12 +56,14 @@ export function validateOutboundRecipient(
       ? { ok: true }
       : { ok: false, error: 'Recipient must be a valid email address' }
   }
-  if (UNSAFE_PROVIDER_NATIVE.test(recipient)) {
+  if (!PROVIDER_NATIVE_ALLOWED.test(recipient)) {
     return {
       ok: false,
-      error: 'Recipient must not contain whitespace, line breaks, or URL path characters',
+      error: 'Recipient may only contain letters, digits, and the characters . _ : @ + -',
     }
   }
+  // `.` is allowed (email addresses need it), so traversal still has to be
+  // rejected explicitly even though the separators it would need are not.
   if (recipient.includes('..')) {
     return { ok: false, error: 'Recipient must not contain ".."' }
   }

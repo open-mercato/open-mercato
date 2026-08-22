@@ -181,9 +181,9 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     )
   }
 
-  const recipient = validateOutboundRecipient(body.to, adapter.capabilities)
-  if (!recipient.ok) {
-    return NextResponse.json({ error: recipient.error }, { status: 422 })
+  const recipientCheck = validateOutboundRecipient(body.to, adapter.capabilities)
+  if (!recipientCheck.ok) {
+    return NextResponse.json({ error: recipientCheck.error }, { status: 422 })
   }
 
   // Resolve credentials + optionally refresh.
