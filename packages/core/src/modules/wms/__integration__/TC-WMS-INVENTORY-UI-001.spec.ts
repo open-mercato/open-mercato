@@ -116,6 +116,7 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
       })
       await fillCombobox(page, 'Select warehouse', warehouseName, {
         scope: adjustDialog,
+        suggestionsApiPath: '/api/wms/warehouses',
         waitForEnabledPlaceholder: 'Select location',
       })
       await fillCombobox(page, 'Select location', locationCode, {
@@ -255,12 +256,10 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
 
       await fillCombobox(page, 'Select warehouse', warehouseName, {
         scope: cycleDialog,
+        suggestionsApiPath: '/api/wms/warehouses',
         waitForEnabledPlaceholder: 'Select zone',
       })
-      // Zone options load asynchronously only after the warehouse is selected, so
-      // wait for the zone suggestions API before picking — otherwise fillCombobox's
-      // keyboard fallback leaves the typed text without committing form.zoneId, and
-      // the field silently reverts to empty on blur (wizard then can't advance).
+      // Zone options load asynchronously only after the warehouse is selected.
       await fillCombobox(page, 'Select zone', zoneName, {
         scope: cycleDialog,
         suggestionsApiPath: '/api/wms/zones',
