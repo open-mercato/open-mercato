@@ -34,8 +34,24 @@ describe('customer_accounts portal address hydration (regression for issue #5457
     const source = readSource(entrypoint)
     expect(source).not.toMatch(/^["']use client["']/m)
     expect(source).toContain("import { headers } from 'next/headers'")
-    expect(source).toMatch(/resolveRequestOrigin\(await headers\(\)\)/)
+    expect(source).toMatch(/resolvePortalRequestOrigin\(await headers\(\)\)/)
     expect(source).toMatch(/portalOrigin=\{portalOrigin\}/)
+  })
+
+  // The `om-ds/require-page-wrapper` DS rule wants the page shell in the route
+  // file, and there is no per-line opt-out — so the server wrappers own it and
+  // the client bodies return fragments.
+  it.each(ROUTE_ENTRYPOINTS)('%s owns the Page/PageBody shell', (entrypoint) => {
+    const source = readSource(entrypoint)
+    expect(source).toContain("import { Page, PageBody } from '@open-mercato/ui/backend/Page'")
+    expect(source).toMatch(/<Page>/)
+    expect(source).toMatch(/<PageBody/)
+  })
+
+  it.each(CLIENT_SURFACES)('%s no longer renders its own Page shell', (surface) => {
+    const source = readSource(surface)
+    expect(source).not.toMatch(/<Page>/)
+    expect(source).not.toMatch(/<PageBody/)
   })
 
   it.each(CLIENT_SURFACES)('%s takes the resolved origin as a prop', (surface) => {

@@ -3,7 +3,6 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -476,378 +475,364 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
 
   if (isLoading) {
     return (
-      <Page>
-        <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <Spinner className="h-6 w-6" />
-            <span>{t('customer_accounts.admin.detail.loading', 'Loading user...')}</span>
-          </div>
-        </PageBody>
-      </Page>
+      <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+        <Spinner className="h-6 w-6" />
+        <span>{t('customer_accounts.admin.detail.loading', 'Loading user...')}</span>
+      </div>
     )
   }
 
   if (isNotFound) {
     return (
-      <Page>
-        <PageBody>
-          <RecordNotFoundState
-            label={t('customer_accounts.admin.detail.error.notFound', 'User not found')}
-            backHref="/backend/customer_accounts/users"
-            backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
-          />
-        </PageBody>
-      </Page>
+      <RecordNotFoundState
+        label={t('customer_accounts.admin.detail.error.notFound', 'User not found')}
+        backHref="/backend/customer_accounts/users"
+        backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
+      />
     )
   }
 
   if (error || !data) {
     return (
-      <Page>
-        <PageBody>
-          <ErrorMessage
-            label={error ?? t('customer_accounts.admin.detail.error.notFound', 'User not found')}
-            action={
-              <Button asChild variant="outline" size="sm">
-                <Link href="/backend/customer_accounts/users">
-                  {t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
-                </Link>
-              </Button>
-            }
-          />
-        </PageBody>
-      </Page>
+      <ErrorMessage
+        label={error ?? t('customer_accounts.admin.detail.error.notFound', 'User not found')}
+        action={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/backend/customer_accounts/users">
+              {t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
+            </Link>
+          </Button>
+        }
+      />
     )
   }
 
   return (
-    <Page>
-      <PageBody className="space-y-6">
-        <FormHeader
-          mode="detail"
-          backHref="/backend/customer_accounts/users"
-          backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
-          title={data.displayName}
-          subtitle={data.email}
-          onDelete={() => { void handleDelete() }}
-          deleteLabel={t('customer_accounts.admin.detail.actions.delete', 'Delete')}
-        />
+    <>
+      <FormHeader
+        mode="detail"
+        backHref="/backend/customer_accounts/users"
+        backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
+        title={data.displayName}
+        subtitle={data.email}
+        onDelete={() => { void handleDelete() }}
+        deleteLabel={t('customer_accounts.admin.detail.actions.delete', 'Delete')}
+      />
 
-        <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-status-info-text">
-                {t('customer_accounts.admin.detail.portalAccess.title', 'Customer Portal Access')}
-              </h3>
-              <p className="mt-1 text-sm text-status-info-text">
-                {t('customer_accounts.admin.detail.portalAccess.description', 'This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.')}
-              </p>
-              <p className="mt-2 text-xs text-status-info-text">
-                {t('customer_accounts.admin.detail.portalAccess.url', 'Portal URL: {url}', {
-                  url: buildPortalUrlPattern(portalOrigin),
-                })}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-lg border p-4 space-y-3">
-            <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.info', 'User Information')}</h2>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.email', 'Email')}</dt>
-                <dd>{data.email}</dd>
-              </div>
-              <div className="flex justify-between items-center">
-                <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.emailVerified', 'Email Verified')}</dt>
-                <dd className="flex items-center gap-2">
-                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                    data.emailVerifiedAt
-                      ? 'bg-status-success-bg text-status-success-text'
-                      : 'bg-status-warning-bg text-status-warning-text'
-                  }`}>
-                    {data.emailVerifiedAt
-                      ? t('customer_accounts.admin.verified', 'Yes')
-                      : t('customer_accounts.admin.unverified', 'No')}
-                  </span>
-                  {!data.emailVerifiedAt && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { void handleVerifyEmail() }}
-                      disabled={isVerifying}
-                    >
-                      {isVerifying
-                        ? t('customer_accounts.admin.detail.verifyEmail.actions.verifying', 'Verifying...')
-                        : t('customer_accounts.admin.detail.verifyEmail.actions.verify', 'Mark Verified')}
-                    </Button>
-                  )}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.lastLogin', 'Last Login')}</dt>
-                <dd>{formatDate(data.lastLoginAt, '-')}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.createdAt', 'Created')}</dt>
-                <dd>{formatDate(data.createdAt, '-')}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div className="rounded-lg border p-4 space-y-3">
-            <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.crmLinks', 'CRM Links')}</h2>
-            <div className="space-y-3 text-sm">
-              <div className="space-y-1.5">
-                <p className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.personEntity', 'Linked Person')}</p>
-                {editPersonEntityId ? (
-                  <div className="flex items-center gap-2">
-                    <Link href={`/backend/customers/people/${editPersonEntityId}`} className="text-primary hover:underline">
-                      {personName || editPersonEntityId}
-                    </Link>
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditPersonEntityId(null); setPersonName(null) }}>
-                      {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <div className="relative">
-                      <Input
-                        type="text"
-                        value={personSearchQuery}
-                        onChange={(event) => { void handleSearchPeople(event.target.value) }}
-                        placeholder={t('customer_accounts.admin.detail.fields.searchPerson', 'Search people by name...')}
-                      />
-                      {personResults.length > 0 && (
-                        <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
-                          {personResults.map((person) => (
-                            <button
-                              key={person.id}
-                              type="button"
-                              className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
-                              onClick={() => {
-                                setEditPersonEntityId(person.id)
-                                setPersonName(person.label)
-                                setPersonSearchQuery('')
-                                setPersonResults([])
-                              }}
-                            >
-                              {person.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <p className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.customerEntity', 'Linked Company')}</p>
-                {editCustomerEntityId ? (
-                  <div className="flex items-center gap-2">
-                    <Link href={`/backend/customers/companies/${editCustomerEntityId}`} className="text-primary hover:underline">
-                      {companyName || editCustomerEntityId}
-                    </Link>
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditCustomerEntityId(null); setCompanyName(null) }}>
-                      {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <div className="relative">
-                      <Input
-                        type="text"
-                        value={companySearchQuery}
-                        onChange={(event) => { void handleSearchCompanies(event.target.value) }}
-                        placeholder={t('customer_accounts.admin.detail.fields.searchCompany', 'Search companies by name...')}
-                      />
-                      {companyResults.length > 0 && (
-                        <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
-                          {companyResults.map((company) => (
-                            <button
-                              key={company.id}
-                              type="button"
-                              className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
-                              onClick={() => {
-                                setEditCustomerEntityId(company.id)
-                                setCompanyName(company.label)
-                                setCompanySearchQuery('')
-                                setCompanyResults([])
-                              }}
-                            >
-                              {company.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t('customer_accounts.admin.detail.crmLinks.hint', 'Changes to CRM links are saved when you click Save Changes below.')}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg border p-4 space-y-4">
-          <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.settings', 'Account Settings')}</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="user-display-name">
-                  {t('customer_accounts.admin.detail.fields.displayName', 'Display Name')}
-                </label>
-                <Input
-                  id="user-display-name"
-                  type="text"
-                  value={editDisplayName}
-                  onChange={(event) => setEditDisplayName(event.target.value)}
-                />
-              </div>
-
-              <SwitchField
-                id="user-active-toggle"
-                label={t('customer_accounts.admin.detail.fields.isActive', 'Active')}
-                checked={editActive ?? data.isActive}
-                onCheckedChange={(next) => setEditActive(next)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm font-medium">{t('customer_accounts.admin.detail.fields.roles', 'Roles')}</p>
-              <div className="flex flex-wrap gap-2">
-                {availableRoles.map((role) => {
-                  const isSelected = selectedRoleIds.includes(role.id)
-                  return (
-                    <Button
-                      key={role.id}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRoleToggle(role.id)}
-                      className={`rounded-full ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : ''
-                      }`}
-                    >
-                      {role.name}
-                    </Button>
-                  )
-                })}
-                {availableRoles.length === 0 && (
-                  <span className="text-sm text-muted-foreground">
-                    {t('customer_accounts.admin.detail.noRolesAvailable', 'No roles available')}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="pt-2">
-            <Button onClick={() => { void handleSave() }} disabled={isSaving}>
-              {isSaving
-                ? t('customer_accounts.admin.detail.actions.saving', 'Saving...')
-                : t('customer_accounts.admin.detail.actions.save', 'Save Changes')}
-            </Button>
-          </div>
-        </div>
-
-        <div className="rounded-lg border p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setResetPasswordOpen(true)}>
-              {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => { void handleSendResetLink() }}
-              disabled={isSendingResetLink}
-            >
-              {isSendingResetLink
-                ? t('customer_accounts.admin.detail.sendResetLink.actions.sending', 'Generating...')
-                : t('customer_accounts.admin.detail.sendResetLink.actions.send', 'Send Reset Link')}
-            </Button>
-          </div>
-          {resetLinkUrl && (
-            <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
-              <p className="mb-1.5 text-sm font-medium text-status-info-text">
-                {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
-              </p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
-                  {resetLinkUrl}
-                </code>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(resetLinkUrl)
-                    flash(t('customer_accounts.admin.detail.sendResetLink.flash.copied', 'Link copied to clipboard'), 'success')
-                  }}
-                >
-                  {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
-                </Button>
-              </div>
-              <p className="mt-1.5 text-xs text-status-info-text">
-                {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-lg border p-4 space-y-3">
-          <h2 className="text-sm font-semibold">
-            {t('customer_accounts.admin.detail.sections.sessions', 'Active Sessions')}
-            {data.sessions.length > 0 && (
-              <span className="ml-2 text-xs font-normal text-muted-foreground">({data.sessions.length})</span>
-            )}
-          </h2>
-          {data.sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {t('customer_accounts.admin.detail.noSessions', 'No active sessions')}
+      <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-status-info-text">
+              {t('customer_accounts.admin.detail.portalAccess.title', 'Customer Portal Access')}
+            </h3>
+            <p className="mt-1 text-sm text-status-info-text">
+              {t('customer_accounts.admin.detail.portalAccess.description', 'This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.')}
             </p>
-          ) : (
-            <div className="divide-y">
-              {data.sessions.map((session) => (
-                <div key={session.id} className="flex items-center justify-between py-2 text-sm">
-                  <div className="space-y-0.5">
-                    <p className="font-medium">
-                      {session.ipAddress || t('customer_accounts.admin.detail.unknownIp', 'Unknown IP')}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate max-w-xs">
-                      {session.userAgent || t('customer_accounts.admin.detail.unknownDevice', 'Unknown device')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('customer_accounts.admin.detail.fields.lastUsed', 'Last used')}: {formatDate(session.lastUsedAt, '-')}
-                    </p>
-                  </div>
+            <p className="mt-2 text-xs text-status-info-text">
+              {t('customer_accounts.admin.detail.portalAccess.url', 'Portal URL: {url}', {
+                url: buildPortalUrlPattern(portalOrigin),
+              })}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="rounded-lg border p-4 space-y-3">
+          <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.info', 'User Information')}</h2>
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.email', 'Email')}</dt>
+              <dd>{data.email}</dd>
+            </div>
+            <div className="flex justify-between items-center">
+              <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.emailVerified', 'Email Verified')}</dt>
+              <dd className="flex items-center gap-2">
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                  data.emailVerifiedAt
+                    ? 'bg-status-success-bg text-status-success-text'
+                    : 'bg-status-warning-bg text-status-warning-text'
+                }`}>
+                  {data.emailVerifiedAt
+                    ? t('customer_accounts.admin.verified', 'Yes')
+                    : t('customer_accounts.admin.unverified', 'No')}
+                </span>
+                {!data.emailVerifiedAt && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => { void handleRevokeSession(session.id) }}
+                    onClick={() => { void handleVerifyEmail() }}
+                    disabled={isVerifying}
                   >
-                    {t('customer_accounts.admin.detail.actions.revoke', 'Revoke')}
+                    {isVerifying
+                      ? t('customer_accounts.admin.detail.verifyEmail.actions.verifying', 'Verifying...')
+                      : t('customer_accounts.admin.detail.verifyEmail.actions.verify', 'Mark Verified')}
                   </Button>
-                </div>
-              ))}
+                )}
+              </dd>
             </div>
-          )}
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.lastLogin', 'Last Login')}</dt>
+              <dd>{formatDate(data.lastLoginAt, '-')}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.createdAt', 'Created')}</dt>
+              <dd>{formatDate(data.createdAt, '-')}</dd>
+            </div>
+          </dl>
         </div>
 
-        <ResetPasswordDialog
-          open={resetPasswordOpen}
-          onOpenChange={setResetPasswordOpen}
-          userId={id!}
-          onRunMutation={runMutationWithContext}
-        />
-      </PageBody>
+        <div className="rounded-lg border p-4 space-y-3">
+          <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.crmLinks', 'CRM Links')}</h2>
+          <div className="space-y-3 text-sm">
+            <div className="space-y-1.5">
+              <p className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.personEntity', 'Linked Person')}</p>
+              {editPersonEntityId ? (
+                <div className="flex items-center gap-2">
+                  <Link href={`/backend/customers/people/${editPersonEntityId}`} className="text-primary hover:underline">
+                    {personName || editPersonEntityId}
+                  </Link>
+                  <Button type="button" variant="outline" size="sm" onClick={() => { setEditPersonEntityId(null); setPersonName(null) }}>
+                    {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={personSearchQuery}
+                      onChange={(event) => { void handleSearchPeople(event.target.value) }}
+                      placeholder={t('customer_accounts.admin.detail.fields.searchPerson', 'Search people by name...')}
+                    />
+                    {personResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
+                        {personResults.map((person) => (
+                          <button
+                            key={person.id}
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                            onClick={() => {
+                              setEditPersonEntityId(person.id)
+                              setPersonName(person.label)
+                              setPersonSearchQuery('')
+                              setPersonResults([])
+                            }}
+                          >
+                            {person.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.customerEntity', 'Linked Company')}</p>
+              {editCustomerEntityId ? (
+                <div className="flex items-center gap-2">
+                  <Link href={`/backend/customers/companies/${editCustomerEntityId}`} className="text-primary hover:underline">
+                    {companyName || editCustomerEntityId}
+                  </Link>
+                  <Button type="button" variant="outline" size="sm" onClick={() => { setEditCustomerEntityId(null); setCompanyName(null) }}>
+                    {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={companySearchQuery}
+                      onChange={(event) => { void handleSearchCompanies(event.target.value) }}
+                      placeholder={t('customer_accounts.admin.detail.fields.searchCompany', 'Search companies by name...')}
+                    />
+                    {companyResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
+                        {companyResults.map((company) => (
+                          <button
+                            key={company.id}
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                            onClick={() => {
+                              setEditCustomerEntityId(company.id)
+                              setCompanyName(company.label)
+                              setCompanySearchQuery('')
+                              setCompanyResults([])
+                            }}
+                          >
+                            {company.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('customer_accounts.admin.detail.crmLinks.hint', 'Changes to CRM links are saved when you click Save Changes below.')}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border p-4 space-y-4">
+        <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.settings', 'Account Settings')}</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="user-display-name">
+                {t('customer_accounts.admin.detail.fields.displayName', 'Display Name')}
+              </label>
+              <Input
+                id="user-display-name"
+                type="text"
+                value={editDisplayName}
+                onChange={(event) => setEditDisplayName(event.target.value)}
+              />
+            </div>
+
+            <SwitchField
+              id="user-active-toggle"
+              label={t('customer_accounts.admin.detail.fields.isActive', 'Active')}
+              checked={editActive ?? data.isActive}
+              onCheckedChange={(next) => setEditActive(next)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{t('customer_accounts.admin.detail.fields.roles', 'Roles')}</p>
+            <div className="flex flex-wrap gap-2">
+              {availableRoles.map((role) => {
+                const isSelected = selectedRoleIds.includes(role.id)
+                return (
+                  <Button
+                    key={role.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRoleToggle(role.id)}
+                    className={`rounded-full ${
+                      isSelected
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : ''
+                    }`}
+                  >
+                    {role.name}
+                  </Button>
+                )
+              })}
+              {availableRoles.length === 0 && (
+                <span className="text-sm text-muted-foreground">
+                  {t('customer_accounts.admin.detail.noRolesAvailable', 'No roles available')}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="pt-2">
+          <Button onClick={() => { void handleSave() }} disabled={isSaving}>
+            {isSaving
+              ? t('customer_accounts.admin.detail.actions.saving', 'Saving...')
+              : t('customer_accounts.admin.detail.actions.save', 'Save Changes')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setResetPasswordOpen(true)}>
+            {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => { void handleSendResetLink() }}
+            disabled={isSendingResetLink}
+          >
+            {isSendingResetLink
+              ? t('customer_accounts.admin.detail.sendResetLink.actions.sending', 'Generating...')
+              : t('customer_accounts.admin.detail.sendResetLink.actions.send', 'Send Reset Link')}
+          </Button>
+        </div>
+        {resetLinkUrl && (
+          <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
+            <p className="mb-1.5 text-sm font-medium text-status-info-text">
+              {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
+                {resetLinkUrl}
+              </code>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard.writeText(resetLinkUrl)
+                  flash(t('customer_accounts.admin.detail.sendResetLink.flash.copied', 'Link copied to clipboard'), 'success')
+                }}
+              >
+                {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
+              </Button>
+            </div>
+            <p className="mt-1.5 text-xs text-status-info-text">
+              {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <h2 className="text-sm font-semibold">
+          {t('customer_accounts.admin.detail.sections.sessions', 'Active Sessions')}
+          {data.sessions.length > 0 && (
+            <span className="ml-2 text-xs font-normal text-muted-foreground">({data.sessions.length})</span>
+          )}
+        </h2>
+        {data.sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {t('customer_accounts.admin.detail.noSessions', 'No active sessions')}
+          </p>
+        ) : (
+          <div className="divide-y">
+            {data.sessions.map((session) => (
+              <div key={session.id} className="flex items-center justify-between py-2 text-sm">
+                <div className="space-y-0.5">
+                  <p className="font-medium">
+                    {session.ipAddress || t('customer_accounts.admin.detail.unknownIp', 'Unknown IP')}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate max-w-xs">
+                    {session.userAgent || t('customer_accounts.admin.detail.unknownDevice', 'Unknown device')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('customer_accounts.admin.detail.fields.lastUsed', 'Last used')}: {formatDate(session.lastUsedAt, '-')}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { void handleRevokeSession(session.id) }}
+                >
+                  {t('customer_accounts.admin.detail.actions.revoke', 'Revoke')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ResetPasswordDialog
+        open={resetPasswordOpen}
+        onOpenChange={setResetPasswordOpen}
+        userId={id!}
+        onRunMutation={runMutationWithContext}
+      />
       {ConfirmDialogElement}
-    </Page>
+    </>
   )
 }

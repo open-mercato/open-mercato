@@ -5,7 +5,6 @@ import { extensionPoints } from '@open-mercato/core/modules/customer_accounts/ex
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Globe, Settings } from 'lucide-react'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -488,114 +487,112 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
   }, [t])
 
   return (
-    <Page>
-      <PageBody className="space-y-4">
-        <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-medium text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.title', 'Customer Portal')}
-              </h3>
-              <p className="mt-1 text-sm text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.description', 'Manage customer portal accounts. Customers can self-register, log in, and access orders, quotes, and invoices through the portal.')}
-              </p>
-              <p className="mt-1.5 text-xs text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.url', 'Portal URL: {url}', {
-                  url: buildPortalUrlPattern(portalOrigin),
-                })}
-              </p>
-              <p className="mt-0.5 text-xs text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / Password123!')}
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-col gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                asChild
-              >
-                <Link href="/backend/customer_accounts/settings">
-                  <Settings className="size-4" />
-                  {t('customer_accounts.admin.portalInfo.openConfiguration', 'Open Configuration')}
-                </Link>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                asChild
-              >
-                <a href={buildPortalRootUrl(portalOrigin)} target="_blank" rel="noopener noreferrer">
-                  <Globe className="size-4" />
-                  {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
-                </a>
-              </Button>
-            </div>
+    <>
+      <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-medium text-status-info-text">
+              {t('customer_accounts.admin.portalInfo.title', 'Customer Portal')}
+            </h3>
+            <p className="mt-1 text-sm text-status-info-text">
+              {t('customer_accounts.admin.portalInfo.description', 'Manage customer portal accounts. Customers can self-register, log in, and access orders, quotes, and invoices through the portal.')}
+            </p>
+            <p className="mt-1.5 text-xs text-status-info-text">
+              {t('customer_accounts.admin.portalInfo.url', 'Portal URL: {url}', {
+                url: buildPortalUrlPattern(portalOrigin),
+              })}
+            </p>
+            <p className="mt-0.5 text-xs text-status-info-text">
+              {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / Password123!')}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              asChild
+            >
+              <Link href="/backend/customer_accounts/settings">
+                <Settings className="size-4" />
+                {t('customer_accounts.admin.portalInfo.openConfiguration', 'Open Configuration')}
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              asChild
+            >
+              <a href={buildPortalRootUrl(portalOrigin)} target="_blank" rel="noopener noreferrer">
+                <Globe className="size-4" />
+                {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
+              </a>
+            </Button>
           </div>
         </div>
-        <DataTable<UserRow>
-          stickyActionsColumn
-          title={t('customer_accounts.admin.title', 'Users')}
-          actions={(
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              {t('customer_accounts.admin.actions.createUser', 'Create User')}
-            </Button>
-          )}
-          columns={columns}
-          data={rows}
-          searchValue={search}
-          onSearchChange={(value) => { setSearch(value); setPage(1) }}
-          searchPlaceholder={t('customer_accounts.admin.searchPlaceholder', 'Search by name or email...')}
-          filters={filters}
-          filterValues={filterValues}
-          onFiltersApply={handleFiltersApply}
-          onFiltersClear={handleFiltersClear}
-          perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
-          emptyState={(
-            <ListEmptyState
-              entityName={t('customer_accounts.admin.title', 'Users')}
-              onCreate={() => setCreateDialogOpen(true)}
-              createLabel={t('customer_accounts.admin.actions.createUser', 'Create User')}
-            />
-          )}
-          onRowClick={(row) => router.push(`/backend/customer_accounts/users/${row.id}`)}
-          rowActions={(row) => (
-            <RowActions
-              items={[
-                {
-                  id: 'view',
-                  label: t('customer_accounts.admin.actions.view', 'View'),
-                  onSelect: () => { router.push(`/backend/customer_accounts/users/${row.id}`) },
-                },
-                {
-                  id: 'toggle-active',
-                  label: row.isActive
-                    ? t('customer_accounts.admin.actions.deactivate', 'Deactivate')
-                    : t('customer_accounts.admin.actions.activate', 'Activate'),
-                  onSelect: () => { void handleToggleActive(row) },
-                },
-                {
-                  id: 'delete',
-                  label: t('customer_accounts.admin.actions.delete', 'Delete'),
-                  destructive: true,
-                  onSelect: () => { void handleDelete(row) },
-                },
-              ]}
-            />
-          )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
-          isLoading={isLoading}
-        />
-        <CreateUserDialog
-          open={createDialogOpen}
-          onOpenChange={setCreateDialogOpen}
-          roleOptions={roleOptions}
-          onCreated={() => setReloadToken((token) => token + 1)}
-          onRunMutation={runMutationWithContext}
-        />
-      </PageBody>
+      </div>
+      <DataTable<UserRow>
+        stickyActionsColumn
+        title={t('customer_accounts.admin.title', 'Users')}
+        actions={(
+          <Button onClick={() => setCreateDialogOpen(true)}>
+            {t('customer_accounts.admin.actions.createUser', 'Create User')}
+          </Button>
+        )}
+        columns={columns}
+        data={rows}
+        searchValue={search}
+        onSearchChange={(value) => { setSearch(value); setPage(1) }}
+        searchPlaceholder={t('customer_accounts.admin.searchPlaceholder', 'Search by name or email...')}
+        filters={filters}
+        filterValues={filterValues}
+        onFiltersApply={handleFiltersApply}
+        onFiltersClear={handleFiltersClear}
+        perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('customer_accounts.admin.title', 'Users')}
+            onCreate={() => setCreateDialogOpen(true)}
+            createLabel={t('customer_accounts.admin.actions.createUser', 'Create User')}
+          />
+        )}
+        onRowClick={(row) => router.push(`/backend/customer_accounts/users/${row.id}`)}
+        rowActions={(row) => (
+          <RowActions
+            items={[
+              {
+                id: 'view',
+                label: t('customer_accounts.admin.actions.view', 'View'),
+                onSelect: () => { router.push(`/backend/customer_accounts/users/${row.id}`) },
+              },
+              {
+                id: 'toggle-active',
+                label: row.isActive
+                  ? t('customer_accounts.admin.actions.deactivate', 'Deactivate')
+                  : t('customer_accounts.admin.actions.activate', 'Activate'),
+                onSelect: () => { void handleToggleActive(row) },
+              },
+              {
+                id: 'delete',
+                label: t('customer_accounts.admin.actions.delete', 'Delete'),
+                destructive: true,
+                onSelect: () => { void handleDelete(row) },
+              },
+            ]}
+          />
+        )}
+        pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+        isLoading={isLoading}
+      />
+      <CreateUserDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        roleOptions={roleOptions}
+        onCreated={() => setReloadToken((token) => token + 1)}
+        onRunMutation={runMutationWithContext}
+      />
       {ConfirmDialogElement}
-    </Page>
+    </>
   )
 }

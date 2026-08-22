@@ -1,8 +1,15 @@
 import { headers } from 'next/headers'
-import { resolveRequestOrigin } from '../../../lib/portalUrl'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { resolvePortalRequestOrigin } from '../../../lib/portalUrl'
 import { PortalUsersPageClient } from './PortalUsersPageClient'
 
 export default async function CustomerAccountsPage() {
-  const portalOrigin = resolveRequestOrigin(await headers())
-  return <PortalUsersPageClient portalOrigin={portalOrigin} />
+  const portalOrigin = resolvePortalRequestOrigin(await headers())
+  return (
+    <Page>
+      <PageBody className="space-y-4">
+        <PortalUsersPageClient portalOrigin={portalOrigin} />
+      </PageBody>
+    </Page>
+  )
 }

@@ -3,6 +3,13 @@
 // origin from `window.location.origin` during render made the server HTML and
 // the hydrated client output disagree, which React reported as a hydration
 // error and repaired with a visible flicker of the portal address (#5457).
+//
+// `resolvePortalRequestOrigin` is deliberately named apart from the shared
+// `resolveRequestOrigin` in `@open-mercato/shared/lib/url`: that one takes a
+// `Request` and reads the protocol off `req.url`, which a server component does
+// not have — it only has `headers()`. This one also validates the untrusted host
+// header before the value reaches rendered text or a link href, and infers the
+// protocol when the proxy stays quiet, so the two are not interchangeable.
 
 export type RequestHeaderReader = {
   get(name: string): string | null | undefined
@@ -16,7 +23,8 @@ const FORWARDED_PROTO_HEADER = 'x-forwarded-proto'
 // IPv6 literal is accepted before it reaches rendered text and link hrefs.
 const HOST_PATTERN = /^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i
 const PROTOCOL_PATTERN = /^https?$/i
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+// Bracketed, because HOST_PATTERN only accepts a colon-bearing host in that form.
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 export const PORTAL_ORG_SLUG_PLACEHOLDER = '[org-slug]'
 
@@ -37,8 +45,21 @@ function readHost(headers: RequestHeaderReader): string | null {
 function readProtocol(headers: RequestHeaderReader, host: string): string {
   const forwarded = firstHeaderValue(headers.get(FORWARDED_PROTO_HEADER))
   if (forwarded && PROTOCOL_PATTERN.test(forwarded)) return forwarded.toLowerCase()
-  // A terminating proxy that omits the header is serving a public hostname over
-  // TLS far more often than not; only loopback development hosts default to http.
+  // An operator who configured APP_URL has named the canonical origin explicitly;
+  // when it points at this very host, trust it over any inference below. Without
+  // this, a plain-HTTP deployment behind a proxy that omits x-forwarded-proto
+  // would render https:// links that do not work.
+  const configured = configuredOrigin()
+  if (configured) {
+    try {
+      const parsed = new URL(configured)
+      if (parsed.host.toLowerCase() === host) return parsed.protocol.replace(':', '')
+    } catch {
+      // configuredOrigin() already parsed this successfully; ignore defensively.
+    }
+  }
+  // Otherwise a terminating proxy that omits the header is serving a public
+  // hostname over TLS far more often than not; only loopback hosts default to http.
   const hostname = host.replace(/:\d{1,5}$/, '')
   return LOOPBACK_HOSTS.has(hostname) ? 'http' : 'https'
 }
@@ -63,8 +84,11 @@ function configuredOrigin(): string {
  * `window.location.origin` reports in the browser. Falls back to the configured
  * app URL, then to an empty string so callers render a root-relative path that
  * is identical on the server and the client.
+ *
+ * Named apart from `resolveRequestOrigin` in `@open-mercato/shared/lib/url` —
+ * see the note at the top of this file for why the two cannot be merged.
  */
-export function resolveRequestOrigin(headers: RequestHeaderReader | null | undefined): string {
+export function resolvePortalRequestOrigin(headers: RequestHeaderReader | null | undefined): string {
   if (headers && typeof headers.get === 'function') {
     const host = readHost(headers)
     if (host) return `${readProtocol(headers, host)}://${host}`
