@@ -147,6 +147,53 @@ The key is `logContext`, not `context`, specifically so that the generic `metada
 
 **Also changed:** `ActionLog.context_json` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context` (in ascending precedence). Previously `buildLog().context` replaced `options.metadata.context` wholesale, so entries where both were set now carry the union of their keys rather than only the former's. **Action:** if you read `context_json` and relied on absent base keys, key off the specific fields you own rather than the object's shape.
 
+### List totals are capped at 10 000 by default — treat `total` as a floor when `totalIsCapped` is true
+
+Every CRUD list count is now bounded: the database stops counting after
+`OM_LIST_COUNT_CAP` (default `10000`) matching rows. Below the cap, `total` stays
+exact and responses are byte-identical to before. At the cap, the response
+reports `total: <cap>` together with a new optional `totalIsCapped: true` field
+(and `meta.listCountCapWarning` from the query engine). **When `totalIsCapped`
+is true, both `total` and `totalPages` are floors, not values** — rows past the
+cap exist and remain servable (data queries are offset-based and independent of
+the count), but any pager that derives its page count from `total` will stop
+offering them. The platform's `Pagination`/`DataTable` handle this: a capped
+pager never clamps the current page down to the floor, suppresses the last-page
+jump, and keeps Next available through short-page detection while pages come
+back full. A custom pager built on `total` must do the same or its users cannot
+reach rows past the cap. This is a **value-level behavior change on a STABLE
+response surface**, shipped enabled, because an exact `COUNT` over arbitrary
+filters is `O(matching rows)` and dominates list latency on large tables.
+
+**Action for API clients:** wherever you consume `total` as ground truth about
+the full result set (loop bounds, "N results" labels, reconciliation), treat it
+as a floor whenever `totalIsCapped` is `true`. To enumerate a full result set,
+page until a page comes back with fewer rows than requested — never until you
+have collected `total` rows.
+
+**Action for UI authors:** thread `totalIsCapped` from your list response into
+`DataTable`'s `pagination` prop. Every in-tree list does this already, and a
+CI guard (`yarn check:pagination-capped`) keeps the set closed, so this applies
+to tables you maintain outside the repo. It is not only a labelling concern: an
+unadopted table renders the floor as if it were exact **and stops offering rows
+past it**, because its page count is derived from a capped `total`. With the
+flag threaded, `DataTable` renders "10 000+", keeps Next available while pages
+come back full, and never clamps a deep-linked page down to the floor.
+
+**Escape hatch:** `OM_LIST_COUNT_CAP=0` disables capping and restores exact
+count *values* globally. It is read per request from the environment, is
+permanently supported, and needs no redeploy. Note it restores the values, not
+the previous query shape: counts keep running through the rebuilt
+scope-and-filters query (with filters as `EXISTS` semi-joins), which is
+strictly lighter on unfiltered lists and plans set-oriented on filtered ones.
+
+**Doc-storage counts count rows, not distinct record ids.** Custom-entity
+(doc-storage) list counts changed from `count(distinct entity_id)` to
+`count(*)`. Within one organization the two are identical. Across a scope
+spanning several organizations that hold a row for the same record id, the
+count now matches the item list — which returns one row per storage row — where
+it previously under-reported relative to the items.
+
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
 Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.
