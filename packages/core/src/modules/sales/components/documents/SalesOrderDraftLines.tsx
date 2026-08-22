@@ -23,6 +23,7 @@ type SalesOrderDraftLinesProps = {
   organizationId: string | null
   tenantId: string | null
   lines: SalesOrderLineDraft[]
+  error?: string | null
   onChange: (lines: SalesOrderLineDraft[]) => void
 }
 
@@ -88,6 +89,7 @@ export function SalesOrderDraftLines({
   organizationId,
   tenantId,
   lines,
+  error,
   onChange,
 }: SalesOrderDraftLinesProps) {
   const t = useT()
@@ -159,6 +161,7 @@ export function SalesOrderDraftLines({
           {t('sales.documents.items.add', 'Add item')}
         </Button>
       </div>
+      {error ? <p className="text-sm text-status-error-text" role="alert">{error}</p> : null}
       <DataTable
         columns={columns}
         data={lines}

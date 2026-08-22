@@ -1311,12 +1311,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       id: 'lines',
       label: '',
       type: 'custom',
-      component: ({ value, values, setValue }) => values?.documentKind === 'order' ? (
+      rendersOwnError: true,
+      component: ({ value, error, values, setValue }) => values?.documentKind === 'order' ? (
         <SalesOrderDraftLines
           currencyCode={typeof values.currencyCode === 'string' ? values.currencyCode : defaultCurrency}
           organizationId={organizationId ?? null}
           tenantId={tenantId ?? null}
           lines={Array.isArray(value) ? value as SalesOrderLineDraft[] : []}
+          error={error}
           onChange={(lines) => setValue(lines)}
         />
       ) : null,
