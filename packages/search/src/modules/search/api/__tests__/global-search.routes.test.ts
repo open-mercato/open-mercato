@@ -199,7 +199,11 @@ describe('GET /api/search/search/global presenter localization', () => {
     }
   })
 
-  it('returns one navigable result for each customer entity and profile pair', async () => {
+  // Covers OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY=true, where base customer rows are tokenized and
+  // the route can therefore receive both halves of a pair. Under the default the token strategy
+  // never returns the base rows at all (see token-strategy-entity-exclusion.test.ts); the strategy
+  // here is a stub that yields them regardless, so this pins the merge itself.
+  it('merges a customer entity and profile pair into one navigable result when both are indexed', async () => {
     const rows = [
       {
         entity_type: 'customers:customer_entity',

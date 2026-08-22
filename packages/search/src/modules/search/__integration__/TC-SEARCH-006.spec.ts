@@ -58,9 +58,17 @@ function globalSearchPath(query: string): string {
   return `/api/search/search/global?${params.toString()}`
 }
 
+/**
+ * A profile result navigates to the customer's v2 detail page, whose path segment is the base
+ * customer entity id — not the profile's own `recordId`. So this asserts the shape of a direct
+ * detail link (prefix + one non-empty id segment, no query string or anchor) rather than
+ * equality with `recordId`.
+ */
 function hasCanonicalNavigation(result: SearchResultItem, expectedPrefix: string): boolean {
-  if (typeof result.url !== 'string' || typeof result.recordId !== 'string') return false
-  return result.url === `${expectedPrefix}/${encodeURIComponent(result.recordId)}`
+  if (typeof result.url !== 'string') return false
+  if (!result.url.startsWith(`${expectedPrefix}/`)) return false
+  const target = result.url.slice(expectedPrefix.length + 1)
+  return target.length > 0 && !/[/?#]/.test(target)
 }
 
 /**
@@ -127,7 +135,7 @@ test.describe('TC-SEARCH-006: global search honors saved strategy config over UR
     }
   })
 
-  test('deduplicates real person and company profile hits into canonical global results', async ({ request }) => {
+  test('returns one navigable profile result per customer and no base-entity duplicate', async ({ request }) => {
     test.slow()
     test.setTimeout(120_000)
 
@@ -190,9 +198,7 @@ test.describe('TC-SEARCH-006: global search honors saved strategy config over UR
             if (failedQuery) return `${failedQuery[0]}:status:${failedQuery[1].status}`
 
             const indexedQueries = [
-              ['person-entity', personEntity.results, personName, CUSTOMER_ENTITY],
               ['person-profile', personProfile.results, personName, PERSON_PROFILE],
-              ['company-entity', companyEntity.results, companyName, CUSTOMER_ENTITY],
               ['company-profile', companyProfile.results, companyName, COMPANY_PROFILE],
             ] as const
             for (const [label, results, expectedTitle, expectedEntityId] of indexedQueries) {
@@ -202,14 +208,27 @@ test.describe('TC-SEARCH-006: global search honors saved strategy config over UR
               if (matches.length === 0) return `${label}:matches:0`
             }
 
+            // Under the default OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY=false the token strategy
+            // refuses to return base customer rows, so an explicit query for that entity type is
+            // empty even though the same customers' profiles are already indexed above. (The rows
+            // themselves stay in search_tokens — the list-search id lookup still needs them.)
+            const baseEntityQueries = [
+              ['person-entity', personEntity.results, personName],
+              ['company-entity', companyEntity.results, companyName],
+            ] as const
+            for (const [label, results, expectedTitle] of baseEntityQueries) {
+              const matches = results.filter((result) => presenterTitle(result) === expectedTitle)
+              if (matches.length !== 0) return `${label}:matches:${matches.length}`
+            }
+
             personGlobalResults = personGlobal.results.filter((result) => presenterTitle(result) === personName)
             companyGlobalResults = companyGlobal.results.filter((result) => presenterTitle(result) === companyName)
             if (personGlobalResults.length !== 1) return `person-global:matches:${personGlobalResults.length}`
             if (companyGlobalResults.length !== 1) return `company-global:matches:${companyGlobalResults.length}`
-            if (personGlobalResults[0]?.entityId !== CUSTOMER_ENTITY) {
+            if (personGlobalResults[0]?.entityId !== PERSON_PROFILE) {
               return `person-global:entity:${personGlobalResults[0]?.entityId ?? 'missing'}`
             }
-            if (companyGlobalResults[0]?.entityId !== CUSTOMER_ENTITY) {
+            if (companyGlobalResults[0]?.entityId !== COMPANY_PROFILE) {
               return `company-global:entity:${companyGlobalResults[0]?.entityId ?? 'missing'}`
             }
             if (!hasCanonicalNavigation(personGlobalResults[0], '/backend/customers/people-v2')) {
@@ -226,9 +245,9 @@ test.describe('TC-SEARCH-006: global search honors saved strategy config over UR
         .toBe('ready')
 
       expect(personGlobalResults).toHaveLength(1)
-      expect(personGlobalResults[0]?.entityId).toBe(CUSTOMER_ENTITY)
+      expect(personGlobalResults[0]?.entityId).toBe(PERSON_PROFILE)
       expect(companyGlobalResults).toHaveLength(1)
-      expect(companyGlobalResults[0]?.entityId).toBe(CUSTOMER_ENTITY)
+      expect(companyGlobalResults[0]?.entityId).toBe(COMPANY_PROFILE)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
