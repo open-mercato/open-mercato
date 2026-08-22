@@ -13,6 +13,7 @@ import {
   channelOrgScopeWhere,
 } from '../../../../../lib/access-control'
 import { refreshCredentialsIfNeeded } from '../../../../../lib/credential-refresh'
+import { resolveTestSendRecipient } from '../../../../../lib/outbound-recipient'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 type RbacServiceLike = {
@@ -33,8 +34,11 @@ export const metadata = {
   },
 }
 
+// `to` cannot be validated until the channel is loaded: what a valid recipient
+// looks like depends on the channel's type (#4976). The shape check stays here,
+// the semantic one moves to `resolveTestSendRecipient` below.
 const bodySchema = z.object({
-  to: z.string().email(),
+  to: z.string().min(1).max(320).optional(),
   subject: z.string().min(1).max(500).optional(),
   body: z.string().max(50_000).optional(),
 })
@@ -149,6 +153,15 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     )
   }
 
+  // What a valid recipient looks like is a property of the channel, so this can
+  // only run now (#4976). An email channel keeps the pre-existing rule; a
+  // recognized non-email channel takes a provider-native identifier, or none at
+  // all and lets the adapter use its configured default target.
+  const recipient = resolveTestSendRecipient(channel.channelType, body.to)
+  if (!recipient.ok) {
+    return NextResponse.json({ error: recipient.error }, { status: 422 })
+  }
+
   const guard = await validateRouteMutationGuard({
     container,
     req,
@@ -216,7 +229,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
         tenantId: auth.tenantId as string,
         organizationId: channelCredentialsOrg,
       },
-      metadata: { to: body.to, subject: body.subject ?? 'Test send', testSend: true },
+      metadata: { to: recipient.to, subject: body.subject ?? 'Test send', testSend: true },
     })
     await guard.afterSuccess()
     return NextResponse.json({
