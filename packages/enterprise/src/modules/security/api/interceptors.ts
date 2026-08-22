@@ -59,16 +59,17 @@ export const interceptors: ApiInterceptor[] = [
       if (response.statusCode !== 200) return {}
       if (response.body.ok !== true || response.body.mfa_required === true) return {}
       if (typeof response.body.token !== 'string' || response.body.token.length === 0) return {}
-      if (readSecurityModuleConfig().mfa.emergencyBypass) {
-        emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', {})
-        return {}
-      }
 
       const claims = readClaims(response.body.token)
       if (!claims) return {}
 
       const mfaVerificationService = resolveMfaVerificationService(context.container as { resolve: (name: string) => unknown })
       if (!mfaVerificationService) return {}
+
+      if (readSecurityModuleConfig().mfa.emergencyBypass) {
+        emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', { userId: claims.sub })
+        return {}
+      }
 
       try {
         const challenge = await mfaVerificationService.createChallenge(claims.sub)

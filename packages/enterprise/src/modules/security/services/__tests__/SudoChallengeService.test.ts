@@ -13,6 +13,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+import * as securityConfig from '../../lib/security-config'
+
+const mockEmitBypassWarning = jest.spyOn(securityConfig, 'emitMfaEmergencyBypassActiveWarning').mockImplementation(() => {})
+
 type ConfigRecord = {
   id: string
   tenantId: string | null
@@ -339,6 +343,53 @@ describe('SudoChallengeService', () => {
 
     expect(result.method).toBe('password')
     expect(mfaVerificationService.createChallenge).not.toHaveBeenCalled()
+    expect(mockEmitBypassWarning).toHaveBeenCalledWith(
+      'sudo challenge downgraded to password',
+      expect.objectContaining({
+        availableMfaMethodCount: 1,
+      }),
+    )
+  })
+
+  test('does not warn when bypass is enabled but sudo target already requires password', async () => {
+    const { service, mfaService, mfaVerificationService } = createServiceContext({
+      ...defaultSecurityModuleConfig,
+      mfa: {
+        ...defaultSecurityModuleConfig.mfa,
+        emergencyBypass: true,
+      },
+    })
+    // Force target to PASSWORD by seeding a custom config with PASSWORD method
+    // The default target is auto, but we simulate password-only by making getUserMethods return 0 and bypass would not change outcome;
+    // Instead we directly test the downgrade logic: when no MFA methods, normal would already be password, so bypass should not warn
+    mfaService.getUserMethods.mockResolvedValueOnce([])
+
+    const result = await service.initiate('user-1', 'security.sudo.manage', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(result.method).toBe('password')
+    expect(mockEmitBypassWarning).not.toHaveBeenCalled()
+  })
+
+  test('does not warn when bypass is disabled even though MFA would be used', async () => {
+    const { service, mfaService } = createServiceContext({
+      ...defaultSecurityModuleConfig,
+      mfa: {
+        ...defaultSecurityModuleConfig.mfa,
+        emergencyBypass: false,
+      },
+    })
+    mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
+
+    const result = await service.initiate('user-1', 'security.sudo.manage', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(result.method).toBe('mfa')
+    expect(mockEmitBypassWarning).not.toHaveBeenCalled()
   })
 
   describe('tenant isolation for sudo configs', () => {

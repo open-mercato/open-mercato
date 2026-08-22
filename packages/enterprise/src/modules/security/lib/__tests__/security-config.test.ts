@@ -1,7 +1,27 @@
+var mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({
+    warn: mockLoggerWarn,
+    error: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+    child: () => ({
+      warn: mockLoggerWarn,
+      error: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
+    }),
+  }),
+}))
+
 import {
   defaultSecurityModuleConfig,
+  emitMfaEmergencyBypassActiveWarning,
+  emitMfaEmergencyBypassStartupWarningIfNeeded,
   readSecurityModuleConfig,
   readSecuritySetupTokenSecret,
+  resetMfaEmergencyBypassStartupWarningForTests,
   resolveSecurityModuleConfigForRequest,
 } from '../security-config'
 
@@ -107,5 +127,55 @@ describe('security-config', () => {
     expect(() => readSecuritySetupTokenSecret({})).toThrow(
       'Security MFA setup tokens require OM_SECURITY_MFA_SETUP_SECRET, AUTH_JWT_SECRET, AUTH_SECRET, or JWT_SECRET.',
     )
+  })
+
+  describe('mfa emergency bypass warnings', () => {
+    beforeEach(() => {
+      mockLoggerWarn.mockClear()
+      resetMfaEmergencyBypassStartupWarningForTests()
+    })
+
+    test('emits stable message with structured context and does not interpolate context into message', () => {
+      emitMfaEmergencyBypassActiveWarning('mfa-enrollment-redirect bypassed', {
+        userId: 'user-1',
+        pathname: '/backend/customers',
+      })
+
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+      const [message, fields] = mockLoggerWarn.mock.calls[0] as [string, Record<string, unknown>]
+      expect(message).toBe('MFA emergency bypass is active')
+      expect(fields).toMatchObject({
+        emergencyBypass: true,
+        context: 'mfa-enrollment-redirect bypassed',
+        userId: 'user-1',
+        pathname: '/backend/customers',
+      })
+    })
+
+    test('startup warning emits once when bypass is active and is silent when inactive', () => {
+      emitMfaEmergencyBypassStartupWarningIfNeeded({ OM_SECURITY_MFA_EMERGENCY_BYPASS: 'false' })
+      expect(mockLoggerWarn).not.toHaveBeenCalled()
+
+      emitMfaEmergencyBypassStartupWarningIfNeeded({ OM_SECURITY_MFA_EMERGENCY_BYPASS: 'true' })
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+      expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({
+        context: 'startup',
+        startup: true,
+        emergencyBypass: true,
+      })
+
+      mockLoggerWarn.mockClear()
+      emitMfaEmergencyBypassStartupWarningIfNeeded({ OM_SECURITY_MFA_EMERGENCY_BYPASS: 'true' })
+      expect(mockLoggerWarn).not.toHaveBeenCalled()
+    })
+
+    test('startup warning can be reset for tests and re-emits', () => {
+      emitMfaEmergencyBypassStartupWarningIfNeeded({ OM_SECURITY_MFA_EMERGENCY_BYPASS: 'true' })
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+      mockLoggerWarn.mockClear()
+      resetMfaEmergencyBypassStartupWarningForTests()
+      emitMfaEmergencyBypassStartupWarningIfNeeded({ OM_SECURITY_MFA_EMERGENCY_BYPASS: 'true' })
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    })
   })
 })

@@ -175,14 +175,11 @@ export function resolveSecurityModuleConfigForRequest(
 }
 
 export function emitMfaEmergencyBypassActiveWarning(context: string, extra?: Record<string, unknown>): void {
-  securityBypassLogger.warn(
-    `OM_SECURITY_MFA_EMERGENCY_BYPASS is active — ${context} — MFA enforcement is disabled platform-wide (break-glass)`,
-    {
-      emergencyBypass: true,
-      context,
-      ...extra,
-    },
-  )
+  securityBypassLogger.warn('MFA emergency bypass is active', {
+    emergencyBypass: true,
+    context,
+    ...extra,
+  })
 }
 
 export function emitMfaEmergencyBypassStartupWarningIfNeeded(env: NodeJS.ProcessEnv = process.env): void {
