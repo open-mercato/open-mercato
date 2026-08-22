@@ -276,6 +276,10 @@ export function SalesDocumentPaymentsSection({
         cell: ({ row }) => row.original.paymentMethodName ?? '—',
       },
       {
+        // Injected columns are placed against `ColumnDef.id` before the table is
+        // built, so an accessor-derived id is not yet available: the gateway
+        // status widget anchors on this explicit id.
+        id: 'status',
         accessorKey: 'status',
         header: t('sales.documents.payments.status', 'Status'),
         cell: ({ row }) => row.original.statusLabel ?? row.original.status ?? '—',

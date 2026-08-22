@@ -66,6 +66,16 @@ class ResizeObserverMock {
 }
 
 const GATEWAY_COLUMNS_SPOT_ID = 'data-table:sales.payments:columns'
+const GATEWAY_HEADER = englishDictionary['payment_gateways.column.gatewayStatus']
+
+function readHeaderTexts(): string[] {
+  return Array.from(document.querySelectorAll('thead th')).map((cell) => cell.textContent?.trim() ?? '')
+}
+
+function readFirstRowTexts(): string[] {
+  const firstRow = document.querySelector('tbody tr')
+  return Array.from(firstRow?.querySelectorAll('td') ?? []).map((cell) => cell.textContent?.trim() ?? '')
+}
 
 function renderSection() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0, retry: false } } })
@@ -116,12 +126,64 @@ describe('sales payments table gateway status column (issue #5142)', () => {
     const { cleanupQueryClient } = renderSection()
 
     await waitFor(() => {
-      expect(screen.getByText(englishDictionary['payment_gateways.column.gatewayStatus'])).toBeTruthy()
+      expect(screen.getByText(GATEWAY_HEADER)).toBeTruthy()
     })
-    // No module enriches `sales.payment` with `_gateway` yet, so the cell shows
-    // the widget's own fallback — asserting it proves the column body renders,
-    // not just its header.
-    expect(screen.getByText('pending')).toBeTruthy()
+
+    // Asserting the body cell, not just the header, is what proves the column
+    // actually renders. It is read by position rather than by text so the
+    // assertion does not freeze whatever placeholder the widget shows while no
+    // module enriches `sales.payment` with `_gateway`.
+    const headers = readHeaderTexts()
+    const rowTexts = readFirstRowTexts()
+    const gatewayIndex = headers.indexOf(GATEWAY_HEADER)
+
+    expect(gatewayIndex).toBeGreaterThanOrEqual(0)
+    expect(rowTexts).toHaveLength(headers.length)
+    expect(rowTexts[gatewayIndex]).not.toBe('')
+
+    cleanupQueryClient()
+  })
+
+  it('shows the missing-value placeholder instead of inventing a gateway status', async () => {
+    const { cleanupQueryClient } = renderSection()
+
+    await waitFor(() => {
+      expect(screen.getByText(GATEWAY_HEADER)).toBeTruthy()
+    })
+
+    // The fixture payment carries neither gateway data nor a payment method, so
+    // both cells have nothing to show. The gateway column must say so the same
+    // way its siblings do — reporting a status the system cannot know is worse
+    // than an empty column, especially next to a settled payment.
+    const headers = readHeaderTexts()
+    const rowTexts = readFirstRowTexts()
+    const gatewayIndex = headers.indexOf(GATEWAY_HEADER)
+    const methodIndex = headers.indexOf('Method')
+
+    expect(methodIndex).toBeGreaterThanOrEqual(0)
+    expect(rowTexts[gatewayIndex]).toBe(rowTexts[methodIndex])
+    expect(rowTexts[gatewayIndex]).not.toBe('pending')
+
+    cleanupQueryClient()
+  })
+
+  it('places the gateway status column next to the payment status, not past the row actions', async () => {
+    const { cleanupQueryClient } = renderSection()
+
+    await waitFor(() => {
+      expect(screen.getByText(GATEWAY_HEADER)).toBeTruthy()
+    })
+
+    // Without a `placement` the widget lands after the row-actions column, which
+    // is where the pre-fix UI QA pass found it. `relativeTo: 'status'` only
+    // resolves while the payments status column keeps its explicit `id`.
+    const headers = readHeaderTexts()
+    const statusIndex = headers.indexOf('Status')
+    const gatewayIndex = headers.indexOf(GATEWAY_HEADER)
+
+    expect(statusIndex).toBeGreaterThanOrEqual(0)
+    expect(gatewayIndex).toBe(statusIndex + 1)
+    expect(gatewayIndex).toBeLessThan(headers.length - 1)
 
     cleanupQueryClient()
   })
