@@ -11,11 +11,31 @@ export type AskFn = (question: string) => Promise<string>
 export interface AgenticSetupOptions {
   tool?: string
   force?: boolean
+  experimentalHooksValidator?: boolean
 }
 
 export interface AgenticConfig {
   projectName: string
   targetDir: string
+  experimentalHooksValidator?: boolean
+}
+
+export const EXPERIMENTAL_HOOKS_VALIDATOR_ENV = 'OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR'
+
+export function resolveExperimentalHooksValidator(
+  explicitValue?: boolean,
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (explicitValue !== undefined) return explicitValue
+
+  const token = environment[EXPERIMENTAL_HOOKS_VALIDATOR_ENV]?.trim().toLowerCase()
+  if (!token) return false
+  if (['1', 'true', 'yes', 'on'].includes(token)) return true
+  if (['0', 'false', 'no', 'off'].includes(token)) return false
+
+  throw new Error(
+    `${EXPERIMENTAL_HOOKS_VALIDATOR_ENV} must be one of: 1, true, yes, on, 0, false, no, off`,
+  )
 }
 
 const TOOLS = [
@@ -157,6 +177,7 @@ export async function runAgenticSetup(
   const config: AgenticConfig = {
     projectName: basename(targetDir),
     targetDir,
+    experimentalHooksValidator: resolveExperimentalHooksValidator(options?.experimentalHooksValidator),
   }
 
   // Order matters — codex patches AGENTS.md created by shared
@@ -170,7 +191,7 @@ export async function runAgenticSetup(
   persistAgentSelection(targetDir, selectedIds)
   finalizeHarnessManifest(config, selectedIds)
   installSkills(targetDir)
-  printSummary(selectedIds)
+  printSummary(selectedIds, Boolean(config.experimentalHooksValidator))
   return true
 }
 
@@ -207,7 +228,7 @@ function installSkills(targetDir: string): void {
   }
 }
 
-function printSummary(selectedIds: string[]): void {
+function printSummary(selectedIds: string[], experimentalHooksValidator: boolean): void {
   console.log('')
   console.log('   Agentic setup complete:')
 
@@ -219,6 +240,9 @@ function printSummary(selectedIds: string[]): void {
   }
   if (selectedIds.includes('cursor')) {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
+  }
+  if (experimentalHooksValidator) {
+    console.log('   ✓ Experimental gate-evidence/typecheck validator hooks')
   }
 
   if (selectedIds.includes('claude-code')) {

@@ -12,7 +12,7 @@ Route first; never probe unmatched context.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
-- Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
+- Run `yarn generate` after discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change.
 - Contract-surface changes (route/schema/ID/export/seam/signature/event payload/CLI) MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
 - Localize strings; use shared UI/tokens and cover loading/empty/error/conflict/keyboard/a11y.
 
@@ -23,14 +23,14 @@ Route first; never probe unmatched context.
 ## Never
 
 - Never leak tenants, trust payload scope, or treat missing scope as unrestricted.
-- Never edit `node_modules`, `.mercato/generated/**`, generated facts, or shipped migrations.
-- Never use cross-module ORM relations; use IDs/snapshots, events, enrichers, extensions, or optional DI.
+- Never edit `node_modules`/`.mercato/generated/**`/generated facts/shipped migrations.
+- Never use cross-module ORM relations; use IDs/snapshots/events/enrichers/extensions/optional DI.
 - Never use raw admin `fetch`/`<form>`, ad hoc crypto/cache/queues, role-name guards, or direct mutations when helpers exist.
 - Never hard-code user strings/status colors; expose secrets/transcripts; or guess answerable contracts.
 
 ## Validation
 
-Use the smallest relevant set. Broad: `yarn generate && yarn typecheck && yarn lint && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Report failures; never migrate to validate.
+Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Never migrate to validate.
 
 ## Three-Axis Context Assembler
 
@@ -38,7 +38,7 @@ Routes are additive: ownership says WHO; other axes say WHAT. Select every match
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
-`debugging` = reported bug/security/drift, not designed failure UI. Specs use `spec-pr`; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = reported bug/security/drift, not designed failure UI. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
 
@@ -83,46 +83,42 @@ Match every work-unit row; OPEN its skill before selection.
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
 | `testing` | REQUEST says test/coverage/prove, or verify by exercising API/browser/screen sizes/keyboard/screen-reader—not a fix's implicit regression duty or review/audit/config check | MUST read `.ai/guides/testing-debugging.md` + external `om-integration-tests` for integration/E2E/app tests |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging |
-| `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
+| `framework-context` | Exact installed contract still unknown | `.ai/guides/framework-contracts.md`, then bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-`framework-context`: resolve one named module/framework fact first. Use bounded source only for an unresolved exact contract, current behavior, authorization, dependents, or safest customization seam; never for “installed contracts” alone.
+`framework-context`: resolve one named fact first. Use bounded source only if the guide leaves current behavior, authorization, dependents, or safest customization seam unresolved; never for “installed contracts” alone.
 
 ### Axis 3 — SDLC and Delivery
 
-Pinned delivery skills: `yarn install-skills` (refresh: `--update`). Read BOTH `.agents/skills/<id>/SKILL.md` and a matching `.ai/skills/<id>/SKILL.md` override. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
+Spec gate before code: new capability/architecture/schema/API contract/cross-module/multi-phase -> spec first (`spec-first`); covering `.ai/specs` match -> reuse and update it (`reuse-spec`); bug fix/minor fix/docs/dependency/isolated refactor -> proceed (`direct`); only the request's explicit words waive a feature spec; workflow-changing ambiguity -> ask once (`ask`). Then `om-module-scaffold` starts at `src/modules/example/README.md`.
+
+Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override. Missing skill: `yarn install-skills`. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
-| `spec-pr` | Write/revise spec | MUST invoke `om-spec-writing` (OMH-005) + `.ai/guides/spec-delivery.md` + config specs path |
-| `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
-| `spec-pr` | Whole-spec / commit+ready PR / issue / review | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
-| `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
-| — | No PR/spec workflow requested | Do not load delivery skills |
-
-Absent skill: run `yarn install-skills` once; never substitute.
+| `spec-pr` | Write/revise spec | MUST invoke `om-spec-writing` (OMH-005) + `.ai/guides/spec-delivery.md` |
+| `spec-pr` | Local phases / whole-spec / PR / issue / review | `om-implement-spec` (OMH-006) / `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
+| — | No PR/spec workflow | Do not load delivery skills |
 
 ### Token-Efficient Assembly Policy
 
 - Load matched guides once, then only needed references/facts.
 - Hard budgets: guide > skill > references; open a reference only for its named subject.
-- Specs: open one match; `spec-pr` reads template via spec-delivery.
+- `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
 
-Load facts for every named/targeted module, not incidental use. Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal + customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed.
+Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Big fact-sheets: read in sections.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
 
 ## Working Sequence
 
-1. `spec-pr`: list `.ai/specs` once; open one match; plan-only skips specs.
-2. Route; load only matched guides/skills/facts.
-3. Implement the smallest complete slice through real call sites.
-4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
+1. Route, then implement the smallest complete slice through real call sites.
+2. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
 
-Precedence: root → BC → installed `AGENTS.md` → facts; stop on skew/conflict; never guess.
+Precedence: root→BC→installed `AGENTS.md`→facts; stop on skew/conflict; never guess.

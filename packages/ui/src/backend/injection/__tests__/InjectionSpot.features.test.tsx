@@ -210,6 +210,32 @@ describe('Injection widget feature gating', () => {
     expect(onBeforeSaveHiddenMock).not.toHaveBeenCalled()
   })
 
+  it('dispatches a newly prefetched lifecycle widget in the same layout commit', async () => {
+    const onBeforeSaveMock = jest.fn()
+    const prefetchedWidget = loadedSpotWidget(
+      lifecycleWidget('visible-lifecycle-widget', undefined, onBeforeSaveMock),
+    )
+    let layoutDispatches = 0
+
+    function Harness({ prefetched }: { prefetched: LoadedInjectionSpotWidget[] }) {
+      const { triggerEvent } = useInjectionSpotEvents<Record<string, unknown>, Record<string, unknown>>(
+        SPOT_ID,
+        prefetched,
+      )
+      React.useLayoutEffect(() => {
+        layoutDispatches += 1
+        void triggerEvent('onBeforeSave', {}, {})
+      }, [prefetched, triggerEvent])
+      return null
+    }
+
+    const rendered = render(<Harness prefetched={[]} />)
+    rendered.rerender(<Harness prefetched={[prefetchedWidget]} />)
+
+    await waitFor(() => expect(onBeforeSaveMock).toHaveBeenCalledTimes(1))
+    expect(layoutDispatches).toBe(2)
+  })
+
   it('filters lifecycle widgets loaded directly by metadata features', async () => {
     const onBeforeSaveHiddenMock = jest.fn()
     let resolveWidgets: (widgets: LoadedInjectionWidget[]) => void = () => {}

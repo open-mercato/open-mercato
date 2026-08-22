@@ -174,6 +174,21 @@ export class SudoSession {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
+  @Property({ name: 'scope_tenant_id', type: 'uuid', nullable: true })
+  scopeTenantId?: string | null
+
+  @Property({ name: 'scope_organization_id', type: 'uuid', nullable: true })
+  scopeOrganizationId?: string | null
+
+  @Property({ name: 'target_identifier', type: 'text', nullable: true })
+  targetIdentifier?: string | null
+
+  @Property({ name: 'sudo_config_id', type: 'uuid', nullable: true })
+  sudoConfigId?: string | null
+
+  @Property({ name: 'sudo_config_updated_at', type: Date, nullable: true })
+  sudoConfigUpdatedAt?: Date | null
+
   @Property({ name: 'session_token', type: 'text' })
   sessionToken!: string
 
@@ -182,6 +197,9 @@ export class SudoSession {
 
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
+
+  @Property({ name: 'verified_at', type: Date, nullable: true })
+  verifiedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

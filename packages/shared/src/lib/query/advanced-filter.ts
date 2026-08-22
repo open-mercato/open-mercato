@@ -138,6 +138,18 @@ export function serializeAdvancedFilter(state: AdvancedFilterState): Record<stri
   return params
 }
 
+/**
+ * A condition field must name a column, never a Where combinator. `$and`/`$or`/`$not` share the
+ * filter namespace with column names, so a client-supplied `filter[...][field]=$and` would compile
+ * to a combinator key: at best it reaches the engine as a filter on a column that does not exist,
+ * at worst it collides with a key the route itself emitted. Unlike the operator, the field name is
+ * route-specific, so this is the one check that can be made centrally — dropped silently, the same
+ * way an unrecognized operator is.
+ */
+function isUsableFilterField(field: string): boolean {
+  return field.length > 0 && !field.startsWith('$')
+}
+
 export function deserializeAdvancedFilter(query: Record<string, unknown>): AdvancedFilterState | null {
   const logic = normalizeJoinOperator(query['filter[logic]'])
   const conditions: FilterCondition[] = []
@@ -145,7 +157,7 @@ export function deserializeAdvancedFilter(query: Record<string, unknown>): Advan
     const field = query[`filter[conditions][${i}][field]`]
     const op = query[`filter[conditions][${i}][op]`]
     if (typeof field !== 'string' || typeof op !== 'string') break
-    if (!isValidOperator(op)) continue
+    if (!isValidOperator(op) || !isUsableFilterField(field)) continue
     const value = query[`filter[conditions][${i}][value]`]
     const join = i === 0
       ? 'and'
@@ -367,6 +379,7 @@ function readTreeGroup(prefix: string, query: Record<string, unknown>): TreeFilt
       const field = query[`${childPrefix}[field]`]
       const op = query[`${childPrefix}[op]`]
       if (typeof field !== 'string' || typeof op !== 'string' || !isValidOperator(op)) continue
+      if (!isUsableFilterField(field)) continue
       const rawVal = query[`${childPrefix}[value]`]
       children.push({
         id: crypto.randomUUID(),
