@@ -52,6 +52,11 @@ import {
   refreshIntegrationDetailPanels,
   refreshIntegrationRunActivityPanels,
 } from '../detail-page-refresh'
+import {
+  buildCredentialEditValues,
+  buildIntegrationCredentialSavePayload,
+  type SecretFieldsConfigured,
+} from '../credential-secret-fields'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 
 type CredentialField = IntegrationCredentialField
@@ -290,19 +295,32 @@ function resolvePathnameId(pathname: string): string | undefined {
   return decodeURIComponent(integrationId)
 }
 
-function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
+function buildCredentialFields(
+  credFields: CredentialField[],
+  secretFieldsConfigured: SecretFieldsConfigured,
+  t: ReturnType<typeof useT>,
+): CrudField[] {
   return credFields.map((field) => {
+    const baseDescription = field.helpDetails ? (
+      <div className="space-y-1">
+        {field.helpText ? <div>{field.helpText}</div> : null}
+        <WebhookSetupGuide guide={field.helpDetails} />
+      </div>
+    ) : field.helpText
+    const description = field.type === 'secret' && secretFieldsConfigured[field.key] ? (
+      <div className="space-y-1">
+        {baseDescription ? <div>{baseDescription}</div> : null}
+        <p className="text-xs text-muted-foreground">
+          {t('integrations.detail.credentials.secretConfigured')}
+        </p>
+      </div>
+    ) : baseDescription
     const shared = {
       id: field.key,
       label: field.label,
-      description: field.helpDetails ? (
-        <div className="space-y-1">
-          {field.helpText ? <div>{field.helpText}</div> : null}
-          <WebhookSetupGuide guide={field.helpDetails} buttonLabel="Show details" />
-        </div>
-      ) : field.helpText,
+      description,
       placeholder: field.placeholder,
-      required: field.required,
+      required: field.required && !(field.type === 'secret' && secretFieldsConfigured[field.key]),
       visibleWhen: field.visibleWhen,
     }
 
@@ -317,6 +335,7 @@ function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
             value={typeof value === 'string' ? value : ''}
             onChange={(event) => setValue(event.target.value)}
             disabled={disabled}
+            autoComplete="new-password"
           />
         ),
       }
@@ -426,6 +445,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [isNotFound, setIsNotFound] = React.useState(false)
 
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [secretFieldsConfigured, setSecretFieldsConfigured] = React.useState<SecretFieldsConfigured>({})
   const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
   const [credentialsFormKey, setCredentialsFormKey] = React.useState(0)
   const [isSavingCredentials, setIsSavingCredentials] = React.useState(false)
@@ -490,13 +510,18 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const loadCredentials = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
-    const call = await apiCall<{ credentials: Record<string, unknown>; updatedAt?: string | null }>(
+    const call = await apiCall<{
+      credentials: Record<string, unknown>
+      secretFieldsConfigured?: SecretFieldsConfigured
+      updatedAt?: string | null
+    }>(
       `/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`,
       undefined,
       { fallback: null },
     )
     if (call.ok && call.result) {
       setCredentialsUpdatedAt(call.result.updatedAt ?? null)
+      setSecretFieldsConfigured(call.result.secretFieldsConfigured ?? {})
     }
     if (call.ok && call.result?.credentials) {
       const next = { ...call.result.credentials }
@@ -713,35 +738,32 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     if (!currentIntegrationId) return
     setIsSavingCredentials(true)
     try {
-      const sanitizedValues = { ...values }
-      if (currentIntegrationId === 'storage_s3') {
-        const authMode = sanitizedValues.authMode
-        if (authMode !== 'access_keys' && authMode !== 'ambient') {
-          const hasKeys = Boolean(sanitizedValues.accessKeyId || sanitizedValues.secretAccessKey)
-          sanitizedValues.authMode = hasKeys ? 'access_keys' : 'ambient'
-        }
-        if (sanitizedValues.authMode === 'ambient') {
-          delete sanitizedValues.accessKeyId
-          delete sanitizedValues.secretAccessKey
-          delete sanitizedValues.sessionToken
-        }
-      }
+      const credentialFields = (
+        detail?.integration.credentials?.fields
+        ?? detail?.bundle?.credentials?.fields
+        ?? []
+      )
+      const savePayload = buildIntegrationCredentialSavePayload(
+        currentIntegrationId,
+        values,
+        credentialFields,
+        secretFieldsConfigured,
+      )
       const call = await runMutationWithContext({
         actionId: 'save-credentials',
         tabId: 'credentials',
-        mutationPayload: { integrationId: currentIntegrationId, credentials: sanitizedValues },
+        mutationPayload: { integrationId: currentIntegrationId, ...savePayload },
         operation: () => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(credentialsUpdatedAt),
           () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ credentials: sanitizedValues }),
+            body: JSON.stringify(savePayload),
           }, { fallback: null }),
         ),
       })
 
       if (call.ok) {
-        setCredValues(sanitizedValues)
         setCredentialsFormKey((current) => current + 1)
         flash(t('integrations.detail.credentials.saved'), 'success')
         void loadCredentials()
@@ -759,7 +781,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsSavingCredentials(false)
     }
-  }, [credentialsUpdatedAt, loadCredentials, resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [credentialsUpdatedAt, detail, loadCredentials, resolveCurrentIntegrationId, runMutationWithContext, secretFieldsConfigured, t])
 
   const handleVersionChange = React.useCallback(async (version: string) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -837,8 +859,12 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     [detail?.bundle?.credentials?.fields, detail?.integration.credentials?.fields],
   )
   const credentialFormFields = React.useMemo(
-    () => buildCredentialFields(editableCredentialFields),
-    [editableCredentialFields],
+    () => buildCredentialFields(editableCredentialFields, secretFieldsConfigured, t),
+    [editableCredentialFields, secretFieldsConfigured, t],
+  )
+  const credentialFormValues = React.useMemo(
+    () => buildCredentialEditValues(credValues, secretFieldsConfigured),
+    [credValues, secretFieldsConfigured],
   )
   const credentialSchema = React.useMemo(() => (
     z.object({}).passthrough().superRefine((rawValues, ctx) => {
@@ -880,7 +906,11 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
         const normalizedValue = typeof value === 'string' ? value : ''
 
-        if (field.required && normalizedValue.trim().length === 0) {
+        if (
+          field.required
+          && normalizedValue.trim().length === 0
+          && !(field.type === 'secret' && secretFieldsConfigured[field.key])
+        ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [field.key],
@@ -922,7 +952,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         }
       })
     })
-  ) as z.ZodType<Record<string, unknown>>, [editableCredentialFields, t])
+  ) as z.ZodType<Record<string, unknown>>, [editableCredentialFields, secretFieldsConfigured, t])
   const latestHealthLog = React.useMemo(() => logs.find(isHealthLog) ?? null, [logs])
   const latestOperationalLog = React.useMemo(
     () => logs.find((log) => (
@@ -1257,7 +1287,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     entityId="integrations.integration"
                     schema={credentialSchema}
                     fields={credentialFormFields}
-                    initialValues={credValues}
+                    initialValues={credentialFormValues}
                     onSubmit={handleSaveCredentials}
                     embedded
                     hideFooterActions

@@ -121,6 +121,7 @@
     "check:time-bombs": "node scripts/time-bomb-scanner.mjs",
     "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail",
     "agents:check-budget": "node scripts/check-agents-md-budget.mjs",
+    "packages:check-peer-deps": "node scripts/check-package-peer-deps.mjs",
     "documents:check-bundles": "node scripts/check-documents-bundle-budgets.mjs",
     "lessons:check": "node packages/create-app/agentic/shared/scripts/check-lessons.mjs --root .",
     "mutation:changed": "node scripts/stryker/mutation-changed.mjs"
