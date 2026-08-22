@@ -50,10 +50,10 @@ test('resolvePreset: empty returns 11-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 17-module list extending empty (includes currencies + communication_channels + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 19-module list extending empty (includes attachments + messages + currencies + communication_channels + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 17)
+  assert.equal(result.modules.length, 19)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -63,6 +63,8 @@ test('resolvePreset: crm returns 17-module list extending empty (includes curren
   assert.ok(ids.includes('api_docs'))
   assert.ok(ids.includes('audit_logs'))
   assert.ok(ids.includes('customers'))
+  assert.ok(ids.includes('attachments'))
+  assert.ok(ids.includes('messages'))
   assert.ok(ids.includes('dictionaries'))
   assert.ok(ids.includes('feature_toggles'))
   assert.ok(ids.includes('notifications'))
@@ -88,6 +90,35 @@ test('resolvePreset: crm returns 17-module list extending empty (includes curren
   // No duplicates
   const unique = new Set(ids)
   assert.equal(unique.size, ids.length)
+})
+
+test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
+  const result = resolvePreset('wms')
+  assert.equal(result.isClassic, false)
+  assert.equal(result.modules.length, 18)
+  const ids = result.modules.map((m) => m.id)
+  assert.deepEqual(ids, [
+    'auth',
+    'directory',
+    'configs',
+    'entities',
+    'query_index',
+    'api_docs',
+    'audit_logs',
+    'notifications',
+    'dashboards',
+    'events',
+    'search',
+    'customers',
+    'dictionaries',
+    'feature_toggles',
+    'catalog',
+    'sales',
+    'wms',
+    'currencies',
+  ])
+  assert.equal(result.modules.find((module) => module.id === 'wms')?.from, '@open-mercato/core')
+  assert.equal(result.modules.find((module) => module.id === 'search')?.from, '@open-mercato/search')
 })
 
 test('resolvePreset: unknown preset throws', () => {
@@ -129,6 +160,15 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'ai_assistant'"))
   assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
   assert.ok(!content.includes('example_customers_sync'))
+})
+
+test('generateModulesTs: produces valid content for wms modules', () => {
+  const content = generateModulesTs(resolvePreset('wms').modules)
+  for (const moduleId of ['catalog', 'sales', 'feature_toggles', 'wms', 'currencies']) {
+    assert.ok(content.includes(`id: '${moduleId}'`))
+  }
+  assert.ok(!content.includes("id: 'ai_assistant'"))
+  assert.ok(!content.includes("id: 'example'"))
 })
 
 // applyStarterPreset filesystem tests
@@ -193,13 +233,15 @@ test('applyStarterPreset: empty writes 11-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 17-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 19-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
     const content = readFileSync(join(dir, 'src', 'modules.ts'), 'utf-8')
     assert.ok(content.includes("id: 'auth'"))
     assert.ok(content.includes("id: 'customers'"))
+    assert.ok(content.includes("id: 'attachments'"))
+    assert.ok(content.includes("id: 'messages'"))
     assert.ok(content.includes("id: 'dictionaries'"))
     assert.ok(content.includes("id: 'feature_toggles'"))
     assert.ok(content.includes("id: 'currencies'"))
@@ -219,6 +261,23 @@ test('applyStarterPreset: crm writes 17-module modules.ts and keeps example sour
     assert.ok(existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))
     const marker = JSON.parse(readFileSync(join(dir, '.mercato', 'starter-preset.json'), 'utf-8'))
     assert.equal(marker.preset, 'crm')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('applyStarterPreset: wms writes the WMS dependency chain and keeps example source present', () => {
+  const dir = makeTempDir()
+  try {
+    applyStarterPreset('wms', dir)
+    const content = readFileSync(join(dir, 'src', 'modules.ts'), 'utf-8')
+    for (const moduleId of ['customers', 'dictionaries', 'feature_toggles', 'catalog', 'sales', 'wms', 'currencies']) {
+      assert.ok(content.includes(`id: '${moduleId}'`))
+    }
+    assert.ok(!content.includes("id: 'ai_assistant'"))
+    assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
+    const marker = JSON.parse(readFileSync(join(dir, '.mercato', 'starter-preset.json'), 'utf-8'))
+    assert.equal(marker.preset, 'wms')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -250,12 +309,12 @@ test('every non-classic preset enables the modules the template topbar gates on'
   assert.ok(requiredModuleIds.includes('search'))
   assert.ok(requiredModuleIds.includes('notifications'))
 
-  for (const presetId of ['empty', 'crm']) {
+  for (const presetId of ['empty', 'crm', 'wms']) {
     const enabledIds = new Set(resolvePreset(presetId).modules.map((m) => m.id))
     for (const moduleId of requiredModuleIds) {
       // ai_assistant is a CRM capability rather than baseline chrome, so the empty
-      // preset is allowed to omit it; every other gated module must be present.
-      if (moduleId === 'ai_assistant' && presetId === 'empty') continue
+      // and WMS presets are allowed to omit it; every other gated module must be present.
+      if (moduleId === 'ai_assistant' && ['empty', 'wms'].includes(presetId)) continue
       assert.ok(
         enabledIds.has(moduleId),
         `preset "${presetId}" must enable module "${moduleId}" — the topbar gates an affordance on one of its features`,
@@ -265,7 +324,7 @@ test('every non-classic preset enables the modules the template topbar gates on'
 })
 
 test('any preset enabling ai_assistant also enables search', () => {
-  for (const presetId of ['classic', 'empty', 'crm']) {
+  for (const presetId of ['classic', 'empty', 'crm', 'wms']) {
     const resolved = resolvePreset(presetId)
     if (resolved.isClassic) continue
     const ids = new Set(resolved.modules.map((m) => m.id))
@@ -285,6 +344,71 @@ test('template baseline modules keep example and design_system unregistered for 
   // example_customers_sync stays behind the example guard, so it is inert too.
   assert.ok(content.includes("enabledModules.some((entry) => entry.id === 'example')"))
   assert.ok(content.includes("enabledModules.push({ id: 'example_customers_sync', from: '@app' })"))
+})
+
+test('template baseline installs every enabled Documents package', () => {
+  const templateRoot = join(__dirname, '..', '..', 'template')
+  const modulesSource = readFileSync(join(templateRoot, 'src', 'modules.ts'), 'utf-8')
+  const nextConfigSource = readFileSync(join(templateRoot, 'next.config.ts'), 'utf-8')
+  const packageTemplate = JSON.parse(readFileSync(join(templateRoot, 'package.json.template'), 'utf-8')) as {
+    dependencies?: Record<string, string>
+    scripts?: Record<string, string>
+  }
+  const environmentTemplate = readFileSync(join(templateRoot, '.env.example'), 'utf-8')
+  const dockerfile = readFileSync(join(templateRoot, 'Dockerfile'), 'utf-8')
+  const fullAppCompose = readFileSync(join(templateRoot, 'docker-compose.fullapp.yml'), 'utf-8')
+
+  assert.ok(modulesSource.includes("{ id: 'documents', from: '@open-mercato/documents' }"))
+  assert.equal(packageTemplate.dependencies?.['@open-mercato/documents'], '{{PACKAGE_VERSION}}')
+  assert.equal(
+    packageTemplate.scripts?.['documents:collab'],
+    'node ./node_modules/@open-mercato/documents/dist/server/documents-collab-server.js',
+  )
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'puppeteer-core'/)
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'jszip'/)
+  assert.match(environmentTemplate, /^NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=/m)
+  assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_JWT_SECRET_V2=$/m)
+  assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_ALLOWED_ORIGINS=/m)
+  assert.match(dockerfile, /^ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL$/m)
+  assert.doesNotMatch(dockerfile, /RUN node -e '[^']*NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/)
+  assert.doesNotMatch(dockerfile, /ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws:\/\/localhost:4101/)
+  assert.match(dockerfile, /ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL\}/)
+  assert.match(dockerfile, /EXPOSE \$\{CONTAINER_PORT\} \$\{DOCUMENTS_COLLAB_PORT\}/)
+  assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
+  assert.match(dockerfile, /ARG INSTALL_CHROMIUM=0/)
+  assert.match(dockerfile, /if \[ "\$INSTALL_CHROMIUM" = "1" \]/)
+  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl/)
+  assert.match(
+    fullAppCompose,
+    /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-\}/,
+  )
+  assert.doesNotMatch(fullAppCompose, /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL[^\n]*:-ws:\/\/localhost/)
+  assert.match(
+    fullAppCompose,
+    /DOCUMENTS_COLLAB_JWT_SECRET_V2: \$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:-\}/,
+  )
+  assert.doesNotMatch(fullAppCompose, /change-me-documents-collab-v2-secret/)
+  assert.doesNotMatch(fullAppCompose, /DOCUMENTS_COLLAB[^\n]*\$\{[^}]*:\?/)
+  assert.match(fullAppCompose, /APP_URL: \$\{APP_URL:-http:\/\/localhost:3000\}/)
+  assert.match(
+    fullAppCompose,
+    /DOCUMENTS_COLLAB_ALLOWED_ORIGINS: \$\{DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-\$\{APP_URL\}\}/,
+  )
+  assert.doesNotMatch(fullAppCompose, /DOCUMENTS_COLLAB_ALLOWED_ORIGINS[^\n]*localhost/)
+  assert.match(fullAppCompose, /documents-collab:[\s\S]*command: \["yarn", "documents:collab"\]/)
+  assert.match(fullAppCompose, /documents-collab:\s*\n\s+profiles:\s*\n\s+- documents-collab/)
+  assert.match(fullAppCompose, /INSTALL_CHROMIUM=\$\{INSTALL_CHROMIUM:-0\}/)
+})
+
+test('production image does not abort for a misconfigured collaboration endpoint', () => {
+  const dockerfile = readFileSync(
+    join(__dirname, '..', '..', 'template', 'Dockerfile'),
+    'utf-8',
+  )
+
+  assert.match(dockerfile, /^ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL$/m)
+  assert.match(dockerfile, /ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL\}/)
+  assert.doesNotMatch(dockerfile, /RUN node -e '[^']*NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/)
 })
 
 test('monorepo keeps the applied Example nav override integration-only', () => {

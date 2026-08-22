@@ -1049,6 +1049,7 @@ export function buildOpenApiDocument(modules: Module[], options: OpenApiDocument
 
   ensureSecurityComponents(doc)
 
+  const includeAccessControlMetadata = options.includeAccessControlMetadata !== false
   const tags = new Map<string, string | undefined>()
 
   for (const moduleEntry of modules) {
@@ -1086,10 +1087,10 @@ export function buildOpenApiDocument(modules: Module[], options: OpenApiDocument
         const requireAuth = meta?.['requireAuth'] === true
         const descriptionParts: string[] = []
         if (baseDescription) descriptionParts.push(baseDescription)
-        if (Array.isArray(requireFeatures) && requireFeatures.length) {
+        if (includeAccessControlMetadata && Array.isArray(requireFeatures) && requireFeatures.length) {
           descriptionParts.push(`Requires features: ${requireFeatures.join(', ')}`)
         }
-        if (Array.isArray(requireRoles) && requireRoles.length) {
+        if (includeAccessControlMetadata && Array.isArray(requireRoles) && requireRoles.length) {
           descriptionParts.push(`Requires roles: ${requireRoles.join(', ')}`)
         }
 
@@ -1130,8 +1131,12 @@ export function buildOpenApiDocument(modules: Module[], options: OpenApiDocument
               source: curlSample,
             },
           ],
-          ...(Array.isArray(requireFeatures) && requireFeatures.length ? { 'x-require-features': requireFeatures } : {}),
-          ...(Array.isArray(requireRoles) && requireRoles.length ? { 'x-require-roles': requireRoles } : {}),
+          ...(includeAccessControlMetadata && Array.isArray(requireFeatures) && requireFeatures.length
+            ? { 'x-require-features': requireFeatures }
+            : {}),
+          ...(includeAccessControlMetadata && Array.isArray(requireRoles) && requireRoles.length
+            ? { 'x-require-roles': requireRoles }
+            : {}),
           ...(requireAuth ? { 'x-require-auth': true } : {}),
           ...(methodDoc?.extensions ?? {}),
         }

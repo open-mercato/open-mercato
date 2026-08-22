@@ -90,6 +90,7 @@
   "catalog.merchandising_assistant.agents.merchandising.label": "Merchandising-Assistent",
   "catalog.merchandising_assistant.context.filteredByCategory": "Filtered by category",
   "catalog.merchandising_assistant.context.matchingProducts": "{count} Produkte in der Ansicht",
+  "catalog.merchandising_assistant.context.matchingProductsCapped": "{count}+ Produkte in der Ansicht",
   "catalog.merchandising_assistant.context.selectedProducts": "{count} Produkte ausgewählt",
   "catalog.merchandising_assistant.context.tags": "{count} tags",
   "catalog.merchandising_assistant.dock.subtitle": "Catalog",
@@ -719,5 +720,6 @@
   "customers~catalog.errors.id_required": "Datensatzkennung ist erforderlich.",
   "customers~catalog.errors.organization_required": "Organisationskontext ist erforderlich.",
   "customers~catalog.errors.tenant_required": "Mandantenkontext ist erforderlich.",
-  "customers~catalog.nav.group": "Katalog"
+  "customers~catalog.nav.group": "Katalog",
+  "notifications.categories.catalog": "Katalog"
 }

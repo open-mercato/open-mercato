@@ -91,11 +91,26 @@ function writeStandaloneEnv(appDir: string): void {
     // the captured-email path must be absolute and identical on both sides.
     `OM_TEST_EMAIL_CAPTURE_PATH=${standaloneEmailCapturePath()}`,
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
-    'JWT_SECRET=ci-standalone-test-jwt-secret',
+    'JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
     'NODE_ENV=test',
     'OM_TEST_MODE=1',
     'OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in',
+    // Registers the network-free `push_stub` channel adapter (inert unless a
+    // delivery row carries provider='push_stub'). Mirrors the ephemeral harness,
+    // which sets it on both the app server and the Playwright process; without it
+    // TC-PUSH-003 resolves no adapter and every delivery lands in `failed`.
+    'OM_ENABLE_PUSH_STUB_ADAPTER=1',
+    // Documents collaboration. NEXT_PUBLIC_* is inlined at build time, so it must be
+    // in the app .env before the build; the sidecar the Playwright process starts
+    // verifies the tokens this app mints, so both halves share one secret.
+    'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101',
+    'DOCUMENTS_COLLAB_JWT_SECRET_V2=local-standalone-documents-collab-v2-secret-32b',
+    // Required for the loopback collab URL above to be accepted: the server runs
+    // with NODE_ENV=production and resolveDocumentsCollaborationEndpoint() rejects a
+    // loopback ws:// host there unless this opts in. App-side only — in the Playwright
+    // process the same variable opts TC-DOCUMENTS-017's realtime spec in instead.
+    'OM_DOCUMENTS_COLLAB_INTEGRATION=1',
     'OM_DISABLE_EMAIL_DELIVERY=1',
     'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
@@ -230,11 +245,17 @@ async function main(): Promise<void> {
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     PLATFORM_PORTAL_BASE_URL: 'http://localhost:3000',
     OM_TEST_EMAIL_CAPTURE_PATH: standaloneEmailCapturePath(),
-    JWT_SECRET: 'ci-standalone-test-jwt-secret',
+    JWT_SECRET: 'ci-standalone-test-jwt-secret-32-chars-min',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Second half of the pairing above: with AUTO_SPAWN_WORKERS=false the
+    // `push-deliveries` job runs in a drain child of THIS process, which never
+    // reads the scaffolded app's .env.
+    OM_ENABLE_PUSH_STUB_ADAPTER: '1',
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101',
+    DOCUMENTS_COLLAB_JWT_SECRET_V2: 'local-standalone-documents-collab-v2-secret-32b',
     OM_DISABLE_EMAIL_DELIVERY: '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',

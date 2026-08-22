@@ -90,10 +90,28 @@ export type EmitOptions = {
    * worker-dispatched (`persistent: true`).
    */
   deliverInline?: boolean
+  /**
+   * Skips subscribers registered as persistent during inline delivery while
+   * preserving ephemeral subscribers, global taps, and broadcast delivery.
+   * Persistent emits still enqueue those subscribers for worker dispatch.
+   */
+  skipPersistentSubscribersInline?: boolean
   /** Trusted tenant scope for subscribers that must not rely on payload scope */
   tenantId?: string | null
   /** Trusted organization scope for subscribers that must not rely on payload scope */
   organizationId?: string | null
+  /**
+   * Trusted multi-organization audience for subscribers that must not rely on
+   * payload scope. Mirrors the SSE audience contract where a clientBroadcast
+   * event may target several organizations at once.
+   */
+  organizationIds?: string[] | null
+  /**
+   * Module provenance stamped by `createModuleEvents` for private
+   * cross-process coordination events. Never derive this from payload data.
+   * @internal
+   */
+  emitterModuleId?: string
   /** Opt-in path for callers that need inline subscriber failures to reject the emit. */
   rethrowHandlerErrors?: boolean
 }

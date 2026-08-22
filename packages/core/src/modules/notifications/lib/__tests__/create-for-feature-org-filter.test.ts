@@ -24,6 +24,14 @@ type MockEntityManager = {
   getKysely: jest.Mock
 }
 
+function buildKyselyStub() {
+  const chain: Record<string, unknown> = {}
+  chain.select = () => chain
+  chain.where = () => chain
+  chain.execute = async () => []
+  return { selectFrom: () => chain }
+}
+
 function buildEntityManager(): MockEntityManager {
   const entityManager: MockEntityManager = {
     fork: jest.fn(),
@@ -36,7 +44,9 @@ function buildEntityManager(): MockEntityManager {
     })),
     flush: jest.fn().mockResolvedValue(undefined),
     findOne: jest.fn().mockResolvedValue(null),
-    getKysely: jest.fn().mockReturnValue({}),
+    // Channel resolution reads `notification_type_overrides` through Kysely before the write
+    // transaction opens; no override rows keeps every recipient on the registered defaults.
+    getKysely: jest.fn().mockReturnValue(buildKyselyStub()),
   }
   entityManager.fork.mockReturnValue(entityManager)
   entityManager.transactional.mockImplementation(

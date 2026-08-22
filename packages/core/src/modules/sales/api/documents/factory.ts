@@ -4,8 +4,10 @@ import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mer
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
-import { SalesDocumentTagAssignment } from '../../data/entities'
+import { SalesChannel, SalesDocumentTagAssignment } from '../../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   ORDER_PAYMENT_LEDGER_FIELDS,
   ORDER_PAYMENT_LEDGER_WARNING_CODE,
@@ -24,7 +26,6 @@ import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type DocumentKind = 'order' | 'quote'
@@ -298,6 +299,62 @@ const attachTags = async (payload: any, ctx: any) => {
   })
 }
 
+// Liveness note: this hook runs BEFORE the CRUD list cache stores the payload, so `channelName`
+// and `channelCode` are embedded in the cached entry. What keeps them fresh is that the hook also
+// runs on the cache-HIT path (shared/lib/crud/factory.ts:1683) and reassigns both fields
+// unconditionally for every item carrying a channel id. Anything that later skips this hook on a
+// hit — the way `skipEnrichersOnCacheHit` does for record-pure enrichers — would start serving the
+// stale names baked into the entry.
+export const attachChannelNames = async (
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx,
+) => {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  if (!items.length) return
+  const channelIds = Array.from(
+    new Set(
+      items
+        .map((item) => (item && typeof item.channelId === 'string' ? item.channelId : null))
+        .filter((value): value is string => !!value)
+    )
+  )
+  if (!channelIds.length) return
+  const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as EntityManager) : null
+  if (!em) return
+
+  const where: Record<string, unknown> = { id: { $in: channelIds } }
+  if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
+  const orgIds =
+    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
+      ? ctx.organizationIds.filter((val: string | null) => !!val)
+      : ctx?.selectedOrganizationId
+        ? [ctx.selectedOrganizationId]
+        : []
+  if (orgIds.length) where.organizationId = { $in: orgIds }
+
+  // Only `name` and `code` are read. Without this projection the query loads the whole channel row,
+  // and `sales/encryption.ts` declares eight of its columns encrypted (contact email/phone, the
+  // address block) — so every documents-list request would decrypt PII it never renders, on the
+  // cache-hit path too.
+  const channels = await findWithDecryption(
+    em,
+    SalesChannel,
+    where,
+    { fields: ['id', 'name', 'code'] },
+    {
+      tenantId: ctx?.auth?.tenantId ?? null,
+      organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null,
+    }
+  )
+  const byId = new Map(channels.map((channel) => [channel.id, channel]))
+  items.forEach((item) => {
+    if (!item || typeof item.channelId !== 'string') return
+    const channel = byId.get(item.channelId)
+    item.channelName = channel?.name ?? null
+    item.channelCode = channel?.code ?? null
+  })
+}
+
 async function ensureNumberEditPermission(
   ctx: CrudCtx,
   translate: (key: string, fallback?: string) => string
@@ -557,46 +614,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     hooks: {
       afterList: async (payload: any, ctx: CrudCtx) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
-        if (binding.kind === 'order' && Array.isArray(payload?.items) && payload.items.length === 1) {
-          const item = payload.items[0] as Record<string, unknown>
-          const orderId = typeof item?.id === 'string' ? item.id : null
-          const tenantId = typeof item?.tenantId === 'string' ? item.tenantId : ctx?.auth?.tenantId ?? null
-          const organizationId =
-            typeof item?.organizationId === 'string' ? item.organizationId : ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null
-          if (orderId && tenantId && organizationId) {
-            const requestEm = ctx?.container?.resolve?.('em') as import('@mikro-orm/postgresql').EntityManager | undefined
-            // Display-only totals recalculation: run on a forked EntityManager so
-            // the order/line/adjustment entities loaded here never enter the
-            // request's Unit of Work. This guarantees a GET can never flush an
-            // UPDATE (and thus never advance `updated_at`), which would otherwise
-            // surface as a spurious optimistic-lock 409 in another tab.
-            const em = requestEm?.fork()
-            if (em) {
-              const totals = await recalculateOrderTotalsForDisplay(
-                em,
-                ctx.container,
-                orderId,
-                { tenantId, organizationId },
-              )
-              if (totals) {
-                Object.assign(item, {
-                  subtotalNetAmount: totals.subtotalNetAmount,
-                  subtotalGrossAmount: totals.subtotalGrossAmount,
-                  discountTotalAmount: totals.discountTotalAmount,
-                  taxTotalAmount: totals.taxTotalAmount,
-                  shippingNetAmount: totals.shippingNetAmount,
-                  shippingGrossAmount: totals.shippingGrossAmount,
-                  surchargeTotalAmount: totals.surchargeTotalAmount,
-                  grandTotalNetAmount: totals.grandTotalNetAmount,
-                  grandTotalGrossAmount: totals.grandTotalGrossAmount,
-                  paidTotalAmount: totals.paidTotalAmount,
-                  refundedTotalAmount: totals.refundedTotalAmount,
-                  outstandingAmount: totals.outstandingAmount,
-                })
-              }
-            }
-          }
-        }
+        await attachChannelNames(payload, ctx)
       },
     },
   }
@@ -629,6 +647,8 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     paymentMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     currencyCode: z.string().nullable(),
     channelId: z.string().uuid().nullable(),
+    channelName: z.string().nullable().optional(),
+    channelCode: z.string().nullable().optional(),
     organizationId: z.string().uuid().nullable(),
     tenantId: z.string().uuid().nullable(),
     validFrom: z.string().nullable().optional(),
