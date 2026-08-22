@@ -90,9 +90,22 @@ from an exported `deterministicInvocation()` so the call site and the test read 
 - [x] Open the PR
 - [x] Merge the latest `develop` in, re-measure against the grown 234-case catalog, and restate the
       published figures (2026-08-21, `om-auto-fix-pr`)
+- [x] Merge `develop` again after #5180 landed, resolve the two conflicts it created in this file,
+      and close the review's two Medium findings — the call site is now pinned by the `#5184` test
+      and the `RELEASE.md` sentence about the raise names #5180 and both values (2026-08-22,
+      `om-auto-fix-pr`)
 
 ## Notes
 
-- #5180 is open against the same file but touches the routing invocation and the `--case-timeout`
-  default, not the deterministic call site. This PR is based on `develop` and stays independent of
-  it; both can merge in either order.
+- #5180 was open against the same file when this work started — it touched the routing invocation
+  and the `--case-timeout` default, not the deterministic call site, so the two stayed independent
+  and could merge in either order. It landed first (`153faed87`, raising the default from 120000 ms
+  to 600000 ms), and merging `develop` on 2026-08-22 resolved the two textual conflicts that created:
+  both invocation helpers now sit side by side, and the `--case-timeout` help line reads develop's
+  `DEFAULT_CASE_TIMEOUT_MS` while keeping this branch's sentence about the model-free steps. The
+  raise also turned this PR's `RELEASE.md` sentence about it from anticipation into history, which
+  is how the review finding on that sentence was closed.
+- The nit the review left open — fixture preparation's ceiling is still a hand-written `120_000`
+  while the docs claim the two model-free steps share one value — is tracked as #5473 rather than
+  fixed here, because it changes a second step's call site and #5184 scoped this work to the
+  deterministic one.
