@@ -19,6 +19,16 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
 }
 
+// Bounded window for the encryption-on fallback scan, mirroring
+// MATCH_CANDIDATE_LIMIT in lib/findPeopleByAddresses.ts. Contacts outside the
+// newest N rows are not seen by the decrypted scan; a primary_phone blind
+// index is the exact O(1) follow-up (#5515).
+const CHECK_PHONE_CANDIDATE_LIMIT = 500
+
+function normalizePhoneDigits(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.replace(/\D/g, '') : ''
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const rawQuery: Record<string, string | null> = { digits: url.searchParams.get('digits') }
@@ -46,10 +56,33 @@ export async function GET(req: Request) {
     return NextResponse.json({ match: null })
   }
 
-  // `primary_phone` is encrypted at rest (customers/encryption.ts), so digit
-  // normalization must run in application code over decrypted rows: a SQL
-  // comparison against the stored column silently never matches once tenant
-  // data encryption is on (issue #3840).
+  // Fast path: SQL-side digit comparison. Exact while the stored value is
+  // plaintext (tenant data encryption off); against ciphertext it matches
+  // nothing and the bounded decrypted scan below resolves the lookup.
+  const qb = em.createQueryBuilder(CustomerEntity, 'person')
+  qb.select(['person.id', 'person.displayName'])
+  qb.where({ kind: 'person', deletedAt: null })
+  qb.andWhere('person.primary_phone is not null')
+  qb.andWhere("regexp_replace(person.primary_phone, '\\D', '', 'g') = ?", [parse.data.digits])
+  if (auth.tenantId) {
+    qb.andWhere({ tenantId: auth.tenantId })
+  }
+  qb.andWhere({ organizationId: { $in: Array.from(allowedOrgIds) } })
+  qb.limit(1)
+
+  const fastMatch = await qb.getSingleResult()
+  if (fastMatch) {
+    return NextResponse.json({
+      match: {
+        id: fastMatch.id,
+        displayName: fastMatch.displayName,
+      },
+    })
+  }
+
+  // Encryption-on path: primary_phone holds random-IV ciphertext, so digit
+  // normalization must run in application code over decrypted rows instead of
+  // SQL against the stored column (issue #3840).
   const where: FilterQuery<CustomerEntity> = {
     kind: 'person',
     deletedAt: null,
@@ -64,7 +97,11 @@ export async function GET(req: Request) {
     em,
     CustomerEntity,
     where,
-    undefined,
+    {
+      limit: CHECK_PHONE_CANDIDATE_LIMIT,
+      orderBy: { createdAt: 'DESC' },
+      fields: ['id', 'displayName', 'primaryPhone'],
+    },
     {
       tenantId: auth.tenantId ?? null,
       organizationId: scope?.selectedId ?? auth.orgId ?? null,
@@ -81,13 +118,9 @@ export async function GET(req: Request) {
   return NextResponse.json({
     match: {
       id: match.id,
-      displayName: match.displayName ?? null,
+      displayName: match.displayName,
     },
   })
-}
-
-function normalizePhoneDigits(value: string | null | undefined): string {
-  return typeof value === 'string' ? value.replace(/\D/g, '') : ''
 }
 
 const phoneCheckSuccessSchema = z.object({
