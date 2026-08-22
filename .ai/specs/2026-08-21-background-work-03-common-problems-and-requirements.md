@@ -1,7 +1,7 @@
 # Background work, part 3 — common problems and the requirements they imply
 
 **Status**: requirements statement, 2026-08-21. **This document deliberately stops before any design.**
-**Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — the sibling modules and every other worker · part 3 (this). Finding-id legend: §5.
+**Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` problems (D-n) · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — sibling modules (Q/P/W/S/… ids) · [part 3](./2026-08-21-background-work-03-common-problems-and-requirements.md) — classes C-1…C-14, requirements R-A…R-M, open decisions Δ-1…Δ-11 · [part 4](./2026-08-21-background-work-04-solution.md) — options, decision, shared invariants · [part 5](./2026-08-21-background-work-05-queue-transport-contract.md) — queue transport contract · [part 6](./2026-08-21-background-work-06-leased-jobs-in-progress.md) — leased tier in `progress` · [part 7](./2026-08-21-background-work-07-data-sync-adoption.md) — `data_sync` adoption · [part 8](./2026-08-21-background-work-08-operator-surface.md) — operator surface.
 
 ---
 
@@ -99,7 +99,7 @@ Cancel sets a flag the worker may poll at a boundary it chooses (D-21, P-20); mo
 
 ### C-8 · A lost lock is not a stopped handler
 
-The processor is 2-arity, so BullMQ never creates an `AbortSignal` and `lockRenewalFailed` has no listener (Q-1, Q-26); a stalled job is redelivered while the previous handler still runs (Q-6, D-8); sync activity timeouts leave phantom executions and retry concurrently (W-21). The only thing that makes two live drivers safe is a domain-side ownership fence at write time — which exists in `data_sync` (`commitBatchProgress`), push, attachments and warranty, and nowhere else.
+The processor is one-argument, so BullMQ 6.0.9 never creates the per-job `AbortSignal` it would supply to a literal three-argument processor; and even with one, BullMQ does not abort that signal on lock-renewal failure by itself — it only emits `lockRenewalFailed`, which has no listener (Q-1, Q-26); a stalled job is redelivered while the previous handler still runs (Q-6, D-8); sync activity timeouts leave phantom executions and retry concurrently (W-21). The only thing that makes two live drivers safe is a domain-side ownership fence at write time — which exists in `data_sync` (`commitBatchProgress`), push, attachments and warranty, and nowhere else.
 **Worst consequence**: double page application, double POST, double command. **Done right**: `commitBatchProgress` CAS, push fenced write-backs, attachment lease tokens.
 
 ### C-9 · Process-local state is treated as cluster-global

@@ -1,24 +1,26 @@
-# Background work, part 4 — solution options and the recommended design
+# Background work, part 4 — solution options and the decision
 
 **Date**: 2026-08-21
-**Status**: Draft v3 — options scored, one design detailed, revised after two fresh-context reviews (see changelog). Awaiting the maintainer decision on the recommendation (§4.4).
-**Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` problems (D-n) · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — sibling modules (Q/P/W/S/… ids) · [part 3](./2026-08-21-background-work-03-common-problems-and-requirements.md) — classes C-1…C-14, requirements R-A…R-M, open decisions Δ-1…Δ-11 · part 4 (this) — the solution.
-**Scope of this spec** (Q4): the durable-work mechanism, the `packages/queue` ergonomics it needs, and `data_sync` as the first consumer. Named follow-ups, not designed here: the `workflows` driver, `scheduler` executions, adoption by the bulk/indexing workers, and the deferred waiting / delayed-start / full parent-child features (Q6).
+**Status**: Draft v4 — umbrella decision record. Options scored, Option A recommended, shared vocabulary and invariants fixed here; the design is specified in four separately reviewable implementation specs (parts 5–8, see "Implementation specs"). Awaiting the maintainer decisions listed under "Decisions requested from maintainers".
+**Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` problems (D-n) · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — sibling modules (Q/P/W/S/… ids) · [part 3](./2026-08-21-background-work-03-common-problems-and-requirements.md) — classes C-1…C-14, requirements R-A…R-M, open decisions Δ-1…Δ-11 · [part 4](./2026-08-21-background-work-04-solution.md) — options, decision, shared invariants · [part 5](./2026-08-21-background-work-05-queue-transport-contract.md) — queue transport contract · [part 6](./2026-08-21-background-work-06-leased-jobs-in-progress.md) — leased tier in `progress` · [part 7](./2026-08-21-background-work-07-data-sync-adoption.md) — `data_sync` adoption · [part 8](./2026-08-21-background-work-08-operator-surface.md) — operator surface.
+**Scope of this spec** (Q4): the architecture decision for the durable-work mechanism and the contract every implementation spec in the series must honour. It contains **no implementation plan** of its own: parts 5–8 each carry complete contracts, migration/rollback analysis, integration coverage, a compatibility review and their own approval state, and can ship in dependency order. Named follow-ups, not designed anywhere in the series yet: the `workflows` driver, `scheduler` executions, adoption by the bulk/indexing workers, the events-bus outbox/inbox, and the deferred waiting / delayed-start / full parent-child features (Q6).
 
 ## 📝 TLDR
 
 Part 3 asks for one durable record per unit of background work with a lease on a database clock, a server-side replica-safe repairer, bounded resumable slices with a shutdown signal, store-enforced single-runner and idempotency keys, writes that commit together, retries at the idempotent unit, fenced cancel, and a conformance-tested transport. Every mature system surveyed — Postgres-native queues, durable-execution engines, Shopify/Sidekiq iteration, Airbyte, Odoo — converges on the same shape: **the record lives in the application's Postgres, the transport is disposable, liveness is a short renewable lease with a fencing epoch, and interruptions never spend the failure budget.** Four architectures are scored against R-A…R-M (§4): grow `progress` into the durable-work record, a new core module, a shared library with lease columns on each owner's table, or an external durable-execution engine. **Recommendation: grow `progress`** — it already holds most of the record (status, heartbeat, cancel flag, tenant scope, CAS transitions, events/SSE/UI/ACL, ~40 consumers) and a second record would recreate the multi-clock disease; keep the record store non-pluggable (app DB, one clock, atomic with domain rows) and make the *transport* and the *execution driver* the two pluggable seams so an engine can be adopted later without touching owners. `data_sync` becomes the first leased kind: a run is a chain of ≤ 5-minute slices that yield on SIGTERM, rethrow transient errors, and are re-driven by a worker-side reconciler.
+
+**How to read the series from here.** This part decides *what* is built and fixes the vocabulary and invariants shared by every later part. Part 5 specifies the transport additions `packages/queue` needs (no `progress` change). Part 6 specifies the leased tier in `progress` — data model, lease SQL, service API, `runSlice`, the reconciler, the terminal-transition protocol, cancellation. Part 7 specifies `data_sync` as the first consumer. Part 8 specifies the operator-surface polish. Each is independently approvable; the dependency order is 5 → 6 → 7, with 8 depending on 6 only.
 
 ## 📝 Resolved questions
 
 | # | Question | Answer | Consequence in this spec |
 |---|---|---|---|
 | Q1 | Where the record lives | Consider all three | §4 scores A (grow `progress`), B (new module), C (shared lib + owner columns) |
-| Q2 | External engines | Compare; consider adapters | §4 scores D (engine as the mechanism); §5.9 designs "engine as a driver" behind the OM record |
+| Q2 | External engines | Compare; consider adapters | §4 scores D (engine as the mechanism); §5.4 designs "engine as a driver" behind the OM record |
 | Q3 | Record-store pluggability | Consider both | §4.2 evaluates it as a dimension of every option |
 | Q4 | Scope | Mechanism + queue ergonomics + `data_sync` first | §7 phases; §8 follow-ups; §9 traceability marks what is deferred |
 | Q5 | Format | Scored options, one designed | §4 matrix, §5 design |
-| Q6 | Waiting / delayed start / parent-child | Defer | Not in the phase-1 schema; a *minimal* cancel cascade over the existing `parent_job_id` ships now because R-G3 is a MUST (§5.7) |
+| Q6 | Waiting / delayed start / parent-child | Defer | Not in the part 6 schema; a *minimal* cancel cascade over the existing `parent_job_id` ships now because R-G3 is a MUST (part 6 §8) |
 
 ## 📝 Problem Statement
 
@@ -41,7 +43,7 @@ Six read-only surveys (durable-execution engines; Postgres/Redis-native queues; 
 | **H/I. Replicas & scale** | `FOR UPDATE SKIP LOCKED` for claims and sweeps; leader election only as an optimisation (River 5 s lease row; Solid Queue/GoodJob make cron duplicate-safe with a unique index); fillfactor 80–90 and unindexed heartbeat columns for HOT updates; periodic `REINDEX CONCURRENTLY` (River, Oban); hot vs history tables (Hatchet); retention by policy (Odoo 30 d, Temporal 30 d). | Reconciler batches with `SKIP LOCKED`, no leader; HOT-safe heartbeats; retention job; a deterministic self-perpetuating tick instead of a leader (R-H1–H3, R-I1–I2). |
 | **J. Transport** | At-least-once is the universal floor; broker attempt counters are advisory (Pub/Sub "may reset to zero"); brokers differ in dedup/delay/abort support. | One thin transport contract + a conformance suite per strategy (R-J1–J4). |
 | **K. Operators** | Execution history with retention and a re-drive/cancel surface are table stakes (Odoo Jobs UI, Magento bulk status, Shopify bulk ops, Airbyte attempts, Temporal reset, Trigger.dev DLQ redrive). | Reuse the existing `progress` list/detail/cancel surface; add re-drive (R-K1–K3). |
-| **L. Reuse / engines** | [DBOS Transact](https://docs.dbos.dev/architecture) is the closest relative (TypeScript library on Postgres, same-DB enqueue, `workflow_status` + per-step outputs, startup recovery, `recovery_attempts` cap) but recovers across nodes only via its hosted Conductor; Temporal/Restate/Inngest/Trigger.dev need a server or SaaS. OM's `workflows` engine is data-defined, so it needs a durable *driver*, not deterministic replay. | The record + `step()` contract mirror a Temporal activity / DBOS step so an engine can become a driver later (§5.9); no engine dependency now (Δ-9). |
+| **L. Reuse / engines** | [DBOS Transact](https://docs.dbos.dev/architecture) is the closest relative (TypeScript library on Postgres, same-DB enqueue, `workflow_status` + per-step outputs, startup recovery, `recovery_attempts` cap) but recovers across nodes only via its hosted Conductor; Temporal/Restate/Inngest/Trigger.dev need a server or SaaS. OM's `workflows` engine is data-defined, so it needs a durable *driver*, not deterministic replay. | The record + `step()` contract mirror a Temporal activity / DBOS step so an engine can become a driver later (§5.4); no engine dependency now (Δ-9). |
 
 ---
 
@@ -64,7 +66,7 @@ Six read-only surveys (durable-execution engines; Postgres/Redis-native queues; 
 | Application Postgres via MikroORM | yes — one transaction | yes | yes (every OM install has it; the local queue strategy needs nothing else) | zero new infra; additive migration |
 | Abstracted (Redis, Dynamo, …) | **no** — needs an outbox *and* a second repairer for the outbox | no — second clock | only where that store exists | an interface nobody has asked for; correctness regresses |
 
-Applied to every option below: **the record store is not pluggable**. The *transport* (already a strategy) and the *execution driver* (§5.9) are. This is the split every surveyed system makes, and the opposite of Medusa's, whose Redis-side checkpoints are the documented source of its stuck workflows.
+Applied to every option below: **the record store is not pluggable**. The *transport* (already a strategy) and the *execution driver* (§5.4) are. This is the split every surveyed system makes, and the opposite of Medusa's, whose Redis-side checkpoints are the documented source of its stuck workflows.
 
 ### 4.3 Scoring
 
@@ -95,13 +97,13 @@ Scale: 3 = satisfies the family as specified; 2 = satisfies with a stated cost; 
 
 **Option A, with the record store fixed to the application database, and the transport and the execution driver as the two pluggable seams.** B remains the documented fallback if maintainers decide `progress` must stay presentation-only: §5 is home-agnostic except for the table the columns land in and the need for a `progress` façade.
 
-What D contributes without being adopted: the `step()` contract is shaped like a Temporal activity / DBOS step, so D1 or D2 can later be registered as a *driver* for a kind (§5.9) without touching owners — the "adapter" of Q2.
+What D contributes without being adopted: the `step()` contract is shaped like a Temporal activity / DBOS step, so D1 or D2 can later be registered as a *driver* for a kind (§5.4) without touching owners — the "adapter" of Q2.
 
 Naming (Δ-2): module id, table and DI key stay `progress` (frozen surfaces); docs and AGENTS.md call the new tier **leased jobs** and the record an **operation**. A rename is not worth a compat break.
 
 ---
 
-## 📝 Architecture (Option A)
+## 📝 Architecture (Option A) — the shape every implementation spec builds
 
 ```mermaid
 flowchart LR
@@ -121,7 +123,7 @@ flowchart LR
   subgraph Q["packages/queue — transport contract"]
     QQ["enqueue(data, { queueJobId, delayMs, attempts, backoff })<br/>JobContext.signal · token · ctx.yield({ data, delayMs }) · close({ timeoutMs }) · removeJob · QueueUnrecoverableError<br/>strategies: local · async (BullMQ) · future — one conformance suite"]
   end
-  DRV["execution-driver seam (§5.9)<br/>default: runSlice on the queue · later: an engine"]
+  DRV["execution-driver seam (§5.4)<br/>default: runSlice on the queue · later: an engine"]
   DS --> SVC & REG
   SLICE --> QQ
   REC --> T
@@ -131,7 +133,7 @@ flowchart LR
   SLICE -.-> DRV
 ```
 
-### 5.1 Vocabulary
+### 5.1 Vocabulary (shared by parts 5–8)
 
 | Term | Meaning |
 |---|---|
@@ -150,256 +152,35 @@ flowchart LR
 | **parked** | `status='failed'` with `parked_at` set and `error_code` explaining why (`orphaned`, `poison`, `never_started`, `no_handler`); `redrive` is allowed from it. No new status value in phase 1 |
 | **owner** | `${hostname}:${pid}:${processStartRandom}` — generated once per process start, never per claim |
 
-### 5.2 Invariants
+### 5.2 Invariants (binding on parts 5–8)
 
-1. **Database clock only, one statement per predicate.** Every lease, timeout and ordering predicate uses Postgres time; worker clocks drive heartbeat *intervals* only (R-A3). Because `now()` is frozen for the duration of a transaction, every lease statement (`claim`, `heartbeatLease`, `yieldSlice`, `failSlice`, the reconciler take) runs in its **own short autocommit transaction on a forked EntityManager** — the same discipline `touchJobHeartbeat` already follows (`progressServiceImpl.ts:301`). Never inside the slice's domain transaction. MikroORM specifics to honour: the fork is `em.fork()` with the defaults (`useContext: false`, `keepTransactionContext: false` — either flag set would join the slice's transaction via the ALS context); reads use `disableIdentityMap: true`; the fork takes a *second* pooled connection while the slice's transaction holds one, which is why the +1 connection reservation in §5.6 is load-bearing (a pool sized exactly to Σconcurrency would deadlock).
+1. **Database clock only, one statement per predicate.** Every lease, timeout and ordering predicate uses Postgres time; worker clocks drive heartbeat *intervals* only (R-A3). Because `now()` is frozen for the duration of a transaction, every lease statement (`claim`, `heartbeatLease`, `yieldSlice`, `failSlice`, the reconciler take) runs in its **own short autocommit transaction on a forked EntityManager** — the same discipline `touchJobHeartbeat` already follows (`progressServiceImpl.ts:301`). Never inside the slice's domain transaction. The one multi-statement transaction on the leased tier is the *terminal* transaction of invariant 11 (terminal CAS + domain mirror) — it reads `now()` once and holds no lease across statements, so the clock argument does not apply to it. MikroORM specifics to honour: the fork is `em.fork()` with the defaults (`useContext: false`, `keepTransactionContext: false` — either flag set would join the slice's transaction via the ALS context); reads use `disableIdentityMap: true`; the fork takes a *second* pooled connection while the slice's transaction holds one, which is why the +1 connection reservation in part 6 §6 is load-bearing (a pool sized exactly to Σconcurrency would deadlock).
 2. **One CAS per transition**, `UPDATE … WHERE <expected state> RETURNING *`; zero rows = refused; a refused claim does no work. The existing `progress` discipline, extended to the new columns.
 3. **Epoch fencing.** `claim` and the reconciler take both bump `lease_epoch`; `heartbeatLease`, `yieldSlice`, `completeSlice`, `failSlice` and every owner-side domain fence include `lease_epoch = $mine`. After a take, the previous driver's next heartbeat returns `null` and its next fenced domain write affects zero rows — R-B2's acceptance holds at the moment of the take, not at the next claim (C-8).
-4. **An owned lease is never NULL while running.** A slice that stops without finishing either releases the lease (`lease_owner = null`, `lease_expires_at = now()`, §5.4 `failSlice`/`yieldSlice`) or leaves it to expire; `lease_expires_at` is never NULL on a leased row once claimed.
+4. **An owned lease is never NULL while running.** A slice that stops without finishing either releases the lease (`lease_owner = null`, `lease_expires_at = now()`, part 6 §3 `failSlice`/`yieldSlice`) or leaves it to expire; `lease_expires_at` is never NULL on a leased row once claimed.
 5. **Stale deliveries are refused by identity, and identity is monotone.** `claim` requires `payload.seq = continuation_seq` and `payload.redrives = redrives`; **`redrives` only ever increases** (it is an identity, not a budget). A transport retry after `failSlice` carries the *same* pair and is accepted (that is the retry); a delivery from before a yield or before a take carries an older pair and is refused forever. Budgets use the separate `redrives_since_commit`, which resets on a committed unit. No epoch is carried in payloads, and there is no same-owner exception in `claim`.
 6. **Heartbeats are HOT.** `heartbeatLease` writes only `lease_expires_at`, `heartbeat_at`, `processed_count`, `total_count`, `consecutive_failures`, `redrives`, `last_committed_at` — none of which appears in any index key or partial-index predicate (R-I1). `updated_at` is not touched by heartbeats.
 7. **Interruptions are not failures (best effort).** A yield caused by `signal` increments `interruptions` only; budgets and the transport's attempt counter are untouched. The one exception is documented: if the transport's hand-back itself fails (BullMQ `moveToDelayed` after the lock is already lost), that delivery ends as a throw and costs one transport attempt; the row is already `pending` and is re-driven by Q2.
 8. **Crash ≠ error.** An expired lease is repaired by the reconciler under the *orphan* policy and the `redrives_since_commit` budget; a thrown error is retried by the transport under the *retry* policy and the `consecutive_failures` budget. The two never share a counter, and the reconciler waits for the transport's own retry: `failSlice` sets `next_run_at` to the transport's next attempt time and Q1 ignores rows whose `next_run_at` is in the future, so an orphan is only taken once the transport has given up.
 9. **Every reconciler or operator action changes the delivery identity.** A take, a pending re-drive and an operator `redrive` all bump `redrives` (and the epoch), so the new enqueue id `pj-<id>-<seq>-<redrives>` never collides with a delivery the transport still holds in delayed/failed state; the old delivery, if it ever arrives, is refused by invariant 5. A yield keeps the transport's job id (BullMQ `moveToDelayed` does not change it) — only the payload changes.
-10. **The tracked tier is untouched.** Rows without `lock_key` behave exactly as today; their stale sweep keeps its predicate and CAS (but moves to the worker tick, §5.6).
+10. **The tracked tier is untouched.** Rows without `lock_key` behave exactly as today; their stale sweep keeps its predicate and CAS (but moves to the worker tick, part 6 §6).
+11. **A terminal transition and its domain mirror commit together or not at all.** `completeSlice`, the terminal `failSlice`, the cancel CAS and every reconciler park/cancel run the terminal CAS **and** the kind's `onTransition(job, scope, em)` in **one short transaction on a forked EM**; a throwing mirror rolls the CAS back and the row stays non-terminal, to be retried by the transport or the next tick. Kinds whose domain row cannot share the transaction declare `mirror: 'deferred'`: the CAS then commits with `domain_mirrored_at = null` and the reconciler retries the (idempotent) mirror until it succeeds. Either way no terminal `progress_jobs` row can exist whose domain row was never told — the gap that invalidated R-E1–E4 in review v3 (part 6 §7).
 
-### 5.3 Data model
+Where each invariant is discharged: 1–9 and 11 in part 6 (lease SQL, service API, reconciler, terminal-transition protocol); the transport capabilities they assume (`yield`, `signal`, bounded `close`, deterministic ids) in part 5; 10 by construction in part 6 §2 (tracked rows carry no `lock_key`). Part 7 adds the domain-side fence `data_sync` needs and nothing that weakens these.
 
-Additive migration on `progress_jobs` (category 8, ADDITIVE-ONLY). No column is dropped, renamed or retyped; no existing default changes. Expression indexes are declared with MikroORM's `@Index({ expression })` (precedent: `customer_interactions_email_dedupe_uq`, `warranty_claims_external_ref_unique`).
+### 5.3 Why the mechanics are split the way they are
 
-```sql
-alter table progress_jobs
-  add column lease_owner          text null,
-  add column lease_epoch          bigint not null default 0,
-  add column lease_expires_at     timestamptz null,
-  add column lock_key             text null,              -- non-null ⇔ leased tier; single-runner key
-  add column queue_name           text null,
-  add column queue_job_id         text null,              -- last enqueued delivery id (pj-<id>-<seq>-<redrives>); for removeJob
-  add column subject_type         text null,              -- 'data_sync.run'
-  add column subject_id           text null,
-  add column continuation_seq     int  not null default 0,
-  add column redrives             int  not null default 0,   -- monotone; part of the delivery identity
-  add column redrives_since_commit int not null default 0,   -- budget; reset by a committed heartbeat (HOT)
-  add column interruptions        int  not null default 0,
-  add column consecutive_failures int  not null default 0,
-  add column pending_since        timestamptz null,       -- set on create, yield and take; the reconciler's pending clock
-  add column next_run_at          timestamptz null,       -- reconciler backoff / operator re-drive time (not the deferred timer feature)
-  add column last_committed_at    timestamptz null,
-  add column parked_at            timestamptz null,
-  add column error_code           text null;              -- 'orphaned' | 'poison' | 'never_started' | 'no_handler' | 'unrecoverable' | owner codes
+The leased tier (part 6) depends on part 5 only through the transport contract's *capabilities* — every capability has a defined fallback through `claim` or the reconciler (invariant 5), so part 6 is correct on a transport that has none of them and merely efficient on one that has them all. Part 7 depends on part 6's service API and on part 5's `queueJobId`. Part 8 depends on part 6's DTO fields and re-drive route. Nothing depends on part 7 or 8. This is what lets each spec carry its own rollback: part 5 is inert until a caller uses a new option, part 6 is inert until a kind registers, part 7 is reverted by redeploying the previous `data_sync` worker and route, part 8 is UI only.
 
-alter table progress_jobs set (fillfactor = 80);
-
--- single-runner: at most one live operation per key per tenant/org (R-D1). NULL org is constrained (zero-uuid), unlike the
--- warranty_claims precedent; PG15 NULLS NOT DISTINCT was considered and rejected to keep PG14 support.
-create unique index progress_jobs_one_live_per_lock_key
-  on progress_jobs (lock_key, tenant_id, coalesce(organization_id, '00000000-0000-0000-0000-000000000000'::uuid))
-  where lock_key is not null and status in ('pending','running');
-
--- reconciler scans: predicates exclude every heartbeat-written column (invariant 6). Q1 below filters lease_expires_at
--- inside this bounded set (a scan of live leased rows every tick; acceptable to ~10k live rows — see §5.6 cost note).
-create index progress_jobs_leased_running_idx on progress_jobs (tenant_id) where status = 'running' and lock_key is not null;
-create index progress_jobs_leased_pending_idx on progress_jobs (pending_since) where status = 'pending' and lock_key is not null;
-create index progress_jobs_subject_idx       on progress_jobs (subject_type, subject_id) where subject_type is not null;
-create index progress_jobs_retention_idx     on progress_jobs (finished_at) where status in ('completed','failed','cancelled');
-```
-
-Down-migration: drop the five indexes and the eighteen columns, reset `fillfactor`. Data in the new columns is discarded; the tracked tier is unaffected.
-
-- The existing `progress_jobs_status_tenant_idx` stays. `heartbeat_at` stays unindexed.
-- `meta` keeps today's rule (display-only, no credentials); `error_message` goes through the integration-log redaction.
-- Per-kind configuration lives in the **registry**, not in columns.
-- `ProgressJobStatus` is unchanged. The Q6 follow-up will add `waiting`, `run_after` and full parent/child semantics; `next_run_at` and `pending_since` are intentionally narrower so that follow-up does not re-audit the claim predicate.
-- `sync_runs` gains nothing: `progress_job_id` already exists and is the link. `sync_runs.job_id` (text, never written) carries the latest `queue_job_id` from Phase 0.
-- `ProgressJobDto` (list/active/SSE) gains optional `cancelRequestedAt`, `parkedAt`, `errorCode` (category 2, additive) so the UI can render "cancelling" and "parked".
-
-### 5.4 Lease semantics
-
-Each statement is one autocommit transaction on a forked EM (invariant 1).
-
-```sql
--- claim(jobId, owner, scope, { seq, redrives })
-update progress_jobs
-   set status = 'running', lease_owner = $owner, lease_epoch = lease_epoch + 1,
-       lease_expires_at = now() + $ttl, heartbeat_at = now(), pending_since = null,
-       started_at = coalesce(started_at, now()), updated_at = now()
- where id = $id and tenant_id = $tenant and (organization_id = $org or ($org is null and organization_id is null))
-   and lock_key is not null
-   and (status in ('pending','running') or (status = 'failed' and parked_at is not null))   -- parked rows are claimable only by a re-drive delivery
-   and continuation_seq = $seq and redrives = $redrives
-   and (next_run_at is null or next_run_at <= now())
-   and (lease_expires_at is null or lease_expires_at < now())
- returning *;
-
--- heartbeatLease(lease, { processedCount?, totalCount?, committed? })   -- HOT: no indexed column
-update progress_jobs
-   set lease_expires_at = now() + $ttl, heartbeat_at = now(),
-       processed_count = coalesce($p, processed_count), total_count = coalesce($t, total_count),
-       consecutive_failures  = case when $committed then 0 else consecutive_failures end,
-       redrives_since_commit = case when $committed then 0 else redrives_since_commit end,
-       last_committed_at     = case when $committed then now() else last_committed_at end
- where id = $id and status = 'running' and lease_owner = $owner and lease_epoch = $epoch
- returning cancel_requested_at;                    -- zero rows ⇒ lease lost or taken ⇒ abort the slice's signal
-
--- yieldSlice(lease, { interrupted })               -- then hand the delivery back with the NEW seq in its payload (§5.6 step 4)
-update progress_jobs
-   set status = 'pending', continuation_seq = continuation_seq + 1,
-       interruptions = interruptions + case when $interrupted then 1 else 0 end,
-       lease_owner = null, lease_expires_at = now(), pending_since = now(), updated_at = now()
- where id = $id and status = 'running' and lease_owner = $owner and lease_epoch = $epoch
- returning continuation_seq, redrives;
-
--- failSlice(lease, error, { nextAttemptAt })      -- slice threw; stay 'running', release the lease, same (seq, redrives) for the transport retry;
---                                                  nextAttemptAt = the transport's next attempt (from the kind's retry policy and ctx.attemptNumber), or now() when attempts are exhausted
-update progress_jobs
-   set lease_owner = null, lease_expires_at = now(), next_run_at = $nextAttemptAt,
-       consecutive_failures = consecutive_failures + 1,
-       error_message = $msg, error_code = $code, updated_at = now()
- where id = $id and status = 'running' and lease_owner = $owner and lease_epoch = $epoch;
-
--- reconciler take (orphan):                        -- bumps the epoch (fence) and redrives (delivery identity)
-update progress_jobs
-   set status = 'pending', lease_owner = null, lease_epoch = lease_epoch + 1, lease_expires_at = now(),
-       redrives = redrives + 1, redrives_since_commit = redrives_since_commit + 1,
-       pending_since = now(), next_run_at = now() + $backoff, updated_at = now()
- where id = $id and status = 'running' and lock_key is not null
-   and lease_expires_at < now() - $grace and (next_run_at is null or next_run_at < now() - $grace)
- returning continuation_seq, redrives, tenant_id, organization_id;
-
--- completeSlice / terminal fail / cancel: the existing CAS transitions, each extended with `and lease_epoch = $epoch` on the leased tier
-```
-
-Why identity and budget are separate counters: if `redrives` could reset to 0, a transport retry holding an old `(seq, 0)` could become claimable again after a later driver committed (the reviewed interleaving: fail → take → re-drive claims → commit resets → old retry claims and fences the live driver). A monotone `redrives` closes it; `redrives_since_commit` carries the budget that must reset on progress (R-B3). Why there is no same-owner clause: a stalled redelivery to the *same* process should be refused while its sibling heartbeats, exactly like any other process; a dead process never matches because `owner` includes a per-process-start random. Why `'failed'` is claimable: `progress` already allows `failed → running` (queue retries, stale revive); the leased tier narrows it to `parked_at is not null`, so a genuinely failed operation is not resurrected by a late delivery while a parked one can be re-driven.
-
-### 5.5 Service API and the kind registry
-
-Additive members on `ProgressService` (category 2/3, STABLE: optional methods, precedent `touchJobHeartbeat?`). Every method takes `scope`.
-
-```ts
-export type Lease = { jobId: string; owner: string; epoch: number; ttlMs: number }   // no worker-clock expiry is exposed
-export type SliceOutcome = 'drained' | 'budget' | 'cancelled'
-export type OrphanPolicy = 'redrive' | 'park'
-
-export interface LeasedJobKind {
-  queue: string
-  requiredFeatures: string[]                         // who may cancel / re-drive via the generic routes (in addition to progress.* features)
-  lease?: { ttlMs?: number; sliceBudgetMs?: number; pendingTtlMs?: number }           // 60 000 · 300 000 · 900 000
-  budget?: { maxRedrives?: number; maxConsecutiveFailures?: number; poisonRedrivesWithoutCommit?: number }   // 10 · 5 · 3
-  orphanPolicy?: OrphanPolicy                        // default 'park' (Solid Queue's stance); idempotent kinds declare 'redrive'
-  retention?: { completedDays?: number; failedDays?: number }                           // 7 · 30
-  /** One slice under a held lease. Return when `signal` aborts or the budget elapses. */
-  step(ctx: {
-    job: ProgressJob; scope: ProgressServiceContext; lease: Lease
-    signal: AbortSignal
-    heartbeat: (patch?: { processedCount?: number; totalCount?: number | null; committed?: boolean }) => Promise<void>
-    budgetMs: number
-    idempotencyKey: string                           // `${jobId}:${continuation_seq}` — forward to external side effects and commands
-    container: AppContainer
-  }): Promise<SliceOutcome>
-  /** Mirror transitions onto the domain row (data_sync: sync_runs.status). Called after every terminal CAS and on park. */
-  onTransition?(job: ProgressJob, scope: ProgressServiceContext): Promise<void>
-  onCancel?(job: ProgressJob, scope: ProgressServiceContext): Promise<void>
-}
-
-export interface ProgressService {
-  // …existing members unchanged…
-  registerJobKind?(kind: string, handler: LeasedJobKind): void
-  /** Inserts the row on the given EM (the caller's transaction) and returns it with a deferred `emitCreated()`; the
-   *  `progress.job.created` event is NOT emitted inside the transaction (R-E3). Worker/CLI scope: pass a forked EM. */
-  createLeasedJob?(input: CreateProgressJobInput & { kind: string; lockKey: string; subject?: { type: string; id: string } },
-                   ctx: ProgressServiceContext, em: EntityManager): Promise<{ job: ProgressJob; emitCreated: () => Promise<void> }>
-  enqueueLeasedJob?(jobId: string, ctx: ProgressServiceContext): Promise<void>   // id pj-<id>-<seq>-<redrives>; delay = max(0, next_run_at − now()); stores queue_job_id
-  claim?(jobId: string, ctx: ProgressServiceContext, delivery: { seq: number; redrives: number }): Promise<Lease | null>
-  heartbeatLease?(lease: Lease, ctx: ProgressServiceContext, patch?: {...}): Promise<{ cancelRequested: boolean } | null>
-  yieldSlice?(lease: Lease, ctx: ProgressServiceContext, opts: { interrupted: boolean }): Promise<{ seq: number; redrives: number } | null>
-  completeSlice?(lease: Lease, ctx: ProgressServiceContext, input?: CompleteJobInput): Promise<ProgressJob | null>
-  failSlice?(lease: Lease, ctx: ProgressServiceContext, error: { message: string; code?: string }): Promise<void>
-  redrive?(jobId: string, ctx: ProgressServiceContext, by: { userId?: string | null }): Promise<ProgressJob | null>   // operator: parked or expired-lease rows; reuses the take CAS (bumps redrives + epoch) so the new id never collides with a retained failed job
-  reconcileOnce?(opts?: { batchSize?: number }): Promise<ReconcileReport>   // system scope; used by the tick and by tests
-}
-```
-
-`createLeasedJob(em)` is the single most important line for C-5: data_sync creates the progress job and the `sync_runs` row on the same request-scoped EM under `em.begin()` (both services resolve the same EM today: `progress/di.ts`, `shared/lib/di/container.ts`), commits, then calls `emitCreated()` and `enqueueLeasedJob`. A unique-index violation rolls both rows back with no phantom event. If the enqueue throws, the row is `pending` with `pending_since` set and the reconciler enqueues it (R-E2). The generic cancel and re-drive routes require `progress.update` **and** the kind's `requiredFeatures`, so cancelling a sync still needs `data_sync.run`.
-
-### 5.6 `runSlice` (the worker body) and the reconciler
-
-`runSlice(payload, ctx)` is registered once per queue a kind declares (the `progress` module ships a worker factory; the owner's `workers/*.ts` is a one-liner binding the queue).
-
-1. `claim` with `payload.seq/redrives` → `null` ⇒ return (the queue job completes; a `progress.leased.delivery_refused` structured-log event with the reason).
-2. Start the heartbeat interval at `ttl/3` (20 s) on a forked EM. A `null` from `heartbeatLease` aborts `signal`; `cancelRequested: true` aborts `signal` and marks the slice as ending by cancel.
-3. `ctx.signal` (transport: shutdown / lock loss) is chained into the same `signal`.
-4. `await step()`. Then:
-   - `drained` → `completeSlice` → `onTransition`.
-   - `budget`, or `signal` aborted by shutdown/lease loss → `yieldSlice({ interrupted })` returning `{ seq, redrives }` → **`ctx.yield({ data: { …payload, seq, redrives } })`**: the transport rewrites the stored payload *before* handing the job back (BullMQ: `job.updateData()` then `moveToDelayed(now, token)` + throw `DelayedError`, which the processor must let propagate; local: rewrite the stored job and mark this delivery finished without touching `attemptCount`). Where the transport lacks `yield`, `enqueueLeasedJob` for the new `seq` is used instead (same id scheme) and `queue_job_id` is updated; a native hand-back keeps the transport's job id, so `queue_job_id` is left as is.
-   - `cancelled` → terminal cancel CAS → `onCancel`/`onTransition`; this is where `progress.job.cancelled` is emitted for leased rows.
-   - throw → `failSlice({ nextAttemptAt })` and **rethrow**: the transport retries *this delivery* (same `seq, redrives`) with its own attempts/backoff; the retry's `claim` succeeds because the lease was released and `next_run_at` has passed. `QueueUnrecoverableError` → terminal fail (`error_code='unrecoverable'`), no transport retry.
-5. A delivery that exhausts transport attempts leaves the row `running`, lease released, `next_run_at = now()` — the reconciler's case on its next tick. The failed transport job keeps the old id; the reconciler's re-drive uses a new one (invariant 9).
-
-**Hosting the reconciler (Δ-6, decided).** The `progress` module ships two queue workers: `progress-reconcile` and `progress-retention`. The tick is a **repeatable job owned by the transport**, not a job that re-enqueues itself (a re-add from inside the running job is a dedup no-op on both strategies, and a retained failed job with the same id would block every later add — the chain would die). Phase 0 adds `Queue.upsertRepeatable(id, { everyMs })` to the transport contract: async maps to BullMQ's `upsertJobScheduler('progress-reconcile', { every: 30_000 })`, which is idempotent across replicas and survives completion/failure of individual runs; local implements it as bucketed deterministic ids `progress-reconcile-<bucket+1>` enqueued at the *start* of each run inside `try/finally` (monotone ids never collide with retained failed ones) plus an unref'd boot timer that re-adds the next bucket as a self-heal. Every worker process calls `upsertRepeatable` at boot; the reconciler's steps are all CAS, so a redundant run is harmless. It does not depend on the optional `scheduler` package and never runs in the web process. `progress/AGENTS.md`'s "never timers for durable work" gains the explicit carve-out: the repairer is the one periodic job, and it is the transport's repeatable. Failure mode stated: if the repeatable is lost (Redis flush), the next worker boot re-creates it; until then leased orphans wait — the soak (step 19) includes a Redis flush.
-
-```mermaid
-flowchart TB
-  T["reconcileOnce: each query SELECT … FOR UPDATE SKIP LOCKED LIMIT 100 in its own short transaction; loop until empty; every row in its own try/catch (R-H3)"]
-  T --> Q1["leased · running · lease_expires_at < now() − 20 s · (next_run_at is null or next_run_at < now() − 20 s)"]
-  Q1 --> POL{"orphanPolicy · redrives_since_commit · poison"}
-  POL -->|"'redrive' ∧ redrives_since_commit < maxRedrives ∧ (no commit since last redrive ⇒ count < poison)"| RE["take CAS (epoch+1, redrives+1, redrives_since_commit+1, next_run_at = now() + min(15 s·2^rsc, 10 min))<br/>→ enqueueLeasedJob (delay = next_run_at − now()) · emit progress.job.orphaned"]
-  POL -->|otherwise| PK["park: status='failed', parked_at=now(), error_code='orphaned'|'poison' · onTransition · emit progress.job.failed{parked:true}"]
-  T --> Q2["leased · pending · greatest(pending_since, coalesce(next_run_at, pending_since)) < now() − pendingTtl (never claimed, or hand-back lost)"]
-  Q2 --> RE2["redrives+1, redrives_since_commit+1, epoch+1 → enqueueLeasedJob with the new id · after maxRedrives → park 'never_started'"]
-  T --> Q3["leased · cancel_requested_at set · lease expired"]
-  Q3 --> C["terminal cancel CAS · onCancel · onTransition · emit progress.job.cancelled"]
-  T --> Q4["tracked tier: markStaleJobsFailed over all tenants — the existing sweep, moved here from GET /api/progress/active"]
-  D["progress-retention (daily)"] --> R["delete terminal rows older than the kind's retention (tracked tier: 30 d default), batches of 1000"]
-```
-
-Constraint: `pendingTtlMs` must exceed the worst-case queue backlog for that kind, otherwise Q2 re-drives healthy queued deliveries (they are refused on `redrives` and cost nothing but a wasted delivery, yet each one counts toward `never_started`); the default 15 min is per kind and the reconciler logs a warning when a Q2 re-drive finds the previous delivery still queued (via `Queue.getJobState` where the capability exists). Cost note: Q1 scans the `running ∧ leased` partial index and filters `lease_expires_at` in the heap — a bounded scan of live leased rows every 30 s, which stays cheap to ~10k live rows; beyond that the follow-up is a narrow `progress_job_leases` side table, not an index on `lease_expires_at` (invariant 6).
-
-**Connection ceiling** (`packages/queue/AGENTS.md` → Connection Budget): a leased slice uses its request-scoped EM plus one *transient* pooled connection during each heartbeat/lease statement (≤ 1 query every 20 s per slice), and the reconciler worker uses one connection per batch query. The worst case per worker process is therefore `Σconcurrency + 1` concurrent connections instead of `Σconcurrency`; the existing DB-budget clamp in `mercato worker --all` is updated to reserve that one extra connection and the integration test asserts `pg_stat_activity` stays under the clamp during the soak.
-
-### 5.7 Cancellation
-
-`cancelJob` (existing) on a leased row: `pending` with no lease → `cancelled` immediately, `removeJob(queue_job_id)`; `running` → `cancel_requested_at` (existing CAS) — and for leased rows **the `progress.job.cancelled` event is emitted later**, by the slice that observes the request (within one heartbeat interval via the heartbeat response, or at once via `signal` where the transport relays it) or by the reconciler after the lease expires. The UI renders "cancelling" from `cancelRequestedAt` in the meantime. Event id unchanged; timing documented in UPGRADE_NOTES (the DataTable bulk handlers only track tracked-tier jobs and are unaffected).
-
-**Minimal cascade (R-G3, now).** `cancelJob` also sets `cancel_requested_at` on every non-terminal row with `parent_job_id = $id` (same CAS per child) and `removeJob`s pending children; children then follow the same rules as the parent. Parent aggregation ("parent completes when children are terminal") and parent-driven creation stay in the Q6 follow-up.
-
-### 5.8 Queue package additions (Phase 0, all additive)
-
-- `EnqueueOptions` gains `queueJobId?`, `attempts?`, `backoff?: { type: 'exponential' | 'fixed'; delay: number; maxDelay?: number }` beside the existing `delayMs`. Async maps to BullMQ `jobId`/`attempts`/`backoff`/`delay`; local dedups `queueJobId` against pending rows and honours `delayMs` via `notBefore`. (R-F5 is partial on BullMQ: `attempts`/`backoff` are frozen at enqueue; per-kind changes apply to new deliveries.)
-- `JobContext` gains `signal: AbortSignal` (async: BullMQ's own per-job signal — it requires a *literal* three-parameter processor (`(job, token, signal) =>`, no defaults/rest) and BullMQ already aborts it on lock-renewal failure; the strategy additionally aborts on `close()` timeout; local: aborted on `close()`), `token: string | undefined`, and `yield(opts: { data: T; delayMs?: number }): Promise<never>`. Async: `job.updateData(data)` → `job.moveToDelayed(Date.now() + delayMs, token)` → throw `DelayedError` (the strategy's processor rethrows it untouched). Local: the batch loop catches a `LocalYield` sentinel, writes the job back with the new payload and `notBefore`, and leaves `attemptCount` unchanged.
-- `Queue.close({ timeoutMs })`: async waits up to `timeoutMs`, then `close(true)`; the runner relays SIGTERM to every in-flight `signal` **first**, then calls `close` with `QUEUE_CLOSE_TIMEOUT_MS` (default 25 s; docs: Kubernetes `terminationGracePeriodSeconds ≥ 35`, Railway `RAILWAY_DEPLOYMENT_DRAINING_SECONDS ≥ 35`).
-- `Queue.upsertRepeatable(id, { everyMs })` (async: `upsertJobScheduler`; local: bucketed ids + boot timer, §5.6) and `Queue.getJobState?(id)`; `Queue.removeJob(queueJobId)`; `QueueUnrecoverableError` (async → BullMQ `UnrecoverableError`; local stops retrying); a `QueueCapabilities` descriptor `{ dedup, delay, retry, signal, yield, repeatable, jobState, removeJob, abandonReports }` per strategy, logged once at boot.
-- **Transport contract**: at-least-once delivery is the only hard requirement; every other capability has a defined fallback through `claim` (invariant 5) or the reconciler. `packages/queue/src/__tests__/conformance/` holds one suite parameterised by strategy — delivery; duplicate/late/early/lost delivery; kill mid-handler; two consumers; `signal` on close; `yield` leaves the attempt counter unchanged and redelivers the rewritten payload; unrecoverable error — run for **both** local and async in CI (R-J2).
-- Typed payloads end-to-end: `createModuleQueue<T>()` is already generic; Phase 0 adds a helper so enqueue sites and workers share one `T` (R-J3; the PG-1 class).
-
-### 5.9 The execution-driver seam (Q2's "adapters")
+### 5.4 The execution-driver seam (Q2's "adapters")
 
 The record and `step()` contract are engine-shaped on purpose: heartbeat-with-details ≈ Temporal activity heartbeat / Hatchet `refreshTimeout`; `budget` + yield ≈ continue-as-new / DBOS step boundary; `AbortSignal` ≈ cancellation scope; `idempotencyKey` ≈ workflow/step id. A kind may declare `driver: 'queue' | 'engine:<name>'`; the default is `runSlice` on `packages/queue`. An engine driver would own *execution* (scheduling slices, its own retries) while the `progress_jobs` row stays the operation's record for UI, ACL, cancel and history — the split Airbyte uses (Temporal executes; the jobs table is the record). Nothing here implements a second driver; it guarantees that adding one touches no owner. Gains if adopted: per-step memoised checkpoints and cross-node recovery without our reconciler; losses: a production dependency (Ask-First), a second system to operate, no local-strategy parity.
 
-### 5.10 `data_sync` adoption (Phase 2)
-
-| Today | With the leased tier |
-|---|---|
-| `startDataSyncRun`: `createJob` → `createRun` → `queue.add` (D-13) | `em.begin()`: `createLeasedJob({ kind, lockKey, subject }, scope, em)` + `createRun` → commit → `emitCreated()` → `enqueueLeasedJob`; enqueue failure → reconciler pending predicate |
-| `findRunningOverlap` plain SELECT (D-11) | kept for the 409 message only; the **partial unique index** on `lock_key = data_sync:<integrationId>:<entityType>:<direction>[:<scopeKey>]` is the guarantee; the unique violation maps to the same 409 |
-| one BullMQ job = whole run (D-1) | `step()` drives `forEachBatch` until `sliceBudgetMs` (5 min) or `k` batches, returns `budget`; the engine stops *after* a yield, never mid-`next()`; the adapter is closed (`iterator.return()`), the next slice reopens from `run.cursor` — the replay clause already required of every adapter |
-| heartbeat only around `next()` (D-6) | `heartbeat()` called around `next()` **and** the handler phase; `committed: true` after `commitBatchProgress` |
-| ownership fence `status='running' ∧ batches_completed=N` | fence adds `EXISTS (select 1 from progress_jobs p where p.id = run.progress_job_id and p.lease_owner = $owner and p.lease_epoch = $epoch)` — a cross-module SQL reference, read-only, no ORM relation; no lease column on `sync_runs` |
-| engine swallows errors (D-17, D-16) | engine **rethrows**; `QueueUnrecoverableError` for the fatal allowlist (from fsh#101, fail-fast only); transport retries the slice (`attempts 5`, exponential 5 s, max 5 min); `consecutive_failures` resets on commit; at `maxConsecutiveFailures` the slice fails terminally |
-| post-commit bookkeeping unguarded (D-18) | wrapped: log/progress write failures are logged, never fatal |
-| cancel advisory, `markCancelled` immediately (D-21, D-22) | `signal` from the heartbeat response; engine checks `signal.aborted` at the batch boundary and passes `signal` to the adapter (#5403); `cancelled` written by the slice; run mirrored via `onTransition` |
-| `onJobAbandoned` + 5-min sweep (D-9) | retired for data_sync queues (kept in `packages/queue` for others); reconciler + `orphanPolicy: 'redrive'` (the adapter contract is idempotent by construction); `maxRedrives 10`, poison after 3 redrives without a committed batch |
-| CLI `pull` in-process, no lease (D-10) | CLI creates the leased job on its own forked EM transaction and either enqueues it (default) or runs `runSlice` in-process under the same lease; a killed CLI is an orphan the reconciler sees |
-| `sync-scheduled`: `lastRunAt` flushed before anything durable (S-14) | start the run first (one transaction), then `lastRunAt`; a second firing hits the unique index → 409 → skipped (Fivetran semantics) |
-| stale sweep from the browser (D-5) | reconciler; `sync_runs.status` mirrored by `onTransition` on every terminal/park transition (D-28) |
-| `paused` declared, never written (D-26) | unchanged here; becomes `waiting` in the Q6 follow-up |
-
-Adapter contract: **signature unchanged**. Three `data_sync/AGENTS.md` Ask-First items are changed by this spec (overlap detection, cancellation delivery, lifecycle writes) — flagged for the module owners.
-
 ---
 
-### 5.11 Outbox and inbox — what this design is, and what it leaves to follow-ups
+## 📝 Outbox and inbox — what this design is, and what it leaves to follow-ups
 
-The design above is a **transactional outbox** for job delivery, even though §5.5–5.6 do not use the word: the `progress_jobs` row is written in the same transaction as the domain row (`createLeasedJob(em)`), the transport is told *after* commit, and the reconciler's Q2 is the relay that republishes rows whose delivery never arrived. `claim`'s refusal of stale `(seq, redrives)` is the matching **inbox** (idempotent consumer) collapsed into the job row's own counters, which works because each row is its own stream. Two consequences are worth stating:
+The design in part 6 is a **transactional outbox** for job delivery, even though part 6 does not use the word: the `progress_jobs` row is written in the same transaction as the domain row (`createLeasedJob(em)`), the transport is told *after* commit, and the reconciler's Q2 (part 6 §6) is the relay that republishes rows whose delivery never arrived. `claim`'s refusal of stale `(seq, redrives)` is the matching **inbox** (idempotent consumer) collapsed into the job row's own counters, which works because each row is its own stream. Two consequences are worth stating:
 
 - **Relay latency is `pendingTtlMs`** (15 min) because Q2 doubles as the relay. A lost enqueue is rare (Redis down at exactly that moment), so this is acceptable for phase 1; a dedicated fast relay (`LISTEN/NOTIFY` wake-up or a 30 s "pending with no `queue_job_id`" scan inside the existing tick) is a one-line extension if operators want it, and does not change any contract.
 - **Events after commit are still not repairable.** `emitCreated()` and the terminal-transition events are emitted *after* the CAS, so a kill in between loses the event (R-E3's second half). For `progress.job.*` this is benign — the 5 s poll converges the UI — and accepted here. For domain events it is not: the events bus has the same hole today (EV-4: kill between inline delivery and `q.enqueue` loses a persistent event) and no outbox. Out of Q4's scope; named as a follow-up below rather than left implicit.
@@ -415,121 +196,51 @@ What the pattern implies elsewhere in the repo, as **named follow-up specs**:
 
 None of these is needed for the leased tier or for `data_sync`; all of them reuse the same two ideas, which is why they are listed here rather than designed.
 
-## 📝 Edge Cases & Failure Scenarios
+## 📋 Implementation specs (replaces the single phasing table of v3)
 
-| Scenario | Behaviour under this design |
-|---|---|
-| S1 deploy, two replicas, mid-batch | SIGTERM → runner aborts `signal` → engine finishes the current batch → `yieldSlice({interrupted:true})` → `ctx.yield({data})` → `close()` returns; the new pod claims the rewritten delivery at once. No stall, no attempt, no budget. Grace shorter than a page (Railway default 0 s): SIGKILL → lease expires ≤ 60 s → reconciler takes and re-drives within one tick with `redrives+1`, reset by the next committed batch. |
-| S2 transient error mid-batch | `failSlice` + rethrow → transport retries the same delivery after 5 s/10 s/…; the retry claims (lease expired, same `seq, redrives`) and resumes from `run.cursor`. Same end state whether the outage lasted 1 s or 5 min (R-F4). After 5 consecutive failures with no commit → terminal `failed`. |
-| S3 lock lost, handler alive | `lockRenewalFailed` aborts `signal` (async); if the handler keeps going, its next heartbeat or fenced write fails on epoch after any take or re-claim. The window is one heartbeat interval and one page, covered by the idempotent contract. Same process, `concurrency > 1`, stalled redelivery to itself: the same-owner clause lets the second slice claim and bump the epoch; the first fails its next heartbeat — same one-interval window. |
-| S4 cancel | `cancel_requested_at` → next heartbeat (≤ 20 s) aborts `signal` → adapter stops (or at the batch boundary) → the slice writes `cancelled`, emits the event, `onTransition` mirrors the run. UI shows "cancelling" until then. Cancel of a slice that is already dead: the reconciler Q3 completes it after the lease expires (≤ 60 s + tick). |
-| S5 double start | second `createLeasedJob` violates the partial unique index inside the transaction → both rows roll back → 409. No window. |
-| S6 enqueue fails after the row exists | row `pending` with `pending_since`, no lease; reconciler Q2 re-drives it after `pendingTtl` (15 min) with a new delivery id. |
-| **Hand-back lost after yield** (Redis flush, `moveToDelayed` throws, SIGKILL between the yield CAS and `ctx.yield`) | row `pending`, `lease_owner` null, `pending_since` set → reconciler Q2 re-drives after `pendingTtl` with a new `(redrives)` id. Not stranded. |
-| **Transport retry after `failSlice` vs reconciler re-drive** | the reconciler does not act before `next_run_at + grace`, so the transport's retry normally claims first (same `(seq, redrives)`, lease released). If the transport gave up, the take bumps `redrives` and the epoch; a straggling transport retry with the old pair is refused forever (identity is monotone). No id collision (invariant 9). |
-| **Transport backoff longer than the reconciler grace** | covered by `next_run_at`: Q1 ignores the row until the transport's scheduled attempt has passed, so a slow retry is not mistaken for an orphan and does not spend the orphan budget (invariant 8). |
-| S7 stale sweep false positive | leased rows are not subject to the heartbeat-based sweep; the lease is heartbeated through the handler phase. |
-| S8 abandoned while alive | no stall budget consumed by deploys; a poison page parks after 3 redrives without a commit (`error_code='poison'`) with operator re-drive. |
-| S9 in-process CLI killed | orphan under the same lease → reconciler. |
-| S10 abandon report lost | not needed: the reconciler reads Postgres. |
-| S11 Akeneo reconciliation after last yield | unchanged here; the `finalizeRun` adapter hook is a data_sync follow-up. |
-| P-13 create-then-enqueue (other consumers) | unchanged until they adopt the leased tier; the tracked tier's pending sweep now runs from the worker tick, so a `pending` zombie is failed within 15 min without a browser. |
-| Heartbeat inside the slice's domain transaction | impossible by construction: `heartbeatLease` runs on a forked EM (invariant 1); the engine's `withAtomicFlush` transaction never contains a lease statement. |
-| Reconciler takes a slow-but-alive driver | take bumps the epoch: the driver's next heartbeat returns `null` → `signal` aborts; its fenced commit affects zero rows. At most the in-flight page is applied twice — idempotent by contract. |
-| Two reconciler replicas | `SKIP LOCKED` partitions the set; the take CAS is the correctness guard; the repeatable is idempotent across replicas (`upsertRepeatable`). |
-| Repeatable tick lost (Redis flush) | re-created by the next worker boot; until then leased orphans wait; covered by the soak. |
-| Redis flushed | queue jobs gone; every leased row is `running` with an expiring lease or `pending` with `pending_since` → both re-enqueued by the reconciler with fresh ids. |
-| Owner module disabled (unknown kind) | first delivery or first tick → park with `error_code='no_handler'`. |
-| Per-row owner callback throws in the tick | caught per row, counted, the batch continues (R-H3). |
-| Clock skew between workers | irrelevant: every predicate is DB time; a skewed worker only heartbeats at a slightly different cadence. |
-| Transport without `yield`/dedup/delay (future strategy) | `yield` = `enqueueLeasedJob(seq+1)`; duplicates refused by `claim`; delay = reconciler backoff via `next_run_at`. Correct, less efficient (R-J1). |
-| Rolling deploy with mixed versions | new columns nullable/defaulted; old workers ignore them; old `startDataSyncRun` still works (tracked tier) until the data_sync worker is updated — Phase 2 ships worker and route together. |
+| Part | Spec | Owner surface | Depends on | Ships alone? | Closes | Approval state |
+|---|---|---|---|---|---|---|
+| 5 | [queue transport contract](./2026-08-21-background-work-05-queue-transport-contract.md) | `packages/queue` (+ `mercato worker` runner) | — | yes — additive options and context members, inert until used | Q-1, Q-2, Q-3, Q-12, Q-15, Q-17, Q-26 (partly), the conformance gap R-J2 | Draft — awaiting review |
+| 6 | [leased jobs in `progress`](./2026-08-21-background-work-06-leased-jobs-in-progress.md) | `progress` module (schema, service, workers, route, DTO) | 5 | yes — inert until a kind registers | P-3, P-4, P-5, P-24 (partly), P-30, P-34, R-A…R-K for any adopter | Draft — awaiting review; blocked on decisions 1–3 below |
+| 7 | [`data_sync` adoption](./2026-08-21-background-work-07-data-sync-adoption.md) | `data_sync` (engine, start-run, workers, CLI, scheduled trigger) | 5 (step 0), 6 (rest) | yes; step 0 ships before 6 exists | D-1, D-2, D-4…D-13, D-16…D-19, D-21…D-23, D-27, D-28, S-14; closes fsh#101 | Draft — awaiting review; three `data_sync/AGENTS.md` Ask-First items flagged |
+| 8 | [operator surface](./2026-08-21-background-work-08-operator-surface.md) | `progress` + `data_sync` backend UI | 6 | yes | D-26, R-K2/K3 | Draft — awaiting review |
 
-## 📝 Risks & Impact Review
+**Tracked separately, not in this series** (part 3 §0.1 hand-verified bugs that v3 had folded into Phase 0): the webhook payload-shape mismatch PG-1/SC-1/ST-1, W-18, MS-1, IN-1, CA-1, S-6 and the other production bugs of part 2. Each gets its own ticket; part 5's typed-payload helper makes the PG-1 class easier to fix but the fixes are not part 5's scope.
 
-| Risk | Sev | Mitigation | Residual |
-|---|---|---|---|
-| `progress_jobs` is written by ~40 files; wider row, five new partial indexes | Low | nullable/defaulted columns; heartbeat path unchanged for tracked rows; indexes partial on the leased tier; `fillfactor 80` converges on rewrite | none observable at today's volumes |
-| Stale sweep moves off the GET (tracked jobs fail sooner, everywhere) | Low | same predicate and CAS; `OM_PROGRESS_SWEEP_ON_READ` **defaults on for one minor release** (so rolling back only the worker leaves sweeps alive), then off | — |
-| `progress.job.cancelled` timing for leased rows; `progress.job.failed` gains `parked`; new `progress.job.orphaned` | Med | category 5: ids unchanged, payload additive, one new id; timing change documented in UPGRADE_NOTES | consumers treating `cancelled` as "stopped" were already wrong (P-21) |
-| `DATA_SYNC_MAX_STALLED_COUNT` default raised (Phase 0) | Low | UPGRADE_NOTES entry; env override unchanged | — |
-| `data_sync` AGENTS.md Ask-First items change | Med | flagged; Phase 2 is its own PR | maintainers may ask for B |
-| Orphan policy default `park` surprises owners expecting auto-retry | Low | documented; data_sync declares `redrive`; parked rows are visible and re-drivable | — |
-| Connection ceiling +1 per worker process | Low | §5.6 ceiling stated; clamp updated; soak asserts it | — |
-| Compat surfaces touched | — | 8 DB schema additive (+ down-migration); 2/3 `ProgressService` optional members and DTO fields; 5 events as above; 7 one new action route `POST /api/progress/jobs/[id]/redrive`; 9 DI unchanged; 10 ACL reuses `progress.*` + kind features; 13 CLI `pull` behaviour (creates a leased job) | — |
-| Rollback | — | Phase 0/1 inert until a kind registers (code) + down-migration (schema); Phase 2 reverted by redeploying the previous data_sync worker/route — existing leased rows are parked by the reconciler (`no_handler`) and can be cancelled | — |
+**Follow-up specs, not yet authored** (dependency order): the events-bus outbox and per-subscriber inbox (above); bulk/indexing workers adoption (CB/CD/SR/QI/CH/AK findings); `workflows` driver (W findings; needs Q6); `scheduler` executions (S findings; `kind = scheduler.execution`, `lock_key = schedule:<id>` — discharges R-K1); Q6 waiting / `run_after` / full parent-child aggregation; data_sync `finalizeRun` hook and `paused → waiting`; metrics endpoint (R-I2).
 
-## 📋 Phasing
+## 📝 Requirements traceability (series level)
 
-| Phase | Ships alone? | Content | Closes |
-|---|---|---|---|
-| **0 — transport ergonomics + mechanism-independent fixes (Δ-10)** | yes | `queueJobId`/`attempts`/`backoff`; `JobContext.signal`/`token`/`yield`; `upsertRepeatable`/`getJobState`; bounded `close` + SIGTERM relay; `removeJob`; `QueueUnrecoverableError`; capabilities; conformance suite (both strategies); typed payload helper; **lands now:** PG-1/SC-1/ST-1 fix, `sync_runs.job_id` written, `DATA_SYNC_MAX_STALLED_COUNT` large finite default, deployment-grace docs. **Waits (separate tickets, not this spec):** the other part 3 §0.1 bugs (W-18, MS-1, IN-1, CA-1, S-6, …). | Q-1, Q-2, Q-3, Q-12, Q-15, Q-17, Q-26 (partly), D-2, S8's budget half, the PG-1 class |
-| **1 — leased tier in `progress`** | yes (inert until a kind registers) | migration (+down); DTO fields; service methods; registry; `runSlice`; reconciler + retention workers (self-perpetuating tick); stale sweep moved; minimal cancel cascade; re-drive route; top bar "cancelling"/"parked"; unit + real-PG/Redis chaos tests | P-3, P-4, P-5, P-24 (partly), P-30, P-34, R-A…R-K for any adopter |
-| **2 — `data_sync` adoption** | yes | §5.10 in full | D-1, D-4…D-13, D-16…D-19, D-21…D-23, D-27, D-28, S-14 |
-| **3 — operator surface polish** | yes | list filter "stuck/parked", bulk re-drive/cancel, dashboard auto-refresh via `data_sync.run.*` broadcast, Retry/Cancel affordances | D-26, R-K2/K3 |
-
-Follow-up specs (out of scope, dependency order): the events-bus outbox and per-subscriber inbox (§5.11); bulk/indexing workers adoption (CB/CD/SR/QI/CH/AK findings); `workflows` driver (W findings; needs Q6); `scheduler` executions (S findings; `kind = scheduler.execution`, `lock_key = schedule:<id>` — discharges R-K1); Q6 waiting / `run_after` / full parent-child; data_sync `finalizeRun` hook and `paused → waiting`; metrics endpoint (R-I2).
-
-## 📋 Implementation Plan
-
-**Phase 0 — `packages/queue`**
-1. `EnqueueOptions.queueJobId/attempts/backoff`; async maps to BullMQ; local dedups and stores `notBefore`. Tests: dedup collapses; delay honoured; existing callers unchanged.
-2. `JobContext.signal` + `token`; async 3-arity processor, abort on `lockRenewalFailed` and close timeout; local aborts on close. Test: handler observes abort within 100 ms of `close()`.
-3. `ctx.yield({ data })`: async `updateData` → `moveToDelayed(token)` → `DelayedError` rethrown by the processor; local `LocalYield` sentinel caught in the batch loop, payload rewritten, `attemptCount` unchanged. Tests on both strategies: attempt counter unchanged; redelivery carries the rewritten payload.
-4. `close({ timeoutMs })`, `removeJob`, `upsertRepeatable` (BullMQ `upsertJobScheduler`; local bucketed ids + boot timer), `getJobState`, `QueueUnrecoverableError`, `QueueCapabilities`; runner relays SIGTERM → signals → `close(QUEUE_CLOSE_TIMEOUT_MS)`. Test: SIGTERM with a yielding handler exits < timeout; non-yielding handler exits at timeout and the job is redelivered.
-5. Conformance suite under `packages/queue/src/__tests__/conformance/`, run for local and async (Redis service in CI); capability table per strategy documented.
-6. Typed enqueue/worker payload helper; fix PG-1/SC-1/ST-1 call sites as the first consumers.
-7. `data_sync`: `queueJobId: run:<id>`, write `sync_runs.job_id`; raise `DATA_SYNC_MAX_STALLED_COUNT` default; UPGRADE_NOTES; deployment-grace docs (K8s, Railway).
-
-**Phase 1 — `progress` leased tier**
-8. Migration (§5.3, expression indexes via `@Index({ expression })`) + down-migration + snapshot; entity fields; validators; DTO fields. Test: migration applies/reverts on a populated table; existing tests green.
-9. `createLeasedJob(em)` with deferred `emitCreated`, `enqueueLeasedJob`, `claim`, `heartbeatLease`, `yieldSlice`, `completeSlice`, `failSlice`, `redrive` — the §5.4 statements via the query builder on a forked EM (`nativeUpdate` cannot return rows). Unit tests per transition incl. epoch refusal, `(seq, redrives)` refusal, the reviewed fail→take→re-drive→commit→stale-retry interleaving (stale retry must be refused), and absence of a same-owner bypass; a test asserting `n_tup_hot_upd` grows under heartbeats; a test that `createLeasedJob` inside `em.begin()` + rollback leaves no row and emits nothing.
-10. Kind registry + `runSlice` factory + generic worker binding. Tests: refused claim does no work; budget → yield → rewritten delivery claims; throw → `failSlice` + rethrow → retry claims; unrecoverable → terminal; shutdown → interrupted yield with counters untouched.
-11. Reconciler worker (`progress-reconcile` repeatable every 30 s via `upsertRepeatable`, registered at worker boot) + `progress-retention`; `SKIP LOCKED` batches; per-row isolation; stale sweep moved here; `OM_PROGRESS_SWEEP_ON_READ` (default on). Tests: orphan take bumps epoch and re-drives with backoff; Q1 waits for `next_run_at`; poison park on `redrives_since_commit`; lost hand-back re-drive; two reconcilers on one set; tracked-tier sweep parity; repeatable survives a failed run and a Redis flush + boot.
-12. Leased cancel semantics + minimal cascade (§5.7); `POST /api/progress/jobs/[id]/redrive` (ACL `progress.update` + kind features); top bar "cancelling"/"parked"; OpenAPI.
-13. Integration (real Postgres + Redis, `__integration__`, docker-compose runner): SIGKILL mid-slice; SIGTERM at deadline; lost lock with live handler; duplicate/late/early delivery; two worker replicas; crash between record and domain write; cancel during I/O; reconciler vs live driver; connection ceiling under the clamp. Each a named test that fails on today's code (R-M1).
-14. AGENTS.md (`progress` incl. the repairer carve-out, root Task Router row), docs page "leased jobs", `BACKWARD_COMPATIBILITY.md` and UPGRADE_NOTES entries, `.ai/lessons.md`.
-
-**Phase 2 — `data_sync`**
-15. `start-run.ts`: `em.begin()` → leased job + run → commit → `emitCreated` → enqueue; `lock_key` scheme; 409 from the unique violation; `findRunningOverlap` kept for the message.
-16. Engine: `step()` over `forEachBatch` with budget/k-batches; heartbeat around `next()` + handler; `committed: true` after the fenced commit; fence extended with the epoch `EXISTS`; rethrow; `QueueUnrecoverableError` allowlist; post-commit bookkeeping wrapped; `signal` to the adapter.
-17. Worker files rebind to `runSlice`; `onTransition` mirrors `sync_runs.status`; `onJobAbandoned` removed for data_sync queues; CLI `pull` through the lease; `sync-scheduled` start-then-`lastRunAt`.
-18. Remove/adjust: `abandoned-run.ts` (keep for export until it adopts), heartbeat-only-around-`next()` helper, `createProgressJob: false` path (lease mandatory; the CLI creates the job).
-19. Tests: engine slice loop (budget, yield, resume from cursor, fence refusal on epoch); start-run atomicity; scheduled double-fire → 409; existing data_sync integration specs green; **soak**: docker-compose with 3 worker replicas, a fake adapter producing 500 batches, a supervisor SIGKILLing one replica per minute; assert every `(run_id, batch_no)` appears exactly once in a test ledger the adapter writes inside the fenced commit, `sync_runs.batches_completed = 500`, and no row is left `running` or `pending` after the reconciler's next tick.
-20. `data_sync/AGENTS.md` Ask-First items updated; spec changelog; close fsh#101 as superseded.
-
-**Phase 3** — list filters, bulk actions, `data_sync.run.*` `clientBroadcast` + dashboard subscription, Retry/Cancel affordances (D-26).
-
-## 📝 Requirements traceability
-
-| Requirement | Where | Status |
+| Requirement | Discharged in | Status |
 |---|---|---|
-| R-A1–A5 | §5.1–5.4 | discharged |
-| R-B1–B5 | §5.6 (tick hosting, take bumps epoch, budgets, `SKIP LOCKED`), §5.10 CLI | discharged |
-| R-C1–C4 | §5.6 step 4, §5.8 (`yield`, `signal`, bounded close) | discharged; R-C3 (sweeps resume from a cursor) applies to adopters in the follow-up |
-| R-D1–D4 | §5.3 unique index, §5.4 `(seq, redrives)`, epoch fence, `idempotencyKey` | discharged |
-| R-E1–E4 | §5.5 `createLeasedJob(em)` + deferred event, §5.6 Q2, §5.10 | discharged |
-| R-F1–F5 | §5.6, §5.8 | discharged; R-F5 partial on BullMQ (frozen at enqueue) |
-| R-G1–G3 | §5.7 | discharged; cascade minimal (children by `parent_job_id`), aggregation deferred to Q6 |
-| R-H1–H3 | §5.6 (no process-local state; per-row isolation; tick dedup) | discharged |
-| R-I1 | invariant 6, §5.3 | discharged |
-| R-I2 | structured-log events in Phase 1; metrics endpoint | **deferred** (follow-up) |
+| R-A1–A5 | part 6 §2–§3 | specified |
+| R-B1–B5 | part 6 §6 (tick hosting, take bumps epoch, budgets, `SKIP LOCKED`), part 7 CLI | specified |
+| R-C1–C4 | part 6 §5 step 4, part 5 (`yield`, `signal`, bounded close) | specified; R-C3 (sweeps resume from a cursor) applies to adopters in the follow-up |
+| R-D1–D4 | part 6 §2 unique index, §3 `(seq, redrives)`, epoch fence, `idempotencyKey` | specified |
+| R-E1–E4 | part 6 §4 `createLeasedJob(em)` + deferred event, §6 Q2/Q5, §7 terminal-transition protocol, part 7 | specified — v3's claim was invalid because a terminal CAS could commit without its domain mirror; invariant 11 and part 6 §7 close it |
+| R-F1–F5 | part 6 §5, part 5 | specified; R-F5 partial on BullMQ (frozen at enqueue) |
+| R-G1–G3 | part 6 §8 | specified; cascade minimal (children by `parent_job_id`), aggregation deferred to Q6 |
+| R-H1–H3 | part 6 §6 (no process-local state; per-row isolation; tick dedup) | specified |
+| R-I1 | invariant 6, part 6 §2 | specified |
+| R-I2 | structured-log events in part 6; metrics endpoint | **deferred** (follow-up) |
 | R-I3 | — | **deferred** (Q6) |
-| R-J1–J4 | §5.8 | discharged |
+| R-J1–J4 | part 5 | specified |
 | R-K1 | scheduler executions follow-up | **deferred** (Q4) |
-| R-K2–K3 | §5.7, §5.3 DTO, Phase 3 | discharged |
-| R-L1–L3 | §4.4, §5.5, risk table | discharged for the first consumer |
-| R-M1–M2 | steps 13, 19 | discharged |
+| R-K2–K3 | part 6 §8 and DTO, part 8 | specified |
+| R-L1–L3 | §4.4, part 6 §4, each part's risk table | specified for the first consumer |
+| R-M1–M2 | part 6 §10, part 7 integration coverage | specified |
 
-## Open items for review
+## Decisions requested from maintainers
 
-- Maintainer decision on A vs B (§4.4). Everything in §5 is home-agnostic except the table and the façade.
-- Default `orphanPolicy = 'park'` vs `'redrive'`: the spec follows Solid Queue; owners opt into redrive by declaring idempotency.
-- `sliceBudgetMs` 5 min vs `pendingTtlMs` 15 min: the ratio leaves three reconciler ticks of slack for a lost hand-back before the first re-drive; tune after the soak.
+1. **A vs B** (§4.4): grow `progress` (recommended) or a new module as the home of the leased-job record. Everything in part 6 is home-agnostic except the table the columns land in and the need for a `progress` façade under B.
+2. **Default `orphanPolicy`**: `'park'` (the spec follows Solid Queue; owners opt into `'redrive'` by declaring idempotency) vs `'redrive'`.
+3. **Default mirror mode** (new in v4): `'atomic'` — the domain mirror runs inside the terminal transaction (recommended; every in-repo consumer has its domain row in the app DB) — vs `'deferred'` for all kinds, which would make the reconciler's Q5 the only mirror path and add up to one tick of latency to every terminal mirror.
+4. `sliceBudgetMs` 5 min vs `pendingTtlMs` 15 min: the ratio leaves three reconciler ticks of slack for a lost hand-back before the first re-drive; tune after the soak (part 7).
 
 ## Changelog
 
-- 2026-08-21 — v3.1: §5.11 names the outbox/inbox shape of the design (the job row is the outbox, Q2 the relay, `claim` the inbox), states the relay-latency and emit-after-commit limits, and lists the events-bus outbox, per-subscriber inbox, claim-table convergence and webhook-outbox follow-ups.
+- 2026-08-22 — Draft v4 after review (PR #5450, changes requested). **Structural:** this part is now the umbrella decision record (options, recommendation, shared vocabulary and invariants, driver seam, outbox/inbox follow-ups, spec map, series traceability); the data model, lease SQL, service API, `runSlice`, reconciler, cancellation, `data_sync` adoption, failure scenarios, risks and implementation steps moved into parts 5–8, each with its own contracts, compatibility review, rollback, integration coverage and approval state. Unrelated production bugs (PG-1/SC-1/ST-1 and the rest of part 3 §0.1) are tracked as separate tickets instead of riding in a phase. **Correctness:** new invariant 11 and part 6 §7 — a terminal CAS and its domain mirror commit in one transaction (or, for `mirror: 'deferred'` kinds, the CAS records `domain_mirrored_at = null` and the reconciler's Q5 retries the mirror), closing the window where `progress_jobs` was terminal and `sync_runs` stayed `running` forever; R-E traceability corrected accordingly. Failure scenario S3 rewritten to match the claim predicate (no same-owner exception: a redelivery to the same process is refused until the lease expires or a take changes ownership). The BullMQ `signal` description corrected in part 3 C-8 and part 5: BullMQ supplies the signal to a literal three-argument processor but does not abort it on lock-renewal failure — the strategy's `lockRenewalFailed` listener does.
+- 2026-08-21 — v3.1: the outbox/inbox section names the outbox/inbox shape of the design (the job row is the outbox, Q2 the relay, `claim` the inbox), states the relay-latency and emit-after-commit limits, and lists the events-bus outbox, per-subscriber inbox, claim-table convergence and webhook-outbox follow-ups.
 - 2026-08-21 — Draft v3 after a second, mechanics-only review. Fixed: `redrives` is now a monotone identity and budgets moved to a new `redrives_since_commit` (a reset identity let a stale transport retry re-claim and fence a live driver); the same-owner claim clause removed; `failSlice` releases the lease and records the transport's next attempt in `next_run_at`, which Q1 honours, so a slow transport backoff is never mistaken for an orphan (invariant 8 holds); queue job ids use `-` (BullMQ 6 rejects custom ids with >2 colons); a native yield keeps the transport job id (`queue_job_id` unchanged); the reconciler tick is a transport repeatable (`upsertRepeatable` → BullMQ `upsertJobScheduler`; local bucketed ids + boot self-heal) instead of a self-enqueuing job, which would have died after its first run; Q2 keyed on `greatest(pending_since, next_run_at)` and `enqueueLeasedJob` honours `next_run_at`; `pendingTtl` vs backlog constraint stated; MikroORM fork flags named; invariant 7 marked best-effort; operator `redrive` reuses the take CAS; column count corrected.
 - 2026-08-21 — Draft v2 after a fresh-context architectural review. Fixed: yielded rows were invisible to both reconciler predicates (now `pending_since` + `lease_owner` cleared on yield, Q2 keyed on `pending_since`); `ctx.yield` now rewrites the payload before the hand-back (BullMQ `updateData` + `moveToDelayed(token)`), so the redelivery carries the new `seq`; delivery identity is `(seq, redrives)` and every reconciler action bumps `redrives` and the epoch, so re-drive ids never collide with the transport's own retry/failed job and a live driver is fenced at the take; removed the `epochHint` that would have refused the transport's own retry; all lease statements run on a forked EM in autocommit (`now()` is transaction-frozen); `createLeasedJob` defers its event to after commit; added `queue_job_id`; minimal cancel cascade over `parent_job_id` (R-G3); per-row isolation in the tick (R-H3); reconciler hosted as a self-perpetuating deduplicated queue job (Δ-6 decided); connection ceiling stated; local-strategy `yield` parity and conformance on both strategies; Δ-10 sequencing; down-migration and sweep-flag pairing for rollback; scores B/R-K → 2 and A/compat → 2; DTO fields for "cancelling"/"parked"; terminology (orphan/stale/abandoned/parked) and `error_code` enum aligned; soak harness specified; requirements traceability table.
 - 2026-08-21 — Draft v1: research digest from six surveys; options A–D scored against R-A…R-M with the store dimension; Option A recommended and designed; `data_sync` adoption; phases 0–3. Reuses the lease/continuation/reconciler mechanics of an earlier `background_jobs` draft (not retained).
