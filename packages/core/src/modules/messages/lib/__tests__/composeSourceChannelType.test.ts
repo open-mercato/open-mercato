@@ -1,5 +1,6 @@
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  composeRequiresChannelTypeResolution,
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../composeSourceChannelType'
@@ -107,5 +108,31 @@ describe('composeSourceHintSchema', () => {
       sourceEntityType: EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
       sourceEntityId: CONVERSATION_ID,
     })
+  })
+})
+
+describe('composeRequiresChannelTypeResolution', () => {
+  const PUBLIC_NO_ADDRESS = { visibility: 'public', parentMessageId: PARENT_MESSAGE_ID }
+
+  it('is true only for the branch the validator can read the answer in', () => {
+    expect(composeRequiresChannelTypeResolution(PUBLIC_NO_ADDRESS)).toBe(true)
+    expect(composeRequiresChannelTypeResolution({ ...PUBLIC_NO_ADDRESS, externalEmail: '   ' })).toBe(true)
+  })
+
+  it('is false for internal, draft and already-addressed composes', () => {
+    expect(composeRequiresChannelTypeResolution({ ...PUBLIC_NO_ADDRESS, visibility: 'internal' })).toBe(false)
+    expect(composeRequiresChannelTypeResolution({ ...PUBLIC_NO_ADDRESS, isDraft: true })).toBe(false)
+    expect(
+      composeRequiresChannelTypeResolution({ ...PUBLIC_NO_ADDRESS, externalEmail: 'jane@example.com' }),
+    ).toBe(false)
+  })
+
+  it('treats a missing visibility as internal, exactly as the validator does', () => {
+    expect(composeRequiresChannelTypeResolution({ parentMessageId: PARENT_MESSAGE_ID })).toBe(false)
+  })
+
+  it('tolerates a body that is not an object', () => {
+    expect(composeRequiresChannelTypeResolution(null)).toBe(false)
+    expect(composeRequiresChannelTypeResolution('public')).toBe(false)
   })
 })

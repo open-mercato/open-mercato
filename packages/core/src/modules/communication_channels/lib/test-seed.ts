@@ -184,11 +184,6 @@ function getTestSeedChatChannelAdapter(): TestSeedChatChannelAdapter {
   return cachedTestSeedChatAdapter
 }
 
-/** Provider keys the test-seed harness may connect a channel for. */
-export const TEST_SEED_PROVIDER_KEYS = [TEST_SEED_PROVIDER_KEY, TEST_SEED_CHAT_PROVIDER_KEY] as const
-
-export type TestSeedProviderKey = (typeof TEST_SEED_PROVIDER_KEYS)[number]
-
 /**
  * Register the test-seed adapter exactly once, but ONLY when the env flag is set.
  * Idempotent and safe to call from every container creation (`di.register`) — a

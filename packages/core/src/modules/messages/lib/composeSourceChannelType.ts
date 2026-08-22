@@ -19,6 +19,26 @@ export const composeSourceHintSchema = z.object({
 
 export type ComposeSourceHint = z.infer<typeof composeSourceHintSchema>
 
+/**
+ * Whether the compose validator can consult a resolved channel type at all.
+ *
+ * `sourceChannelType` is read in exactly one branch — a non-draft, public
+ * message that carries no address. Every internal reply, every draft and every
+ * public message that already supplies an address ignores it, so resolving it
+ * for them is a DI resolve plus a database round-trip whose answer is
+ * discarded. Mirrors `refineComposeMessage` and reads the raw body defensively,
+ * because this runs before validation. Skipping resolution yields `undefined`,
+ * which is already the fail-closed value.
+ */
+export function composeRequiresChannelTypeResolution(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false
+  const raw = body as Record<string, unknown>
+  if (raw.visibility !== 'public') return false
+  if (raw.isDraft === true) return false
+  const externalEmail = raw.externalEmail
+  return !(typeof externalEmail === 'string' && externalEmail.trim().length > 0)
+}
+
 type ResolveChannelTypeService = (
   container: ContainerLike,
   scope: { tenantId: string; organizationId: string | null },

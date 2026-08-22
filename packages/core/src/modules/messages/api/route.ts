@@ -18,6 +18,7 @@ import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
 import { composeMessageSchema, listMessagesSchema, type ListMessagesInput } from '../data/validators'
 import {
+  composeRequiresChannelTypeResolution,
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
@@ -456,8 +457,12 @@ export async function POST(req: Request) {
   // parent message and any client-sent `sourceChannelType` is dropped —
   // otherwise a caller could waive the requirement by asserting its own type.
   // An unresolvable source stays `undefined`, which the validator fails closed on.
-  const sourceHint = composeSourceHintSchema.safeParse(body)
-  const sourceChannelType = sourceHint.success
+  // Only the "public, non-draft, no address" branch of the validator reads the
+  // answer, so every other compose skips the lookup instead of discarding it.
+  const sourceHint = composeRequiresChannelTypeResolution(body)
+    ? composeSourceHintSchema.safeParse(body)
+    : null
+  const sourceChannelType = sourceHint?.success
     ? await resolveComposeSourceChannelType(
         ctx.container,
         { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
