@@ -2,10 +2,19 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const agenticRoot = fileURLToPath(new URL('../../agentic/', import.meta.url))
 const packagesRoot = fileURLToPath(new URL('../../../', import.meta.url))
+
+// The link validator owns installed-package resolution and the packed-file gate; this fixture
+// mirrors the same invariant, so it imports that authority instead of reimplementing it.
+const { installedPackageTarget, packedFilesOf } = (await import(
+  pathToFileURL(path.join(packagesRoot, 'create-app/scripts/validate-source-links.mjs')).href
+)) as unknown as {
+  installedPackageTarget: (resolvedPath: string) => { packageName: string; packageRelativePath: string; workspaceDir: string } | null
+  packedFilesOf: (repoRootPath: string, workspaceDir: string) => Set<string> | null
+}
 
 function readAgentic(relativePath: string): string {
   return fs.readFileSync(path.join(agenticRoot, relativePath), 'utf8')
@@ -262,7 +271,7 @@ test('progressive AI reference pins generated registration and approval-gated co
     'shared/ai/skills/om-create-ai-agent/references/module-agents-and-tools.md',
   )
   assert.match(aiSkill, /scores or explains customer, contact, lead, or deal records/)
-  assert.match(aiSkill, /load `\.ai\/guides\/modules\/customers\.md`/)
+  assert.match(aiSkill, /load `\.ai\/guides\/modules\/customers\/index\.md`/)
   assert.match(aiSkill, /read-only access still targets that host/)
   assert.match(moduleAi, /`ai-agents\.ts`\/`ai-tools\.ts`/)
   assert.match(moduleAi, /`prepareMutation`/)
@@ -342,6 +351,128 @@ test('spec routing binds integration coverage to its decision label', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /integration coverage \(`integration-coverage`\); no domain routes/)
   assert.match(root, /Commit\+ready PR MUST add `spec-pr`, read `\.ai\/skills\/om-auto-create-pr\/SKILL\.md`, and keep task routes \(`delivery-route-preserves-task-routes`\)/)
+})
+
+// The spec-first gate is the only planning rule that must fire BEFORE routing, so it lives in
+// the emitted root. Both emitted roots must state it once and identically: `template/AGENTS.md`
+// is the `--agents none` fallback and `agentic/shared/AGENTS.md.template` is the generated one.
+const ROOT_INSTRUCTION_SOURCES = [
+  { label: 'agentic/shared/AGENTS.md.template', read: () => readAgentic('shared/AGENTS.md.template') },
+  { label: 'template/AGENTS.md', read: () => readPackage('create-app/template/AGENTS.md') },
+] as const
+
+test('every emitted root states the ordered spec-first gate exactly once', () => {
+  for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
+    const root = read()
+    assert.equal(
+      (root.match(/Spec gate before code:/g) ?? []).length,
+      1,
+      `${label} must state the spec gate exactly once; one rule, one owner`,
+    )
+    // The six ordered branches from the decision contract, in order.
+    assert.match(
+      root,
+      /Spec gate before code: new capability\/architecture\/schema\/API contract\/cross-module\/multi-phase -> spec first \(`spec-first`\)/,
+      `${label} must require a spec before a new capability, architecture, contract, cross-module, or multi-phase change`,
+    )
+    assert.match(
+      root,
+      /covering `\.ai\/specs` match -> reuse and update it \(`reuse-spec`\)/,
+      `${label} must reuse a covering spec instead of duplicating it`,
+    )
+    assert.match(
+      root,
+      /bug fix\/minor fix\/docs\/dependency\/isolated refactor -> proceed \(`direct`\)/,
+      `${label} must let maintenance categories proceed without a spec`,
+    )
+    assert.match(
+      root,
+      /only the request's explicit words waive a feature spec/,
+      `${label} must accept only a current explicit instruction as the skip override`,
+    )
+    assert.match(
+      root,
+      /workflow-changing ambiguity -> ask once \(`ask`\)/,
+      `${label} must ask exactly one bounded question for material ambiguity`,
+    )
+    // One-way handoff: the root routes, the module skill owns the procedure.
+    assert.match(
+      root,
+      /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
+      `${label} must hand approved module work to om-module-scaffold at the canonical example README`,
+    )
+    assert.doesNotMatch(
+      root,
+      /surface-inventory\.json/,
+      `${label} must route to the inventory through om-module-scaffold, not restate its procedure`,
+    )
+  }
+})
+
+test('the spec-first gate only links owners that exist in the emitted harness', () => {
+  const root = readAgentic('shared/AGENTS.md.template')
+  const tiers = JSON.parse(readAgentic('shared/ai/skills/tiers.json')) as unknown
+  const declaredSkills = new Set(
+    [...JSON.stringify(tiers).matchAll(/"(om-[a-z0-9-]+)"/g)].map((match) => match[1]),
+  )
+  for (const skillId of ['om-spec-writing', 'om-module-scaffold']) {
+    assert.match(root, new RegExp(`\`${skillId}\``), `the gate must route to ${skillId}`)
+    assert.ok(declaredSkills.has(skillId), `${skillId} must be an installed skill in tiers.json`)
+  }
+  assert.ok(
+    fs.existsSync(path.join(agenticRoot, 'shared/ai/skills/om-module-scaffold/SKILL.md')),
+    'om-module-scaffold must ship a local SKILL.md',
+  )
+  assert.ok(
+    fs.existsSync(path.join(agenticRoot, 'guides/spec-delivery.md')),
+    '.ai/guides/spec-delivery.md must exist for the relocated delivery procedure',
+  )
+  assert.ok(
+    fs.existsSync(path.join(packagesRoot, 'create-app/template/src/modules/example/README.md')),
+    'the gate must point at a README the scaffold actually emits',
+  )
+  assert.ok(
+    fs.existsSync(
+      path.join(packagesRoot, 'create-app/template/src/modules/example/references/surface-inventory.json'),
+    ),
+    'om-module-scaffold must resolve capabilities against an emitted inventory',
+  )
+})
+
+test('module scaffold owns the one-way canonical-example handoff', () => {
+  const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
+  // The handoff now renders as a visible exact-file link (CANON-C); the label keeps the
+  // exact path so a reader who cannot follow the link still gets it.
+  assert.match(
+    skill,
+    /START at \[`src\/modules\/example\/README\.md`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/README\.md\)/,
+  )
+  assert.match(
+    skill,
+    /adapt only the \[`references\/surface-inventory\.json`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/references\/surface-inventory\.json\) rows it names/,
+  )
+  assert.match(
+    skill,
+    /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe`, or add direct cross-module ORM relationships/,
+  )
+})
+
+test('spec-delivery guide owns the expanded branches and the relocated delivery procedure', () => {
+  const guide = readAgentic('guides/spec-delivery.md')
+  assert.match(guide, /`AGENTS\.md` owns the ordered rule/)
+  assert.match(guide, /a plan-only request stops there/)
+  assert.match(guide, /Silence, urgency, an "it's small" estimate, and an earlier generic preference are not overrides/)
+  assert.match(guide, /Do not ask when repository evidence/)
+  assert.match(guide, /one-way handoff/)
+  assert.match(guide, /Never propose a second teaching module, copy the example tree wholesale, or treat `ratelimit_probe` as a blueprint/)
+  assert.match(guide, /names its own self-contained integration test/)
+  // Relocated out of the root router; the guide is now their only owner.
+  assert.match(guide, /Pinned delivery skills install with `yarn install-skills` \(refresh: `--update`\)/)
+  assert.match(guide, /run `yarn install-skills` once; never substitute/)
+  assert.match(guide, /`om-integration-tests` and `om-auto-qa-pr`/)
+  const root = readAgentic('shared/AGENTS.md.template')
+  assert.doesNotMatch(root, /om-auto-qa-pr/)
+  assert.doesNotMatch(root, /Absent skill/)
 })
 
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
@@ -522,7 +653,7 @@ test('workflow skill binds implementation prompts to the progressive contract re
   assert.match(workflowSkill, /Dispatching an existing allowlisted command from a workflow does not change that command's implementation and stays workflow-only: do not read contracts/)
   assert.match(workflowSkill, /installed-host order, status, or quantity state also selects `module-data` \+ `umes`/)
   assert.match(workflowSkill, /loads `\.ai\/guides\/contracts\.md`, `\.ai\/guides\/extensions\.md`, and `om-system-extension`/)
-  assert.match(workflowSkill, /every new business account loads and declares `\.ai\/guides\/modules\/onboarding\.md`/)
+  assert.match(workflowSkill, /every new business account loads and declares `\.ai\/guides\/modules\/onboarding\/index\.md`/)
   assert.match(workflowSkill, /uses `onTenantCreated` \(`on-tenant-created-hook`\)/)
   assert.match(workflowSkill, /Load `references\/durability-and-progress\.md` whenever the workflow waits, handles signals, schedules timers/)
   assert.match(workflowSkill, /`command-state-machine`/)
@@ -585,7 +716,7 @@ test('AI attachments, CRM lead capture, and customer renewals bind their exact p
   assert.match(implementationSkill, /references\/spec-resolution\.md/)
   assert.match(implementationSkill, /references\/planning-and-progress\.md/)
   assert.match(implementationSkill, /references\/report-templates\.md/)
-  assert.match(blueprints, /MUST read `\.ai\/guides\/modules\/customers\.md`, invoke `om-data-model-design`, and report `smallest-validation` for the lead record and scalar CRM link/)
+  assert.match(blueprints, /MUST read `\.ai\/guides\/modules\/customers\/index\.md`, invoke `om-data-model-design`, and report `smallest-validation` for the lead record and scalar CRM link/)
   assert.match(blueprints, /explicit trusted config\/domain binding/)
   assert.match(blueprints, /never select or persist the first\/oldest active tenant or organization/)
   assert.match(blueprints, /idempotency lookup and database uniqueness include tenant\+organization/)
@@ -653,4 +784,159 @@ test('public lead eval keeps the request business-oriented while owners enforce 
   assert.match(sensitiveData, /assert the sensitive database columns are ciphertext/)
   assert.match(sensitiveData, /Let `TenantDataEncryptionService` populate it/)
   assert.match(sensitiveData, /`lookupHashCandidates\(value\)` from `@open-mercato\/shared\/lib\/encryption\/aes`/)
+})
+
+// --- CANON-C: visible exact-file source links in emitted knowledge owners ---------------
+//
+// The emitted harness may only render Markdown links that resolve, in a freshly scaffolded
+// app, to a regular file that the scaffolder actually writes. A link to a directory, to a
+// `__tests__`/`__integration__` path the scaffolder skips, or to a file that does not exist
+// is a dead link in every generated app, so it fails here rather than in a user's app.
+
+// Directories the template copier drops on its way into a scaffolded app (index.ts SKIP_DIRS).
+const NON_EMITTED_TREE_SEGMENTS = new Set(['__tests__', '__integration__'])
+// Emitted paths produced at generation time from installed packages, not present in this
+// repository. A knowledge owner must not hard-link into them.
+const GENERATED_EMITTED_PREFIXES = ['.ai/guides/modules/', '.ai/guides/upstream/', '.ai/framework-context/', '.mercato/']
+
+/** Where an emitted knowledge owner is authored in this repository. */
+function authoringPathOfEmittedOwner(appRelativePath: string): string | null {
+  if (appRelativePath === 'AGENTS.md') return 'create-app/agentic/shared/AGENTS.md.template'
+  if (appRelativePath.startsWith('.ai/guides/')) {
+    return `create-app/agentic/guides/${appRelativePath.slice('.ai/guides/'.length)}`
+  }
+  if (appRelativePath.startsWith('.ai/')) {
+    return `create-app/agentic/shared/ai/${appRelativePath.slice('.ai/'.length)}`
+  }
+  if (appRelativePath.startsWith('src/')) return `create-app/template/${appRelativePath}`
+  return null
+}
+
+/** Every emitted Markdown knowledge owner, as its app-relative path. */
+function emittedMarkdownOwners(): string[] {
+  const owners = ['AGENTS.md']
+  const walk = (absoluteDir: string, emittedPrefix: string): void => {
+    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
+      const absolute = path.join(absoluteDir, entry.name)
+      const emitted = `${emittedPrefix}${entry.name}`
+      if (entry.isDirectory()) walk(absolute, `${emitted}/`)
+      else if (entry.name.endsWith('.md')) owners.push(emitted)
+    }
+  }
+  walk(path.join(agenticRoot, 'guides'), '.ai/guides/')
+  walk(path.join(agenticRoot, 'shared/ai/skills'), '.ai/skills/')
+  return owners
+}
+
+/** Relative Markdown link destinations in `source`, decoded, anchors and externals dropped. */
+function relativeMarkdownLinkTargets(source: string): string[] {
+  const targets: string[] = []
+  for (const match of source.matchAll(/\]\(([^)\s]+)\)/g)) {
+    const raw = match[1]
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('#') || raw.startsWith('/')) continue
+    targets.push(decodeURIComponent(raw.split('#')[0]))
+  }
+  return targets
+}
+
+test('every emitted knowledge owner links only to exact files a scaffolded app really has', () => {
+  const owners = emittedMarkdownOwners()
+  assert.ok(owners.length > 20, 'the owner scan must reach the whole emitted knowledge set')
+
+  let checkedLinks = 0
+  for (const owner of owners) {
+    const authoringPath = authoringPathOfEmittedOwner(owner)
+    assert.ok(authoringPath, `no authoring source is known for emitted owner ${owner}`)
+    const source = fs.readFileSync(path.join(packagesRoot, authoringPath), 'utf8')
+    const ownerDirectory = path.posix.dirname(owner)
+
+    for (const target of relativeMarkdownLinkTargets(source)) {
+      const emittedTarget = path.posix.normalize(path.posix.join(ownerDirectory, target))
+      assert.ok(
+        !emittedTarget.startsWith('..'),
+        `${owner} links outside the generated app root: ${target}`,
+      )
+      for (const prefix of GENERATED_EMITTED_PREFIXES) {
+        assert.ok(
+          !emittedTarget.startsWith(prefix),
+          `${owner} hard-links into generated output that does not exist until generation: ${target}`,
+        )
+      }
+      assert.ok(
+        !emittedTarget.split('/').some((segment) => NON_EMITTED_TREE_SEGMENTS.has(segment)),
+        `${owner} links to ${target}, which the scaffolder never copies into a generated app`,
+      )
+      // An installed-package target is the one link kind a generated app gets by INSTALLING
+      // rather than by scaffolding, so it is checked against the publishing workspace package
+      // and its packed file list. That check is the link validator's, imported rather than
+      // reimplemented, so this fixture cannot drift from the gate it mirrors.
+      if (emittedTarget.startsWith('node_modules/')) {
+        const installed = installedPackageTarget(emittedTarget)
+        assert.ok(installed, `${owner} links to an unrecognized installed path: ${emittedTarget}`)
+        const workspaceFile = path.join(packagesRoot, '..', installed.workspaceDir, installed.packageRelativePath)
+        assert.ok(
+          fs.existsSync(workspaceFile) && fs.statSync(workspaceFile).isFile(),
+          `${owner} links to ${target}, which ${installed.workspaceDir} does not contain`,
+        )
+        const packed = packedFilesOf(path.join(packagesRoot, '..'), installed.workspaceDir)
+        assert.ok(packed, `npm pack failed for ${installed.workspaceDir}`)
+        assert.ok(
+          packed.has(installed.packageRelativePath),
+          `${owner} links to ${target}, which ${installed.packageName} does not pack`,
+        )
+        checkedLinks += 1
+        continue
+      }
+      const authoringTarget = authoringPathOfEmittedOwner(emittedTarget)
+      assert.ok(authoringTarget, `${owner} links to an unrecognized app path: ${emittedTarget}`)
+      const absoluteTarget = path.join(packagesRoot, authoringTarget)
+      assert.ok(
+        fs.existsSync(absoluteTarget) && fs.statSync(absoluteTarget).isFile(),
+        `${owner} links to ${target}, which is not a regular file in a generated app (${emittedTarget})`,
+      )
+      checkedLinks += 1
+    }
+  }
+  assert.ok(checkedLinks >= 60, `expected the migrated owners to render links; saw ${checkedLinks}`)
+})
+
+test('each migrated owner family renders a visible exact-file link into the canonical example', () => {
+  // Owner -> the emitted path it must make visible. Families deliberately NOT migrated in this
+  // batch (root instructions, the optional Figma owner, installed-package targets) are absent.
+  const migratedOwners: Array<[string, string]> = [
+    ['.ai/guides/backend-ui.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-module-scaffold/SKILL.md', 'src/modules/example/README.md'],
+    ['.ai/skills/om-module-scaffold/references/module-surfaces.md', 'src/modules/example/index.ts'],
+    ['.ai/skills/om-module-scaffold/references/api-and-domain.md', 'src/modules/example/commands/todos.ts'],
+    ['.ai/skills/om-module-scaffold/references/data-and-migrations.md', 'src/modules/example/data/entities.ts'],
+    ['.ai/skills/om-backend-ui-design/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-backend-ui-design/references/crud-surfaces.md', 'src/modules/example/components/TodosTable.tsx'],
+    ['.ai/skills/om-backend-ui-design/references/page-and-navigation.md', 'src/modules/example/backend/todos/page.meta.ts'],
+    ['.ai/skills/om-data-model-design/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-data-model-design/references/schema-design.md', 'src/modules/example/data/entities.ts'],
+    ['.ai/skills/om-data-model-design/references/migration-workflow.md', 'src/modules/example/migrations/.snapshot-open-mercato.json'],
+    ['.ai/skills/om-data-model-design/references/integrity-and-concurrency.md', 'src/modules/example/commands/todos.ts'],
+    ['.ai/skills/om-system-extension/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-system-extension/references/extension-branches.md', 'src/modules/example/data/enrichers.ts'],
+    ['.ai/skills/om-system-extension/references/unified-overrides.md', 'src/modules.ts'],
+    ['.ai/skills/om-eject-and-customize/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-eject-and-customize/references/decision-and-procedure.md', 'src/modules/example/setup.ts'],
+    ['.ai/skills/om-integration-builder/references/provider-families.md', 'src/modules/example/lib/mock-gateway-adapter.ts'],
+    ['.ai/skills/om-troubleshooter/SKILL.md', 'src/modules/example/references/surface-map.md'],
+    ['.ai/skills/om-troubleshooter/references/diagnosis-map.md', 'src/modules/example/backend/todos/page.meta.ts'],
+  ]
+
+  for (const [owner, requiredTarget] of migratedOwners) {
+    const authoringPath = authoringPathOfEmittedOwner(owner)
+    assert.ok(authoringPath, `no authoring source is known for ${owner}`)
+    const source = fs.readFileSync(path.join(packagesRoot, authoringPath), 'utf8')
+    const ownerDirectory = path.posix.dirname(owner)
+    const resolved = relativeMarkdownLinkTargets(source).map((target) =>
+      path.posix.normalize(path.posix.join(ownerDirectory, target)),
+    )
+    assert.ok(
+      resolved.includes(requiredTarget),
+      `${owner} must render a visible exact-file link to ${requiredTarget}; it links ${JSON.stringify(resolved)}`,
+    )
+  }
 })

@@ -18,7 +18,12 @@ export interface CustomerAuthContext {
   isPortalAdmin?: boolean
 }
 
-async function assertSessionStillActive(sessionId: string): Promise<boolean> {
+async function assertSessionStillActive(input: {
+  sessionId: string
+  userId: string
+  tenantId: string
+  organizationId: string
+}): Promise<boolean> {
   try {
     const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
       import('@open-mercato/shared/lib/di/container'),
@@ -26,7 +31,7 @@ async function assertSessionStillActive(sessionId: string): Promise<boolean> {
     ])
     const container = await createRequestContainer()
     const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
-    const session = await service.findActiveSessionById(sessionId)
+    const session = await service.findActiveSessionForClaims(input)
     return session !== null
   } catch {
     // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
@@ -108,32 +113,46 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
 
   try {
     let payload = verifyAudienceJwt(CUSTOMER_JWT_AUDIENCE, token) as Record<string, unknown> | null
-    // Legacy fallback: try raw JWT_SECRET for pre-migration customer tokens
+    // Legacy fallback: accept a pre-migration customer token signed with the raw JWT_SECRET, but
+    // only while `verifyJwt` itself still considers it legacy — it owns the grace window (token
+    // `iat` vs JWT_LEGACY_GRACE_MINUTES / JWT_LEGACY_CUTOVER_AT) and marks the payload. Trusting
+    // the bare return value would also let a staff-audience token through this branch, because
+    // the default `verifyJwt` path verifies against the staff-derived key.
     if (!payload) {
-      payload = verifyJwt(token) as Record<string, unknown> | null
-      if (payload) payload._legacyToken = true
+      const legacyPayload = verifyJwt(token) as Record<string, unknown> | null
+      if (legacyPayload && legacyPayload._legacyToken === true) payload = legacyPayload
     }
     if (!payload) return null
     if (payload.type !== 'customer') return null
     const sid = typeof payload.sid === 'string' ? payload.sid : ''
     if (!sid && payload._legacyToken !== true) return null
-    const stillActive = sid ? await assertSessionStillActive(sid) : true
+    const userId = String(payload.sub)
+    const tenantId = String(payload.tenantId)
+    const organizationId = String(payload.orgId)
+    const stillActive = sid
+      ? await assertSessionStillActive({
+          sessionId: sid,
+          userId,
+          tenantId,
+          organizationId,
+        })
+      : true
     if (!stillActive) return null
 
     const userState = await validateUserState(
-      String(payload.sub),
-      String(payload.tenantId),
-      String(payload.orgId),
+      userId,
+      tenantId,
+      organizationId,
       payload.iat,
     )
     if (!userState.valid) return null
 
     return {
-      sub: String(payload.sub),
+      sub: userId,
       sid,
       type: 'customer',
-      tenantId: String(payload.tenantId),
-      orgId: String(payload.orgId),
+      tenantId,
+      orgId: organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,

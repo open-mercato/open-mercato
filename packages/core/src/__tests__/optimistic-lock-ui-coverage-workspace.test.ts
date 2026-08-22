@@ -6,11 +6,16 @@ import { join, relative, sep } from 'node:path'
  *
  * The original `optimistic-lock-ui-coverage.test.ts` only scans
  * `packages/core/src/modules`. This successor extends the same raw-mutation /
- * header audit to EVERY module package (`packages/<pkg>/src/modules`), so a mutating
- * UI file in `checkout`, `webhooks`, `enterprise`, `ai-assistant`, `scheduler`,
- * etc. cannot ship a `PUT`/`PATCH`/`DELETE` (or `updateCrud`/`deleteCrud`)
- * without participating in OSS optimistic locking — or carrying an explicit
- * decision.
+ * header audit to EVERY module package (`packages/<pkg>/src/modules`) AND to the
+ * app-owned module trees (`apps/<app>/src/modules`), so a mutating UI file in
+ * `checkout`, `webhooks`, `enterprise`, `ai-assistant`, `scheduler`, or in the
+ * canonical `example` module that ships as the standalone reference, cannot ship
+ * a `PUT`/`PATCH`/`DELETE` (or `updateCrud`/`deleteCrud`) without participating
+ * in OSS optimistic locking — or carrying an explicit decision.
+ *
+ * `apps/mercato/src/modules/example` matters specifically: it is the module
+ * every scaffolded app copies, and neither enforcement test named in the root
+ * AGENTS.md could see it while the scan stopped at `packages/`.
  *
  * It scans BOTH `.tsx` AND `.ts` sources: raw UI mutation adapters routinely
  * live in plain `.ts` files (detail-section notes/address/activities adapters,
@@ -37,8 +42,17 @@ import { join, relative, sep } from 'node:path'
 
 const MUTATION = /\b(deleteCrud|updateCrud)\s*\(|method:\s*['"](PUT|PATCH|DELETE)['"]/
 // A lock primitive / CrudForm / inline exempt marker present in the file.
+//
+// `withScopedApiRequestHeaders` is deliberately NOT in this set. It is a generic
+// scoped-header helper — a file may import it to attach a tenant or locale header and
+// never send a version at all. Counting a bare mention as coverage let such a file read
+// as compliant, which is the same silent-pass the tokenless
+// `buildOptimisticLockHeader(undefined|null)` demotion already guards against. The
+// canonical wiring is `withScopedApiRequestHeaders(buildOptimisticLockHeader(v), …)`, so
+// a genuine call site still matches through `HEADER_WITH_TOKEN` below.
+// Measured when this was tightened: zero repo files relied on the bare mention.
 const COVERED_PRIMITIVE =
-  /buildOptimisticLockHeader|withScopedApiRequestHeaders|withOptimisticLockFor|optimisticLockUpdatedAt|disableOptimisticLock|<CrudForm|optimistic-lock-exempt/
+  /buildOptimisticLockHeader|withOptimisticLockFor|optimisticLockUpdatedAt|disableOptimisticLock|<CrudForm|optimistic-lock-exempt/
 // A tokenless `buildOptimisticLockHeader(undefined|null)` — sends no version.
 const TOKENLESS_HEADER = /buildOptimisticLockHeader\s*\(\s*(undefined|null)\s*\)/
 const INLINE_EXEMPT = /optimistic-lock-exempt/
@@ -54,6 +68,9 @@ const OTHER_LOCK_PRIMITIVE =
  * webhooks, checkout, customer_accounts, attachments, translations) that send no
  * version header today. Each carries a concrete reason; this surfaces them so
  * they cannot masquerade as "covered" via a tokenless helper call.
+ *
+ * Paths are rooted at the repository, so both `packages/…` and `apps/…` entries
+ * are valid.
  */
 const WORKSPACE_ALLOWLIST: Record<string, string> = {
   // --- Pre-existing tokenless TODO sites outside this phase's named scope ---
@@ -106,9 +123,17 @@ const WORKSPACE_ALLOWLIST: Record<string, string> = {
     'exempt — inbox bulk markRead/markUnread/archive are status transitions; bulk delete is a non-audited single-owner inbox action (Phase-7 sweep). The per-message detail delete + action paths are now version-locked (#3260), but bulk operates over many rows with no per-record version to send.',
   'packages/enterprise/src/modules/security/components/hooks/useMfaStatus.ts':
     'exempt — removes the caller\'s OWN MFA method (single-owner security action), not a collaborative-edit record surface. Documented in the Phase-7 sweep ("mfa factor reset remain exempt").',
+  // --- apps/mercato example-module showcase pages (never reference rows; see
+  //     src/modules/example/references/surface-map.md § "Not in the inventory at all") ---
+  'apps/mercato/src/modules/example/backend/umes-next-phases/page.tsx':
+    'exempt — the only PUT/DELETE targets are `progress_jobs` rows the page itself just created to drive the progress-bar demo. Background-job rows are exempt per packages/core/AGENTS.md § Database Entities, and no second editor exists for a job the page owns for the length of one demo run.',
+  'apps/mercato/src/modules/example/backend/mutation-lifecycle/page.tsx':
+    'exempt — a self-contained probe harness: each PUT/DELETE targets a todo the same closure created moments earlier and deletes before returning, so there is no loaded record version to echo and no concurrent editor. The collaborative Todo surfaces (components/TodoForm.tsx, components/TodosTable.tsx) carry the version header.',
 }
 
 const packagesRoot = join(__dirname, '..', '..', '..')
+const repoRoot = join(packagesRoot, '..')
+const appsRoot = join(repoRoot, 'apps')
 
 /**
  * Whether a file should be scanned. We collect BOTH `.tsx` AND `.ts` sources:
@@ -154,27 +179,37 @@ function collectSources(dir: string, acc: string[]): void {
   }
 }
 
-function collectModulePackages(): string[] {
+function collectModuleRootsUnder(workspaceRoot: string): string[] {
   const roots: string[] = []
   let entries: string[]
   try {
-    entries = readdirSync(packagesRoot)
+    entries = readdirSync(workspaceRoot)
   } catch {
     return roots
   }
-  for (const pkg of entries) {
-    const modulesDir = join(packagesRoot, pkg, 'src', 'modules')
+  for (const workspace of entries) {
+    const modulesDir = join(workspaceRoot, workspace, 'src', 'modules')
     try {
       if (statSync(modulesDir).isDirectory()) roots.push(modulesDir)
     } catch {
-      // package has no src/modules — skip
+      // workspace has no src/modules — skip
     }
   }
   return roots
 }
 
+/**
+ * Every module tree in the repo: the package workspaces plus the app workspaces.
+ * `apps/mercato/src/modules` holds the canonical `example` module that scaffolded
+ * standalone apps copy verbatim, so leaving it out let the reference module ship
+ * mutating UI with no version header.
+ */
+function collectModuleRoots(): string[] {
+  return [...collectModuleRootsUnder(packagesRoot), ...collectModuleRootsUnder(appsRoot)]
+}
+
 function toRepoRelative(full: string): string {
-  return join('packages', relative(packagesRoot, full)).split(sep).join('/')
+  return relative(repoRoot, full).split(sep).join('/')
 }
 
 /**
@@ -197,7 +232,7 @@ function isCovered(source: string): boolean {
 }
 
 describe('optimistic locking (workspace) — mutating UI calls send the version header', () => {
-  const moduleRoots = collectModulePackages()
+  const moduleRoots = collectModuleRoots()
   const files: string[] = []
   for (const root of moduleRoots) collectSources(root, files)
   const candidates = files.filter((f) => f.includes(`${sep}backend${sep}`) || f.includes(`${sep}components${sep}`))
@@ -205,6 +240,12 @@ describe('optimistic locking (workspace) — mutating UI calls send the version 
   it('scans multiple workspace packages (not just core)', () => {
     expect(moduleRoots.length).toBeGreaterThan(3)
     expect(candidates.length).toBeGreaterThan(200)
+  })
+
+  it('scans the app-owned module trees, including the canonical example module', () => {
+    const appCandidates = candidates.map(toRepoRelative).filter((rel) => rel.startsWith('apps/'))
+    expect(appCandidates).toContain('apps/mercato/src/modules/example/components/TodosTable.tsx')
+    expect(appCandidates).toContain('apps/mercato/src/modules/example/components/TodoForm.tsx')
   })
 
   it('every mutating UI file across packages is covered, inline-exempt, or allowlisted', () => {
@@ -223,7 +264,7 @@ describe('optimistic locking (workspace) — mutating UI calls send the version 
   it('allowlist has no stale entries (every entry is still an uncovered mutating file)', () => {
     const stale: string[] = []
     for (const rel of Object.keys(WORKSPACE_ALLOWLIST)) {
-      const full = join(packagesRoot, rel.replace(/^packages\//, ''))
+      const full = join(repoRoot, rel)
       let source: string
       try {
         source = readFileSync(full, 'utf8')
@@ -237,9 +278,9 @@ describe('optimistic locking (workspace) — mutating UI calls send the version 
     expect(stale).toEqual([])
   })
 
-  it('every allowlist entry carries a non-empty reason and a packages/ path', () => {
+  it('every allowlist entry carries a non-empty reason and a repo-rooted workspace path', () => {
     for (const [rel, reason] of Object.entries(WORKSPACE_ALLOWLIST)) {
-      expect(rel).toMatch(/^packages\//)
+      expect(rel).toMatch(/^(packages|apps)\//)
       expect(typeof reason).toBe('string')
       expect(reason.trim().length).toBeGreaterThan(0)
     }

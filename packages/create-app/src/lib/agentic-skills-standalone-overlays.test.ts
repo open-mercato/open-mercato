@@ -111,6 +111,25 @@ test('the template wires the ephemeral runner scripts and the override keeps the
   )
 })
 
+test('spec delivery does not promote the optional ephemeral runner into a mandatory exit gate', () => {
+  const phasesAndGates = fs.readFileSync(
+    new URL('om-implement-spec/references/phases-and-gates.md', skillsDir),
+    'utf8',
+  )
+  const override = readOverrideSkill('om-prepare-test-env')
+  const rootInstructions = [
+    fs.readFileSync(new URL('../../agentic/shared/AGENTS.md.template', import.meta.url), 'utf8'),
+    fs.readFileSync(new URL('../../template/AGENTS.md', import.meta.url), 'utf8'),
+  ]
+
+  assert.doesNotMatch(phasesAndGates, /test:integration:ephemeral|integration: blocked/)
+  assert.doesNotMatch(override, /Consumed by the spec exit gate|final phase remains open/)
+  for (const instructions of rootInstructions) {
+    assert.match(instructions, /integration: `yarn test:integration:ephemeral`/)
+    assert.doesNotMatch(instructions, /spec-exit integration/)
+  }
+})
+
 test('override folders do not also ship a stale STANDALONE.md', () => {
   const stale = [...skillsShippingOverrideFolder, ...skillsShippingKnowledgeOverrideFolder].filter((skill) => {
     const url = new URL(`${skill}/STANDALONE.md`, skillsDir)
@@ -307,6 +326,7 @@ test('local spec implementation shares stable planning and report contracts with
   for (const reference of [
     'references/spec-resolution.md',
     'references/planning-and-progress.md',
+    'references/resume.md',
     'references/report-templates.md',
   ]) {
     assert.ok(implementation.includes(reference), `om-implement-spec must load ${reference}`)
@@ -315,6 +335,14 @@ test('local spec implementation shares stable planning and report contracts with
   assert.match(specResolution, /Closest candidates:/)
   assert.match(planning, /Goal.*Scope.*Non-goals.*Source doc:.*Risks/is)
   assert.match(planning, /Only one phase may be `in_progress`/)
+  assert.match(planning, /ledger write is part of the slice/)
+  const resume = fs.readFileSync(
+    new URL('om-implement-spec/references/resume.md', skillsDir),
+    'utf8',
+  )
+  assert.match(resume, /focused typecheck.*first/is)
+  assert.match(resume, /Never re-execute a verified ticked slice/)
+  assert.match(implementation, /paired edits atomically in one edit operation/)
   assert.match(planning, /present.*plan.*user.*before coding/is)
   assert.match(reportTemplate, /### 📋 Plan & progress/)
   assert.match(reportTemplate, /### 🧪 Validation & 🔍 review/)
@@ -331,6 +359,7 @@ test('local spec implementation shares stable planning and report contracts with
     '.ai/skills/om-implement-spec/references/spec-resolution.md',
     '.ai/skills/om-implement-spec/references/phases-and-gates.md',
     '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+    '.ai/skills/om-implement-spec/references/resume.md',
     '.ai/skills/om-implement-spec/references/report-templates.md',
   ]
   for (const caseId of ['OMH-006', 'OMH-168']) {

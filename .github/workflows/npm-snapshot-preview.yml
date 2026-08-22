@@ -25,7 +25,7 @@ concurrency:
 jobs:
   resolve-pr:
     name: Resolve PR
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       head_sha: ${{ steps.pr.outputs.head_sha }}
       head_repo: ${{ steps.pr.outputs.head_repo }}
@@ -74,6 +74,10 @@ jobs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
       packages_json: ${{ steps.release.outputs.packages_json }}
+    # GitHub-hosted on purpose — do NOT move this job to a Blacksmith runner.
+    # `scripts/publish-packages.sh` publishes with `npm publish --provenance`, which
+    # npm only accepts from a `github-hosted` runner. Guarded by
+    # scripts/__tests__/npm-provenance-runners.test.mjs.
     runs-on: ubuntu-latest
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -88,7 +92,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 'lts/*'
+          node-version: '24.19.0'
 
       - name: Enable Corepack
         run: corepack enable
@@ -221,7 +225,7 @@ jobs:
 
   standalone-integration:
     name: Standalone App Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs:
       - resolve-pr
       - snapshot
@@ -250,7 +254,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 'lts/*'
+          node-version: '24.19.0'
 
       - name: Enable Corepack
         run: corepack enable
@@ -316,26 +320,58 @@ jobs:
           # Without this every portal invite 502s (TC-AUTH-032/033, TC-CACC-INVITE-PERSON-001).
           PLATFORM_PORTAL_BASE_URL=http://localhost:3001
           AUTH_SECRET=ci-standalone-test-auth-secret
-          JWT_SECRET=ci-standalone-test-jwt-secret
+          JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min
           OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test
           OM_TEST_MODE=1
           OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
           OM_INTEGRATION_TEST=true
+          # Registers the network-free `push_stub` channel adapter (no-op unless a
+          # delivery row carries provider='push_stub'). The ephemeral harness sets
+          # it in buildReusableEnvironment/the app-server env; this job starts the
+          # app from its own .env instead, so without the mirror TC-PUSH-003 can
+          # never resolve an adapter and every delivery lands in `failed`.
+          OM_ENABLE_PUSH_STUB_ADAPTER=1
+          # Documents collaboration. The ephemeral lane configures it at the ci.yml
+          # workflow level; this lane configured none of it, so the collab-token route
+          # took its graceful "not ready" branch and returned an EMPTY token
+          # (TC-DOCUMENTS-009), and the editor never left single-user mode so the
+          # read-only banner never rendered (TC-DOCUMENTS-013).
+          # NEXT_PUBLIC_* is inlined at build time, so it MUST be written here, before
+          # the `Build standalone app` step, not only on the test-run env.
+          NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101
+          DOCUMENTS_COLLAB_JWT_SECRET_V2=ci-standalone-documents-collab-v2-secret-32b
+          # Required for the loopback collab URL above to be ACCEPTED. This lane's
+          # server runs with NODE_ENV=production, and
+          # resolveDocumentsCollaborationEndpoint() rejects a loopback ws:// host
+          # under production unless this flag opts in — it logged "Ignoring
+          # NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ... not a valid browser-reachable ws(s)
+          # endpoint" and TC-DOCUMENTS-013 saw "Realtime unavailable" instead of the
+          # access-tier banner.
+          # Deliberately app-side ONLY: the same variable has a second, unrelated
+          # meaning in the Playwright process, where it opts TC-DOCUMENTS-017's
+          # realtime UI spec in. This lane wants the server-side permission, not that
+          # spec, so do NOT mirror this onto the integration-test env.
+          OM_DOCUMENTS_COLLAB_INTEGRATION=1
           OM_DISABLE_EMAIL_DELIVERY=1
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
           MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
-          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
           OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
-          CACHE_STRATEGY=memory
+          # MUST be a cross-process strategy (sqlite/redis), never `memory`:
+          # with AUTO_SPAWN_WORKERS=false the integration tests drain queue jobs
+          # in separate child processes, and a per-process memory cache leaves the
+          # server serving stale ENABLE_CRUD_API_CACHE entries after those jobs
+          # mutate records. The absolute path keeps every process on one store.
+          CACHE_STRATEGY=sqlite
+          CACHE_SQLITE_PATH=/tmp/standalone-app/.mercato/cache/cache.db
           OM_OPTIMISTIC_LOCK=all
           EOF
           # The app writes captured test emails here and the Playwright specs read
@@ -360,7 +396,14 @@ jobs:
         # Retry through npm's post-publish quarantine window (see the script).
         run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
-      - name: Generate standalone app modules
+      - name: Generate runtime-disabled standalone baseline
+        working-directory: /tmp/standalone-app
+        run: yarn generate
+
+      - name: Verify disabled baseline and activate example integration fixture
+        run: yarn tsx scripts/prepare-standalone-example-integration.ts /tmp/standalone-app
+
+      - name: Generate activated standalone app modules
         working-directory: /tmp/standalone-app
         run: yarn generate
 
@@ -407,11 +450,27 @@ jobs:
           # writes captured emails here and TC-AUTH-033 reads them back.
           OM_TEST_EMAIL_CAPTURE_PATH: ${{ github.workspace }}/.ai/qa/email-capture.jsonl
           AUTH_SECRET: ci-standalone-test-auth-secret
-          JWT_SECRET: ci-standalone-test-jwt-secret
+          JWT_SECRET: ci-standalone-test-jwt-secret-32-chars-min
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
           MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
+          # Queue-drain child processes inherit this env rather than the app's
+          # .env, so they must invalidate the same shared store the server reads.
+          CACHE_STRATEGY: sqlite
+          CACHE_SQLITE_PATH: /tmp/standalone-app/.mercato/cache/cache.db
+          # Same reason: with AUTO_SPAWN_WORKERS=false the `push-deliveries` job is
+          # executed by a drain CHILD of this process, which never reads the app's
+          # .env — so the `push_stub` adapter must be enabled here too, exactly as
+          # the ephemeral harness sets it on both the Playwright process and the
+          # app server (TC-PUSH-003).
+          OM_ENABLE_PUSH_STUB_ADAPTER: '1'
+          # The Playwright process starts the collaboration sidecar itself
+          # (ensureManagedCollabSidecar reads NEXT_PUBLIC_DOCUMENTS_COLLAB_URL) and the
+          # sidecar verifies the tokens the app mints, so both halves need the same
+          # secret. Mirrors the app .env written above.
+          NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
+          DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-standalone-documents-collab-v2-secret-32b'
         run: yarn test:integration
 
       - name: Print standalone app log on test failure

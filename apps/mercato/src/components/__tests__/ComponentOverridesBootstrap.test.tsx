@@ -4,7 +4,7 @@
 
 import '@testing-library/jest-dom'
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { getComponentOverrides, registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { ComponentOverridesBootstrap } from '../ComponentOverridesBootstrap'
@@ -22,6 +22,30 @@ jest.mock('@/.mercato/generated/component-overrides.generated', () => ({
 describe('ComponentOverridesBootstrap', () => {
   afterEach(() => {
     registerComponentOverrides([])
+  })
+
+  it('activates login overrides before rendering interactive children', async () => {
+    function Label({ label }: { label: string }) {
+      return <span>{label}</span>
+    }
+
+    function Consumer() {
+      const ResolvedLabel = useRegisteredComponent<{ label: string }>('test', Label)
+      return <ResolvedLabel label="Fallback active" />
+    }
+
+    await act(async () => {
+      render(
+        <React.Suspense fallback={<span>Loading overrides</span>}>
+          <ComponentOverridesBootstrap profile="login">
+            <Consumer />
+          </ComponentOverridesBootstrap>
+        </React.Suspense>,
+      )
+    })
+
+    expect(screen.getByText('Override active')).toBeInTheDocument()
+    expect(screen.queryByText('Fallback active')).not.toBeInTheDocument()
   })
 
   it('preserves child state and updates mounted consumers when asynchronous overrides activate', async () => {
@@ -43,7 +67,7 @@ describe('ComponentOverridesBootstrap', () => {
     }
 
     render(
-      <ComponentOverridesBootstrap profile="login">
+      <ComponentOverridesBootstrap profile="backend">
         <StatefulChild />
       </ComponentOverridesBootstrap>,
     )
