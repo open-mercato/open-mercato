@@ -32,6 +32,7 @@ type ResponsePayload = {
   page?: number
   pageSize?: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null, t: (key: string) => string) {
@@ -50,6 +51,7 @@ export default function DevicesAdminListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
@@ -138,6 +140,7 @@ export default function DevicesAdminListPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -249,7 +252,7 @@ export default function DevicesAdminListPage() {
               { id: 'deactivate', label: t('devices.list.actions.deactivate'), destructive: true, onSelect: () => { void handleDeactivate(row) } },
             ]} />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>
