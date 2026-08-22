@@ -33,10 +33,9 @@ export type EnqueueOptions = {
 }
 
 export interface JobContext<T = unknown> {
-  // …existing members unchanged…
+  jobId: string; attemptNumber: number; queueName: string   // existing (packages/queue/src/types.ts:29-36); attemptNumber's per-strategy semantics are Q-4
   signal: AbortSignal                                // aborted on shutdown (both), lock-renewal failure (async), close timeout (async)
   token?: string                                     // async: BullMQ token; local: undefined
-  attemptNumber: number                              // 1-based; async: job.attemptsMade + 1; local: attemptCount + 1
   yield(opts: { data: T; delayMs?: number }): Promise<never>   // rewrites the stored payload, hands the delivery back, never returns
 }
 
@@ -57,9 +56,15 @@ export type QueueCapabilities = {
 export class QueueUnrecoverableError extends Error {}   // async → BullMQ UnrecoverableError; local: no further attempts
 ```
 
+**Minimum BullMQ version: 6.0.0.** Two capabilities this spec relies on do not exist across the whole `^5.0.0 || ^6.0.0` range `packages/queue` and `packages/scheduler` currently declare as an optional peer: `upsertJobScheduler` (behind `upsertRepeatable`, which part 6 hosts its *only* repairer on) and the per-job `AbortSignal` for a literal three-argument processor. A host satisfying the published range with an older 5.x would install the leased tier and get no orphan repair — worse than today. Therefore:
+
+- the peer range in `packages/queue/package.json` and `packages/scheduler/package.json` is narrowed to `"bullmq": "^6.0.0"` in this spec (listed in the compatibility table below; UPGRADE_NOTES entry; `apps/mercato` already resolves 6.0.9);
+- `capabilities()` is **feature-detected at strategy construction**, not a static table: `repeatable = typeof Queue.prototype.upsertJobScheduler === 'function'`, `signal` from the installed major, `jobState`/`removeJob` likewise. The table below is what the detection yields on ≥ 6.0.0;
+- consumers that *require* a capability fail fast: part 6's worker boot refuses to register a leased kind when `capabilities().repeatable || signal` is false, with an error naming the installed version and the floor, instead of running without a repairer.
+
 Per-strategy behaviour:
 
-| Capability | async (BullMQ 6.0.9) | local (SQLite/in-process) |
+| Capability | async (BullMQ ≥ 6.0.0; verified against 6.0.9) | local (SQLite/in-process) |
 |---|---|---|
 | `queueJobId` dedup | BullMQ `jobId`; an add with an id that exists in any non-removed state is a no-op (including retained `failed` — which is why part 6 never reuses an id) | unique on `(queue, job_id)` over pending/active rows |
 | `attempts`/`backoff` | `attempts`/`backoff` on add; frozen at enqueue | stored per job; honoured by the batch loop |
@@ -93,6 +98,7 @@ Per-strategy behaviour:
 | 2 exported types (`EnqueueOptions`, `JobContext`, `Queue`) | optional members added | ADDITIVE |
 | 3 signatures | `close()` gains an optional options argument; processor arity inside the async strategy changes (internal) | ADDITIVE / internal |
 | 12 CLI | `mercato worker` gains `QUEUE_CLOSE_TIMEOUT_MS`; exit sequence relays SIGTERM before close | ADDITIVE; UPGRADE_NOTES entry (deployment grace) |
+| dependencies (optional peer) | `bullmq` peer range narrowed from `^5.0.0 \|\| ^6.0.0` to `^6.0.0` in `packages/queue` and `packages/scheduler` | **narrowing** — Ask-First item for maintainers; UPGRADE_NOTES entry; hosts on 5.x must upgrade before adopting this package version |
 | 11 notification / 5 event ids | none | — |
 | 8 DB schema | none (local strategy: one new nullable column `not_before` on its SQLite job table, created on open) | ADDITIVE, self-migrating |
 
@@ -118,12 +124,12 @@ Rollback: revert the package; no caller depends on the new members until part 6 
 5. `yield` leaves the attempt counter unchanged and redelivers the rewritten payload; `yield` after lock loss (async) throws and redelivers the old payload;
 6. SIGTERM with a yielding handler exits < `timeoutMs`; non-yielding exits at `timeoutMs` and the job is redelivered;
 7. `upsertRepeatable` fires on schedule, survives a failed run, and is re-created after a flush + boot (local: after a bucket gap);
-8. `capabilities()` matches the table above for each strategy.
+8. `capabilities()` matches the table above for each strategy on ≥ 6.0.0; a unit test with a stubbed `Queue` lacking `upsertJobScheduler` yields `repeatable: false`.
 
 ## 📋 Implementation Plan
 
 1. `EnqueueOptions.queueJobId/attempts/backoff`; async maps to BullMQ; local dedups and stores `notBefore`. Tests: dedup collapses; delay honoured; existing callers unchanged.
-2. `JobContext.signal` + `token` + `attemptNumber`; async literal 3-arity processor; the strategy registers `lockRenewalFailed` and aborts the job's signal from it (BullMQ does not do this itself) and on close timeout; local aborts on close. Test: handler observes abort within 100 ms of `close()`; async: within 100 ms of a simulated `lockRenewalFailed`.
+2. `JobContext.signal` + `token` (`attemptNumber` already exists); async literal 3-arity processor; the strategy registers `lockRenewalFailed` and aborts the job's signal from it (BullMQ does not do this itself) and on close timeout; local aborts on close. Test: handler observes abort within 100 ms of `close()`; async: within 100 ms of a simulated `lockRenewalFailed`.
 3. `ctx.yield({ data })`: async `updateData` → `moveToDelayed(token)` → `DelayedError` rethrown by the processor; local `LocalYield` sentinel caught in the batch loop, payload rewritten, `attemptCount` unchanged. Tests on both strategies: attempt counter unchanged; redelivery carries the rewritten payload.
 4. `close({ timeoutMs })`, `removeJob`, `upsertRepeatable` (BullMQ `upsertJobScheduler`; local bucketed ids + boot timer), `getJobState`, `QueueUnrecoverableError`, `QueueCapabilities` (logged once at boot); runner relays SIGTERM → signals → `close(QUEUE_CLOSE_TIMEOUT_MS)`. Test: SIGTERM with a yielding handler exits < timeout; non-yielding handler exits at timeout and the job is redelivered.
 5. Conformance suite (above); capability table per strategy documented in `packages/queue/AGENTS.md`.
@@ -132,9 +138,13 @@ Rollback: revert the package; no caller depends on the new members until part 6 
 
 ## Open items for review
 
+- Narrowing the `bullmq` peer range to `^6.0.0` (Ask-First: production-dependency change) vs keeping the range and relying on the feature-detected `capabilities()` + part 6's boot refusal alone. The spec proposes narrowing because a silent no-repairer install is the failure the series exists to remove.
+
 - `QUEUE_CLOSE_TIMEOUT_MS` default 25 s vs 20 s: 25 s leaves 10 s of margin under a 35 s grace and 5 s under Kubernetes' 30 s default; the latter is tight when the handler's last durable boundary is a 5-second page.
-- Whether `attemptNumber` should be exposed at all, or only consumed by part 6's `failSlice` to compute `nextAttemptAt`.
+- Whether Q-4's per-strategy semantics of the existing `attemptNumber` (async: `attemptsMade + 1`; local: its own counter) are fixed here as part of the conformance suite, or left to part 6's `failSlice`, which is its only new consumer (to compute `nextAttemptAt`).
 
 ## Changelog
+
+- 2026-08-22 — Draft v1.1 after the second review (PR #5450): BullMQ floor stated (6.0.0) with the peer range narrowed in both packages and listed as a compat change; `capabilities()` is feature-detected, and consumers requiring a capability fail fast at boot; `attemptNumber` shown as the existing member it is, with the open item rephrased around Q-4.
 
 - 2026-08-22 — Draft v1: split out of part 4 v3 §5.8 + Phase 0 after review (PR #5450). Corrected the BullMQ `signal` mechanics (BullMQ supplies the signal to a literal three-argument processor but does not abort it on lock-renewal failure; the strategy's `lockRenewalFailed` listener does — part 3 C-8 says the same). Removed the unrelated PG-1/SC-1/ST-1 fixes and the `data_sync` hardening step from this scope (separate tickets; part 7 step 0). Added the full contract listing, per-strategy table, compatibility review, rollback, and the conformance suite as integration coverage.
