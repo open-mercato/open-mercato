@@ -162,4 +162,24 @@ describe('LookupSelect keyboard accessibility', () => {
     expect(input.value).toBe('')
     expect(escapeSpy).not.toHaveBeenCalled()
   })
+
+  // Issue #5456 item 3: a `minQuery` of 0 makes `shouldSearch` true for the empty
+  // query, so the full option list renders before any interaction. Callers that
+  // want the collapsed "start typing" affordance must keep minQuery >= 1.
+  it('renders pre-expanded with minQuery=0 and collapsed with minQuery=1', async () => {
+    const expanded = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={0} />,
+    )
+    expect(await expanded.findAllByRole('option')).toHaveLength(2)
+    expanded.unmount()
+
+    const collapsed = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={1} />,
+    )
+    expect(collapsed.queryByRole('listbox')).toBeNull()
+    expect(collapsed.getByText('Start typing to search.')).toBeInTheDocument()
+
+    fireEvent.change(getInput(collapsed.container), { target: { value: 'F' } })
+    expect(await collapsed.findAllByRole('option')).toHaveLength(2)
+  })
 })

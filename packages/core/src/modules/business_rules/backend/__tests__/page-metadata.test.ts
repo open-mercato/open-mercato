@@ -37,4 +37,12 @@ describe('business_rules backend page metadata', () => {
     expect(logsMetadata.requireFeatures).toEqual(logsRouteMetadata.GET.requireFeatures)
     expect(logsDetailMetadata.requireFeatures).toEqual(logsDetailRouteMetadata.GET.requireFeatures)
   })
+
+  test('localizes the rule create page title and every breadcrumb segment', () => {
+    expect(ruleCreateMetadata.pageTitleKey).toBe('business_rules.rules.create.title')
+    for (const segment of ruleCreateMetadata.breadcrumb ?? []) {
+      expect(typeof segment.labelKey).toBe('string')
+      expect(segment.labelKey).not.toHaveLength(0)
+    }
+  })
 })

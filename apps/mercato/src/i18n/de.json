@@ -806,6 +806,8 @@
   "ui.colorPicker.eyedropper.ariaLabel": "Farbe vom Bildschirm auswählen",
   "ui.columnChooser.available": "Available columns",
   "ui.columnChooser.close": "Close",
+  "ui.columnChooser.customFieldsGroup": "Benutzerdefinierte Felder",
+  "ui.columnChooser.defaultGroup": "Spalten",
   "ui.columnChooser.hideAll": "Hide all",
   "ui.columnChooser.search": "Search columns...",
   "ui.columnChooser.selected": "Selected columns",
