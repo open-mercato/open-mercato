@@ -11,36 +11,29 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
+import { mapDictionaryColorToTone, type FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCustomerDictionary } from '../../../../../components/detail/hooks/useCustomerDictionary'
+import { canonicalDealStatus } from '../../../../../lib/dealStatus'
 import { ChipButton } from './ChipButton'
 import { FilterPopoverShell } from './FilterPopoverShell'
 
-const STATUS_SYNONYMS: Record<string, string> = {
-  won: 'win',
-  lost: 'loose',
-}
-
 function normalizeStatusValue(value: string): string {
-  const lower = value.toLowerCase()
-  return STATUS_SYNONYMS[lower] ?? value
+  return canonicalDealStatus(value)
 }
 
-function toneToDotClass(tone: string | null | undefined): string {
-  switch (tone) {
-    case 'success':
-      return 'bg-status-success-icon'
-    case 'warning':
-      return 'bg-status-warning-icon'
-    case 'error':
-      return 'bg-status-error-icon'
-    case 'info':
-      return 'bg-status-info-icon'
-    case 'brand':
-      return 'bg-status-brand-icon'
-    default:
-      return 'bg-status-neutral-icon'
-  }
+const DOT_TONE_CLASS: Record<FilterOptionTone, string> = {
+  success: 'bg-status-success-icon',
+  error: 'bg-status-error-icon',
+  warning: 'bg-status-warning-icon',
+  info: 'bg-status-info-icon',
+  neutral: 'bg-status-neutral-icon',
+  brand: 'bg-brand-violet',
+  pink: 'bg-status-pink-icon',
+}
+
+function toneToDotClass(tone: FilterOptionTone | null | undefined): string {
+  if (tone && tone in DOT_TONE_CLASS) return DOT_TONE_CLASS[tone as FilterOptionTone]
+  return 'bg-status-neutral-icon'
 }
 
 /**
@@ -103,14 +96,20 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
   const statusOptions = React.useMemo(() => {
     const entries = dictionaryData?.entries
     if (entries && entries.length > 0) {
-      return (entries as Array<{ value: string; label: string; color?: string | null }>).map((entry) => {
+      const byCanonical = new Map<string, { value: string; label: string; dotClass: string }>()
+      for (const entry of entries as Array<{ value: string; label: string; color?: string | null }>) {
+        const canonical = canonicalDealStatus(entry.value)
+        if (byCanonical.has(canonical)) continue
         const tone = mapDictionaryColorToTone(entry.color ?? null)
-        return {
-          value: entry.value,
+        byCanonical.set(canonical, {
+          value: canonical,
           label: entry.label,
-          dotClass: toneToDotClass(tone),
-        }
-      })
+          dotClass: toneToDotClass(tone as FilterOptionTone | null | undefined),
+        })
+      }
+      return Array.from(byCanonical.values()).sort((a, b) =>
+        a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+      )
     }
     return FALLBACK_STATUS_OPTIONS.map((entry) => ({
       value: entry.value,

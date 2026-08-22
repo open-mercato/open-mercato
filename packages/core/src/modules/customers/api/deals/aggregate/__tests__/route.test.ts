@@ -157,4 +157,25 @@ describe('customers deals aggregate route', () => {
     // win -> win,won and lost -> loose,lost, so all four spellings appear
     expect(values).toEqual(expect.arrayContaining(['win', 'won', 'loose', 'lost']))
   })
+
+  it('is case-insensitive for won/lost and passes through unknown values', async () => {
+    executeMock.mockResolvedValue([])
+    findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
+    const upperResponse = await GET(
+      new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=WON`),
+    )
+    expect(upperResponse.status).toBe(200)
+    const upperValues = (executeMock.mock.calls[executeMock.mock.calls.length - 1][1] as string[])
+    expect(upperValues).toEqual(expect.arrayContaining(['win', 'won']))
+
+    executeMock.mockClear()
+    executeMock.mockResolvedValue([])
+    findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
+    const unknownResponse = await GET(
+      new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=renegotiating`),
+    )
+    expect(unknownResponse.status).toBe(200)
+    const unknownValues = (executeMock.mock.calls[executeMock.mock.calls.length - 1][1] as string[])
+    expect(unknownValues).toContain('renegotiating')
+  })
 })

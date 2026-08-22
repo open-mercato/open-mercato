@@ -5,6 +5,8 @@ import {
   DEAL_STATUS_WIN,
   LOST_DEAL_STATUS_LIST,
   WON_DEAL_STATUS_LIST,
+  canonicalDealStatus,
+  expandDealStatusAliases,
   isClosedDealStatus,
   isLostDealStatus,
   isOpenDealStatus,
@@ -88,5 +90,47 @@ describe('deal status semantics', () => {
     for (const value of LOST_DEAL_STATUS_LIST) {
       expect(isWonDealStatus(value)).toBe(false)
     }
+  })
+
+  describe('canonicalDealStatus', () => {
+    it('normalizes won→win and lost→loose', () => {
+      expect(canonicalDealStatus('won')).toBe('win')
+      expect(canonicalDealStatus('Won')).toBe('win')
+      expect(canonicalDealStatus('WON')).toBe('win')
+      expect(canonicalDealStatus('lost')).toBe('loose')
+      expect(canonicalDealStatus('LOST')).toBe('loose')
+    })
+
+    it('keeps canonical and unknown values unchanged case-wise', () => {
+      expect(canonicalDealStatus('win')).toBe('win')
+      expect(canonicalDealStatus('open')).toBe('open')
+      expect(canonicalDealStatus('renegotiating')).toBe('renegotiating')
+    })
+  })
+
+  describe('expandDealStatusAliases', () => {
+    it('expands win/won to both spellings and loose/lost to both', () => {
+      expect(expandDealStatusAliases(['win']).sort()).toEqual(['win', 'won'])
+      expect(expandDealStatusAliases(['won']).sort()).toEqual(['win', 'won'])
+      expect(expandDealStatusAliases(['WON']).sort()).toEqual(['win', 'won'])
+      expect(expandDealStatusAliases(['loose']).sort()).toEqual(['loose', 'lost'])
+      expect(expandDealStatusAliases(['lost']).sort()).toEqual(['loose', 'lost'])
+    })
+
+    it('expands closed to the full terminal set', () => {
+      expect(expandDealStatusAliases(['closed']).sort()).toEqual(
+        [...CLOSED_DEAL_STATUS_LIST].sort(),
+      )
+    })
+
+    it('is case-insensitive and preserves unknown values', () => {
+      expect(expandDealStatusAliases(['WON', 'Open']).sort()).toEqual(['Open', 'win', 'won'].sort())
+      expect(expandDealStatusAliases(['renegotiating'])).toEqual(['renegotiating'])
+    })
+
+    it('deduplicates when both spellings are provided', () => {
+      expect(expandDealStatusAliases(['win', 'won']).sort()).toEqual(['win', 'won'])
+      expect(expandDealStatusAliases(['win', 'WON', 'win']).sort()).toEqual(['win', 'won'])
+    })
   })
 })

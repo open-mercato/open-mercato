@@ -46,3 +46,27 @@ export function isClosedDealStatus(value: string | null | undefined): boolean {
 export function isOpenDealStatus(value: string | null | undefined): boolean {
   return !isClosedDealStatus(value)
 }
+
+export function canonicalDealStatus(value: string): string {
+  const lower = value.toLowerCase()
+  if (lower === 'won') return DEAL_STATUS_WIN
+  if (lower === 'lost') return DEAL_STATUS_LOSE
+  return value
+}
+
+export function expandDealStatusAliases(values: string[]): string[] {
+  const out = new Set<string>()
+  for (const value of values) {
+    const lower = value.toLowerCase()
+    if (lower === 'win' || lower === 'won') {
+      WON_DEAL_STATUS_LIST.forEach((entry) => out.add(entry))
+    } else if (lower === 'loose' || lower === 'lost') {
+      LOST_DEAL_STATUS_LIST.forEach((entry) => out.add(entry))
+    } else if (lower === 'closed') {
+      CLOSED_DEAL_STATUS_LIST.forEach((entry) => out.add(entry))
+    } else {
+      out.add(value)
+    }
+  }
+  return Array.from(out)
+}

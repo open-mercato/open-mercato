@@ -86,6 +86,22 @@ describe('customers deals list filters', () => {
     expect(lostFilters.status).toEqual({ $in: ['loose', 'lost'] })
   })
 
+  it('is case-insensitive for won/lost aliases and preserves unknown values', async () => {
+    const upperWon = dealListQuerySchema.parse({ status: ['WON'] })
+    const upperWonFilters = await buildDealListFilters(upperWon)
+    expect(upperWonFilters.status).toEqual({ $in: ['win', 'won'] })
+
+    const mixed = dealListQuerySchema.parse({ status: ['wOn', 'LOST'] })
+    const mixedFilters = await buildDealListFilters(mixed)
+    expect((mixedFilters.status as { $in: string[] }).$in.sort()).toEqual(
+      ['win', 'won', 'loose', 'lost'].sort(),
+    )
+
+    const unknown = dealListQuerySchema.parse({ status: ['renegotiating'] })
+    const unknownFilters = await buildDealListFilters(unknown)
+    expect(unknownFilters.status).toEqual({ $eq: 'renegotiating' })
+  })
+
   it('applies $eq when a single status is provided', async () => {
     const parsed = dealListQuerySchema.parse({ status: ['open'] })
     const filters = await buildDealListFilters(parsed)

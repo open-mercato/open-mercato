@@ -23,6 +23,7 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { fetchStuckDealIds } from '../../lib/stuckDeals'
+import { expandDealStatusAliases } from '../../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -31,26 +32,6 @@ const rawBodySchema = z.object({}).passthrough()
 
 const stringOrStringArray = z.union([z.string(), z.array(z.string())])
 const OPEN_DEAL_STATUSES = ['open', 'in_progress'] as const
-const STATUS_SYNONYM_GROUPS: Record<string, string[]> = {
-  win: ['win', 'won'],
-  won: ['win', 'won'],
-  loose: ['loose', 'lost'],
-  lost: ['loose', 'lost'],
-}
-
-function expandStatusList(list: string[]): string[] {
-  const expanded = new Set<string>()
-  for (const value of list) {
-    const lower = value.toLowerCase()
-    const group = STATUS_SYNONYM_GROUPS[lower]
-    if (group) {
-      group.forEach((entry) => expanded.add(entry))
-    } else {
-      expanded.add(value)
-    }
-  }
-  return Array.from(expanded)
-}
 const booleanQueryParam = z.preprocess((value) => {
   const parsed = parseBooleanFromUnknown(value)
   return parsed === null ? value : parsed
@@ -321,7 +302,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
   }
 
   const rawStatusList = query.status ? normalizeStringList(query.status) : []
-  const statusList = expandStatusList(rawStatusList)
+  const statusList = expandDealStatusAliases(rawStatusList)
   if (statusList.length > 0) {
     filters.status = statusList.length === 1 ? { $eq: statusList[0] } : { $in: statusList }
   }
