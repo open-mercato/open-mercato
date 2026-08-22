@@ -116,7 +116,10 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         return parseScopedCommandInput(warehouseCreateSchema, raw ?? {}, ctx, translate)
       },
-      response: ({ result }) => ({ id: result?.warehouseId ?? null }),
+      response: ({ result }) => ({
+        id: result?.warehouseId ?? null,
+        updatedAt: result?.updatedAt ?? null,
+      }),
       status: 201,
     },
     update: {

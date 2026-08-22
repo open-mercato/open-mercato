@@ -37,6 +37,7 @@ import {
 } from '../../lib/inventoryDisplayUi'
 import { LocationEditDialog } from './LocationEditDialog'
 import { WarehouseEditDialog, type WarehouseFormValues } from './WarehouseEditDialog'
+import { formatWarehouseCountryLabel } from './warehouseFormOptions'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 import { flashMutationError } from '../../lib/flashMutationError'
 
@@ -165,6 +166,7 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
   queryClient: QueryClient,
   newId: string,
   values: WarehouseFormValues,
+  updatedAt?: string | null,
 ) {
   const row: WarehouseRow = {
     id: newId,
@@ -175,6 +177,8 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
     timezone: values.timezone || null,
     is_active: values.isActive,
     is_primary: values.isPrimary,
+    updated_at: updatedAt ?? null,
+    updatedAt: updatedAt ?? null,
   }
   const haystack = `${values.name}\n${values.code}`.toLowerCase()
 
@@ -259,6 +263,7 @@ type ConfigSectionOptions = {
 
 export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-warehouses' })
@@ -306,7 +311,7 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     },
     { accessorKey: 'code', header: t('wms.backend.config.warehouses.columns.code', 'Code'), enableSorting: true },
     { accessorKey: 'city', header: t('wms.backend.config.warehouses.columns.city', 'City'), cell: ({ row }) => row.original.city || '—' },
-    { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => row.original.country || '—' },
+    { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => formatWarehouseCountryLabel(row.original.country, locale) },
     {
       accessorKey: 'is_primary',
       header: t('wms.backend.config.warehouses.columns.primary', 'Primary'),
@@ -323,7 +328,7 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
           ? t('wms.common.inactive', 'Inactive')
           : t('wms.common.active', 'Active'),
     },
-  ], [t])
+  ], [locale, t])
 
   const closeDialog = React.useCallback(() => {
     setDialog(null)
@@ -339,10 +344,11 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     mode: 'create' | 'edit'
     id?: string
     values: WarehouseFormValues
+    updatedAt?: string | null
   }) => {
     closeDialog()
     if (info.mode === 'create' && info.id) {
-      mergeCreatedWarehouseIntoWarehousesCaches(queryClient, info.id, info.values)
+      mergeCreatedWarehouseIntoWarehousesCaches(queryClient, info.id, info.values, info.updatedAt)
       setSearch('')
       setPage(1)
     }

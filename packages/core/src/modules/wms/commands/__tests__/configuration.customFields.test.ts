@@ -127,6 +127,8 @@ describe('WMS warehouse custom fields', () => {
     )
 
     expect(result.warehouseId).toBeTruthy()
+    expect(typeof result.updatedAt).toBe('string')
+    expect(result.updatedAt).toBeTruthy()
   })
 
   it('persists custom fields on warehouse create and update', async () => {
@@ -173,6 +175,130 @@ describe('WMS warehouse custom fields', () => {
       entityId: E.wms.warehouse,
       recordId: created.warehouseId,
       values: expect.objectContaining({ dock_code: 'DOCK-B' }),
+    }))
+  })
+
+  it('clears custom fields when undoing warehouse create', async () => {
+    const store = createWarehouseStore()
+    const setCustomFields = jest.fn().mockResolvedValue(undefined)
+    const handler = commandRegistry.get('wms.warehouses.create')!
+    const ctx = createCtx(store.em, { setCustomFields })
+
+    const created = await handler.execute!(
+      {
+        tenantId: TENANT,
+        organizationId: ORG,
+        name: 'Undo CF DC',
+        code: 'UNDOCF',
+        cf_dock_code: 'DOCK-A',
+      },
+      ctx as never,
+    )
+    const record = store.records.get(created.warehouseId)!
+    setCustomFields.mockClear()
+
+    await handler.undo!({
+      input: {},
+      logEntry: {
+        commandPayload: {
+          undo: {
+            after: {
+              id: record.id,
+              organizationId: record.organizationId,
+              tenantId: record.tenantId,
+              name: record.name,
+              code: record.code,
+              isActive: record.isActive,
+              isPrimary: record.isPrimary,
+              addressLine1: record.addressLine1,
+              city: record.city,
+              postalCode: record.postalCode,
+              country: record.country,
+              timezone: record.timezone,
+              metadata: record.metadata,
+              createdAt: record.createdAt.toISOString(),
+              updatedAt: record.updatedAt.toISOString(),
+              custom: { dock_code: 'DOCK-A' },
+            },
+          },
+        },
+      },
+      ctx,
+      undoToken: 'undo-create-cf',
+    } as never)
+
+    expect(record.deletedAt).toBeInstanceOf(Date)
+    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: E.wms.warehouse,
+      recordId: created.warehouseId,
+      values: expect.objectContaining({ dock_code: null }),
+    }))
+  })
+
+  it('restores previous custom fields when undoing warehouse update', async () => {
+    const store = createWarehouseStore()
+    const setCustomFields = jest.fn().mockResolvedValue(undefined)
+    const createHandler = commandRegistry.get('wms.warehouses.create')!
+    const updateHandler = commandRegistry.get('wms.warehouses.update')!
+    const ctx = createCtx(store.em, { setCustomFields })
+
+    const created = await createHandler.execute!(
+      {
+        tenantId: TENANT,
+        organizationId: ORG,
+        name: 'Undo Update CF DC',
+        code: 'UNDOUPD',
+        cf_dock_code: 'DOCK-A',
+      },
+      ctx as never,
+    )
+    await updateHandler.execute!(
+      {
+        id: created.warehouseId,
+        tenantId: TENANT,
+        organizationId: ORG,
+        cf_dock_code: 'DOCK-B',
+      },
+      ctx as never,
+    )
+    const record = store.records.get(created.warehouseId)!
+    const snapshot = {
+      id: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      name: record.name,
+      code: record.code,
+      isActive: record.isActive,
+      isPrimary: record.isPrimary,
+      addressLine1: record.addressLine1,
+      city: record.city,
+      postalCode: record.postalCode,
+      country: record.country,
+      timezone: record.timezone,
+      metadata: record.metadata,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+    }
+    setCustomFields.mockClear()
+
+    await updateHandler.undo!({
+      input: {},
+      logEntry: {
+        commandPayload: {
+          undo: {
+            before: { ...snapshot, custom: { dock_code: 'DOCK-A' } },
+            after: { ...snapshot, custom: { dock_code: 'DOCK-B' } },
+          },
+        },
+      },
+      ctx,
+      undoToken: 'undo-update-cf',
+    } as never)
+
+    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: E.wms.warehouse,
+      recordId: created.warehouseId,
+      values: expect.objectContaining({ dock_code: 'DOCK-A' }),
     }))
   })
 })

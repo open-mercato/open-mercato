@@ -62,6 +62,7 @@ type WarehouseEditDialogProps = {
     mode: 'create' | 'edit'
     id?: string
     values: WarehouseFormValues
+    updatedAt?: string | null
   }) => void | Promise<void>
 }
 
@@ -138,7 +139,7 @@ export function WarehouseEditDialog({ open, onOpenChange, mode, row, onSaved }: 
       const payload = mode === 'edit' && row ? { id: row.id, ...values } : values
       const call = await runMutation({
         operation: async () => {
-          const result = await apiCall<{ id?: string | null }>(
+          const result = await apiCall<{ id?: string | null; updatedAt?: string | null; updated_at?: string | null }>(
             '/api/wms/warehouses',
             {
               method: mode === 'edit' ? 'PUT' : 'POST',
@@ -160,18 +161,24 @@ export function WarehouseEditDialog({ open, onOpenChange, mode, row, onSaved }: 
           : t('wms.backend.config.warehouses.flash.created', 'Warehouse created'),
         'success',
       )
+      const resultBody =
+        call?.result && typeof call.result === 'object'
+          ? (call.result as { id?: unknown; updatedAt?: unknown; updated_at?: unknown })
+          : null
       const createdId =
-        mode === 'create' &&
-        call?.result &&
-        typeof call.result === 'object' &&
-        typeof (call.result as { id?: unknown }).id === 'string'
-          ? (call.result as { id: string }).id.trim()
+        mode === 'create' && typeof resultBody?.id === 'string'
+          ? resultBody.id.trim()
           : undefined
+      const updatedAt =
+        (typeof resultBody?.updatedAt === 'string' && resultBody.updatedAt.trim()) ||
+        (typeof resultBody?.updated_at === 'string' && resultBody.updated_at.trim()) ||
+        undefined
       onOpenChange(false)
       await onSaved?.({
         mode,
         id: createdId || row?.id,
         values,
+        updatedAt: updatedAt || null,
       })
     } catch (error) {
       flashMutationError(error, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'), t)

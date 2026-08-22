@@ -32,6 +32,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
@@ -99,7 +100,7 @@ function toJsonValue(value: Record<string, unknown> | null | undefined): JsonVal
 
 async function persistWarehouseCustomFields(
   ctx: CommandRuntimeContext,
-  warehouse: Warehouse,
+  warehouse: { id: string; organizationId: string; tenantId: string },
   custom: Record<string, unknown>,
 ) {
   if (!custom || Object.keys(custom).length === 0) return
@@ -192,6 +193,7 @@ type WarehouseSnapshot = {
   metadata: JsonValue | null
   createdAt: string
   updatedAt: string
+  custom?: Record<string, unknown> | null
 }
 
 type PrimaryDemotionSnapshot = {
@@ -324,7 +326,16 @@ async function loadWarehouseSnapshot(
   id: string,
 ): Promise<WarehouseSnapshot | null> {
   const record = await findOneWithDecryption(em, Warehouse, { id }, undefined, resolveScope(ctx))
-  return record ? snapshotWarehouse(record) : null
+  if (!record) return null
+  const snapshot = snapshotWarehouse(record)
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.wms.warehouse,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
+  snapshot.custom = custom && Object.keys(custom).length ? custom : null
+  return snapshot
 }
 
 function snapshotWarehouseZone(record: WarehouseZone): WarehouseZoneSnapshot {
@@ -661,7 +672,7 @@ async function resolveParentLocation(
 
 const createWarehouseCommand: CommandHandler<
   WarehouseCreateInput,
-  { warehouseId: string; demotedPrimariesBefore?: PrimaryDemotionSnapshot[] }
+  { warehouseId: string; updatedAt?: string | null; demotedPrimariesBefore?: PrimaryDemotionSnapshot[] }
 > = {
   id: 'wms.warehouses.create',
   async execute(rawInput, ctx) {
@@ -732,6 +743,7 @@ const createWarehouseCommand: CommandHandler<
     }).catch(() => undefined)
     return {
       warehouseId: warehouse.id,
+      updatedAt: isoOrNull(warehouse.updatedAt),
       ...(demotedPrimariesBefore.length > 0 ? { demotedPrimariesBefore } : {}),
     }
   },
@@ -771,6 +783,7 @@ const createWarehouseCommand: CommandHandler<
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     await em.flush()
+    await persistWarehouseCustomFields(ctx, after, buildCustomFieldResetMap(undefined, after.custom ?? undefined))
     if (payload.demotedPrimariesBefore?.length) {
       await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
       await em.flush()
@@ -931,6 +944,11 @@ const updateWarehouseCommand: CommandHandler<
       record.deletedAt = null
     }
     await em.flush()
+    await persistWarehouseCustomFields(
+      ctx,
+      before,
+      buildCustomFieldResetMap(before.custom ?? undefined, payload.after?.custom ?? undefined),
+    )
     if (payload.demotedPrimariesBefore?.length) {
       await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
       await em.flush()

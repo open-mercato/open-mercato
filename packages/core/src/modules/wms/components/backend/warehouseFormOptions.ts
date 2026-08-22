@@ -17,6 +17,12 @@ export function countryOptionFromStored(value: string, locale?: string): CrudFie
   return { value: trimmed, label: trimmed }
 }
 
+export function formatWarehouseCountryLabel(value: string | null | undefined, locale?: string): string {
+  const trimmed = value?.trim()
+  if (!trimmed) return '—'
+  return countryOptionFromStored(trimmed, locale).label
+}
+
 export function timezoneOptionFromStored(value: string): CrudFieldOption {
   const trimmed = value.trim()
   return { value: trimmed, label: trimmed }
@@ -34,15 +40,33 @@ export async function loadCountryOptions(query?: string, locale?: string): Promi
   return filtered.slice(0, OPTION_LIMIT)
 }
 
-export async function loadTimezoneOptions(query?: string): Promise<CrudFieldOption[]> {
+function resolveLocalTimeZone(): string | undefined {
   try {
-    const allTz = Array.from(new Set(['UTC', ...Intl.supportedValuesOf('timeZone')]))
-    const term = query?.trim()
-    const filtered = term
-      ? allTz.filter((tz) => matchesQuery(tz, term))
-      : allTz
-    return filtered.slice(0, OPTION_LIMIT).map((tz) => ({ value: tz, label: tz }))
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
   } catch {
-    return [{ value: 'UTC', label: 'UTC' }]
+    return undefined
   }
+}
+
+function listSupportedTimeZones(): string[] {
+  try {
+    const intlWithSupportedValues = Intl as typeof Intl & { supportedValuesOf?: (input: 'timeZone') => string[] }
+    if (typeof intlWithSupportedValues.supportedValuesOf !== 'function') return []
+    return intlWithSupportedValues.supportedValuesOf('timeZone').filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+export async function loadTimezoneOptions(query?: string): Promise<CrudFieldOption[]> {
+  const localZone = resolveLocalTimeZone()
+  const preferred = localZone && localZone !== 'UTC' ? ['UTC', localZone] : ['UTC']
+  const zones = new Set<string>([...preferred, ...listSupportedTimeZones()])
+  const rest = Array.from(zones).filter((tz) => !preferred.includes(tz))
+  const allTz = [...preferred, ...rest]
+  const term = query?.trim()
+  const filtered = term
+    ? allTz.filter((tz) => matchesQuery(tz, term))
+    : allTz
+  return filtered.slice(0, OPTION_LIMIT).map((tz) => ({ value: tz, label: tz }))
 }
