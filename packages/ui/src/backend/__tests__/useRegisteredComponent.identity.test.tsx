@@ -171,6 +171,59 @@ describe('useRegisteredComponent identity', () => {
     expect(screen.getByTestId('field')).toHaveValue('typed inside a wrapped section')
   })
 
+  it('composes a wrapper at most once per (wrapper, wrapped component) pair', async () => {
+    // The user-visible consequence is covered by the test above; this one pins the
+    // cache's own contract, so that dropping the memoization fails loudly and the
+    // purity requirement documented on the `wrapper` override member stays executable.
+    const componentId = 'test.identity.wrapper-composition'
+    const Base = (props: FieldProps) => <StatefulField {...props} />
+    Base.displayName = 'Base'
+    registerComponent({ id: componentId, component: Base, metadata: { module: 'test' } })
+
+    let compositions = 0
+    const wrapper = (Original: React.ComponentType<FieldProps>) => {
+      compositions += 1
+      const Wrapped = (props: FieldProps) => (
+        <div data-testid="wrapped">
+          <Original {...props} />
+        </div>
+      )
+      Wrapped.displayName = 'Wrapped'
+      return Wrapped
+    }
+
+    const buildOverrides = (): ComponentOverride[] => [
+      { target: { componentId }, priority: 10, metadata: { module: 'test' }, wrapper } as unknown as ComponentOverride,
+    ]
+
+    function Consumer() {
+      const Resolved = useRegisteredComponent<FieldProps>(componentId)
+      return <Resolved />
+    }
+
+    const { rerender } = render(
+      <ComponentOverrideProvider overrides={buildOverrides()}>
+        <Consumer />
+      </ComponentOverrideProvider>,
+    )
+
+    expect(screen.getByTestId('wrapped')).toBeInTheDocument()
+    expect(compositions).toBe(1)
+
+    for (let pass = 0; pass < 2; pass += 1) {
+      await act(async () => {
+        rerender(
+          <ComponentOverrideProvider overrides={buildOverrides()}>
+            <Consumer />
+          </ComponentOverrideProvider>,
+        )
+      })
+    }
+
+    expect(compositions).toBe(1)
+    expect(mounts.count).toBe(1)
+  })
+
   it('still applies a replacement that becomes active after the first render', async () => {
     const componentId = 'test.identity.replacement'
     const Original = () => <span data-testid="rendered">original</span>

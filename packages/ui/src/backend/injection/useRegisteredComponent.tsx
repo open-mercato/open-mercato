@@ -52,15 +52,15 @@ function applyWrapper<TProps>(
   wrapper: (Original: ComponentType<TProps>) => ComponentType<TProps>,
   Base: ComponentType<TProps>,
 ): ComponentType<TProps> {
-  let byBase = composedWrappers.get(wrapper as unknown as object)
+  let byBase = composedWrappers.get(wrapper)
   if (!byBase) {
     byBase = new WeakMap<object, unknown>()
-    composedWrappers.set(wrapper as unknown as object, byBase)
+    composedWrappers.set(wrapper, byBase)
   }
-  const cached = byBase.get(Base as unknown as object)
+  const cached = byBase.get(Base)
   if (cached) return cached as ComponentType<TProps>
   const composed = wrapper(Base)
-  byBase.set(Base as unknown as object, composed)
+  byBase.set(Base, composed)
   return composed
 }
 

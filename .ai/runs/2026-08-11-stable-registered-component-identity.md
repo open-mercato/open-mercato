@@ -86,3 +86,19 @@ The renames this PR had introduced (`resolvePlan`, `ResolutionPlan`, `emptyPlan`
 ## Outcome
 
 The measurable win is not on `/login`, and the QA comment says so plainly: with the security wrapper override arriving after the first render, the resolved component genuinely changes there, so one remount survives in both builds. The change is proven by the unit tests instead — two of them fail against `develop`'s hook. The late-override delivery that causes the remaining `/login` remount is filed separately as #5194.
+
+## Review pass — 2026-08-22
+
+`develop` was merged in again (the branch was 377 commits behind; the merge was clean, and `develop` had not touched `useRegisteredComponent.tsx`, `component-registry.ts` or `ComponentOverrideProvider.tsx` since the 2026-08-13 rebase, so the behavioural change is unaffected by the advance). The code review on 2026-08-14 requested changes on a single Minor finding plus two nits and a test-coverage suggestion. All of them are now addressed:
+
+1. **The `wrapper` override's purity requirement is documented** (the Minor, and the only blocking finding). Memoizing composition per `(wrapper, base)` pair turns an implementation detail into a contract on code written outside this repository: a wrapper is now invoked once per pair and its result is reused for the registry's lifetime, so a wrapper that reads a feature flag, locale, tenant config or the clock *at composition time* would freeze that value — on the server, across requests and tenants. A JSDoc block on the `wrapper` member of `ComponentOverride` (`packages/shared/src/modules/widgets/component-registry.ts`) now states the invocation contract and the resulting MUST, and `apps/docs/docs/framework/widget-injection.md` gains a "`wrapper` overrides must be pure" subsection with a correct/incorrect example.
+
+   The review also suggested a matching sentence on the `packages/core/AGENTS.md` "Use wrapper/props-transform modes when possible" bullet. That was written and then reverted: `yarn agents:check-budget` fails on it. The `packages/core` instruction chain is already 40 155 bytes over the 32 768-byte agent budget, and the checker's rule for an over-budget chain is that it may only shrink — the 140-byte addition took it further over. The docs-site subsection carries the same guidance to the same audience (module authors, including third-party ones) at no instruction-budget cost, and the JSDoc is what an implementer's editor surfaces at the point of use.
+
+2. **The four `as unknown as object` casts in `applyWrapper` are gone** (nit). `ComponentType<TProps>` and the wrapper's function type are both assignable to `object`, so the assertions were doing nothing; `yarn typecheck` passes 22/22 without them, which is the proof the review asked for.
+
+3. **The composition cache's own contract is now asserted** (the test-coverage gap). A seventh test registers a wrapper whose body increments a counter, renders, then re-renders the provider twice with a fresh array holding the same wrapper, and asserts the counter stayed at `1`. Verified red the same way as the others: reverting the single `applyWrapper(wrapper, acc)` call back to `wrapper(acc)` fails it with `Received: 3` (and takes the existing wrapper-identity test down with it, `Received: 2`).
+
+4. **The ref-writes-during-render nit was explicitly not a change request** and is left as is, with the reasoning already in the code comment and the risk note above.
+
+Gate on the merged head: `build:packages` ✅ · `generate` ✅ (no drift) · `build:packages` ✅ · `i18n:check-sync` ✅ · `i18n:check-usage` ✅ · `typecheck` ✅ 22/22 · `agents:check-budget` ✅ · tests for every package this change reaches — `@open-mercato/ui` ✅ 1911/233 suites, `@open-mercato/shared` ✅ 1980 (5 skipped), `@open-mercato/enterprise` ✅ 503/61.
