@@ -20,6 +20,28 @@ Load only the rows the brief requires.
 
 Every added surface needs a real caller or acceptance path. Do not add speculative empty files.
 
+## Import paths are looked up, never inferred
+
+Before writing any UI surface, read `node_modules/@open-mercato/ui/AGENTS.md`. It carries a
+"Component quick reference" table mapping *what you need* to the **exact import path**, plus
+the MUST rules for `CrudForm`, `DataTable`, and the primitives. Look the path up there; do
+not infer one from a component's name or its position in the source tree.
+
+Paths that read plausibly and do not exist: `@open-mercato/ui/crud/form`,
+`@open-mercato/ui/layout/page`, `@open-mercato/ui/data/table`. The real ones are
+`@open-mercato/ui/backend/CrudForm`, `@open-mercato/ui/backend/Page`,
+`@open-mercato/ui/backend/DataTable`.
+
+Backend page routes are derived from the directory path with the module id REMOVED:
+`src/modules/<mod>/backend/<segments>/page.tsx` mounts at `/backend/<segments>`. So
+`src/modules/library/backend/books/page.tsx` is `/backend/books`, **not**
+`/backend/library/books`. API routes are the opposite — they keep the module namespace, so
+`src/modules/library/api/books/route.ts` is `/api/library/books`. Confirm against
+`.mercato/generated/backend-route-metadata.generated.ts` after running `yarn generate`.
+
+A backend page is a server component that renders a `"use client"` component from
+`src/modules/<mod>/components/`; it does not itself carry `"use client"`.
+
 ## Canonical example source
 
 One compiling implementation per row, from the source-present, runtime-disabled `example` module. Open only the row you are building; the full index is [`surface-map.md`](../../../../src/modules/example/references/surface-map.md).

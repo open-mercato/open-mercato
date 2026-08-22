@@ -51,11 +51,19 @@ export const messageListItemSchema = z.object({
   threadId: z.string().uuid().nullable().optional(),
 })
 
+export const enrichmentMetaSchema = z.object({
+  enrichedBy: z.array(z.string()),
+  enricherErrors: z.array(z.string()).optional(),
+})
+
 export const messageThreadItemSchema = z.object({
   id: z.string().uuid(),
   senderUserId: z.string().uuid(),
   senderName: z.string().nullable().optional(),
   senderEmail: z.string().nullable().optional(),
+  externalName: z.string().nullable().optional(),
+  externalEmail: z.string().nullable().optional(),
+  sourceEntityType: z.string().nullable().optional(),
   body: z.string(),
   bodyFormat: z.enum(['text', 'markdown']).optional(),
   sentAt: z.string().nullable().optional(),
@@ -127,7 +135,17 @@ export const messageDetailResponseSchema = z.object({
   isRead: z.boolean(),
   conversationArchived: z.boolean(),
   conversationAllUnread: z.boolean(),
+  _channel: z.record(z.string(), z.unknown()).nullable().optional(),
+  _channelPayload: z.record(z.string(), z.unknown()).nullable().optional(),
+  _channelContact: z.record(z.string(), z.unknown()).nullable().optional(),
+  _reactions: z.array(z.record(z.string(), z.unknown())).optional(),
+  _meta: enrichmentMetaSchema.optional(),
 })
+  // The detail route runs response enrichers for `messages.message`, so any
+  // module registering one may contribute further `_`-prefixed keys. Without
+  // this the generator emits `additionalProperties: false` and the published
+  // spec forbids the very fields the route returns.
+  .passthrough()
 
 export const messageTokenDetailResponseSchema = z.object({
   id: z.string().uuid(),
