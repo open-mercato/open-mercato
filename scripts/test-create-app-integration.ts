@@ -101,6 +101,11 @@ function writeStandaloneEnv(appDir: string): void {
     // which sets it on both the app server and the Playwright process; without it
     // TC-PUSH-003 resolves no adapter and every delivery lands in `failed`.
     'OM_ENABLE_PUSH_STUB_ADAPTER=1',
+    // Documents collaboration. NEXT_PUBLIC_* is inlined at build time, so it must be
+    // in the app .env before the build; the sidecar the Playwright process starts
+    // verifies the tokens this app mints, so both halves share one secret.
+    'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101',
+    'DOCUMENTS_COLLAB_JWT_SECRET_V2=local-standalone-documents-collab-v2-secret-32b',
     'OM_DISABLE_EMAIL_DELIVERY=1',
     'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
@@ -244,6 +249,8 @@ async function main(): Promise<void> {
     // `push-deliveries` job runs in a drain child of THIS process, which never
     // reads the scaffolded app's .env.
     OM_ENABLE_PUSH_STUB_ADAPTER: '1',
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101',
+    DOCUMENTS_COLLAB_JWT_SECRET_V2: 'local-standalone-documents-collab-v2-secret-32b',
     OM_DISABLE_EMAIL_DELIVERY: '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',
