@@ -15,9 +15,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import {
   assertActorCanAccessUserTarget,
+  assertActorCanAssignUserDestination,
   assertActorCanGrantRoleTokens,
   assertActorCanModifySuperAdminUserTarget,
   listSuperAdminUserIds,
+  resolveUserDestinationRoles,
+  throwUserDestinationOrganizationNotFound,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -168,7 +171,14 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
             await assertCanModifySuperAdminTarget(ctx.request, parsed.id)
             await assertCanAccessUserTarget(ctx.request, parsed.id)
           }
-          await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+          if (typeof parsed.organizationId === 'string' && parsed.organizationId.length) {
+            const destinationChanged = await assertCanAssignUserDestination(ctx.request, parsed)
+            if (!destinationChanged) {
+              await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+            }
+          } else {
+            await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+          }
         }
         return parsed
       },
@@ -559,6 +569,12 @@ async function assertCanAccessUserTarget(req: Request, targetUserId: string) {
   if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    tenantId: auth.tenantId ?? null,
+  })
   await assertActorCanAccessUserTarget({
     em,
     rbacService: container.resolve('rbacService') as RbacService,
@@ -566,6 +582,7 @@ async function assertCanAccessUserTarget(req: Request, targetUserId: string) {
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
     targetUserId,
+    organizationScope,
   })
 }
 
@@ -596,6 +613,65 @@ async function assertCanAssignRoles(req: Request, roles: unknown, payload: Recor
     organizationId: auth.orgId ?? null,
     roleTokens: roles,
   })
+}
+
+async function assertCanAssignUserDestination(req: Request, payload: Record<string, unknown>): Promise<boolean> {
+  const organizationId = typeof payload.organizationId === 'string' ? payload.organizationId : null
+  const targetUserId = typeof payload.id === 'string' ? payload.id : null
+  if (!organizationId || !targetUserId) return false
+
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const targetUser = await findOneWithDecryption(
+    em,
+    User,
+    { id: targetUserId, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  if (!targetUser) return false
+  const organization = await findOneWithDecryption(
+    em,
+    Organization,
+    { id: organizationId },
+    { populate: ['tenant'] },
+    { tenantId: null, organizationId },
+  )
+  if (!organization) return throwUserDestinationOrganizationNotFound(400)
+  const destinationTenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+  if (!destinationTenantId) return throwUserDestinationOrganizationNotFound(400)
+  const currentOrganizationId = targetUser.organizationId ? String(targetUser.organizationId) : null
+  const currentTenantId = targetUser.tenantId ? String(targetUser.tenantId) : null
+  if (currentOrganizationId === organizationId && currentTenantId === destinationTenantId) {
+    return false
+  }
+  const roles = await resolveUserDestinationRoles({
+    em,
+    targetUserId,
+    destinationTenantId,
+    roleTokens: payload.roles,
+  })
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    tenantId: destinationTenantId,
+  })
+  await assertActorCanAssignUserDestination({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    actorIsSuperAdmin: auth.isSuperAdmin === true,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    allowedOrganizationIds: organizationScope.allowedIds,
+    destinationTenantId,
+    destinationOrganizationId: organizationId,
+    roles,
+  })
+  return true
 }
 
 async function resolveTargetTenantIdForRoleGrant(
@@ -666,7 +742,7 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Update user',
       description:
-        'Updates profile fields including display name, organization assignment, credentials, or role memberships. Setting isConfirmed=false deactivates the account: the user can no longer sign in and every active session is revoked; isConfirmed=true reactivates it. A tenant cannot drop below a protected role\'s minimum active holder count, so revoking the role from, deactivating, moving, or deleting the last active administrator is rejected.',
+        'Updates profile fields including display name, organization assignment, credentials, or role memberships. A destination organization must be within the caller\'s descendant-expanded organization scope. Retained and newly assigned roles must belong to the destination tenant and be grantable by the caller. Setting isConfirmed=false deactivates the account: the user can no longer sign in and every active session is revoked; isConfirmed=true reactivates it. A tenant cannot drop below a protected role\'s minimum active holder count, so revoking the role from, deactivating, moving, or deleting the last active administrator is rejected.',
       requestBody: {
         contentType: 'application/json',
         schema: userUpdateSchema,
@@ -677,8 +753,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload, duplicate email, or the update would remove the last active holder of a protected role', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
-        { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
-        { status: 404, description: 'User not found', schema: errorResponseSchema },
+        { status: 403, description: 'Destination organization is outside caller scope, or a retained or assigned role is not grantable', schema: errorResponseSchema },
+        { status: 404, description: 'User or destination organization not found in the caller tenant scope', schema: errorResponseSchema },
       ],
     },
     DELETE: {

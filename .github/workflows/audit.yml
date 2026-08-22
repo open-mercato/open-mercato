@@ -10,9 +10,15 @@ name: Scheduled Dependency Audit
 #
 # This workflow re-evaluates the *unchanged* graph on a daily schedule, which
 # is the whole point of the trigger. Consequently it carries no `audit-scope`
-# gate and no result cache: `yarn npm audit` output is a function of the
-# dependency graph AND the advisory database at run time, so a marker keyed on
-# graph content would let the run skip the very scan it exists to perform.
+# gate and no result cache: the audit result is a function of the dependency
+# graph AND the advisory database at run time, so a marker keyed on graph
+# content would let the run skip the very scan it exists to perform.
+#
+# It runs `scripts/audit-ci.mjs`, the same gate as the `audit` job in ci.yml,
+# so the two halves of the pair agree on what counts as a failure. Running raw
+# `yarn npm audit` here instead made this workflow report red for advisories
+# ci.yml had already accepted through `scripts/audit-ci-allowlist.json`, and it
+# refiled the tracking issue every day for a state no one could act on.
 #
 # Deliberately kept out of ci.yml: that workflow uses
 # `concurrency: ci-${{ github.ref }}` with `cancel-in-progress: true`, so a
@@ -42,7 +48,7 @@ concurrency:
 jobs:
   audit:
     name: Audit ${{ matrix.branch }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       issues: write
@@ -63,14 +69,27 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Cache Yarn packages
-        # Package *downloads* are safe to cache — only the audit result is not.
-        uses: actions/cache@v6
+      - name: Restore Yarn package cache
+        # Restore-only, deliberately — `actions/cache` (which also *saves*) is a
+        # cache-poisoning sink here and CodeQL flags it as such
+        # (`actions/cache-poisoning/direct-cache`, high severity).
+        #
+        # This workflow is triggered by `schedule`/`workflow_dispatch`, so it always
+        # runs in the *default branch's* privileged context and writes to the default
+        # branch's cache scope — but the matrix above checks out `develop` and `main`.
+        # A save step would therefore let content from a non-default ref land under a
+        # `yarn-<os>-<lockfile hash>` key that any other workflow, on any branch,
+        # happily restores.
+        #
+        # Restoring is safe and keeps the speed-up: `ci.yml` populates these keys from
+        # the branch being built, and a miss only costs this daily job a cold install.
+        # Guarded by scripts/__tests__/workflow-cache-poisoning.test.mjs.
+        uses: actions/cache/restore@v6
         with:
           path: .yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -82,16 +101,19 @@ jobs:
       - name: Audit dependencies for known CVEs
         id: audit
         continue-on-error: true
+        # Blocking advisories are written to stderr, so both streams have to be
+        # captured — a stdout-only pipe would file a tracking issue with an
+        # empty report.
         run: |
           set -o pipefail
-          yarn npm audit --all --recursive --severity high | tee audit.log
+          node scripts/audit-ci.mjs --severity high 2>&1 | tee audit.log
 
       - name: Publish job summary
         if: always()
         shell: bash
         run: |
           {
-            echo "### \`yarn npm audit --all --recursive --severity high\` — \`${{ matrix.branch }}\`"
+            echo "### \`node scripts/audit-ci.mjs --severity high\` — \`${{ matrix.branch }}\`"
             echo
             if [ "${{ steps.audit.outcome }}" = "success" ]; then
               echo "No advisories at severity \`high\` or above."
@@ -129,10 +151,10 @@ jobs:
             const reportBlock = ['<!-- report:start -->', '```text', report, '```', '<!-- report:end -->'].join('\n')
             const body = [
               marker,
-              `\`yarn npm audit --all --recursive --severity high\` is failing on \`${branch}\`.`,
+              `\`node scripts/audit-ci.mjs --severity high\` is failing on \`${branch}\`.`,
               '',
               `Opened and refreshed automatically by [\`.github/workflows/audit.yml\`](${workflowUrl}).`,
-              'It closes itself on the first scheduled run where the audit passes again — resolve it by bumping the affected dependencies.',
+              'It closes itself on the first scheduled run where the audit passes again — resolve it by bumping the affected dependencies, or, when no patched release exists, by adding a justified entry to `scripts/audit-ci-allowlist.json`.',
               '',
               `- Branch: \`${branch}\``,
               `- Last checked: ${runUrl}`,
@@ -197,7 +219,7 @@ jobs:
             await github.rest.issues.createComment({
               ...context.repo,
               issue_number: existing.number,
-              body: `\`yarn npm audit --all --recursive --severity high\` passes again on \`${branch}\`. Closed from ${runUrl}.`,
+              body: `\`node scripts/audit-ci.mjs --severity high\` passes again on \`${branch}\`. Closed from ${runUrl}.`,
             })
             await github.rest.issues.update({
               ...context.repo,
@@ -209,5 +231,5 @@ jobs:
       - name: Fail the job when advisories were found
         if: steps.audit.outcome == 'failure'
         run: |
-          echo "::error::yarn npm audit reported advisories at severity high or above on ${{ matrix.branch }}."
+          echo "::error::audit-ci reported non-allowlisted advisories at severity high or above on ${{ matrix.branch }}."
           exit 1

@@ -1,7 +1,18 @@
 import * as esbuild from 'esbuild'
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'fs'
 import { join, basename, resolve } from 'path'
+import { pathToFileURL } from 'node:url'
 import { describeMissingSiblingBuild } from './scripts/sibling-build.mjs'
 
 const shebang = '#!/usr/bin/env node\n'
@@ -97,26 +108,52 @@ if (guidesFound > 0) {
 
 // Generate per-module fact-sheets (Layer 2) for every package-provided module via
 // the reusable ts-morph extractor + resolver-routed discovery in @open-mercato/cli.
-// Emits one markdown sheet per discovered module plus a combined JSON sidecar; a
-// scaffold links only its enabled subset (packages/create-app/src/setup/tools/shared.ts).
+// Emits one markdown sheet per discovered module plus legacy-v1 and corrected-v2
+// JSON sidecars. A scaffold links only its enabled subset; shared.ts owns that filtering.
 // Auth comes from the generated module registry (`apis[].metadata`); a missing registry
 // yields warnings, never a crash. Discovery goes through the resolver, never a hardcoded
 // packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
+const workspaceCliDist = join(repositoryRoot, 'packages', 'cli', 'dist', 'lib')
+const resolveCliBuildImport = (relativePath, packageImport) => {
+  const workspacePath = join(workspaceCliDist, relativePath)
+  return existsSync(workspacePath) ? pathToFileURL(workspacePath).href : packageImport
+}
+
+let assertPackageModuleFactsOnly
 let extractAllModuleFacts
+let extractLocalReferenceModuleFacts
 let renderModuleFactsJson
+let renderReferenceModuleFactsJson
+let discoverLocalReferenceModuleSource
 let discoverPackageModuleSources
 let createResolver
 try {
-  ;({ extractAllModuleFacts, renderModuleFactsJson } = await import(
-    '@open-mercato/cli/lib/generators/module-facts'
+  ;({
+    assertPackageModuleFactsOnly,
+    extractAllModuleFacts,
+    extractLocalReferenceModuleFacts,
+    renderModuleFactsJson,
+    renderReferenceModuleFactsJson,
+  } = await import(resolveCliBuildImport(
+    'generators/module-facts.js',
+    '@open-mercato/cli/lib/generators/module-facts',
+  )))
+  ;({ discoverLocalReferenceModuleSource, discoverPackageModuleSources } = await import(
+    resolveCliBuildImport(
+      'generators/module-facts-discovery.js',
+      '@open-mercato/cli/lib/generators/module-facts-discovery',
+    )
   ))
-  ;({ discoverPackageModuleSources } = await import(
-    '@open-mercato/cli/lib/generators/module-facts-discovery'
-  ))
-  ;({ createResolver } = await import('@open-mercato/cli/lib/resolver'))
+  ;({ createResolver } = await import(resolveCliBuildImport('resolver.js', '@open-mercato/cli/lib/resolver')))
 } catch (error) {
   throw describeMissingSiblingBuild(error) ?? error
 }
+
+// The app-local example is disabled in every preset, so it is never a package module and
+// never enters the normal outputs. It is projected into its own reference bundle from the
+// template root here; scaffold setup and `mercato agentic:init` recompute the same bundle
+// from the generated app's own `src/modules/example`.
+const REFERENCE_MODULE_IDS = ['example']
 
 const sources = discoverPackageModuleSources(createResolver(resolve(packagesDir, '..')))
 if (sources.length > 0) {
@@ -128,24 +165,78 @@ if (sources.length > 0) {
     coreVersion = null
   }
 
-  const { factsByModule, markdownByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
+  const { factsByModule, directoryByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
     sources,
     registryPath: existsSync(registryPath) ? registryPath : null,
     coreVersion,
   })
+  const { factsByModule: legacyFactsByModule } = extractAllModuleFacts({
+    sources,
+    registryPath: existsSync(registryPath) ? registryPath : null,
+    coreVersion,
+    factsContractVersion: 1,
+  })
+
+  const extractedModuleIds = Object.keys(directoryByModule)
+  if (extractedModuleIds.length === 0) {
+    throw new Error(
+      '[module-facts] package sources were discovered but produced no fact-sheets; refusing to build an empty knowledge layer',
+    )
+  }
+
+  assertPackageModuleFactsOnly(factsByModule)
+  assertPackageModuleFactsOnly(legacyFactsByModule)
 
   const modulesGuidesDir = join(guidesDestDir, 'modules')
   mkdirSync(modulesGuidesDir, { recursive: true })
-  for (const [moduleId, markdown] of Object.entries(markdownByModule)) {
-    writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
+  for (const [moduleId, directory] of Object.entries(directoryByModule)) {
+    const moduleGuidesDir = join(modulesGuidesDir, moduleId)
+    mkdirSync(moduleGuidesDir, { recursive: true })
+    writeFileSync(join(moduleGuidesDir, 'index.md'), directory.index)
+    for (const section of directory.sections) {
+      writeFileSync(join(moduleGuidesDir, `${section.slug}.md`), section.markdown)
+    }
   }
-  writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+  writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(legacyFactsByModule))
+  writeFileSync(join(guidesDestDir, 'module-facts.v2.json'), renderModuleFactsJson(factsByModule))
   writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
   for (const warning of warnings) console.warn(warning)
-  console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic.staging/guides/modules/`)
+  console.log(`Generated ${extractedModuleIds.length} module fact-sheets → dist/agentic.staging/guides/modules/`)
+
+  const referenceBundle = {}
+  const referenceGuidesDir = join(guidesDestDir, 'reference-modules')
+  for (const moduleId of REFERENCE_MODULE_IDS) {
+    const reference = discoverLocalReferenceModuleSource({ appRoot: 'template', moduleId })
+    if (!reference) {
+      throw new Error(`[module-facts] reference module "${moduleId}" is missing from the create-app template`)
+    }
+    const { entry, directory, warnings: referenceWarnings, unresolvedTargets } = extractLocalReferenceModuleFacts({
+      packageSources: sources,
+      reference,
+      registryPath: existsSync(registryPath) ? registryPath : null,
+      coreVersion,
+    })
+    referenceBundle[moduleId] = entry
+    const referenceModuleGuidesDir = join(referenceGuidesDir, moduleId)
+    mkdirSync(referenceModuleGuidesDir, { recursive: true })
+    writeFileSync(join(referenceModuleGuidesDir, 'index.md'), directory.index)
+    for (const section of directory.sections) {
+      writeFileSync(join(referenceModuleGuidesDir, `${section.slug}.md`), section.markdown)
+    }
+    for (const warning of referenceWarnings) console.warn(warning)
+    for (const target of unresolvedTargets) {
+      console.warn(`[module-facts][reference] unresolved first-party target: ${target}`)
+    }
+  }
+  writeFileSync(join(guidesDestDir, 'reference-module-facts.json'), renderReferenceModuleFactsJson(referenceBundle))
+  console.log(
+    `Generated ${REFERENCE_MODULE_IDS.length} local reference projection(s) → dist/agentic.staging/guides/reference-modules/`,
+  )
 } else {
-  console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
+  throw new Error(
+    '[module-facts] no readable package module sources were discovered; refusing to build an empty knowledge layer',
+  )
 }
 
 // Publish the staged tree. A reader either sees the complete previous build or the complete new
@@ -154,5 +245,6 @@ if (sources.length > 0) {
 if (existsSync(agenticDist)) renameSync(agenticDist, agenticPrevious)
 renameSync(agenticStaging, agenticDist)
 rmSync(agenticPrevious, { recursive: true, force: true })
+console.log('Published agentic/ → dist/agentic/')
 
 console.log('Build complete: dist/index.js')

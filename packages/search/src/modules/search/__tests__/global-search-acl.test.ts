@@ -43,18 +43,38 @@ describe('global search ACL contract', () => {
 describe('searchable entity ACL coverage', () => {
   const repoRoot = join(__dirname, '..', '..', '..', '..', '..', '..')
 
+  // `entityId:` is written either as a string literal or as a module-level const,
+  // so the token is resolved against the file rather than matched literally.
+  function resolveEntityIdToken(source: string, token: string): string | null {
+    const literal = token.match(/^'(.+)'$/)
+    if (literal) return literal[1]
+    const declaration = source.match(
+      new RegExp(`^const ${token} = '([^']+)'`, 'm'),
+    )
+    return declaration ? declaration[1] : null
+  }
+
   function readEntityBlock(file: string, entityId: string): string {
     const source = readFileSync(file, 'utf8')
-    const start = source.indexOf(`      entityId: '${entityId}',`)
-    expect(start).toBeGreaterThan(-1)
+    const declaration = [...source.matchAll(/^ {6}entityId: (.+),$/gm)].find(
+      (match) => resolveEntityIdToken(source, match[1]) === entityId,
+    )
+    expect(declaration).toBeDefined()
+    const start = declaration!.index!
     const nextEntity = source.indexOf('\n    {', start + 1)
     return source.slice(start, nextEntity === -1 ? undefined : nextEntity)
   }
 
   function findSearchConfigFiles(): string[] {
+    // `apps/mercato` and the create-app template are scanned too: the example
+    // module's `example:todo` is indexed but had no `search.ts` at all, so the
+    // original #5168 fix made it fail closed and broke TC-EXAMPLE-001. The scan
+    // stopping at packages/ is why that gap reached CI unnoticed.
     const roots = [
       join(repoRoot, 'packages', 'core', 'src', 'modules'),
       join(repoRoot, 'packages', 'checkout', 'src', 'modules'),
+      join(repoRoot, 'apps', 'mercato', 'src', 'modules'),
+      join(repoRoot, 'packages', 'create-app', 'template', 'src', 'modules'),
     ].filter((dir) => existsSync(dir))
 
     return roots.flatMap((root) =>
@@ -94,6 +114,19 @@ describe('searchable entity ACL coverage', () => {
     )
 
     expect(offer).toContain("aclFeatures: ['sales.channels.manage']")
+  })
+
+  it('gates example todos on the feature their own list route enforces', () => {
+    // Regression for the revert that pulled #5169 out of #5167: with the hybrid
+    // route filtering by `aclFeatures`, an indexed-but-unconfigured `example:todo`
+    // is denied to every non-superadmin, which is what broke TC-EXAMPLE-001. The
+    // fix is the config below, not a weaker filter — so both copies must keep it.
+    for (const root of [
+      join(repoRoot, 'apps', 'mercato', 'src', 'modules', 'example', 'search.ts'),
+      join(repoRoot, 'packages', 'create-app', 'template', 'src', 'modules', 'example', 'search.ts'),
+    ]) {
+      expect(readEntityBlock(root, 'example:todo')).toContain("aclFeatures: ['example.todos.view']")
+    }
   })
 
   it('keeps record-scoped and polymorphic entities disabled until search can enforce their row access', () => {

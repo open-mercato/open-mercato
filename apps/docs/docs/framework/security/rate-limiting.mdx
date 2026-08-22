@@ -146,6 +146,25 @@ The error message is translated according to the user's locale. Rate limit heade
 | `X-RateLimit-Remaining` | Points remaining (always 0 on 429) |
 | `X-RateLimit-Reset` | Seconds until the window resets |
 
+## 503 Response Format (fail-closed endpoints)
+
+An endpoint that opted into `failClosed` answers `503` while the limiter cannot decide, instead of
+serving the request uncounted. No rate-limit headers are sent — there is no window to report:
+
+```http
+HTTP/1.1 503 Service Unavailable
+Content-Type: application/json
+
+{
+  "error": "Service temporarily unavailable. Please try again later."
+}
+```
+
+The message deliberately reveals nothing about the limiter or its backing store; the cause is
+logged instead. `POST /api/checkout/pay/[slug]/submit` and
+`POST /api/checkout/pay/[slug]/verify-password` are the endpoints that currently return it, so a
+client of those routes should treat `503` as retryable rather than as a submission failure.
+
 ## Configuration
 
 ### Global Settings
@@ -286,12 +305,52 @@ export async function POST(req: Request) {
       if (rateLimitError) return rateLimitError
     }
   } catch {
-    // fail-open
+    // Fail-open: the request is served when the guard itself fails. Pick the
+    // posture deliberately — see Choosing a failure posture below.
   }
 
   // ... handler logic
 }
 ```
+
+### Choosing a Failure Posture
+
+`checkRateLimit` takes an optional fifth argument, `CheckRateLimitOptions`:
+
+| Option | Effect |
+|--------|--------|
+| `failClosed` | Return `503` when the limiter could not decide (`RateLimitResult.degraded`) instead of letting the request through uncounted. Omit it and the call behaves exactly as before — fail-open. |
+| `unavailableMessage` | Body message for that `503`. Defaults to `RATE_LIMIT_UNAVAILABLE_FALLBACK`; `RATE_LIMIT_UNAVAILABLE_KEY` is the matching translation key. |
+
+```ts
+const rateLimitError = await checkRateLimit(
+  rateLimiterService,
+  myRateLimitConfig,
+  clientIp ?? RATE_LIMIT_FALLBACK_KEY,
+  translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+  { failClosed: true },
+)
+```
+
+Choose `failClosed` for **state-mutating** endpoints where an unenforced limit is worse than a
+rejected request — creating payment sessions, verifying a password, anything that costs money or
+can be brute-forced. Keep the fail-open default for **read-only** endpoints, where a limiter
+outage must not take the page down.
+
+`degraded` marks a result whose `allowed` value is a fallback rather than a real decision. It is
+set when an error escapes the limiter itself; it is **not** set when rate limiting is switched
+off by configuration, and under the `redis` strategy a plain store outage is normally absorbed
+one level lower by the in-memory insurance limiter, which keeps counting per process.
+
+Two conditions that look alike are worth keeping apart at the call site: a limiter that is
+**registered but cannot decide** is a transient outage and is what `failClosed` is for, while a
+`rateLimiterService` that is **not registered at all** means `readRateLimitConfig()` rejected the
+environment and lasts until an operator fixes it. Reporting the second as "temporarily
+unavailable" would take the endpoint down indefinitely, so resolve the service outside the
+fail-closed guard and skip the check when it is absent — as
+`packages/core/src/modules/sales/api/quotes/accept/route.ts` and
+`packages/checkout/src/modules/checkout/lib/rateLimiter.ts` both do — logging the
+misconfiguration for what it is.
 
 ## Testing
 
@@ -315,7 +374,7 @@ This lets you assert both 200 and 429 paths deterministically without tearing th
 ## Security Notes
 
 - **Two-layer protection**: Auth endpoints use an IP-only layer (caps total attempts from one IP regardless of email) and a compound `IP:emailHash` layer (caps attempts per account). The email is SHA-256 hashed — raw emails never appear in rate limit storage keys.
-- **Fail-open**: Rate limit infrastructure failures never block authentication flows. The `checkAuthRateLimit` centralizer wraps all checks in `try/catch` and the service itself allows requests through on unexpected storage errors. Missing trusted client IP data is not an infrastructure failure and still consumes a fallback bucket.
+- **Failure posture is per endpoint**: rate-limit infrastructure failures never block authentication flows — the `checkAuthRateLimit` centralizer wraps all checks in `try/catch` and the service allows requests through on unexpected storage errors. State-mutating public endpoints may opt into the opposite posture with `checkRateLimit(..., { failClosed: true })`, which answers `503` while the limiter cannot decide; `POST /api/checkout/pay/[slug]/submit` and `POST /api/checkout/pay/[slug]/verify-password` do, because an unmetered payment-session or password-verification endpoint is worse than a rejected request. The read-only checkout endpoints stay fail-open. See [Choosing a Failure Posture](#choosing-a-failure-posture). Missing trusted client IP data is not an infrastructure failure and still consumes a fallback bucket.
 - **IP extraction and `X-Forwarded-For` spoofing prevention**: `RATE_LIMIT_TRUST_PROXY_DEPTH=0` is the safe default for direct deployments and ignores both `X-Forwarded-For` and `X-Real-IP`; the standard route-handler `Request` does not expose a trustworthy peer socket address. Auth, metadata-driven, and checkout rate limiters therefore use endpoint-scoped `global` fallback keys, and compound auth keys use `global:<identifierHash>`. With a positive depth, `getClientIp` reads the Nth-from-last `X-Forwarded-For` entry. The configured depth must match the exact trusted proxy chain; a missing or shorter chain falls back globally instead of trusting an attacker-controlled entry. Direct-mode fallback traffic shares each endpoint's configured limit, so deployments behind a trusted proxy should set the exact depth to preserve per-client buckets and avoid unnecessary shared-bucket contention.
 - **No information leakage**: The generic "Too many requests" message does not reveal whether an account exists.
 - **Counter reset on success**: Successful login resets the compound counter (IP:emailHash) so legitimate users aren't locked out after a few typos. The IP-only counter is not reset.
