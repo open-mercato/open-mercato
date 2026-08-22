@@ -58,6 +58,8 @@ const modulesRoot = join(__dirname, '..', 'modules')
  * recorded here deliberately instead of passing unnoticed.
  */
 const ROUTES_WITH_UNCAUGHT_COMMAND_BUS_CALLS = [
+  'auth/api/roles/acl/route.ts',
+  'auth/api/users/acl/route.ts',
   'communication_channels/api/delete/admin/channels/[id]/route.ts',
   'communication_channels/api/delete/channels/[id]/route.ts',
   'communication_channels/api/delete/messages/[messageId]/reactions/[reactionId]/route.ts',
@@ -113,18 +115,26 @@ function functionName(node: FunctionLike): string | null {
 }
 
 /**
- * Walks outward from `node`, collecting the `catch` clauses it sits inside, and
- * stops at the first *declared* function — one with a name this file can call by.
- * An anonymous callback (`em.transactional(async (trx) => …)`, `array.map(…)`) is
- * walked straight through: it runs where it is written, so the surrounding
- * `catch` really does receive what it throws.
+ * Walks outward from `node`, collecting the `catch` clauses that can receive what
+ * it throws, and stops at the first *declared* function — one with a name this
+ * file can call by. An anonymous callback (`em.transactional(async (trx) => …)`,
+ * `array.map(…)`) is walked straight through: it runs where it is written, so the
+ * surrounding `catch` really does receive what it throws.
+ *
+ * A clause only counts when the walk reaches its `try` statement through the
+ * `try` block. A call written inside the `catch` (or `finally`) of a `try` — the
+ * compensating `warranty_claims.claim.delete` in `warranty_claims/api/portal/claims`
+ * is the one such site in this package — cannot be caught by that same clause, so
+ * the clause is skipped rather than credited to the chain.
  */
 function enclosingCatches(node: ts.Node): { catches: ts.CatchClause[]; fn: FunctionLike | null } {
   const catches: ts.CatchClause[] = []
+  let child: ts.Node = node
   let parent: ts.Node | undefined = node.parent
   while (parent) {
-    if (ts.isTryStatement(parent) && parent.catchClause) catches.push(parent.catchClause)
+    if (ts.isTryStatement(parent) && parent.catchClause && child === parent.tryBlock) catches.push(parent.catchClause)
     if (isFunctionLike(parent) && functionName(parent)) return { catches, fn: parent }
+    child = parent
     parent = parent.parent
   }
   return { catches, fn: null }
