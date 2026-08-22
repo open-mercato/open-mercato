@@ -19,6 +19,11 @@
  * gate blocks NEW ones without demanding an unrelated cleanup first. Each allowlist entry
  * carries the reason it is accepted.
  *
+ * Scope: `packages/*` only. `apps/*` is a workspace but publishes nothing, and
+ * `external/official-modules/packages/*` is an optional submodule that ships through its own
+ * repository and PRs — official modules are subject to the same rule and are checked there,
+ * not here.
+ *
  * Usage:
  *   node scripts/check-package-peer-deps.mjs            # check (exit 1 on failure)
  *   node scripts/check-package-peer-deps.mjs --json     # machine-readable report
@@ -53,7 +58,9 @@ function readPackageManifest(dir) {
  * Resolve an installed dependency's manifest. Only the hoisted root `node_modules` and the
  * package's own nested `node_modules` are consulted — a dependency the linker never placed
  * cannot be inspected, and is skipped rather than reported, so this gate never fails for a
- * reason that is really an incomplete install.
+ * reason that is really an incomplete install. `collectViolations` counts those skips, and
+ * `main` refuses to report success when nothing at all resolved: skipping one dependency is
+ * tolerance, skipping every dependency is a gate that checked nothing.
  */
 function resolveInstalledManifest(root, packageDir, depName) {
   const candidates = [
@@ -69,8 +76,10 @@ function resolveInstalledManifest(root, packageDir, depName) {
 
 function collectViolations(root) {
   const violations = []
+  let resolvedDependencies = 0
+  let unresolvedDependencies = 0
   const packagesDir = path.join(root, 'packages')
-  if (!fs.existsSync(packagesDir)) return violations
+  if (!fs.existsSync(packagesDir)) return { violations, resolvedDependencies, unresolvedDependencies }
   const packageDirs = fs
     .readdirSync(packagesDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -80,14 +89,22 @@ function collectViolations(root) {
     const manifest = readPackageManifest(packageDir)
     if (!manifest || manifest.private || !manifest.name) continue
 
+    // An OPTIONAL peer on the package itself does not ship the dependency: a consumer is
+    // free not to install it, so the standalone build breaks exactly as it would with no
+    // declaration at all. Only a non-optional peer counts as shipped.
+    const ownPeerMeta = manifest.peerDependenciesMeta ?? {}
     const shipped = new Set([
       ...Object.keys(manifest.dependencies ?? {}),
-      ...Object.keys(manifest.peerDependencies ?? {}),
+      ...Object.keys(manifest.peerDependencies ?? {}).filter((peerName) => !ownPeerMeta[peerName]?.optional),
     ])
 
     for (const depName of Object.keys(manifest.dependencies ?? {})) {
       const depManifest = resolveInstalledManifest(root, packageDir, depName)
-      if (!depManifest) continue
+      if (!depManifest) {
+        unresolvedDependencies++
+        continue
+      }
+      resolvedDependencies++
       const peerMeta = depManifest.peerDependenciesMeta ?? {}
       for (const peerName of Object.keys(depManifest.peerDependencies ?? {})) {
         if (peerMeta[peerName]?.optional) continue
@@ -97,16 +114,19 @@ function collectViolations(root) {
           dependency: depName,
           peer: peerName,
           declaredAsDevDependency: Boolean(manifest.devDependencies?.[peerName]),
+          declaredAsOptionalPeer: Boolean(ownPeerMeta[peerName]?.optional),
         })
       }
     }
   }
 
-  return violations.sort((left, right) =>
+  violations.sort((left, right) =>
     `${left.package}|${left.dependency}|${left.peer}`.localeCompare(
       `${right.package}|${right.dependency}|${right.peer}`,
     ),
   )
+
+  return { violations, resolvedDependencies, unresolvedDependencies }
 }
 
 function violationKey(violation) {
@@ -126,9 +146,21 @@ function main() {
   const root = parseRoot(argv)
   const allowlistPath = path.join(root, ALLOWLIST_RELATIVE_PATH)
 
-  const violations = collectViolations(root)
+  const { violations, resolvedDependencies, unresolvedDependencies } = collectViolations(root)
   const allowlist = fs.existsSync(allowlistPath) ? readJson(allowlistPath) : { version: 1, accepted: {} }
   const accepted = allowlist.accepted ?? {}
+
+  // Without a completed install every dependency manifest resolves to null, every package
+  // looks clean, and the gate would report success while having checked nothing — the one
+  // failure mode a guard must never have. Refuse instead of passing vacuously.
+  if (resolvedDependencies === 0 && unresolvedDependencies > 0) {
+    process.stderr.write(
+      `Cannot verify peer dependencies: none of the ${unresolvedDependencies} declared dependencies could be\n`
+      + 'resolved, so nothing was actually checked. Run `yarn install` first.\n',
+    )
+    process.exitCode = 1
+    return
+  }
 
   if (updateAllowlist) {
     const nextAccepted = {}
@@ -158,9 +190,9 @@ function main() {
     if (!asJson) {
       process.stderr.write('Unmet peer dependencies in published packages:\n\n')
       for (const violation of unexpected) {
-        const hint = violation.declaredAsDevDependency
-          ? ' (declared as a devDependency — move it to dependencies)'
-          : ''
+        let hint = ''
+        if (violation.declaredAsDevDependency) hint = ' (declared as a devDependency — move it to dependencies)'
+        else if (violation.declaredAsOptionalPeer) hint = ' (declared as an OPTIONAL peer — consumers may not install it)'
         process.stderr.write(
           `  ${violation.package}: dependency "${violation.dependency}" requires peer "${violation.peer}"${hint}\n`,
         )

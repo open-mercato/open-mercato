@@ -101,6 +101,47 @@ test('passes when the peer is re-declared as the package own peer', () => {
   )
 })
 
+// An optional peer on the package itself is not a fix: consumers are free to skip it, so the
+// standalone build breaks exactly as it would with no declaration. Without this the gate could
+// be turned green while the regression it exists to catch still ships.
+test('rejects a peer the package re-declares as OPTIONAL', () => {
+  withFixture(
+    {
+      packages: {
+        documents: {
+          name: '@scope/documents',
+          dependencies: { 'html-renderer': '^3.0.0' },
+          peerDependencies: { 'happy-dom': '^20.0.0' },
+          peerDependenciesMeta: { 'happy-dom': { optional: true } },
+        },
+      },
+      installed: { 'html-renderer': { peerDependencies: { 'happy-dom': '^20.0.0' } } },
+    },
+    (fixture) => {
+      const result = runChecker(fixture)
+      assert.equal(result.status, 1)
+      assert.match(result.stderr, /OPTIONAL peer/)
+    },
+  )
+})
+
+// A guard that reports success without having checked anything is worse than no guard.
+test('refuses to pass when no dependency manifest can be resolved', () => {
+  withFixture(
+    {
+      packages: {
+        documents: { name: '@scope/documents', dependencies: { 'html-renderer': '^3.0.0' } },
+      },
+    },
+    (fixture) => {
+      const result = runChecker(fixture)
+      assert.equal(result.status, 1)
+      assert.match(result.stderr, /Cannot verify peer dependencies/)
+      assert.match(result.stderr, /yarn install/)
+    },
+  )
+})
+
 test('ignores optional peers and private workspaces', () => {
   withFixture(
     {
