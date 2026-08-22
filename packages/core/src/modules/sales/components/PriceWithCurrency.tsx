@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 /**
@@ -41,7 +41,11 @@ type PriceWithCurrencyProps = {
 }
 
 export function PriceWithCurrency({ amount, currency, fallback = '—', className }: PriceWithCurrencyProps) {
-  const locale = useLocale()
+  // `useOptionalLocale` rather than `useLocale`: this component is deep-importable and had no i18n
+  // dependency at all before it started formatting in the app locale, so making it throw outside
+  // `I18nProvider` would narrow its mounting contract. Without a provider it falls back to the
+  // runtime default, which is exactly the behaviour it had before.
+  const locale = useOptionalLocale()
   const label = React.useMemo(
     () => formatPriceWithCurrency(amount, currency, fallback, locale),
     [amount, currency, fallback, locale]

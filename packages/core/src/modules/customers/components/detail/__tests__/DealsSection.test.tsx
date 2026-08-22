@@ -128,6 +128,31 @@ describe('DealsSection', () => {
     })
   })
 
+  it('formats the deal value in the app locale rather than the runtime default', async () => {
+    // The company page renders these cards directly under `CompanyKpiBar`, which formats in the
+    // application locale. A runtime-default value label put `210 000 USD` above `$210,000.00` on
+    // one screen — the same mixed-convention regression this PR fixed on the sales document page
+    // (#5182 review, minor 4). Pinning a non-English locale makes a revert fail loudly.
+    readApiResultOrThrowMock.mockResolvedValueOnce({
+      items: [makeDeal()],
+      totalPages: 1,
+    })
+
+    renderWithProviders(
+      <DealsSection
+        scope={{ kind: 'person', entityId: 'person-1' }}
+        addActionLabel="Add deal"
+        emptyLabel="—"
+        emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+      />,
+      { locale: 'pl-PL' },
+    )
+
+    // `Intl` separates the amount from the currency code with a non-breaking space.
+    const valueLabel = await screen.findByText(/1000,00/)
+    expect(valueLabel.textContent?.replace(/[  ]/g, ' ')).toBe('1000,00 USD')
+  })
+
   it('clamps a long deal description so one card cannot flood the page', async () => {
     const description = Array.from({ length: 200 }, (_, index) => `Call note line ${index}`).join('\n')
     readApiResultOrThrowMock.mockResolvedValueOnce({

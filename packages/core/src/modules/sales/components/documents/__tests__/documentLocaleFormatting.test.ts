@@ -1,5 +1,6 @@
 import { formatPercent } from '../AdjustmentsSection'
 import { formatDisplayDate } from '../ReturnsSection'
+import { formatDisplayDate as formatShipmentDisplayDate } from '../ShipmentsSection'
 
 // The sales document detail page renders these three tabs next to an items table
 // that already formats in the application locale. Formatting them from the runtime
@@ -42,5 +43,25 @@ describe('sales returns — date formatting', () => {
     expect(formatDisplayDate(null, 'pl-PL')).toBeNull()
     expect(formatDisplayDate(undefined, 'pl-PL')).toBeNull()
     expect(formatDisplayDate('not a date', 'pl-PL')).toBeNull()
+  })
+})
+
+// The shipments tab renders directly beside the returns tab above, and its date helper is a
+// byte-for-byte copy of the returns one. Leaving it on the runtime default is what put Polish
+// returns dates next to American shipment dates on one page, so it is asserted in the same shape.
+describe('sales shipments — date formatting', () => {
+  it('formats in the requested locale rather than the runtime default', () => {
+    expect(formatShipmentDisplayDate(LOCAL_MIDDAY, 'pl-PL')).toBe('9 cze 2026')
+    expect(formatShipmentDisplayDate(LOCAL_MIDDAY, 'en-US')).toBe('Jun 9, 2026')
+  })
+
+  it('returns null for an absent or unparseable value', () => {
+    expect(formatShipmentDisplayDate(null, 'pl-PL')).toBeNull()
+    expect(formatShipmentDisplayDate(undefined, 'pl-PL')).toBeNull()
+    expect(formatShipmentDisplayDate('not a date', 'pl-PL')).toBeNull()
+  })
+
+  it('agrees with the returns tab it renders beside', () => {
+    expect(formatShipmentDisplayDate(LOCAL_MIDDAY, 'pl-PL')).toBe(formatDisplayDate(LOCAL_MIDDAY, 'pl-PL'))
   })
 })

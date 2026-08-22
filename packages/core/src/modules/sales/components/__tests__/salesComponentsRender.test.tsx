@@ -303,6 +303,10 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   return {
     useT: () => translate,
     useLocale: () => 'en-US',
+    // `PriceWithCurrency` reads the optional variant so it stays mountable outside `I18nProvider`;
+    // the mock has to answer it too, or the rendered price silently falls back to the runner's
+    // default locale and the assertion below becomes machine-dependent again (#5105).
+    useOptionalLocale: () => 'en-US',
   }
 })
 
