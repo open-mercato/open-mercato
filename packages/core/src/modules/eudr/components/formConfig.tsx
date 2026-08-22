@@ -592,7 +592,7 @@ export function parseGeolocationInput(raw: string, translate: Translator): Recor
   return parsed
 }
 
-export { translateEudrCrudError } from './crudErrorI18n'
+export { translateEudrCrudError, translateEudrErrorMessage } from './crudErrorI18n'
 
 let referencedStatementRowKeySeq = 0
 

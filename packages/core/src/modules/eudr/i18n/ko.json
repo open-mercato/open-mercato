@@ -239,7 +239,7 @@
   "eudr.lifecycle.amendWindowClosed": "수정 기간 종료",
   "eudr.lifecycle.amendWindowRemaining": "남은 수정 기간: {hours}시간 {minutes}분",
   "eudr.lifecycle.confirmArchive": "진술서를 보관하시겠습니까?",
-  "eudr.lifecycle.confirmArchiveBody": "진술서가 보관됩니다.",
+  "eudr.lifecycle.confirmArchiveBody": "진술서가 보관됩니다. 보관된 진술서는 읽기 전용이며 수정, 복원 또는 삭제할 수 없습니다.",
   "eudr.lifecycle.confirmMarkAvailable": "진술서를 사용 가능으로 표시하시겠습니까?",
   "eudr.lifecycle.confirmMarkAvailableBody": "진술서가 사용 가능해지기 전에 참조 세부 정보가 필요합니다.",
   "eudr.lifecycle.confirmReturnToDraft": "진술서를 초안으로 되돌리시겠습니까?",
