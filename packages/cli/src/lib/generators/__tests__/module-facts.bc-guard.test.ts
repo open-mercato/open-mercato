@@ -158,7 +158,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // provenance entries and override targets to every render. The
     // `warranty_claims` module (see above) lands alongside it, so the cap
     // absorbs both additions.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_000_000)
+    //
+    // JSON cap raised a sixth time by the phone_calls hub and its Tillio provider
+    // package: two entities, three events, three ACL features, four API routes, a
+    // backend page, a worker and two injection widgets cost 26,368 bytes of facts
+    // and provenance references together, an eighth of what `warranty_claims` cost
+    // above and linear in what the two modules actually declare. The headroom left
+    // at the previous cap was 18,383 bytes, so the raise is sized to leave the next
+    // module room rather than to clear this one by a hair.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_200_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
