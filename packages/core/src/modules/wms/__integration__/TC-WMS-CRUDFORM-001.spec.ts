@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenScope, readJsonSafe, deleteGeneralEntityIfExists } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   runCrudFormRoundTrip,
   skipIfCrudFormExtensionTestsDisabled,
   type CrudRecord,
 } from '@open-mercato/core/helpers/integration/crudFormPersistence'
-import { ensureRoleFeatures } from './helpers/wmsFixtures'
+import { createCrudFixture, ensureRoleFeatures } from './helpers/wmsFixtures'
 
 export const integrationMeta = {
   dependsOnModules: ['wms'],
@@ -147,6 +147,59 @@ test.describe('TC-WMS-CRUDFORM-001: Warehouse CrudForm persists scalars + custom
       })
     } finally {
       await deleteWarehouseCustomFieldDefinition(request, adminToken, dockKey)
+      await restoreAdminAcl()
+    }
+  })
+})
+
+test.describe('TC-WMS-CRUDFORM-001: warehouse list search by country name', () => {
+  test('search=Poland finds a warehouse stored as ISO code PL', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const stamp = `${Date.now()}_${randomUUID().replace(/-/g, '').slice(0, 8)}`
+    const scope = getTokenScope(adminToken)
+    const restoreAdminAcl = await ensureRoleFeatures(
+      request,
+      superadminToken,
+      scope.tenantId,
+      'admin',
+      ['wms.view', 'wms.manage_warehouses'],
+    )
+    let warehouseId: string | null = null
+
+    try {
+      warehouseId = await createCrudFixture(request, adminToken, WAREHOUSES_PATH, {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        name: `QA Country Search ${stamp}`,
+        code: `QACS${stamp}`.slice(0, 80),
+        city: 'Gdynia',
+        country: 'PL',
+        timezone: 'Europe/Warsaw',
+        isActive: true,
+      })
+
+      const matched = await apiRequest(
+        request,
+        'GET',
+        `${WAREHOUSES_PATH}?ids=${encodeURIComponent(warehouseId)}&search=${encodeURIComponent('Poland')}&page=1&pageSize=20`,
+        { token: adminToken },
+      )
+      expect(matched.status(), 'search=Poland should succeed').toBe(200)
+      const matchedBody = await readJsonSafe<{ items?: CrudRecord[] }>(matched)
+      expect((matchedBody?.items ?? []).some((item) => item.id === warehouseId)).toBe(true)
+
+      const missed = await apiRequest(
+        request,
+        'GET',
+        `${WAREHOUSES_PATH}?ids=${encodeURIComponent(warehouseId)}&search=${encodeURIComponent('zzzz-no-country')}&page=1&pageSize=20`,
+        { token: adminToken },
+      )
+      expect(missed.status()).toBe(200)
+      const missedBody = await readJsonSafe<{ items?: CrudRecord[] }>(missed)
+      expect((missedBody?.items ?? []).some((item) => item.id === warehouseId)).toBe(false)
+    } finally {
+      await deleteGeneralEntityIfExists(request, adminToken, WAREHOUSES_PATH, warehouseId)
       await restoreAdminAcl()
     }
   })
