@@ -181,7 +181,15 @@ describe('auth server integrity checks', () => {
       })
     }
 
-    beforeEach(() => {
+    beforeEach(async () => {
+      // The registry ships empty; completion routes are registered by their owning module
+      // (enterprise security). Register equivalent fixtures to exercise resolver mechanics.
+      const { registerMfaPendingAccessRoutes } = await import('../mfaPendingAccess')
+      registerMfaPendingAccessRoutes([
+        { path: '/api/security/mfa/prepare', methods: ['POST'] },
+        { path: '/api/security/mfa/verify', methods: ['POST'] },
+        { path: '/api/security/mfa/recovery', methods: ['POST'] },
+      ])
       verifyJwt.mockReturnValue(pendingAuth)
       resolveCanonicalStaffAuthContext.mockResolvedValue({ ...pendingAuth })
     })

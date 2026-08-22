@@ -3,12 +3,6 @@ export type MfaPendingAccessRoute = {
   methods: string[]
 }
 
-const DEFAULT_MFA_PENDING_ACCESS_ROUTES: MfaPendingAccessRoute[] = [
-  { path: '/api/security/mfa/prepare', methods: ['POST'] },
-  { path: '/api/security/mfa/verify', methods: ['POST'] },
-  { path: '/api/security/mfa/recovery', methods: ['POST'] },
-]
-
 const registeredMethodsByPath = new Map<string, Set<string>>()
 
 function normalizePath(path: string): string | null {
@@ -26,15 +20,16 @@ function normalizeMethods(methods: unknown): string[] {
   return Array.from(new Set(normalized)).sort((first, second) => (first < second ? -1 : first > second ? 1 : 0))
 }
 
-for (const route of DEFAULT_MFA_PENDING_ACCESS_ROUTES) {
-  registeredMethodsByPath.set(normalizePath(route.path) as string, new Set(route.methods))
-}
-
 /**
- * Register additional routes that may accept an MFA-pending staff token. Intended for
- * third-party MFA implementations that complete the second factor on their own endpoints.
- * Registration is additive: methods merge into any existing entry for the same path and are
- * never removed.
+ * Register routes that may accept an MFA-pending staff token. The registry starts empty and
+ * stays generic: every module that completes an MFA challenge on its own endpoints registers
+ * them here during its bootstrap — the canonical `/api/security/mfa/*` completion routes are
+ * registered by the enterprise `security` module (`lib/mfaCompletionRoutes.ts`), third-party
+ * MFA implementations register theirs the same way. Registration is additive: methods merge
+ * into any existing entry for the same path and are never removed.
+ *
+ * Contract defined in `.ai/specs/enterprise/implemented/SPEC-ENT-007-2026-03-06-auth-login-interceptors-extension.md`
+ * (§ Amendment 2026-08-21 — central MFA-pending token gate).
  */
 export function registerMfaPendingAccessRoutes(routes: MfaPendingAccessRoute[]): void {
   for (const route of Array.isArray(routes) ? routes : []) {
@@ -52,8 +47,8 @@ export function registerMfaPendingAccessRoutes(routes: MfaPendingAccessRoute[]):
 
 /**
  * Fail-closed check deciding whether an MFA-pending staff token may be resolved for this exact
- * method + path pair. Only explicitly registered completion routes (by default the three
- * canonical MFA challenge endpoints) pass; every other request is denied.
+ * method + path pair. Only explicitly registered completion routes pass; every unregistered
+ * request is denied.
  */
 export function isMfaPendingAccessAllowed(
   method: string | null | undefined,

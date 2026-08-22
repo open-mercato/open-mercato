@@ -192,3 +192,55 @@ Ready for implementation in external-extension mode, contingent on prerequisites
 | Phase 2 — Auth Login Interceptor | Not Started | — | — |
 | Phase 3 — Login Wrapper UI | Not Started | — | — |
 | Phase 4 — Integration Verification | Not Started | — | — |
+
+## Amendment 2026-08-21 — Central MFA-Pending Token Gate (issue #5212)
+
+The interceptor's provisional token (`mfa_pending: true`, `mfa_verified: false`) was
+accepted by every staff API because the canonical auth resolvers never inspected the
+assurance claims. This amendment defines the platform-wide gate that rejects pending
+credentials everywhere except registered MFA completion routes.
+
+### Contract
+
+- `isMfaPendingJwtPayload(payload)` — `packages/shared/src/lib/auth/jwt.ts`. True iff
+  `mfa_pending === true && mfa_verified !== true`.
+- Pending-access allowlist — `packages/shared/src/lib/auth/mfaPendingAccess.ts`
+  (generic infrastructure): `registerMfaPendingAccessRoutes(routes)` (additive, idempotent,
+  methods merge per path), `isMfaPendingAccessAllowed(method, pathname)` (fail-closed:
+  exact path + exact method, trailing-slash tolerant, case-insensitive), and
+  `listMfaPendingAccessRoutes()` for tests/ops. The registry ships **empty**.
+- Enforcement point — `resolveAuthFromRequestDetailed` / `resolveAuthFromCookiesDetailed`
+  in `packages/shared/src/lib/auth/server.ts`: pending payloads resolve to
+  `{ auth: null, status: 'invalid' }` unless the request matches a registered completion
+  route; cookie/RSC resolution rejects pending tokens unconditionally.
+
+### Ownership boundary
+
+- `packages/shared` owns only the generic registry and predicate. It contains no route
+  defaults and no knowledge of any concrete MFA implementation.
+- The enterprise `security` module owns the canonical `/api/security/mfa/{prepare,verify,recovery}`
+  routes and registers them via `lib/mfaCompletionRoutes.ts`, imported by the module entry
+  (`index.ts`) and by the completion routes' shared helper, so registration always precedes
+  request authentication.
+- Third-party MFA implementations register their own completion routes during their module
+  bootstrap through the same additive API.
+
+### Migration & Backward Compatibility
+
+| Surface | Classification | Notes |
+|---|---|---|
+| `registerMfaPendingAccessRoutes` / `isMfaPendingAccessAllowed` / `listMfaPendingAccessRoutes` / `isMfaPendingJwtPayload` | ADDITIVE-ONLY | New exports; signatures frozen as shipped here. Future evolution must keep existing call sites working or follow the deprecation protocol (§27). |
+| Registry default set | CHANGED (security-narrowing) | Pre-amendment builds effectively allowed the provisional token everywhere; the fix intentionally narrows pending tokens to registered completion routes. No stable contract is removed — pending tokens were never documented as general credentials. |
+| Login/MFA endpoint URLs, methods, request/response shapes | UNCHANGED | Completion endpoints keep requiring `auth.mfa_pending === true`; verified replacement tokens and non-MFA logins behave exactly as before. |
+| Third-party MFA modules | MIGRATION REQUIRED (one line) | Any implementation that completes challenges on its own endpoints must call `registerMfaPendingAccessRoutes` during bootstrap; without it its completion routes reject pending tokens (fail-closed). |
+
+### Integration coverage
+
+| Path | Case | Suite |
+|---|---|---|
+| `POST /api/auth/login` → pending token issued | interceptor flow unchanged | `TC-SEC-002`, `TC-SEC-010` |
+| `GET /api/auth/profile` with pending bearer/cookie | 401 + `auth_token`/`session_token` cleared | `TC-SEC-010` |
+| `POST /api/security/mfa/recovery-codes/regenerate` with pending token | 401 (mutation blocked pre-second-factor) | `TC-SEC-010` |
+| `POST /api/security/mfa/prepare` / `verify` with pending token | reachable, contracts unchanged | `TC-SEC-010` |
+| Verified replacement token | normal read + mutation access restored | `TC-SEC-010` |
+| Failed-challenge cleanup / attempt exhaustion | correct code rejected after lockout; fresh challenge works | `TC-SEC-010`; TTL expiry at service level in `MfaVerificationService.test.ts` |
