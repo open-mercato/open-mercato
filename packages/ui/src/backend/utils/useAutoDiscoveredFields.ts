@@ -2,7 +2,7 @@
 import * as React from 'react'
 import type { RowData } from '@tanstack/react-table'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterFieldDef as AdvancedFilterFieldDef, FilterFieldType, FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { ColumnChooserField } from '../columns/ColumnChooserPanel'
 import type { CustomFieldDefDto } from './customFieldDefs'
@@ -62,9 +62,11 @@ export function useAutoDiscoveredFields<T extends RowData = RowData>({
   columns,
   customFieldDefs,
 }: UseAutoDiscoveredFieldsInput<T>): UseAutoDiscoveredFieldsResult {
-  const t = useT()
-  const defaultGroupLabel = t('ui.columnChooser.defaultGroup', 'Columns')
-  const customFieldsGroupLabel = t('ui.columnChooser.customFieldsGroup', 'Custom Fields')
+  // Optional translator: this hook is a public entry point third-party modules
+  // render, and it worked without an I18nProvider before it needed labels.
+  const t = useOptionalT()
+  const defaultGroupLabel = t?.('ui.columnChooser.defaultGroup', 'Columns') ?? 'Columns'
+  const customFieldsGroupLabel = t?.('ui.columnChooser.customFieldsGroup', 'Custom Fields') ?? 'Custom Fields'
   return React.useMemo(() => {
     const filterFields: AdvancedFilterFieldDef[] = []
     const chooserFields: ColumnChooserField[] = []
