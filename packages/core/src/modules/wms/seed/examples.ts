@@ -217,6 +217,7 @@ async function ensureDemoProducts(
       deletedAt: null,
     })
     if (!product) {
+      const configurable = seed.variants.length > 1
       product = em.create(CatalogProduct, {
         id: randomUUID(),
         organizationId: scope.organizationId,
@@ -225,11 +226,11 @@ async function ensureDemoProducts(
         description: seed.description,
         sku: seed.sku,
         handle: seed.handle,
-        productType: 'simple',
+        productType: configurable ? 'configurable' : 'simple',
         defaultUnit: seed.unit,
         defaultSalesUnit: seed.unit,
         primaryCurrencyCode: 'USD',
-        isConfigurable: false,
+        isConfigurable: configurable,
         isActive: true,
         metadata: { ...DEMO_META },
         createdAt: now,

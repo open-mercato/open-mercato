@@ -140,6 +140,20 @@ describe('seedWmsExamples', () => {
     expect(warehouses.find((row) => row.code === 'DEMO-NYC')?.isPrimary).toBe(true)
     expect(warehouses.filter((row) => row.isPrimary)).toHaveLength(1)
 
+    const products = em.rows.get(CatalogProduct.name) ?? []
+    expect(products.find((row) => row.sku === 'HOME-MUG-POUR')).toEqual(expect.objectContaining({
+      productType: 'configurable',
+      isConfigurable: true,
+    }))
+    expect(products.find((row) => row.sku === 'ELEC-EARBUDS-NC')).toEqual(expect.objectContaining({
+      productType: 'configurable',
+      isConfigurable: true,
+    }))
+    expect(products.find((row) => row.sku === 'FOOD-MATCHA-TIN')).toEqual(expect.objectContaining({
+      productType: 'simple',
+      isConfigurable: false,
+    }))
+
     const movements = em.rows.get(InventoryMovement.name) ?? []
     expect(movements.every((row) => row.type === 'receipt')).toBe(true)
     expect(movements.every((row) => row.reasonCode === 'example_seed')).toBe(true)
