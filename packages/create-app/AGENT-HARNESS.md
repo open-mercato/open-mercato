@@ -20,7 +20,7 @@ Two entry points cooperate:
 
 A *code-generation case* is any catalog case whose `evaluationKind` is
 `implementation` or `regression` (`WRITABLE_KINDS`, `evaluate-agent-harness.mjs:37`).
-There are 48 such cases (`ai/harness/validators.json`; asserted in the test suite).
+There are 49 such cases (`ai/harness/validators.json`; asserted in the test suite).
 Examples: `OMH-011` (CRUD routes), `OMH-093` (business contact-merge command),
 `OMH-163/164/165/192` (test authoring).
 
@@ -202,11 +202,12 @@ The release gate wraps this in a larger ordered sequence.
     seam and executes it inside a `vm` sandbox** against mocked `effects` (3 s
     worker timeout, 256 KiB source cap) to prove runtime invariants an AST cannot.
     **Spec oracle** `ai/harness/writable-spec-oracles.mjs` runs for the two SPEC-P2
-    planning proofs (`OMH-223`, `OMH-224`), whose only permitted artifact is Markdown
-    under `.ai/specs/`: it grades section structure, ordered phases, named test
+    planning proofs (`OMH-223`, `OMH-224`) and the resumable implementation proof
+    (`OMH-230`). The planning cases permit only Markdown under `.ai/specs/`: they grade section structure, ordered phases, named test
     coverage, template-placeholder residue, reserved-scaffolding integrity, the fixed
     amendment terms of the seeded covering spec, and the absence of any module that
-    would mean implementation had started. The module-shaped proof additionally reads
+    would mean implementation had started. The resume case instead binds the preserved
+    verified slice, paired TypeScript artifacts, and canonical progress ledger. The module-shaped proof additionally reads
     the target's generated local-reference facts, source-link inventory, and canonical
     gallery/foundation projection: exact contribution, activation, override-target,
     specialist, bulk-progress, and design identities must stay bound to their ordered

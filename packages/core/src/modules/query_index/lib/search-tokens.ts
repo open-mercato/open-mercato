@@ -223,6 +223,49 @@ export async function deleteSearchTokensForRecord(
     .execute()
 }
 
+// NUL, not a printable separator: a field name may itself contain a space, so `a b` + hash `c`
+// would otherwise sign identically to field `a` + hash `b c`.
+const SIGNATURE_SEPARATOR = String.fromCharCode(0)
+
+// Identifies one token row for comparison. `token` is NULL unless `storeRawTokens` is on, and a
+// stored NULL has to sign the same as the `null` a freshly built row carries — otherwise every
+// record compares as changed and the skip never fires.
+function tokenSignature(row: { field?: unknown; token_hash?: unknown; token?: unknown }): string {
+  return [
+    String(row.field ?? ''),
+    String(row.token_hash ?? ''),
+    row.token == null ? '' : String(row.token),
+  ].join(SIGNATURE_SEPARATOR)
+}
+
+// Multiplicities, not sets: #4681 reports token rows duplicated by the concurrent-replacement
+// defect, and a set comparison reads such a record as already correct and preserves the duplicates
+// forever. Counting sends it through a full rewrite, which collapses them.
+function tallyEquals(a: Map<string, number> | undefined, b: Map<string, number> | undefined): boolean {
+  const left = a ?? new Map<string, number>()
+  const right = b ?? new Map<string, number>()
+  if (left.size !== right.size) return false
+  for (const [key, count] of left.entries()) {
+    if (right.get(key) !== count) return false
+  }
+  return true
+}
+
+function tallyTokenRows<TRow extends { field?: unknown; token_hash?: unknown; token?: unknown }>(
+  rows: Iterable<TRow>,
+  keyOf: (row: TRow) => string
+): Map<string, Map<string, number>> {
+  const tallies = new Map<string, Map<string, number>>()
+  for (const row of rows) {
+    const key = keyOf(row)
+    const tally = tallies.get(key) ?? new Map<string, number>()
+    const signature = tokenSignature(row)
+    tally.set(signature, (tally.get(signature) ?? 0) + 1)
+    tallies.set(key, tally)
+  }
+  return tallies
+}
+
 export async function replaceSearchTokensForBatch(
   db: Kysely<any>,
   payloads: Array<BuildTokenOptions & { doc: Record<string, unknown> }>
@@ -256,8 +299,95 @@ export async function replaceSearchTokensForBatch(
     scopeBuckets.set(key, bucket)
   }
 
+  const recordKeyOf = (row: SearchTokenRow) =>
+    `${scopeKey(row.organization_id ?? null, row.tenant_id ?? null)}|${String(row.entity_id)}`
+  const builtTally = tallyTokenRows(rows, recordKeyOf)
+
+  // Read outside the transaction, deliberately. The comparison decides only whether to skip a
+  // rewrite, so a concurrent writer costs us at most a rewrite we declined — declined because the
+  // table already held exactly the rows this call wanted to write. One ordering is worth naming
+  // though: if the read matches and a concurrent writer then commits tokens built from a *staler*
+  // doc, the unconditional rewrite this call used to perform would have overwritten them by
+  // accident. It no longer does, so those stale rows survive until the record's next write. That
+  // is a repair we lose, not a guarantee we break.
+  const changedIdsByBucket = new Map<string, Set<string>>()
+  for (const [key, bucket] of scopeBuckets.entries()) {
+    const ids = Array.from(bucket.ids)
+    const builtCountById = new Map<string, number>()
+    for (const id of ids) {
+      let total = 0
+      const tally = builtTally.get(`${key}|${id}`)
+      if (tally) for (const count of tally.values()) total += count
+      builtCountById.set(id, total)
+    }
+
+    // Count probe first. Its result is one row per record in the batch, so it is bounded by the
+    // batch size — unlike a bare row read, which would be bounded only by how many token rows the
+    // table already holds for these ids, a quantity this function does not control and (per #4681)
+    // has no reason to trust.
+    const storedCounts = await db
+      .selectFrom('search_tokens' as any)
+      .select(['entity_id' as any, sql<number>`count(*)`.as('token_count') as any])
+      .where('entity_type' as any, '=', payloads[0].entityType)
+      .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
+      .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
+      .where('entity_id' as any, 'in', ids)
+      .groupBy('entity_id' as any)
+      .execute()
+    const storedCountById = new Map<string, number>()
+    for (const row of storedCounts as any[]) {
+      storedCountById.set(String(row.entity_id), Number(row.token_count))
+    }
+
+    const changed = new Set<string>()
+    // A record whose stored row count already differs is changed, whatever the rows say — the
+    // duplicate case from #4681 resolves here without ever materializing the duplicated rows.
+    const contentCandidates = ids.filter((id) => {
+      const builtCount = builtCountById.get(id) ?? 0
+      if ((storedCountById.get(id) ?? 0) !== builtCount) {
+        changed.add(id)
+        return false
+      }
+      return builtCount > 0
+    })
+
+    if (contentCandidates.length) {
+      const rowBudget = contentCandidates.reduce((sum, id) => sum + (builtCountById.get(id) ?? 0), 0)
+      const stored = await db
+        .selectFrom('search_tokens' as any)
+        .select(['entity_id' as any, 'field' as any, 'token_hash' as any, 'token' as any])
+        .where('entity_type' as any, '=', payloads[0].entityType)
+        .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
+        .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
+        .where('entity_id' as any, 'in', contentCandidates)
+        // Counts already match, so this cannot truncate — it bounds the damage if a concurrent
+        // writer inserts between the probe and this read. A truncated read compares as changed,
+        // which costs a rewrite rather than a wrong skip.
+        .limit(rowBudget)
+        .execute()
+      const storedTally = tallyTokenRows(stored as any[], (row) => String(row.entity_id))
+      for (const id of contentCandidates) {
+        if (!tallyEquals(builtTally.get(`${key}|${id}`), storedTally.get(id))) changed.add(id)
+      }
+    }
+    changedIdsByBucket.set(key, changed)
+  }
+
+  const changedRecordKeys = new Set<string>()
+  for (const [key, changed] of changedIdsByBucket.entries()) {
+    for (const id of changed) changedRecordKeys.add(`${key}|${id}`)
+  }
+  debug('batch.skip', {
+    entityType: payloads[0].entityType,
+    recordCount: payloads.length,
+    changedCount: changedRecordKeys.size,
+  })
+  if (!changedRecordKeys.size) return
+
   await db.transaction().execute(async (trx) => {
-    for (const [, bucket] of scopeBuckets.entries()) {
+    for (const [key, bucket] of scopeBuckets.entries()) {
+      const changed = changedIdsByBucket.get(key)
+      if (!changed?.size) continue
       // Delete by entity_id: a batch replaces all of a record's tokens, and a per-field OR over the
       // whole batch overflows the query compiler's call stack on large batches.
       const deleteQuery = trx
@@ -265,10 +395,12 @@ export async function replaceSearchTokensForBatch(
         .where('entity_type' as any, '=', payloads[0].entityType)
         .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
         .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
-        .where('entity_id' as any, 'in', Array.from(bucket.ids))
+        .where('entity_id' as any, 'in', Array.from(changed))
       await deleteQuery.execute()
     }
-    const payloadWithTimestamps = rows.map((row) => ({ ...row, created_at: sql`now()` }))
+    const payloadWithTimestamps = rows
+      .filter((row) => changedRecordKeys.has(recordKeyOf(row)))
+      .map((row) => ({ ...row, created_at: sql`now()` }))
     for (const batch of chunk(payloadWithTimestamps, INSERT_BATCH_SIZE)) {
       await trx.insertInto('search_tokens' as any).values(batch as any).execute()
     }

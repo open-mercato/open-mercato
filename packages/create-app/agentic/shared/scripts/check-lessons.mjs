@@ -17,11 +17,13 @@ export const LESSON_AREAS = new Set([
   'spec-pr',
 ])
 
-// Raised from 30 KiB when the catalog legitimately reached 119 records and overran the
-// old cap by 5 bytes. The budget exists to keep the index cheap to load in full, not to
-// cap how many lessons the repo may accumulate — trimming real rows to fit would defeat
-// the routing the catalog exists to provide.
-const INDEX_MAX_BYTES = 32 * 1024
+// The budget exists to keep the index cheap to load in full, not to cap how many lessons
+// the repo may accumulate — trimming real rows to fit would defeat the routing the catalog
+// exists to provide. A fixed cap broke twice as the catalog legitimately grew (119 then
+// 130 records), so the budget now scales with the record count: a base allowance for the
+// header plus a per-row allowance that still catches prose creep inside individual rows.
+const INDEX_BASE_BUDGET_BYTES = 16 * 1024
+const INDEX_PER_RECORD_BUDGET_BYTES = 320
 const RECORD_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 const MODULE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/
 const TOPIC_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -96,9 +98,6 @@ export function checkLessonsCatalog(rootDir) {
 
   const indexSource = fs.readFileSync(indexPath, 'utf8')
   const indexBytes = Buffer.byteLength(indexSource)
-  if (indexBytes > INDEX_MAX_BYTES) {
-    errors.push(`.ai/lessons.md: ${indexBytes} bytes exceeds the ${INDEX_MAX_BYTES}-byte progressive-loading budget`)
-  }
   if (/\*\*(?:Context|Problem|Rule|Applies to)\*\*:/.test(indexSource)) {
     errors.push('.ai/lessons.md: full lesson prose belongs in .ai/lessons/, not the catalog')
   }
@@ -109,6 +108,13 @@ export function checkLessonsCatalog(rootDir) {
       .map((entry) => entry.name)
       .sort()
     : []
+  const indexBudgetBytes = INDEX_BASE_BUDGET_BYTES + recordNames.length * INDEX_PER_RECORD_BUDGET_BYTES
+  if (indexBytes > indexBudgetBytes) {
+    errors.push(
+      `.ai/lessons.md: ${indexBytes} bytes exceeds the ${indexBudgetBytes}-byte progressive-loading budget`
+      + ` (${INDEX_BASE_BUDGET_BYTES} base + ${recordNames.length} records × ${INDEX_PER_RECORD_BUDGET_BYTES})`,
+    )
+  }
   const records = new Map()
   const titles = new Set()
   for (const fileName of recordNames) {

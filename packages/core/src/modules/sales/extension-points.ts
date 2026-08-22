@@ -5,6 +5,7 @@ export const extensionPoints = defineModuleExtensionPoints({
   hosts: {
     ordersTable: dataTableExtensionHost({ tableId: 'sales.orders', source: 'components/documents/SalesDocumentsTable.tsx' }),
     quotesTable: dataTableExtensionHost({ tableId: 'sales.quotes', source: 'components/documents/SalesDocumentsTable.tsx' }),
+    paymentsTable: dataTableExtensionHost({ tableId: 'sales.payments', source: 'components/documents/PaymentsSection.tsx' }),
     orderItemColumns: injectionExtensionHost({
       family: 'detail',
       spotId: 'data-table:sales.order.items:columns',
