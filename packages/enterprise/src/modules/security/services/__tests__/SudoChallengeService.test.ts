@@ -347,11 +347,13 @@ describe('SudoChallengeService', () => {
       'sudo challenge downgraded to password',
       expect.objectContaining({
         availableMfaMethodCount: 1,
+        userId: 'user-1',
+        targetIdentifier: 'security.sudo.manage',
       }),
     )
   })
 
-  test('does not warn when bypass is enabled but sudo target already requires password', async () => {
+  test('does not warn when no MFA methods are available so password was already the outcome', async () => {
     const { service, mfaService, mfaVerificationService } = createServiceContext({
       ...defaultSecurityModuleConfig,
       mfa: {
@@ -359,9 +361,6 @@ describe('SudoChallengeService', () => {
         emergencyBypass: true,
       },
     })
-    // Force target to PASSWORD by seeding a custom config with PASSWORD method
-    // The default target is auto, but we simulate password-only by making getUserMethods return 0 and bypass would not change outcome;
-    // Instead we directly test the downgrade logic: when no MFA methods, normal would already be password, so bypass should not warn
     mfaService.getUserMethods.mockResolvedValueOnce([])
 
     const result = await service.initiate('user-1', 'security.sudo.manage', {

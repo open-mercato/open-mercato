@@ -1,4 +1,4 @@
-var mockLoggerWarn = jest.fn()
+const mockLoggerWarn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({
