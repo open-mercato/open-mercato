@@ -25,11 +25,13 @@ import * as ts from 'typescript'
  *
  * Two boundaries this guard deliberately does not cover:
  * - **Scope is this package**, per the convention of the other structural guards
- *   here. The checkout and enterprise-security routes funnel their errors through
- *   one module-level mapper each, and those mappers carry their own unit tests
- *   (`helpers.error-mapping.test.ts`, `error-mapping.interceptor.test.ts`). A
- *   future route in those packages that owns its `catch` instead of delegating to
- *   the shared mapper is not caught by anything here.
+ *   here. The checkout, enterprise-security and documents routes funnel their
+ *   errors through one module-level mapper each, and those mappers carry their own
+ *   unit tests (`helpers.error-mapping.test.ts`, two `error-mapping.interceptor.test.ts`).
+ *   A future route in those packages that owns its `catch` instead of delegating to
+ *   the shared mapper is not caught by anything here, and neither is a new package
+ *   arriving with its own mapper — which is how `handleDocumentsRouteError` shipped
+ *   without the branch until it was spotted by hand.
  * - **A `catch` that swallows rather than rethrows** still satisfies the chain
  *   check as long as an outer clause maps the rejection. That is the case the
  *   batch exemption below exists for; a new route with the same shape has to be
