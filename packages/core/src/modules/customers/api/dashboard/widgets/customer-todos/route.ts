@@ -28,7 +28,10 @@ export const metadata = {
 
 type WidgetContext = WidgetScopeContext & { limit: number }
 
-async function resolveContext(req: Request, translate: (key: string, fallback?: string) => string): Promise<WidgetContext> {
+async function resolveContext(
+  req: Request,
+  translate: (key: string, fallback?: string) => string,
+): Promise<WidgetContext> {
   const url = new URL(req.url)
   const rawQuery: Record<string, string> = {}
   for (const [key, value] of url.searchParams.entries()) {
@@ -39,16 +42,18 @@ async function resolveContext(req: Request, translate: (key: string, fallback?: 
     throw new CrudHttpError(400, { error: translate('customers.errors.invalid_query', 'Invalid query parameters') })
   }
 
-  const { container, em, tenantId, organizationIds } = await resolveWidgetScope(req, translate, {
-    tenantId: parsed.data.tenantId ?? null,
-    organizationId: parsed.data.organizationId ?? null,
-  })
+  const { container, em, tenantId, organizationIds, isUnrestrictedOrganizationScope } =
+    await resolveWidgetScope(req, translate, {
+      tenantId: parsed.data.tenantId ?? null,
+      organizationId: parsed.data.organizationId ?? null,
+    })
 
   return {
     container,
     em,
     tenantId,
     organizationIds,
+    isUnrestrictedOrganizationScope,
     limit: parsed.data.limit,
   }
 }
@@ -56,7 +61,8 @@ async function resolveContext(req: Request, translate: (key: string, fallback?: 
 export async function GET(req: Request) {
   const { translate } = await resolveTranslations()
   try {
-    const { container, em, tenantId, organizationIds, limit } = await resolveContext(req, translate)
+    const { container, em, tenantId, organizationIds, isUnrestrictedOrganizationScope, limit } =
+      await resolveContext(req, translate)
     const auth = {
       tenantId,
       orgId: organizationIds?.[0] ?? null,
@@ -64,7 +70,7 @@ export async function GET(req: Request) {
     }
     const flags = await resolveCustomerInteractionFeatureFlags(container, tenantId)
     const mergedWindow = Math.min(limit * 4, 50)
-    const isUnrestricted = organizationIds === null
+    const isUnrestricted = isUnrestrictedOrganizationScope === true
     const rows = flags.unified
       ? (await listCanonicalTodoRows(
           em,

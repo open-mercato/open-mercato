@@ -162,6 +162,16 @@ describe('todos GET organization scoping', () => {
     expectNoQueries()
   })
 
+  it('returns export-shaped empty page for all=true when restricted has organizationIds = null', async () => {
+    mockContext = buildContext({ organizationIds: null })
+
+    const res = await GET(new Request('http://localhost/api/customers/todos?page=3&pageSize=50&all=true'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual({ items: [], total: 0, page: 1, pageSize: 0, totalPages: 1 })
+    expectNoQueries()
+  })
+
   it('allows tenant-wide query when superadmin has organizationIds = null', async () => {
     mockContext = buildContext({ organizationIds: null, isSuperAdmin: true, allowedIds: null })
 
@@ -181,6 +191,22 @@ describe('todos GET organization scoping', () => {
     expect(res.status).toBe(200)
     expectTenantWideQueries()
   })
+
+  it(
+    'allows tenant-wide query in unified mode when unrestricted non-superadmin has organizationIds = null',
+    async () => {
+      setFlags({ unified: true })
+      mockContext = buildContext({
+        organizationIds: null,
+        isSuperAdmin: false,
+        allowedIds: null,
+      })
+
+      const res = await GET(new Request('http://localhost/api/customers/todos?page=1&pageSize=50'))
+      expect(res.status).toBe(200)
+      expectTenantWideQueries()
+    },
+  )
 
   it('allows tenant-wide query when superadmin has organizationIds = []', async () => {
     mockContext = buildContext({ organizationIds: [], isSuperAdmin: true, allowedIds: null })

@@ -9,6 +9,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -240,7 +241,11 @@ export async function GET(request: Request): Promise<Response> {
     if (!flags.legacyAdapters) {
       return await legacyAdaptersDisabledResponse()
     }
-    const isUnrestricted = auth.isSuperAdmin === true || scope?.allowedIds === null
+    const exportAll = parseBooleanToken(query.all) === true
+    const isUnrestricted = isUnrestrictedOrganizationScope({
+      isSuperAdmin: auth.isSuperAdmin === true,
+      allowedOrganizationIds: scope?.allowedIds,
+    })
     if (!isUnrestricted && (!organizationIds || organizationIds.length === 0)) {
       logger.warn('customers.todos.list collapsed organization scope', {
         tenantId: auth.tenantId,
@@ -252,14 +257,13 @@ export async function GET(request: Request): Promise<Response> {
         NextResponse.json({
           items: [],
           total: 0,
-          page: query.page,
-          pageSize: query.pageSize,
+          page: exportAll ? 1 : query.page,
+          pageSize: exportAll ? 0 : query.pageSize,
           totalPages: 1,
         }),
       )
     }
     const queryEngine = container.resolve('queryEngine') as QueryEngine
-    const exportAll = parseBooleanToken(query.all) === true
     const search = normalizeTodoSearch(query.search)
 
     if (flags.unified) {
