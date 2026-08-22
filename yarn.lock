@@ -8656,8 +8656,10 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-resend@workspace:packages/channel-resend"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
@@ -8671,7 +8673,9 @@ __metadata:
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
   languageName: unknown
@@ -8682,8 +8686,10 @@ __metadata:
   resolution: "@open-mercato/channel-ses@workspace:packages/channel-ses"
   dependencies:
     "@aws-sdk/client-sesv2": "npm:^3.946.0"
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     "@types/nodemailer": "npm:^8.0.0"
     "@types/react": "npm:^19.2.17"
@@ -8698,7 +8704,9 @@ __metadata:
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
   languageName: unknown
