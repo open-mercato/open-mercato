@@ -574,9 +574,14 @@ export class SudoChallengeService {
     configuredMethod: ChallengeMethod,
     availableMfaMethodCount: number,
   ): SudoMethod {
-    const normalMethod = this.resolveChallengeMethodWithoutBypass(configuredMethod, availableMfaMethodCount)
     if (this.securityConfig.mfa.emergencyBypass) {
-      if (normalMethod === 'mfa') {
+      let wouldHaveBeenMfa = false
+      try {
+        wouldHaveBeenMfa = this.resolveChallengeMethodWithoutBypass(configuredMethod, availableMfaMethodCount) === 'mfa'
+      } catch {
+        wouldHaveBeenMfa = configuredMethod === ChallengeMethod.MFA
+      }
+      if (wouldHaveBeenMfa) {
         emitMfaEmergencyBypassActiveWarning('sudo challenge downgraded to password', {
           configuredMethod,
           availableMfaMethodCount,
@@ -584,7 +589,7 @@ export class SudoChallengeService {
       }
       return 'password'
     }
-    return normalMethod
+    return this.resolveChallengeMethodWithoutBypass(configuredMethod, availableMfaMethodCount)
   }
 
   private resolveChallengeMethodWithoutBypass(
