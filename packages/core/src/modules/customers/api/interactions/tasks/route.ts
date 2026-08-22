@@ -40,10 +40,26 @@ const MERGED_TASK_FETCH_CAP = 2000
 export async function GET(request: Request): Promise<Response> {
   const { translate } = await resolveTranslations()
   try {
-    const { auth, em, organizationIds, container, selectedOrganizationId } =
+    const { auth, em, organizationIds, container, selectedOrganizationId, scope } =
       await resolveCustomersRequestContext(request)
     const query = querySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    const isUnrestricted = auth.isSuperAdmin === true || scope?.allowedIds === null
+    if (!isUnrestricted && (!organizationIds || organizationIds.length === 0)) {
+      logger.warn('customers.interactions.tasks.list collapsed organization scope', {
+        tenantId: auth.tenantId,
+        organizationIds,
+        selectedId: scope?.selectedId ?? null,
+        allowedIdsCount: scope?.allowedIds?.length ?? null,
+      })
+      return NextResponse.json({
+        items: [],
+        total: 0,
+        page: query.page,
+        pageSize: query.pageSize,
+        totalPages: 1,
+      })
+    }
     const exportAll = parseBooleanToken(query.all) === true
     const search = normalizeTodoSearch(query.search)
     const queryEngine = container.resolve('queryEngine') as QueryEngine
@@ -59,6 +75,7 @@ export async function GET(request: Request): Promise<Response> {
           entityId: query.entityId,
           pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
           searchText: search,
+          isUnrestricted,
         },
       )
       const total = canonical.total
@@ -80,6 +97,7 @@ export async function GET(request: Request): Promise<Response> {
     const [legacyRows, canonicalRows] = await Promise.all([
       listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId, {
         limit: legacyWindow,
+        isUnrestricted,
       }),
       listCanonicalTodoRows(
         em,
@@ -91,6 +109,7 @@ export async function GET(request: Request): Promise<Response> {
           entityId: query.entityId,
           includeDeleted: true,
           limit: legacyWindow,
+          isUnrestricted,
         },
       ),
     ])

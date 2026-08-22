@@ -233,12 +233,30 @@ async function resolveCanonicalTodoTargetId(
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const { auth, em, organizationIds, container, selectedOrganizationId } =
+    const { auth, em, organizationIds, container, selectedOrganizationId, scope } =
       await resolveCustomersRequestContext(request)
     const query = querySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     if (!flags.legacyAdapters) {
       return await legacyAdaptersDisabledResponse()
+    }
+    const isUnrestricted = auth.isSuperAdmin === true || scope?.allowedIds === null
+    if (!isUnrestricted && (!organizationIds || organizationIds.length === 0)) {
+      logger.warn('customers.todos.list collapsed organization scope', {
+        tenantId: auth.tenantId,
+        organizationIds,
+        selectedId: scope?.selectedId ?? null,
+        allowedIdsCount: scope?.allowedIds?.length ?? null,
+      })
+      return withAdapterHeaders(
+        NextResponse.json({
+          items: [],
+          total: 0,
+          page: query.page,
+          pageSize: query.pageSize,
+          totalPages: 1,
+        }),
+      )
     }
     const queryEngine = container.resolve('queryEngine') as QueryEngine
     const exportAll = parseBooleanToken(query.all) === true
@@ -255,6 +273,7 @@ export async function GET(request: Request): Promise<Response> {
           entityId: query.entityId,
           pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
           searchText: search,
+          isUnrestricted,
         },
       )
       const total = canonical.total
@@ -275,6 +294,7 @@ export async function GET(request: Request): Promise<Response> {
     const [legacyRows, canonicalRows] = await Promise.all([
       listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId, {
         limit: legacyWindow,
+        isUnrestricted,
       }),
       listCanonicalTodoRows(
         em,
@@ -287,6 +307,7 @@ export async function GET(request: Request): Promise<Response> {
           includeDeleted: true,
           source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
           limit: legacyWindow,
+          isUnrestricted,
         },
       ),
     ])

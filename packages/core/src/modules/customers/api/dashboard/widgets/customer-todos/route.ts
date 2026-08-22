@@ -64,6 +64,7 @@ export async function GET(req: Request) {
     }
     const flags = await resolveCustomerInteractionFeatureFlags(container, tenantId)
     const mergedWindow = Math.min(limit * 4, 50)
+    const isUnrestricted = organizationIds === null
     const rows = flags.unified
       ? (await listCanonicalTodoRows(
           em,
@@ -71,7 +72,7 @@ export async function GET(req: Request) {
           auth,
           organizationIds?.[0] ?? null,
           organizationIds ?? null,
-          { pagination: { page: 1, pageSize: limit } },
+          { pagination: { page: 1, pageSize: limit }, isUnrestricted },
         )).items
       : await Promise.all([
           listLegacyTodoRows(
@@ -80,7 +81,7 @@ export async function GET(req: Request) {
             tenantId,
             organizationIds ?? null,
             undefined,
-            { limit: mergedWindow },
+            { limit: mergedWindow, isUnrestricted },
           ),
           listCanonicalTodoRows(
             em,
@@ -91,6 +92,7 @@ export async function GET(req: Request) {
             {
               includeDeleted: true,
               limit: mergedWindow,
+              isUnrestricted,
             },
           ),
         ]).then(([legacyRows, canonicalRows]) =>
