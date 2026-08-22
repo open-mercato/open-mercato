@@ -234,16 +234,10 @@ jobs:
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL=http://localhost:3001
           NEXT_PUBLIC_APP_URL=http://localhost:3001
-          # Customer-portal email links refuse to fall back to a localhost origin,
-          # so every portal invite 502s without this (TC-AUTH-032/033,
-          # TC-CACC-INVITE-PERSON-001).
-          # NOTE: this lane's server process really does run with NODE_ENV=test —
-          # the .env value below wins, unlike the ephemeral harness which pins
-          # NODE_ENV=production for both the app and the Playwright process. That
-          # divergence is observable: the login route marks its auth_token cookie
-          # `secure` only under NODE_ENV=production, so here the cookie is stored by
-          # the Playwright request jar and replayed on later calls. Specs must not
-          # depend on that jar being empty — see withCredentialIsolatedRequest.
+          # `yarn start` serves a production build, so NODE_ENV is production in
+          # the server process regardless of the NODE_ENV=test line below, and
+          # customer-portal email links refuse to fall back to localhost there.
+          # Without this every portal invite 502s (TC-AUTH-032/033, TC-CACC-INVITE-PERSON-001).
           PLATFORM_PORTAL_BASE_URL=http://localhost:3001
           AUTH_SECRET=ci-standalone-test-auth-secret
           JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min
@@ -268,6 +262,18 @@ jobs:
           # the `Build standalone app` step, not only on the test-run env.
           NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101
           DOCUMENTS_COLLAB_JWT_SECRET_V2=ci-standalone-documents-collab-v2-secret-32b
+          # Required for the loopback collab URL above to be ACCEPTED. This lane's
+          # server runs with NODE_ENV=production, and
+          # resolveDocumentsCollaborationEndpoint() rejects a loopback ws:// host
+          # under production unless this flag opts in — it logged "Ignoring
+          # NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ... not a valid browser-reachable ws(s)
+          # endpoint" and TC-DOCUMENTS-013 saw "Realtime unavailable" instead of the
+          # access-tier banner.
+          # Deliberately app-side ONLY: the same variable has a second, unrelated
+          # meaning in the Playwright process, where it opts TC-DOCUMENTS-017's
+          # realtime UI spec in. This lane wants the server-side permission, not that
+          # spec, so do NOT mirror this onto the integration-test env.
+          OM_DOCUMENTS_COLLAB_INTEGRATION=1
           OM_DISABLE_EMAIL_DELIVERY=1
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true

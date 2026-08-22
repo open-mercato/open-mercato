@@ -162,7 +162,13 @@ export async function postForm(
 export async function withCredentialIsolatedRequest<T>(
   use: (request: APIRequestContext) => Promise<T>,
 ): Promise<T> {
-  const context = await playwrightRequest.newContext(BASE_URL ? { baseURL: BASE_URL } : {});
+  // A hand-built context does not inherit the project's `use.baseURL` the way the
+  // `request` fixture does, so it has to repeat the config's own resolution — otherwise
+  // a relative path throws here on any run that leaves BASE_URL unset, while the same
+  // path works through the fixture.
+  const context = await playwrightRequest.newContext({
+    baseURL: BASE_URL ?? 'http://localhost:3000',
+  });
   try {
     return await use(context);
   } finally {

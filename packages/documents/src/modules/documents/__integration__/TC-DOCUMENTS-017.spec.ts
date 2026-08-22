@@ -1,5 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process'
-import path from 'node:path'
 import {
   expect,
   type APIRequestContext,
@@ -22,6 +20,10 @@ import {
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { expectId, getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  startManagedCollabSidecar,
+  type ManagedCollabSidecar,
+} from './helpers/collabSidecar'
 
 export const integrationMeta = {
   dependsOnModules: ['documents', 'customers'],
@@ -33,81 +35,11 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const PASSWORD = 'DocsRecovery1!Pass'
 const COLLAB_INTEGRATION_ENABLED = process.env.OM_DOCUMENTS_COLLAB_INTEGRATION === '1'
 
-type ManagedCollabSidecar = {
-  stop: () => Promise<void>
-}
-
-function formatSidecarOutput(chunks: string[]): string {
-  return chunks.join('').trim().slice(-4_000)
-}
-
-async function stopSidecarProcess(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return
-  child.kill('SIGTERM')
-  await Promise.race([
-    new Promise<void>((resolve) => child.once('exit', () => resolve())),
-    new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
-  ])
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill('SIGKILL')
-  }
-}
-
-async function startManagedCollabSidecar(): Promise<ManagedCollabSidecar> {
-  const configuredUrl = process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL?.trim()
-  if (!configuredUrl) {
-    throw new Error('NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is required when OM_DOCUMENTS_COLLAB_INTEGRATION=1')
-  }
-  const collabUrl = new URL(configuredUrl)
-  if (collabUrl.protocol !== 'ws:' || !['127.0.0.1', 'localhost'].includes(collabUrl.hostname)) {
-    throw new Error('Documents collaboration integration requires a loopback ws:// URL')
-  }
-
-  const port = collabUrl.port || '80'
-  const appRoot = process.env.OM_TEST_APP_ROOT?.trim() || path.resolve(process.cwd(), 'apps/mercato')
-  const serverEntry = path.resolve(process.cwd(), 'packages/documents/dist/server/documents-collab-server.js')
-  const output: string[] = []
-  const child = spawn(process.execPath, [serverEntry], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      NODE_ENV: 'production',
-      APP_URL: BASE_URL,
-      NEXT_PUBLIC_APP_URL: BASE_URL,
-      DOCUMENTS_COLLAB_ALLOWED_ORIGINS: new URL(BASE_URL).origin,
-      DOCUMENTS_COLLAB_APP_ROOT: appRoot,
-      DOCUMENTS_COLLAB_PORT: port,
-      // This UI scenario needs one real sidecar. The dedicated
-      // test:multi-instance gate separately proves Redis replication.
-      DOCUMENTS_COLLAB_REDIS_URL: '',
-      REDIS_URL: '',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  child.stdout?.on('data', (chunk: Buffer) => output.push(chunk.toString()))
-  child.stderr?.on('data', (chunk: Buffer) => output.push(chunk.toString()))
-
-  const healthUrl = `http://${collabUrl.hostname}:${port}/healthz`
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`Documents collaboration sidecar exited during startup.\n${formatSidecarOutput(output)}`)
-    }
-    try {
-      const response = await fetch(healthUrl)
-      if (response.ok) {
-        return { stop: () => stopSidecarProcess(child) }
-      }
-    } catch {
-      // The process may still be binding the port.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250))
-  }
-
-  await stopSidecarProcess(child)
-  throw new Error(`Timed out waiting for documents collaboration sidecar.\n${formatSidecarOutput(output)}`)
-}
-
+// The sidecar starter used to be duplicated here, byte-for-byte apart from taking
+// its base URL from the module constant. The copy kept the monorepo-only entry path
+// that the shared helper has since dropped, so it would have loaded a second copy of
+// @open-mercato/shared if this spec ever ran against a scaffolded app. Use the shared
+// helper instead of maintaining two.
 async function createCollaborator(
   request: APIRequestContext,
   adminToken: string,
@@ -347,7 +279,7 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
     let collabSidecar: ManagedCollabSidecar | null = null
 
     try {
-      collabSidecar = await startManagedCollabSidecar()
+      collabSidecar = await startManagedCollabSidecar(BASE_URL)
       token = await getAuthToken(request, 'admin')
       document = await createDocument(request, token, `TC-DOCUMENTS-017 ${stamp}`)
       companyId = await createCompanyFixture(request, token, companyName)
