@@ -671,6 +671,85 @@ describe('customers.deals.update stage transitions', () => {
     expect(existingDeal.lossNotes).toBe('Pricing objection')
   })
 
+  it.each(['Closed', 'CLOSED'])(
+    'keeps closure state when a closed deal is saved with the %s status spelling',
+    async (statusSpelling) => {
+      const handler = commandRegistry.get('customers.deals.update') as CommandHandler
+      expect(handler).toBeDefined()
+
+      const existingDeal: CustomerDeal = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        title: 'Expansion renewal',
+        description: null,
+        status: 'loose',
+        pipelineStage: 'Lost',
+        pipelineId: '550e8400-e29b-41d4-a716-446655440010',
+        pipelineStageId: '550e8400-e29b-41d4-a716-446655440013',
+        valueAmount: '12000',
+        valueCurrency: 'USD',
+        probability: 0,
+        expectedCloseAt: null,
+        ownerUserId: null,
+        source: 'Referral',
+        closureOutcome: 'lost',
+        lossReasonId: '550e8400-e29b-41d4-a716-446655440021',
+        lossNotes: 'Pricing objection',
+        createdAt: new Date('2026-04-10T08:00:00.000Z'),
+        updatedAt: new Date('2026-04-10T08:00:00.000Z'),
+        deletedAt: null,
+        people: [] as any,
+        companies: [] as any,
+        activities: [] as any,
+        comments: [] as any,
+        stageTransitions: [] as any,
+      }
+
+      const em = {
+        fork: () => em,
+        findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
+          if (ctor === CustomerDeal && where.id === existingDeal.id) return existingDeal
+          if (ctor === CustomerPipelineStage) return null
+          if (ctor === CustomerDealStageTransition) return null
+          if (ctor === CustomerDictionaryEntry) return null
+          return null
+        }),
+        find: jest.fn(async () => []),
+        nativeDelete: jest.fn(async () => {}),
+        create: jest.fn((ctor: unknown, payload: Record<string, unknown>) => ({ __entity: ctor, ...payload })),
+        persist: jest.fn(() => {}),
+        flush: jest.fn(async () => {}),
+        transactional: jest.fn(async (fn: (inner: typeof em) => Promise<unknown>) => fn(em)),
+        begin: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        rollback: jest.fn().mockResolvedValue(undefined),
+        getReference: jest.fn(),
+        remove: jest.fn(),
+      }
+
+      const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
+        setCustomFields: jest.fn(async () => {}),
+        emitOrmEntityEvent: jest.fn(async () => {}),
+      }
+
+      const ctx = createMockContext({ em, dataEngine })
+
+      await handler.execute!(
+        {
+          id: existingDeal.id,
+          status: statusSpelling,
+        },
+        ctx,
+      )
+
+      expect(existingDeal.status).toBe(statusSpelling)
+      expect(existingDeal.closureOutcome).toBe('lost')
+      expect(existingDeal.lossReasonId).toBe('550e8400-e29b-41d4-a716-446655440021')
+      expect(existingDeal.lossNotes).toBe('Pricing objection')
+    },
+  )
+
   it('keeps loss columns intact when a never-closed deal echoes its open status', async () => {
     const handler = commandRegistry.get('customers.deals.update') as CommandHandler
     expect(handler).toBeDefined()

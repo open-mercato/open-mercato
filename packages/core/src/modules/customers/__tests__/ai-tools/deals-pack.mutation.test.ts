@@ -326,6 +326,42 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
     })
   })
 
+  it.each(['Closed', 'CLOSED'])(
+    'previews closure state as preserved for the %s status spelling',
+    async (statusSpelling) => {
+      const updatedAt = new Date('2026-04-18T12:00:00Z')
+      const deal = {
+        id: DEAL_ID,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'lost',
+        pipelineStage: 'Lost',
+        pipelineStageId: WIN_STAGE_ID,
+        pipelineId: 'c1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+        closureOutcome: 'lost',
+        lossReasonId: 'e1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+        lossNotes: 'Pricing objection',
+        updatedAt,
+      }
+      findOneWithDecryptionMock.mockResolvedValueOnce(deal)
+      const ctx = makeMutationCtx()
+      const before = await tool.loadBeforeRecord!(
+        { dealId: DEAL_ID, toStage: statusSpelling } as any,
+        ctx as any,
+      )
+      // `closed` in any casing is not a reopen, so the approval card must not promise to
+      // clear the loss columns — and the update command must agree (see the matching
+      // case in commands/__tests__/deals.stage-transitions.test.ts).
+      expect(before?.after).toEqual({
+        status: statusSpelling,
+        pipelineStageId: WIN_STAGE_ID,
+        closureOutcome: 'lost',
+        lossReasonId: 'e1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+        lossNotes: 'Pricing objection',
+      })
+    },
+  )
+
   it('returns null when the deal is missing', async () => {
     findOneWithDecryptionMock.mockResolvedValue(null)
     const ctx = makeMutationCtx()

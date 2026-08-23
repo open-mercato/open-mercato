@@ -31,7 +31,7 @@ import {
   dealClosureOutcomeFromStatus,
   loadClosurePipelineStageSnapshot,
 } from '../lib/closureStage'
-import { isClosedDealStatus } from '../lib/dealStatus'
+import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import {
   assertTenantScope,
   type CustomersAiToolDefinition,
@@ -501,12 +501,15 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     // Mirror the update command exactly (#5107): a status-only write derives the closure
     // outcome for terminal spellings, clears outcome plus loss columns for non-closed
     // non-terminal ones (reopen), and leaves `closed` and stage-only writes untouched.
+    // `toStage` is free-form model text, so canonicalize before the `closed` check — the
+    // command does the same, and the two must stay in lockstep or the approval card would
+    // preview a different write than the one that lands.
     const requestedOutcome = dealClosureOutcomeFromStatus(input.toStage)
     const clearsClosure =
       input.toPipelineStageId === undefined &&
       input.toStage !== undefined &&
       !requestedOutcome &&
-      !isClosedDealStatus(input.toStage)
+      !isClosedDealStatus(canonicalDealStatus(input.toStage))
     const afterClosureOutcome = clearsClosure
       ? null
       : requestedOutcome ?? beforeClosureOutcome

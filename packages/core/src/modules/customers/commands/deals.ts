@@ -51,7 +51,7 @@ import {
   type DealClosureOutcome,
   type PipelineStageSnapshot,
 } from '../lib/closureStage'
-import { isClosedDealStatus } from '../lib/dealStatus'
+import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -793,7 +793,10 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             // `closed` is a seeded dictionary status: saving it is not a reopen, so only
             // a genuinely non-closed status clears stored closure state — and only when
             // the deal actually carries any (a no-op status echo must not wipe loss data).
-            !isClosedDealStatus(parsed.status) &&
+            // Canonicalize first: `dealClosureOutcomeFromStatus` above already matches
+            // case-insensitively, so matching `closed` exactly would let `Closed` through
+            // this guard and null the operator's loss notes.
+            !isClosedDealStatus(canonicalDealStatus(parsed.status)) &&
             record.closureOutcome !== null
           ) {
             record.closureOutcome = null
