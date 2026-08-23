@@ -47,7 +47,7 @@ The smallest useful foundation is therefore a WMS-owned site identity plus expli
 
 ### Out of scope
 
-- deleting a site or reusing its stable identity;
+- deleting a site through a route, command, or UI action, or reusing a retired site's UUID for a different site; reversing an unchanged accidental creation through the audit undo path is not site deletion and stays in scope;
 - effective-dated, scheduled, or historical-as-of warehouse assignments;
 - site timezone, shifts, calendars, or mid-day warehouse switching;
 - advanced production-order, batch, lot, or serial number formats, resets, generated identifiers, block reservations, or offline allocation;
@@ -111,12 +111,14 @@ Table: `wms_sites`.
 | `metadata` | JSONB nullable | Inherited WMS storage detail; excluded from Phase 1 API, UI, search, audit change keys, and business semantics |
 | `created_at`, `updated_at`, `deleted_at` | timestamps | Standard WMS lifecycle fields; `updated_at` provides optimistic locking |
 
-No route or normal command sets `deleted_at` on a site. Undoing site creation deactivates the record instead of deleting it, preserving the stable ID. Undoing a site update restores the previous editable snapshot subject to optimistic locking.
+No route, OpenAPI operation, UI action, or forward command sets `deleted_at` on a site; the undo handler for `wms.sites.create` is the only writer of that column. Undoing site creation soft-deletes the created record and retains its ID in the audit snapshot so redo restores the same identity. Undoing a site update restores the previous editable snapshot subject to optimistic locking.
 
 Required indexes:
 
 - `(organization_id, tenant_id)` for scoped access;
 - unique `(tenant_id, organization_id, lower(code)) WHERE deleted_at IS NULL` with a named expression index.
+
+Because that index excludes soft-deleted rows, undoing a site creation returns the site code to the available pool without any additional schema or command step.
 
 Register `wms:site` in `wms/ce.ts` with `labelField: 'name'`, `showInSidebar: false`, `defaultEditor: false`, and no module-shipped default fields. This registration deliberately enables tenant-defined custom fields without adding another generic record editor. `SiteWarehouseRole` is not registered as a custom-field host: it is a constrained configuration assignment whose meaning must remain limited to site, warehouse, fixed role, and default status.
 
@@ -146,6 +148,39 @@ Required indexes and constraints:
 
 The database enforces at most one default; commands enforce that a non-empty role group has at least one. Both named unique constraints must be translated to stable field/conflict errors, including concurrent races.
 
+### `ActiveSiteWarehouse`
+
+Table: `wms_active_site_warehouses`.
+
+This relation materializes the active-site exclusivity invariant so the database, rather than a command preflight check, arbitrates concurrent activation. It holds exactly one row per `(site, warehouse)` pair while that site is active, regardless of how many roles inside the site map to that warehouse.
+
+| Column | Type | Rules |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `tenant_id`, `organization_id` | UUID | Required; copied from and validated against the owning site |
+| `site_id` | UUID FK to `wms_sites` | Required same-module ORM relation |
+| `warehouse_id` | UUID FK to `wms_warehouses` | Required same-module ORM relation |
+| `created_at`, `updated_at` | timestamps | Standard lifecycle fields |
+
+Required indexes and constraints:
+
+- unique `(tenant_id, organization_id, warehouse_id)` — the enforceable exclusivity invariant; a warehouse cannot be held by two active sites;
+- unique `(tenant_id, organization_id, site_id, warehouse_id)` — idempotent membership when several roles in one site share a warehouse;
+- `(organization_id, tenant_id, site_id)` for scoped cleanup on deactivation.
+
+Rows are never soft-deleted: membership is current-state only, so deactivation and mapping removal delete the rows outright. Audit history for those transitions lives in the site and mapping command snapshots, not in this relation. The table is internal WMS state — it has no API route, OpenAPI operation, query-index entity, custom-field host, search configuration, or UI surface, and it is not a Manufacturing-facing contract.
+
+Membership is maintained transactionally, in the same transaction as the change that causes it, by exactly four paths:
+
+| Path | Effect on membership |
+|---|---|
+| Site activation | Insert one row per distinct warehouse across the site's live mappings |
+| Site deactivation | Delete every row for the site, releasing its warehouses |
+| Mapping create while the parent site is active | Insert the row when that warehouse is not already held by the site |
+| Mapping update or delete while the parent site is active | Insert the newly selected warehouse and delete the previous one when no remaining live mapping in that site still uses it |
+
+Mapping changes while the parent site is inactive touch no membership rows, because an inactive site holds no exclusivity.
+
 ## Business Invariants and Transactions
 
 All mutations validate Zod input before persistence and execute through registered WMS commands.
@@ -154,7 +189,7 @@ All mutations validate Zod input before persistence and execute through register
 2. Site codes are normalized to uppercase before uniqueness checks and persistence.
 3. A site is created inactive and remains configurable while inactive. Operational consumers reject inactive sites.
 4. Activation succeeds only when `raw_material` and `finished_goods` each have an active default warehouse. The same warehouse may satisfy both roles.
-5. At activation time, every assigned warehouse must be absent from every other active Site. While a Site is active, mapping create/update and reactivation enforce the same rule transactionally. Deactivation releases this active-Site exclusivity without deleting mappings.
+5. At activation time, every assigned warehouse must be absent from every other active Site. While a Site is active, mapping create/update and reactivation enforce the same rule transactionally. Deactivation releases this active-Site exclusivity without deleting mappings. The invariant is enforced by the `wms_active_site_warehouses` unique constraint on `(tenant_id, organization_id, warehouse_id)`, not by a preflight read: the constraint is what makes the rule hold under concurrency, and a preflight check exists only to produce a friendlier field error on the uncontended path.
 6. Only an active warehouse can be newly assigned or selected by an update.
 7. Later warehouse deactivation retains the assignment for audit/context, but makes the Site operationally ineligible until corrected; the assignment remains visible with a warning.
 8. The first live assignment for `(site, role)` is automatically default.
@@ -162,7 +197,8 @@ All mutations validate Zod input before persistence and execute through register
 10. A default cannot be demoted without promoting a replacement in the same transaction.
 11. Deleting a default is blocked while sibling assignments remain. The administrator first promotes a successor; deleting the last assignment in a role is allowed only while the Site is inactive or when the role is not required for activation.
 12. Creating, updating, deleting, promoting, activating, deactivating, and undoing assignments use `withAtomicFlush(..., { transaction: true })` where more than one row can change.
-13. Preflight uniqueness/readiness checks provide field errors; named constraint violations and activation locks handle concurrent races and return the same translated contract.
+13. Preflight uniqueness/readiness checks provide field errors; named constraint violations handle concurrent races and return the same translated contract.
+14. Activation, deactivation, and any mapping create/update/delete on an active Site acquire a transaction-scoped advisory lock before reading membership, using `pg_advisory_xact_lock(hashtext(...))` over the key `wms:active-site-warehouse:{tenantId}:{organizationId}:{warehouseId}`. A command touching several warehouses acquires every key in ascending lexicographic order so two concurrent activations sharing warehouses can never deadlock. The lock makes the outcome deterministic — the loser observes committed membership and returns the stable `409` rather than aborting on a constraint violation — while the unique constraint remains the authority for any path that fails to take it. The same advisory-lock primitive is already used elsewhere in the platform for tenant-scoped serialization.
 
 ## API Contracts
 
@@ -255,14 +291,16 @@ Site command writes use `runCrudCommandWrite` (or the equivalent canonical helpe
 
 Declare additive events through `createModuleEvents`:
 
-- `wms.site.created`, `wms.site.updated`;
+- `wms.site.created`, `wms.site.updated`, `wms.site.deleted`;
 - `wms.site_warehouse_role.created`, `wms.site_warehouse_role.updated`, `wms.site_warehouse_role.deleted`.
+
+`wms.site.deleted` has exactly one emitter: the `wms.sites.create` undo handler reversing an unchanged accidental creation. No route, OpenAPI operation, forward command, or UI action emits it, and its presence does not introduce a site delete surface. It exists because subscribers, the query index, and search must learn that a site row is gone; omitting it would leave stale projections behind after an undo.
 
 Every payload contains `id`, `tenantId`, and `organizationId`, with optional `actorUserId`. Site events also contain `siteId`, `code`, `name`, and `isActive`. Mapping events contain `mappingId`, `siteId`, `warehouseId`, `role`, and `isDefault`. Both update events additionally contain a required `previous` object with the corresponding pre-update business fields. Published fields may not later be removed or narrowed.
 
 Audit/undo rules:
 
-- site create undo deactivates the site, clears/restores its custom-field contribution according to the canonical create-undo snapshot, and never deletes the stable identity;
+- site create undo soft-deletes the created site by setting `deleted_at`, clears its canonical custom-field contribution according to the create-undo snapshot, and emits the `deleted` CRUD side effect so the query index, search configuration, and caches drop the record; the site ID stays in the audit snapshot so redo restores the same identity rather than minting a new one. Because the site-code uniqueness index is partial on `deleted_at IS NULL`, the code is released for reuse. A site that is already active, already carries live mappings, or has been edited since creation is not an unchanged create: its undo fails with the translated `409` described below instead of removing an operational record;
 - site update undo restores the editable scalar and custom-field snapshots;
 - mapping create undo follows the same default-removal invariant as delete;
 - mapping update/delete undo restores its snapshot only if uniqueness and default invariants remain valid;
@@ -341,10 +379,11 @@ The change is additive: new tables, routes, commands, ACL, events, pages, and ge
 The migration must:
 
 1. create `wms_sites` and `wms_site_warehouse_roles` with standard WMS scope/lifecycle columns;
-2. create the named indexes and foreign keys defined above;
-3. use partial/expression indexes supported by the existing PostgreSQL deployment without installing a new extension;
-4. update the WMS migration snapshot;
-5. create no default site or assignment because `Warehouse.isPrimary` cannot safely infer a factory or production role.
+2. create `wms_active_site_warehouses` with its exclusivity and idempotency unique constraints; the table starts empty because no site exists yet, so no backfill is required;
+3. create the named indexes and foreign keys defined above;
+4. use partial/expression indexes supported by the existing PostgreSQL deployment without installing a new extension; `pg_advisory_xact_lock` and `hashtext` are built-in PostgreSQL functions and likewise require no extension;
+5. update the WMS migration snapshot;
+6. create no default site or assignment because `Warehouse.isPrimary` cannot safely infer a factory or production role.
 
 Run `yarn db:generate` as a schema-diff probe, retain only intended WMS output, review SQL and snapshot, and rerun it as a no-op check. Do not apply the migration locally without explicit approval.
 
@@ -354,10 +393,11 @@ No existing warehouse is reclassified. New event, command, API, ACL, and entity 
 
 ### Phase 1 — Data and invariants
 
-1. Add entity types, validators, entities, named indexes, migration, and snapshot.
+1. Add entity types, validators, entities, named indexes, migration, and snapshot, including `wms_active_site_warehouses` and its exclusivity constraint.
 2. Register `wms:site` in `ce.ts`; add canonical site custom-field collection, command persistence, response decoration, snapshots, and undo.
-3. Add transaction-safe commands, constraint translation, audit snapshots, and undo tests.
-4. Result: scoped site and assignment operations work through commands without UI.
+3. Add transaction-safe commands, ordered advisory-lock acquisition and membership maintenance across the four paths, constraint translation, audit snapshots, and undo tests.
+4. Add the overlapping-transaction activation test and the soft-delete create-undo/redo tests before any API surface exists, so the invariant is proven at the command layer.
+5. Result: scoped site and assignment operations work through commands without UI.
 
 ### Phase 2 — API and contracts
 
@@ -391,8 +431,11 @@ No existing warehouse is reclassified. New event, command, API, ACL, and entity 
 - inactive site remains configurable;
 - creation always yields an inactive Site; premature activation reports the missing required defaults;
 - activation succeeds with eligible `raw_material` and `finished_goods` defaults, including when one warehouse serves both roles;
-- activation and active-Site mapping changes reject a warehouse used by another active Site, including concurrent races; deactivation releases that exclusivity;
-- site create undo deactivates rather than deletes;
+- activation and active-Site mapping changes reject a warehouse used by another active Site; deactivation releases that exclusivity by removing the site's membership rows;
+- two truly overlapping transactions activating different Sites that share a warehouse resolve to exactly one winner: both open before either commits, exactly one membership row survives on `(tenant_id, organization_id, warehouse_id)`, and the loser receives the stable translated `409` rather than a leaked constraint name or a deadlock error. The test must exercise concurrent transactions, not sequential preflight checks, so it fails if the unique constraint or the advisory lock is removed;
+- a single Site activating with one warehouse serving two roles inserts exactly one membership row, and deactivation removes it;
+- site create undo soft-deletes the site: it disappears from list results, its code becomes available for a new site, and redo restores the same site ID;
+- site create undo is refused with a translated `409` when the site is already active or already carries live mappings;
 - mapping undo respects current uniqueness/default invariants;
 - optimistic locking covers site update and mapping update/delete.
 - site custom fields create/update/read correctly and scalar plus custom snapshots round-trip through undo;
@@ -446,8 +489,9 @@ The following are separate capabilities, not unfinished work inside P1.2:
 | Current-only mappings are mistaken for historical truth | High | A report joins old records to the current default | Require immutable snapshots in every future release/order/posting/fact; document audit log as evidence, not an as-of resolver | Scheduled/as-of configuration remains unavailable until its follow-up |
 | Concurrent writes produce zero or two defaults | High | Constraint/command test or production `409` metric | Transactional promotion, partial unique index, named error translation, concurrency tests | Operators may need to retry a raced update |
 | Warehouse deactivation leaves an unusable default | High | Site UI warning and future operational eligibility checks | Preserve assignment, warn visibly, block operational use, require explicit replacement | Configuration remains degraded until an administrator acts |
-| One warehouse is activated under two Sites | High | Activation/mapping concurrency tests and stable conflict telemetry | Scoped transactional checks and locks; one active Site per warehouse while allowing multiple roles in that Site | Shared-site operation requires the later production-network contract |
-| Site identity is accidentally deleted through undo | High | Command regression tests and audit review | No DELETE command; create undo deactivates rather than deletes | Erroneous inactive records remain visible to administrators |
+| One warehouse is activated under two Sites | High | Overlapping-transaction activation tests and stable conflict telemetry | `wms_active_site_warehouses` unique `(tenant_id, organization_id, warehouse_id)` as the enforceable invariant, plus ordered `pg_advisory_xact_lock` acquisition for deterministic `409`s; multiple roles inside one Site still share a warehouse | Shared warehouses across active Sites require the later production-network capability, which will deliberately redesign this constraint |
+| Membership drifts from the mappings it materializes | Medium | Activation/deactivation and mapping command tests | All four maintenance paths write membership inside the same transaction as the change that causes it; an inactive Site holds no rows | A future scheduled-assignment capability must extend the same four paths rather than bypass them |
+| An operational Site is removed through create undo | High | Command regression tests and audit review | No DELETE route or command; create undo soft-deletes only an unchanged, inactive, mapping-free site and is refused with a `409` otherwise | An accidental create is reversible, so the site code returns to the pool instead of being reserved forever |
 | Parent optimistic-lock version is reused for a mapping | Medium | UI conflict tests | Mapping forms carry their own `updatedAt` | Custom future UI must preserve the rule |
 | Advanced numbering assumptions leak into P1.2 | Medium | Specification and API review | Keep UUID/basic order display numbering in `manufacturing`; defer formats, resets, generated lot/serial values, blocks, and offline allocation | Later capability must remain additive |
 | Assignment enrichment becomes N+1 | Medium | Query-count integration test | One scoped batch warehouse lookup; no optional summary on site list | Very large assignment lists still require normal pagination |
@@ -506,6 +550,7 @@ The following are separate capabilities, not unfinished work inside P1.2:
 - 2026-08-13: Added the proportional native UI baseline: complete canonical custom fields and CrudForm field injection for `Site`; closed assignments without custom fields; minimalist paginated DataTables with stable extension hosts but without search/filter/view/export/selection/bulk controls.
 - 2026-08-19: Made Sites inactive by default; required eligible `raw_material` and `finished_goods` defaults for activation; allowed one warehouse to serve multiple roles in one Site while limiting it to one active Site; moved shared active-Site warehouses to future `manufacturing_network`; and made advanced number ranges non-blocking for the bounded MVP.
 - 2026-08-19: Initially aligned future module references with a base/discrete split; later consolidated them into the single opt-in `manufacturing` module. The design remains pending parent-roadmap acceptance and its own readiness review.
+- 2026-08-23: Resolved the two High findings from the PR #5449 review. Site create undo now soft-deletes the created record and preserves its ID for redo instead of deactivating an already-inactive row, releasing the site code through the existing partial uniqueness index and refusing with a `409` once the site is active or carries mappings. Active-site warehouse exclusivity gained an enforceable seam: the new `wms_active_site_warehouses` relation carries a unique `(tenant_id, organization_id, warehouse_id)` constraint as the invariant, maintained transactionally by activation, deactivation, and active-site mapping create/update/delete, with ordered `pg_advisory_xact_lock` acquisition making concurrent activation deterministic. Tests, risks, migration steps, and Phase 1 were updated to match; shared warehouses across active Sites remain a deliberately deferred capability that will redesign this constraint.
 
 ### Review — 2026-08-13
 
@@ -516,3 +561,12 @@ The following are separate capabilities, not unfinished work inside P1.2:
 - **Commands**: Passed; all mutations, transaction boundaries, optimistic locking, default invariants, and undo outcomes are defined.
 - **Risks**: Passed; current-only history, stable identity, warehouse eligibility, concurrency, N+1, and deferred numbering are covered.
 - **Verdict**: Design complete, pending parent-roadmap acceptance and pre-implementation readiness evidence.
+
+### Review — 2026-08-23
+
+- **Reviewer**: PR #5449 code review, with maintainer decisions on both findings.
+- **Finding 1 — site create-undo was a no-op**: Accepted. Undo now soft-deletes the created site and preserves its ID for redo. The maintainer chose this over declaring create non-undoable, because it matches the platform's existing create-undo command contract and returns the site code to the pool.
+- **Finding 2 — exclusivity was unenforceable under concurrency**: Accepted. The maintainer chose a materialized membership relation with a unique database constraint *plus* an ordered advisory lock, over an advisory lock alone, preferring a guarantee that holds even when an application path forgets the lock. The added table and its four maintenance points are an accepted cost in P1.2.
+- **Why a partial unique index was insufficient**: The spec deliberately allows one warehouse to serve several roles inside one Site, and `is_active` lives on the site row, so the invariant is cross-row and cannot be expressed as a unique index over `wms_site_warehouse_roles` alone.
+- **Deferred capability unchanged**: Shared warehouses across active Sites stay out of the first core. That later capability is expected to redesign this constraint deliberately rather than relax it in place.
+- **Verdict**: Both findings resolved in the design. Readiness review and parent-roadmap acceptance still pending.
