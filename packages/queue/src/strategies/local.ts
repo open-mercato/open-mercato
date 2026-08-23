@@ -132,6 +132,7 @@ export function createLocalQueue<T = unknown>(
   // Worker state for continuous polling
   let pollingTimer: ReturnType<typeof setInterval> | null = null
   let queuedPollTimer: ReturnType<typeof setTimeout> | null = null
+  let watcherRetryTimer: ReturnType<typeof setTimeout> | null = null
   let queueWatcher: fs.FSWatcher | null = null
   let queueWatcherIdentity: QueueFileIdentity | null = null
   let watcherRefreshChain: Promise<void> = Promise.resolve()
@@ -587,6 +588,14 @@ export function createLocalQueue<T = unknown>(
     queueWatcherIdentity = null
   }
 
+  function scheduleWatcherRetry(): void {
+    if (watcherRetryTimer || !activeHandler) return
+    watcherRetryTimer = setTimeout(() => {
+      watcherRetryTimer = null
+      void refreshQueueWatcher().then(() => pollAndProcess()).catch(() => undefined)
+    }, 100)
+  }
+
   function refreshQueueWatcher(): Promise<void> {
     const refresh = watcherRefreshChain.then(async () => {
       if (!activeHandler) return
@@ -615,6 +624,11 @@ export function createLocalQueue<T = unknown>(
           if (queueWatcher === watcher) {
             closeQueueWatcher()
           }
+          // Do not wait for the idle safety interval after an OS watcher limit
+          // or transient filesystem error. Keep the normal idle path quiet, but
+          // retry quickly while the watcher is unavailable so delivery latency
+          // remains bounded on the polling fallback.
+          scheduleWatcherRetry()
         })
         if (!activeHandler) {
           watcher.close()
@@ -624,6 +638,7 @@ export function createLocalQueue<T = unknown>(
         queueWatcherIdentity = nextIdentity
       } catch (err) {
         logger.error('Failed to watch queue file; fallback polling remains active', { err })
+        scheduleWatcherRetry()
       }
     })
     watcherRefreshChain = refresh.catch(() => undefined)
@@ -702,6 +717,10 @@ export function createLocalQueue<T = unknown>(
     if (queuedPollTimer) {
       clearTimeout(queuedPollTimer)
       queuedPollTimer = null
+    }
+    if (watcherRetryTimer) {
+      clearTimeout(watcherRetryTimer)
+      watcherRetryTimer = null
     }
     closeQueueWatcher()
 
