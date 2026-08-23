@@ -238,9 +238,9 @@ credentials everywhere except registered MFA completion routes.
 
 | Path | Case | Suite |
 |---|---|---|
-| `POST /api/auth/login` → pending token issued | interceptor flow unchanged | `TC-SEC-002`, `TC-SEC-010` |
-| `GET /api/auth/profile` with pending bearer/cookie | 401 + `auth_token`/`session_token` cleared | `TC-SEC-010` |
-| `POST /api/security/mfa/recovery-codes/regenerate` with pending token | 401 (mutation blocked pre-second-factor) | `TC-SEC-010` |
-| `POST /api/security/mfa/prepare` / `verify` with pending token | reachable, contracts unchanged | `TC-SEC-010` |
-| Verified replacement token | normal read + mutation access restored | `TC-SEC-010` |
-| Failed-challenge cleanup / attempt exhaustion | correct code rejected after lockout; fresh challenge works | `TC-SEC-010`; TTL expiry at service level in `MfaVerificationService.test.ts` |
+| `POST /api/auth/login` → pending token issued | interceptor flow unchanged | `TC-SEC-002`, `TC-SEC-014` |
+| `GET /api/auth/profile` with pending bearer/cookie | 401 + `auth_token`/`session_token` cleared | `TC-SEC-014` |
+| `POST /api/security/mfa/recovery-codes/regenerate` with pending token | 401 (mutation blocked pre-second-factor) | `TC-SEC-014` |
+| `POST /api/security/mfa/prepare` / `verify` with pending token | reachable, contracts unchanged | `TC-SEC-014` |
+| Verified replacement token | normal read + mutation access restored | `TC-SEC-014` |
+| Failed-challenge cleanup / attempt exhaustion | correct code rejected after lockout; fresh challenge works | `TC-SEC-014`; TTL expiry at service level in `MfaVerificationService.test.ts` |

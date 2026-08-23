@@ -35,7 +35,7 @@ function authCookieValue(token: string): string {
   return `auth_token=${encodeURIComponent(token)}`
 }
 
-test.describe('TC-SEC-010: MFA-pending tokens are rejected by general staff APIs (#5212)', () => {
+test.describe('TC-SEC-014: MFA-pending tokens are rejected by general staff APIs (#5212)', () => {
   test.describe.configure({ timeout: 120_000 })
 
   let adminToken: string
