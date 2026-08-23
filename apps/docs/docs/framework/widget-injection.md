@@ -787,6 +787,17 @@ enforce the contributing module's feature before using them. The private
 so it never reaches entity mapping. Existing `onBeforeSave` headers and
 lifecycle signatures remain supported.
 
+The payload travels with exactly one request. `CrudForm` arms it around
+`onSubmit`, and the first `POST`/`PUT`/`PATCH` with a JSON content-type and a
+JSON-object body consumes it — every other call, including a secondary write in
+the same `onSubmit`, a background refetch, or a concurrent autosave, is left
+untouched. Because of that one-shot scope, only the form's own submit endpoint
+ever sees the transport property: a form whose `onSubmit` posts to a
+hand-written route rather than a `makeCrudRoute` one must strip it itself with
+`extractExtensionPayload` from
+`@open-mercato/shared/lib/umes/extension-payload`, otherwise a `.strict()`
+validator on that route rejects the unknown key.
+
 Called after save completes successfully.
 
 **Signature:**

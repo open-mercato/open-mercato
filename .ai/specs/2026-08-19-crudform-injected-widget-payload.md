@@ -15,6 +15,17 @@ transport field before both direct CRUD and command action schemas parse the
 entity body, then exposes the sanitized payload as optional
 `InterceptorContext.extensionPayload` to both before and after hooks.
 
+The client scope covers one request, not a time window. `apiCall` injects the
+payload into the first `POST`/`PUT`/`PATCH` carrying a JSON content-type and a
+JSON-object body, then spends the scope, so a secondary write inside the same
+`onSubmit`, a background refetch, or a concurrent autosave never carries another
+module's field values. `CrudForm` cannot name its submit URL — `onSubmit` is
+caller-supplied and the component has no endpoint prop — so the residual is a
+concurrent write racing the submit inside that one-request window; it is
+narrowed rather than eliminated, and it is why a form submitting to a
+hand-written route (instead of a `makeCrudRoute` one) is documented as
+responsible for stripping the transport field itself.
+
 The server treats this channel exactly like any browser-supplied data. An
 interceptor that uses it must validate its module payload with Zod, enforce the
 module feature server-side, and derive tenant and organization scope from the
@@ -29,7 +40,12 @@ shared budget spent by both object keys and array elements.
   command schema, before/after context visibility, and absence from entity and
   `mapInput` bodies.
 - UI tests prove the most recently edited injected value is scoped for submit.
-- `apiCall` tests cover nested request scopes and the private transport shape.
+- `apiCall` tests cover nested request scopes, the private transport shape, the
+  one-request scope, and the read/non-JSON/non-object cases it must not touch.
+- `sanitizeExtensionPayload` tests pin the prototype-key guard at module and
+  nested level and the shared object/array budget.
+- `packages/shared/src/lib/crud/__integration__` drives a real `makeCrudRoute`
+  handler end to end for both the direct and the command path.
 
 ## Migration & Backward Compatibility
 

@@ -23,20 +23,67 @@ export type ApiCallResult<TReturn> = {
 }
 
 const scopedRequestHeaders = createScopedHeaderStack()
-const scopedRequestBodies: ParsedExtensionPayload[] = []
 
-function resolveScopedApiRequestBody(): ParsedExtensionPayload | undefined {
-  if (!scopedRequestBodies.length) return undefined
+type ScopedRequestBody = {
+  payload: ParsedExtensionPayload
+  spent: boolean
+}
+
+// The extension payload belongs to exactly one request: the submit the scope was opened
+// around. Keeping the scope open for every call in between would graft another module's
+// field values onto unrelated writes — including hand-written `.strict()` routes that
+// reject unknown keys outright — so an armed scope is spent by the first eligible request.
+const scopedRequestBodies: ScopedRequestBody[] = []
+const EXTENSION_PAYLOAD_METHODS = new Set(['POST', 'PUT', 'PATCH'])
+
+function resolveRequestMethod(input: RequestInfo | URL, init: RequestInit | undefined): string {
+  if (typeof init?.method === 'string') return init.method.toUpperCase()
+  if (typeof Request !== 'undefined' && input instanceof Request) return input.method.toUpperCase()
+  return 'GET'
+}
+
+function readHeaderValue(headers: HeadersInit | undefined, name: string): string | undefined {
+  if (!headers) return undefined
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) return headers.get(name) ?? undefined
+  if (Array.isArray(headers)) {
+    for (const entry of headers) {
+      if (entry[0]?.toLowerCase() === name) return entry[1]
+    }
+    return undefined
+  }
+  for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+    if (key.toLowerCase() === name) return value
+  }
+  return undefined
+}
+
+function hasJsonContentType(input: RequestInfo | URL, init: RequestInit | undefined): boolean {
+  const declared = readHeaderValue(init?.headers, 'content-type')
+    ?? (typeof Request !== 'undefined' && input instanceof Request
+      ? input.headers.get('content-type') ?? undefined
+      : undefined)
+  if (!declared) return false
+  const mediaType = declared.split(';', 1)[0]!.trim().toLowerCase()
+  return mediaType === 'application/json' || mediaType.endsWith('+json')
+}
+
+function resolveArmedScopedBody(): ParsedExtensionPayload | undefined {
   let result: ParsedExtensionPayload | undefined
-  for (const body of scopedRequestBodies) {
-    result = mergeExtensionPayload(result, body)
+  for (const scoped of scopedRequestBodies) {
+    if (scoped.spent) continue
+    result = mergeExtensionPayload(result, scoped.payload)
   }
   return result
 }
 
-function withScopedWidgetPayload(init: RequestInit | undefined): RequestInit | undefined {
-  const scopedPayload = resolveScopedApiRequestBody()
-  if (!scopedPayload || typeof init?.body !== 'string') return init
+function withScopedWidgetPayload(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+): RequestInit | undefined {
+  if (!scopedRequestBodies.some((scoped) => !scoped.spent)) return init
+  if (!EXTENSION_PAYLOAD_METHODS.has(resolveRequestMethod(input, init))) return init
+  if (typeof init?.body !== 'string') return init
+  if (!hasJsonContentType(input, init)) return init
   let body: unknown
   try {
     body = JSON.parse(init.body)
@@ -44,6 +91,9 @@ function withScopedWidgetPayload(init: RequestInit | undefined): RequestInit | u
     return init
   }
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return init
+  const scopedPayload = resolveArmedScopedBody()
+  if (!scopedPayload) return init
+  for (const scoped of scopedRequestBodies) scoped.spent = true
   const mergedBody = {
     ...(body as Record<string, unknown>),
     [EXTENSION_PAYLOAD_TRANSPORT_KEY]: mergeExtensionPayload(
@@ -95,15 +145,24 @@ export async function withScopedApiRequestHeaders<T>(
   return scopedRequestHeaders.withScopedHeaders(headers, run)
 }
 
+/**
+ * Arm the extension payload for the next eligible JSON write issued by `run`.
+ *
+ * The scope covers a single request: the first `POST`/`PUT`/`PATCH` with a JSON
+ * content-type and a JSON-object body consumes it, and every later call inside the
+ * same scope — a secondary write in the same `onSubmit`, an autosave, a background
+ * refetch — is left untouched.
+ */
 export async function withScopedApiRequestBody<T>(
   widgetPayload: ParsedExtensionPayload,
   run: () => Promise<T>,
 ): Promise<T> {
-  scopedRequestBodies.push(widgetPayload)
+  const scoped: ScopedRequestBody = { payload: widgetPayload, spent: false }
+  scopedRequestBodies.push(scoped)
   try {
     return await run()
   } finally {
-    const index = scopedRequestBodies.lastIndexOf(widgetPayload)
+    const index = scopedRequestBodies.lastIndexOf(scoped)
     if (index >= 0) scopedRequestBodies.splice(index, 1)
   }
 }
@@ -117,7 +176,7 @@ export async function apiCall<TReturn = Record<string, unknown>>(
   const requestInit = Object.keys(scopedHeaders).length > 0
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scopedHeaders) }
     : init
-  const response = await apiFetch(input, withScopedWidgetPayload(requestInit))
+  const response = await apiFetch(input, withScopedWidgetPayload(input, requestInit))
   const parser = options?.parse
   const fallback = options?.fallback ?? null
   let result: TReturn | null = null
