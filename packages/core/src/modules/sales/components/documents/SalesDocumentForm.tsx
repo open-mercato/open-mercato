@@ -1311,6 +1311,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       id: 'lines',
       label: '',
       type: 'custom',
+      rendersOwnError: true,
       component: ({ value, error, values, setValue }) => values?.documentKind === 'order' ? (
         <SalesOrderDraftLines
           currencyCode={typeof values.currencyCode === 'string' ? values.currencyCode : defaultCurrency}
