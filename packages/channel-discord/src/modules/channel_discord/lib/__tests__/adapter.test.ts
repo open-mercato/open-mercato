@@ -91,6 +91,38 @@ describe('DiscordChannelAdapter.sendMessage', () => {
     expect(captured.createMessage?.channelId).toBe('default-chan')
   })
 
+  it('posts to the recipient the hub resolved, instead of silently using the default', async () => {
+    // QA of #4391 against a live bot: the hub's test-send route puts the
+    // operator's recipient in `metadata.to`, nothing read it, and every send
+    // went to `defaultChannelId` while the endpoint answered `200 sent`. A
+    // recipient that is validated and then discarded is worse than one that is
+    // rejected — the operator gets a success for a message that went elsewhere.
+    const { captured } = stubRest()
+    const adapter = getDiscordChannelAdapter()
+    await adapter.sendMessage({
+      content: { text: 'x' },
+      credentials: { ...credentials, defaultChannelId: 'default-chan' },
+      metadata: { to: 'requested-chan', testSend: true },
+      scope: { organizationId: 'o', tenantId: 't' },
+    })
+    expect(captured.createMessage?.channelId).toBe('requested-chan')
+  })
+
+  it('never lets a stray recipient redirect a reply out of its own conversation', async () => {
+    // `conversationId` outranks `metadata.to` on purpose: on a reply the thread
+    // mapping is authoritative.
+    const { captured } = stubRest()
+    const adapter = getDiscordChannelAdapter()
+    await adapter.sendMessage({
+      conversationId: `${DISCORD_CONVERSATION_PREFIX}thread-chan`,
+      content: { text: 'x' },
+      credentials: { ...credentials, defaultChannelId: 'default-chan' },
+      metadata: { to: 'somewhere-else' },
+      scope: { organizationId: 'o', tenantId: 't' },
+    })
+    expect(captured.createMessage?.channelId).toBe('thread-chan')
+  })
+
   it('clamps content to Discord 2000-char limit', async () => {
     const { captured } = stubRest()
     const adapter = getDiscordChannelAdapter()

@@ -311,11 +311,33 @@ function stripConversationPrefix(conversationId: string | undefined): string | u
     : conversationId
 }
 
+/**
+ * Where an outbound message is actually posted, in priority order.
+ *
+ * `metadata.to` is in this list because of what QA found on #4391: the hub's
+ * `test-send` route puts the operator's recipient in `metadata.to`, nothing
+ * here read it, and every send therefore went to `defaultChannelId` while the
+ * endpoint answered `200 sent`. Validating a recipient and then discarding it
+ * is worse than rejecting it — an operator test-sending to one channel got a
+ * success for a message that landed in another.
+ *
+ * `conversationId` deliberately outranks `metadata.to`: on a reply the thread
+ * mapping is authoritative, and a stray `to` must never redirect a reply out of
+ * its own conversation. `metadata.to` only decides when there is no
+ * conversation to belong to, which is exactly the test-send case.
+ *
+ * With `capabilities.recipientFormat: 'provider-native'` the hub has already
+ * applied its transport-safety checks to this value, but it stays untrusted
+ * input: it reaches `/channels/{id}/messages` and a wrong-but-well-formed id
+ * simply fails at Discord, which is the honest outcome.
+ */
 function resolveTargetChannelId(input: SendMessageInput, defaultChannelId: string | undefined): string | undefined {
   const fromMeta = input.metadata?.discordChannelId
   if (typeof fromMeta === 'string' && fromMeta.length > 0) return fromMeta
   const fromConversation = stripConversationPrefix(input.conversationId)
   if (fromConversation && fromConversation.length > 0) return fromConversation
+  const fromRecipient = input.metadata?.to
+  if (typeof fromRecipient === 'string' && fromRecipient.length > 0) return fromRecipient
   return defaultChannelId
 }
 
