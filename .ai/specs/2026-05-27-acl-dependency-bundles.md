@@ -286,12 +286,12 @@ Introducing the new view features is BC-safe (additive) and requires updating `s
 | `catalog.pricing.manage` | `catalog.products.view`, `currencies.view` |
 | `catalog.settings.manage` | — |
 
-### 6.4 `auth` (self-referencing)
+### 6.4 `auth` (self-referencing plus one cross-module edge)
 
 | Feature | dependsOn |
 |---------|-----------|
 | `auth.users.list` | — |
-| `auth.users.create` | `auth.users.list`, `auth.roles.list` (**refined**; proposal listed only `auth.users.list`) |
+| `auth.users.create` | `auth.users.list`, `auth.roles.list`, `directory.organizations.view` (**refined**; proposal listed only `auth.users.list`) |
 | `auth.users.edit` | `auth.users.list`, `auth.roles.list` (**refined**; proposal listed only `auth.users.list`) |
 | `auth.users.delete` | `auth.users.list` |
 | `auth.roles.list` | — |
@@ -321,6 +321,20 @@ Notes (enacted — see issue #2144):
   warning on the module's most commonly granted feature. This is the deliberate
   counterpart to the create/edit rows above: read-side filtering degrades, write-side
   assignment does not.
+- `auth.users.create` also gained the module's only **cross-module** edge,
+  `directory.organizations.view`. The create form renders `organizationId` as a
+  `required: true` field backed by `OrganizationSelect`, which is populated solely by
+  `GET /api/directory/organizations` — a route gated on `directory.organizations.view`
+  (`directory/api/organizations/route.ts`). There is no prefilled value on create, so a
+  403 leaves the picker in `status: 'error'` with an empty option list and the operator
+  **cannot create a user at all**. That is a harder failure than the `auth.roles.list`
+  case above, so it is declared. §4.2 already sanctions cross-module dependencies, and
+  `sales` (`shipping_carriers.view`, `payment_gateways.view`) is the precedent.
+- `auth.users.edit` reads the **same** endpoint through the same component but stays
+  **soft**: `organizationId` is prefilled from the user record and preserved on save, so
+  a 403 only degrades the picker to "Failed to load organizations" while the form still
+  submits. `auth.users.list` is soft for the same reason as its roles-filter case —
+  `fetchOrganizationFilterOptions` degrades to `[]` and blocks nothing.
 - The cross-module read on the same two forms was considered and left **soft**. Both
   load `GET /api/dashboards/widgets/catalog`, gated on
   `dashboards.admin.assign-widgets`, to offer optional dashboard-widget assignment.
@@ -328,9 +342,13 @@ Notes (enacted — see issue #2144):
   configure them later from the user page."), the user record saves without it, and
   dashboard-widget assignment is a separate administrative concern that many operators
   legitimately lack — so declaring the edge would warn on an intended configuration.
-- No new view-grained features were required: all eight ids already existed, so
-  `setup.ts` `defaultRoleFeatures` (`admin: ['auth.*']`) is unchanged and no
-  `sync-role-acls` run is needed for this module.
+- No new view-grained features were required: all eight auth ids and
+  `directory.organizations.view` already existed, so `setup.ts` `defaultRoleFeatures`
+  (`admin: ['auth.*']`) is unchanged and no `sync-role-acls` run is needed. The default
+  `admin` role already satisfies the new cross-module edge because the `directory`
+  module seeds `directory.organizations.view` to `admin`; `acl-dependencies.test.ts`
+  asserts both that fact and that `auth.*` alone does **not** cover it, so a fork that
+  drops the directory grant fails the suite instead of shipping a dead Create User form.
 
 ### 6.5 `configs`
 

@@ -1,15 +1,11 @@
 // Module-level features declaration for RBAC
 export const features = [
   { id: 'auth.users.list', title: 'List users', module: 'auth' },
-  // Added beyond the spec's proposed row: the user create/edit forms populate the
-  // Roles field from /api/auth/roles, which returns [] on 403 — the picker goes
-  // silently empty and saved assignments render as raw ids. See
-  // .ai/specs/2026-05-27-acl-dependency-bundles.md §6.4.
   {
     id: 'auth.users.create',
     title: 'Create users',
     module: 'auth',
-    dependsOn: ['auth.users.list', 'auth.roles.list'],
+    dependsOn: ['auth.users.list', 'auth.roles.list', 'directory.organizations.view'],
   },
   {
     id: 'auth.users.edit',
@@ -36,10 +32,6 @@ export const features = [
     module: 'auth',
     dependsOn: ['auth.users.list', 'auth.roles.list'],
   },
-  // Refined away from the spec's proposed `auth.roles.list` dependency: the
-  // sidebar customization surface serves its own role targets from
-  // /api/auth/sidebar/preferences, gated on auth.sidebar.manage alone, and never
-  // calls /api/auth/roles. See .ai/specs/2026-05-27-acl-dependency-bundles.md §6.4.
   { id: 'auth.sidebar.manage', title: 'Manage sidebar presets', module: 'auth' },
 ]
 

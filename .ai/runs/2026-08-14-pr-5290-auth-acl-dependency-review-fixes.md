@@ -71,6 +71,14 @@ legitimately lack, so declaring the edge would warn on an intended configuration
 - 2.1 Full `.ai/agentic.config.json` validation gate, PR body/table refresh, review-response
       comment, resume summary
 
+### Phase 3: Second review round (2026-08-23 autofix pass)
+
+- 3.1 Merge the latest `develop` into the branch
+- 3.2 Declare the cross-module `directory.organizations.view` edge on `auth.users.create`,
+      widen the module test catalog to auth + directory, and record the create/edit/list
+      split in spec §6.4
+- 3.3 Drop the explanatory inline comments from `acl.ts` (rationale already lives in §6.4)
+
 ## Progress
 
 PR: #5290
@@ -84,6 +92,15 @@ PR: #5290
 ### Phase 2: Validate and finalize
 
 - [x] 2.1 Full validation gate, PR body/table refresh, review-response comment, resume summary — gate green (`yarn test` red only on the documented Windows baseline: 5 core / 2 cli / 1 shared / 1 ui / 1 queue / create-app symlink suites, identical set to a clean tree, zero auth failures)
+
+### Phase 3: Second review round (2026-08-23 autofix pass)
+
+- [x] 3.1 Merge the latest `develop` into the branch — resolves the `ephemeral-integration (3/15)`
+      `TC-INT-008` failure via `24fef49d4 refactor(cli): publish dist/agentic through a staged swap`
+- [x] 3.2 Declare `directory.organizations.view` on `auth.users.create`; widen the test catalog to
+      auth + directory and add the orphaned-dependent, default-admin and auth-wildcard-gap cases;
+      record the create (hard) / edit (soft) / list (soft) split in spec §6.4
+- [x] 3.3 Drop the explanatory inline comments from `acl.ts`
 
 ## External References
 
