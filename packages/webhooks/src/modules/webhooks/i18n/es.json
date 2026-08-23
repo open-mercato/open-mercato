@@ -158,5 +158,6 @@
   "webhooks.nav.group": "Integrations",
   "webhooks.nav.title": "Webhooks",
   "webhooks.notifications.delivery.failed.body": "El webhook {webhookName} no pudo entregar el evento {eventType}. {errorMessage}",
+  "webhooks.notifications.delivery.failed.label": "La entrega del webhook falló",
   "webhooks.notifications.delivery.failed.title": "La entrega del webhook falló para {webhookName}"
 }
