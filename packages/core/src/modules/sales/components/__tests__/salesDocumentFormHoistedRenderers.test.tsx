@@ -19,6 +19,14 @@ jest.setTimeout(20000)
 
 const mockApiCall = jest.fn()
 
+// #5126: the sentinel the mocked CrudForm feeds into the `lines` custom field so the
+// duplicate-error regression is observable through the DOM.
+const LINES_FIELD_ERROR = 'LINES_FIELD_ERROR_SENTINEL'
+
+// #5126: the `lines` field declaration as the form handed it to CrudForm, so the tests can
+// assert the error-ownership contract on the real object instead of scanning source text.
+const mockCapturedLinesField: { current: any } = { current: null }
+
 jest.mock('../useSalesChannelsEnabled', () => ({
   SALES_CHANNELS_TOGGLE_ID: 'sales_channels_enabled',
   useSalesChannelsEnabled: () => ({ enabled: true, isLoading: false }),
@@ -35,6 +43,8 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: ({ fields, groups, initialValues }: any) => {
     const docField = (fields ?? []).find((f: any) => f.id === 'documentNumber')
     const billingField = (fields ?? []).find((f: any) => f.id === 'billingAddressSection')
+    const linesField = (fields ?? []).find((f: any) => f.id === 'lines')
+    mockCapturedLinesField.current = linesField ?? null
     const customerGroup = (groups ?? []).find((g: any) => g.id === 'customer')
     const fieldProps = {
       value: '',
@@ -49,6 +59,17 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
         </div>
         <div data-testid="billing">
           {billingField ? billingField.component({ ...fieldProps, id: 'billingAddressSection' }) : null}
+        </div>
+        {/* Mirrors the real CrudForm field wrapper (CrudForm.tsx): it renders the custom
+            component, then its own error node for the same field error — unless the field
+            opted out with `rendersOwnError`, in which case the component owns the node. */}
+        <div data-testid="lines">
+          {linesField
+            ? linesField.component({ ...fieldProps, id: 'lines', value: [], error: LINES_FIELD_ERROR })
+            : null}
+          {linesField?.type === 'custom' && linesField?.rendersOwnError ? null : (
+            <div className="text-xs text-status-error-text">{LINES_FIELD_ERROR}</div>
+          )}
         </div>
         <div data-testid="customer">
           {customerGroup?.component
@@ -105,6 +126,22 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   DialogHeader: ({ children }: any) => <div>{children}</div>,
   DialogTitle: ({ children }: any) => <h3>{children}</h3>,
   DialogTrigger: ({ children }: any) => <div>{children}</div>,
+}))
+
+jest.mock('@open-mercato/ui/backend/DataTable', () => ({
+  DataTable: ({ emptyState }: any) => <div data-testid="data-table">{emptyState ?? null}</div>,
+}))
+
+jest.mock('@open-mercato/ui/backend/RowActions', () => ({
+  RowActions: () => <div data-testid="row-actions" />,
+}))
+
+jest.mock('@open-mercato/ui/primitives/empty-state', () => ({
+  EmptyState: ({ title }: any) => <div data-testid="empty-state">{title}</div>,
+}))
+
+jest.mock('../documents/LineItemDialog', () => ({
+  LineItemDialog: () => <div data-testid="line-item-dialog" />,
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/customFieldValues', () => ({
@@ -257,5 +294,55 @@ describe('SalesDocumentForm hoisted renderers — behavior (#3173)', () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Email used for the document')).toBeTruthy()
     })
+  })
+})
+
+describe('SalesDocumentForm lines error ownership (#5126)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCapturedLinesField.current = null
+    mockApiCall.mockResolvedValue({ ok: true, result: { items: [], number: 'ORD-001' } })
+  })
+
+  it('renders the lines validation message exactly once, from the component that owns it', async () => {
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('lines')).toBeTruthy()
+    })
+
+    // Guards against a vacuous pass: without this the assertion below is satisfied by the
+    // wrapper's own node even when SalesOrderDraftLines never rendered at all.
+    expect(screen.getByTestId('data-table')).toBeTruthy()
+
+    const rendered = screen.getAllByText(LINES_FIELD_ERROR)
+    expect(rendered).toHaveLength(1)
+    expect(rendered[0].getAttribute('role')).toBe('alert')
+  })
+
+  it('keeps the message above the line-items table where the user is acting', async () => {
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('data-table')).toBeTruthy()
+    })
+
+    const message = screen.getByText(LINES_FIELD_ERROR)
+    const table = screen.getByTestId('data-table')
+
+    expect(message.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('declares the lines field as the owner of its error node', async () => {
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+
+    await waitFor(() => {
+      expect(mockCapturedLinesField.current).toBeTruthy()
+    })
+
+    // The contract the fix rests on: the field opts out of CrudForm's wrapper error node,
+    // so SalesOrderDraftLines' own `role="alert"` node is the single renderer.
+    expect(mockCapturedLinesField.current.type).toBe('custom')
+    expect(mockCapturedLinesField.current.rendersOwnError).toBe(true)
   })
 })

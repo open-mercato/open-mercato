@@ -15,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import { Plus } from 'lucide-react'
@@ -275,6 +276,10 @@ export function SalesDocumentPaymentsSection({
         cell: ({ row }) => row.original.paymentMethodName ?? '—',
       },
       {
+        // Injected columns are placed against `ColumnDef.id` before the table is
+        // built, so an accessor-derived id is not yet available: the gateway
+        // status widget anchors on this explicit id.
+        id: 'status',
         accessorKey: 'status',
         header: t('sales.documents.payments.status', 'Status'),
         cell: ({ row }) => row.original.statusLabel ?? row.original.status ?? '—',
@@ -350,7 +355,12 @@ export function SalesDocumentPaymentsSection({
   return (
     <div className="space-y-4">
       {payments.length ? (
-        <DataTable<PaymentRow> columns={columns} data={payments} onRowClick={openEditPayment} />
+        <DataTable<PaymentRow>
+          columns={columns}
+          data={payments}
+          onRowClick={openEditPayment}
+          extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
+        />
       ) : (
         <TabEmptyState
           title={t('sales.documents.payments.emptyTitle', 'No payments yet.')}

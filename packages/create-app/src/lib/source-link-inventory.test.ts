@@ -236,17 +236,17 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  // 105 source-required of 130: four exact packed-package links plus the app-local token link
+  // 113 source-required of 138: four exact packed-package links plus the app-local token link
   // are visible through the UI owners without granting any directory-shaped source access.
-  assert.equal(inventory.derived.sourceRequiredCount, 105)
-  assert.equal(inventory.records.length, 130)
-  assert.equal(inventory.derived.renderedLinkCount, 107)
+  assert.equal(inventory.derived.sourceRequiredCount, 113)
+  assert.equal(inventory.records.length, 138)
+  assert.equal(inventory.derived.renderedLinkCount, 115)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 105)
+  assert.equal(sourceRequired.length, 113)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -441,6 +441,14 @@ test('capability joins come from the example surface inventory, not from the top
       // The installed UI implementation joins no example capability: it is the framework's own
       // component, not a canonical-example surface.
       'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
+      'node_modules/@open-mercato/shared/src/lib/commands/registry.ts',
+      'node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts',
+      'node_modules/@open-mercato/shared/src/lib/commands/types.ts',
+      'node_modules/@open-mercato/shared/src/lib/crud/factory.ts',
+      'node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts',
+      'node_modules/@open-mercato/shared/src/lib/data/engine.ts',
+      'node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts',
+      'node_modules/@open-mercato/shared/src/modules/events/factory.ts',
       'node_modules/@open-mercato/ui/figma/button.figma.tsx',
       'node_modules/@open-mercato/ui/src/backend/DataTable.tsx',
       'node_modules/@open-mercato/ui/src/primitives/button.tsx',
