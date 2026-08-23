@@ -54,9 +54,9 @@ export function readEnabledModuleIds(modulesPath: string): string[] {
 // (R5 — degraded, never empty).
 export function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
   const available = existsSync(modulesSubdir)
-    ? readdirSync(modulesSubdir)
-        .filter((file) => file.endsWith('.md'))
-        .map((file) => file.replace(/\.md$/, ''))
+    ? readdirSync(modulesSubdir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(join(modulesSubdir, entry.name, 'index.md')))
+        .map((entry) => entry.name)
     : []
   if (available.length === 0) return []
   const parsed = tryReadEnabledModuleIds(join(targetDir, 'src', 'modules.ts'))
@@ -91,7 +91,7 @@ export function renderModuleGuidesBlock(
   return [
     index,
     '',
-    'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all module facts.',
+    'Load `.ai/guides/modules/<id>/index.md` only for a targeted installed module/host; never preload all module facts.',
   ].join('\n')
 }
 
@@ -241,20 +241,37 @@ export function finalizeHarnessManifest(config: AgenticConfig, selectedTools: st
   for (const file of listFiles(join(GUIDES_DIR, 'reference-modules'))) {
     paths.add(join(targetDir, '.ai', 'guides', 'reference-modules', relative(join(GUIDES_DIR, 'reference-modules'), file)))
   }
-  for (const moduleId of selectedModules) paths.add(join(targetDir, '.ai', 'guides', 'modules', `${moduleId}.md`))
+  for (const moduleId of selectedModules) {
+    const sourceRoot = join(GUIDES_DIR, 'modules', moduleId)
+    const destinationRoot = join(targetDir, '.ai', 'guides', 'modules', moduleId)
+    for (const file of targetPathsForTree(sourceRoot, destinationRoot)) paths.add(file)
+  }
 
   if (selectedTools.includes('claude-code')) {
     paths.add(join(targetDir, 'CLAUDE.md'))
     paths.add(join(targetDir, '.claude', 'settings.json'))
     paths.add(join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.claude', 'hooks', 'gate-evidence.ts'))
+    }
     paths.add(join(targetDir, '.mcp.json.example'))
   }
-  if (selectedTools.includes('codex')) paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+  if (selectedTools.includes('codex')) {
+    paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.codex', 'hooks.json'))
+      paths.add(join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+    }
+  }
   if (selectedTools.includes('cursor')) {
-    for (const file of listFiles(join(AGENTIC_ROOT, 'cursor'))) {
-      const rel = relative(join(AGENTIC_ROOT, 'cursor'), file)
-      const mapped = rel === 'mcp.json.example' ? join(targetDir, '.cursor', 'mcp.json.example') : join(targetDir, '.cursor', rel)
-      paths.add(mapped)
+    paths.add(join(targetDir, '.cursor', 'hooks.json'))
+    paths.add(join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
+    paths.add(join(targetDir, '.cursor', 'mcp.json.example'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'open-mercato.mdc'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'entity-guard.mdc'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'generated-guard.mdc'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
     }
   }
 
@@ -302,7 +319,7 @@ export function generateShared(config: AgenticConfig): void {
   copyTree(join(AGENTIC_DIR, 'scripts'), join(targetDir, 'scripts'), config)
 
   // Package & conceptual guides are copied wholesale (framework-wide). Per-module
-  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
+  // fact-sheets (.ai/guides/modules/<module>/) are filtered to the app's enabled
   // module set. The combined v1/v2 facts and disabled local-reference projections
   // are copied as-is so source-present reference modules remain readable without activation.
   if (existsSync(GUIDES_DIR)) {
@@ -341,9 +358,7 @@ export function generateShared(config: AgenticConfig): void {
 
     const modulesSubdir = join(GUIDES_DIR, 'modules')
     for (const moduleId of selectedModules) {
-      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
-      ensureDir(destPath)
-      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
+      copyTree(join(modulesSubdir, moduleId), join(guidesDestDir, 'modules', moduleId), config)
     }
   }
 

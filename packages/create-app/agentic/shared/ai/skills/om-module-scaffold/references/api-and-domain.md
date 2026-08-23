@@ -2,6 +2,19 @@
 
 Load this reference for CRUD, commands, and action routes.
 
+Before writing a route or command, read `node_modules/@open-mercato/shared/AGENTS.md`. It is
+the authority for this layer's import paths and carries MUST rules that are easy to violate
+by writing something that merely compiles — in particular: use the `badRequest` / `forbidden`
+/ `notFound` / `conflict` / `assertFound` helpers from
+`@open-mercato/shared/lib/crud/errors` rather than hand-rolling `new CrudHttpError(404, …)`;
+read encrypted columns through `@open-mercato/shared/lib/encryption/find`; and never `$ilike`
+a column an encryption map covers — use `@open-mercato/shared/lib/search/tokenLookup`.
+
+There is no `@open-mercato/shared/lib/http/types`. A hand-written route handler takes the
+platform `Request` (`export async function GET(request: Request)`) and returns a platform
+`Response`; a dynamic segment arrives as a second argument,
+`(request: Request, ctx: { params?: { id?: string } })`.
+
 1. Implement create/update/delete as command objects with stable IDs and call `registerCommand` from `@open-mercato/shared/lib/commands` for each object. A route action naming a command ID does not register it. Include audit/undo/event/cache/index side effects.
 2. Create `src/modules/<moduleId>/api/<resource>/route.ts`; generated discovery mounts it at `/api/<moduleId>/<resource>`. Import `makeCrudRoute` from `@open-mercato/shared/lib/crud/factory`, then export per-method `metadata`, the selected factory handlers, and matching `openApi`. Smoke-test the generated URL rather than assuming a hyphenated or module-less path.
 3. Build current `makeCrudRoute` options: `metadata`, `orm`, `list`, `actions: { create, update, delete }`, and `indexer`. Each command action uses `commandId`, `schema`, optional `mapInput`, `response`, and `status`—never a `command` key. Add `enrichers: { entityId: '<module>:<entity>' }` only when the route intentionally publishes that stable host contract; keep the colon-form ID aligned with the UI/widget host and test injected read/write round trips. Export `openApi` separately—it is not a factory option—and build it with `createCrudOpenApiFactory`/`createPagedListResponseSchema` from `@open-mercato/shared/lib/openapi/crud` or a typed `OpenApiRouteDoc` from `@open-mercato/shared/lib/openapi`.

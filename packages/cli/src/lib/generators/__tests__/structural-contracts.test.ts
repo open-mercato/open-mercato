@@ -507,8 +507,8 @@ describe('modules.generated.ts', () => {
   })
 
   it('modules include translation locale keys', () => {
-    expect(content).toContain("'en':")
-    expect(content).toContain("'pl':")
+    expect(content).toMatch(/['"]en['"]:/)
+    expect(content).toMatch(/['"]pl['"]:/)
   })
 
   it('modules include customFieldSets reference from ce.ts', () => {
@@ -635,7 +635,7 @@ describe('api-routes.generated.ts', () => {
 
   it('products API route has all 4 methods', () => {
     expect(content).toContain('path: "/products"')
-    expect(content).toMatch(/methods:.*GET.*POST.*PUT.*DELETE/)
+    expect(content).toMatch(/methods:\s*\[\s*"GET",\s*"POST",\s*"PUT",\s*"DELETE",?\s*\]/)
   })
 
   it('keeps API handler imports lazy in route entries', () => {

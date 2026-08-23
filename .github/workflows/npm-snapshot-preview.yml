@@ -74,7 +74,11 @@ jobs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
       packages_json: ${{ steps.release.outputs.packages_json }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # GitHub-hosted on purpose — do NOT move this job to a Blacksmith runner.
+    # `scripts/publish-packages.sh` publishes with `npm publish --provenance`, which
+    # npm only accepts from a `github-hosted` runner. Guarded by
+    # scripts/__tests__/npm-provenance-runners.test.mjs.
+    runs-on: ubuntu-latest
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -323,6 +327,33 @@ jobs:
           OM_TEST_MODE=1
           OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
           OM_INTEGRATION_TEST=true
+          # Registers the network-free `push_stub` channel adapter (no-op unless a
+          # delivery row carries provider='push_stub'). The ephemeral harness sets
+          # it in buildReusableEnvironment/the app-server env; this job starts the
+          # app from its own .env instead, so without the mirror TC-PUSH-003 can
+          # never resolve an adapter and every delivery lands in `failed`.
+          OM_ENABLE_PUSH_STUB_ADAPTER=1
+          # Documents collaboration. The ephemeral lane configures it at the ci.yml
+          # workflow level; this lane configured none of it, so the collab-token route
+          # took its graceful "not ready" branch and returned an EMPTY token
+          # (TC-DOCUMENTS-009), and the editor never left single-user mode so the
+          # read-only banner never rendered (TC-DOCUMENTS-013).
+          # NEXT_PUBLIC_* is inlined at build time, so it MUST be written here, before
+          # the `Build standalone app` step, not only on the test-run env.
+          NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101
+          DOCUMENTS_COLLAB_JWT_SECRET_V2=ci-standalone-documents-collab-v2-secret-32b
+          # Required for the loopback collab URL above to be ACCEPTED. This lane's
+          # server runs with NODE_ENV=production, and
+          # resolveDocumentsCollaborationEndpoint() rejects a loopback ws:// host
+          # under production unless this flag opts in — it logged "Ignoring
+          # NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ... not a valid browser-reachable ws(s)
+          # endpoint" and TC-DOCUMENTS-013 saw "Realtime unavailable" instead of the
+          # access-tier banner.
+          # Deliberately app-side ONLY: the same variable has a second, unrelated
+          # meaning in the Playwright process, where it opts TC-DOCUMENTS-017's
+          # realtime UI spec in. This lane wants the server-side permission, not that
+          # spec, so do NOT mirror this onto the integration-test env.
+          OM_DOCUMENTS_COLLAB_INTEGRATION=1
           OM_DISABLE_EMAIL_DELIVERY=1
           OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1
           ENABLE_CRUD_API_CACHE=true
@@ -428,6 +459,18 @@ jobs:
           # .env, so they must invalidate the same shared store the server reads.
           CACHE_STRATEGY: sqlite
           CACHE_SQLITE_PATH: /tmp/standalone-app/.mercato/cache/cache.db
+          # Same reason: with AUTO_SPAWN_WORKERS=false the `push-deliveries` job is
+          # executed by a drain CHILD of this process, which never reads the app's
+          # .env — so the `push_stub` adapter must be enabled here too, exactly as
+          # the ephemeral harness sets it on both the Playwright process and the
+          # app server (TC-PUSH-003).
+          OM_ENABLE_PUSH_STUB_ADAPTER: '1'
+          # The Playwright process starts the collaboration sidecar itself
+          # (ensureManagedCollabSidecar reads NEXT_PUBLIC_DOCUMENTS_COLLAB_URL) and the
+          # sidecar verifies the tokens the app mints, so both halves need the same
+          # secret. Mirrors the app .env written above.
+          NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
+          DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-standalone-documents-collab-v2-secret-32b'
         run: yarn test:integration
 
       - name: Print standalone app log on test failure

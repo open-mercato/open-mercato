@@ -7,8 +7,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../../data/entities'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
-import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
+import {
+  ChannelAccessDeniedError,
+  assertCanManageChannel,
+  channelOrgScopeWhere,
+} from '../../../../../lib/access-control'
 import { refreshCredentialsIfNeeded } from '../../../../../lib/credential-refresh'
+import {
+  MAX_OUTBOUND_RECIPIENT_LENGTH,
+  validateOutboundRecipient,
+} from '../../../../../lib/outbound-recipient'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 type RbacServiceLike = {
@@ -29,8 +37,15 @@ export const metadata = {
   },
 }
 
+// `to` is deliberately NOT typed as an email here. The recipient shape depends
+// on the provider (an email address for Gmail/IMAP, a channel snowflake for
+// Discord), and the adapter is only known once the channel is loaded — so the
+// schema accepts any non-empty single-line string and `validateOutboundRecipient`
+// applies the provider-appropriate rules below, defaulting to email. The CR/LF
+// rejection stays at the schema level so a header-injection attempt is refused
+// before the request reaches the channel lookup or the mutation guard.
 const bodySchema = z.object({
-  to: z.string().email(),
+  to: z.string().min(1).max(MAX_OUTBOUND_RECIPIENT_LENGTH).regex(/^[^\r\n]*$/),
   subject: z.string().min(1).max(500).optional(),
   body: z.string().max(50_000).optional(),
 })
@@ -90,7 +105,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     {
       id,
       tenantId: auth.tenantId as string,
-      organizationId,
+      ...channelOrgScopeWhere(organizationId),
       deletedAt: null,
     },
     undefined,
@@ -99,6 +114,13 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   if (!channel) {
     return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
   }
+  // Resolve credentials at the channel's OWN org, not the caller's selected org.
+  // Tenant-wide channels store `organization_id = NULL` and their credentials
+  // live at `organization_id = tenantId` (see connect-credential-channel.ts), so
+  // the read key must be `channel.organizationId ?? tenantId` — keying on the
+  // session org would resolve `{}` for a tenant-wide channel viewed from a
+  // non-null org.
+  const channelCredentialsOrg = channel.organizationId ?? (auth.tenantId as string)
   // Load features via RBAC service so admin bypass (`communication_channels.admin`,
   // wildcards, super-admin) is honoured. The `auth` object from
   // `getAuthFromRequest` carries identity only — feature ACLs live in the RBAC
@@ -159,6 +181,11 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     )
   }
 
+  const recipientCheck = validateOutboundRecipient(body.to, adapter.capabilities)
+  if (!recipientCheck.ok) {
+    return NextResponse.json({ error: recipientCheck.error }, { status: 422 })
+  }
+
   // Resolve credentials + optionally refresh.
   let credentials: Record<string, unknown> = {}
   let credentialsService: CredentialsServiceLike | null = null
@@ -172,14 +199,14 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       (await credentialsService
         .resolve(`channel_${channel.providerKey}`, {
           tenantId: auth.tenantId as string,
-          organizationId: organizationId ?? (auth.tenantId as string),
+          organizationId: channelCredentialsOrg,
           userId: channel.userId ?? null,
         })
         .catch(() => null)) ?? {}
   }
   const credentialScope = {
     tenantId: auth.tenantId as string,
-    organizationId: organizationId ?? (auth.tenantId as string),
+    organizationId: channelCredentialsOrg,
     userId: channel.userId ?? null,
   }
   const refreshed = await refreshCredentialsIfNeeded(
@@ -203,7 +230,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       credentials,
       scope: {
         tenantId: auth.tenantId as string,
-        organizationId: organizationId ?? (auth.tenantId as string),
+        organizationId: channelCredentialsOrg,
       },
       metadata: { to: body.to, subject: body.subject ?? 'Test send', testSend: true },
     })

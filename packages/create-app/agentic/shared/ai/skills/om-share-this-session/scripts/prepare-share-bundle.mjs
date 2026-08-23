@@ -225,6 +225,35 @@ function inferRoles(value) {
   return [...new Set(value.items.map(inferRole).filter(Boolean))]
 }
 
+function extractLastEntryError(lastEntry) {
+  const error = lastEntry?.info?.error
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return null
+  const name = typeof error.name === 'string' ? error.name : null
+  const statusCode = Number.isInteger(error.statusCode)
+    ? error.statusCode
+    : Number.isInteger(error.status)
+      ? error.status
+      : null
+  const message = typeof error.message === 'string' ? error.message : null
+  if (name === null || message === null) return null
+  return { name, statusCode, message }
+}
+
+function classifyStopCause(lastEntry, lastEntryError) {
+  if (lastEntryError) {
+    const errorText = `${lastEntryError.name} ${lastEntryError.message}`
+    if (
+      lastEntryError.statusCode === 429
+      || /\b(?:quota|rate[-_ ]?limit|too many requests|resource[-_ ]?exhausted|usage limit)\b/i.test(errorText)
+    ) return 'provider-limit'
+    if (/\b(?:abort(?:ed)?|cancel(?:led|ed|ation)?)\b/i.test(errorText)) return 'user-abort'
+    return 'provider-error'
+  }
+  const lastRoles = inferRoles(lastEntry)
+  if (lastRoles.at(-1) === 'assistant') return 'completed'
+  return 'unknown'
+}
+
 function analyzeSession(session) {
   let entries
   let collectionName
@@ -248,6 +277,7 @@ function analyzeSession(session) {
   if (userTurns === 0 || assistantTurns === 0) {
     fail('Session JSON must contain at least one recognizable user turn and one assistant turn.')
   }
+  const lastEntryError = extractLastEntryError(entries.at(-1))
   return {
     collection: collectionName,
     entries: entries.length,
@@ -256,6 +286,10 @@ function analyzeSession(session) {
     assistantTurns,
     firstRecognizedRole: roles[0],
     lastRecognizedRole: roles.at(-1),
+    stopCause: {
+      classification: classifyStopCause(entries.at(-1), lastEntryError),
+      lastEntryError,
+    },
   }
 }
 
@@ -408,7 +442,7 @@ function main() {
     } catch {
       fail('Session export is not valid JSON.')
     }
-    const sessionSummary = analyzeSession(session)
+    const { stopCause, ...sessionSummary } = analyzeSession(session)
     const sanitizedSession = sanitizeNode(session, '', state)
     const sanitizedSessionText = `${JSON.stringify(sanitizedSession, null, 2)}\n`
     const sessionOutputPath = join(bundleDirectory, 'session.json')
@@ -450,6 +484,7 @@ function main() {
         bytes: Buffer.byteLength(sanitizedSessionText),
         sha256: sha256(sanitizedSessionText),
       },
+      stopCause: sanitizeNode(stopCause, 'stopCause', state),
       generatedFiles: files.map(({ relativePath, mode, originalBytes, sanitizedBytes, sha256: fileHash }) => ({
         path: relativePath,
         mode: mode.toString(8).padStart(3, '0'),
