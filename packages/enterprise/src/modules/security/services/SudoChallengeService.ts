@@ -24,7 +24,7 @@ import type { MfaService } from './MfaService'
 import type { MfaVerificationService } from './MfaVerificationService'
 import { sudoTargets as defaultSudoTargets } from '../security.sudo'
 import type { SecurityModuleConfig } from '../lib/security-config'
-import { readSecurityModuleConfig } from '../lib/security-config'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
 
 type SudoMethod = 'password' | 'mfa'
 
@@ -168,7 +168,7 @@ export class SudoChallengeService {
     }
 
     const userMethods = await this.mfaService.getUserMethods(userId)
-    const method = this.resolveChallengeMethod(protection.config.challengeMethod, userMethods.length)
+    const method = this.resolveChallengeMethod(protection.config.challengeMethod, userMethods.length, userId, targetIdentifier)
 
     let sessionToken = randomBytes(16).toString('hex')
     let availableMfaMethods: SudoAvailableMethod[] | undefined
@@ -643,10 +643,33 @@ export class SudoChallengeService {
   private resolveChallengeMethod(
     configuredMethod: ChallengeMethod,
     availableMfaMethodCount: number,
+    userId?: string,
+    targetIdentifier?: string,
   ): SudoMethod {
     if (this.securityConfig.mfa.emergencyBypass) {
+      let wouldHaveBeenMfa = false
+      try {
+        wouldHaveBeenMfa = this.resolveChallengeMethodWithoutBypass(configuredMethod, availableMfaMethodCount) === 'mfa'
+      } catch {
+        wouldHaveBeenMfa = configuredMethod === ChallengeMethod.MFA
+      }
+      if (wouldHaveBeenMfa) {
+        emitMfaEmergencyBypassActiveWarning('sudo challenge downgraded to password', {
+          configuredMethod,
+          availableMfaMethodCount,
+          userId,
+          targetIdentifier,
+        })
+      }
       return 'password'
     }
+    return this.resolveChallengeMethodWithoutBypass(configuredMethod, availableMfaMethodCount)
+  }
+
+  private resolveChallengeMethodWithoutBypass(
+    configuredMethod: ChallengeMethod,
+    availableMfaMethodCount: number,
+  ): SudoMethod {
     if (configuredMethod === ChallengeMethod.PASSWORD) return 'password'
     if (configuredMethod === ChallengeMethod.MFA) {
       if (availableMfaMethodCount === 0) {
