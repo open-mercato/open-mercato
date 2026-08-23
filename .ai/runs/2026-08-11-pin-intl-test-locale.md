@@ -150,6 +150,12 @@ but the sweep found one new Medium introduced *by* the minor-4 fix. Evidence: th
       the card's value and date stop rendering two `<dd>` rows apart in different conventions — 7dd9b7a08
 - [x] `DealsSection.test.tsx` — a `pl-PL` expected-close assertion beside the value-label one — 7dd9b7a08
 - [x] Verify the customers module green under both `pl_PL.UTF-8` and `en_US.UTF-8` — 234/234 suites, 1472/1472 tests in each
+- [x] Re-merge `origin/develop` after it advanced mid-run — c405710a6
+- [x] `sales/components/documents/LineItemDialog.tsx:2063` — the read-only price of a shipped line
+      was the one `formatMoney` call in that file left without a locale; found by the
+      `LineItemDialog.shippedLineLock` suite develop added after the first merge — f92a237fa
+- [x] `LineItemDialog.shippedLineLock.test.tsx` — extend the `i18n/context` mock with `useLocale`
+      (fourth instance of the same trap) and pin the locale in its two `formatMoney` expectations — f92a237fa
 - [ ] Run the configured validation gate
 - [ ] Post the resume summary comment and normalize labels
 
