@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 138 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 137 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -29,7 +29,6 @@ This catalog indexes 138 focused lessons. Route the task first, then read only r
 - [Generated standalone app installs in CI must opt out of immutable lockfiles](lessons/generated-standalone-app-installs-in-ci-must-opt-out-of.md) — area:architecture,integration,testing; module:create_app; topic:generated-files,database-migrations,package-runtime
 - [Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile](lessons/generator-manifests-must-fall-back-to-source-parsing.md) — area:architecture,integration,module-data; module:cli,query_index,queue; topic:events,generated-files,query-index
 - [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app; topic:events,module-boundaries,package-runtime
-- [Jest discovers no tests under dot-directory paths and moved worktrees dangle Yarn junctions](lessons/jest-discovers-no-tests-under-dot-directory-paths.md) — area:architecture,testing; module:platform,cli,create_app; topic:dev-runtime,package-runtime,testing
 - [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui; module:create_app,ui; topic:template-sync,ui-components
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
 - [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,events,generated-files,package-runtime,session-export,testing

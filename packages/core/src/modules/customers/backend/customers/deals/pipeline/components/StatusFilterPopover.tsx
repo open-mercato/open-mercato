@@ -62,15 +62,19 @@ const FALLBACK_STATUS_OPTIONS: Array<{
     labelFallback: 'Lost',
     dotClass: 'bg-status-error-icon',
   },
+  {
+    value: 'closed',
+    labelKey: 'customers.deals.kanban.filter.status.closed',
+    labelFallback: 'Closed',
+    dotClass: 'bg-status-neutral-icon',
+  },
+  {
+    value: 'in_progress',
+    labelKey: 'customers.deals.kanban.filter.status.inProgress',
+    labelFallback: 'In progress',
+    dotClass: 'bg-status-warning-icon',
+  },
 ]
-
-// Seeded statuses translate through the module locale keys; tenant-custom entries keep
-// their dictionary label verbatim.
-const SEEDED_LABEL_KEYS: Record<string, string> = {
-  open: 'customers.deals.kanban.filter.status.open',
-  win: 'customers.deals.kanban.filter.status.won',
-  loose: 'customers.deals.kanban.filter.status.lost',
-}
 
 type StatusFilterPopoverProps = {
   values: string[]
@@ -103,16 +107,18 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
         const canonical = canonicalDealStatus(entry.value)
         if (byCanonical.has(canonical)) continue
         const tone = mapDictionaryColorToTone(entry.color ?? null)
-        const seeded = SEEDED_LABEL_KEYS[canonical]
         byCanonical.set(canonical, {
           value: canonical,
-          label: seeded ? translateWithFallback(t, seeded, entry.label) : entry.label,
+          label: entry.label,
           dotClass: toneToDotClass(tone),
         })
       }
-      // Preserve the tenant dictionary order — the list view renders the same entries in
-      // this order, so sorting here would re-introduce a kanban/list divergence.
-      return Array.from(byCanonical.values())
+      // Sort by label exactly like the List page's advanced filter
+      // (backend/customers/deals/page.tsx dictionaryOptions) so both surfaces render
+      // the same pills in the same order.
+      return Array.from(byCanonical.values()).sort((a, b) =>
+        a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+      )
     }
     return FALLBACK_STATUS_OPTIONS.map((entry) => ({
       value: entry.value,

@@ -22,6 +22,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import type { FilterGroup, FilterRule } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { fetchStuckDealIds } from '../../lib/stuckDeals'
 import { expandDealStatusAliases } from '../../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -32,6 +33,19 @@ const rawBodySchema = z.object({}).passthrough()
 
 const stringOrStringArray = z.union([z.string(), z.array(z.string())])
 const OPEN_DEAL_STATUSES = ['open', 'in_progress'] as const
+// Tree operators whose `status` values are rewritten through the canonical vocabulary.
+// Text (`contains`/`starts_with`/…) and range (`between`) operators are left untouched
+// so a URL-supplied rule keeps its scalar semantics.
+const STATUS_TREE_OPERATORS = new Set([
+  'is',
+  'equals',
+  'is_not',
+  'not_equals',
+  'is_any_of',
+  'has_any_of',
+  'is_none_of',
+  'has_none_of',
+])
 const booleanQueryParam = z.preprocess((value) => {
   const parsed = parseBooleanFromUnknown(value)
   return parsed === null ? value : parsed
@@ -245,13 +259,15 @@ function normalizeUuidList(values: Array<unknown>): string[] {
 }
 
 export async function buildDealListFilters(query: DealListQuery, ctx?: import('@open-mercato/shared/lib/crud/factory').CrudCtx) {
-  const advancedFilterTreeRaw = consumeAdvancedFilterState(query)
-  let advancedFilterTree: typeof advancedFilterTreeRaw = advancedFilterTreeRaw
+  const advancedFilterTree = consumeAdvancedFilterState(query)
   if (advancedFilterTree) {
     // Expand status aliases in the advanced-filter tree so List (tree path) and
-    // Kanban (plain ?status=) share the same canonical vocabulary (#5107).
-    const walk = (node: import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterGroup | import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterRule): void => {
-      if (node.type === 'rule' && node.field === 'status') {
+    // Kanban (plain ?status=) share the same canonical vocabulary (#5107). Only
+    // set-membership operators are rewritten — text/range operators on `status`
+    // keep their pre-existing scalar semantics instead of being corrupted.
+    const walk = (node: FilterGroup | FilterRule): void => {
+      if (node.type === 'rule' && node.field === 'status' && STATUS_TREE_OPERATORS.has(node.operator)) {
+        const listOperators = new Set(['is_any_of', 'has_any_of', 'is_none_of', 'has_none_of'])
         const rawValues: string[] = Array.isArray(node.value)
           ? (node.value as unknown[]).filter((v): v is string => typeof v === 'string')
           : typeof node.value === 'string'
@@ -259,24 +275,23 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
             : []
         if (rawValues.length === 0) return
         const expanded = expandDealStatusAliases(rawValues)
-        if (expanded.length === 1) {
+        if (listOperators.has(node.operator)) {
+          node.value = expanded
+        } else if (expanded.length === 1) {
           node.value = expanded[0]
-          if (node.operator === 'is_any_of' || node.operator === 'has_any_of') {
-            node.value = expanded
-          }
         } else {
           node.value = expanded
           if (node.operator === 'is' || node.operator === 'equals') {
-            ;(node as { operator: string }).operator = 'is_any_of'
+            node.operator = 'is_any_of'
           } else if (node.operator === 'is_not' || node.operator === 'not_equals') {
-            ;(node as { operator: string }).operator = 'is_none_of'
+            node.operator = 'is_none_of'
           }
         }
       } else if (node.type === 'group') {
-        node.children.forEach((child) => walk(child as unknown as import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterGroup | import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterRule))
+        for (const child of node.children) walk(child)
       }
     }
-    walk(advancedFilterTree.root as unknown as import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterGroup)
+    walk(advancedFilterTree.root)
   }
   const filters: Record<string, unknown> = {}
   let restrictedIds: string[] | null = null

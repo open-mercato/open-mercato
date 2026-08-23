@@ -1319,6 +1319,8 @@
   "customers.deals.kanban.filter.searchPlaceholder": "Szukaj…",
   "customers.deals.kanban.filter.selected": "zaznaczono",
   "customers.deals.kanban.filter.status": "Status",
+  "customers.deals.kanban.filter.status.closed": "Zamknęta",
+  "customers.deals.kanban.filter.status.inProgress": "W toku",
   "customers.deals.kanban.filter.status.loading": "Ładowanie statusów…",
   "customers.deals.kanban.filter.status.lost": "Przegrana",
   "customers.deals.kanban.filter.status.open": "Otwarta",

@@ -20,10 +20,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => mockScopeVersion(),
 }))
 
-const mockDictionaryData: { entries: Array<{ value: string; label: string; color: string | null }> } | null = {
-  entries: [],
-}
-const mockUseCustomerDictionary = jest.fn(() => ({ data: mockDictionaryData, isLoading: false }))
+const mockUseCustomerDictionary = jest.fn(() => ({ data: undefined, isLoading: false }))
 jest.mock('../../../../../../components/detail/hooks/useCustomerDictionary', () => ({
   useCustomerDictionary: (...args: unknown[]) => mockUseCustomerDictionary(...args),
 }))
@@ -31,9 +28,6 @@ jest.mock('../../../../../../components/detail/hooks/useCustomerDictionary', () 
 import { StatusFilterPopover } from '../StatusFilterPopover'
 
 function setDictionaryEntries(entries: Array<{ value: string; label: string; color: string | null }>) {
-  if (mockDictionaryData) {
-    mockDictionaryData.entries = entries
-  }
   mockUseCustomerDictionary.mockReturnValue({ data: { entries, map: {}, fullEntries: [] }, isLoading: false } as unknown as ReturnType<typeof mockUseCustomerDictionary>)
 }
 
@@ -140,6 +134,36 @@ describe('StatusFilterPopover', () => {
     const winButtons = await screen.findAllByRole('button', { name: /Win|Won/ })
     // Should be single pill for canonical win, not two
     expect(winButtons).toHaveLength(1)
+  })
+
+  it('maps a purple dictionary color to the brand tone dot shared with lane accents', async () => {
+    setDictionaryEntries([
+      { value: 'renegotiating', label: 'Renegotiating', color: 'purple' },
+    ])
+
+    render(<StatusFilterPopover values={[]} onApply={jest.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Status/ }))
+
+    const pill = await screen.findByRole('button', { name: /Renegotiating/ })
+    const dot = pill.querySelector('span[aria-hidden="true"]')
+    expect(dot).toHaveClass('bg-brand-violet')
+  })
+
+  it('sorts pills by label like the list page advanced filter', async () => {
+    setDictionaryEntries([
+      { value: 'win', label: 'Win', color: '#22c55e' },
+      { value: 'open', label: 'Open', color: '#2563eb' },
+      { value: 'loose', label: 'Lost', color: '#ef4444' },
+    ])
+
+    render(<StatusFilterPopover values={[]} onApply={jest.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Status/ }))
+
+    await screen.findByText('Open')
+    const pills = screen.getAllByRole('button').filter((el) => ['Open', 'Lost', 'Win'].includes(el.textContent ?? ''))
+    expect(pills.map((pill) => pill.textContent)).toEqual(['Lost', 'Open', 'Win'])
   })
 
   it('de-duplicates alias spellings in the trigger chip so a URL with win+won renders one label', async () => {
