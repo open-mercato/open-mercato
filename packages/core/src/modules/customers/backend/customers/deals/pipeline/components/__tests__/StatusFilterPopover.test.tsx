@@ -23,7 +23,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 const mockDictionaryData: { entries: Array<{ value: string; label: string; color: string | null }> } | null = {
   entries: [],
 }
-const mockUseCustomerDictionary = jest.fn(() => ({ data: mockDictionaryData }))
+const mockUseCustomerDictionary = jest.fn(() => ({ data: mockDictionaryData, isLoading: false }))
 jest.mock('../../../../../../components/detail/hooks/useCustomerDictionary', () => ({
   useCustomerDictionary: (...args: unknown[]) => mockUseCustomerDictionary(...args),
 }))
@@ -34,7 +34,11 @@ function setDictionaryEntries(entries: Array<{ value: string; label: string; col
   if (mockDictionaryData) {
     mockDictionaryData.entries = entries
   }
-  mockUseCustomerDictionary.mockReturnValue({ data: { entries, map: {}, fullEntries: [] } } as unknown as ReturnType<typeof mockUseCustomerDictionary>)
+  mockUseCustomerDictionary.mockReturnValue({ data: { entries, map: {}, fullEntries: [] }, isLoading: false } as unknown as ReturnType<typeof mockUseCustomerDictionary>)
+}
+
+function setDictionaryLoading() {
+  mockUseCustomerDictionary.mockReturnValue({ data: undefined, isLoading: true } as unknown as ReturnType<typeof mockUseCustomerDictionary>)
 }
 
 describe('StatusFilterPopover', () => {
@@ -110,6 +114,18 @@ describe('StatusFilterPopover', () => {
     expect(onApply).toHaveBeenCalledWith(['win'])
   })
 
+  it('renders a loading state instead of pills while the dictionary query resolves', () => {
+    setDictionaryLoading()
+
+    render(<StatusFilterPopover values={[]} onApply={jest.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Status/ }))
+
+    expect(screen.getAllByRole('status').length).toBeGreaterThan(0)
+    expect(screen.getByText('Loading statuses…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Open|Won|Lost/ })).not.toBeInTheDocument()
+  })
+
   it('de-duplicates win/won dictionary entries into single pill', async () => {
     setDictionaryEntries([
       { value: 'win', label: 'Win', color: '#22c55e' },
@@ -124,5 +140,20 @@ describe('StatusFilterPopover', () => {
     const winButtons = await screen.findAllByRole('button', { name: /Win|Won/ })
     // Should be single pill for canonical win, not two
     expect(winButtons).toHaveLength(1)
+  })
+
+  it('de-duplicates alias spellings in the trigger chip so a URL with win+won renders one label', async () => {
+    setDictionaryEntries([
+      { value: 'win', label: 'Win', color: '#22c55e' },
+      { value: 'open', label: 'Open', color: '#2563eb' },
+    ])
+
+    render(<StatusFilterPopover values={['win', 'won']} onApply={jest.fn()} />)
+
+    const chip = screen.getByRole('button', { name: /Status/ })
+    // The chip value lists each canonical selection exactly once.
+    expect(chip.textContent).toContain('Win')
+    expect((chip.textContent?.match(/Win/g) ?? []).length).toBe(1)
+    expect(chip.textContent).not.toContain(', ')
   })
 })

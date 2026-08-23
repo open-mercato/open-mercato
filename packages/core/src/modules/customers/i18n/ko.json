@@ -1319,6 +1319,7 @@
   "customers.deals.kanban.filter.searchPlaceholder": "검색…",
   "customers.deals.kanban.filter.selected": "선택됨",
   "customers.deals.kanban.filter.status": "상태",
+  "customers.deals.kanban.filter.status.loading": "상태 로드 중…",
   "customers.deals.kanban.filter.status.lost": "실패",
   "customers.deals.kanban.filter.status.open": "열림",
   "customers.deals.kanban.filter.status.title": "필터 · 상태",

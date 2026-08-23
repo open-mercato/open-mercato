@@ -1319,6 +1319,7 @@
   "customers.deals.kanban.filter.searchPlaceholder": "Search…",
   "customers.deals.kanban.filter.selected": "selected",
   "customers.deals.kanban.filter.status": "Status",
+  "customers.deals.kanban.filter.status.loading": "Loading statuses…",
   "customers.deals.kanban.filter.status.lost": "Lost",
   "customers.deals.kanban.filter.status.open": "Open",
   "customers.deals.kanban.filter.status.title": "Filter · Status",

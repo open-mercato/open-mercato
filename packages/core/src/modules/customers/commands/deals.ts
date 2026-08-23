@@ -45,6 +45,13 @@ import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/l
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../lib/dealStageTransitionTable'
+import {
+  dealClosureOutcomeFromStatus,
+  loadClosurePipelineStageSnapshot,
+  type DealClosureOutcome,
+  type PipelineStageSnapshot,
+} from '../lib/closureStage'
+import { isClosedDealStatus } from '../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -63,20 +70,6 @@ const dealCrudEvents: CrudEventsConfig = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
-}
-
-type PipelineStageSnapshot = {
-  id: string
-  pipelineId: string
-  label: string
-  order: number
-}
-
-type DealClosureOutcome = 'won' | 'lost'
-
-const TERMINAL_PIPELINE_STAGE_LABELS: Record<DealClosureOutcome, ReadonlySet<string>> = {
-  won: new Set(['won', 'win', 'closed won', 'closed win']),
-  lost: new Set(['lost', 'loose', 'closed lost', 'closed loose']),
 }
 
 type DealStageTransitionSnapshot = {
@@ -123,54 +116,14 @@ async function loadPipelineStageSnapshot(
   }
 }
 
-function normalizePipelineStageLabel(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
-
 function resolveRequestedClosureOutcome(input: DealUpdateInput): DealClosureOutcome | null {
   if (input.closureOutcome === 'won' || input.closureOutcome === 'lost') {
     return input.closureOutcome
   }
-  if (input.status === 'win') return 'won'
-  if (input.status === 'loose') return 'lost'
-  return null
-}
-
-async function loadClosurePipelineStageSnapshot(
-  em: EntityManager,
-  input: {
-    pipelineId: string | null
-    closureOutcome: DealClosureOutcome
-    tenantId: string
-    organizationId: string
-  },
-): Promise<PipelineStageSnapshot | null> {
-  if (!input.pipelineId) return null
-
-  const stages = await findWithDecryption(
-    em,
-    CustomerPipelineStage,
-    {
-      pipelineId: input.pipelineId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    },
-    { orderBy: { order: 'ASC' } },
-    { tenantId: input.tenantId, organizationId: input.organizationId },
-  )
-  const aliases = TERMINAL_PIPELINE_STAGE_LABELS[input.closureOutcome]
-  const stage = stages.find((candidate) => aliases.has(normalizePipelineStageLabel(candidate.label)))
-  if (!stage) return null
-  return {
-    id: stage.id,
-    pipelineId: stage.pipelineId,
-    label: stage.label,
-    order: stage.order,
-  }
+  // `win` / `loose` are what the UI closure flows persist; `won` / `lost` are the
+  // spellings the AI stage tool persists. Both must derive the same closure outcome so
+  // every closed deal lands in the pipeline's terminal stage (#5107).
+  return dealClosureOutcomeFromStatus(input.status)
 }
 
 async function resolvePipelineStageValue(
@@ -739,6 +692,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let nextPipelineStageLabel: string | null = null
     let resolvedCurrentPipelineStageLabel: string | null = null
     let pipelineStageAssignmentChanged = false
+    let requestedClosureOutcome: DealClosureOutcome | null = null
 
     await runCrudCommandWrite({
       ctx,
@@ -759,7 +713,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       }),
       phases: [
         async () => {
-          const requestedClosureOutcome = resolveRequestedClosureOutcome(parsed)
+          requestedClosureOutcome = resolveRequestedClosureOutcome(parsed)
           const requestedPipelineId =
             parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
           const closureStageSnapshot =
@@ -828,6 +782,24 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
           if (parsed.source !== undefined) record.source = parsed.source ?? null
           if (parsed.closureOutcome !== undefined) record.closureOutcome = parsed.closureOutcome ?? null
+          // Derive the outcome only when the status spelling alone drives the closure —
+          // the same condition that triggers the terminal-stage move below — so an
+          // explicit non-terminal pipelineStageId never produces a half-closed state.
+          else if (requestedClosureOutcome && parsed.pipelineStageId === undefined) {
+            record.closureOutcome = requestedClosureOutcome
+          } else if (
+            parsed.status !== undefined &&
+            !requestedClosureOutcome &&
+            // `closed` is a seeded dictionary status: saving it is not a reopen, so only
+            // a genuinely non-closed status clears stored closure state — and only when
+            // the deal actually carries any (a no-op status echo must not wipe loss data).
+            !isClosedDealStatus(parsed.status) &&
+            record.closureOutcome !== null
+          ) {
+            record.closureOutcome = null
+            if (parsed.lossReasonId === undefined) record.lossReasonId = null
+            if (parsed.lossNotes === undefined) record.lossNotes = null
+          }
           if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
           if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
         },

@@ -144,7 +144,6 @@ describe('customers deals aggregate route', () => {
   })
 
   it('keeps aggregate and list status semantics aligned for win alias', async () => {
-    executeMock.mockClear()
     findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
     const response = await GET(
       new Request(
@@ -159,23 +158,36 @@ describe('customers deals aggregate route', () => {
   })
 
   it('is case-insensitive for won/lost and passes through unknown values', async () => {
-    executeMock.mockResolvedValue([])
+    executeMock.mockResolvedValueOnce([])
     findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
     const upperResponse = await GET(
       new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=WON`),
     )
     expect(upperResponse.status).toBe(200)
-    const upperValues = (executeMock.mock.calls[executeMock.mock.calls.length - 1][1] as string[])
+    const upperValues = (executeMock.mock.calls[0][1] as string[])
     expect(upperValues).toEqual(expect.arrayContaining(['win', 'won']))
 
-    executeMock.mockClear()
-    executeMock.mockResolvedValue([])
-    findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
+    executeMock.mockResolvedValueOnce([])
     const unknownResponse = await GET(
       new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=renegotiating`),
     )
     expect(unknownResponse.status).toBe(200)
-    const unknownValues = (executeMock.mock.calls[executeMock.mock.calls.length - 1][1] as string[])
+    const unknownValues = (executeMock.mock.calls[1][1] as string[])
     expect(unknownValues).toContain('renegotiating')
+  })
+
+  it('lets a caller-supplied status filter win over the isOverdue open-status injection', async () => {
+    const response = await GET(
+      new Request(
+        `http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=won&isOverdue=true`,
+      ),
+    )
+    expect(response.status).toBe(200)
+    const aggregateCall = executeMock.mock.calls[0]
+    const sql = String(aggregateCall[0])
+    expect(sql).toContain('expected_close_at < CURRENT_DATE')
+    expect(sql).not.toContain("AND status = 'open'")
+    const values = aggregateCall[1] as string[]
+    expect(values).toEqual(expect.arrayContaining(['win', 'won']))
   })
 })

@@ -248,12 +248,11 @@ export async function GET(req: Request) {
     }
   }
   if (parsed.data.status && parsed.data.status.length) {
+    // Non-empty input always expands to a non-empty set, so this always narrows.
     const expandedStatuses = expandDealStatusAliases(parsed.data.status)
-    if (expandedStatuses.length) {
-      const placeholders = expandedStatuses.map(() => '?').join(',')
-      where.push(`status IN (${placeholders})`)
-      values.push(...expandedStatuses)
-    }
+    const placeholders = expandedStatuses.map(() => '?').join(',')
+    where.push(`status IN (${placeholders})`)
+    values.push(...expandedStatuses)
   }
   if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
     const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')
@@ -269,7 +268,14 @@ export async function GET(req: Request) {
     values.push(parsed.data.expectedCloseAtTo)
   }
   if (parsed.data.isOverdue) {
-    where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+    // Mirror the list route's precedence: the caller-supplied status filter wins, and
+    // status='open' is injected only when none was provided.
+    const hasCallerStatus = !!parsed.data.status?.length
+    if (hasCallerStatus) {
+      where.push('expected_close_at < CURRENT_DATE')
+    } else {
+      where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+    }
   }
   if (parsed.data.isStuck) {
     // Reuse the list endpoint's stuck-deal lookup so kanban headers, lane counts, and the

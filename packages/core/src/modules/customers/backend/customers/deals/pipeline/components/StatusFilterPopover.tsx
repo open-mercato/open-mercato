@@ -11,44 +11,29 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { mapDictionaryColorToTone, type FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
+import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useCustomerDictionary } from '../../../../../components/detail/hooks/useCustomerDictionary'
 import { canonicalDealStatus } from '../../../../../lib/dealStatus'
+import { toneToDotClass } from './toneClasses'
 import { ChipButton } from './ChipButton'
 import { FilterPopoverShell } from './FilterPopoverShell'
-
-function normalizeStatusValue(value: string): string {
-  return canonicalDealStatus(value)
-}
-
-const DOT_TONE_CLASS: Record<FilterOptionTone, string> = {
-  success: 'bg-status-success-icon',
-  error: 'bg-status-error-icon',
-  warning: 'bg-status-warning-icon',
-  info: 'bg-status-info-icon',
-  neutral: 'bg-status-neutral-icon',
-  brand: 'bg-brand-violet',
-  pink: 'bg-status-pink-icon',
-}
-
-function toneToDotClass(tone: FilterOptionTone | null | undefined): string {
-  if (tone && tone in DOT_TONE_CLASS) return DOT_TONE_CLASS[tone as FilterOptionTone]
-  return 'bg-status-neutral-icon'
-}
 
 /**
  * Filter options exposed to the operator.
  *
- * The deal `status` column is dictionary-driven (`deal-statuses`), but the seeded defaults
- * are the historical 3-value set (`open` | `win` | `loose`) plus optional tenant-custom values.
- * We source options from the dictionary so the kanban Status pill stays aligned with the list
- * page's advanced filter (which also uses the dictionary). A hard-coded fallback keeps the
- * popover usable when the dictionary is still loading or the tenant has no custom entries.
+ * The deal `status` column is dictionary-driven (`deal-statuses`); the seeded dictionary
+ * carries five values (`open`, `closed`, `win`, `loose`, `in_progress`) plus any
+ * tenant-custom entries. We render every dictionary entry de-duplicated by canonical
+ * spelling so the kanban Status pill stays aligned with the list page's advanced filter
+ * (which also uses the dictionary). A hard-coded fallback keeps the popover usable while
+ * the dictionary is loading or when a tenant has no entries.
  *
  * `won` / `lost` are accepted as aliases for `win` / `loose` at the API layer (see
- * `api/deals/route.ts:expandStatusList`). The UI only exposes the canonical values to avoid
- * duplicate pills, but `normalizeStatusValue` ensures a URL that carries an alias still
- * renders the correct label.
+ * `lib/dealStatus.ts:expandDealStatusAliases`, shared by the deals list route and the
+ * kanban aggregate route). The UI only exposes the canonical values to avoid duplicate
+ * pills, but `canonicalDealStatus` normalizes any alias passed in through `values` so
+ * the chip and draft selection render the correct label.
  */
 const FALLBACK_STATUS_OPTIONS: Array<{
   value: string
@@ -60,21 +45,32 @@ const FALLBACK_STATUS_OPTIONS: Array<{
     value: 'open',
     labelKey: 'customers.deals.kanban.filter.status.open',
     labelFallback: 'Open',
-    dotClass: 'bg-status-success-icon',
+    // Tones mirror mapDictionaryColorToTone over the seeded dictionary colors
+    // (#2563eb → info, #22c55e → success, #ef4444 → error) so the fallback pills
+    // render identically to the dictionary-driven ones.
+    dotClass: 'bg-status-info-icon',
   },
   {
     value: 'win',
     labelKey: 'customers.deals.kanban.filter.status.won',
     labelFallback: 'Won',
-    dotClass: 'bg-status-warning-icon',
+    dotClass: 'bg-status-success-icon',
   },
   {
     value: 'loose',
     labelKey: 'customers.deals.kanban.filter.status.lost',
     labelFallback: 'Lost',
-    dotClass: 'bg-status-neutral-icon',
+    dotClass: 'bg-status-error-icon',
   },
 ]
+
+// Seeded statuses translate through the module locale keys; tenant-custom entries keep
+// their dictionary label verbatim.
+const SEEDED_LABEL_KEYS: Record<string, string> = {
+  open: 'customers.deals.kanban.filter.status.open',
+  win: 'customers.deals.kanban.filter.status.won',
+  loose: 'customers.deals.kanban.filter.status.lost',
+}
 
 type StatusFilterPopoverProps = {
   values: string[]
@@ -84,9 +80,15 @@ type StatusFilterPopoverProps = {
 export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProps): React.ReactElement {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
-  const { data: dictionaryData } = useCustomerDictionary('deal-statuses', scopeVersion)
+  const { data: dictionaryData, isLoading: dictionaryLoading } = useCustomerDictionary(
+    'deal-statuses',
+    scopeVersion,
+  )
   const [open, setOpen] = React.useState(false)
-  const normalizedValues = React.useMemo(() => values.map(normalizeStatusValue), [values])
+  const normalizedValues = React.useMemo(
+    () => Array.from(new Set(values.map(canonicalDealStatus))),
+    [values],
+  )
   const [draft, setDraft] = React.useState<string[]>(normalizedValues)
 
   React.useEffect(() => {
@@ -97,19 +99,20 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
     const entries = dictionaryData?.entries
     if (entries && entries.length > 0) {
       const byCanonical = new Map<string, { value: string; label: string; dotClass: string }>()
-      for (const entry of entries as Array<{ value: string; label: string; color?: string | null }>) {
+      for (const entry of entries) {
         const canonical = canonicalDealStatus(entry.value)
         if (byCanonical.has(canonical)) continue
         const tone = mapDictionaryColorToTone(entry.color ?? null)
+        const seeded = SEEDED_LABEL_KEYS[canonical]
         byCanonical.set(canonical, {
           value: canonical,
-          label: entry.label,
-          dotClass: toneToDotClass(tone as FilterOptionTone | null | undefined),
+          label: seeded ? translateWithFallback(t, seeded, entry.label) : entry.label,
+          dotClass: toneToDotClass(tone),
         })
       }
-      return Array.from(byCanonical.values()).sort((a, b) =>
-        a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
-      )
+      // Preserve the tenant dictionary order — the list view renders the same entries in
+      // this order, so sorting here would re-introduce a kanban/list divergence.
+      return Array.from(byCanonical.values())
     }
     return FALLBACK_STATUS_OPTIONS.map((entry) => ({
       value: entry.value,
@@ -140,7 +143,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
           .join(', ')
 
   const toggleDraft = (value: string) => {
-    const normalized = normalizeStatusValue(value)
+    const normalized = canonicalDealStatus(value)
     setDraft((prev) =>
       prev.includes(normalized) ? prev.filter((entry) => entry !== normalized) : [...prev, normalized],
     )
@@ -163,7 +166,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <ChipButton label={chipLabel} value={chipValue} active={values.length > 0} />
+        <ChipButton label={chipLabel} value={chipValue} active={normalizedValues.length > 0} />
       </PopoverTrigger>
       <PopoverContent
         className="w-96 rounded-2xl border-border bg-transparent p-0 shadow-xl"
@@ -195,7 +198,17 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
             {translateWithFallback(t, 'customers.deals.kanban.filter.status', 'Status')}
           </span>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
-            {statusOptions.map((option: { value: string; label: string; dotClass: string }) => {
+            {dictionaryLoading ? (
+              <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">
+                <Spinner className="size-3" />
+                {translateWithFallback(
+                  t,
+                  'customers.deals.kanban.filter.status.loading',
+                  'Loading statuses…',
+                )}
+              </span>
+            ) : (
+              statusOptions.map((option) => {
               const isSelected = draft.includes(option.value)
               const label = option.label
               return (
@@ -222,7 +235,8 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
                   ) : null}
                 </Button>
               )
-            })}
+              })
+            )}
           </div>
         </FilterPopoverShell>
       </PopoverContent>

@@ -89,17 +89,59 @@ describe('customers deals list filters', () => {
   it('is case-insensitive for won/lost aliases and preserves unknown values', async () => {
     const upperWon = dealListQuerySchema.parse({ status: ['WON'] })
     const upperWonFilters = await buildDealListFilters(upperWon)
-    expect(upperWonFilters.status).toEqual({ $in: ['win', 'won'] })
+    // Strict superset: canonical spellings plus the caller's original token.
+    expect(upperWonFilters.status).toEqual({ $in: ['win', 'won', 'WON'] })
 
     const mixed = dealListQuerySchema.parse({ status: ['wOn', 'LOST'] })
     const mixedFilters = await buildDealListFilters(mixed)
     expect((mixedFilters.status as { $in: string[] }).$in.sort()).toEqual(
-      ['win', 'won', 'loose', 'lost'].sort(),
+      ['wOn', 'LOST', 'win', 'won', 'loose', 'lost'].sort(),
     )
 
     const unknown = dealListQuerySchema.parse({ status: ['renegotiating'] })
     const unknownFilters = await buildDealListFilters(unknown)
     expect(unknownFilters.status).toEqual({ $eq: 'renegotiating' })
+  })
+
+  it('expands the closed filter to the full terminal set', async () => {
+    const parsed = dealListQuerySchema.parse({ status: ['closed'] })
+    const filters = await buildDealListFilters(parsed)
+    expect(filters.status).toEqual({ $in: expect.arrayContaining(['win', 'won', 'loose', 'lost', 'closed']) })
+  })
+
+  it('expands status aliases in the advanced-filter tree so list and kanban agree', async () => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'status', operator: 'is', value: 'win' })
+    const serialized = serializeTree(tree)
+    const query = dealListQuerySchema.parse(serialized as Record<string, unknown>)
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue(['11111111-1111-4111-8111-111111111111'])
+    const filters = await buildDealListFilters(query as unknown as DealListQuery, ctx)
+    expect(spy).toHaveBeenCalled()
+    const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    // The compiled tree should contain an $in with win,won (and possibly the original trimmed token)
+    const andClauses = (calledFilters.$and as unknown[]) ?? []
+    const hasExpandedStatus = andClauses.some((clause) => {
+      if (!clause || typeof clause !== 'object') return false
+      const rec = clause as Record<string, unknown>
+      const status = rec.status as Record<string, unknown> | undefined
+      if (!status) return false
+      const inVals = status.$in as string[] | undefined
+      return Array.isArray(inVals) && inVals.includes('win') && inVals.includes('won')
+    })
+    // Fallback: also check direct status (if tree was single rule and merged differently)
+    const directHas = (() => {
+      const status = (calledFilters as Record<string, unknown>).status as Record<string, unknown> | undefined
+      if (!status) return false
+      const inVals = status.$in as string[] | undefined
+      return Array.isArray(inVals) && inVals.includes('win') && inVals.includes('won')
+    })()
+    expect(hasExpandedStatus || directHas).toBe(true)
+    // Also ensure the final restrictedIds were intersected
+    expect(filters.id).toEqual({ $in: ['11111111-1111-4111-8111-111111111111'] })
+    spy.mockRestore()
   })
 
   it('applies $eq when a single status is provided', async () => {

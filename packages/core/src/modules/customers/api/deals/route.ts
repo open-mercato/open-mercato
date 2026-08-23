@@ -245,7 +245,39 @@ function normalizeUuidList(values: Array<unknown>): string[] {
 }
 
 export async function buildDealListFilters(query: DealListQuery, ctx?: import('@open-mercato/shared/lib/crud/factory').CrudCtx) {
-  const advancedFilterTree = consumeAdvancedFilterState(query)
+  const advancedFilterTreeRaw = consumeAdvancedFilterState(query)
+  let advancedFilterTree: typeof advancedFilterTreeRaw = advancedFilterTreeRaw
+  if (advancedFilterTree) {
+    // Expand status aliases in the advanced-filter tree so List (tree path) and
+    // Kanban (plain ?status=) share the same canonical vocabulary (#5107).
+    const walk = (node: import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterGroup | import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterRule): void => {
+      if (node.type === 'rule' && node.field === 'status') {
+        const rawValues: string[] = Array.isArray(node.value)
+          ? (node.value as unknown[]).filter((v): v is string => typeof v === 'string')
+          : typeof node.value === 'string'
+            ? [node.value]
+            : []
+        if (rawValues.length === 0) return
+        const expanded = expandDealStatusAliases(rawValues)
+        if (expanded.length === 1) {
+          node.value = expanded[0]
+          if (node.operator === 'is_any_of' || node.operator === 'has_any_of') {
+            node.value = expanded
+          }
+        } else {
+          node.value = expanded
+          if (node.operator === 'is' || node.operator === 'equals') {
+            ;(node as { operator: string }).operator = 'is_any_of'
+          } else if (node.operator === 'is_not' || node.operator === 'not_equals') {
+            ;(node as { operator: string }).operator = 'is_none_of'
+          }
+        }
+      } else if (node.type === 'group') {
+        node.children.forEach((child) => walk(child as unknown as import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterGroup | import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterRule))
+      }
+    }
+    walk(advancedFilterTree.root as unknown as import('@open-mercato/shared/lib/query/advanced-filter-tree').FilterGroup)
+  }
   const filters: Record<string, unknown> = {}
   let restrictedIds: string[] | null = null
 
