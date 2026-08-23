@@ -156,8 +156,10 @@ but the sweep found one new Medium introduced *by* the minor-4 fix. Evidence: th
       `LineItemDialog.shippedLineLock` suite develop added after the first merge — f92a237fa
 - [x] `LineItemDialog.shippedLineLock.test.tsx` — extend the `i18n/context` mock with `useLocale`
       (fourth instance of the same trap) and pin the locale in its two `formatMoney` expectations — f92a237fa
-- [ ] Run the configured validation gate
-- [ ] Post the resume summary comment and normalize labels
+- [x] Run the configured validation gate — `build:packages`, `generate`, `i18n:check-sync`, `typecheck` green;
+      `yarn test` green apart from a known parallelism flake in `@open-mercato/shared`'s dynamic-loader
+      suite (passes 2/2 in isolation; this PR touches no file in that package)
+- [x] Post the resume summary comment and normalize labels
 
 The Medium is worth fixing rather than deferring for the same reason minor 4 was: before this PR the
 deal card was self-consistent (value and date both on the runtime locale), and threading the locale
