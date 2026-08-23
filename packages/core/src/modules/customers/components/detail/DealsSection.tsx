@@ -970,7 +970,7 @@ export function DealsSection({
           <div className="space-y-4">
             {sortedDeals.map((deal) => {
           const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel, locale)
-          const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
+          const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt, locale) ?? emptyLabel : emptyLabel
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
           const isUnlinkPending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id

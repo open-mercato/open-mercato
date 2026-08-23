@@ -128,13 +128,21 @@ describe('DealsSection', () => {
     })
   })
 
-  it('formats the deal value in the app locale rather than the runtime default', async () => {
+  it('formats the deal value and its expected-close date in the app locale', async () => {
     // The company page renders these cards directly under `CompanyKpiBar`, which formats in the
     // application locale. A runtime-default value label put `210 000 USD` above `$210,000.00` on
     // one screen — the same mixed-convention regression this PR fixed on the sales document page
     // (#5182 review, minor 4). Pinning a non-English locale makes a revert fail loudly.
+    //
+    // Value and expected-close render as adjacent `<dd>` entries in one `<dl>` on the same card, so
+    // they are asserted together: threading the locale into only one of them left a single card
+    // mixing conventions two rows apart — a tighter instance of the very defect this PR exists to
+    // remove (#5182 re-review, minor 1).
+    //
+    // The date literal is offset-less on purpose. An instant lands on a different calendar day at
+    // the timezone extremes, which is the machine-dependence this PR removes rather than adds.
     readApiResultOrThrowMock.mockResolvedValueOnce({
-      items: [makeDeal()],
+      items: [makeDeal({ expectedCloseAt: '2026-06-09T12:00:00' })],
       totalPages: 1,
     })
 
@@ -151,6 +159,12 @@ describe('DealsSection', () => {
     // `Intl` separates the amount from the currency code with a non-breaking space.
     const valueLabel = await screen.findByText(/1000,00/)
     expect(valueLabel.textContent?.replace(/[  ]/g, ' ')).toBe('1000,00 USD')
+
+    // `9.06.2026`, not the en-US `6/9/2026` the runtime default would produce. Asserting the
+    // absence of the en-US shape too means a component that silently stops threading the locale
+    // fails here instead of merely looking plausible.
+    expect(screen.getByText('9.06.2026')).toBeInTheDocument()
+    expect(screen.queryByText('6/9/2026')).not.toBeInTheDocument()
   })
 
   it('clamps a long deal description so one card cannot flood the page', async () => {
