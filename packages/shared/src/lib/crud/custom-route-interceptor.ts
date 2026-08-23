@@ -9,6 +9,7 @@ export type CustomRouteAfterInterceptorContext = {
   tenantId?: string | null
   userFeatures?: string[]
   extensionHeaders?: InterceptorContext['extensionHeaders']
+  extensionPayload?: InterceptorContext['extensionPayload']
 }
 
 type RunCustomRouteAfterInterceptorsArgs = {
@@ -41,6 +42,7 @@ export async function runCustomRouteAfterInterceptors(
       tenantId: normalizeIdentity(args.context.tenantId),
       userFeatures: args.context.userFeatures ?? [],
       extensionHeaders: args.context.extensionHeaders,
+      extensionPayload: args.context.extensionPayload,
     },
     metadataByInterceptor: args.metadataByInterceptor,
   })

@@ -1280,6 +1280,45 @@ describe('CRUD Factory', () => {
     expect(db['id-1']).not.toHaveProperty('__om_ext_v1')
   })
 
+  it('POST direct route with a strict schema accepts the widget payload without a validation error', async () => {
+    let beforeExtensionPayload: Record<string, Record<string, unknown>> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.capture-strict-widget-payload',
+          targetRoute: 'example/todos/strict',
+          methods: ['POST'],
+          async before(_request, context) {
+            beforeExtensionPayload = context.extensionPayload
+            return { ok: true }
+          },
+        }],
+      },
+    ])
+    const strictRoute = makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      create: {
+        schema: createSchema.strict(),
+        mapToEntity: (input) => ({ title: (input as any).title, isDone: !!(input as any).is_done }),
+      },
+    })
+
+    const res = await strictRoute.POST(new Request('http://x/api/example/todos/strict', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Strict widget-backed item',
+        __om_ext_v1: { relations: { relatedPersonId: 'person-1' } },
+      }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(beforeExtensionPayload).toEqual({ relations: { relatedPersonId: 'person-1' } })
+  })
+
   it('POST command route exposes CrudForm widget payload to interceptors but never forwards it to mapInput', async () => {
     let beforeExtensionPayload: Record<string, Record<string, unknown>> | undefined
     let afterExtensionPayload: Record<string, Record<string, unknown>> | undefined

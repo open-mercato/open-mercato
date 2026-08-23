@@ -2330,8 +2330,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const createConfig = opts.create
       if (!createConfig) throw new Error('Create configuration missing')
 
-      const parsedBody = createConfig.schema.parse(entityBody)
-      let input = parsedBody
+      let input = createConfig.schema.parse(entityBody)
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
@@ -2658,8 +2657,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const updateConfig = opts.update
       if (!updateConfig) throw new Error('Update configuration missing')
 
-      const parsedBody = updateConfig.schema.parse(entityBody)
-      let input = parsedBody
+      let input = updateConfig.schema.parse(entityBody)
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,

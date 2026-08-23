@@ -44,8 +44,11 @@ shared budget spent by both object keys and array elements.
   one-request scope, and the read/non-JSON/non-object cases it must not touch.
 - `sanitizeExtensionPayload` tests pin the prototype-key guard at module and
   nested level and the shared object/array budget.
-- `packages/shared/src/lib/crud/__integration__` drives a real `makeCrudRoute`
-  handler end to end for both the direct and the command path.
+- `TC-CUST-EXTPAYLOAD-001` (`packages/core/src/modules/customers/__integration__`)
+  drives the transport field through a live `makeCrudRoute` `POST`/`PUT` on
+  `customers/people`, asserting the entity schema accepts it, the stored record
+  never carries it, and a prototype-poisoned payload is sanitized rather than
+  faulting the request.
 
 ## Migration & Backward Compatibility
 
