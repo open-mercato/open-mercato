@@ -91,6 +91,7 @@ Adapter contract: **signature unchanged**. Three `data_sync/AGENTS.md` Ask-First
 4. Cancel during adapter I/O → adapter receives `signal` → run `cancelled` and mirrored in one commit.
 5. Existing `data_sync` integration specs green.
 6. **Soak**: docker-compose with 3 worker replicas, a fake adapter producing 500 batches, a supervisor SIGKILLing one replica per minute and flushing Redis once; assert every `(run_id, batch_no)` appears exactly once in a test ledger the adapter writes inside the fenced commit, `sync_runs.batches_completed = 500`, `sync_runs.status = 'completed'` with `finished_at` set, and no row is left `running`/`pending`/unmirrored after the reconciler's next tick.
+7. **Performance/complexity gate**: the same fake adapter runs under a backlog fixture with 10k and 100k unrelated live leased jobs. The data_sync run must still complete with exactly-once ledger rows, and the progress reconciler must meet the part 4 p95 targets. Report quality (`500/500` unique committed batches), speed (slice throughput and reconciler p95), and baseline (today's one-job data_sync path or the previous implementation PR run on the same fixture).
 
 ## 📋 Implementation Plan
 

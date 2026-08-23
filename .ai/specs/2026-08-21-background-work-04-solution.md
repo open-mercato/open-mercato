@@ -196,6 +196,30 @@ What the pattern implies elsewhere in the repo, as **named follow-up specs**:
 
 None of these is needed for the leased tier or for `data_sync`; all of them reuse the same two ideas, which is why they are listed here rather than designed.
 
+## 📝 Complexity model and benchmark gate
+
+The leased tier must keep the unit of work addressable by key; it must not move the failure from "one long job" to "one repairer that scans every job". The model is:
+
+| Path | Required shape | Bound |
+|---|---|---|
+| Enqueue / re-enqueue | deterministic `queueJobId = pj-<jobId>-<seq>-<redrives>`; broker dedup is a keyed lookup | O(log queue) or broker-native O(1) |
+| Claim | primary-key lookup plus `(seq, redrives)` and lease predicate | O(log jobs), no backlog scan |
+| Single-runner check | partial unique index on `(lock_key, tenant, org)` for live leased rows | O(log live_keys) |
+| Heartbeat | one HOT update on the row; no indexed heartbeat/lease columns | O(1) row update, no index churn |
+| Q2/Q5 repair | indexed pending/mirror cells (`pending_since`, `finished_at`) | O(due + log jobs) |
+| Q1 orphan detection | bounded scan of live leased rows because `lease_expires_at` is intentionally unindexed | O(live_leased) until the measured ceiling below |
+
+Q1 is the only intentional scan. It is allowed for phase 1 only with a measured ceiling: the implementation PR must show the reconciler tick stays below **100 ms p95 at 10k live leased rows with 100 expired rows** on the integration Postgres, and below **1 s p95 at 100k live leased rows** or else add a narrow repair-cell side table before merge. Do **not** index `lease_expires_at` on `progress_jobs` to satisfy this; that would turn every heartbeat into index churn and violate invariant 6. The side-table fallback is a separate cell index owned by the repairer, not another authoritative clock.
+
+Benchmark command expected from the implementation PR (exact script name may change, but the dimensions may not):
+
+```bash
+spbench run "yarn mercato progress bench-leases --live 10000 --expired 100 --pending 100 --mirror-pending 100" --binary open-mercato-progress-reconciler
+spbench run "yarn mercato progress bench-leases --live 100000 --expired 100 --pending 100 --mirror-pending 100" --binary open-mercato-progress-reconciler
+```
+
+The acceptance report must include tick p50/p95, database queries per tick, rows scanned, rows repaired, and `pg_stat_user_tables.n_tup_hot_upd` for `progress_jobs` during the heartbeat phase. A speed number without the repaired-row count is not a result.
+
 ## 📋 Implementation specs (replaces the single phasing table of v3)
 
 | Part | Spec | Owner surface | Depends on | Ships alone? | Closes | Approval state |
