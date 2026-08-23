@@ -79,6 +79,53 @@ describe('CrudForm initialValues', () => {
     expect(getInput(container).value).toBe('Bob')
   })
 
+  it('associates visible labels with their form controls', async () => {
+    const fields: CrudField[] = [
+      { id: 'title', label: 'Title', type: 'text' },
+      { id: 'notes', label: 'Notes', type: 'textarea' },
+      { id: 'body', label: 'Body', type: 'richtext' },
+      { id: 'amount', label: 'Amount', type: 'number' },
+      {
+        id: 'status',
+        label: 'Status',
+        type: 'select',
+        options: [{ value: 'active', label: 'Active' }],
+      },
+      { id: 'enabled', label: 'Enabled', type: 'checkbox' },
+    ]
+
+    renderWithProviders(
+      <CrudForm title="Form" fields={fields} disableInitialFocus onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.select.emptyOption': '-',
+        },
+      },
+    )
+
+    const titleLabel = screen.getByText('Title')
+    const titleInput = screen.getByLabelText('Title')
+    expect(titleLabel).toHaveAttribute('for', 'title')
+    expect(titleInput).toHaveAttribute('id', 'title')
+    expect(titleInput).toBe(screen.getByLabelText('Title'))
+
+    const notesInput = screen.getByLabelText('Notes')
+    expect(notesInput).toHaveAttribute('id')
+
+    const bodyInput = screen.getByLabelText('Body')
+    expect(bodyInput).toHaveAttribute('id', 'body')
+
+    const amountInput = screen.getByLabelText('Amount')
+    expect(amountInput).toHaveAttribute('id')
+
+    const statusInput = screen.getByLabelText('Status')
+    expect(statusInput).toHaveAttribute('id')
+
+    const checkbox = screen.getByLabelText('Enabled')
+    expect(checkbox).toHaveAttribute('id')
+  })
+
   it('shows the selected label when select options arrive after the saved value', async () => {
     const makeFields = (options: Array<{ label: string; value: string }>): CrudField[] => [
       { id: 'teamId', label: 'Team', type: 'select', options },

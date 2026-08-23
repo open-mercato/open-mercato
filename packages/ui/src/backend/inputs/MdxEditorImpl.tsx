@@ -34,6 +34,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useTheme } from '../../theme'
 
 type MdxEditorImplProps = {
+  id?: string
+  ariaLabelledBy?: string
   value?: string
   onChange: (markdown: string) => void
 }
@@ -41,8 +43,9 @@ type MdxEditorImplProps = {
 // WYSIWYG Markdown editor (MDXEditor / Lexical) wired to the CrudForm value/onChange
 // contract. Markdown is the source of truth. Edits are buffered locally and committed
 // on blur to avoid re-rendering the whole form on every keystroke.
-export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplProps) {
+export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange }: MdxEditorImplProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null)
   const latestRef = React.useRef<string>(value)
   const typingRef = React.useRef(false)
   const { resolvedTheme } = useTheme()
@@ -57,6 +60,24 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
     }
   }, [value])
 
+  React.useEffect(() => {
+    if (!ariaLabelledBy || typeof document === 'undefined') return
+    const wrapper = wrapperRef.current
+    if (!wrapper) return
+    const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable="true"]')
+    if (!contentEditable) return
+    if (id) {
+      contentEditable.setAttribute('id', id)
+    }
+    contentEditable.setAttribute('aria-labelledby', ariaLabelledBy)
+    return () => {
+      if (id && contentEditable.getAttribute('id') === id) {
+        contentEditable.removeAttribute('id')
+      }
+      contentEditable.removeAttribute('aria-labelledby')
+    }
+  }, [ariaLabelledBy, id])
+
   const commit = React.useCallback(() => {
     if (!typingRef.current) return
     typingRef.current = false
@@ -64,16 +85,20 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
   }, [onChange])
 
   return (
-    <div className="w-full overflow-hidden rounded-md border border-input bg-background" onBlur={commit}>
+    <div
+      ref={wrapperRef}
+      className="w-full overflow-hidden rounded-md border border-input bg-background"
+      onBlur={commit}
+    >
       <MDXEditor
         ref={editorRef}
         markdown={value ?? ''}
+        contentEditableClassName="om-mdx-prose"
         onChange={(markdown) => {
           typingRef.current = true
           latestRef.current = markdown
         }}
         className={cn('om-mdx-editor', resolvedTheme === 'dark' && 'dark-theme')}
-        contentEditableClassName="om-mdx-prose"
         plugins={[
           headingsPlugin(),
           listsPlugin(),

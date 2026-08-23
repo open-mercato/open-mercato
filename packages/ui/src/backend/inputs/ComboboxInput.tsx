@@ -13,6 +13,7 @@ export type ComboboxOption = {
 }
 
 export type ComboboxInputProps = {
+  id?: string
   value: string
   onChange: (next: string) => void
   placeholder?: string
@@ -65,6 +66,7 @@ function areOptionsEqual(a: ComboboxOption[], b: ComboboxOption[]): boolean {
 }
 
 export function ComboboxInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -418,6 +420,7 @@ export function ComboboxInput({
           input element. The DS wrapper introduces a <div> that desyncs autocomplete
           on this specific surface. Keeps the rest of the form on Input primitive. */}
       <input
+        id={id}
         ref={inputRef}
         type="text"
         className={[

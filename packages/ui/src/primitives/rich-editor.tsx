@@ -285,6 +285,7 @@ export type RichEditorProps = {
   maxLength?: number
   children?: React.ReactNode
   id?: string
+  'aria-labelledby'?: string
   name?: string
   'aria-invalid'?: boolean | 'true' | 'false'
 }
@@ -340,6 +341,7 @@ export const RichEditor = React.memo(function RichEditor({
   maxLength,
   children,
   id,
+  'aria-labelledby': ariaLabelledBy,
   name,
   'aria-invalid': ariaInvalid,
 }: RichEditorProps) {
@@ -537,6 +539,7 @@ export const RichEditor = React.memo(function RichEditor({
                       if (!applyingExternal.current) typingRef.current = true
                     }}
                     id={id}
+                    aria-labelledby={ariaLabelledBy}
                     name={name}
                   />
                   {maxLength ? (
