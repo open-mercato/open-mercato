@@ -18,8 +18,10 @@ entity body, then exposes the sanitized payload as optional
 The server treats this channel exactly like any browser-supplied data. An
 interceptor that uses it must validate its module payload with Zod, enforce the
 module feature server-side, and derive tenant and organization scope from the
-interceptor context. Payload sanitation rejects prototype keys and bounds depth
-and key count.
+interceptor context. Payload sanitation drops prototype keys at every level of
+the payload, module ids included, builds its accumulators with a null prototype
+so a missed key can never re-parent the result, and bounds nesting depth plus a
+shared budget spent by both object keys and array elements.
 
 ## Coverage
 

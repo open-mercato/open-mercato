@@ -8,7 +8,7 @@ export function buildCrudWidgetPayload(
   values: Record<string, unknown>,
   excludedFieldIds: ReadonlySet<string> = new Set(),
 ): ParsedExtensionPayload | undefined {
-  const payload: ParsedExtensionPayload = {}
+  const payload = Object.create(null) as ParsedExtensionPayload
   for (const widget of widgets) {
     const fields = widget.fields ?? []
     for (const field of fields) {
@@ -19,5 +19,5 @@ export function buildCrudWidgetPayload(
       payload[widget.moduleId] = { ...(payload[widget.moduleId] ?? {}), ...modulePayload }
     }
   }
-  return Object.keys(payload).length ? payload : undefined
+  return Object.keys(payload).length ? { ...payload } : undefined
 }
