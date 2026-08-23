@@ -93,3 +93,36 @@ export class ProgressJob {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+@Entity({ tableName: 'progress_job_repair_cells' })
+@Index({ name: 'progress_job_repair_cells_due_idx', properties: ['tenantId', 'organizationId', 'dueAt', 'jobId'] })
+export class ProgressJobRepairCell {
+  [OptionalProps]?: 'attempts' | 'reason' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid' })
+  jobId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'cell', type: 'text' })
+  cell!: string
+
+  @Property({ name: 'due_at', type: Date })
+  dueAt!: Date
+
+  @Property({ name: 'attempts', type: 'int' })
+  attempts: number = 0
+
+  @Property({ name: 'reason', type: 'text', nullable: true })
+  reason?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
