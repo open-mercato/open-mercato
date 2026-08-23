@@ -43,7 +43,8 @@ The smallest useful foundation is therefore a WMS-owned site identity plus expli
 - a setup-once backend UI: minimal `DataTable` lists and `CrudForm`-based site/mapping forms;
 - tenant-defined custom fields on `Site`, including create/update/read/undo and field-injection support;
 - WMS ACL, commands, audit/undo, events, OpenAPI, query indexing, optimistic locking, migrations, and integration coverage;
-- tenant, organization, site, warehouse-active, uniqueness, and default-selection invariants.
+- tenant, organization, site, warehouse-active, uniqueness, and default-selection invariants;
+- a database-enforced active-site warehouse exclusivity invariant, with the internal membership relation and transaction-scoped locking that make it hold under concurrency.
 
 ### Out of scope
 
