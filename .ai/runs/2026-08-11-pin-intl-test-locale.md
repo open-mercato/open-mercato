@@ -132,6 +132,33 @@ Direct `Intl` probe, old input vs new, `dateStyle: 'medium'`:
 | `Etc/GMT+12` (UTC−12) | `8 cze 2026` / `Jun 8, 2026` ❌ | `9 cze 2026` / `Jun 9, 2026` ✅ |
 | `UTC`, `Europe/Warsaw`, `America/Los_Angeles` | `9 cze 2026` / `Jun 9, 2026` ✅ | `9 cze 2026` / `Jun 9, 2026` ✅ |
 
+### Resume — close the review findings on `eafd1e99`, then the one on `290e71e0`
+
+`om-auto-fix-pr` closed @pkarw's review of `eafd1e99` (two blockers, one major, two minors, one nit)
+on head `290e71e0`; the re-review of that head confirmed all six closed and CI green at 28 checks,
+but the sweep found one new Medium introduced *by* the minor-4 fix. Evidence: the re-review at
+`#issuecomment-5385...` and the hand-back comment on PR #5182.
+
+- [x] Merge `origin/develop` and resolve the `.ai/lessons.md` catalog-count conflict (`137 → 138`) — fe1c2659c
+- [x] `sales/components/documents/ShipmentsSection.tsx` — optional `locale` + `useLocale()`, with the
+      returns-shaped cases and a cross-check that the two tabs agree — 290e71e08
+- [x] `sales/components/PriceWithCurrency.tsx` — `useOptionalLocale()` so the exported component keeps
+      its mountable-anywhere contract; `PriceWithCurrency.providerOptional.test.tsx` guards both halves — 290e71e08
+- [x] `customers/components/detail/DealsSection.tsx` — thread `locale` into `formatValueLabel` — 290e71e08
+- [x] `customers/components/detail/utils.ts` — `formatDate` takes an optional trailing `locale` — 7dd9b7a08
+- [x] `customers/components/detail/DealsSection.tsx:973` — pass `locale` into the expected-close date so
+      the card's value and date stop rendering two `<dd>` rows apart in different conventions — 7dd9b7a08
+- [x] `DealsSection.test.tsx` — a `pl-PL` expected-close assertion beside the value-label one — 7dd9b7a08
+- [x] Verify the customers module green under both `pl_PL.UTF-8` and `en_US.UTF-8` — 234/234 suites, 1472/1472 tests in each
+- [ ] Run the configured validation gate
+- [ ] Post the resume summary comment and normalize labels
+
+The Medium is worth fixing rather than deferring for the same reason minor 4 was: before this PR the
+deal card was self-consistent (value and date both on the runtime locale), and threading the locale
+into only one of them made a single card mix conventions — a tighter instance of the exact defect
+this PR exists to remove. `formatDate` lives in `utils.ts`, a file this PR already edits, and its
+sibling `formatCurrency` ten lines down received precisely this treatment here.
+
 ## Notes / follow-ups
 
 - `detail/utils.formatCurrency` still has four call sites (`ActiveDealCard`, `ActiveDealWidget`,
