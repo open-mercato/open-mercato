@@ -449,6 +449,27 @@ Component replacement uses stable handle IDs:
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 - **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
 
+### `wrapper` overrides must be pure
+
+The platform composes a `wrapper` override **at most once per `(wrapper, wrapped component)` pair** and caches the composed component, so that a wrapped subtree keeps a stable React identity instead of being torn down and remounted every time overrides re-resolve (a registry revision bump, a feature grant arriving after first paint).
+
+A wrapper must therefore be a pure function of `Original`. Read any dynamic value — a feature flag, the locale, tenant configuration, the clock, request state — **inside the render body of the component you return**, never at composition time:
+
+```tsx
+// ✅ the dynamic read happens on every render
+wrapper: (Original) => function WithBanner(props) {
+  const t = useT()
+  return <><Banner text={t('acme.notice')} /><Original {...props} /></>
+}
+
+// ❌ frozen at first composition — on the server the registry outlives the
+// request, so one tenant's value would render for everyone
+wrapper: (Original) => {
+  const label = readTenantConfig().label
+  return (props) => <><Banner text={label} /><Original {...props} /></>
+}
+```
+
 ## UMES Phase L — Integration Extension Widgets
 
 Phase L adds three specialized widget types for building integration modules: a multi-step wizard, pollable status badges, and an external ID mapping display.
