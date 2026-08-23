@@ -62,3 +62,4 @@ Command-bus audit entries written outside a request must record *which* automate
 ### Phase 5: Validate and finalize
 
 - [x] 5.1 Run the configured validation gate, then the `om-auto-review-pr` pass, and finalize the PR body, labels, and summary comment — b6305e174
+- [x] 5.2 Record trusted `auth: null` + `systemActor: true` command executions as `system:command` in audit context, with command-bus regression coverage for the remaining review finding — dc4c5725d
