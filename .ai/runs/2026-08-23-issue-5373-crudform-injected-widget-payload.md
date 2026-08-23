@@ -75,4 +75,4 @@ Make the injected-`CrudForm`-field payload reach CRUD `POST`/`PUT` interceptors 
 
 ### Phase 6: Validation and handback
 
-- [ ] 6.1 Run the full validation gate and post the resume summary on the PR
+- [x] 6.1 Run the full validation gate and post the resume summary on the PR

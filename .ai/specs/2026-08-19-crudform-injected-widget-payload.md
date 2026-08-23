@@ -20,11 +20,13 @@ payload into the first `POST`/`PUT`/`PATCH` carrying a JSON content-type and a
 JSON-object body, then spends the scope, so a secondary write inside the same
 `onSubmit`, a background refetch, or a concurrent autosave never carries another
 module's field values. `CrudForm` cannot name its submit URL — `onSubmit` is
-caller-supplied and the component has no endpoint prop — so the residual is a
-concurrent write racing the submit inside that one-request window; it is
-narrowed rather than eliminated, and it is why a form submitting to a
-hand-written route (instead of a `makeCrudRoute` one) is documented as
-responsible for stripping the transport field itself.
+caller-supplied and the component has no endpoint prop — so two residuals
+remain, narrowed rather than eliminated: a concurrent write racing the submit
+inside that one-request window, and two forms submitting at the same time, where
+the first eligible request takes both payloads. Both are why a form submitting
+to a hand-written route (instead of a `makeCrudRoute` one) is documented as
+responsible for stripping the transport field itself. A submit that does not
+declare a JSON content-type carries no payload at all.
 
 The server treats this channel exactly like any browser-supplied data. An
 interceptor that uses it must validate its module payload with Zod, enforce the
