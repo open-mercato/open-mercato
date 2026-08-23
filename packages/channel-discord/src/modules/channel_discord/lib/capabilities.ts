@@ -42,6 +42,15 @@ export const DISCORD_MAX_BODY_LENGTH = 2000
  * - `stickers` — no sticker is sent or normalized.
  */
 export const discordCapabilities: ChannelCapabilities = {
+  // A Discord recipient is a channel snowflake, never an address. Without this
+  // the hub falls back to its `'email'` default and `validateOutboundRecipient`
+  // rejects every real recipient with "Recipient must be a valid email address"
+  // — which is #4976 still broken for the provider it was filed against, even
+  // though #5261 built the mechanism to fix it. The hub then applies transport
+  // safety only (allowlist + length), and this adapter owns the format and must
+  // keep treating the value as untrusted.
+  recipientFormat: 'provider-native',
+
   // Core
   threading: true,
   richText: true,

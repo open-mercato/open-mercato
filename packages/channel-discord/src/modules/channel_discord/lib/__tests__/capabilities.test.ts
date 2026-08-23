@@ -9,6 +9,17 @@ import { convertOutboundForDiscord } from '../convert-outbound'
  * to land before the flag may flip.
  */
 describe('discordCapabilities honesty', () => {
+  it('declares provider-native recipients, because a Discord recipient is never an address', () => {
+    // Found in QA of #4391 against a live bot: with this absent the hub falls
+    // back to its `'email'` default and `validateOutboundRecipient` answers
+    // `422 Recipient must be a valid email address` for a genuine channel
+    // snowflake — #4976 still broken for the provider it was filed against,
+    // even though #5261 had already built the mechanism that fixes it. Nothing
+    // else in the repository declared `'provider-native'`, so that branch was
+    // unreachable in production and only its unit tests exercised it.
+    expect(discordCapabilities.recipientFormat).toBe('provider-native')
+  })
+
   it('does not advertise outbound file sharing while attachments are dropped', async () => {
     expect(discordCapabilities.fileSharing).toBe(false)
     expect(discordCapabilities.inlineImages).toBe(false)
