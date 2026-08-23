@@ -125,7 +125,21 @@ is additive and, being unreleased, requires no deprecation bridge.
 ### Phase 4: Land the remediation
 
 - [x] 4.1 Run the docs validation gate and commit — 8e63ed411
-- [ ] 4.2 Push, link the plan from the PR body, and post the summary comment
+- [x] 4.2 Push, link the plan from the PR body, and post the summary comment — 4426ff7df
+
+### Resume notes — 2026-08-23
+
+- Ran in the primary worktree rather than an isolated one, deliberately: the remediation was already
+  authored and uncommitted on the PR head branch there, so branching a fresh worktree from the PR
+  head would have stranded the work rather than resuming it.
+- `om-auto-review-pr` could not run: this account authors PR #5449 and GitHub rejects an
+  approve/request-changes review from a PR's own author. A manual consistency pass substituted for
+  it and produced one real fix (`4426ff7df`).
+- Labels were not normalized and review could not be re-requested — the account has neither
+  label-write nor `RequestReviewsByLogin` permission on the upstream repository. The stale
+  `changes-requested` label needs a maintainer. Hand-off was delivered as a PR comment instead.
+- No `in-progress` lock was taken or released: the account cannot write labels, and the PR was
+  already assigned to the current user, so step 1 resolved as re-entry.
 
 ## External references
 
