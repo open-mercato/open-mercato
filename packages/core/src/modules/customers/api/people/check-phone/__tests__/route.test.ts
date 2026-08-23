@@ -4,6 +4,7 @@ const mockFindWithDecryption = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScopeForRequest = jest.fn()
 const mockCreateRequestContainer = jest.fn()
+const mockIsTenantDataEncryptionEnabled = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
@@ -11,6 +12,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({
+  isTenantDataEncryptionEnabled: (...args: unknown[]) =>
+    mockIsTenantDataEncryptionEnabled(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
@@ -47,6 +53,11 @@ describe('customers people check-phone route', () => {
     mockGetAuthFromRequest.mockReset()
     mockResolveOrganizationScopeForRequest.mockReset()
     mockCreateRequestContainer.mockReset()
+    mockIsTenantDataEncryptionEnabled.mockReset()
+
+    // Encryption enabled is the effective default (unset TENANT_DATA_ENCRYPTION
+    // resolves to true), so the decrypted fallback path is the baseline.
+    mockIsTenantDataEncryptionEnabled.mockReturnValue(true)
 
     const em = createEntityManagerStub(null)
     mockCreateRequestContainer.mockResolvedValue({
@@ -64,6 +75,7 @@ describe('customers people check-phone route', () => {
   })
 
   function useFastPathMatch(fastMatch: Record<string, unknown>) {
+    mockIsTenantDataEncryptionEnabled.mockReturnValue(false)
     const em = createEntityManagerStub(fastMatch)
     mockCreateRequestContainer.mockResolvedValue({
       resolve: jest.fn(() => em),
@@ -108,7 +120,7 @@ describe('customers people check-phone route', () => {
       {
         limit: 500,
         orderBy: { createdAt: 'DESC' },
-        fields: ['id', 'displayName', 'primaryPhone'],
+        fields: ['id', 'displayName', 'primaryPhone', 'tenantId', 'organizationId'],
       },
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
@@ -135,7 +147,7 @@ describe('customers people check-phone route', () => {
     )
   })
 
-  it('returns the SQL fast-path row without consulting the decrypted scan', async () => {
+  it('runs the SQL fast path only when tenant data encryption is disabled', async () => {
     const em = useFastPathMatch({ id: 'person-9', displayName: 'Grace Hopper' })
 
     const response = await GET(requestFor('14155550148'))
@@ -146,6 +158,29 @@ describe('customers people check-phone route', () => {
     })
     expect(em.createQueryBuilder).toHaveBeenCalledTimes(1)
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('skips the SQL probe and resolves through the decrypted scan while tenant data encryption is enabled', async () => {
+    const em = createEntityManagerStub({ id: 'person-cipher', displayName: 'Ciphertext Row' })
+    mockCreateRequestContainer.mockResolvedValue({
+      resolve: jest.fn(() => em),
+    })
+    mockFindWithDecryption.mockResolvedValueOnce([
+      {
+        id: 'person-1',
+        displayName: 'Ada Lovelace',
+        primaryPhone: '+1 (415) 555-0148',
+      },
+    ])
+
+    const response = await GET(requestFor('14155550148'))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      match: { id: 'person-1', displayName: 'Ada Lovelace' },
+    })
+    expect(em.createQueryBuilder).not.toHaveBeenCalled()
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(1)
   })
 
   it('returns no match when neither the SQL path nor the decrypted scan matches', async () => {
