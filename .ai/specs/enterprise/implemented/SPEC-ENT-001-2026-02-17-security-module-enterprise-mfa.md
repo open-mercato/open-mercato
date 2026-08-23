@@ -1681,7 +1681,7 @@ OM_SECURITY_SUDO_MAX_TTL=1800                 # Maximum configurable sudo TTL
 OM_SECURITY_WEBAUTHN_RP_NAME=Open Mercato     # WebAuthn relying party name
 OM_SECURITY_WEBAUTHN_RP_ID=                   # WebAuthn RP ID (defaults to hostname)
 OM_SECURITY_RECOVERY_CODE_COUNT=10            # Number of recovery codes generated
-OM_SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster recovery only)
+OM_SECURITY_MFA_EMERGENCY_BYPASS=false        # ⚠️  EMERGENCY BREAK-GLASS ONLY — when true, MFA enforcement is DISABLED platform-wide (all challenges + enrollment redirects skipped, sudo falls back to password). Keep false; when enabled the app emits warn-level structured logs at startup and on every bypassed challenge for auditability.
 ```
 
 ---
@@ -2126,3 +2126,7 @@ The public sudo routes, request bodies, response shapes, event IDs, and middlewa
 ### 2026-08-02 — Preserve enrollment under MFA enforcement
 
 Ordinary self-service MFA management now requires `security.mfa.manage`, and the default employee role receives that feature. Provider setup and confirmation use an enforcement-aware server-side authorization guard: users without the feature remain denied during voluntary enrollment, but active non-compliant tenant users may enroll when middleware compels them to do so. Enforcement-resolution failures also keep this enrollment-only recovery path available because backend navigation fails closed to the same page. Recovery-code regeneration and method deletion remain statically feature-gated. Unit and integration coverage exercise feature grants, ordinary denial, active enforcement, enforcement-service failure, tenant-less contexts, and empty tenant IDs.
+
+### 2026-08-22 — Harden MFA emergency bypass with audit logging
+
+`OM_SECURITY_MFA_EMERGENCY_BYPASS` keeps its fail-closed default (`false`) and bypass semantics. When truthy, the system emits a warn-level structured log via `createLogger('security').child({ component: 'mfa-emergency-bypass' })` with a stable message `MFA emergency bypass is active` and fields `emergencyBypass:true, context` plus call-site context. Startup emits once per process (`context:startup, startup:true`); per-challenge warnings emit only when the flag actually changes the MFA outcome — login `api/interceptors.ts` after claims/service validation (`context:login MFA challenge bypassed, userId`), enrollment `lib/enforcement-redirect.ts` after enforcement/compliance/deadline evaluation (`context:mfa-enrollment-redirect bypassed, userId, pathname, enforced/compliant/overdue or reason`), and sudo `services/SudoChallengeService.ts` only when downgrading an MFA-capable challenge to password (`context:sudo challenge downgraded to password, configuredMethod, availableMfaMethodCount`). No bypass state is returned to clients. Env documentation in `apps/mercato/.env.example`, `packages/create-app/template/.env.example`, and the spec env block is updated to break-glass parity, and unit coverage asserts active/inactive, once-per-process startup, per-path structured fields, and negative cases (compliant, unenforced, non-overdue, password-only, invalid token/service).

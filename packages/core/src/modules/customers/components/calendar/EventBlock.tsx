@@ -180,8 +180,8 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
           {visibleParticipants.length > 0 ? (
             <>
               <AvatarStack size="xs" max={MAX_VISIBLE_AVATARS} className="shrink-0 gap-px [&>*:not(:first-child)]:-ml-1">
-                {visibleParticipants.map((participant) => (
-                  <Avatar key={participant.userId} size="xs" label={participantLabel(participant)} />
+                {visibleParticipants.map((participant, index) => (
+                  <Avatar key={participant.userId ?? participant.email ?? index} size="xs" label={participantLabel(participant)} />
                 ))}
               </AvatarStack>
               {overflowCount > 0 ? (

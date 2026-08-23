@@ -24,6 +24,14 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Interaction participants may omit `userId` — external calendar guests (#5115)
+
+`interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.
+
+Nothing that was previously accepted is now rejected, and no field was removed from any response. What changes for consumers is that `participants[].userId` in the `GET /api/customers/interactions` response — and in the OpenAPI document generated from `interactionListItemSchema` — is now **optional rather than required**. Every participant that could exist before still carries its `userId`; the key is absent only on guest participants, a row shape that could not be stored until this release.
+
+**Action for API consumers:** treat `participants[].userId` as optional. A generated client or hand-written type that declares it required keeps working until someone in that tenant actually invites an external guest, at which point a strict response validator will reject the payload and a `participant.userId` dereference will yield `undefined`. Identify a participant by `userId` when present and fall back to the normalized (trimmed, lower-cased) `email` otherwise — that is exactly the canonical actor key the platform's own calendar mapping, participant dedupe and conflict detection now use (`lib/calendar/participantIdentity.ts`). No database migration is required: `customer_interactions.participants` is a schemaless JSONB column with no foreign key or constraint.
+
 ### CRM deal status filters and closures now use one canonical vocabulary (#5107)
 
 `customer_deals.status` is a lenient text column whose writers disagreed on spelling: UI closure flows persist `win` / `loose`, the AI tool `customers.update_deal_stage` persists `won` / `lost`, and the seeded dictionary also carries `closed`. Deal filtering previously matched whatever spelling the caller sent, so "won" results differed between the CRM list view, the Kanban board, and deals closed through different surfaces.
