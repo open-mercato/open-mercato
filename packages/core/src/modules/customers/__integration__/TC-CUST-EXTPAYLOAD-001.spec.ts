@@ -25,10 +25,15 @@ async function readPersonById(
   token: string,
   id: string,
 ): Promise<Record<string, unknown> | null> {
-  const response = await apiRequest(request, 'GET', `${PEOPLE_PATH}?ids=${encodeURIComponent(id)}`, { token })
+  const response = await apiRequest(
+    request,
+    'GET',
+    `${PEOPLE_PATH}?id=${encodeURIComponent(id)}&page=1&pageSize=100`,
+    { token },
+  )
   expect(response.status(), `read-back person failed: ${response.status()}`).toBe(200)
   const body = await readJsonSafe<{ items?: Record<string, unknown>[] }>(response)
-  return body?.items?.[0] ?? null
+  return body?.items?.find((item) => item.id === id) ?? null
 }
 
 test.describe('TC-CUST-EXTPAYLOAD-001 injected CrudForm extension payload', () => {

@@ -53,25 +53,25 @@ Make the injected-`CrudForm`-field payload reach CRUD `POST`/`PUT` interceptors 
 
 ### Phase 2: Security and sanitation (re-review majors/minors)
 
-- [ ] 2.1 Guard module-id keys against prototype pollution in `sanitizeExtensionPayload` and `mergeExtensionPayload`, with null-prototype accumulators and a `getPrototypeOf` regression test (major 1)
-- [ ] 2.2 Apply the advertised key cap to array-shaped payloads and align the spec wording (minor 4)
+- [x] 2.1 Guard module-id keys against prototype pollution in `sanitizeExtensionPayload` and `mergeExtensionPayload`, with null-prototype accumulators and a `getPrototypeOf` regression test (major 1) — b4148f169
+- [x] 2.2 Apply the advertised key cap to array-shaped payloads and align the spec wording (minor 4) — b4148f169
 
 ### Phase 3: Scope the client transport to the request it belongs to (major 2)
 
-- [ ] 3.1 Gate the scoped body injection to JSON write requests and spend the scope on the first eligible request, with tests covering GET pass-through, non-JSON content types, and secondary writes
-- [ ] 3.2 Update `CrudForm` and the docs for the narrowed contract, including the residual the reviewer must be able to see
+- [x] 3.1 Gate the scoped body injection to JSON write requests and spend the scope on the first eligible request, with tests covering GET pass-through, non-JSON content types, and secondary writes — 5d5469c3c
+- [x] 3.2 Update `CrudForm` and the docs for the narrowed contract, including the residual the reviewer must be able to see — 5d5469c3c (no `CrudForm` code change was needed: the component already opens the scope only around `onSubmit`, so narrowing `apiCall` was sufficient; the contract is documented in `widget-injection.md` and the spec)
 
 ### Phase 4: Consistency, cleanup and coverage (majors/minors/nits)
 
-- [ ] 4.1 Forward `extensionPayload` through `runCustomRouteAfterInterceptors` (nit 7)
-- [ ] 4.2 Drop the dead `parsedBody` indirection on both direct branches (minor 6)
-- [ ] 4.3 Add the strict-schema regression for the direct create path (nit 8)
-- [ ] 4.4 Add API-level integration coverage for the new interceptor surface (major 3)
+- [x] 4.1 Forward `extensionPayload` through `runCustomRouteAfterInterceptors` (nit 7) — f9b349c34
+- [x] 4.2 Drop the dead `parsedBody` indirection on both direct branches (minor 6) — f9b349c34
+- [x] 4.3 Add the strict-schema regression for the direct create path (nit 8) — f9b349c34
+- [x] 4.4 Add API-level integration coverage for the new interceptor surface (major 3) — f9b349c34
 
 ### Phase 5: Documentation debt (minor 5)
 
-- [ ] 5.1 Qualify the `SPEC-041g` invariant at line 787 and record the new channel in its Phase G status table
-- [ ] 5.2 Record the channel in `packages/shared/AGENTS.md` and `packages/ui/AGENTS.md` within the instruction budget
+- [x] 5.1 Qualify the `SPEC-041g` invariant at line 787 and record the new channel in its Phase G status table — f9b349c34
+- [x] 5.2 Record the channel in `packages/shared/AGENTS.md` and `packages/ui/AGENTS.md` within the instruction budget — f9b349c34
 
 ### Phase 6: Validation and handback
 
