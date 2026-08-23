@@ -139,3 +139,23 @@ regression suite in `packages/ui`.
   (`ItemsSection.discountColumn`, `@open-mercato/ui` `format.test.ts`, `@open-mercato/shared`
   `likeFilterWarning.test.ts`); each was re-confirmed by stashing this branch's changes and seeing the identical
   failure. Run locally — no compose `app` container is running.
+
+### Phase 6: Close the residual quantity nit from the follow-up review pass on `07043833b`
+
+- [x] 6.1 Make the unknown shipment state fail closed for **quantity** the way it already does for pricing.
+  While `shippedQuantityResolved` is `false` the shipped quantity is unknown and stays `0`, so the client guard
+  `shippedQuantity > 0 && qtyNumber < shippedQuantity` never fired: the dialog locked pricing, told the user the
+  quantity was still editable, and then let a lowered quantity reach the server's `409` instead of surfacing an
+  inline field error. `LineItemDialog` now derives a `quantityFloor` — the line's **stored** quantity while the
+  state is unknown (whatever turns out to be shipped can never exceed it), the shipped quantity once resolved —
+  and validates against that. Raising stays allowed in both states, which is the same split the server enforces.
+
+- [x] 6.2 Give the unknown state its own message. Reusing `errorQuantityBelowShipped` there would have claimed a
+  shipped count the dialog does not know, so a dedicated `sales.documents.items.errorQuantityShipmentsUnknown`
+  was added across en/de/es/ko/pl. `shippedLineLockPending` no longer promises "you can still edit the name and
+  quantity" — it now says "the name and raise the quantity", matching what the guard actually permits.
+
+- [x] 6.3 Regression coverage in `LineItemDialog.shippedLineLock.test.tsx`: lowering while unresolved rejects with
+  the unknown-state message and never reaches `updateCrud`/`createCrud`; raising while unresolved still saves and
+  still scales the stored totals (4 → 6 ⇒ 540 / 664.20); a resolved shipped line keeps the original
+  below-shipped wording; an unshipped line can still lower its quantity freely.

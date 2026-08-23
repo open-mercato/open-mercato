@@ -532,6 +532,13 @@ export function LineItemDialog({
     kind === "order" &&
     hasExistingLine &&
     (shipmentStateUnknown || shippedQuantity > 0);
+  // While the shipments read is unresolved the shipped quantity is unknown, so the
+  // only safe floor for a quantity edit is the quantity already stored on the line:
+  // whatever turns out to be shipped can never exceed it. Raising stays allowed,
+  // exactly as it is once the state resolves.
+  const storedQuantity = Number(initialLine?.quantity ?? 0);
+  const safeStoredQuantity = Number.isFinite(storedQuantity) ? storedQuantity : 0;
+  const quantityFloor = shipmentStateUnknown ? safeStoredQuantity : shippedQuantity;
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const customFieldEntityId =
     kind === "order" ? E.sales.sales_order_line : E.sales.sales_quote_line;
@@ -1349,12 +1356,17 @@ export function LineItemDialog({
           },
         );
       }
-      if (shippedQuantity > 0 && qtyNumber < shippedQuantity) {
-        const message = t(
-          "sales.documents.items.errorQuantityBelowShipped",
-          "You cannot lower the quantity below the {{shipped}} already shipped.",
-          { shipped: shippedQuantity },
-        );
+      if (quantityFloor > 0 && qtyNumber < quantityFloor) {
+        const message = shipmentStateUnknown
+          ? t(
+              "sales.documents.items.errorQuantityShipmentsUnknown",
+              "The quantity cannot be lowered until this order's shipments have been read. Reopen the order to try again.",
+            )
+          : t(
+              "sales.documents.items.errorQuantityBelowShipped",
+              "You cannot lower the quantity below the {{shipped}} already shipped.",
+              { shipped: shippedQuantity },
+            );
         throw createCrudFormError(message, { quantity: message });
       }
       const resolvedQuantityUnit = (() => {
@@ -1589,7 +1601,10 @@ export function LineItemDialog({
       onDraftSaved,
       priceOptions,
       productOption,
+      quantityFloor,
       resourcePath,
+      shipmentStateUnknown,
+      shippedQuantity,
       t,
       variantOption,
       onSaved,
@@ -3006,7 +3021,7 @@ export function LineItemDialog({
               {shipmentStateUnknown
                 ? t(
                     "sales.documents.items.shippedLineLockPending",
-                    "Pricing is locked until this order's shipments have been read. Reopen the order to try again — you can still edit the name and quantity.",
+                    "Pricing is locked until this order's shipments have been read. Reopen the order to try again — you can still edit the name and raise the quantity.",
                   )
                 : t(
                     "sales.documents.items.shippedLineLocked",

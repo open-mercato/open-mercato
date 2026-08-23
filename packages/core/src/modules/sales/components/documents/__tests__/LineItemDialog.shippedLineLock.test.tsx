@@ -310,7 +310,13 @@ const catalogResponses = (url: string) => {
 const LOCKED_COPY =
   'Pricing is locked on this line because it already has shipped items. You can still edit the name and quantity.'
 const PENDING_COPY =
-  "Pricing is locked until this order's shipments have been read. Reopen the order to try again — you can still edit the name and quantity."
+  "Pricing is locked until this order's shipments have been read. Reopen the order to try again — you can still edit the name and raise the quantity."
+// The test translator returns the fallback verbatim, so `{{shipped}}` is not
+// interpolated here — the distinction that matters is which key is chosen.
+const BELOW_SHIPPED_COPY =
+  'You cannot lower the quantity below the {{shipped}} already shipped.'
+const SHIPMENTS_UNKNOWN_COPY =
+  "The quantity cannot be lowered until this order's shipments have been read. Reopen the order to try again."
 
 function getField(id: string): HTMLElement {
   return screen.getByTestId(`field-${id}`)
@@ -328,22 +334,44 @@ function getComboboxIn(id: string): HTMLButtonElement {
   return trigger as HTMLButtonElement
 }
 
+const submittedValues = (quantity: string): FormValues => ({
+  lineMode: 'catalog',
+  productId: 'product-1',
+  variantId: 'variant-1',
+  quantity,
+  quantityUnit: 'pcs',
+  priceId: 'price-1',
+  priceMode: 'gross',
+  unitPrice: '110.7',
+  taxRate: 23,
+  taxRateId: 'tax-rate-1',
+  name: 'Renamed line',
+  currencyCode: 'USD',
+})
+
+const expectSubmitRejection = async (quantity: string, message: string) => {
+  await act(async () => {
+    await expect(capturedSubmit?.(submittedValues(quantity))).rejects.toThrow(message)
+  })
+  expect(mockUpdateCrud).not.toHaveBeenCalled()
+  expect(mockCreateCrud).not.toHaveBeenCalled()
+}
+
+const submitQuantityEdit = async (quantity: string) => {
+  await act(async () => {
+    await capturedSubmit?.(submittedValues(quantity))
+  })
+
+  expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+  const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined),
+  )
+}
+
 const submitNameOnlyEdit = async () => {
   await act(async () => {
-    await capturedSubmit?.({
-      lineMode: 'catalog',
-      productId: 'product-1',
-      variantId: 'variant-1',
-      quantity: '4',
-      quantityUnit: 'pcs',
-      priceId: 'price-1',
-      priceMode: 'gross',
-      unitPrice: '110.7',
-      taxRate: 23,
-      taxRateId: 'tax-rate-1',
-      name: 'Renamed line',
-      currencyCode: 'USD',
-    })
+    await capturedSubmit?.(submittedValues('4'))
   })
 
   expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
@@ -480,6 +508,53 @@ describe('LineItemDialog shipped-line lock (issue #5248)', () => {
       currencyCode: 'USD',
       name: 'Renamed line',
     })
+  })
+
+  it('refuses to lower the quantity while the shipment state is still unknown', async () => {
+    // The shipped quantity is unknown here, so the resolved-state guard
+    // (`shippedQuantity > 0`) is inert and the stored quantity is the only safe
+    // floor: whatever turns out to be shipped cannot exceed it. Without this the
+    // user reaches the server's 409 instead of an inline field error, on a
+    // dialog that has just told them pricing is locked.
+    renderDialog({ shippedQuantity: 0, shippedQuantityResolved: false })
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await expectSubmitRejection('2', SHIPMENTS_UNKNOWN_COPY)
+  })
+
+  it('still allows raising the quantity while the shipment state is unknown', async () => {
+    // Failing closed must not turn into locking the field: raising is legitimate
+    // on a shipped line, so the unknown state only blocks the direction the
+    // server could reject.
+    renderDialog({ shippedQuantity: 0, shippedQuantityResolved: false })
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    expect(await submitQuantityEdit('6')).toEqual({
+      id: 'line-1',
+      orderId: 'order-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      quantity: 6,
+      currencyCode: 'USD',
+      name: 'Renamed line',
+      totalNetAmount: 540,
+      totalGrossAmount: 664.2,
+    })
+  })
+
+  it('keeps the shipped-quantity wording once the shipment state is resolved', async () => {
+    renderDialog()
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    await expectSubmitRejection('2', BELOW_SHIPPED_COPY)
+  })
+
+  it('leaves an unshipped line free to lower its quantity', async () => {
+    renderDialog({ shippedQuantity: 0 })
+    await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+    const payload = await submitQuantityEdit('2')
+    expect(payload.quantity).toBe(2)
   })
 
   it('leaves an unshipped line its full price list and its editable controls', async () => {
