@@ -778,9 +778,24 @@ export const personCompanyLinkUpdateSchema = scopedSchema.extend({
   isPrimary: z.boolean(),
 })
 
-export const personCompanyLinkDeleteSchema = scopedSchema.extend({
-  linkId: uuid(),
-})
+// Two shapes are accepted, because a person can belong to a company in two ways:
+// through a `customer_person_company_links` row (`linkId`), or through a legacy
+// profile-only assignment where `customer_person_profiles.company_id` is set and no
+// link row was ever created (migrated CRM data, #5114). Both detaches go through the
+// same command so audit, undo and cache invalidation stay consistent.
+export const personCompanyLinkDeleteSchema = scopedSchema
+  .extend({
+    linkId: uuid().optional(),
+    personEntityId: uuid().optional(),
+    companyEntityId: uuid().optional(),
+  })
+  .refine(
+    (payload) => Boolean(payload.linkId) || Boolean(payload.personEntityId && payload.companyEntityId),
+    {
+      message: 'Provide either linkId or both personEntityId and companyEntityId.',
+      path: ['linkId'],
+    }
+  )
 
 export type PersonCompanyLinkCreateInput = z.infer<typeof personCompanyLinkCreateSchema>
 export type PersonCompanyLinkUpdateInput = z.infer<typeof personCompanyLinkUpdateSchema>

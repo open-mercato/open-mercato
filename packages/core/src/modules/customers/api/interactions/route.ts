@@ -59,6 +59,7 @@ export const listSchema = z
     search: z.string().trim().min(1).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
+    recurrenceMasters: z.enum(['true', 'false']).optional(),
     pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -360,11 +361,21 @@ function applyInteractionListFilters(
     const searchTerm = `%${escapeLikePattern(query.search)}%`
     q = q.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
   }
-  if (query.from) {
-    q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${query.from}`)
-  }
-  if (query.to) {
-    q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
+  if (query.recurrenceMasters === 'true') {
+    q = q.where('recurrence_rule', 'is not', null)
+    if (query.from) {
+      q = q.where(sql<boolean>`recurrence_end is null or recurrence_end >= ${query.from}`)
+    }
+    if (query.to) {
+      q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
+    }
+  } else {
+    if (query.from) {
+      q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${query.from}`)
+    }
+    if (query.to) {
+      q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
+    }
   }
   return q
 }

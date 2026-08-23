@@ -228,15 +228,15 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
 
   const typeOptions = React.useMemo(() => {
     const values = new Set<string>(Object.keys(typeLabels))
-    for (const item of items) values.add(item.interactionType)
+    for (const item of visibleItems) values.add(item.interactionType)
     return [...values]
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ value, label: typeLabels[value] ?? value }))
-  }, [items, typeLabels])
+  }, [visibleItems, typeLabels])
 
   const ownerOptions = React.useMemo(() => {
     const participantNames = new Map<string, string>()
-    for (const item of items) {
+    for (const item of visibleItems) {
       for (const participant of item.participants) {
         if (participant.userId && participant.name && !participantNames.has(participant.userId)) {
           participantNames.set(participant.userId, participant.name)
@@ -244,14 +244,14 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
       }
     }
     const owners = new Map<string, string>()
-    for (const item of items) {
+    for (const item of visibleItems) {
       if (!item.ownerUserId || owners.has(item.ownerUserId)) continue
       owners.set(item.ownerUserId, participantNames.get(item.ownerUserId) ?? item.ownerUserId)
     }
     return [...owners.entries()]
       .map(([value, label]) => ({ value, label }))
       .sort((first, second) => first.label.localeCompare(second.label))
-  }, [items])
+  }, [visibleItems])
 
   const timezoneLabel = React.useMemo(() => buildTimezoneLabel(), [])
 

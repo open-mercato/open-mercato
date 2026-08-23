@@ -82,6 +82,7 @@ export function ComboboxInput({
   const t = useT()
   const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
   const loadingLabel = t('ui.inputs.comboboxInput.loading', 'Loading suggestions…')
+  const noMatchesLabel = t('ui.inputs.comboboxInput.noMatches', 'No matches found')
   const resolvedClearLabel = clearLabel ?? t('ui.inputs.comboboxInput.clear', 'Clear value')
   const blurCloseDelayMs = 250
   const blurCloseMaxDelayMs = 1000
@@ -99,6 +100,10 @@ export function ComboboxInput({
   const blurClosePendingRef = React.useRef(false)
   const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
   const eagerFallbackLoadedValueRef = React.useRef<string | null>(null)
+  // Tracks whether the user actually typed into the field during the current focus
+  // session. `touched` cannot serve this purpose because it is set by `onFocus`,
+  // which `autoFocus` triggers before the user does anything at all.
+  const userTypedRef = React.useRef(false)
 
   const staticOptions = React.useMemo(
     () => normalizeOptions([...(seedOptions ?? []), ...(suggestions ?? [])]),
@@ -246,12 +251,21 @@ export function ComboboxInput({
   // including it would re-run the effect on every render when the prop is an inline function
   }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
-  // Sync input with value when value changes externally and input is not focused.
+  // Sync input with a value that changed outside the component. A focused field is
+  // synced too, because `autoFocus` can focus the control before an async default value
+  // arrives and a focus-only guard then leaves the control rendering an empty label for
+  // a value the form has already committed. Two conditions still block the sync:
+  //   - the user is typing, so their query is never clobbered mid-keystroke;
+  //   - `optionMap` only holds the self-mapping placeholder it synthesises for an
+  //     uncovered value, which would paint the raw record id over a label the user just
+  //     picked (`asyncOptions` is replaced on every load, so any follow-up load that
+  //     misses the picked entry — a failed request, a debounce race, a composite label
+  //     the route's `?search=` cannot match — drops it back to the placeholder).
   React.useEffect(() => {
-    if (document.activeElement !== inputRef.current) {
-      const option = optionMap.get(value)
-      setInput(option?.label ?? value ?? '')
-    }
+    const option = optionMap.get(value)
+    const hasRealLabel = Boolean(option && option.label !== option.value)
+    if (document.activeElement === inputRef.current && (userTypedRef.current || !hasRealLabel)) return
+    setInput(option?.label ?? value ?? '')
   }, [value, optionMap])
 
   const selectValue = React.useCallback(
@@ -264,6 +278,7 @@ export function ComboboxInput({
       setInput(option?.label ?? trimmed)
       setShowSuggestions(false)
       setSelectedIndex(-1)
+      userTypedRef.current = false
     },
     [disabled, onChange, optionMap, resetBlurCloseState]
   )
@@ -392,7 +407,9 @@ export function ComboboxInput({
   }, [optionDomId, selectedIndex, showSuggestions])
 
   const showClearButton = clearable && !disabled && (value !== '' || input !== '')
-  const listboxVisible = showSuggestions && !disabled && (loading || filteredSuggestions.length > 0)
+  const listboxVisible = showSuggestions
+    && !disabled
+    && (loading || filteredSuggestions.length > 0 || (touched && input.trim().length > 0))
 
   return (
     <div className="relative w-full">
@@ -416,7 +433,7 @@ export function ComboboxInput({
         disabled={disabled}
         role="combobox"
         aria-expanded={listboxVisible}
-        aria-controls={listboxId}
+        aria-controls={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
         aria-autocomplete="list"
         aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
         onFocus={() => {
@@ -433,6 +450,7 @@ export function ComboboxInput({
         }}
         onChange={(event) => {
           setTouched(true)
+          userTypedRef.current = true
           setInput(event.target.value)
           setShowSuggestions(true)
           setSelectedIndex(-1)
@@ -442,6 +460,7 @@ export function ComboboxInput({
           // Delay closing so clicks on the popup can resolve first. If async
           // suggestions are still loading, keep the dropdown open instead of
           // closing before the first payload arrives.
+          userTypedRef.current = false
           blurClosePendingRef.current = true
           clearBlurCloseTimer()
           if (loadingRef.current) {
@@ -467,9 +486,13 @@ export function ComboboxInput({
       ) : null}
 
       {listboxVisible && (
-        <div className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto">
+        <div
+          className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto"
+        >
           {loading && touched ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">{loadingLabel}</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">{loadingLabel}</div>
+          ) : touched && !filteredSuggestions.length ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">{noMatchesLabel}</div>
           ) : (
             <div id={listboxId} role="listbox" className="flex flex-col gap-1">
               {filteredSuggestions.map((option, index) => (

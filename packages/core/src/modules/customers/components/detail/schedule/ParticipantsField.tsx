@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Users, X, Clock, CheckCircle2, XCircle } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -14,6 +15,8 @@ import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
 import type { Participant, RsvpStatus } from './useScheduleFormState'
 import { PARTICIPANT_COLORS } from './useScheduleFormState'
+
+const PAGE_SIZE = 20
 
 function ParticipantSearchPopover({
   existingIds,
@@ -30,7 +33,10 @@ function ParticipantSearchPopover({
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ userId: string; name: string; email: string }>>([])
   const [page, setPage] = React.useState(1)
-  const [totalPages, setTotalPages] = React.useState(1)
+  // Short-page termination instead of a `total`-derived page bound — see
+  // `hasMoreFromPage`. Measured on the served count, not on `members`, which is
+  // deduped by user id.
+  const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const selectableResults = React.useMemo(
@@ -42,7 +48,7 @@ function ParticipantSearchPopover({
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
-    fetchAssignableStaffMembersPage(query, { page, pageSize: 20, signal: controller.signal })
+    fetchAssignableStaffMembersPage(query, { page, pageSize: PAGE_SIZE, signal: controller.signal })
       .then((result) => {
         const members = result.items
         const nextResults = members.map((member) => ({
@@ -56,11 +62,12 @@ function ParticipantSearchPopover({
           nextResults.forEach((entry) => merged.set(entry.userId, entry))
           return Array.from(merged.values())
         })
-        setTotalPages(result.total > 0 ? Math.max(1, Math.ceil(result.total / result.pageSize)) : 1)
+        setHasMore(hasMoreFromPage(result.servedCount, PAGE_SIZE))
         setLoadError(null)
       })
       .catch(() => {
         setResults([])
+        setHasMore(false)
         setLoadError(
           t(
             'customers.assignableStaff.loadError',
@@ -148,7 +155,7 @@ function ParticipantSearchPopover({
               </Button>
             )
           })}
-          {!loading && !loadError && page < totalPages ? (
+          {!loading && !loadError && hasMore ? (
             <div className="px-2 py-2">
               <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
                 {t('customers.schedule.loadMore', 'Load more')}

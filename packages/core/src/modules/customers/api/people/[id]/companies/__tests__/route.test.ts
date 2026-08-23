@@ -74,6 +74,7 @@ jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({
 jest.mock('@open-mercato/core/modules/customers/lib/personCompanies', () => ({
   loadPersonCompanyLinks: jest.fn(),
   summarizePersonCompanies: jest.fn(),
+  removePersonCompanyLink: jest.fn(),
 }))
 
 import { POST as createLink, metadata as createMetadata } from '../route'
@@ -82,6 +83,9 @@ import {
   DELETE as deleteLink,
   metadata as updateMetadata,
 } from '../[linkId]/route'
+import { removePersonCompanyLink } from '@open-mercato/core/modules/customers/lib/personCompanies'
+
+const removePersonCompanyLinkMock = removePersonCompanyLink as jest.Mock
 
 describe('customer person company link routes', () => {
   beforeEach(() => {
@@ -242,5 +246,82 @@ describe('customer person company link routes', () => {
     expect(commandCall?.[1].input.linkId).toBe(linkId)
     const companyLookup = lookups.find((entry) => 'person' in entry && 'company' in entry)
     expect(companyLookup).toMatchObject({ person: personId, company: companyId })
+  })
+
+  it('detaches a profile-only company association through the delete command when no link row exists (#5114)', async () => {
+    // `beforeEach` pre-queues two `mockResolvedValueOnce` responses that take
+    // priority over `mockImplementation` for the first two calls — reset them
+    // so every `findOne` call in this test goes through the implementation below.
+    em.findOne.mockReset()
+    em.findOne.mockImplementation(async (EntityClass: unknown, filter: Record<string, unknown>) => {
+      const classObj = EntityClass as { name?: string }
+      const name = classObj?.name ?? ''
+      if (name === 'CustomerEntity' || (typeof filter?.kind === 'string' && filter.kind === 'person')) {
+        return { id: personId, tenantId, organizationId, kind: 'person' }
+      }
+      if (name === 'CustomerPersonProfile' || 'entity' in filter) {
+        return { entity: personId, company: { id: companyId, displayName: 'Acme Corp' } }
+      }
+      // No CustomerPersonCompanyLink row exists at all — profile-only association.
+      return null
+    })
+    commandBusExecuteMock.mockResolvedValueOnce({ result: { linkId: null } })
+
+    const response = await deleteLink(
+      new Request(`http://localhost/api/customers/people/${personId}/companies/${companyId}`, {
+        method: 'DELETE',
+      }),
+      { params: { id: personId, linkId: companyId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    // The route must not write the detach itself: going through the command is what
+    // produces the audit entry, the undo token and the CRUD cache invalidation that
+    // keeps the company People badge from serving a stale count.
+    const commandCall = commandBusExecuteMock.mock.calls.find(
+      (call) => call[0] === 'customers.personCompanyLinks.delete',
+    )
+    expect(commandCall?.[1].input).toEqual({
+      personEntityId: personId,
+      companyEntityId: companyId,
+      tenantId,
+      organizationId,
+    })
+    expect(removePersonCompanyLinkMock).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({
+        resourceKind: 'customers.person',
+        resourceId: personId,
+        operation: 'custom',
+      }),
+    )
+  })
+
+  it('still 404s when neither a link row nor a matching profile company exists', async () => {
+    em.findOne.mockReset()
+    em.findOne.mockImplementation(async (EntityClass: unknown, filter: Record<string, unknown>) => {
+      const classObj = EntityClass as { name?: string }
+      const name = classObj?.name ?? ''
+      if (name === 'CustomerEntity' || (typeof filter?.kind === 'string' && filter.kind === 'person')) {
+        return { id: personId, tenantId, organizationId, kind: 'person' }
+      }
+      if (name === 'CustomerPersonProfile' || 'entity' in filter) {
+        return { entity: personId, company: null }
+      }
+      return null
+    })
+
+    const response = await deleteLink(
+      new Request(`http://localhost/api/customers/people/${personId}/companies/${companyId}`, {
+        method: 'DELETE',
+      }),
+      { params: { id: personId, linkId: companyId } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 })

@@ -364,6 +364,7 @@ const sidebars: SidebarsConfig = {
           label: "Modules",
           items: [
             "framework/modules/overview",
+            "framework/modules/reference-example-module",
             {
               type: "category",
               label: "Core Modules",
@@ -553,6 +554,7 @@ const sidebars: SidebarsConfig = {
         "tutorials/building-todo-module",
         "tutorials/authoring-first-module",
         "tutorials/api-data-fetching",
+        "tutorials/devices-and-push-getting-started",
         "tutorials/testing",
         {
           type: "category",

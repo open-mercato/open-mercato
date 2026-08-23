@@ -11,6 +11,7 @@ pass | fail | inconclusive — one-sentence rationale
 ## Evidence
 - Input: kind, identifier, schema/bundle version, hashes
 - Rules: project/framework version and review skills
+- Termination: completed | provider-limit | provider-error | user-abort | unknown — sanitized last-entry error summary or “none”
 - Fixed attestations: generate/typecheck/lint/build/tests/oracles/route uniqueness
 - Privacy: pass/fail/unavailable
 
