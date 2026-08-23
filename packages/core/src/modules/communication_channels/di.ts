@@ -13,6 +13,7 @@ import { getChannelAdapterRegistry } from './lib/adapter-registry-singleton'
 import { ensureTestSeedAdapterRegistered } from './lib/test-seed'
 import { sendAsUser } from './lib/send-as-user'
 import { isSystemEmailTransportConfigured, sendSystemEmail } from './lib/system-email'
+import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
 
 export function register(container: AppContainer) {
   // Test-only: register the network-free stub channel adapter when
@@ -44,5 +45,11 @@ export function register(container: AppContainer) {
     // compose route) resolve this instead of making an HTTP self-call.
     communicationChannelsSendAsUser: asValue(sendAsUser),
     communicationChannelsSendSystemEmail: asValue(sendSystemEmail),
+
+    // Cross-module channel-type lookup. The messages compose route resolves this
+    // to decide whether an external correspondent must carry an email address
+    // (#4975); absent module or failed lookup reads as "unknown", which the
+    // messages validator handles fail-closed.
+    communicationChannelsResolveChannelType: asValue(resolveChannelTypeSafely),
   })
 }

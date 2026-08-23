@@ -20,6 +20,7 @@ import {
 } from '../../../commands/connect-credential-channel'
 import { emitCommunicationChannelsEvent } from '../../../events'
 import {
+  TEST_SEED_CHAT_PROVIDER_KEY,
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
   createTestSeedPlatformMessage,
@@ -28,6 +29,11 @@ import {
   isTestChannelSeedingEnabled,
   listTestSeedCapturedMessages,
 } from '../../../lib/test-seed'
+import {
+  COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
+  type IngestInboundMessageInput,
+  type IngestInboundMessageResult,
+} from '../../../commands/ingest-inbound-message'
 
 /**
  * TEST-ONLY channel seeding endpoint.
@@ -36,15 +42,22 @@ import {
  * production default) every request returns 404, so this route is invisible and
  * inert in production. See `lib/test-seed.ts` for the full rationale.
  *
- * Two actions, both scoped to the caller's tenant/org:
- *   - `connect-channel`: connect a network-free `__test_seed__` channel owned by
- *     the caller (delegates to the real connect-credential command so the channel
- *     persists credentials + lands in `status='connected'`). Enables the outbound
- *     compose → deliver → `.sent` chain to complete in CI.
+ * Three actions, all scoped to the caller's tenant/org:
+ *   - `connect-channel`: connect a network-free stub channel owned by the caller
+ *     (delegates to the real connect-credential command so the channel persists
+ *     credentials + lands in `status='connected'`). Enables the outbound
+ *     compose → deliver → `.sent` chain to complete in CI. `providerFlavor: 'chat'`
+ *     connects the non-email stub instead, for tests about sender identity.
+ *   - `ingest-inbound`: run the REAL `ingest_inbound_message` command over an
+ *     adapter-normalized chat frame, so the platform compose path — and every
+ *     validation rule on it — actually executes. Use this for anything that
+ *     claims inbound works.
  *   - `emit-inbound`: insert an inbound `MessageChannelLink` (+ a `messages.message`
  *     row for threading) and emit `communication_channels.message.received` so the
  *     customers link-channel-message subscriber runs against real Postgres. Enables
- *     the inbound auto-link tests (TC-CRM-EMAIL-002..005).
+ *     the inbound auto-link tests (TC-CRM-EMAIL-002..005). NOTE: this action
+ *     deliberately bypasses `messages.messages.compose` — it can never prove that
+ *     the hub accepts a message, only that downstream subscribers fire.
  */
 type RbacServiceLike = {
   loadAcl: (
@@ -72,6 +85,35 @@ const connectChannelSchema = z.object({
   action: z.literal('connect-channel'),
   displayName: z.string().min(1).max(255).optional(),
   externalIdentifier: z.string().min(1).max(255).optional(),
+  /**
+   * Which stub provider to connect. `email` (default) keeps the historical
+   * email-shaped channel; `chat` connects a channel whose senders have no
+   * address, so a test can exercise the hub's non-email identity contract
+   * without inventing one (#4975).
+   */
+  providerFlavor: z.enum(['email', 'chat']).optional(),
+})
+
+/**
+ * Drive the REAL `ingest_inbound_message` command with a chat-shaped frame.
+ *
+ * `emit-inbound` below deliberately bypasses the platform compose path (it
+ * inserts the `messages` row with raw SQL) because it only ever needed a
+ * landing zone for the CRM-link subscribers. That bypass is why an inbound test
+ * could pass while `composeMessageSchema` rejected every real message (#4975).
+ * This action takes the opposite approach: it hands the frame to the adapter and
+ * the ingest command and asserts nothing on the way, so whatever the hub's
+ * contract really is, the test feels it.
+ */
+const ingestInboundSchema = z.object({
+  action: z.literal('ingest-inbound'),
+  channelId: z.string().uuid(),
+  /** Opaque sender handle — a Discord snowflake, a Slack member id, etc. */
+  senderIdentifier: z.string().min(1).max(255),
+  senderDisplayName: z.string().max(255).optional(),
+  body: z.string().max(50_000).optional(),
+  externalMessageId: z.string().min(1).max(255),
+  externalConversationId: z.string().min(1).max(255),
 })
 
 const seedSystemChannelSchema = z.object({
@@ -127,6 +169,7 @@ const emitInboundSchema = z.object({
 
 const bodySchema = z.discriminatedUnion('action', [
   connectChannelSchema,
+  ingestInboundSchema,
   emitInboundSchema,
   seedSystemChannelSchema,
   clearCaptureSchema,
@@ -250,13 +293,23 @@ export async function POST(req: Request): Promise<Response> {
   if (body.action === 'connect-channel') {
     const stamp = Date.now()
     const commandBus = container.resolve('commandBus') as CommandBus
+    const isChatFlavor = body.providerFlavor === 'chat'
+    // A chat channel is deliberately connected WITHOUT an email-ish credential
+    // key, so `connect-credential-channel` derives no `externalIdentifier` and
+    // the row is shaped exactly like a real Discord channel (identifier NULL —
+    // the condition #4977 describes). Inventing one here would recreate the
+    // fixture dishonesty that hid #4975.
+    const credentials = isChatFlavor
+      ? { handle: body.externalIdentifier ?? `test-seed-chat-${stamp}` }
+      : {
+          username: body.externalIdentifier ?? `test-seed-${stamp}@test-seed.local`,
+          fromAddress: body.externalIdentifier ?? `test-seed-${stamp}@test-seed.local`,
+        }
     const input: ConnectCredentialChannelInput = {
-      providerKey: TEST_SEED_PROVIDER_KEY,
-      displayName: body.displayName ?? `Test Seed Channel ${stamp}`,
-      credentials: {
-        username: body.externalIdentifier ?? `test-seed-${stamp}@test-seed.local`,
-        fromAddress: body.externalIdentifier ?? `test-seed-${stamp}@test-seed.local`,
-      },
+      providerKey: isChatFlavor ? TEST_SEED_CHAT_PROVIDER_KEY : TEST_SEED_PROVIDER_KEY,
+      displayName:
+        body.displayName ?? `Test Seed ${isChatFlavor ? 'Chat ' : ''}Channel ${stamp}`,
+      credentials,
       userId,
       scope: { tenantId, organizationId },
     }
@@ -285,9 +338,12 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 
-  // action === 'emit-inbound'
+  // action === 'ingest-inbound' | 'emit-inbound' — both address an existing channel.
   const em = (container.resolve('em') as EntityManager).fork()
-  const providerKey = body.providerKey ?? TEST_SEED_PROVIDER_KEY
+  // Only the `emit-inbound` branch stamps a caller-chosen provider key onto the
+  // rows it seeds; `ingest-inbound` takes the channel's own (see below).
+  const providerKey =
+    body.action === 'emit-inbound' ? body.providerKey ?? TEST_SEED_PROVIDER_KEY : TEST_SEED_PROVIDER_KEY
 
   // `channelId` is caller-supplied, so confirm it names a channel this tenant/org
   // actually owns before seeding rows that reference it. Mirrors the ownership
@@ -335,6 +391,85 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Access denied' },
       { status },
+    )
+  }
+
+  if (body.action === 'ingest-inbound') {
+    // Everything below this point is the real path: the adapter normalizes the
+    // frame and `ingest_inbound_message` composes the platform message through
+    // `messages.messages.compose`. Nothing is short-circuited, so a hub contract
+    // the provider cannot satisfy surfaces here as a failure instead of hiding
+    // behind seeded rows (#4975).
+    // The channel's own provider key, never a hardcoded one: ingest does not
+    // check that `providerKey` matches the channel it names, so passing a
+    // different one would silently stamp the wrong provider onto the link.
+    const channelProviderKey = ownedChannel.providerKey
+    if (channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            'ingest-inbound requires a channel connected with providerFlavor: "chat"; ' +
+            `channel ${body.channelId} is '${channelProviderKey}'`,
+        },
+        { status: 422 },
+      )
+    }
+
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const adapterRegistry = container.resolve('channelAdapterRegistry') as {
+      get: (key: string) => { normalizeInbound: (raw: unknown) => Promise<unknown> } | undefined
+    }
+    const adapter = adapterRegistry.get(channelProviderKey)
+    if (!adapter) {
+      return NextResponse.json(
+        { error: '[internal] test-seed chat adapter is not registered' },
+        { status: 500 },
+      )
+    }
+
+    const normalized = await adapter.normalizeInbound({
+      raw: {
+        externalMessageId: body.externalMessageId,
+        externalConversationId: body.externalConversationId,
+        senderIdentifier: body.senderIdentifier,
+        senderDisplayName: body.senderDisplayName,
+        body: body.body ?? '',
+      },
+      eventType: 'message',
+      metadata: {},
+    })
+
+    const ingestInput = {
+      channelId: body.channelId,
+      providerKey: channelProviderKey,
+      channelType: ownedChannel.channelType,
+      scope: { tenantId, organizationId },
+      message: normalized,
+    } as IngestInboundMessageInput
+
+    const { result } = await commandBus.execute<
+      IngestInboundMessageInput,
+      IngestInboundMessageResult
+    >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
+      input: ingestInput,
+      ctx: {
+        container,
+        auth: auth as never,
+        organizationScope: null,
+        selectedOrganizationId: organizationId,
+        organizationIds: organizationId ? [organizationId] : null,
+      },
+    })
+
+    return NextResponse.json(
+      {
+        status: result.status,
+        messageId: result.messageId ?? null,
+        conversationId: result.externalConversationId ?? null,
+        channelLinkId: result.channelLinkId ?? null,
+        channelType: ownedChannel.channelType,
+      },
+      { status: 201 },
     )
   }
 
@@ -436,7 +571,8 @@ export const openApi = {
   tags: ['CommunicationChannels'],
   methods: {
     POST: {
-      summary: 'Test-only: seed a connected channel or emit an inbound message (env-gated)',
+      summary:
+        'Test-only: seed a connected channel, ingest a real inbound message, or emit a seeded inbound link (env-gated)',
       tags: ['CommunicationChannels'],
       responses: [
         { status: 201, description: 'Channel seeded / inbound message emitted' },
