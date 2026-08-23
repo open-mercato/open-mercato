@@ -124,7 +124,7 @@ is additive and, being unreleased, requires no deprecation bridge.
 
 ### Phase 4: Land the remediation
 
-- [ ] 4.1 Run the docs validation gate and commit
+- [x] 4.1 Run the docs validation gate and commit — 8e63ed411
 - [ ] 4.2 Push, link the plan from the PR body, and post the summary comment
 
 ## External references
