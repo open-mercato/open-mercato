@@ -1,5 +1,6 @@
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import { randomUUID } from 'node:crypto'
 import { ProgressJobRepairCell } from '../data/entities'
 
 export type ProgressRepairCellInput = {
@@ -14,6 +15,11 @@ export type ProgressRepairCellInput = {
 export type ProgressRepairScope = {
   tenantId: string
   organizationId?: string | null
+}
+
+export type ClaimedRepairCells = {
+  leaseToken: string
+  cells: ProgressJobRepairCell[]
 }
 
 function scopedFilter(scope: ProgressRepairScope): FilterQuery<ProgressJobRepairCell> {
@@ -45,14 +51,64 @@ export async function claimDueRepairCells(
   scope: ProgressRepairScope,
   now: Date,
   limit: number,
-): Promise<ProgressJobRepairCell[]> {
+  leaseMs = 30_000,
+): Promise<ClaimedRepairCells> {
   if (!Number.isInteger(limit) || limit < 1) throw new Error('repair cell limit must be a positive integer')
-  return em.find(ProgressJobRepairCell, {
-    ...scopedFilter(scope),
-    dueAt: { $lte: now },
-  }, {
-    orderBy: { dueAt: 'asc', jobId: 'asc' },
-    limit,
-    lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE,
+  if (!Number.isInteger(leaseMs) || leaseMs < 1) throw new Error('repair cell lease must be a positive integer')
+
+  const leaseToken = randomUUID()
+  const leaseUntil = new Date(now.getTime() + leaseMs)
+  const cells = await em.transactional(async (tx) => {
+    const due = await tx.find(ProgressJobRepairCell, {
+      ...scopedFilter(scope),
+      dueAt: { $lte: now },
+      $or: [{ leaseUntil: null }, { leaseUntil: { $lte: now } }],
+    }, {
+      orderBy: { dueAt: 'asc', jobId: 'asc' },
+      limit,
+      lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE,
+    })
+    for (const cell of due) {
+      cell.leaseToken = leaseToken
+      cell.leaseUntil = leaseUntil
+      cell.attempts += 1
+    }
+    await tx.flush()
+    return due
   })
+  return { leaseToken, cells }
+}
+
+export async function acknowledgeRepairCell(
+  em: EntityManager,
+  jobId: string,
+  scope: ProgressRepairScope,
+  leaseToken: string,
+): Promise<boolean> {
+  return (await em.nativeDelete(ProgressJobRepairCell, {
+    jobId,
+    ...scopedFilter(scope),
+    leaseToken,
+  })) > 0
+}
+
+export async function releaseRepairCell(
+  em: EntityManager,
+  jobId: string,
+  scope: ProgressRepairScope,
+  leaseToken: string,
+  nextDueAt: Date,
+  reason?: string | null,
+): Promise<boolean> {
+  return (await em.nativeUpdate(ProgressJobRepairCell, {
+    jobId,
+    ...scopedFilter(scope),
+    leaseToken,
+  }, {
+    dueAt: nextDueAt,
+    leaseToken: null,
+    leaseUntil: null,
+    ...(reason !== undefined ? { reason } : {}),
+    updatedAt: new Date(),
+  })) > 0
 }
