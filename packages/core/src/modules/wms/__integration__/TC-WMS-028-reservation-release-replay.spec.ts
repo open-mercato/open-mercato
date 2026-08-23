@@ -8,12 +8,12 @@ import {
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
 import {
   deleteGeneralEntityIfExists,
+  getTokenScope,
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCrudFixture,
   ensureRoleFeatures,
-  getTokenScope,
   postAction,
 } from './helpers/wmsFixtures'
 
@@ -83,14 +83,14 @@ test.describe('TC-WMS-028: Reservation release replay', () => {
         warehouseId,
         locationId,
         catalogVariantId: variantId,
-        delta: 5,
+        delta: 10,
         reason: 'Seed replay test stock',
         referenceType: 'manual',
         referenceId: randomUUID(),
         performedBy: scope.userId,
       })
 
-      const reservation = await postAction<{ reservationId?: string }>(
+      const firstReservation = await postAction<{ reservationId?: string }>(
         request,
         adminToken,
         '/api/wms/inventory/reserve',
@@ -104,12 +104,28 @@ test.describe('TC-WMS-028: Reservation release replay', () => {
           sourceId: randomUUID(),
         },
       )
-      expect(reservation.reservationId).toBeTruthy()
+      expect(firstReservation.reservationId).toBeTruthy()
+
+      const secondReservation = await postAction<{ reservationId?: string }>(
+        request,
+        adminToken,
+        '/api/wms/inventory/reserve',
+        {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          warehouseId,
+          catalogVariantId: variantId,
+          quantity: 5,
+          sourceType: 'manual',
+          sourceId: randomUUID(),
+        },
+      )
+      expect(secondReservation.reservationId).toBeTruthy()
 
       const releasePayload = {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
-        reservationId: reservation.reservationId,
+        reservationId: firstReservation.reservationId,
         reason: 'TC-WMS-028 release',
       }
       await postAction(request, adminToken, '/api/wms/inventory/release', releasePayload)
@@ -134,6 +150,7 @@ test.describe('TC-WMS-028: Reservation release replay', () => {
         },
       })
       expect(reserveAgain.status()).toBe(409)
+      await expect(readJsonSafe(reserveAgain)).resolves.toMatchObject({ error: 'insufficient_stock' })
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', locationId)
