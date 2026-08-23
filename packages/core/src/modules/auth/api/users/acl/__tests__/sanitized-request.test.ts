@@ -66,10 +66,38 @@ function putRequest(features: string[]) {
   })
 }
 
+function partialPutRequest(body: Record<string, unknown>) {
+  return new Request('http://localhost/api/auth/users/acl', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ userId: TARGET_USER_ID, ...body }),
+  })
+}
+
 function commandInput(): { requested: { features: string[] } | null } {
   const [, options] = mockCommandBus.execute.mock.calls[0] as unknown as [
     string,
     { input: { requested: { features: string[] } | null } },
+  ]
+  return options.input
+}
+
+function commandAclInput(): {
+  isSuperAdmin: boolean
+  features: string[]
+  organizations: string[] | null
+  clear: boolean
+} {
+  const [, options] = mockCommandBus.execute.mock.calls[0] as unknown as [
+    string,
+    {
+      input: {
+        isSuperAdmin: boolean
+        features: string[]
+        organizations: string[] | null
+        clear: boolean
+      }
+    },
   ]
   return options.input
 }
@@ -87,7 +115,14 @@ describe('user ACL sanitized-request reporting', () => {
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: TENANT_ID, orgId: 'org-1' })
     mockEm.findOne.mockImplementation(async (ctor: unknown) => {
       if (ctor === User) return { id: TARGET_USER_ID, tenantId: TENANT_ID }
-      if (ctor === UserAcl) return { id: 'acl-1', isSuperAdmin: false, featuresJson: ['catalog.view'] }
+      if (ctor === UserAcl) {
+        return {
+          id: 'acl-1',
+          isSuperAdmin: false,
+          featuresJson: ['catalog.view'],
+          organizationsJson: ['org-existing'],
+        }
+      }
       return null
     })
   })
@@ -117,5 +152,47 @@ describe('user ACL sanitized-request reporting', () => {
 
     expect(res.status).toBe(200)
     expect(commandInput().requested).toBeNull()
+  })
+
+  it('preserves stored features when an organization-only update is submitted', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+
+    const res = await PUT(partialPutRequest({ organizations: ['org-next'] }))
+
+    expect(res.status).toBe(200)
+    expect(commandAclInput()).toMatchObject({
+      isSuperAdmin: false,
+      features: ['catalog.view'],
+      organizations: ['org-next'],
+      clear: false,
+    })
+  })
+
+  it('preserves the stored organization restriction when only features change', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+
+    const res = await PUT(partialPutRequest({ features: ['sales.orders.view'] }))
+
+    expect(res.status).toBe(200)
+    expect(commandAclInput()).toMatchObject({
+      features: ['sales.orders.view'],
+      organizations: ['org-existing'],
+      clear: false,
+    })
+  })
+
+  it('keeps an organization-only ACL when no override exists yet', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+    mockEm.findOne.mockResolvedValue(null)
+
+    const res = await PUT(partialPutRequest({ organizations: ['org-next'] }))
+
+    expect(res.status).toBe(200)
+    expect(commandAclInput()).toMatchObject({
+      isSuperAdmin: false,
+      features: [],
+      organizations: ['org-next'],
+      clear: false,
+    })
   })
 })

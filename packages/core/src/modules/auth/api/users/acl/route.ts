@@ -267,9 +267,6 @@ export async function PUT(req: Request) {
     }
   }
 
-  const requestedFeatures = normalizeGrantFeatureList(parsed.data.features)
-  const organizations = normalizeOrganizations(parsed.data.organizations)
-
   const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
   // cannot silently clobber each other (#2055). Strictly additive — a no-op when
@@ -289,8 +286,16 @@ export async function PUT(req: Request) {
   }
   const existingIsSuperAdmin = acl ? !!acl.isSuperAdmin : false
   const existingFeatures = acl ? normalizeGrantFeatureList(acl.featuresJson) : []
+  const existingOrganizations = acl ? normalizeOrganizations(acl.organizationsJson) : null
+  const featuresWereProvided = parsed.data.features !== undefined
+  const requestedFeatures = featuresWereProvided
+    ? normalizeGrantFeatureList(parsed.data.features)
+    : existingFeatures
+  const requestedOrganizations = parsed.data.organizations === undefined
+    ? existingOrganizations
+    : normalizeOrganizations(parsed.data.organizations)
 
-  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? false
+  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? existingIsSuperAdmin
 
   try {
     await assertActorCanGrantAcl({
@@ -301,14 +306,14 @@ export async function PUT(req: Request) {
       organizationId: auth.orgId ?? null,
       isSuperAdmin: requestedIsSuperAdmin,
       features: requestedFeatures,
-      organizations,
+      organizations: requestedOrganizations,
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     throw err
   }
 
-  const effectiveFeatures = actorIsSuperAdmin
+  const effectiveFeatures = actorIsSuperAdmin || !featuresWereProvided
     ? requestedFeatures
     : sanitizeTenantFeatures(requestedFeatures)
 
@@ -325,7 +330,9 @@ export async function PUT(req: Request) {
     }
   }
 
-  const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
+  const hasCustomAcl = effectiveIsSuperAdmin
+    || effectiveFeatures.length > 0
+    || requestedOrganizations !== null
 
   // What the caller asked for, handed to the command only when it exceeds what
   // is about to be written. `assertActorCanGrantAcl` above refuses the blatant
@@ -372,7 +379,7 @@ export async function PUT(req: Request) {
       tenantId,
       isSuperAdmin: effectiveIsSuperAdmin,
       features: effectiveFeatures,
-      organizations,
+      organizations: requestedOrganizations,
       clear: !hasCustomAcl,
       requested: strippedFeatures.length ? { features: requestedFeatures } : null,
     },
