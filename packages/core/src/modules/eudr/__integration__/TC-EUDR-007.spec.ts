@@ -268,6 +268,42 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
     }
   })
 
+  test('accepts a whole-object round trip on create (GET a draft, POST it back verbatim) (#5508)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomUUID()}`
+    const statementIds: string[] = []
+
+    try {
+      const sourceId = await createStatement(request, token, `TC-EUDR-007 round-trip ${stamp}`)
+      statementIds.push(sourceId)
+
+      // The "serialize a whole object" client pattern from #5508: read the full row
+      // (which echoes the server-managed submittedAt/referenceIssuedAt plus timestamps
+      // and latestRisk) and POST it back verbatim minus id. It must be accepted, not
+      // 400 on a server-managed key.
+      const getResponse = await apiRequest(request, 'GET', `${STATEMENTS_PATH}?ids=${encodeURIComponent(sourceId)}`, { token })
+      expect(getResponse.status(), `GET source statement failed: ${getResponse.status()}`).toBe(200)
+      const getBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(getResponse)
+      const wholeObject = getBody?.items?.find((item) => item.id === sourceId)
+      expect(wholeObject, 'GET should return the created draft').toBeTruthy()
+      expect(wholeObject?.submittedAt ?? null, 'a fresh draft echoes a null submittedAt').toBeNull()
+
+      const { id: _omitId, ...payload } = wholeObject as Record<string, unknown>
+      const roundTripResponse = await apiRequest(request, 'POST', STATEMENTS_PATH, { token, data: payload })
+      expect(roundTripResponse.status(), `whole-object round-trip create should be accepted: ${roundTripResponse.status()}`).toBe(201)
+      const roundTripBody = await readJsonSafe<{ id?: string }>(roundTripResponse)
+      const roundTripId = expectId(roundTripBody?.id, 'round-trip create response should include id')
+      statementIds.push(roundTripId)
+
+      const created = await readStatementById(request, token, roundTripId)
+      expect(created?.status, 'round-trip create is a draft').toBe('draft')
+      expect(created?.referenceIssuedAt ?? null, 'round-trip create must not persist a reference issue date').toBeNull()
+      expect(created?.submittedAt ?? null, 'round-trip create must not persist submittedAt').toBeNull()
+    } finally {
+      for (const id of statementIds.reverse()) await deleteByCrudPath(request, token, STATEMENTS_PATH, id)
+    }
+  })
+
   test('requires valid transition order, complete submissions, and risk conclusion before submit', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}-${randomUUID()}`

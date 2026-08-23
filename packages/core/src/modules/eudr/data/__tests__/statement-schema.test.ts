@@ -31,6 +31,17 @@ describe('eudr statement create schema — referenceIssuedAt is server-managed a
   })
 })
 
+describe('eudr statement create schema — server-computed fields tolerate a null no-op echo (#5508)', () => {
+  it('accepts submittedAt: null (a whole-object echo of a draft) and strips it', () => {
+    const parsed = statementCreateSchema.parse({ ...baseCreate, submittedAt: null })
+    expect('submittedAt' in parsed).toBe(false)
+  })
+
+  it('still rejects a non-null submittedAt as a server-computed field', () => {
+    expect(() => statementCreateSchema.parse({ ...baseCreate, submittedAt: '2026-08-01T10:00:00.000Z' })).toThrow()
+  })
+})
+
 describe('eudr statement update schema — referenceIssuedAt remains a valid update input', () => {
   it('keeps accepting referenceIssuedAt on update (the submitted→available transition supplies it)', () => {
     const parsed = statementUpdateSchema.parse({ id: STATEMENT_ID, referenceIssuedAt: '2026-08-01T10:00:00.000Z' })
