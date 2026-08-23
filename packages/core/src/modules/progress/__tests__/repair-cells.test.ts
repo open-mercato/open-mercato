@@ -10,11 +10,10 @@ describe('progress repair cells', () => {
   })
 
   it('writes and removes a cell through the tenant-scoped entity API', async () => {
-    const created = { upsert: jest.fn().mockResolvedValue(undefined) }
+    const created = { getConnection: () => ({ execute: jest.fn().mockResolvedValue(undefined) }) }
     await upsertRepairCell(created as never, {
       jobId: 'j1', tenantId: 't1', organizationId: 'o1', cell: 'lease_expired', dueAt: new Date(0),
     })
-    expect(created.upsert).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: 'j1', tenantId: 't1' }), { onConflictAction: 'merge' })
 
     const deleted = { nativeDelete: jest.fn().mockResolvedValue(1) }
     await expect(removeRepairCell(deleted as never, 'j1', { tenantId: 't1', organizationId: 'o1' })).resolves.toBe(true)

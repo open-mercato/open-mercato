@@ -97,7 +97,7 @@ export class ProgressJob {
 @Entity({ tableName: 'progress_job_repair_cells' })
 @Index({ name: 'progress_job_repair_cells_due_idx', properties: ['tenantId', 'organizationId', 'dueAt', 'jobId'] })
 export class ProgressJobRepairCell {
-  [OptionalProps]?: 'attempts' | 'reason' | 'leaseToken' | 'leaseUntil' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'attempts' | 'leaseEpoch' | 'reason' | 'leaseToken' | 'leaseUntil' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid' })
   jobId!: string
@@ -116,6 +116,9 @@ export class ProgressJobRepairCell {
 
   @Property({ name: 'attempts', type: 'int' })
   attempts: number = 0
+
+  @Property({ name: 'lease_epoch', type: 'int' })
+  leaseEpoch: number = 0
 
   @Property({ name: 'lease_token', type: 'text', nullable: true })
   leaseToken?: string | null

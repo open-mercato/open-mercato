@@ -7,4 +7,9 @@ export class Migration20260823084507_progress extends Migration {
     this.addSql(`create index "progress_job_repair_cells_due_idx" on "progress_job_repair_cells" ("tenant_id", "organization_id", "due_at", "job_id");`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`drop index if exists "progress_job_repair_cells_due_idx";`);
+    this.addSql(`drop table if exists "progress_job_repair_cells";`);
+  }
+
 }
