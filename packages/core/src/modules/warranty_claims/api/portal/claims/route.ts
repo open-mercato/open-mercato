@@ -153,13 +153,12 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
+  const { translate } = await resolveTranslations()
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) {
-    const { translate } = await resolveTranslations()
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
   if (!auth.customerEntityId) {
-    const { translate } = await resolveTranslations()
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.customerAccountNotLinked', 'Customer account is not linked to a customer record') }, { status: 403 })
   }
   const container = await createRequestContainer()

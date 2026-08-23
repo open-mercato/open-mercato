@@ -36,9 +36,20 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () =>
 }))
 
 import { GET as assigneesGET } from '../api/assignees/route'
-import { GET as portalClaimsGET } from '../api/portal/claims/route'
+import { GET as portalClaimsGET, POST as portalClaimsPOST } from '../api/portal/claims/route'
 
 const RAW_I18N_KEY = /^warranty_claims\./
+
+const LINKED_PORTAL_AUTH = {
+  sub: 'customer-1',
+  sid: 'session-1',
+  tenantId: 'tenant-1',
+  orgId: 'org-1',
+  email: 'buyer@example.com',
+  customerEntityId: 'customer-entity-1',
+  personEntityId: null,
+  displayName: 'Buyer One',
+}
 
 async function readError(res: Response): Promise<{ status: number; body: Record<string, unknown>; error: string }> {
   const body = (await res.json()) as Record<string, unknown>
@@ -120,6 +131,43 @@ describe('warranty_claims error responses are localized, never raw i18n keys (#5
         await portalClaimsGET(new Request('http://localhost/api/warranty_claims/portal/claims')),
       )
       expect(status).toBe(403)
+      expect(body.ok).toBe(false)
+      expect(error).not.toMatch(RAW_I18N_KEY)
+    })
+
+    it('returns a localized 400 when the list query is invalid', async () => {
+      getCustomerAuthMock.mockResolvedValue(LINKED_PORTAL_AUTH)
+      const { status, body, error } = await readError(
+        await portalClaimsGET(new Request('http://localhost/api/warranty_claims/portal/claims?page=0')),
+      )
+      expect(status).toBe(400)
+      expect(body.ok).toBe(false)
+      expect(error).not.toMatch(RAW_I18N_KEY)
+    })
+
+    it('returns a localized 400 when the POST body is not valid JSON', async () => {
+      getCustomerAuthMock.mockResolvedValue(LINKED_PORTAL_AUTH)
+      const { status, body, error } = await readError(
+        await portalClaimsPOST(new Request('http://localhost/api/warranty_claims/portal/claims', {
+          method: 'POST',
+          body: '{not-json',
+        })),
+      )
+      expect(status).toBe(400)
+      expect(body.ok).toBe(false)
+      expect(error).not.toMatch(RAW_I18N_KEY)
+    })
+
+    it('returns a localized 400 when the POST body fails intake validation', async () => {
+      getCustomerAuthMock.mockResolvedValue(LINKED_PORTAL_AUTH)
+      const { status, body, error } = await readError(
+        await portalClaimsPOST(new Request('http://localhost/api/warranty_claims/portal/claims', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        })),
+      )
+      expect(status).toBe(400)
       expect(body.ok).toBe(false)
       expect(error).not.toMatch(RAW_I18N_KEY)
     })
