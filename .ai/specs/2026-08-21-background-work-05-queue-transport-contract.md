@@ -15,8 +15,8 @@ Part 2 §Q: the processor is one-argument so BullMQ never creates a signal (Q-1)
 
 ## 📝 Contract additions (all additive)
 
-- `EnqueueOptions` gains `queueJobId?`, `attempts?`, `backoff?: { type: 'exponential' | 'fixed'; delay: number; maxDelay?: number }` beside the existing `delayMs`. Async maps to BullMQ `jobId`/`attempts`/`backoff`/`delay`; local dedups `queueJobId` against pending rows and honours `delayMs` via `notBefore`. (R-F5 is partial on BullMQ: `attempts`/`backoff` are frozen at enqueue; per-kind changes apply to new deliveries.)
-- `JobContext` gains `signal: AbortSignal` (async: BullMQ 6.0.9 creates a per-job `AbortSignal` only when the processor is a *literal* three-parameter function (`(job, token, signal) =>`, no defaults/rest) — today's processor is one-argument, so no signal exists (C-8). BullMQ does **not** abort that signal by itself on lock-renewal failure: it emits `lockRenewalFailed` on the worker and keeps the processor running. The strategy therefore registers the `lockRenewalFailed` listener and aborts the job's signal from it, and additionally aborts on `close()` timeout; local: aborted on `close()`), `token: string | undefined`, and `yield(opts: { data: T; delayMs?: number }): Promise<never>`. Async: `job.updateData(data)` → `job.moveToDelayed(Date.now() + delayMs, token)` → throw `DelayedError` (the strategy's processor rethrows it untouched). Local: the batch loop catches a `LocalYield` sentinel, writes the job back with the new payload and `notBefore`, and leaves `attemptCount` unchanged.
+- `EnqueueOptions` gains `queueJobId?`, `attempts?`, `backoff?: { type: 'exponential' | 'fixed'; delay: number; maxDelay?: number }` beside the existing `delayMs`. Async maps to BullMQ `jobId`/`attempts`/`backoff`/`delay`; `backoff.maxDelay` has **no builtin BullMQ mapping** (6.0.9's builtin strategies take only `delay` and `jitter`, `backoffs.js:20-42`), so the async strategy registers one custom `settings.backoffStrategy` on every Worker it creates and maps `{ type: 'exponential', delay, maxDelay }` to `backoff: { type: 'om-exponential-capped', delay, maxDelay }` — the strategy computes `min(delay · 2^(attemptsMade − 1), job.opts.backoff.maxDelay)`; the extra field round-trips through the stored job opts, which conformance test 2 asserts. The local strategy is **JSON-file based** (`packages/queue/src/strategies/local.ts`, `StoredJob`), not SQLite: it already honours `delayMs` through `availableAt` and counts `attemptCount`; it gains `queueJobId` (dedup against stored jobs that are not yet finished), `attempts` and `backoff` fields on the same record and reuses `availableAt` for retry backoff (already does) and for `yield`. No schema, no column, no migration. (R-F5 is partial on BullMQ: `attempts`/`backoff` are frozen at enqueue; per-kind changes apply to new deliveries.)
+- `JobContext` gains `signal: AbortSignal` (async: BullMQ 6.0.9 creates a per-job `AbortSignal` only when the processor is a *literal* three-parameter function (`(job, token, signal) =>`, no defaults/rest) — today's processor is one-argument, so no signal exists (C-8). BullMQ does **not** abort that signal by itself on lock-renewal failure: it emits `lockRenewalFailed` on the worker and keeps the processor running. The strategy therefore registers the `lockRenewalFailed` listener and aborts the job's signal from it, and additionally aborts on `close()` timeout; local: aborted on `close()`), `token: string | undefined`, and `yield(opts: { data: T; delayMs?: number }): Promise<never>`. Async: `job.updateData(data)` → `job.moveToDelayed(Date.now() + delayMs, token)` → throw `DelayedError` (the strategy's processor rethrows it untouched). Local: the batch loop catches a `LocalYield` sentinel, writes the job back with the new payload and `availableAt`, and leaves `attemptCount` unchanged.
 - `Queue.close({ timeoutMs })`: async waits up to `timeoutMs`, then `close(true)`; the runner relays SIGTERM to every in-flight `signal` **first**, then calls `close` with `QUEUE_CLOSE_TIMEOUT_MS` (default 25 s; docs: Kubernetes `terminationGracePeriodSeconds ≥ 35`, Railway `RAILWAY_DEPLOYMENT_DRAINING_SECONDS ≥ 35`).
 - `Queue.upsertRepeatable(id, { everyMs })` (async: `upsertJobScheduler`; local: bucketed ids + boot timer, see the per-strategy table below) and `Queue.getJobState?(id)`; `Queue.removeJob(queueJobId)`; `QueueUnrecoverableError` (async → BullMQ `UnrecoverableError`; local stops retrying); a `QueueCapabilities` descriptor `{ dedup, delay, retry, signal, yield, repeatable, jobState, removeJob, abandonReports }` per strategy, logged once at boot.
 - **Transport contract**: at-least-once delivery is the only hard requirement; every other capability has a defined fallback through `claim` (invariant 5) or the reconciler. `packages/queue/src/__tests__/conformance/` holds one suite parameterised by strategy — delivery; duplicate/late/early/lost delivery; kill mid-handler; two consumers; `signal` on close; `yield` leaves the attempt counter unchanged and redelivers the rewritten payload; unrecoverable error — run for **both** local and async in CI (R-J2).
@@ -29,7 +29,7 @@ export type EnqueueOptions = {
   delayMs?: number                                   // existing
   queueJobId?: string                                // deterministic id; dedup against live jobs on both strategies
   attempts?: number
-  backoff?: { type: 'exponential' | 'fixed'; delay: number; maxDelay?: number }
+  backoff?: { type: 'exponential' | 'fixed'; delay: number; maxDelay?: number }   // maxDelay: async → custom 'om-exponential-capped' strategy (see above); local → min() in the batch loop
 }
 
 export interface JobContext<T = unknown> {
@@ -60,16 +60,16 @@ export class QueueUnrecoverableError extends Error {}   // async → BullMQ Unre
 
 - the peer range in `packages/queue/package.json` and `packages/scheduler/package.json` is narrowed to `"bullmq": "^6.0.0"` in this spec (listed in the compatibility table below; UPGRADE_NOTES entry; `apps/mercato` already resolves 6.0.9);
 - `capabilities()` is **feature-detected at strategy construction**, not a static table: `repeatable = typeof Queue.prototype.upsertJobScheduler === 'function'`, `signal` from the installed major, `jobState`/`removeJob` likewise. The table below is what the detection yields on ≥ 6.0.0;
-- consumers that *require* a capability fail fast: part 6's worker boot refuses to register a leased kind when **either** capability is missing — `!capabilities().repeatable || !capabilities().signal` — with an error naming the installed version, the missing capability and the floor, instead of running without a repairer (no `repeatable`) or without cooperative shutdown (no `signal`).
+- consumers that *require* a capability fail fast: part 6's worker boot refuses to bind `runSlice` for a leased kind (the kind stays registered in the process-wide registry, so the web process can still answer re-drive and cancel; no worker consumes its queue) when **either** capability is missing — `!capabilities().repeatable || !capabilities().signal` — with an error naming the installed version, the missing capability and the floor, instead of running without a repairer (no `repeatable`) or without cooperative shutdown (no `signal`).
 
 Per-strategy behaviour:
 
-| Capability | async (BullMQ ≥ 6.0.0; verified against 6.0.9) | local (SQLite/in-process) |
+| Capability | async (BullMQ ≥ 6.0.0; verified against 6.0.9) | local (JSON file, in-process) |
 |---|---|---|
-| `queueJobId` dedup | BullMQ `jobId`; an add with an id that exists in any non-removed state is a no-op (including retained `failed` — which is why part 6 never reuses an id) | unique on `(queue, job_id)` over pending/active rows |
-| `attempts`/`backoff` | `attempts`/`backoff` on add; frozen at enqueue | stored per job; honoured by the batch loop |
+| `queueJobId` dedup | BullMQ `jobId`; an add with an id that exists in any non-removed state is a no-op (including retained `failed` — which is why part 6 never reuses an id). BullMQ 6.0.9 throws `Custom Id cannot contain :` for any id that contains a colon and does not split into exactly three parts (`job.js:907-910`) — every id in this series uses `-` | `queueJobId` stored on the `StoredJob` record; an add whose id matches a stored job that has not finished is a no-op |
+| `attempts`/`backoff` | `attempts`/`backoff` on add; `maxDelay` via the custom `om-exponential-capped` strategy registered on the Worker; frozen at enqueue | stored on the record; the batch loop already sets `availableAt` from a backoff and counts `attemptCount` (`local.ts:479-506`); `maxDelay` is a `min()` there |
 | `signal` | created by BullMQ for the 3-arity processor; aborted by the strategy on `lockRenewalFailed` (listener registered per worker) and on `close()` timeout; aborted by the runner on SIGTERM | `AbortController` per delivery; aborted on `close()` and SIGTERM |
-| `yield` | `job.updateData(data)` → `job.moveToDelayed(Date.now() + delayMs, token)` → throw `DelayedError`, rethrown untouched by the processor; `attemptsMade` unchanged; the job id is unchanged | `LocalYield` sentinel caught by the batch loop; payload and `notBefore` rewritten; `attemptCount` unchanged |
+| `yield` | `job.updateData(data)` → `job.moveToDelayed(Date.now() + delayMs, token)` → throw `DelayedError`, rethrown untouched by the processor; `attemptsMade` unchanged; the job id is unchanged | `LocalYield` sentinel caught by the batch loop; payload and `availableAt` rewritten; `attemptCount` unchanged |
 | `close({ timeoutMs })` | wait ≤ `timeoutMs` for in-flight jobs, then `close(true)` | wait ≤ `timeoutMs`, then abandon the in-flight batch |
 | `upsertRepeatable` | `upsertJobScheduler(id, { every })` — idempotent across replicas, survives individual run failures | bucketed deterministic ids `<id>-<bucket+1>` enqueued at the start of each run in `try/finally` plus an unref'd boot timer that re-adds the next bucket (self-heal) |
 | `getJobState` | `Queue.getJobState` | row lookup |
@@ -86,7 +86,7 @@ Per-strategy behaviour:
 | SIGTERM with a yielding handler | runner aborts `signal` → handler yields at its next durable boundary → `close()` returns before the timeout; the delivery is redelivered with the rewritten payload and the same attempt counter |
 | SIGTERM with a non-yielding handler | `close()` returns at `timeoutMs`; the job is redelivered by the transport's own stall/abandon path and costs one attempt — the price of not yielding, documented |
 | Lock renewal fails, handler alive (async) | `lockRenewalFailed` → strategy aborts `signal`; BullMQ may redeliver the job to another worker while this one finishes its current step; correctness is the consumer's fence (part 6 invariant 3), not the transport's |
-| `yield` after the lock is already lost (async) | `moveToDelayed(token)` throws; the delivery ends as a throw and costs one attempt; the payload was *not* rewritten, so the redelivery carries the old payload — consumers must tolerate that (part 6 invariant 5 refuses it by identity) |
+| `yield` after the lock is already lost (async) | `moveToDelayed(token)` throws (or the job was already completed by the stalled redelivery — part 6 S3); `ctx.yield` rejects with the transport error instead of `DelayedError`, so the consumer can fall back to a fresh `enqueue` under a new id (part 6 §5 step 4); the original delivery ends as a throw and costs one attempt; the payload was *not* rewritten, so any redelivery of it carries the old payload — consumers must tolerate that (part 6 invariant 5 refuses it by identity) |
 | `upsertRepeatable` lost (Redis flush) | next worker boot re-creates it; until then the repeatable does not fire — consumers must state the consequence (part 6 §6) |
 | Same `queueJobId` added while a retained `failed` job holds it (async) | no-op add; the consumer must use monotone ids (part 6 invariant 9) — the conformance suite asserts the no-op so the behaviour is visible |
 | Strategy without `yield`/dedup/delay (future) | `capabilities()` says so at boot; consumers fall back (part 6 §9 row "Transport without …") |
@@ -97,12 +97,12 @@ Per-strategy behaviour:
 |---|---|---|
 | 2 exported types (`EnqueueOptions`, `JobContext`, `Queue`) | optional members added | ADDITIVE |
 | 3 signatures | `close()` gains an optional options argument; processor arity inside the async strategy changes (internal) | ADDITIVE / internal |
-| 12 CLI | `mercato worker` gains `QUEUE_CLOSE_TIMEOUT_MS`; exit sequence relays SIGTERM before close | ADDITIVE; UPGRADE_NOTES entry (deployment grace) |
+| 13 CLI | `mercato worker` gains `QUEUE_CLOSE_TIMEOUT_MS`; exit sequence relays SIGTERM before close | ADDITIVE; UPGRADE_NOTES entry (deployment grace) |
 | dependencies (optional peer) | `bullmq` peer range narrowed from `^5.0.0 \|\| ^6.0.0` to `^6.0.0` in `packages/queue` and `packages/scheduler` | **narrowing** — Ask-First item for maintainers; UPGRADE_NOTES entry; hosts on 5.x must upgrade before adopting this package version |
 | 11 notification / 5 event ids | none | — |
-| 8 DB schema | none (local strategy: one new nullable column `not_before` on its SQLite job table, created on open) | ADDITIVE, self-migrating |
+| 8 DB schema | none — the local strategy is a JSON file; its `StoredJob` record gains optional `queueJobId`/`attempts`/`backoff` fields and reuses the existing `availableAt` | — (optional fields on a file record; older code ignores them) |
 
-Rollback: revert the package; no caller depends on the new members until part 6 or part 7 step 0 lands. The local strategy's extra column is ignored by the previous version.
+Rollback: revert the package; no caller depends on the new members until part 6 or part 7 step 0 lands. The local strategy's extra record fields are ignored by the previous version (it reads only the fields it knows).
 
 ## 📝 Risks & Impact Review
 
@@ -118,7 +118,7 @@ Rollback: revert the package; no caller depends on the new members until part 6 
 `packages/queue/src/__tests__/conformance/` — one suite, parameterised by strategy, run for **both** local and async (Redis service in CI):
 
 1. delivery; duplicate add with the same `queueJobId` is a no-op (incl. against a retained failed job on async);
-2. `delayMs` honoured; `attempts`/`backoff` honoured; `QueueUnrecoverableError` stops retries;
+2. `delayMs` honoured; `attempts`/`backoff` honoured incl. `maxDelay` (async: the custom strategy reads the cap from the stored job opts); `QueueUnrecoverableError` stops retries;
 3. kill mid-handler (process exit) → redelivered; two consumers on one queue → each delivery processed once;
 4. `signal` aborts within 100 ms of `close()`; on async, a simulated `lockRenewalFailed` aborts it;
 5. `yield` leaves the attempt counter unchanged and redelivers the rewritten payload; `yield` after lock loss (async) throws and redelivers the old payload;
@@ -128,9 +128,9 @@ Rollback: revert the package; no caller depends on the new members until part 6 
 
 ## 📋 Implementation Plan
 
-1. `EnqueueOptions.queueJobId/attempts/backoff`; async maps to BullMQ; local dedups and stores `notBefore`. Tests: dedup collapses; delay honoured; existing callers unchanged.
+1. `EnqueueOptions.queueJobId/attempts/backoff`; async maps to BullMQ and registers the `om-exponential-capped` strategy for `maxDelay`; local dedups on `queueJobId` and stores `attempts`/`backoff` on the record (delay via the existing `availableAt`). Tests: dedup collapses; delay honoured; `maxDelay` caps the computed backoff on both strategies; existing callers unchanged.
 2. `JobContext.signal` + `token` (`attemptNumber` already exists); async literal 3-arity processor; the strategy registers `lockRenewalFailed` and aborts the job's signal from it (BullMQ does not do this itself) and on close timeout; local aborts on close. Test: handler observes abort within 100 ms of `close()`; async: within 100 ms of a simulated `lockRenewalFailed`.
-3. `ctx.yield({ data })`: async `updateData` → `moveToDelayed(token)` → `DelayedError` rethrown by the processor; local `LocalYield` sentinel caught in the batch loop, payload rewritten, `attemptCount` unchanged. Tests on both strategies: attempt counter unchanged; redelivery carries the rewritten payload.
+3. `ctx.yield({ data })`: async `updateData` → `moveToDelayed(token)` → `DelayedError` rethrown by the processor, and a rejection (not `DelayedError`) when the hand-back fails so the consumer can fall back; local `LocalYield` sentinel caught in the batch loop, payload and `availableAt` rewritten, `attemptCount` unchanged. Tests on both strategies: attempt counter unchanged; redelivery carries the rewritten payload; async: `yield` with an invalid token rejects.
 4. `close({ timeoutMs })`, `removeJob`, `upsertRepeatable` (BullMQ `upsertJobScheduler`; local bucketed ids + boot timer), `getJobState`, `QueueUnrecoverableError`, `QueueCapabilities` (logged once at boot); runner relays SIGTERM → signals → `close(QUEUE_CLOSE_TIMEOUT_MS)`. Test: SIGTERM with a yielding handler exits < timeout; non-yielding handler exits at timeout and the job is redelivered.
 5. Conformance suite (above); capability table per strategy documented in `packages/queue/AGENTS.md`.
 6. `defineQueueJob<T>` typed helper + docs; no call-site migration in this spec.
@@ -145,7 +145,7 @@ Rollback: revert the package; no caller depends on the new members until part 6 
 
 ## Changelog
 
-- 2026-08-23 — Draft v1.2 after the third review (PR #5450): the boot-refusal condition is stated unambiguously — refuse when *either* `repeatable` or `signal` is missing (`!repeatable || !signal`), not only when both are.
+- 2026-08-23 — Draft v1.2 after the third and fifth reviews (PR #5450). Third: the boot-refusal condition is stated unambiguously — refuse when *either* `repeatable` or `signal` is missing (`!repeatable || !signal`), not only when both are. Fifth: the local strategy described as what it is (JSON file, `StoredJob`, existing `availableAt`/`attemptCount`) instead of a SQLite table with a `not_before` column — no schema surface; `backoff.maxDelay` given its BullMQ mapping (custom `om-exponential-capped` `backoffStrategy`, since builtin strategies have no cap); BullMQ's custom-id colon rule stated exactly; `yield` after lock loss rejects so part 6 can fall back to a fresh enqueue; boot refusal binds no worker but keeps the kind registered; CLI compat row renumbered to category 13.
 
 - 2026-08-22 — Draft v1.1 after the second review (PR #5450): BullMQ floor stated (6.0.0) with the peer range narrowed in both packages and listed as a compat change; `capabilities()` is feature-detected, and consumers requiring a capability fail fast at boot; `attemptNumber` shown as the existing member it is, with the open item rephrased around Q-4.
 
