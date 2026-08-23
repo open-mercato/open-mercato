@@ -1,5 +1,9 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  apiRequest,
+  getAuthToken,
+  withCredentialIsolatedRequest,
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture,
   createUserFixture,
@@ -573,8 +577,12 @@ test.describe('TC-DOCUMENTS-009: capability, folder, token, and readiness harden
       )
       expect(denied.status(), 'caller without documents.view is forbidden').toBe(403)
 
-      const unauthenticated = await request.get(
-        `/api/documents/${encodeURIComponent(document.id)}/principals`,
+      // `request` carries the auth_token cookie the last login left in its jar, so a
+      // bare request.get() here is not unauthenticated at all — it authenticates as
+      // `noView` and answers 403. Issue this one call from a jar that never saw a login.
+      const principalsPath = `/api/documents/${encodeURIComponent(document.id)}/principals`
+      const unauthenticated = await withCredentialIsolatedRequest(
+        (anonymous) => anonymous.get(principalsPath),
       )
       expect(unauthenticated.status(), 'unauthenticated caller is rejected').toBe(401)
     } finally {
