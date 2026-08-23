@@ -1,7 +1,11 @@
 # ACL Dependency Bundles
 
 **Date:** 2026-05-27
-**Status:** in-implementation (customers module — this PR)
+**Status:** in-implementation — phase 0 (infra) and phase 1 (`customers`) landed; the
+per-module rollout in §7 is proceeding in parallel, one PR per §6.x section. Latest slice:
+phase 3 `auth` (issue #2144). A module is done when its `acl.ts` declares `dependsOn` and it
+ships `__tests__/acl-dependencies.test.ts` per §9 — `grep -rl dependsOn --include=acl.ts` is
+the live progress check, kept here instead of a hand-maintained table that would drift.
 **Source incident:** PR #2073 review comment by @alinadivante
 **Owner:** auth / shared / ui platform; per-module rollout owned by each module maintainer
 
@@ -282,18 +286,69 @@ Introducing the new view features is BC-safe (additive) and requires updating `s
 | `catalog.pricing.manage` | `catalog.products.view`, `currencies.view` |
 | `catalog.settings.manage` | — |
 
-### 6.4 `auth` (self-referencing)
+### 6.4 `auth` (self-referencing plus one cross-module edge)
 
 | Feature | dependsOn |
 |---------|-----------|
 | `auth.users.list` | — |
-| `auth.users.create` | `auth.users.list` |
-| `auth.users.edit` | `auth.users.list` |
+| `auth.users.create` | `auth.users.list`, `auth.roles.list`, `directory.organizations.view` (**refined**; proposal listed only `auth.users.list`) |
+| `auth.users.edit` | `auth.users.list`, `auth.roles.list` (**refined**; proposal listed only `auth.users.list`) |
 | `auth.users.delete` | `auth.users.list` |
 | `auth.roles.list` | — |
 | `auth.roles.manage` | `auth.roles.list` |
 | `auth.acl.manage` | `auth.users.list`, `auth.roles.list` |
-| `auth.sidebar.manage` | `auth.roles.list` |
+| `auth.sidebar.manage` | — (**refined**; proposal said `auth.roles.list`) |
+
+Notes (enacted — see issue #2144):
+- `auth.sidebar.manage` was proposed as depending on `auth.roles.list`, but the module
+  audit refuted it: `SidebarCustomizationEditor` reads its role targets from
+  `GET /api/auth/sidebar/preferences`, whose `roles` payload is gated on
+  `auth.sidebar.manage` alone (`canApplyToRoles`), and the surface never calls
+  `/api/auth/roles`. Declaring the dependency would warn operators about a gap that
+  does not exist, so the row stays a root.
+- `auth.users.create` / `auth.users.edit` gained `auth.roles.list` on top of the
+  proposed row. Both forms render a **Roles** field whose options come from
+  `GET /api/auth/roles` via `fetchRoleOptions`, which swallows a 403 and returns `[]`
+  with no toast and no error state (`backend/users/roleOptions.ts`). The edit page
+  additionally resolves the user's current role names through the same endpoint and
+  falls back to raw role ids as labels. Without `auth.roles.list` the operator can
+  therefore open and save the form while the role picker is silently empty and existing
+  assignments read as UUIDs — the exact §1 failure mode, on a **write** field, so it is
+  a hard dependency rather than a soft one.
+- `auth.users.list` stays a root even though the users grid fetches `/api/auth/roles`
+  to populate its role **filter** options. That call degrades to an empty option list
+  on 403 and blocks nothing, so it is a soft dependency and not worth a standing
+  warning on the module's most commonly granted feature. This is the deliberate
+  counterpart to the create/edit rows above: read-side filtering degrades, write-side
+  assignment does not.
+- `auth.users.create` also gained the module's only **cross-module** edge,
+  `directory.organizations.view`. The create form renders `organizationId` as a
+  `required: true` field backed by `OrganizationSelect`, which is populated solely by
+  `GET /api/directory/organizations` — a route gated on `directory.organizations.view`
+  (`directory/api/organizations/route.ts`). There is no prefilled value on create, so a
+  403 leaves the picker in `status: 'error'` with an empty option list and the operator
+  **cannot create a user at all**. That is a harder failure than the `auth.roles.list`
+  case above, so it is declared. §4.2 already sanctions cross-module dependencies, and
+  `sales` (`shipping_carriers.view`, `payment_gateways.view`) is the precedent.
+- `auth.users.edit` reads the **same** endpoint through the same component but stays
+  **soft**: `organizationId` is prefilled from the user record and preserved on save, so
+  a 403 only degrades the picker to "Failed to load organizations" while the form still
+  submits. `auth.users.list` is soft for the same reason as its roles-filter case —
+  `fetchOrganizationFilterOptions` degrades to `[]` and blocks nothing.
+- The cross-module read on the same two forms was considered and left **soft**. Both
+  load `GET /api/dashboards/widgets/catalog`, gated on
+  `dashboards.admin.assign-widgets`, to offer optional dashboard-widget assignment.
+  It fails loudly but gracefully (inline "Unable to load dashboard widgets. You can
+  configure them later from the user page."), the user record saves without it, and
+  dashboard-widget assignment is a separate administrative concern that many operators
+  legitimately lack — so declaring the edge would warn on an intended configuration.
+- No new view-grained features were required: all eight auth ids and
+  `directory.organizations.view` already existed, so `setup.ts` `defaultRoleFeatures`
+  (`admin: ['auth.*']`) is unchanged and no `sync-role-acls` run is needed. The default
+  `admin` role already satisfies the new cross-module edge because the `directory`
+  module seeds `directory.organizations.view` to `admin`; `acl-dependencies.test.ts`
+  asserts both that fact and that `auth.*` alone does **not** cover it, so a fork that
+  drops the directory grant fails the suite instead of shipping a dead Create User form.
 
 ### 6.5 `configs`
 
