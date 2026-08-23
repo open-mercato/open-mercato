@@ -9,6 +9,7 @@ import {
 } from '../lib/queue-policy'
 import { failAbandonedRun } from '../lib/abandoned-run'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { clearDataSyncRepairCell, recordDataSyncRepairCell } from '../lib/repair-cell'
 
 const logger = createLogger('data_sync').child({ component: 'sync-import' })
 
@@ -41,14 +42,20 @@ export default async function handle(job: QueuedJob<SyncJobPayload>, ctx: Handle
   try {
     const engine = ctx.resolve<SyncEngine>('dataSyncEngine')
     await engine.runImport(job.payload.runId, job.payload.batchSize, job.payload.scope)
+    const em = ctx.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const syncRunService = ctx.resolve<SyncRunService>('dataSyncRunService')
+    const run = await syncRunService.getRun(job.payload.runId, job.payload.scope)
+    await clearDataSyncRepairCell(em, run?.progressJobId, job.payload.scope)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Data sync import worker failed'
     const errorStack = error instanceof Error ? error.stack : undefined
 
     try {
       const syncRunService = ctx.resolve<SyncRunService>('dataSyncRunService')
+      const em = ctx.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
       const progressService = ctx.resolve<ProgressService>('progressService')
       const run = await syncRunService.getRun(job.payload.runId, job.payload.scope)
+      await recordDataSyncRepairCell(em, run?.progressJobId, job.payload.scope, 'import', message)
 
       if (run && run.status !== 'completed' && run.status !== 'failed' && run.status !== 'cancelled') {
         await syncRunService.markStatus(run.id, 'failed', job.payload.scope, message)
