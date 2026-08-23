@@ -55,6 +55,7 @@ describe('sendEmail', () => {
       to: 'user@example.com',
       subject: 'Hello',
       from: 'from@example.com',
+      fromIsInstanceDefault: true,
       react: expect.any(Object),
       html: undefined,
       text: undefined,
@@ -84,6 +85,36 @@ describe('sendEmail', () => {
     expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
       html: '<p>Hello</p>',
       text: 'Hello',
+    }))
+  })
+
+  it('marks an inherited sender so transports can prefer a tenant-configured one', async () => {
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      fromIsInstanceDefault: true,
+    }))
+  })
+
+  it('does not mark a sender the caller passed explicitly', async () => {
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      from: 'chosen@example.com',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      from: 'chosen@example.com',
+      fromIsInstanceDefault: false,
     }))
   })
 

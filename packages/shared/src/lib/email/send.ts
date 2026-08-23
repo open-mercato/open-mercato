@@ -35,6 +35,13 @@ export type ResolvedEmailPayload = {
   html?: string
   text?: string
   from: string
+  /**
+   * True when `from` was filled in from the instance-wide environment defaults rather than chosen by
+   * the caller. Transports use this to decide whether a tenant's own configured sender may take
+   * precedence: `from` is never empty by the time it reaches a transport, so without this flag a
+   * per-tenant sender is unreachable. Absent means "caller chose it" for older transports.
+   */
+  fromIsInstanceDefault?: boolean
   replyTo?: string
   attachments?: EmailAttachment[]
   tenantId?: string
@@ -135,6 +142,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
     html: options.html,
     text: options.text,
     from: fromAddr,
+    fromIsInstanceDefault: !options.from,
     replyTo: options.replyTo,
     attachments: options.attachments,
     tenantId: options.tenantId,

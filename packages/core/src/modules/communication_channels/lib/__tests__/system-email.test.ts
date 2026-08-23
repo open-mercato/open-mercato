@@ -7,14 +7,15 @@ type ContainerOptions = {
   fork: Record<string, unknown>
   sendMessage: jest.Mock
   credentials: Record<string, unknown> | null
+  convertOutbound?: jest.Mock
 }
 
-function buildContainer({ fork, sendMessage, credentials }: ContainerOptions) {
+function buildContainer({ fork, sendMessage, credentials, convertOutbound }: ContainerOptions) {
   const adapter = {
     providerKey: 'test-email',
     channelType: 'email',
     capabilities: {} as ChannelAdapter['capabilities'],
-    convertOutbound: jest.fn().mockResolvedValue({
+    convertOutbound: convertOutbound ?? jest.fn().mockResolvedValue({
       content: { text: 'Hello', bodyFormat: 'text' },
       metadata: { to: ['user@example.com'], subject: 'Hello', from: 'from@example.com' },
     }),
@@ -221,6 +222,86 @@ describe('sendSystemEmail', () => {
       // The admin UI stores credentials but has no hook to create the Hub channel, so the send
       // repairs it — otherwise the integration page stays permanently disconnected.
       expect(persist).toHaveBeenCalled()
+    })
+
+    it('sends from the tenant sender when the caller only inherited the instance default', async () => {
+      const convertOutbound = jest.fn().mockResolvedValue({
+        content: { text: 'Hello', bodyFormat: 'text' },
+        metadata: { to: ['user@example.com'], subject: 'Hello', from: 'tenant@example.com' },
+      })
+      const container = buildContainer({
+        fork: { findOne: jest.fn().mockResolvedValue(null), create: jest.fn(), persist: jest.fn(), flush: jest.fn() },
+        sendMessage: jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' }),
+        credentials: { apiKey: 'tenant-key', fromAddress: 'tenant@example.com' },
+        convertOutbound,
+      })
+
+      await sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        fromIsInstanceDefault: true,
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+
+      expect(convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+        channelMetadata: expect.objectContaining({ from: 'tenant@example.com' }),
+      }))
+    })
+
+    it('keeps a sender the caller chose explicitly', async () => {
+      const convertOutbound = jest.fn().mockResolvedValue({
+        content: { text: 'Hello', bodyFormat: 'text' },
+        metadata: { to: ['user@example.com'], subject: 'Hello', from: 'chosen@example.com' },
+      })
+      const container = buildContainer({
+        fork: { findOne: jest.fn().mockResolvedValue(null), create: jest.fn(), persist: jest.fn(), flush: jest.fn() },
+        sendMessage: jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' }),
+        credentials: { apiKey: 'tenant-key', fromAddress: 'tenant@example.com' },
+        convertOutbound,
+      })
+
+      await sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'chosen@example.com',
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+
+      expect(convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+        channelMetadata: expect.objectContaining({ from: 'chosen@example.com' }),
+      }))
+    })
+
+    it('keeps the instance default when the tenant stored no sender of its own', async () => {
+      const convertOutbound = jest.fn().mockResolvedValue({
+        content: { text: 'Hello', bodyFormat: 'text' },
+        metadata: { to: ['user@example.com'], subject: 'Hello', from: 'from@example.com' },
+      })
+      const container = buildContainer({
+        fork: { findOne: jest.fn().mockResolvedValue(null), create: jest.fn(), persist: jest.fn(), flush: jest.fn() },
+        sendMessage: jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' }),
+        credentials: { apiKey: 'tenant-key' },
+        convertOutbound,
+      })
+
+      await sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        fromIsInstanceDefault: true,
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+
+      expect(convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+        channelMetadata: expect.objectContaining({ from: 'from@example.com' }),
+      }))
     })
 
     it('still fails closed when a configured channel is missing its credentials', async () => {

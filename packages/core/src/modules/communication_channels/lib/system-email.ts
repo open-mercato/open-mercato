@@ -244,6 +244,24 @@ async function resolveTenantCredentials(
   return resolveEnvCredentials(channel.providerKey, payload.from)
 }
 
+/**
+ * Choose the address a system email actually leaves from.
+ *
+ * The tenant's configured sender wins whenever the caller did not name one itself. `sendEmail` always
+ * fills `from` in — from `NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL` — so an adapter that
+ * merely falls back to its credentials when `from` is missing would never reach the tenant's value, and
+ * the "From address" saved in the integrations UI would be inert. A caller that passed an explicit
+ * `from` meant it, and keeps it.
+ */
+function resolveOutboundFromAddress(
+  payload: ResolvedEmailPayload,
+  credentials: Record<string, unknown>,
+): string {
+  if (!payload.fromIsInstanceDefault) return payload.from
+  const configured = credentials.fromAddress
+  return typeof configured === 'string' && configured.trim().length > 0 ? configured : payload.from
+}
+
 export async function sendSystemEmail(
   container: AppContainer,
   payload: ResolvedEmailPayload,
@@ -269,7 +287,7 @@ export async function sendSystemEmail(
     channelMetadata: {
       to: payload.to,
       subject: payload.subject,
-      from: payload.from,
+      from: resolveOutboundFromAddress(payload, credentials),
       replyTo: payload.replyTo,
       attachments: payload.attachments,
     },
