@@ -1,7 +1,7 @@
 # Background work, part 5 — the queue transport contract
 
 **Date**: 2026-08-21
-**Status**: Draft v1 — implementation spec split out of part 4 v3 (§5.8, Phase 0). Awaiting review. Depends on nothing in the series; blocks part 6.
+**Status**: Draft v1.2 — implementation spec split out of part 4 v3 (§5.8, Phase 0). Awaiting review. Depends on nothing in the series; blocks part 6.
 **Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` problems (D-n) · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — sibling modules (Q/P/W/S/… ids) · [part 3](./2026-08-21-background-work-03-common-problems-and-requirements.md) — classes C-1…C-14, requirements R-A…R-M, open decisions Δ-1…Δ-11 · [part 4](./2026-08-21-background-work-04-solution.md) — options, decision, shared invariants · [part 5](./2026-08-21-background-work-05-queue-transport-contract.md) — queue transport contract · [part 6](./2026-08-21-background-work-06-leased-jobs-in-progress.md) — leased tier in `progress` · [part 7](./2026-08-21-background-work-07-data-sync-adoption.md) — `data_sync` adoption · [part 8](./2026-08-21-background-work-08-operator-surface.md) — operator surface.
 **Scope of this spec**: additive capabilities on `packages/queue` (`EnqueueOptions`, `JobContext`, `Queue` members, a capabilities descriptor, an unrecoverable-error class), the `mercato worker` runner's shutdown relay, and a conformance suite run against both strategies. No `progress` change, no schema, no new behaviour for existing callers. The unrelated production bugs v3 had attached to this phase (PG-1/SC-1/ST-1 payload-shape mismatches and the rest of part 3 §0.1) are **not** in scope — each has its own ticket; the `data_sync` hardening that only needs these options (`queueJobId`, stall default) is part 7 step 0.
 
@@ -60,7 +60,7 @@ export class QueueUnrecoverableError extends Error {}   // async → BullMQ Unre
 
 - the peer range in `packages/queue/package.json` and `packages/scheduler/package.json` is narrowed to `"bullmq": "^6.0.0"` in this spec (listed in the compatibility table below; UPGRADE_NOTES entry; `apps/mercato` already resolves 6.0.9);
 - `capabilities()` is **feature-detected at strategy construction**, not a static table: `repeatable = typeof Queue.prototype.upsertJobScheduler === 'function'`, `signal` from the installed major, `jobState`/`removeJob` likewise. The table below is what the detection yields on ≥ 6.0.0;
-- consumers that *require* a capability fail fast: part 6's worker boot refuses to register a leased kind when `capabilities().repeatable || signal` is false, with an error naming the installed version and the floor, instead of running without a repairer.
+- consumers that *require* a capability fail fast: part 6's worker boot refuses to register a leased kind when **either** capability is missing — `!capabilities().repeatable || !capabilities().signal` — with an error naming the installed version, the missing capability and the floor, instead of running without a repairer (no `repeatable`) or without cooperative shutdown (no `signal`).
 
 Per-strategy behaviour:
 
@@ -144,6 +144,8 @@ Rollback: revert the package; no caller depends on the new members until part 6 
 - Whether Q-4's per-strategy semantics of the existing `attemptNumber` (async: `attemptsMade + 1`; local: its own counter) are fixed here as part of the conformance suite, or left to part 6's `failSlice`, which is its only new consumer (to compute `nextAttemptAt`).
 
 ## Changelog
+
+- 2026-08-23 — Draft v1.2 after the third review (PR #5450): the boot-refusal condition is stated unambiguously — refuse when *either* `repeatable` or `signal` is missing (`!repeatable || !signal`), not only when both are.
 
 - 2026-08-22 — Draft v1.1 after the second review (PR #5450): BullMQ floor stated (6.0.0) with the peer range narrowed in both packages and listed as a compat change; `capabilities()` is feature-detected, and consumers requiring a capability fail fast at boot; `attemptNumber` shown as the existing member it is, with the open item rephrased around Q-4.
 

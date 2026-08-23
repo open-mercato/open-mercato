@@ -1,7 +1,7 @@
 # Background work, part 4 — solution options and the decision
 
 **Date**: 2026-08-21
-**Status**: Draft v4 — umbrella decision record. Options scored, Option A recommended, shared vocabulary and invariants fixed here; the design is specified in four separately reviewable implementation specs (parts 5–8, see "Implementation specs"). Awaiting the maintainer decisions listed under "Decisions requested from maintainers".
+**Status**: Draft v4.2 — umbrella decision record. Options scored, Option A recommended, shared vocabulary and invariants fixed here; the design is specified in four separately reviewable implementation specs (parts 5–8, see "Implementation specs"). Awaiting the maintainer decisions listed under "Decisions requested from maintainers".
 **Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` problems (D-n) · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — sibling modules (Q/P/W/S/… ids) · [part 3](./2026-08-21-background-work-03-common-problems-and-requirements.md) — classes C-1…C-14, requirements R-A…R-M, open decisions Δ-1…Δ-11 · [part 4](./2026-08-21-background-work-04-solution.md) — options, decision, shared invariants · [part 5](./2026-08-21-background-work-05-queue-transport-contract.md) — queue transport contract · [part 6](./2026-08-21-background-work-06-leased-jobs-in-progress.md) — leased tier in `progress` · [part 7](./2026-08-21-background-work-07-data-sync-adoption.md) — `data_sync` adoption · [part 8](./2026-08-21-background-work-08-operator-surface.md) — operator surface.
 **Scope of this spec** (Q4): the architecture decision for the durable-work mechanism and the contract every implementation spec in the series must honour. It contains **no implementation plan** of its own: parts 5–8 each carry complete contracts, migration/rollback analysis, integration coverage, a compatibility review and their own approval state, and can ship in dependency order. Named follow-ups, not designed anywhere in the series yet: the `workflows` driver, `scheduler` executions, adoption by the bulk/indexing workers, the events-bus outbox/inbox, and the deferred waiting / delayed-start / full parent-child features (Q6).
 
@@ -114,10 +114,10 @@ flowchart LR
   end
   subgraph P["progress module (grown)"]
     SVC["progressService<br/>existing: createJob · startJob · updateProgress · … · cancelJob<br/>new: createLeasedJob · enqueueLeasedJob · claim · heartbeatLease · yieldSlice · completeSlice · failSlice · redrive · reconcileOnce"]
-    REG["job-kind registry<br/>registerJobKind(kind, { queue, step, orphanPolicy, lease, budget, requiredFeatures, onTransition?, onCancel? })"]
+    REG["job-kind registry<br/>registerJobKind(kind, { queue, step, orphanPolicy, lease, budget, requiredFeatures, mirror?, maxMirrorAttempts?, onTransition?, onRedrive?, onCancel? })"]
     SLICE["runSlice() — the worker body"]
     REC["reconciler: self-perpetuating tick job (30 s) + retention job (daily)"]
-    T[("progress_jobs<br/>+ lease_owner · lease_epoch · lease_expires_at · lock_key · queue_name · queue_job_id<br/>+ subject_type/id · continuation_seq · redrives · interruptions · consecutive_failures<br/>+ pending_since · next_run_at · last_committed_at · parked_at · error_code")]
+    T[("progress_jobs<br/>+ lease_owner · lease_epoch · lease_expires_at · lock_key · queue_name · queue_job_id<br/>+ subject_type/id · continuation_seq · redrives · interruptions · consecutive_failures<br/>+ pending_since · next_run_at · last_committed_at · parked_at · error_code<br/>+ domain_mirrored_at · mirror_attempts")]
     API["existing /api/progress/* + re-drive action · ProgressTopBar · SSE"]
   end
   subgraph Q["packages/queue — transport contract"]
@@ -147,9 +147,9 @@ flowchart LR
 | **slice** | one delivery's execution of `step()` under one lease; bounded by `sliceBudgetMs`; `continuation_seq` counts slices |
 | **yield** | the slice stops at a durable boundary, releases the lease and hands the job back to the transport with the new `seq` in its payload; increments `interruptions` when caused by `signal`, never any budget |
 | **orphan** | a leased row whose lease expired without a terminal transition or a yield — the reconciler's subject. ("Stale" is reserved for the tracked tier's sweep; "abandoned" for `packages/queue`'s existing hook.) |
-| **redrive** | the reconciler (or an operator) re-enqueues an orphan or a never-claimed/parked row; `redrives` counts it and is part of the delivery identity; resets to 0 on a committed unit |
-| **committed unit** | the owner reports `committed: true` on a heartbeat after a durable domain write (data_sync: a fenced batch commit); resets `consecutive_failures` and `redrives`, sets `last_committed_at` |
-| **parked** | `status='failed'` with `parked_at` set and `error_code` explaining why (`orphaned`, `poison`, `never_started`, `no_handler`); `redrive` is allowed from it. No new status value in phase 1 |
+| **redrive** | the reconciler re-enqueues an orphan or a never-claimed row, or an operator re-enqueues a `failed` (parked or terminal) or lease-expired row; `redrives` counts it and is part of the delivery identity (monotone — the budget that resets on a committed unit is `redrives_since_commit`). An operator re-drive also re-opens the domain row through the kind's `onRedrive` in the same transaction (part 6 §3) |
+| **committed unit** | the owner reports `committed: true` on a heartbeat after a durable domain write (data_sync: a fenced batch commit); resets `consecutive_failures` and `redrives_since_commit`, sets `last_committed_at` |
+| **parked** | `status='failed'` with `parked_at` set and `error_code` explaining why (`orphaned`, `poison`, `never_started`, `no_handler`). Parked is a *reason*, not a distinct re-drivability class: the operator `redrive` admits **every** `failed` leased row (parked or terminal, including `unrecoverable` as a recorded override) and an expired-lease `running` row, and refuses `completed` and `cancelled`. No new status value in phase 1 |
 | **owner** | `${hostname}:${pid}:${processStartRandom}` — generated once per process start, never per claim |
 
 ### 5.2 Invariants (binding on parts 5–8)
@@ -164,9 +164,9 @@ flowchart LR
 8. **Crash ≠ error.** An expired lease is repaired by the reconciler under the *orphan* policy and the `redrives_since_commit` budget; a thrown error is retried by the transport under the *retry* policy and the `consecutive_failures` budget. The two never share a counter, and the reconciler waits for the transport's own retry: `failSlice` sets `next_run_at` to the transport's next attempt time and Q1 ignores rows whose `next_run_at` is in the future, so an orphan is only taken once the transport has given up.
 9. **Every reconciler or operator action changes the delivery identity.** A take, a pending re-drive and an operator `redrive` all bump `redrives` (and the epoch), so the new enqueue id `pj-<id>-<seq>-<redrives>` never collides with a delivery the transport still holds in delayed/failed state; the old delivery, if it ever arrives, is refused by invariant 5. A yield keeps the transport's job id (BullMQ `moveToDelayed` does not change it) — only the payload changes.
 10. **The tracked tier is untouched.** Rows without `lock_key` behave exactly as today; their stale sweep keeps its predicate and CAS (but moves to the worker tick, part 6 §6).
-11. **A terminal transition and its domain mirror commit together or not at all.** `completeSlice`, the terminal `failSlice`, the cancel CAS and every reconciler park/cancel run the terminal CAS **and** the kind's `onTransition(job, scope, em)` in **one short transaction on a forked EM**; a throwing mirror rolls the CAS back and the row stays non-terminal, to be retried by the transport or the next tick. Kinds whose domain row cannot share the transaction declare `mirror: 'deferred'`: the CAS then commits with `domain_mirrored_at = null` and the reconciler retries the (idempotent) mirror until it succeeds. Either way no terminal `progress_jobs` row can exist whose domain row was never told — the gap that invalidated R-E1–E4 in review v3 (part 6 §7).
+11. **A terminal transition and its domain mirror commit together or not at all.** `completeSlice`, the terminal `failSlice`, the cancel CAS and every reconciler park/cancel run the terminal CAS **and** the kind's `onTransition(job, scope, em)` in **one short transaction on a forked EM**; a throwing mirror rolls the CAS back and the row stays non-terminal, to be retried by the transport or the next tick. Kinds whose domain row cannot share the transaction declare `mirror: 'deferred'`: the CAS then commits with `domain_mirrored_at = null` and the reconciler retries the (idempotent) mirror until it succeeds. "Mirrored" means the mirror's fenced UPDATE **matched** the domain row (`onTransition` returns `{ matched }`; zero is a failed mirror, never recorded as mirrored). Failed mirrors are counted on the row (`mirror_attempts`, written in its own autocommit statement *outside* the rolled-back transaction — R-H1 forbids counting in process memory) and surface as `mirror_stuck` at the kind's `maxMirrorAttempts`. **The same invariant holds in reverse**: an operator `redrive` leaves the terminal state together with the domain row — the kind's `onRedrive` re-opens it inside the `redrive` transaction, and a re-open that matches nothing refuses the re-drive. Either way no terminal `progress_jobs` row can exist whose domain row was never told, and no re-driven row can run against a domain row still marked terminal — the gaps that invalidated R-E1–E4 in review v3 and the re-drive in review v4.1 (part 6 §3, §7).
 
-Where each invariant is discharged: 1–9 and 11 in part 6 (lease SQL, service API, reconciler, terminal-transition protocol); the transport capabilities they assume (`yield`, `signal`, bounded `close`, deterministic ids) in part 5; 10 by construction in part 6 §2 (tracked rows carry no `lock_key`). Part 7 adds the domain-side fence `data_sync` needs and nothing that weakens these.
+Where each invariant is discharged: 1–9 and 11 in part 6 (lease SQL incl. the re-drive family, service API, reconciler, terminal-transition protocol with the mirror counter); the transport capabilities they assume (`yield`, `signal`, bounded `close`, deterministic ids) in part 5; 10 by construction in part 6 §2 (tracked rows carry no `lock_key`). Part 7 adds the domain-side fence `data_sync` needs and nothing that weakens these.
 
 ### 5.3 Why the mechanics are split the way they are
 
@@ -217,17 +217,17 @@ None of these is needed for the leased tier or for `data_sync`; all of them reus
 | R-B1–B5 | part 6 §6 (tick hosting, take bumps epoch, budgets, `SKIP LOCKED`), part 7 CLI | specified |
 | R-C1–C4 | part 6 §5 step 4, part 5 (`yield`, `signal`, bounded close) | specified; R-C3 (sweeps resume from a cursor) applies to adopters in the follow-up |
 | R-D1–D4 | part 6 §2 unique index, §3 `(seq, redrives)`, epoch fence, `idempotencyKey` | specified |
-| R-E1, R-E2, R-E4 | part 6 §4 `createLeasedJob(em)` + deferred event, §6 Q2/Q5, §7 terminal-transition protocol, part 7 | specified — v3's claim was invalid because a terminal CAS could commit without its domain mirror; invariant 11 and part 6 §7 close it |
+| R-E1, R-E2, R-E4 | part 6 §4 `createLeasedJob(em)` + deferred event, §3 `redrive` + `onRedrive`, §6 Q2/Q5, §7 terminal-transition protocol, part 7 | specified — v3's claim was invalid because a terminal CAS could commit without its domain mirror; invariant 11 and part 6 §7 close it, and v4.2 closes the reverse direction (a re-drive that left the domain row terminal) |
 | R-E3 | first half (status change and its record are one transaction) in part 6 §7; second half (the emission itself repairable) | **partial** — emit-after-commit is at-most-once (part 6 §7 step 4); repairable emission is **deferred** to the events-bus outbox follow-up (outbox/inbox section) |
 | R-F1–F5 | part 6 §5, part 5 | specified; R-F5 partial on BullMQ (frozen at enqueue) |
 | R-G1–G3 | part 6 §8 | specified; cascade minimal (children by `parent_job_id`), aggregation deferred to Q6 |
-| R-H1–H3 | part 6 §6 (no process-local state; per-row isolation; tick dedup) | specified |
+| R-H1–H3 | part 6 §6 (no process-local state; per-row isolation; tick dedup), §7 step 5 (`mirror_attempts` on the row, not in memory) | specified |
 | R-I1 | invariant 6, part 6 §2 | specified |
 | R-I2 | structured-log events in part 6; metrics endpoint | **deferred** (follow-up) |
 | R-I3 | — | **deferred** (Q6) |
 | R-J1–J4 | part 5 | specified |
 | R-K1 | scheduler executions follow-up | **deferred** (Q4) |
-| R-K2–K3 | part 6 §8 and DTO, part 8 | specified |
+| R-K2–K3 | part 6 §3 `redrive` (any failed or lease-expired row; `progress.job.redriven` carries `by`), §8 and DTO (`redrivable`), part 8 | specified |
 | R-L1–L3 | §4.4, part 6 §4, each part's risk table | specified for the first consumer |
 | R-M1–M2 | part 6 §10, part 7 integration coverage | specified |
 
@@ -239,6 +239,8 @@ None of these is needed for the leased tier or for `data_sync`; all of them reus
 4. `sliceBudgetMs` 5 min vs `pendingTtlMs` 15 min: the ratio leaves three reconciler ticks of slack for a lost hand-back before the first re-drive; tune after the soak (part 7).
 
 ## Changelog
+
+- 2026-08-23 — v4.2 after the third and fourth reviews (PR #5450): invariant 11 now states both directions (terminal mirror must *match*; operator re-drive re-opens the domain row via `onRedrive` in the same transaction) and where the failed-mirror count lives (`mirror_attempts` on the row, R-H1); vocabulary — `parked` is a reason, not the only re-drivable class (`redrive` admits every failed or lease-expired leased row), `redrive` and `committed unit` entries corrected to name `redrives_since_commit` as the resetting budget; architecture diagram lists `onRedrive`, `mirror`, `maxMirrorAttempts`, `domain_mirrored_at`, `mirror_attempts`; traceability rows R-E, R-H, R-K updated. Part 5 v1.2, part 6 v1.2, part 7 v1.2, part 8 v1.2.
 
 - 2026-08-22 — v4.1 after the second review (PR #5450): invariant 6 names `redrives_since_commit` (not the identity `redrives`) as the heartbeat-written budget; the R-E traceability row split so R-E3 reads *partial* with repairable emission deferred to the events-bus outbox follow-up; part 5 states the BullMQ floor (6.0.0) and narrows the peer range; part 6 v1.1 specifies the way out of `parked`.
 
