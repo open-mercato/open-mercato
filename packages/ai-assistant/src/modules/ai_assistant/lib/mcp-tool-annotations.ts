@@ -1,11 +1,6 @@
 import type { AiToolDefinition, McpToolAnnotations, McpToolDefinition } from './types'
 
 /**
- * Subset of the MCP `ToolAnnotations` shape that Open Mercato publishes in
- * `tools/list`. Only hints derivable from a registered tool definition are
- * emitted — the remaining ones are left to the client's spec defaults.
- */
-/**
  * Build the MCP annotations advertised for a registered tool.
  *
  * `readOnlyHint` follows the registry's existing mutation contract: a tool is
