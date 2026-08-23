@@ -11,10 +11,10 @@ jest.mock('../lookups', () => ({
   searchPeopleOptions: jest.fn().mockResolvedValue([]),
 }))
 
-function renderField(value: EditorParticipant[], onChange: jest.Mock) {
+function renderField(value: EditorParticipant[], onChange: jest.Mock, mode: 'multi' | 'single' = 'multi') {
   return renderWithProviders(
     <PeopleField
-      mode="multi"
+      mode={mode}
       placeholder="Add people…"
       ariaLabel="Participants"
       value={value}
@@ -22,6 +22,14 @@ function renderField(value: EditorParticipant[], onChange: jest.Mock) {
       includeCustomers
     />,
   )
+}
+
+async function typeQuery(text: string) {
+  const input = screen.getByRole('combobox')
+  await act(async () => {
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: text } })
+  })
 }
 
 describe('PeopleField', () => {
@@ -43,5 +51,58 @@ describe('PeopleField', () => {
 
     expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange).toHaveBeenCalledWith([guestOne])
+  })
+
+  it('offers an unmatched typed email as a guest and adds it without a userId', async () => {
+    const onChange = jest.fn()
+    await act(async () => {
+      renderField([], onChange)
+    })
+
+    await typeQuery(' Guest@Example.ORG ')
+
+    const guestOption = await screen.findByRole('option', { name: /guest@example\.org/i })
+    await act(async () => {
+      fireEvent.click(guestOption)
+    })
+
+    expect(onChange).toHaveBeenCalledWith([
+      { name: 'guest@example.org', email: 'guest@example.org', isCustomer: false },
+    ])
+  })
+
+  it('does not offer a guest for a query that is not a valid email', async () => {
+    const onChange = jest.fn()
+    await act(async () => {
+      renderField([], onChange)
+    })
+
+    await typeQuery('not-an-email')
+
+    expect(screen.queryByRole('option')).toBeNull()
+    expect(await screen.findByText('No results')).toBeInTheDocument()
+  })
+
+  it('does not offer a guest already present as a participant', async () => {
+    const onChange = jest.fn()
+    const guest: EditorParticipant = { name: 'Guest', email: 'guest@example.org', isCustomer: false }
+    await act(async () => {
+      renderField([guest], onChange)
+    })
+
+    await typeQuery('GUEST@example.org')
+
+    expect(screen.queryByRole('option')).toBeNull()
+  })
+
+  it('never offers a guest in single mode — the assignee must be a real staff user', async () => {
+    const onChange = jest.fn()
+    await act(async () => {
+      renderField([], onChange, 'single')
+    })
+
+    await typeQuery('guest@example.org')
+
+    expect(screen.queryByRole('option')).toBeNull()
   })
 })

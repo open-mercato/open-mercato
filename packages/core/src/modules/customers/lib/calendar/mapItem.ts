@@ -10,6 +10,7 @@ import type {
   CalendarPlatform,
 } from '../../components/calendar/types'
 import { categoryOf } from './categories'
+import { participantActorKey } from './participantIdentity'
 
 const DEFAULT_DURATION_MINUTES = 30
 
@@ -43,7 +44,7 @@ function mapParticipants(payload: CalendarInteractionPayload): CalendarParticipa
   const seen = new Set<string>()
   const mapped: CalendarParticipant[] = []
   for (const participant of participants) {
-    const dedupeKey = participant.userId ?? participant.email
+    const dedupeKey = participantActorKey(participant)
     if (dedupeKey) {
       if (seen.has(dedupeKey)) continue
       seen.add(dedupeKey)

@@ -146,6 +146,29 @@ describe('interaction validators — extended scheduling fields', () => {
       }),
     ).toThrow()
   })
+
+  test('interactionCreateSchema rejects a guest whose only identity is not a valid email', () => {
+    expect(() =>
+      interactionCreateSchema.parse({
+        tenantId,
+        organizationId: orgId,
+        entityId,
+        interactionType: 'meeting',
+        participants: [{ name: 'External Guest', email: 'not-an-email' }],
+      }),
+    ).toThrow()
+  })
+
+  test('interactionCreateSchema keeps an unvalidated auxiliary email on a participant with a userId', () => {
+    const parsed = interactionCreateSchema.parse({
+      tenantId,
+      organizationId: orgId,
+      entityId,
+      interactionType: 'meeting',
+      participants: [{ userId: userA, name: 'Ada', email: 'ada (work)' }],
+    })
+    expect(parsed.participants).toEqual([{ userId: userA, name: 'Ada', email: 'ada (work)' }])
+  })
 })
 
 describe('interaction validators — dictionary-backed status (lenient widening)', () => {

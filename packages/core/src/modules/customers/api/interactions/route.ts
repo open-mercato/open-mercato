@@ -744,7 +744,13 @@ const interactionListItemSchema = z
     recurrenceEnd: z.string().nullable().optional(),
     participants: z.array(
       z.object({
-        userId: z.string().uuid().optional(),
+        userId: z
+          .string()
+          .uuid()
+          .optional()
+          .describe(
+            'Absent for an external guest, who has no person/customer/staff record and is identified by email instead. Identify a participant by userId when present, otherwise by its normalized email.',
+          ),
         name: z.string().optional(),
         email: z.string().optional(),
         status: z.string().optional(),

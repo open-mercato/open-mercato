@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
@@ -10,6 +11,15 @@ import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
 import { composeAccessibleName } from '../../../lib/calendar/labels'
 import { searchPeopleOptions, type PersonOption } from './lookups'
 import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
+
+// Mirrors the server-side guest rule in `interactionParticipantSchema`: a
+// participant with no user record is addressable only by a routable email.
+const guestEmailSchema = z.string().email().max(320)
+
+function normalizeEmail(email: string | null | undefined): string | null {
+  const normalized = email?.trim().toLowerCase()
+  return normalized ? normalized : null
+}
 
 export function PeopleField({
   mode,
@@ -63,9 +73,35 @@ export function PeopleField({
   const selectedIds = new Set(value.map((participant) => participant.userId))
   const visibleOptions = options.filter((option) => !selectedIds.has(option.userId))
 
+  // An external guest has no record to search for, so a typed address that
+  // matches nothing is the only way to invite one (#5115). Multi mode only —
+  // the single-mode field is the task assignee, which becomes `ownerUserId` and
+  // must resolve to a real staff user.
+  const typedEmail = normalizeEmail(query)
+  const selectedEmails = new Set(
+    value.map((participant) => normalizeEmail(participant.email)).filter((email): email is string => email !== null),
+  )
+  const guestEmail =
+    mode === 'multi' &&
+    typedEmail !== null &&
+    guestEmailSchema.safeParse(typedEmail).success &&
+    !selectedEmails.has(typedEmail) &&
+    !options.some((option) => normalizeEmail(option.email) === typedEmail)
+      ? typedEmail
+      : null
+  const guestLabel = guestEmail
+    ? t('customers.calendar.editor.addGuest', 'Invite {email} as a guest', { email: guestEmail })
+    : ''
+
   const customerBadge = (
     <UppercaseBadge className="bg-status-info-bg text-status-info-text">
       {t('customers.calendar.editor.customerBadge', 'Customer')}
+    </UppercaseBadge>
+  )
+
+  const guestBadge = (
+    <UppercaseBadge className="bg-muted text-muted-foreground">
+      {t('customers.calendar.editor.guestBadge', 'Guest')}
     </UppercaseBadge>
   )
 
@@ -88,7 +124,7 @@ export function PeopleField({
           <PersonChip
             key={participant.userId ?? participant.email ?? index}
             name={participant.name}
-            badge={participant.isCustomer ? customerBadge : undefined}
+            badge={participant.isCustomer ? customerBadge : participant.userId ? undefined : guestBadge}
             onRemove={() => onChange(value.filter((_, entryIndex) => entryIndex !== index))}
             removeLabel={t('customers.calendar.editor.removePerson', 'Remove {name}', { name: participant.name })}
           />
@@ -113,10 +149,30 @@ export function PeopleField({
               {t('customers.calendar.editor.searching', 'Searching…')}
             </p>
           ) : null}
-          {!loading && visibleOptions.length === 0 ? (
+          {!loading && visibleOptions.length === 0 && !guestEmail ? (
             <p className="px-2 py-3 text-center text-xs text-muted-foreground">
               {t('customers.calendar.editor.noResults', 'No results')}
             </p>
+          ) : null}
+          {!loading && guestEmail ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="option"
+              aria-selected={false}
+              aria-label={guestLabel}
+              title={guestLabel}
+              onClick={() => {
+                const participant: EditorParticipant = { name: guestEmail, email: guestEmail, isCustomer: false }
+                onChange([...value, participant])
+                setQuery('')
+              }}
+              className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
+            >
+              <Avatar size="xs" label={guestEmail} />
+              <span className="min-w-0 flex-1 truncate">{guestLabel}</span>
+              {guestBadge}
+            </Button>
           ) : null}
           {!loading
             ? visibleOptions.map((option) => (
