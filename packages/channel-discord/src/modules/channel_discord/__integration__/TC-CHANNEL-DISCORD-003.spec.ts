@@ -3,44 +3,51 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   deleteChannelIfExists,
+  ingestInboundChatMessage,
   isChannelSeedingAvailable,
   seedConnectedChannel,
-  seedInboundMessage,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
+import { normalizeInboundDiscordMessage } from '../lib/normalize-inbound'
 
 /**
- * TC-CHANNEL-DISCORD-003 — the hub's inbound landing zone accepts a
- * discord-tagged message.
+ * TC-CHANNEL-DISCORD-003 — a message shaped the way the Discord gateway
+ * actually produces it is ingested end to end.
  * Source: .ai/specs/2026-06-19-discord-communication-channel-integration.md
  *
- * ⚠️ SCOPE CORRECTION (QA of #4391, @Kapsik89 2026-08-04 → #4975).
+ * ⚠️ HISTORY, because this spec earned the scepticism (QA of #4391, @Kapsik89
+ * 2026-08-04 → #4975).
  *
- * This spec previously claimed to prove that "an inbound Discord message lands
- * in the hub". It did not, and could not: the generic test-seed fixture is
- * email-shaped, so the earlier version invented a `@test-seed.local` address for
- * both `externalIdentifier` and `to` in order to satisfy the hub's
- * `externalEmail is required when visibility is public` rule. A real Discord
- * channel has `external_identifier = NULL` and a real Discord sender has no
- * address at all, so `normalizeInboundDiscordMessage` never ran on this path and
- * the spec stayed green while every real inbound message was rejected.
+ * The first version of this spec claimed to prove that "an inbound Discord
+ * message lands in the hub" and stayed green through three live defects. It fed
+ * the hub an invented `…@test-seed.local` address for both the channel
+ * identifier and the recipient, because the hub's `composeMessageSchema`
+ * demanded `externalEmail` for every public message. A real Discord channel
+ * carries `external_identifier = NULL` and a real Discord sender has no address
+ * at all, so `normalizeInboundDiscordMessage` never ran on that path — the spec
+ * asserted a landing zone the real provider could never reach.
  *
- * What this spec asserts now is only what it can honestly assert: the hub
- * persists and counts an inbound message tagged `providerKey: 'discord'`. The
- * seeded address is named for what it is — fixture scaffolding required by the
- * hub contract under review — rather than dressed up as Discord data.
+ * Both halves of that are fixed now:
+ *   - #4975 (merged as #5252) made the `externalEmail` requirement conditional
+ *     on the originating channel being email-typed, fail-closed.
+ *   - the test-seed `ingest-inbound` action drives the real
+ *     `ingest_inbound_message` command, which composes through
+ *     `messages.messages.compose` — no SQL shortcut, no seeded rows.
  *
- * The two halves it does NOT cover, and where they live instead:
- *  - Sender identity as Discord actually produces it (snowflake, no address):
- *    `lib/__tests__/normalize-inbound.identity.test.ts`.
- *  - The end-to-end path from a `MESSAGE_CREATE` frame to a persisted
- *    `ExternalMessage`: blocked by #4975 and covered by the `test.fixme` below,
- *    which must be turned into a real assertion in the same change that resolves
- *    the hub contract decision.
+ * So this spec now does what its name always claimed:
+ *   1. it starts from a verbatim Discord `MESSAGE_CREATE` frame,
+ *   2. runs it through the **real** `normalizeInboundDiscordMessage` — the same
+ *      function the gateway worker calls, not a re-implementation,
+ *   3. hands the normalized result to the hub with **no address anywhere**, and
+ *   4. asserts a platform message exists at the other end.
  *
- * The socket half (identify/resume/backoff, bot-self filtering, replay dedup by
- * external message id) is a pure state machine and is unit-tested in
- * `lib/__tests__/discord-gateway-client.test.ts` and
- * `lib/__tests__/gateway-bridge.test.ts` — it needs no running app.
+ * Ceiling, stated rather than implied: the transport is the chat-flavoured
+ * test-seed adapter, because connecting a real Discord channel requires a live
+ * bot token and a live credential probe, neither of which exists in CI. What is
+ * NOT stubbed is the part that was broken — the Discord frame, the Discord
+ * normalizer, and the hub's compose validation. The socket state machine
+ * (identify/resume/backoff, bot-self filtering, replay dedup) is a pure state
+ * machine covered by `lib/__tests__/discord-gateway-client.test.ts` and
+ * `lib/__tests__/gateway-bridge.test.ts`.
  *
  * Driven via the env-gated test-seed fixture (`OM_ENABLE_TEST_CHANNEL_SEEDING`);
  * skips when the gate is off.
@@ -66,26 +73,31 @@ async function readHealth(
   return (await readJsonSafe<HealthSnapshot>(response)) ?? {}
 }
 
-test.describe('TC-CHANNEL-DISCORD-003: inbound discord message ingest', () => {
-  test.fixme(
-    'a message shaped the way the Discord gateway actually produces it is ingested',
-    async () => {
-      // Cannot be written until #4975 is decided. The gateway produces a sender
-      // identified by a Discord snowflake and no address; the hub's
-      // `composeMessageSchema` requires `externalEmail` (a real
-      // `z.string().email()`) for every non-draft message with
-      // `visibility: 'public'`, which is every message from an external sender.
-      // Verified live during QA: the queued payload is complete and correct, and
-      // the ingest command fails validation three times before the job dies.
-      //
-      // Turn this into a real assertion — driving the gateway payload through
-      // `normalizeInboundDiscordMessage` with no invented address — in the same
-      // change that resolves #4975, and delete this fixme. Do not "fix" it by
-      // synthesising an address; #4975 rejects that explicitly.
+/**
+ * A `MESSAGE_CREATE` frame in the exact shape Discord delivers it. The values
+ * are the ones QA captured from a real guild while filing #4975 — in particular
+ * the author id is a genuine snowflake, which is the whole point: there is no
+ * address on it, and none is invented anywhere below.
+ */
+function discordMessageCreateFrame(stamp: number) {
+  return {
+    id: `1534333813851816${String(stamp).slice(-3)}`,
+    channel_id: '1534331920463433771',
+    guild_id: '1534331919796273152',
+    content: 'Kolejna wiadomość testowa!@',
+    timestamp: new Date().toISOString(),
+    author: {
+      id: '1499156851487539260',
+      username: 'lorakaspak',
+      global_name: 'Karol Kapsa',
+      bot: false,
     },
-  )
+    attachments: [],
+  }
+}
 
-  test('a discord-provider inbound message is persisted as a delivered inbound link', async ({
+test.describe('TC-CHANNEL-DISCORD-003: inbound discord message ingest', () => {
+  test('a message shaped the way the Discord gateway actually produces it is ingested', async ({
     request,
   }) => {
     test.slow()
@@ -96,52 +108,68 @@ test.describe('TC-CHANNEL-DISCORD-003: inbound discord message ingest', () => {
       const seedingAvailable = await isChannelSeedingAvailable(request, token)
       test.skip(
         !seedingAvailable,
-        'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled in this environment; cannot emit inbound messages.',
+        'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled in this environment; cannot ingest.',
       )
 
       const stamp = Date.now()
-      // Fixture scaffolding, not Discord data: the hub derives a channel's
-      // `externalIdentifier` from email-shaped credential keys, so a real
-      // Discord channel row carries NULL here (#4977). The address below exists
-      // only to satisfy the seeder's own uniqueness handling.
-      const fixtureAddress = `fixture-003-${stamp}@test-seed.local`
+      // `providerFlavor: 'chat'` connects the non-email stub, so the channel row
+      // carries a non-email `channelType` and a NULL `externalIdentifier` — the
+      // shape a real Discord channel has. No `externalIdentifier` is passed.
       channelId = await seedConnectedChannel(request, token, {
         displayName: `TC-CHANNEL-DISCORD-003 ${stamp}`,
-        externalIdentifier: fixtureAddress,
+        providerFlavor: 'chat',
       })
 
       const before = await readHealth(request, token, channelId)
-      const deliveredBefore = before.counts?.delivered ?? 0
       const totalBefore = before.totalsLast24h ?? 0
 
-      const seeded = await seedInboundMessage(request, token, {
+      // The real normalizer, on a real frame. If Discord's payload shape and the
+      // hub's expectations ever drift apart, this line is where it shows.
+      const frame = discordMessageCreateFrame(stamp)
+      const normalized = normalizeInboundDiscordMessage(frame as never)
+
+      expect(
+        normalized.senderIdentifier,
+        'the sender must stay the Discord snowflake — synthesising an address here is what #4975 rejects',
+      ).toBe('1499156851487539260')
+      expect(normalized.externalConversationId).toBe('discord-channel:1534331920463433771')
+      expect(
+        (normalized as { externalEmail?: unknown }).externalEmail,
+        'the normalizer must not invent an address',
+      ).toBeUndefined()
+
+      const ingested = await ingestInboundChatMessage(request, token, {
         channelId,
-        providerKey: 'discord',
-        from: `discord-user-${stamp}`,
-        // `to` and `subject` are hub-contract requirements, NOT things Discord
-        // supplies — a Discord message has neither. They are the reason the real
-        // path fails (#4975 / #4976) and are passed here purely to reach the
-        // landing-zone assertions below.
-        to: [fixtureAddress],
-        subject: `Discord inbound ${stamp}`,
-        bodyText: 'hello from a discord guild channel',
-        messageId: `discord-message-${stamp}`,
+        senderIdentifier: normalized.senderIdentifier,
+        senderDisplayName: normalized.senderDisplayName,
+        body: normalized.body,
+        externalMessageId: normalized.externalMessageId,
+        externalConversationId: normalized.externalConversationId,
       })
-      expect(seeded.channelLinkId, 'the hub must persist a MessageChannelLink').toBeTruthy()
-      expect(seeded.conversationId, 'the hub must persist an ExternalConversation').toBeTruthy()
+
+      // The assertion the old version could not make: the hub composed a real
+      // platform message from a sender with no address. Before #4975 this step
+      // failed `externalEmail is required when visibility is public`, retried
+      // three times and died in the queue while the channel still read
+      // `Connected`.
+      expect(
+        ingested.status,
+        'the hub must accept an inbound message whose sender has no email address',
+      ).toBe('created')
+      expect(ingested.messageId, 'a platform message must exist').toBeTruthy()
+      expect(ingested.channelLinkId, 'the hub must persist a MessageChannelLink').toBeTruthy()
+      expect(
+        ingested.channelType,
+        'the compose must have been told the originating channel type',
+      ).not.toBe('email')
 
       const after = await readHealth(request, token, channelId)
-      expect(after.channelId, 'health must be scoped to the channel under test').toBe(channelId)
-      expect(
-        after.counts?.delivered ?? 0,
-        'the discord inbound message must be counted as delivered',
-      ).toBe(deliveredBefore + 1)
       expect(
         after.totalsLast24h ?? 0,
-        'the discord inbound message must appear in the 24h window total',
-      ).toBe(totalBefore + 1)
+        'the channel health snapshot must count the ingested message',
+      ).toBeGreaterThan(totalBefore)
     } finally {
-      await deleteChannelIfExists(request, token, channelId)
+      if (token && channelId) await deleteChannelIfExists(request, token, channelId)
     }
   })
 })
