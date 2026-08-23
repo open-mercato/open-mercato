@@ -205,9 +205,10 @@ describe('customers deals list filters', () => {
     await buildDealListFilters(query as unknown as DealListQuery, ctx)
     const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
     const treeWhere = extractTreeWhere(calledFilters)
-    // Scalar $ilike preserved — the rewrite must not corrupt text operators.
-    expect(treeWhere.status).toMatchObject({ $ilike: expect.any(String) })
-    expect((treeWhere.status as Record<string, unknown>).$in).toBeUndefined()
+    // Exact scalar $ilike — the corrupted path would compile to '%win,won%', so an
+    // exact match is what makes this test fail if the STATUS_TREE_OPERATORS guard
+    // is ever dropped.
+    expect(treeWhere.status).toEqual({ $ilike: '%win%' })
     spy.mockRestore()
   })
 
