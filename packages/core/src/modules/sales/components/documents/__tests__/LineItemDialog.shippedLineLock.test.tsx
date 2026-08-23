@@ -200,6 +200,10 @@ const organizationScope = { organizationId: 'org-1', tenantId: 'tenant-1' }
 // `undefined` for the hook and the dialog throws on render; without pinning it here *and* in the
 // expectations below, the assertions would compare a pinned render against a runner-dependent
 // expectation and fail outside en-US.
+//
+// The factory repeats the literal rather than reading `TEST_LOCALE`: `jest.mock` is hoisted above
+// these declarations and rejects out-of-scope references that are not `mock`-prefixed, so the two
+// must be kept in sync by hand.
 const TEST_LOCALE = 'en-US'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
