@@ -195,8 +195,16 @@ const translate = (key: string, fallback?: unknown) =>
   typeof fallback === 'string' ? fallback : key
 const organizationScope = { organizationId: 'org-1', tenantId: 'tenant-1' }
 
+// LineItemDialog formats money in the app locale, so the mock pins it rather than letting the
+// component fall back to the runner's default (#5105). Without `useLocale` the partial mock returns
+// `undefined` for the hook and the dialog throws on render; without pinning it here *and* in the
+// expectations below, the assertions would compare a pinned render against a runner-dependent
+// expectation and fail outside en-US.
+const TEST_LOCALE = 'en-US'
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => translate,
+  useLocale: () => 'en-US',
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
@@ -410,7 +418,7 @@ describe('LineItemDialog shipped-line lock (issue #5248)', () => {
     // Asserted through the same formatter the dialog renders with, so the
     // expectation follows the runtime locale instead of pinning one currency
     // presentation (symbol vs ISO code) that only holds under some locales.
-    expect(priceInput.value).toBe(`${formatMoney(110.7, 'USD')} — Gross`)
+    expect(priceInput.value).toBe(`${formatMoney(110.7, 'USD', TEST_LOCALE)} — Gross`)
     // The DS forbids a middot as a copy separator, so the amount and its price
     // mode are joined with an em dash.
     expect(priceInput.value).not.toContain('·')
@@ -563,7 +571,7 @@ describe('LineItemDialog shipped-line lock (issue #5248)', () => {
     // The price list is fetched and rendered as selectable options rather than
     // collapsed to the current selection, and the controls stay live.
     const priceOption = await screen.findByRole('option', {
-      name: new RegExp(formatMoney(110.7, 'USD').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      name: new RegExp(formatMoney(110.7, 'USD', TEST_LOCALE).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
     })
     expect(priceOption).not.toHaveAttribute('aria-disabled')
     expect(priceOption).toHaveAttribute('tabindex', '0')

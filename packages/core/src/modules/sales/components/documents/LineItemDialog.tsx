@@ -2060,7 +2060,7 @@ export function LineItemDialog({
                       ? t("sales.documents.items.priceNet", "Net")
                       : t("sales.documents.items.priceGross", "Gross");
                   const lockedAmountLabel = Number.isFinite(lockedAmount)
-                    ? `${formatMoney(lockedAmount, lockedCurrency)} — ${lockedModeLabel}`
+                    ? `${formatMoney(lockedAmount, lockedCurrency, locale)} — ${lockedModeLabel}`
                     : lockedModeLabel;
                   const lockedPriceDetail =
                     selectedPrice?.priceKindTitle ??
