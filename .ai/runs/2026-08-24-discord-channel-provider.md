@@ -60,16 +60,16 @@ Everything the review and the author already agreed to defer. None of these is t
 
 ### Phase 3: P1 — the four Medium findings
 
-- [ ] 3.1 Flip `capabilities.threading` to `false` with a per-flag reason naming the missing hub-side producer, fix the justifying comment, pin it with a contract test
-- [ ] 3.2 Rewrite the `defaultChannelId` help text — #4976 is fixed and QA sent a real message through it — with en/pl/de/es parity
-- [ ] 3.3 Correct the spec's Adapter method map (`fileSharing`, `interactiveComponents`) and the subscriber `metadata.id`, plus a changelog entry
-- [ ] 3.4 Honour `GatewayJobPayload.organizationId` in both the channel filter and the reconciliation, with the scoped-payload regression test
+- [x] 3.1 Flip `capabilities.threading` to `false` with a per-flag reason naming the missing hub-side producer, fix the justifying comment, pin it with a contract test — be1077b75
+- [x] 3.2 Rewrite the `defaultChannelId` help text — #4976 is fixed and QA sent a real message through it — with en/pl/de/es parity — be1077b75
+- [x] 3.3 Correct the spec's Adapter method map (`fileSharing`, `interactiveComponents`) and the subscriber `metadata.id`, plus a changelog entry — be1077b75
+- [x] 3.4 Honour `GatewayJobPayload.organizationId` in both the channel filter and the reconciliation, with the scoped-payload regression test — be1077b75
 
 ### Phase 4: P2 — the three Low nits
 
-- [ ] 4.1 `integration.version` `'0.6.6'` → `'1.0.0'`, matching the sibling providers
-- [ ] 4.2 Switch `start-gateway` to `parseFlagsAndValues` and delete the buggy `parseArgs`
-- [ ] 4.3 Drop the unread `channel` parameter in `subscribers/ai-auto-reply.ts` instead of `void channel`
+- [x] 4.1 `integration.version` `'0.6.6'` → `'1.0.0'`, matching the sibling providers — be1077b75
+- [x] 4.2 Switch `start-gateway` to `parseFlagsAndValues` and delete the buggy `parseArgs` — be1077b75
+- [x] 4.3 Drop the unread `channel` parameter in `subscribers/ai-auto-reply.ts` instead of `void channel` — be1077b75
 
 ### Phase 5: Finish
 
