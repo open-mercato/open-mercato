@@ -73,6 +73,6 @@ Everything the review and the author already agreed to defer. None of these is t
 
 ### Phase 5: Finish
 
-- [ ] 5.1 Merge current `develop` into the branch
-- [ ] 5.2 Full `validation.commands` gate plus `yarn test:scripts` (turbo does not pick up root `scripts/__tests__/`)
+- [x] 5.1 Merge current `develop` into the branch — 49e89f92e
+- [x] 5.2 Full `validation.commands` gate plus `yarn test:scripts` (turbo does not pick up root `scripts/__tests__/`) — 7b1227f0c
 - [ ] 5.3 Finding→commit mapping comment on the PR, labels normalized, re-request review from @pkarw
