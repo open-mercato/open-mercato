@@ -47,6 +47,7 @@ test('every Copy page source URL resolves to its published raw MDX', async () =>
   const metadataFiles = (await readdir(docsMetadataDir)).filter((file) =>
     file.startsWith('site-docs-') && file.endsWith('.json'),
   );
+  assert.ok(metadataFiles.length > 0, 'production build must generate docs route metadata');
   const missingRawFiles = await Promise.all(
     metadataFiles.map(async (metadataFile) => {
       const metadata = JSON.parse(await readFile(new URL(metadataFile, docsMetadataDir), 'utf8'));

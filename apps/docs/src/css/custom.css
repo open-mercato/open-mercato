@@ -185,12 +185,6 @@ body {
   border-color: var(--ifm-color-danger);
 }
 
-.copy-page-button--wide {
-  width: 100%;
-  justify-content: center;
-  min-width: unset;
-}
-
 .copy-page-content-button {
   display: flex;
   justify-content: flex-end;

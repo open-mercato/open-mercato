@@ -1,12 +1,26 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDoc } from '@docusaurus/plugin-content-docs/client';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
 const DOCS_SOURCE_PREFIX = '@site/docs/';
 
-export default function CopyPageButton({ wide }: { wide?: boolean }): React.ReactElement {
-  const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
-  const [source, setSource] = useState<{ path: string; content: string } | null | undefined>(undefined);
+type LoadStatus = 'loading' | 'ready' | 'error';
+type ActionFlash = 'copied' | 'error' | null;
+
+/**
+ * A static-site host serving `/raw/<missing-path>` may fall back to `index.html`
+ * with a 200 status (single-page-app rewrite) instead of a 404. Guard against
+ * treating that fallback page as a valid raw Markdown source.
+ */
+export function isAcceptableRawSourceResponse(response: { ok: boolean; headers: { get(name: string): string | null } }): boolean {
+  const contentType = response.headers.get('content-type') ?? '';
+  return response.ok && !contentType.includes('text/html');
+}
+
+export default function CopyPageButton(): React.ReactElement {
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading');
+  const [actionFlash, setActionFlash] = useState<ActionFlash>(null);
+  const [source, setSource] = useState<{ path: string; content: string } | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { metadata } = useDoc();
   const sourcePath = metadata.source?.startsWith(DOCS_SOURCE_PREFIX)
@@ -14,83 +28,96 @@ export default function CopyPageButton({ wide }: { wide?: boolean }): React.Reac
     : null;
   const rawSourceUrl = useBaseUrl(sourcePath ? `raw/${sourcePath}` : 'raw/');
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    setSource(undefined);
-
-    if (!sourcePath) {
+  const loadSource = useCallback(
+    (signal?: AbortSignal) => {
+      setLoadStatus('loading');
       setSource(null);
-      flashState('error');
-    } else {
-      void fetch(rawSourceUrl, { signal: controller.signal })
+
+      if (!sourcePath) {
+        setLoadStatus('error');
+        return;
+      }
+
+      void fetch(rawSourceUrl, { signal })
         .then(async (response) => {
-          if (!response.ok) throw new Error('[internal] Unable to load raw documentation source.');
+          if (!isAcceptableRawSourceResponse(response)) {
+            throw new Error('[internal] Unable to load raw documentation source.');
+          }
           return response.text();
         })
         .then((content) => {
           setSource({ path: sourcePath, content });
+          setLoadStatus('ready');
         })
         .catch((error: unknown) => {
           if (error instanceof DOMException && error.name === 'AbortError') return;
-          setSource(null);
-          flashState('error');
+          setLoadStatus('error');
         });
-    }
+    },
+    [rawSourceUrl, sourcePath],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadSource(controller.signal);
 
     return () => {
       controller.abort();
       clearTimeout(timeoutRef.current);
     };
-  }, [rawSourceUrl, sourcePath]);
+  }, [loadSource]);
 
-  const sourceReady = source?.path === sourcePath;
+  function flashAction(next: 'copied' | 'error') {
+    setActionFlash(next);
+    clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setActionFlash(null), 2000);
+  }
 
-  function handleCopy() {
-    if (!source || source.path !== sourcePath) {
-      flashState('error');
+  function handleClick() {
+    if (loadStatus === 'error') {
+      loadSource();
+      return;
+    }
+
+    if (loadStatus !== 'ready' || !source || source.path !== sourcePath) {
+      flashAction('error');
       return;
     }
 
     void navigator.clipboard.writeText(source.content).then(
-      () => flashState('copied'),
-      () => flashState('error'),
+      () => flashAction('copied'),
+      () => flashAction('error'),
     );
   }
 
-  function flashState(next: 'copied' | 'error') {
-    setState(next);
-    clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setState('idle'), 2000);
-  }
-
   const label =
-    state === 'copied'
-      ? 'Copied!'
-      : state === 'error'
-        ? 'Failed to copy'
-        : !sourceReady
-          ? 'Preparing copy'
-          : 'Copy page';
+    loadStatus === 'error'
+      ? 'Failed to load — retry'
+      : actionFlash === 'copied'
+        ? 'Copied!'
+        : actionFlash === 'error'
+          ? 'Failed to copy'
+          : loadStatus === 'loading'
+            ? 'Preparing copy'
+            : 'Copy page';
 
   return (
     <button
       data-copy-page-button
       type="button"
-      disabled={!sourceReady}
+      disabled={loadStatus === 'loading'}
       className={[
         'copy-page-button',
-        state === 'copied' && 'copy-page-button--copied',
-        state === 'error' && 'copy-page-button--error',
-        wide && 'copy-page-button--wide',
+        actionFlash === 'copied' && 'copy-page-button--copied',
+        (actionFlash === 'error' || loadStatus === 'error') && 'copy-page-button--error',
       ]
         .filter(Boolean)
         .join(' ')}
-      onClick={handleCopy}
+      onClick={handleClick}
       title={label}
       aria-label="Copy page as Markdown"
     >
-      {state === 'copied' ? (
+      {actionFlash === 'copied' ? (
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path
             d="M13.5 4.5L6 12L2.5 8.5"

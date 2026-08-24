@@ -71,8 +71,15 @@ module.exports = function rawMdxPlugin(context) {
 
     async postBuild({ outDir }) {
       const rawDir = path.join(outDir, 'raw');
+      const publishedSourcePaths = getPublishedSourcePaths(context.generatedFilesDir);
 
-      for (const sourcePath of getPublishedSourcePaths(context.generatedFilesDir)) {
+      if (publishedSourcePaths.length === 0) {
+        throw new Error(
+          'raw-mdx-plugin: no published documentation sources found; refusing to emit an empty build/raw/ directory.',
+        );
+      }
+
+      for (const sourcePath of publishedSourcePaths) {
         const sourceFilePath = path.resolve(docsDir, sourcePath);
         if (!isPathWithin(docsDir, sourceFilePath) || !isDocumentationSource(sourceFilePath)) {
           continue;
