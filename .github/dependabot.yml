@@ -13,15 +13,16 @@ updates:
     # Dependabot keeps proposing versions whose PR cannot install: `yarn install`
     # fails with `YN0016 ... quarantined` and scripts/ci/npm-retry-on-quarantine.sh
     # fast-fails, because waiting inside a CI job never clears a client-side gate.
-    # The extra day absorbs the mismatch between Dependabot's whole-day cooldown
-    # arithmetic and yarn's exact-duration gate, so a PR opened the moment the
-    # cooldown lapses is already past 5d of real elapsed time.
+    # Five needs no safety margin: dependabot-core compares exact seconds
+    # (`Time.now - release_date < days * 86400`), not calendar days, and resolution
+    # in CI happens strictly after the PR is opened, so the version is only ever
+    # older by then.
     # Cooldown covers version updates only — a Dependabot *security* update may
     # still propose a version the yarn gate rejects, which is the intended
     # trade-off: the advisory is the signal to reach for `--no-time-gate`.
     # Guarded by scripts/__tests__/npm-minimal-age-gate.test.mjs.
     cooldown:
-      default-days: 6
+      default-days: 5
     groups:
       # Batch minor/patch updates for non-security deps to reduce noise
       minor-and-patch:
@@ -41,9 +42,9 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     # Actions live outside yarn's dependency graph, so `npmMinimalAgeGate` never
-    # sees them and a too-young action breaks no install — this cooldown is the
-    # only release-age defence on that supply chain and needs no install-margin.
-    # Five days matches the window agreed for npm in
+    # sees them — this cooldown is the only release-age defence on that supply
+    # chain, and it is set independently of the yarn gate rather than derived
+    # from it. Five days matches the window agreed for npm in
     # .ai/specs/briefs/2026-08-09-dependabot-cooldown-ci-gate.md, which is long
     # enough to cover the detection time of the action-hijack incidents on record.
     cooldown:
