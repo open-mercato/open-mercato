@@ -70,7 +70,7 @@ export function FooterFields({
             value={String(reminderMinutes)}
             onValueChange={(next) => setReminderMinutes(Number(next))}
           >
-            <SelectTrigger className="h-10">
+            <SelectTrigger>
               <SelectTriggerLeading><Bell /></SelectTriggerLeading>
               <SelectValue />
             </SelectTrigger>
@@ -90,7 +90,7 @@ export function FooterFields({
             {getFieldLabel(activityType, 'visibility', t, 'customers.schedule.visibility', 'Visibility')}
           </label>
           <Select value={visibility} onValueChange={setVisibility}>
-            <SelectTrigger className="h-10">
+            <SelectTrigger>
               <SelectTriggerLeading><Eye /></SelectTriggerLeading>
               <SelectValue />
             </SelectTrigger>

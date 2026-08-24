@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
 import type { LinkedEntity } from './useScheduleFormState'
@@ -134,30 +135,27 @@ function EntityLinkSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="text-muted-foreground">
+        <Button type="button" variant="outline" className="text-muted-foreground">
           <Plus className="size-3.5" />
           {t('customers.schedule.addLink', 'Add link')}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-2">
-        <div className="flex gap-1 mb-2">
+        <SegmentedControl
+          value={linkType}
+          onValueChange={(next) => { setLinkType(next as typeof linkType); setQuery('') }}
+          aria-label={t('customers.schedule.linkTypeSwitcher', 'Link type')}
+          className="mb-2 w-full"
+        >
           {ENTITY_LINK_TYPES.map((type) => (
-            <Button
-              key={type}
-              type="button"
-              variant={linkType === type ? 'default' : 'ghost'}
-              size="sm"
-              className="h-6 text-xs flex-1"
-              onClick={() => { setLinkType(type as typeof linkType); setQuery('') }}
-            >
-              {type === 'company' ? <Building2 className="mr-1 size-3" /> : type === 'deal' ? <Briefcase className="mr-1 size-3" /> : <FileText className="mr-1 size-3" />}
-              {type === 'company' ? t('customers.schedule.linkType.company', 'Company') : type === 'deal' ? t('customers.schedule.linkType.deal', 'Deal') : t('customers.schedule.linkType.offer', 'Offer')}
-            </Button>
+            <SegmentedControlItem key={type} value={type} className="min-w-0 flex-1 gap-1.5">
+              {type === 'company' ? <Building2 className="size-3.5 shrink-0" /> : type === 'deal' ? <Briefcase className="size-3.5 shrink-0" /> : <FileText className="size-3.5 shrink-0" />}
+              <span className="truncate">{type === 'company' ? t('customers.schedule.linkType.company', 'Company') : type === 'deal' ? t('customers.schedule.linkType.deal', 'Deal') : t('customers.schedule.linkType.offer', 'Offer')}</span>
+            </SegmentedControlItem>
           ))}
-        </div>
+        </SegmentedControl>
         <Input
           type="text"
-          size="sm"
           leftIcon={<Search />}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -170,7 +168,6 @@ function EntityLinkSearchPopover({
             <Button
               type="button"
               variant="outline"
-              size="sm"
               className="w-full"
               onClick={() => {
                 onAddMany(
@@ -206,7 +203,7 @@ function EntityLinkSearchPopover({
                   setQuery('')
                 }}
                 className={cn(
-                  'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                  'h-9 flex w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
                   alreadyLinked ? 'cursor-default text-muted-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
                 )}
               >
@@ -218,7 +215,7 @@ function EntityLinkSearchPopover({
           })}
           {!loading && hasMore ? (
             <div className="px-2 py-2">
-              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
+              <Button type="button" variant="outline" className="w-full" onClick={() => setPage((current) => current + 1)}>
                 {t('customers.schedule.loadMore', 'Load more')}
               </Button>
             </div>

@@ -87,7 +87,7 @@ function ParticipantSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
+        <Button type="button" variant="outline">
           <Users className="size-3.5" />
           {t('customers.schedule.addParticipant', 'Add participant')}
         </Button>
@@ -105,7 +105,6 @@ function ParticipantSearchPopover({
             <Button
               type="button"
               variant="outline"
-              size="sm"
               className="w-full"
               onClick={() => {
                 onAddMany(
@@ -143,7 +142,7 @@ function ParticipantSearchPopover({
                   setQuery('')
                 }}
                 className={cn(
-                  'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                  'h-9 flex w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
                   // Fight the Button primitive's disabled:opacity-50 — stacked with a
                   // local opacity the row faded to ~20% and read as empty space. An
                   // added member stays legible: muted text + explicit check.
@@ -161,7 +160,7 @@ function ParticipantSearchPopover({
           })}
           {!loading && !loadError && hasMore ? (
             <div className="px-2 py-2">
-              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
+              <Button type="button" variant="outline" className="w-full" onClick={() => setPage((current) => current + 1)}>
                 {t('customers.schedule.loadMore', 'Load more')}
               </Button>
             </div>

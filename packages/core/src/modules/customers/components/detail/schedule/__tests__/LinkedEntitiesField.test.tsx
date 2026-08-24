@@ -44,7 +44,7 @@ describe('LinkedEntitiesField', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Offer' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Offer' }))
 
     await waitFor(() => {
       expect(screen.getByText('SQ-1001')).toBeInTheDocument()

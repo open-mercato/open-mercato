@@ -219,50 +219,42 @@ export function ConfirmDialog({
       <div
         role="document"
         className={cn(
-          // Panel container
-          "flex flex-col gap-4 rounded-t-2xl border-t bg-card p-6 text-foreground shadow-lg",
-          "sm:rounded-xl sm:border",
-          // Relative positioning for close button
-          "relative"
+          // Panel container — DS Modal anatomy (Figma 466:4630): header row with
+          // hairline divider, 20px content inset, divided footer.
+          "flex flex-col rounded-t-2xl border-t bg-card text-foreground shadow-lg",
+          "sm:rounded-xl sm:border"
         )}
       >
-        {/* Close button */}
-        <IconButton
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={handleCancel}
-          disabled={loading}
-          aria-label={closeAriaLabel}
-          className="absolute right-4 top-4 opacity-70 hover:opacity-100"
-        >
-          <X className="h-4 w-4" />
-        </IconButton>
-
-        {/* Title */}
-        <h2
-          id={titleId}
-          className={cn(
-            "text-sm font-medium leading-snug tracking-tight pr-6",
-            // Mobile: centered, Desktop: left-aligned
-            "text-center sm:text-left"
-          )}
-        >
-          {resolvedTitle}
-        </h2>
+        {/* Header */}
+        <div className={cn("flex items-center justify-between gap-3 px-5 py-3.5", text && "border-b border-border")}>
+          <h2 id={titleId} className="text-sm font-medium leading-snug text-foreground">
+            {resolvedTitle}
+          </h2>
+          <IconButton
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleCancel}
+            disabled={loading}
+            aria-label={closeAriaLabel}
+            className="shrink-0 text-muted-foreground"
+          >
+            <X className="h-4 w-4" />
+          </IconButton>
+        </div>
 
         {/* Description (optional) */}
         {text && (
           <p
             id={descriptionId}
-            className="text-sm font-medium leading-snug text-muted-foreground"
+            className="px-5 py-4 text-sm leading-snug text-muted-foreground"
           >
             {text}
           </p>
         )}
 
         {/* Actions */}
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div className="flex flex-col-reverse gap-2 border-t border-border px-5 py-4 sm:flex-row sm:justify-end">
           {resolvedCancelText !== false && (
             <Button
               ref={cancelButtonRef}

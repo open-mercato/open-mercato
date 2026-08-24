@@ -30,7 +30,6 @@ export function LocationField({
       </label>
       <Input
         type="text"
-        size="lg"
         leftIcon={<MapPin />}
         value={location}
         onChange={(e) => setLocation(e.target.value)}

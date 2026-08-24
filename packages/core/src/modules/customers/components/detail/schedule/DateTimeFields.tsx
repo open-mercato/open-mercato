@@ -132,7 +132,7 @@ export function DateTimeFields({
             required
             aria-describedby={dateMissing ? dateErrorId : undefined}
             className={cn(
-              'h-10',
+              'h-9',
               dateMissing && 'border-status-error-border',
             )}
           />
@@ -154,7 +154,7 @@ export function DateTimeFields({
               disabled={allDay}
               placeholder={t('customers.schedule.start.placeholder', 'Pick a time')}
               className={cn(
-                'py-2.5',
+                'h-9',
                 timeMissing ? 'border-status-error-border' : undefined,
               )}
               showNowButton
@@ -181,7 +181,7 @@ export function DateTimeFields({
               }}
               disabled={allDay}
             >
-              <SelectTrigger className="h-10">
+              <SelectTrigger>
                 <SelectValue placeholder={t('customers.schedule.duration.placeholder', 'Pick duration')} />
               </SelectTrigger>
               <SelectContent>

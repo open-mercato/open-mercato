@@ -518,7 +518,6 @@ export function ScheduleActivityDialog({
           </label>
           <Input
             type="text"
-            size="lg"
             value={state.title}
             aria-required="true"
             onChange={(e) => state.setTitle(e.target.value)}
