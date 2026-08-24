@@ -180,7 +180,7 @@ export default function MyTimesheetsPage() {
 
   const gridInstanceId = React.useId()
   const durationHintId = `${gridInstanceId}-duration-hint`
-  const describeDurationErrorId = React.useCallback(
+  const buildDurationErrorId = React.useCallback(
     (projectId: string, dateKey: string): string => `${gridInstanceId}-duration-error-${projectId}-${dateKey}`,
     [gridInstanceId],
   )
@@ -925,7 +925,7 @@ export default function MyTimesheetsPage() {
                       const isDirty = dirty[project.id]?.[dateKey] !== undefined
                       const cellError = cellErrors[project.id]?.[dateKey]
                       const cellErrorMessage = cellError ? describeDurationError(cellError) : undefined
-                      const cellErrorId = cellErrorMessage ? describeDurationErrorId(project.id, dateKey) : undefined
+                      const cellErrorId = cellErrorMessage ? buildDurationErrorId(project.id, dateKey) : undefined
                       return (
                         <td key={dateKey} className={`px-0.5 py-0.5 ${weekend ? 'bg-muted/40' : ''}`}>
                           {weekend ? (
@@ -951,7 +951,6 @@ export default function MyTimesheetsPage() {
                               aria-invalid={cellError !== undefined}
                               aria-label={describeDurationCell(project.name, date)}
                               aria-describedby={[durationHintId, cellErrorId].filter(Boolean).join(' ')}
-                              aria-errormessage={cellErrorId}
                               title={cellErrorMessage ?? durationFormatHint}
                             />
                           )}

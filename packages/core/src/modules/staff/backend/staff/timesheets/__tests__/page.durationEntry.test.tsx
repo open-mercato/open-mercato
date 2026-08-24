@@ -283,9 +283,20 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
   })
 })
 
-function describedTextFor(input: HTMLInputElement): string[] {
+function describingNodesFor(input: HTMLInputElement): HTMLElement[] {
   const ids = (input.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
-  return ids.map((id) => document.getElementById(id)?.textContent ?? '')
+  return ids.flatMap((id) => {
+    const node = document.getElementById(id)
+    return node ? [node] : []
+  })
+}
+
+function describedTextFor(input: HTMLInputElement): string[] {
+  return describingNodesFor(input).map((node) => node.textContent ?? '')
+}
+
+function alertNodeFor(input: HTMLInputElement): HTMLElement | undefined {
+  return describingNodesFor(input).find((node) => node.getAttribute('role') === 'alert')
 }
 
 describe('MyTimesheetsPage — duration error accessibility (#5507)', () => {
@@ -309,12 +320,7 @@ describe('MyTimesheetsPage — duration error accessibility (#5507)', () => {
     await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
     const message = 'Maximum 24h per day. Use 1:30 or 90m for shorter entries.'
     expect(describedTextFor(inputs[0])).toContain(message)
-
-    const errorId = inputs[0].getAttribute('aria-errormessage') as string
-    expect(errorId).toBeTruthy()
-    const errorNode = document.getElementById(errorId) as HTMLElement
-    expect(errorNode).toHaveTextContent(message)
-    expect(errorNode).toHaveAttribute('role', 'alert')
+    expect(alertNodeFor(inputs[0])).toHaveTextContent(message)
   })
 
   it('exposes the unparseable-input reason the same way', async () => {
@@ -332,7 +338,7 @@ describe('MyTimesheetsPage — duration error accessibility (#5507)', () => {
     typeAndBlur(inputs[0], 'abc')
 
     await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
-    expect(inputs[1]).not.toHaveAttribute('aria-errormessage')
+    expect(alertNodeFor(inputs[1])).toBeUndefined()
     expect(describedTextFor(inputs[1])).not.toContain(
       'Unrecognised duration. Use 8, 1.5, 1:30, 90m or 1h 30m.',
     )
@@ -341,12 +347,12 @@ describe('MyTimesheetsPage — duration error accessibility (#5507)', () => {
   it('withdraws the announced error once the cell is corrected', async () => {
     const inputs = await renderGrid()
     typeAndBlur(inputs[0], 'abc')
-    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-errormessage'))
-    const errorId = inputs[0].getAttribute('aria-errormessage') as string
+    await waitFor(() => expect(alertNodeFor(inputs[0])).toBeDefined())
+    const errorId = (alertNodeFor(inputs[0]) as HTMLElement).id
 
     typeAndBlur(inputs[0], '1:30')
     await waitFor(() => expect(inputs[0]).not.toHaveAttribute('aria-invalid', 'true'))
-    expect(inputs[0]).not.toHaveAttribute('aria-errormessage')
+    expect(alertNodeFor(inputs[0])).toBeUndefined()
     expect(document.getElementById(errorId)).toBeNull()
   })
 })
