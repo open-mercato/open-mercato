@@ -239,6 +239,12 @@ export async function assertActorCanModifySuperAdminRoleTarget(input: SuperAdmin
   }
 }
 
+/**
+ * `input.tenantId` is the ACTOR's scope, not the target's: the check below is a
+ * comparison between the two, so passing a tenant derived from the target turns
+ * it into a tautology. Callers that resolve a record scope separately MUST still
+ * hand this guard `auth.tenantId`.
+ */
 export async function assertActorCanAccessUserTarget(input: UserTargetAccessInput): Promise<void> {
   const isSuperAdmin = await resolveActorIsSuperAdmin(input)
   if (isSuperAdmin) return

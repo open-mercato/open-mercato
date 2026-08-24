@@ -17,6 +17,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
 import { WorkflowInstance } from '../../data/entities'
 import * as activityExecutor from '../activity-executor'
 import type { ActivityDefinition, ActivityContext } from '../activity-executor'
@@ -27,6 +28,17 @@ import {
 
 // Mock global fetch
 global.fetch = jest.fn()
+
+createModuleEvents({
+  moduleId: 'workflow_emit_security_test',
+  events: [
+    {
+      id: 'workflow_emit_security_test.private_coordination',
+      label: 'Private coordination',
+      crossProcessBroadcast: true,
+    },
+  ] as const,
+})
 
 describe('Activity Executor (Unit Tests)', () => {
   let mockEm: jest.Mocked<EntityManager>
@@ -330,6 +342,38 @@ describe('Activity Executor (Unit Tests)', () => {
           process.env.OM_WORKFLOWS_TEST_EVENT_SECRET = originalSecret
         }
       }
+    })
+
+    test('rejects private cross-process coordination events', async () => {
+      const mockEventBus = {
+        emitEvent: jest.fn().mockResolvedValue(undefined),
+      }
+      mockContainer.resolve.mockReturnValue(mockEventBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-private-event',
+        activityName: 'Spoof private coordination event',
+        activityType: 'EMIT_EVENT',
+        config: {
+          eventName: 'workflow_emit_security_test.private_coordination',
+          payload: {
+            id: 'foreign-record-id',
+            tenantId: 'foreign-tenant-id',
+            organizationId: 'foreign-organization-id',
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext,
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('cannot emit private cross-process event')
+      expect(mockEventBus.emitEvent).not.toHaveBeenCalled()
     })
 
     test('should fail EMIT_EVENT when a payload value stays unresolved', async () => {
