@@ -50,7 +50,7 @@ export function Field({ label, children, error, className, required }: { label: 
     <div className={cn('flex w-full flex-col gap-1.5', className)}>
       <span className={LABEL_CLASS}>
         {label}
-        {required ? <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span> : null}
+        {required ? <span aria-hidden="true" className="ml-1 text-accent-indigo">*</span> : null}
       </span>
       {children}
       {error ? <p className="text-xs text-status-error-text">{error}</p> : null}

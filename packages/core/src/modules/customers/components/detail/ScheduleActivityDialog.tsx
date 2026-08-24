@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Users, Phone, Check, Mail, Calendar, X, StickyNote, ChevronDown, ChevronUp, ChevronsUp, Equal } from 'lucide-react'
+import { Users, Phone, PhoneIncoming, PhoneOutgoing, Check, Mail, Calendar, X, StickyNote, ChevronDown, ChevronUp, ChevronsUp, Equal } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
@@ -65,9 +65,9 @@ const TYPE_CHROME: Record<ActivityType, DialogChrome> = {
   },
 }
 
-const CALL_DIRECTIONS: Array<{ key: 'outbound' | 'inbound'; labelKey: string; labelFallback: string; dot: string }> = [
-  { key: 'outbound', labelKey: 'customers.schedule.call.direction.outbound', labelFallback: 'Outbound', dot: 'bg-status-info-icon' },
-  { key: 'inbound', labelKey: 'customers.schedule.call.direction.inbound', labelFallback: 'Inbound', dot: 'bg-status-success-icon' },
+const CALL_DIRECTIONS: Array<{ key: 'outbound' | 'inbound'; labelKey: string; labelFallback: string; icon: React.ComponentType<{ className?: string }>; iconClass: string }> = [
+  { key: 'outbound', labelKey: 'customers.schedule.call.direction.outbound', labelFallback: 'Outbound', icon: PhoneOutgoing, iconClass: 'text-status-info-icon' },
+  { key: 'inbound', labelKey: 'customers.schedule.call.direction.inbound', labelFallback: 'Inbound', icon: PhoneIncoming, iconClass: 'text-status-success-icon' },
 ]
 
 
@@ -513,7 +513,7 @@ export function ScheduleActivityDialog({
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-medium">
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
-            <span className="text-status-error-text"> *</span>
+            <span className="text-accent-indigo"> *</span>
           </label>
           <Input
             type="text"
@@ -565,6 +565,7 @@ export function ScheduleActivityDialog({
               <div className="mt-2 flex flex-wrap gap-2">
                 {CALL_DIRECTIONS.map((opt) => {
                   const isActive = callDirection === opt.key
+                  const DirectionIcon = opt.icon
                   return (
                     <button
                       key={opt.key}
@@ -574,11 +575,11 @@ export function ScheduleActivityDialog({
                       className={cn(
                         'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
                         isActive
-                          ? 'border-transparent bg-foreground text-background'
+                          ? 'border-foreground bg-background font-semibold text-foreground'
                           : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
                       )}
                     >
-                      <span className={cn('inline-block size-1.5 rounded-full', opt.dot)} aria-hidden />
+                      <DirectionIcon className={cn('size-3.5', opt.iconClass)} aria-hidden />
                       {t(opt.labelKey, opt.labelFallback)}
                     </button>
                   )

@@ -7,10 +7,10 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 /**
- * iOS-style segmented control per Figma `Switch / Chart / Cryptocurrency`
- * (component set id `199963:1442` in DS Open Mercato). Renders a single
- * track with N items where exactly one is selected at a time. Selecting
- * a new item fires `onValueChange`.
+ * Segmented control per Figma `Segmented Control` (node `2604:114` in DS
+ * Open Mercato): radius-10 track, radius-6 selected item — small radii,
+ * not pills. Renders a single track with N items where exactly one is
+ * selected at a time. Selecting a new item fires `onValueChange`.
  *
  * Use for **mutually-exclusive view state** — list page filters like
  * "All / Active / Archived", chart period selectors, layout toggles
@@ -47,24 +47,21 @@ const SegmentedControlContext = React.createContext<SegmentedControlContextValue
 })
 
 const trackVariants = cva(
-  // Pill-shaped track with subtle inner padding so selected items render
-  // a smaller inner pill (the iOS slide-thumb effect). Track is muted —
-  // selected item raises with bg-background + shadow-sm. We use full
+  // Figma `Segmented Control [1.1]` (2604:114): borderless radius-10 track on
+  // bg/weak-50, 4px inner padding, 4px gap, radius-6 items. We use full
   // `bg-muted` (not /40) so the contrast between track and a selected
   // bg-background item stays visible in the light theme; in dark mode
   // the token already darkens further so the contrast holds.
   //
-  // Height math (box-border on every element):
-  //   default → track h-8 (32px) − 2px border − 2px padding (p-px ×2) = 28px → matches item h-7
-  //   sm      → track h-7 (28px) − 2px border − 2px padding (p-px ×2) = 24px → matches item h-6
-  // Using `p-0.5` (2px each side = 4px total) instead breaks both sizes by
-  // 2px so the selected pill clips top and bottom against the track border.
-  'inline-flex w-fit gap-0 rounded-full border border-input bg-muted p-px transition-colors',
+  // Height math (box-border, no border):
+  //   default → track h-9 (36px) − 8px padding (p-1 ×2) = 28px → matches item h-7
+  //   sm      → track h-8 (32px) − 8px padding (p-1 ×2) = 24px → matches item h-6
+  'inline-flex w-fit gap-1 rounded-lg bg-muted p-1 transition-colors',
   {
     variants: {
       size: {
-        sm: 'h-7',
-        default: 'h-8',
+        sm: 'h-8',
+        default: 'h-9',
       },
       disabled: {
         true: 'cursor-not-allowed opacity-60',
@@ -79,16 +76,14 @@ const trackVariants = cva(
 )
 
 const itemVariants = cva(
-  // Items are pills that fill the track minus its 2px inner padding.
-  // Selected state lifts via bg-background + shadow-sm + font-semibold
-  // (the font-weight bump gives a secondary visual cue beyond color +
-  // shadow, important when the surrounding theme is high-key and the
-  // shadow alone is hard to read). Unselected text is muted; hover
-  // only nudges color (no bg change — keeps the track flat).
-  'inline-flex items-center justify-center rounded-full font-medium ' +
+  // Items are radius-6 tiles inside the track's 4px padding. Per Figma the
+  // selected tile lifts via bg-background + the toggle shadow + Medium (500)
+  // weight on strong text; unselected labels are Regular muted. Hover only
+  // nudges color (no bg change — keeps the track flat).
+  'inline-flex items-center justify-center rounded-sm font-normal ' +
     'transition-all outline-none focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-50 ' +
-    'data-[state=checked]:bg-background data-[state=checked]:text-foreground data-[state=checked]:font-semibold data-[state=checked]:shadow-sm ' +
+    'data-[state=checked]:bg-background data-[state=checked]:text-foreground data-[state=checked]:font-medium data-[state=checked]:shadow-sm ' +
     'data-[state=unchecked]:bg-transparent data-[state=unchecked]:text-muted-foreground data-[state=unchecked]:hover:text-foreground',
   {
     variants: {

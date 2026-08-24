@@ -123,7 +123,7 @@ export function DateTimeFields({
         <div className="flex min-w-0 flex-[1.5] flex-col gap-1.5">
           <label className="text-sm font-medium">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
-            <span className="text-status-error-text"> *</span>
+            <span className="text-accent-indigo"> *</span>
           </label>
           <DatePicker
             value={parseIsoDate(date)}
@@ -146,7 +146,7 @@ export function DateTimeFields({
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <label className="text-sm font-medium">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
-              <span className="text-status-error-text"> *</span>
+              <span className="text-accent-indigo"> *</span>
             </label>
             <TimePicker
               value={startTime || null}
@@ -266,7 +266,7 @@ export function DateTimeFields({
                 aria-pressed={recurrenceEndType === type}
                 onClick={() => setRecurrenceEndType(type)}
                 className={cn(
-                  'h-auto rounded-md px-2.5 py-1 text-xs font-medium',
+                  'h-8 rounded-md px-2.5 text-xs font-medium',
                   recurrenceEndType === type
                     ? 'bg-primary text-primary-foreground'
                     : 'border border-border bg-background text-muted-foreground hover:bg-brand-violet/20 dark:hover:bg-brand-violet/20',
@@ -286,7 +286,7 @@ export function DateTimeFields({
                   setRecurrenceCount(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
                 }}
                 aria-label={t('customers.schedule.recurrence.afterOccurrences', 'After occurrences')}
-                className="w-20"
+                className="h-8 w-20"
               />
             ) : null}
             {recurrenceEndType === 'date' ? (
@@ -295,7 +295,7 @@ export function DateTimeFields({
                 onChange={(next) => setRecurrenceEndDate(formatIsoDate(next))}
                 placeholder={t('customers.schedule.recurrence.onDate', 'On date')}
                 aria-label={t('customers.schedule.recurrence.onDate', 'On date')}
-                className="h-8 w-40"
+                className="h-8 w-40 text-xs"
               />
             ) : null}
           </div>

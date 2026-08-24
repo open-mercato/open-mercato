@@ -1637,7 +1637,7 @@ function ProductDetailsSection({
       <div className="space-y-2" data-crud-field-id="title">
         <Label className="flex items-center gap-1">
           {t("catalog.products.form.title", "Title")}
-          <span className="text-status-error-text">*</span>
+          <span className="text-accent-indigo">*</span>
         </Label>
         <Input
           value={values.title}
@@ -1657,7 +1657,7 @@ function ProductDetailsSection({
           <Label className="flex items-center gap-1">
             {t("catalog.products.form.description", "Description")}
             {requiredFieldIds?.has("description") ? (
-              <span className="text-status-error-text">*</span>
+              <span className="text-accent-indigo">*</span>
             ) : null}
           </Label>
           <Button
