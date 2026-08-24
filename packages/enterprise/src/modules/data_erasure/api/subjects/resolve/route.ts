@@ -47,7 +47,7 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Resolve data-subject references',
   methods: {
     POST: {
-      summary: 'Resolve an email address to tenant-scoped subject references',
+      summary: 'Resolve an email address or phone number to tenant-scoped subject references',
       requestBody: { contentType: 'application/json', schema: subjectResolutionSchema },
     },
   },

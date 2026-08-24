@@ -59,6 +59,8 @@ type HoldDraft = {
   expiresAt: string
 }
 
+type SubjectIdentifierKind = 'email' | 'phone'
+
 const EMPTY_POLICY: PolicyDraft = {
   dataClassId: '',
   retentionDays: '365',
@@ -101,7 +103,8 @@ export default function PrivacyManagementPage() {
   const [policyDraft, setPolicyDraft] = React.useState<PolicyDraft>(EMPTY_POLICY)
   const [editingPolicy, setEditingPolicy] = React.useState<PrivacyPolicy | null>(null)
   const [holdDraft, setHoldDraft] = React.useState<HoldDraft>(EMPTY_HOLD)
-  const [subjectEmail, setSubjectEmail] = React.useState('')
+  const [subjectIdentifierKind, setSubjectIdentifierKind] = React.useState<SubjectIdentifierKind>('email')
+  const [subjectIdentifierValue, setSubjectIdentifierValue] = React.useState('')
   const [resolvedSubjects, setResolvedSubjects] = React.useState<ResolvedSubjectRow[]>([])
   const [subjectOutput, setSubjectOutput] = React.useState<unknown>(null)
 
@@ -357,8 +360,8 @@ export default function PrivacyManagementPage() {
 
   const resolveSubject = React.useCallback(async (event: React.FormEvent) => {
     event.preventDefault()
-    const email = subjectEmail.trim()
-    if (!email) {
+    const identifierValue = subjectIdentifierValue.trim()
+    if (!identifierValue) {
       flash(t('data_erasure.errors.form'), 'error')
       return
     }
@@ -369,9 +372,9 @@ export default function PrivacyManagementPage() {
         () => apiCallOrThrow<SubjectResolutionResponse>('/api/data_erasure/subjects/resolve', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ identifier: { kind: 'email', value: email } }),
+          body: JSON.stringify({ identifier: { kind: subjectIdentifierKind, value: identifierValue } }),
         }),
-        { identifierKind: 'email' },
+        { identifierKind: subjectIdentifierKind },
       )
       const rows = Object.entries(response.result?.subjects ?? {}).flatMap(([dataClassId, subjects]) => (
         subjects.map((subject) => ({
@@ -390,7 +393,7 @@ export default function PrivacyManagementPage() {
     } finally {
       setSaving(false)
     }
-  }, [loadAll, mutate, subjectEmail, t])
+  }, [loadAll, mutate, subjectIdentifierKind, subjectIdentifierValue, t])
 
   const runSubjectAction = React.useCallback(async (
     subject: ResolvedSubjectRow,
@@ -788,11 +791,35 @@ export default function PrivacyManagementPage() {
               </CardHeader>
               <CardContent>
                 <form className="flex flex-col gap-3 sm:flex-row" onSubmit={resolveSubject}>
-                  <EmailInput
-                    value={subjectEmail}
-                    onChange={(event) => setSubjectEmail(event.target.value)}
-                    placeholder={t('data_erasure.subject.emailPlaceholder')}
-                  />
+                  <Select
+                    value={subjectIdentifierKind}
+                    onValueChange={(value) => {
+                      setSubjectIdentifierKind(value as SubjectIdentifierKind)
+                      setSubjectIdentifierValue('')
+                    }}
+                  >
+                    <SelectTrigger className="sm:w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="email">{t('data_erasure.subject.identifier.email')}</SelectItem>
+                      <SelectItem value="phone">{t('data_erasure.subject.identifier.phone')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {subjectIdentifierKind === 'email' ? (
+                    <EmailInput
+                      value={subjectIdentifierValue}
+                      onChange={(event) => setSubjectIdentifierValue(event.target.value)}
+                      placeholder={t('data_erasure.subject.emailPlaceholder')}
+                    />
+                  ) : (
+                    <Input
+                      type="tel"
+                      value={subjectIdentifierValue}
+                      onChange={(event) => setSubjectIdentifierValue(event.target.value)}
+                      placeholder={t('data_erasure.subject.phonePlaceholder')}
+                    />
+                  )}
                   <Button type="submit" disabled={saving}>{t('data_erasure.subject.resolve')}</Button>
                 </form>
               </CardContent>

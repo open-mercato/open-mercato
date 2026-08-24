@@ -8,6 +8,7 @@ import {
   deleteUserIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 
@@ -240,6 +241,48 @@ test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
     } finally {
       await deleteUserIfExists(request, token, userId)
       await deleteRoleIfExists(request, token, roleId)
+    }
+  })
+
+  test('resolves a customer person by phone without persisting the phone in the operation report', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const phone = `+48 500 ${String(stamp).slice(-3)} ${String(stamp + 17).slice(-3)}`
+    let personId: string | null = null
+
+    try {
+      const createResponse = await apiRequest(request, 'POST', '/api/customers/people', {
+        token,
+        data: {
+          firstName: 'Privacy',
+          lastName: `Phone ${stamp}`,
+          displayName: `Privacy Phone ${stamp}`,
+          primaryPhone: phone,
+          status: 'active',
+        },
+      })
+      expect(createResponse.ok(), `Create person failed with status ${createResponse.status()}`).toBeTruthy()
+      const created = await readJsonSafe<{ id?: unknown }>(createResponse)
+      personId = typeof created?.id === 'string' ? created.id : null
+      expect(personId).toBeTruthy()
+
+      const resolutionResponse = await apiRequest(request, 'POST', '/api/data_erasure/subjects/resolve', {
+        token,
+        data: {
+          identifier: { kind: 'phone', value: phone },
+          dataClassIds: ['customers.people'],
+        },
+      })
+      expect(resolutionResponse.ok()).toBeTruthy()
+      const resolution = await resolutionResponse.json() as {
+        operation: { status: string; report: Record<string, unknown> }
+        subjects: Record<string, Array<{ kind: string; id: string }>>
+      }
+      expect(resolution.operation.status).toBe('completed')
+      expect(resolution.subjects['customers.people']).toEqual([{ kind: 'customers:person', id: personId }])
+      expect(JSON.stringify(resolution.operation.report)).not.toContain(phone)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
   })
 })

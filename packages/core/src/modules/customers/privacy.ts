@@ -41,7 +41,7 @@ registerPrivacyDataClass({
   description: 'Customer person profiles and directly attached personal records.',
   handlerService: 'customerPeoplePrivacyHandler',
   subjectKinds: ['customers:person'],
-  subjectIdentifierKinds: ['email'],
+  subjectIdentifierKinds: ['email', 'phone'],
   retention: { actions: ['delete', 'anonymize'], defaultDays: 365 },
   subjectActions: ['discover', 'export', 'erase', 'anonymize'],
   environmentSanitization: { categories: ['personal_data'] },
@@ -96,13 +96,12 @@ export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
   }
 
   async resolveSubjects(input: PrivacySubjectResolutionInput) {
-    if (input.identifier.kind !== 'email') return { subjects: [] }
     const searchConfig = resolveSearchConfig()
     const lookup = await findEntityIdsBySearchTokens({
       db: this.em.getKysely<SearchTokenDatabase>(),
       entityType: 'customers:customer_entity',
       query: input.identifier.value,
-      fields: ['primary_email'],
+      fields: [input.identifier.kind === 'email' ? 'primary_email' : 'primary_phone'],
       scope: input.scope,
       config: { ...searchConfig, enabled: true },
     })
