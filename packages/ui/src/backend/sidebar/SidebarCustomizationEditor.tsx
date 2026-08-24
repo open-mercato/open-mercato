@@ -1615,7 +1615,7 @@ function SidebarPreview({
               return (
                 <div
                   key={resolveGroupKey(group)}
-                  className={`box px-3 ${gi < groups.length - 1 ? 'border-b pb-2' : ''}`}
+                  className={`px-3 ${gi < groups.length - 1 ? 'border-b pb-2' : ''}`}
                 >
                   <div className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1">
                     <span>{group.name}</span>

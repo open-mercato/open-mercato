@@ -411,6 +411,19 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   return item.href
 }
 
+// Horizontal padding lives on each sidebar block rather than on the <aside>, so the scroll
+// container never needs a negative-margin bleed to reach the panel edges. The transition keeps the
+// compact/expanded padding step in sync with the aside's width animation.
+function sidebarBlockPadding(compact: boolean): string {
+  return `${compact ? 'px-2' : 'px-3'} transition-[padding] duration-200 ease-out`
+}
+
+// An InjectionSpot renders nothing when no widget is registered, so its wrapper must collapse
+// instead of surviving as an empty flex child that still costs a full `gap-3`.
+function sidebarInjectionWrapper(compact: boolean): string {
+  return `${sidebarBlockPadding(compact)} empty:hidden`
+}
+
 function SerializedIcon({ markup }: { markup: string }) {
   return <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: markup }} />
 }
@@ -804,13 +817,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   ) {
     const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     const lastVisibleIndex = sortedSections.length - 1
-    const sidebarContentPadding = compact ? 'px-2' : 'px-3'
-    const sidebarOuterPadding = compact ? 'px-2' : 'px-3'
+    const blockPadding = sidebarBlockPadding(compact)
 
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className={`mb-2 ${sidebarOuterPadding}`}>
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
@@ -822,7 +834,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         )}
         {!compact && !hideSearch && (
-          <div className={sidebarOuterPadding}>
+          <div className={blockPadding}>
             <SearchInput
               value={navQuery}
               onChange={setNavQuery}
@@ -915,7 +927,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
             return (
               <div
                 key={section.id}
-                className={`box ${sidebarContentPadding} ${sectionIndex !== lastVisibleIndex ? 'border-b pb-2' : ''}`}
+                className={`${blockPadding} ${sectionIndex !== lastVisibleIndex ? 'border-b pb-2' : ''}`}
+                data-sidebar-group="true"
               >
                 {!compact && (
                   <Button
@@ -943,12 +956,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
-    const sidebarContentPadding = compact ? 'px-2' : 'px-3'
-    const sidebarOuterPadding = compact ? 'px-2' : 'px-3'
+    const blockPadding = sidebarBlockPadding(compact)
+    const injectionWrapper = sidebarInjectionWrapper(compact)
 
     if (!isChromeReady && isChromeLoading) {
       return (
-        <div className={`flex min-h-full flex-col gap-3 ${sidebarOuterPadding}`} data-testid="backend-chrome-loading">
+        <div className={`flex min-h-full flex-col gap-3 ${blockPadding}`} data-testid="backend-chrome-loading">
           {!hideHeader ? (
             <div className="mb-2">
               <Link
@@ -961,7 +974,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               </Link>
             </div>
           ) : null}
-          <div className="flex flex-1 flex-col gap-3 pr-1">
+          <div className="flex flex-1 flex-col gap-3">
             <div className="space-y-3">
               <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
@@ -1016,7 +1029,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className={`mb-2 ${sidebarOuterPadding}`}>
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
@@ -1028,7 +1041,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         )}
         {shouldRenderSidebarInjectionSpots ? (
-          <div className={sidebarOuterPadding}>
+          <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
               context={injectionContext}
@@ -1036,7 +1049,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         ) : null}
         {!compact && (
-          <div className={sidebarOuterPadding}>
+          <div className={blockPadding}>
             <SearchInput
               value={navQuery}
               onChange={setNavQuery}
@@ -1076,7 +1089,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 <>
                   <nav className="flex flex-col gap-2" data-testid="sidebar">
                     {shouldRenderSidebarInjectionSpots ? (
-                      <div className={sidebarContentPadding + ' empty:hidden'}>
+                      <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
                         <InjectionSpot
                           spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
                           context={injectionContext}
@@ -1096,8 +1109,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       if (visibleItems.length === 0) return null
                       return (
                         <div
-                          className={`${sidebarContentPadding} ${gi !== mainLastVisibleGroupIndex ? 'border-b pb-2' : ''}`}
+                          className={`${blockPadding} ${gi !== mainLastVisibleGroupIndex ? 'border-b pb-2' : ''}`}
                           key={groupId}
+                          data-sidebar-group="true"
                         >
                           {!compact && (
                             <Button
@@ -1199,7 +1213,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               )
             })()}
         </div>
-        <div className={`sticky bottom-0 bg-background pb-1 ${sidebarOuterPadding}`}>
+        <div className={`sticky bottom-0 bg-background pb-1 ${injectionWrapper}`} data-sidebar-injection-wrapper="true">
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
@@ -1244,7 +1258,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     if (!sections) return null
     return (
       <div className="flex h-full flex-col gap-2">
-        <div className="px-3">
+        <div className={sidebarBlockPadding(false)}>
           <Link
             href="/backend"
             className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
@@ -1590,7 +1604,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   ? `mobile-drawer-tab-${mobileDrawerView === 'main' ? 'main' : 'section'}`
                   : undefined
               }
-              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3"
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-3"
             >
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
               {renderSidebar(false, true, mobileDrawerView === 'main')}
