@@ -79,7 +79,7 @@ then re-read the diff.
 
 ### Phase 1: Operator guide
 
-- [ ] 1.1 Write `apps/docs/docs/user-guide/communication-channels-discord.mdx`
+- [x] 1.1 Write `apps/docs/docs/user-guide/communication-channels-discord.mdx` — a963a6687
 
 ### Phase 2: Developer guide
 
