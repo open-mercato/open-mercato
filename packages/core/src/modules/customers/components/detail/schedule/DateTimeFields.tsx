@@ -147,6 +147,7 @@ export function DateTimeFields({
               )}
               showNowButton
               showClearButton={false}
+              popoverModal
             />
             {timeMissing ? (
               <p id={timeErrorId} className="text-xs text-status-error-foreground">

@@ -306,7 +306,9 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
         >
           <ChevronLeft className="size-4 text-foreground" />
         </button>
-        <div className="flex flex-1 items-stretch justify-center gap-1">
+        {/* Five 101px tiles overflow a phone viewport; keep the row scrollable inside
+            the card so the document itself never scrolls horizontally. */}
+        <div className="flex min-w-0 flex-1 items-stretch justify-center gap-1 overflow-x-auto">
           {visibleDays.map((day) => {
             const busy = computeDayBusyness(events, day)
             const isSelected = isSameDay(day, selectedDate)
@@ -363,7 +365,7 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
       aria-pressed={isActive}
       aria-label={`${dayName} ${dayNumber}`}
       className={cn(
-        'flex h-[104px] w-[101px] flex-col items-center gap-[6px] overflow-hidden rounded-[10px] border p-[12px] transition-colors',
+        'flex h-[104px] w-[101px] shrink-0 flex-col items-center gap-[6px] overflow-hidden rounded-[10px] border p-[12px] transition-colors',
         isActive
           ? 'border-transparent bg-foreground'
           : 'border-border bg-card hover:border-foreground/40',

@@ -13,9 +13,15 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
+
+const logger = createLogger('customers')
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -175,6 +181,7 @@ export function ActivityHistorySection({
   excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [searchInput, setSearchInput] = React.useState('')
   const [search, setSearch] = React.useState('')
   const [activeTypes, setActiveTypes] = React.useState<string[]>([])
@@ -343,8 +350,46 @@ export function ActivityHistorySection({
     setLoadedPages((current) => current + 1)
   }, [])
 
+  const handleDelete = React.useCallback(async (activity: InteractionSummary) => {
+    const confirmed = await confirm({
+      title: t('customers.activities.actions.deleteConfirmTitle', 'Delete activity?'),
+      description: t(
+        'customers.activities.actions.deleteConfirmDescription',
+        'The activity will be removed from the timeline.',
+      ),
+      confirmText: t('customers.activities.actions.delete', 'Delete activity'),
+      cancelText: t('customers.activities.actions.deleteCancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      const operation = () =>
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt), () =>
+          apiCallOrThrow('/api/customers/interactions', {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activity.id }),
+          }),
+        )
+      if (runMutation) {
+        await runMutation(operation, {
+          id: activity.id,
+          operation: 'deleteActivity',
+        })
+      } else {
+        await operation()
+      }
+      flash(t('customers.activities.actions.deleteSuccess', 'Activity deleted'), 'success')
+      handleActivityChanged()
+    } catch (err) {
+      logger.warn('Delete activity failed', { component: 'ActivityHistorySection', activityId: activity.id, err })
+      flash(t('customers.activities.actions.deleteError', 'Could not delete activity'), 'error')
+    }
+  }, [confirm, handleActivityChanged, runMutation, t])
+
   return (
     <div className="rounded-xl border bg-card">
+      {ConfirmDialogElement}
       <div className="flex items-center gap-2 border-b px-5 py-4">
         <Clock3 className="size-4 text-muted-foreground" />
         <div className="min-w-0">
@@ -467,6 +512,7 @@ export function ActivityHistorySection({
                     activity={activity}
                     onOpen={onEditActivity}
                     onChanged={handleActivityChanged}
+                    onDelete={handleDelete}
                     runMutation={runMutation}
                   />
                 </React.Fragment>

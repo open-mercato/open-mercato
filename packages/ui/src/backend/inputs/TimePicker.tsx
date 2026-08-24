@@ -19,6 +19,7 @@ export type TimePickerProps = {
   minuteStep?: number
   showNowButton?: boolean
   showClearButton?: boolean
+  popoverModal?: boolean
 }
 
 function currentHHMM(): string {
@@ -50,6 +51,10 @@ export function TimePicker({
   // by "Clear" in most flows. Pass `showClearButton={true}` to opt back in when
   // you need an explicit "set value to null" action distinct from "dismiss".
   showClearButton = false,
+  // Modal popover mode is per-context: opt in when this picker renders inside a
+  // Dialog (the dialog scroll lock otherwise blocks the slot list), leave off on
+  // plain form pages where a background scroll lock would be too heavy.
+  popoverModal = false,
 }: TimePickerProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -144,6 +149,7 @@ export function TimePicker({
       open={open}
       onOpenChange={setOpen}
       disabled={disabled}
+      popoverModal={popoverModal}
     />
   )
 }
