@@ -476,7 +476,7 @@ export function ScheduleActivityDialog({
           <h2 className="text-sm font-medium text-foreground">
             {isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}
           </h2>
-          <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="shrink-0 text-muted-foreground" aria-label={t('customers.schedule.cancel', 'Cancel')}>
+          <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="shrink-0 text-muted-foreground opacity-70 hover:bg-transparent hover:opacity-100 dark:hover:bg-transparent" aria-label={t('customers.schedule.cancel', 'Cancel')}>
             <X className="size-4" />
           </IconButton>
         </div>

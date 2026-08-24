@@ -256,20 +256,8 @@ export function LinkedEntitiesField({
       <label className="text-sm font-medium">
         {sectionLabel}
       </label>
-      <div className="mt-2.5 flex flex-wrap content-center items-center gap-2">
-        {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, icon + label + × */}
-        {linkedEntities.map((entity) => (
-          <div
-            key={entity.id}
-            className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-background px-1.5 text-xs font-medium text-foreground"
-          >
-            {entity.type === 'company' ? <Building2 className="size-3 text-muted-foreground" /> : entity.type === 'deal' ? <Briefcase className="size-3 text-muted-foreground" /> : <FileText className="size-3 text-muted-foreground" />}
-            <span className="max-w-48 truncate">{entity.label}</span>
-            <IconButton type="button" variant="ghost" size="sm" onClick={() => setLinkedEntities((prev) => prev.filter((e) => e.id !== entity.id))} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeLink', 'Remove link')}>
-              <X className="size-2.5" />
-            </IconButton>
-          </div>
-        ))}
+      {/* Action first, tags underneath. */}
+      <div className="mt-2">
         <EntityLinkSearchPopover
           existingIds={new Set(linkedEntities.map((e) => e.id))}
           onAdd={(entity) => setLinkedEntities((prev) => [...prev, entity])}
@@ -277,6 +265,23 @@ export function LinkedEntitiesField({
           t={t}
         />
       </div>
+      {linkedEntities.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, icon + label + × */}
+          {linkedEntities.map((entity) => (
+            <div
+              key={entity.id}
+              className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-background px-1.5 text-xs font-medium text-foreground"
+            >
+              {entity.type === 'company' ? <Building2 className="size-3 text-muted-foreground" /> : entity.type === 'deal' ? <Briefcase className="size-3 text-muted-foreground" /> : <FileText className="size-3 text-muted-foreground" />}
+              <span className="max-w-48 truncate">{entity.label}</span>
+              <IconButton type="button" variant="ghost" size="sm" onClick={() => setLinkedEntities((prev) => prev.filter((e) => e.id !== entity.id))} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeLink', 'Remove link')}>
+                <X className="size-2.5" />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

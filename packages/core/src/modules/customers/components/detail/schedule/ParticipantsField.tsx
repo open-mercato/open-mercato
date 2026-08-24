@@ -207,19 +207,8 @@ export function ParticipantsField({
       <label className="text-sm font-medium">
         {sectionLabel}
       </label>
-      <div className="mt-2 flex flex-wrap content-center items-center gap-2">
-        {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, avatar + label + × */}
-        {participants.map((p, index) => (
-          <div key={p.userId ?? p.email ?? index} className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-background pl-1 pr-1.5">
-            <span className={cn('inline-flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-white', p.color ?? 'bg-primary')}>
-              {p.name.charAt(0).toUpperCase()}
-            </span>
-            <span className="text-xs font-medium text-foreground">{p.name}</span>
-            <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(index)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
-              <X className="size-3" />
-            </IconButton>
-          </div>
-        ))}
+      {/* Action first, tags underneath. */}
+      <div className="mt-2">
         <ParticipantSearchPopover
           existingIds={new Set(participants.map((p) => p.userId).filter((userId): userId is string => Boolean(userId)))}
           onAdd={(p) => setParticipants((prev) => [...prev, { ...p, status: 'pending' as RsvpStatus }])}
@@ -232,10 +221,26 @@ export function ParticipantsField({
           t={t}
         />
       </div>
+      {participants.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, avatar + label + × */}
+          {participants.map((p, index) => (
+            <div key={p.userId ?? p.email ?? index} className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-background pl-1 pr-1.5">
+              <span className={cn('inline-flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-white', p.color ?? 'bg-primary')}>
+                {p.name.charAt(0).toUpperCase()}
+              </span>
+              <span className="text-xs font-medium text-foreground">{p.name}</span>
+              <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(index)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
+                <X className="size-3" />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Guest permissions -- shown when participants exist */}
       {participants.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-x-[16px] gap-y-[6px] text-xs">
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
           <span className="font-medium text-muted-foreground">{t('customers.schedule.guestPermissions', 'Guest permissions:')}</span>
           <label htmlFor="guest-perm-invite" className="flex items-center gap-1.5 cursor-pointer">
             <Checkbox id="guest-perm-invite" checked={guestPermissions.canInviteOthers} onCheckedChange={(checked) => setGuestPermissions((p) => ({ ...p, canInviteOthers: checked === true }))} />
@@ -259,7 +264,7 @@ export function ParticipantsField({
         const declined = participants.filter((p) => p.status === 'declined').length
         if (accepted === 0 && pending === 0 && declined === 0) return null
         return (
-          <div className="mt-2 flex items-center gap-3 text-xs">
+          <div className="mt-3 flex items-center gap-3 text-xs">
             <span className="text-muted-foreground">{t('customers.schedule.rsvp.label', 'Responses:')}</span>
             {accepted > 0 && <span className="flex items-center gap-1 font-medium text-status-success-text"><CheckCircle2 className="size-3.5" /> {accepted} {t('customers.schedule.rsvp.accepted', 'tak')}</span>}
             {pending > 0 && <span className="flex items-center gap-1 font-medium text-muted-foreground"><Clock className="size-3.5" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}

@@ -237,7 +237,7 @@ export function ConfirmDialog({
             onClick={handleCancel}
             disabled={loading}
             aria-label={closeAriaLabel}
-            className="shrink-0 text-muted-foreground"
+            className="shrink-0 text-muted-foreground opacity-70 hover:bg-transparent hover:opacity-100 dark:hover:bg-transparent"
           >
             <X className="h-4 w-4" />
           </IconButton>
