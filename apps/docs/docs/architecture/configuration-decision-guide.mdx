@@ -127,6 +127,36 @@ Follow the standard entity workflow: update `data/entities.ts`, run `yarn db:gen
 - **`official-modules.json`** activates or deactivates whole modules at generate time. Coarser than everything on this page.
 - **Dictionaries** are tenant-editable enumerations — statuses, categories, reasons. They are data, not behaviour switches.
 - **Custom fields** extend an entity's shape per tenant. Also data.
+- **Client-side demo flags in `localStorage`** are per-browser escape hatches for surfaces that only exist in demo deployments. They are not feature toggles by the litmus test above: nothing is provisioned, nothing is tenant-scoped, and nothing is readable on the server. See below.
+
+### `ff_om_hide_contact` — hide the demo contact widget {#ff-om-hide-contact}
+
+Demo deployments (`DEMO_MODE`, on by default) render a contact/feedback surface in the backend: a floating call-to-action button, plus a popup that appears after 30 seconds of inactivity. When you are recording a walkthrough or screenshotting the admin, that surface gets in the way — but turning `DEMO_MODE` off would also drop the demo notice bar and the rest of the demo behaviour.
+
+Set the `ff_om_hide_contact` key in the browser's `localStorage` to hide just the contact widget:
+
+```js
+// Hide the floating button and the inactivity popup
+localStorage.setItem('ff_om_hide_contact', '1')
+
+// Bring them back without deleting the key
+localStorage.setItem('ff_om_hide_contact', 'off')
+
+// Bring them back by removing the key
+localStorage.removeItem('ff_om_hide_contact')
+```
+
+The semantics are deliberately presence-based, so that typing the key with no value in devtools is enough to hide the widget:
+
+| Stored value | Widget |
+| --- | --- |
+| key absent | visible |
+| `0`, `false`, `no`, `n`, `off`, `disable`, `disabled` (case-insensitive) | visible |
+| any other value, including the empty string | hidden |
+
+The explicit false values exist so the flag can be switched off while the key stays in place. The flag is read per browser and per origin — it is not synced, not tenant-scoped, and has no server-side equivalent. If `localStorage` is unavailable (private-mode restrictions, a blocked origin), the widget stays visible rather than failing closed.
+
+The key name and the parsing live in `apps/mercato/src/components/demoFeedbackFlag.ts`, mirrored into the scaffold at `packages/create-app/template/src/components/demoFeedbackFlag.ts`.
 
 ## Worked example: disabling sales channels
 

@@ -145,7 +145,7 @@ Most variables are pre-configured with sensible defaults in the compose file. Ov
 | `JWT_SECRET` | **required, no default** | Auth token secret. The full-app stacks refuse to start without it — generate one with `openssl rand -hex 32`. In production the app also rejects placeholder values and secrets shorter than 32 characters |
 | `OPENAI_API_KEY` | — | Enables OpenAI-backed AI features; combine it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` to turn vector auto-indexing on |
 | `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | `true` in the shipped example env | Set to `false` or remove it to enable automatic vector indexing |
-| `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
+| `DEMO_MODE` | `true` | Seeds demo CRM data on first run, and enables the demo notice bar and the backend contact/feedback widget. To hide only the contact widget while keeping the rest of demo mode, use the [`ff_om_hide_contact` browser flag](../architecture/configuration-decision-guide.mdx#ff-om-hide-contact) |
 
 Vector auto-indexing is disabled by default in `apps/mercato/.env.example`. To enable it, configure an embedding provider such as `OPENAI_API_KEY` and set `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` before you start the stack. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` is still honored for older deployments.
 
