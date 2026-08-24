@@ -33,7 +33,7 @@ alter table progress_jobs
   add column interruptions        int  not null default 0,
   add column consecutive_failures int  not null default 0,
   add column pending_since        timestamptz null,       -- set on create, yield and take; the reconciler's pending clock
-  add column next_run_at          timestamptz null,       -- when the next transport delivery becomes AVAILABLE (failSlice retry, Q1/Q2/operator re-drive); null ⇔ no delivery is scheduled (§3); cleared by claim — the claim consumes the delivery (§3); not the deferred timer feature
+  add column next_run_at          timestamptz null,       -- when the next transport delivery becomes AVAILABLE (failSlice retry, releaseLease, Q1/Q2/operator re-drive); null ⇔ no delivery is scheduled (§3); cleared by claim — the claim consumes the delivery (§3); not the deferred timer feature
   add column last_committed_at    timestamptz null,
   add column parked_at            timestamptz null,
   add column error_code           text null,              -- park reasons 'orphaned' | 'poison' | 'never_started' | 'no_handler'; slice verdicts 'unrecoverable' | 'retry_exhausted' (§5 step 4); owner codes

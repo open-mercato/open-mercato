@@ -283,7 +283,7 @@ The table is the superset; the prose of §2 cites the representative findings on
 
 | Class | Part 1 | Part 2 |
 |---|---|---|
-| C-1 | D-1, D-2, D-8, D-23 | Q-3, Q-6, Q-15, Q-16, W-4, W-28, SR-2, QI-1, CB-3, AK-1, AK-2, CC-6, AI-1, AI-2, PG-2, SC-2, WC-1, CA-2, CA-4 |
+| C-1 | D-1, D-2, D-8, D-23 | Q-1, Q-3, Q-6, Q-15, Q-16, W-4, W-28, SR-2, QI-1, CB-3, AK-1, AK-2, CC-6, AI-1, AI-2, PG-2, SC-2, WC-1, CA-2, CA-4 |
 | C-2 | D-4, D-6, D-7, D-13, D-28 | P-1, P-4, P-6, P-8, P-11, P-29, W-6, W-35, S-1, S-14, S-24, SR-4, QI-2, QI-6, CH-4, WH-2, WH-6, MS-1 |
 | C-3 | D-5, D-9, D-10, D-27, D-28 | Q-8, Q-9, P-3, P-4, P-5, P-34, P-36, W-1, W-6, W-7, W-8, S-15, QI-2, AK-1, WH-2, EV-3, MS-1 |
 | C-4 | D-11, D-12, D-15 | Q-2, P-10, P-11, P-12, W-3, W-10, W-11, S-5, S-8, S-9, S-10, S-11, SR-4, SR-5, SR-9, QI-5, CH-2, SX-1, AK-5, WH-1, WH-2, NT-1, PU-1, CK-1, CC-1, CC-2, CC-3, CC-8, CC-9, IN-1 |
