@@ -57,5 +57,5 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 
 ### Phase 3: Verify and publish the revision
 
-- [ ] 3.1 Run focused and configured validation and complete the follow-up review
-- [ ] 3.2 Push the reviewed fixes and update PR #5537 for re-review
+- [x] 3.1 Run focused and configured validation and complete the follow-up review — 6906d1e4a
+- [x] 3.2 Push the reviewed fixes and update PR #5537 for re-review — 6906d1e4a
