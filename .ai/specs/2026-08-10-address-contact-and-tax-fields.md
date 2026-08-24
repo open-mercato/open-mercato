@@ -169,7 +169,7 @@ The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document c
 ### Phase 1 — contact fields and render
 1. `AddressValue` gains `phone` / `taxId` / `taxIdType`, and `resolveTaxIdLabel` names an identifier from its type.
 2. Render `taxId` and `phone` as ordinary `AddressEditor` fields, and own them in the snapshot tiles' draft (`emptyDraft` + the normalising assign list) so a manual save keeps them.
-3. Add `taxIdType` to the type and the pair-formatter.
+3. Add `taxIdType` to the type, and **derive it on save** from the value and the address's country. Without that the vocabulary only ever fires for an integration: a value entered by hand carries no type, so every identifier falls to the neutral label and NIP, EU VAT and "other" read alike. `deriveTaxIdType` is exported so the rule has one home; it runs AFTER the unowned-key merge-back, which would otherwise restore the previous type over it.
 4. Pass `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137`.
 5. Remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the errors it hides.
 
@@ -274,6 +274,8 @@ The justification above stands on the market comparison, not on any single deplo
 Two observations that shaped decisions above: the order-level tax-id rate exceeds the customer-level rate because business buyers reorder more often — an input to keeping the customer as master while the document freezes what it was issued under — and `buildingNumber` was populated on ~1% of addresses because house numbers are conventionally written into the street line, which is why this spec adds no further logic there.
 
 ## Changelog
+
+- `taxIdType` is derived on save rather than only read. It was reachable only through an integration: nothing in the UI sets it, and no form should ask a user to choose between `pl_nip` and `eu_vat` when the answer is already in what they typed. So a hand-entered identifier had no type, every label fell to the neutral one, and the distinction this vocabulary exists to draw never appeared. `deriveTaxIdType(taxId, country)` applies the rule the Design Decisions already state, in both normalisers, after the merge-back that would otherwise restore a stale type.
 
 - Dropped the contact-rendering API before merge: `formatAddressContactPairs`, `AddressContactLabels`, `AddressContactPair`, `AddressContactField` and `AddressView`'s `contactLabels` / `contactClassName`. Rendering the fields in the editor left it with no caller, and freezing a public surface whose only consumer is its own test suite commits the project to supporting it forever for nothing. `resolveTaxIdLabel` stays — the editor's marker is a real caller — and takes the label map directly rather than reaching through a wrapper object. Phase 3's read-only tiles are where a render API earns its place.
 

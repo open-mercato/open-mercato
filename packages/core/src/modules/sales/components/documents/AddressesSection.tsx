@@ -21,6 +21,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
   AddressView,
+  deriveTaxIdType,
   formatAddressString,
   type AddressFormatStrategy,
   type AddressValue,
@@ -141,6 +142,19 @@ function normalizeAddressDraft(
       normalized[key] = value
     }
   }
+  // The type describes the value, so it follows it rather than being preserved beside it: correcting
+  // `PL1234567890` to `1234567890` must not leave `eu_vat` behind, and clearing the identifier must
+  // not leave a type describing nothing.
+  //
+  // Derived AFTER the merge-back on purpose. `taxIdType` is deliberately not an editable key — no
+  // form should ask a user to choose between `pl_nip` and `eu_vat` — so the loop above treats it as
+  // an integration's to preserve and would restore the previous value over anything set earlier.
+  const derivedTaxIdType = deriveTaxIdType(
+    typeof normalized.taxId === 'string' ? normalized.taxId : null,
+    typeof normalized.country === 'string' ? normalized.country : null,
+  )
+  if (derivedTaxIdType) normalized.taxIdType = derivedTaxIdType
+  else delete normalized.taxIdType
   return normalized
 }
 

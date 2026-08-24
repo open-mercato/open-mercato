@@ -2,6 +2,7 @@ import {
   formatAddressJson,
   formatAddressLines,
   formatAddressString,
+  deriveTaxIdType,
   resolveTaxIdLabel,
 } from '../addressFormat'
 
@@ -135,6 +136,44 @@ describe('customers utils - address formatting', () => {
 
     it('has no label to give when the caller supplies none', () => {
       expect(resolveTaxIdLabel(undefined, 'pl_nip')).toBeUndefined()
+    })
+  })
+
+  describe('the type derived from what was typed', () => {
+    // Without this the vocabulary never fires outside an integration: a value entered by hand has no
+    // type, so every identifier falls to the neutral label and NIP, EU VAT and "other" read alike.
+    it('reads two leading letters as an EU VAT number, whatever the country', () => {
+      expect(deriveTaxIdType('PL1234567890', 'PL')).toBe('eu_vat')
+      expect(deriveTaxIdType('DE811907980', 'DE')).toBe('eu_vat')
+      // The country of the ADDRESS does not override the form of the number.
+      expect(deriveTaxIdType('DE811907980', 'PL')).toBe('eu_vat')
+    })
+
+    it('reads a bare number as domestic on a Polish address', () => {
+      expect(deriveTaxIdType('1234567890', 'PL')).toBe('pl_nip')
+      expect(deriveTaxIdType('1234567890', 'pl')).toBe('pl_nip')
+    })
+
+    it('refuses to guess a scheme for a bare number anywhere else', () => {
+      // Naming a foreign number after a domestic scheme renames it, which is worse than saying
+      // nothing specific.
+      expect(deriveTaxIdType('811907980', 'DE')).toBe('other')
+      expect(deriveTaxIdType('811907980', null)).toBe('other')
+    })
+
+    it('has no type to give for an absent or blank identifier', () => {
+      expect(deriveTaxIdType('', 'PL')).toBeUndefined()
+      expect(deriveTaxIdType('   ', 'PL')).toBeUndefined()
+      expect(deriveTaxIdType(null, 'PL')).toBeUndefined()
+    })
+
+    it('agrees with the label mapping it feeds', () => {
+      // The two halves have to compose: derive then resolve must name the number correctly, which is
+      // the whole point of deriving at all.
+      const BY_TYPE = { plNip: 'NIP', euVat: 'EU VAT', other: 'Tax number' }
+      expect(resolveTaxIdLabel(BY_TYPE, deriveTaxIdType('PL1234567890', 'PL'))).toBe('EU VAT')
+      expect(resolveTaxIdLabel(BY_TYPE, deriveTaxIdType('1234567890', 'PL'))).toBe('NIP')
+      expect(resolveTaxIdLabel(BY_TYPE, deriveTaxIdType('811907980', 'AT'))).toBe('Tax number')
     })
   })
 })

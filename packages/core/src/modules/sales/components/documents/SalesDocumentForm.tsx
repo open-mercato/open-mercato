@@ -52,6 +52,7 @@ import {
 } from '@open-mercato/core/modules/customers/components/formConfig'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
+  deriveTaxIdType,
   formatAddressString,
   type AddressFormatStrategy,
   type AddressValue,
@@ -460,6 +461,13 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
   assign('taxId', 'taxId')
   assign('phone', 'phone')
   assign('isPrimary', 'isPrimary')
+  // Same rule as the detail page: the type follows the value it describes. No merge-back to run
+  // after here — the document does not exist yet, so there is no previous snapshot to preserve.
+  const derivedTaxIdType = deriveTaxIdType(
+    typeof normalized.taxId === 'string' ? normalized.taxId : null,
+    typeof normalized.country === 'string' ? normalized.country : null,
+  )
+  if (derivedTaxIdType) normalized.taxIdType = derivedTaxIdType
   return Object.keys(normalized).length ? normalized : null
 }
 

@@ -294,6 +294,37 @@ describe('SalesDocumentAddressesSection', () => {
     })
   })
 
+  it('re-derives the tax id TYPE on save, rather than preserving a stale one', async () => {
+    // The trap this guards: `taxIdType` is not an editable key, so the unowned-key merge-back copies
+    // the PREVIOUS one back over the snapshot. Deriving before that loop would be silently undone.
+    // Here the snapshot arrives typed `eu_vat` while the value on it is a bare domestic number — the
+    // shape left behind by correcting `PL1234567890` to `1234567890` — and the save must correct it.
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
+
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'Warszawa',
+          country: 'PL',
+          taxId: '1234567890',
+          taxIdType: 'eu_vat',
+        }}
+      />,
+    )
+
+    await screen.findByRole('button', { name: 'Update addresses' })
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [, request] = mockApiCallOrThrow.mock.calls[0]
+    const payload = JSON.parse(request.body)
+    expect(payload.shippingAddressSnapshot).toMatchObject({ taxId: '1234567890', taxIdType: 'pl_nip' })
+  })
+
   it('clears the whole snapshot when every editable field is emptied, keeping no unowned keys', async () => {
     mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
 
