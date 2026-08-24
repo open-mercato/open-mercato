@@ -23,6 +23,8 @@
  * because "why can't I set this per project" is otherwise a support ticket.
  */
 
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import * as React from 'react'
 import { AlertTriangle, History, Info, Save } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
@@ -89,6 +91,8 @@ type RoundingImpactResponse = {
   projected: RoundingImpactTotals
   lockedEntryCount: number
 }
+
+const TIME_TRACKING_SETTINGS_MODULE_ID = 'staff.time_tracking'
 
 export default function TimeTrackingSettingsPage() {
   const t = useT()
@@ -178,6 +182,10 @@ export default function TimeTrackingSettingsPage() {
 
   const fieldErrors = draft ? settingsDraftErrors(draft) : []
   const isDirty = draft && baseline ? isSettingsDraftDirty(draft, baseline) : false
+  const settingsInjectionContext = React.useMemo(
+    () => ({ moduleId: TIME_TRACKING_SETTINGS_MODULE_ID, canManage }),
+    [canManage],
+  )
   const canSave = canManage && isDirty && fieldErrors.length === 0 && !isSaving
 
   /**
@@ -571,6 +579,12 @@ export default function TimeTrackingSettingsPage() {
                 ) : null}
               </CardContent>
             </Card>
+
+            <InjectionSpot
+              spotId={extensionPoints.hosts.timeTrackingSettingsSections.spotId}
+              context={settingsInjectionContext}
+              data={draft}
+            />
           </div>
 
           <div className="flex flex-col gap-6">

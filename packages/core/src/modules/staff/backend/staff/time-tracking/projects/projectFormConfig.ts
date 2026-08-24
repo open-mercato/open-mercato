@@ -256,6 +256,31 @@ export function createProjectFormFields(
   ]
 }
 
+/**
+ * The group ids the project form renders, in render order.
+ *
+ * They are the addressable half of `crud-form:staff.staff_time_project:group:<id>`:
+ * a contributed widget names one of these to land inside that card rather than at
+ * the end of the form. Renaming one silently unbinds every widget aimed at it, so
+ * the list is pinned by `__tests__/projectFormGroupIds.test.ts` and treated as a
+ * frozen contract surface.
+ *
+ * `compact` hosts (the timesheet's inline create dialog) render the first two only.
+ */
+export const PROJECT_FORM_GROUP_IDS = [
+  'basics',
+  'billing',
+  'budget',
+  'status',
+  'team',
+  'rounding',
+  'details',
+] as const
+
+export const PROJECT_FORM_COMPACT_GROUP_IDS = ['basics', 'billing'] as const
+
+export type ProjectFormGroupId = (typeof PROJECT_FORM_GROUP_IDS)[number]
+
 export type ProjectFormGroupOptions = {
   /**
    * Quick-create hosts (the timesheet's inline project dialog) render the form

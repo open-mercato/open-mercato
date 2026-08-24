@@ -1,5 +1,6 @@
 "use client"
 
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -220,6 +221,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
           schema={formSchema}
           initialValues={initialValues}
           entityIds={[E.staff.staff_time_project]}
+          injectionSpotId={extensionPoints.hosts.projectForm.spotId}
           submitLabel={t('staff.timesheets.projects.form.actions.save', 'Save')}
           onDelete={async () => {
             await deleteCrud('staff/timesheets/time-projects', projectId!, {

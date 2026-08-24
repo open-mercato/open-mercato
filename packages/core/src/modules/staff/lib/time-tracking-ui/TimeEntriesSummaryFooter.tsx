@@ -1,6 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { opaqueProp } from '../time-tracking/componentContracts'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDuration } from '../time-tracking/duration'
@@ -21,7 +26,7 @@ export type TimeEntriesSummaryFooterProps = {
   canSeeMoney: boolean
 }
 
-export function TimeEntriesSummaryFooter({ summary, totalCount, canSeeMoney }: TimeEntriesSummaryFooterProps) {
+function DefaultTimeEntriesSummaryFooter({ summary, totalCount, canSeeMoney }: TimeEntriesSummaryFooterProps) {
   const t = useT()
   const money = canSeeMoney ? summary.money : []
 
@@ -65,4 +70,28 @@ export function TimeEntriesSummaryFooter({ summary, totalCount, canSeeMoney }: T
       ) : null}
     </div>
   )
+}
+
+const timeEntriesSummaryFooterPropsSchema: z.ZodType<TimeEntriesSummaryFooterProps> = z.object({
+  summary: opaqueProp<TimeEntriesSummary>(),
+  totalCount: z.number(),
+  canSeeMoney: z.boolean(),
+})
+
+registerComponent<TimeEntriesSummaryFooterProps>({
+  id: extensionPoints.hosts.entriesSummaryFooterComponent.componentId,
+  component: DefaultTimeEntriesSummaryFooter,
+  metadata: {
+    module: 'staff',
+    description: 'Totals footer under the time-entries table.',
+    propsSchema: timeEntriesSummaryFooterPropsSchema,
+  },
+})
+
+export function TimeEntriesSummaryFooter(props: TimeEntriesSummaryFooterProps) {
+  const Resolved = useRegisteredComponent<TimeEntriesSummaryFooterProps>(
+    extensionPoints.hosts.entriesSummaryFooterComponent.componentId,
+    DefaultTimeEntriesSummaryFooter,
+  )
+  return <Resolved {...props} />
 }

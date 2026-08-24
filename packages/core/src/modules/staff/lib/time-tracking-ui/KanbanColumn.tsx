@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import { useDroppable } from '@dnd-kit/core'
 import { Plus } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -8,6 +9,11 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { callbackProp, opaqueProp, optionalCallbackProp } from '../time-tracking/componentContracts'
 import { KanbanCard, type KanbanMoveTarget, type KanbanTagOption } from './KanbanCard'
 import {
   columnLoggedMinutes,
@@ -168,6 +174,11 @@ function KanbanColumnImpl({
           >
             {formatBoardMinutes(minutes)}
           </span>
+          <InjectionSpot
+            spotId={extensionPoints.hosts.taskBoardColumnHeader.spotId}
+            context={{ statusId: status.id, statusName: status.name, isDone: status.isDone, total, loggedMinutes: minutes }}
+            data={tasks}
+          />
         </div>
       </div>
 
@@ -256,6 +267,50 @@ function KanbanColumnImpl({
   )
 }
 
-export const KanbanColumn = React.memo(KanbanColumnImpl)
+const DefaultKanbanColumn = React.memo(KanbanColumnImpl)
+
+const kanbanColumnPropsSchema: z.ZodType<KanbanColumnProps> = z.object({
+  status: opaqueProp<BoardStatus>(),
+  tasks: z.array(opaqueProp<BoardTask>()),
+  total: z.number(),
+  remaining: z.number().optional(),
+  canQuickAdd: z.boolean().optional(),
+  loadingMore: z.boolean(),
+  activeDragTaskId: z.string().nullable(),
+  pendingTaskIds: opaqueProp<ReadonlySet<string>>(),
+  runningTimerTaskId: z.string().nullable(),
+  assigneeNames: opaqueProp<ReadonlyMap<string, string>>(),
+  tagsByTaskId: opaqueProp<ReadonlyMap<string, KanbanTagOption[]>>(),
+  subtasksByTaskId: opaqueProp<ReadonlyMap<string, SubtaskProgress>>(),
+  quickAddPending: z.boolean(),
+  moveTargets: opaqueProp<readonly KanbanMoveTarget[]>().optional(),
+  onQuickAdd: callbackProp<(statusId: string, title: string) => Promise<void>>(),
+  onLoadMore: callbackProp<(statusId: string) => void>(),
+  onOpenTask: callbackProp<(taskId: string) => void>(),
+  onStartTimer: callbackProp<(taskId: string) => void>(),
+  onStopTimer: callbackProp<(taskId: string) => void>(),
+  onAddTime: callbackProp<(taskId: string) => void>(),
+  onMoveTask: optionalCallbackProp<(taskId: string, targetStatusId: string) => void>(),
+})
+
+registerComponent<KanbanColumnProps>({
+  id: extensionPoints.hosts.kanbanColumnComponent.componentId,
+  component: DefaultKanbanColumn,
+  metadata: {
+    module: 'staff',
+    description: 'One status column of the time-tracking Kanban board.',
+    propsSchema: kanbanColumnPropsSchema,
+  },
+})
+
+function KanbanColumnHost(props: KanbanColumnProps): React.ReactElement {
+  const Resolved = useRegisteredComponent<KanbanColumnProps>(
+    extensionPoints.hosts.kanbanColumnComponent.componentId,
+    DefaultKanbanColumn,
+  )
+  return <Resolved {...props} />
+}
+
+export const KanbanColumn = React.memo(KanbanColumnHost)
 
 export default KanbanColumn

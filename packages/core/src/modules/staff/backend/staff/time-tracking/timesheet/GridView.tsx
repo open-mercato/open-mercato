@@ -54,6 +54,14 @@
  */
 
 import * as React from 'react'
+import { z } from 'zod'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import {
+  callbackProp,
+  opaqueProp,
+} from '../../../../lib/time-tracking/componentContracts'
 import { Lock, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
@@ -248,7 +256,7 @@ export function buildGridCells(
   return cells
 }
 
-export function GridView({
+function DefaultGridView({
   days,
   projects,
   allAssignedProjects,
@@ -905,4 +913,41 @@ export function GridView({
       {ConfirmDialogElement}
     </div>
   )
+}
+
+const gridViewPropsSchema: z.ZodType<GridViewProps> = z.object({
+  days: z.array(z.string()),
+  projects: z.array(opaqueProp<TimesheetProjectRef>()),
+  allAssignedProjects: z.array(opaqueProp<TimesheetProjectRef>()),
+  tasks: z.array(opaqueProp<TimesheetTaskRef>()),
+  entries: z.array(opaqueProp<TimesheetEntry>()),
+  staffMemberId: z.string().nullable(),
+  canManage: z.boolean(),
+  canManageProjects: z.boolean(),
+  readOnly: z.boolean(),
+  isLoading: z.boolean().optional(),
+  rowMode: z.union([z.literal('projects'), z.literal('tasks')]),
+  onRowModeChange: callbackProp<(mode: GridRowMode) => void>(),
+  onAddProject: callbackProp<(project: TimesheetProjectRef) => void | Promise<void>>(),
+  onRemoveProject: callbackProp<(project: TimesheetProjectRef) => void | Promise<void>>(),
+  onCreateProject: callbackProp<() => void>(),
+  onSaved: callbackProp<() => void | Promise<void>>(),
+})
+
+registerComponent<GridViewProps>({
+  id: extensionPoints.hosts.timesheetGridComponent.componentId,
+  component: DefaultGridView,
+  metadata: {
+    module: 'staff',
+    description: 'Timesheet grid view — projects/tasks by day, editable cells.',
+    propsSchema: gridViewPropsSchema,
+  },
+})
+
+export function GridView(props: GridViewProps) {
+  const Resolved = useRegisteredComponent<GridViewProps>(
+    extensionPoints.hosts.timesheetGridComponent.componentId,
+    DefaultGridView,
+  )
+  return <Resolved {...props} />
 }

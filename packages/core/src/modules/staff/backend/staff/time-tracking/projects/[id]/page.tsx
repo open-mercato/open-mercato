@@ -14,6 +14,8 @@ import { deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -52,6 +54,16 @@ type EmployeeMutationContext = {
  * `__tests__/no-project-access-contract.test.ts` pins the two together.
  */
 const NO_PROJECT_ACCESS_REASON = 'no_project_access'
+
+const PROJECT_ENTITY_ID = 'staff:staff_time_project'
+
+type ProjectDetailInjectionContext = {
+  entityId: string
+  recordId: string | null
+  projectId: string | null
+  path: string | null
+  retryLastMutation: () => Promise<boolean>
+}
 
 type ProjectRecord = {
   id: string
@@ -173,7 +185,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   // Tabs govern the working column only — the details rail stays visible on every
   // tab, because reference facts are what you check *while* reading the tab you
   // are on, not a destination of their own.
-  const [activeTab, setActiveTab] = React.useState<'team' | 'time' | 'tasks'>('team')
+  const [activeTab, setActiveTab] = React.useState<string>('team')
   const [recentEntries, setRecentEntries] = React.useState<ProjectEntryRow[]>([])
   const [recentEntriesLoading, setRecentEntriesLoading] = React.useState(false)
   const [projectTasks, setProjectTasks] = React.useState<ProjectTaskRow[]>([])
@@ -434,6 +446,22 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     contextId: EMPLOYEE_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
+
+  const projectInjectionContext = React.useMemo<ProjectDetailInjectionContext>(
+    () => ({
+      entityId: PROJECT_ENTITY_ID,
+      recordId: projectId ?? null,
+      projectId: projectId ?? null,
+      path: pathname ?? null,
+      retryLastMutation,
+    }),
+    [pathname, projectId, retryLastMutation],
+  )
+
+  const { widgets: injectedTabWidgets } = useInjectionWidgets<ProjectDetailInjectionContext>(
+    extensionPoints.hosts.projectDetailTabs.spotId,
+    { context: projectInjectionContext, triggerOnLoad: true },
+  )
 
   const employeeMutationContext = React.useCallback(
     (resourceId: string): EmployeeMutationContext => ({
@@ -722,6 +750,17 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         })
     : null
 
+  const injectedTabs = injectedTabWidgets
+    .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
+    .map((widget) => {
+      const tabId = widget.placement?.groupId ?? widget.widgetId
+      const groupLabel = widget.placement?.groupLabel
+      const label = groupLabel ? t(groupLabel, groupLabel) : widget.module.metadata.title ?? tabId
+      const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
+      return { tabId, label, priority, Widget: widget.module.Widget }
+    })
+    .sort((left, right) => right.priority - left.priority)
+
   return (
     <Page>
       <PageBody>
@@ -760,6 +799,11 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                       })}
                     </Badge>
                   ) : null}
+                  <InjectionSpot
+                    spotId={extensionPoints.hosts.projectDetailStatusBadges.spotId}
+                    context={projectInjectionContext}
+                    data={project}
+                  />
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <span className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
@@ -805,6 +849,11 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                 </Button>
               </div>
             )}
+            <InjectionSpot
+              spotId={extensionPoints.hosts.projectDetailHeader.spotId}
+              context={projectInjectionContext}
+              data={project}
+            />
           </div>
 
           {/*
@@ -918,7 +967,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <Tabs
             value={activeTab}
-            onValueChange={(value) => setActiveTab(value as 'team' | 'time' | 'tasks')}
+            onValueChange={setActiveTab}
             variant="underline"
             className="min-w-0"
           >
@@ -932,6 +981,11 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
               <TabsTrigger value="tasks">
                 {t('staff.timesheets.projects.detail.tabTasks', 'Tasks')}
               </TabsTrigger>
+              {injectedTabs.map((tab) => (
+                <TabsTrigger key={tab.tabId} value={tab.tabId}>
+                  {tab.label}
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             <TabsContent value="team">
@@ -1155,6 +1209,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                 </div>
               )}
             </TabsContent>
+
+            {injectedTabs.map((tab) => (
+              <TabsContent key={tab.tabId} value={tab.tabId}>
+                <tab.Widget context={projectInjectionContext} data={project} />
+              </TabsContent>
+            ))}
           </Tabs>
 
           {/* Reference rail — one card, grouped, no longer three stacked sections. */}
@@ -1264,9 +1324,19 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                   <p className="whitespace-pre-wrap pt-2 text-sm text-muted-foreground">{project.description}</p>
                 </>
               ) : null}
+              <InjectionSpot
+                spotId={extensionPoints.hosts.projectDetailSidebar.spotId}
+                context={projectInjectionContext}
+                data={project}
+              />
             </div>
           </div>
           </div>
+          <InjectionSpot
+            spotId={extensionPoints.hosts.projectDetailFooter.spotId}
+            context={projectInjectionContext}
+            data={project}
+          />
         </div>
 
         {ConfirmDialogElement}

@@ -98,7 +98,7 @@ whole `TimeEntryDialog` for its own — all without touching a line of core code
 | G-7 No DataTable extension hosts | `grep -rn "tableId"` over the whole staff module returns **zero** hits; none of the 3 TT DataTables (`entries/page.tsx:1083`, `projects/page.tsx:1151`, `reports/page.tsx:201`) pass `extensionTableId`, `injectionSpotId` or `perspective`. |
 | G-8 No injection spots in TT UI | `grep -rn "InjectionSpot\|useInjection\|spotId"` over `backend/`, `lib/`, `components/` returns **zero** hits. Project detail (`projects/[id]/page.tsx`, 1350 lines) builds its tabs with raw `<Tabs>`. |
 | G-9 No component replacement handles | No `widgets/components.ts`; no TT component calls `registerComponent`. |
-| G-10 Only one CrudForm host, undeclared | Project create/edit pass `entityIds={[E.staff.staff_time_project]}`, so `crud-form:staff:staff_time_project:*` spots exist implicitly — but are not declared anywhere. `TimeEntryDialog`, `NewTaskDialog`, `TaskDrawer` and report creation are hand-rolled and expose nothing. |
+| G-10 Only one CrudForm host, undeclared | Project create/edit pass `entityIds={[E.staff.staff_time_project]}`, so `crud-form:staff.staff_time_project:*` spots exist implicitly (**dot** form — `CrudForm.tsx:840` normalises the colon away; this row originally spelled it with a colon, corrected in P3) — but are not declared anywhere. `TimeEntryDialog`, `NewTaskDialog`, `TaskDrawer` and report creation are hand-rolled and expose nothing. |
 | G-11 Closed business rules | `lib/time-tracking/rounding.ts` (union `0\|5\|10\|15` × `up\|nearest`), `lib/time-tracking/cost.ts:applicableRate` (override → project rate, nothing else), `lib/timesheets-reports/reportExport.ts:21` (`'pdf'\|'csv'\|'xlsx'`), `lib/timesheets-reports/reportTotals.ts:34` (`'project_task'\|'project_person'\|'project_day'`), `data/entities.ts` `@Enum({ items: ['manual','timer','kiosk','mobile'] })`, `lib/time-tracking/overlap.ts`, `lib/time-tracking/projectCode.ts`, `lib/time-tracking-ui/timesheetTargets.ts`. All pure functions or DB enums with no registry, provider or DI seam. |
 | G-12 TT entities absent from `ce.ts` | `ce.ts` declares only `staff_team_member` ⇒ no custom fields on time entries, projects, tasks, reports or tags. |
 | G-13 No `data/extensions.ts` | `customer_id`, `deal_id`, `order_id` on `StaffTimeEntry` are raw FK ids with no declared link. |
@@ -131,6 +131,22 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   section (BACKWARD_COMPATIBILITY.md:276 requires the heading to stay stable);
   run `yarn generate` so module-facts pick the hosts up.
 - **Unlocks**: DevTools listing, module-facts provenance, generated catalog, agent discovery.
+- **Implemented in P3** with 33 declarations covering every host EP-17…EP-31 added. The CLI
+  build expands them into **110 emitted host facts** with `unresolved: []` — every
+  declaration is `bound`, i.e. its `source` file really references
+  `extensionPoints.hosts.<key>`. Documented in the staff `AGENTS.md` → "Host extension
+  points"; pinned by `__tests__/timeTrackingExtensionHosts.test.ts`.
+- **Correction the spec did not anticipate.** `CrudForm` derives its own spot id from
+  `entityIds` by replacing every colon with a dot (`CrudForm.tsx:839-845`), so the
+  already-implicit project-form host is `crud-form:staff.staff_time_project`, **not**
+  `crud-form:staff:staff_time_project` as G-10 and EP-28…EP-30 spell it. All four
+  crud-form hosts therefore use the dot form — the colon form would name a spot no
+  widget is ever loaded for. `detail:` spots keep the colon form the spec froze, because
+  nothing derives those. Both conventions are pinned by the catalog test.
+- **Facts-budget side effect**: `packages/cli/.../module-facts.bc-guard.test.ts` caps the
+  generated facts JSON; the 110 new host facts measure 4,289,542 bytes against a 4,250,000
+  cap (0.9% over) and 1,900,068 against a 1,900,000 v2-over-legacy delta. Both caps raised
+  from the measurement with bounded headroom, per the precedent in that file.
 
 ### Group 2 — Events (8)
 
@@ -349,10 +365,23 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
 - **Add**: `DetailInjectionSpots.{header,statusBadges,tabs,sidebar,footer}('staff:staff_time_project')`
   around the existing `<Tabs>`/`<PageBody>` structure.
 - **Unlocks**: third-party project tabs (invoices, contracts, SLA), header badges, side panels.
+- **Implemented in P3, tab spot included.** The raw `<Tabs>` did not need a rewrite: the page
+  now loads the tab spot with `useInjectionWidgets` and renders a `TabsTrigger` +
+  `TabsContent` per contributed widget, exactly the way `companies-v2/[id]/page.tsx` feeds
+  `CompanyDetailTabs`. `placement: { kind: 'tab', groupId, groupLabel, priority }` names the
+  tab; higher `priority` sorts first; `metadata.title` is the label fallback. The only
+  behaviour change is `activeTab` widening from `'team'|'time'|'tasks'` to `string`.
+  Proved end to end in `projects/[id]/__tests__/page.injectionSpots.test.tsx`.
 
 #### EP-21 · `injection` · Task drawer / task detail spots
 - **Edit**: `lib/time-tracking-ui/TaskDrawer.tsx`, `lib/time-tracking-ui/TaskBoardScreen.tsx`
 - **Add**: `detail:staff:staff_time_task:{header,status-badges,tabs,sidebar,footer}`
+- **Implemented in P3** in `TaskDrawer.tsx` alone — the drawer is rendered by both
+  `TaskBoardScreen` and `KanbanBoard`, so hosting the spots inside it covers both without
+  duplicating them. The drawer has no tab strip and no rail, so `tabs` renders a
+  contributed widget as an extra panel at the end of the body stack and `sidebar` renders
+  at the end of the Properties section; documented as such in the module `AGENTS.md`
+  rather than faked as tabs.
 
 #### EP-22 · `injection` · Report detail and report sheet spots
 - **Edit**: `backend/staff/time-tracking/reports/[id]/page.tsx`, `lib/time-tracking-ui/ReportSheet.tsx`
@@ -372,6 +401,14 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
 - **Edit**: `backend/staff/time-tracking/page.tsx`, `api/timesheets/my-work/myWorkAggregate.ts`
 - **Add**: `staff.my_work:{before-sections,after-sections}` plus a server-side section
   contribution contract so a module can add its own "my work" section.
+- **Partially implemented in P3.** The two render spots shipped. The **server-side section
+  contribution contract is deferred**: `myWorkAggregate` returns one closed, zod-validated
+  shape whose KPI strip, quick-entry targets and totals are all read positionally by the
+  page, so a contributed section needs its own registry, its own per-section tenant/org
+  scoping and its own response slot before it can be added without loosening that contract
+  — more than a UI phase can carry honestly. A client-side spot that fetches its own data
+  covers the same use case today; the server contract belongs with the domain-registry work
+  in P4.
 
 #### EP-26 · `injection` · Settings page section spot
 - **Edit**: `backend/staff/time-tracking/settings/page.tsx`
@@ -387,17 +424,39 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `backend/staff/time-tracking/projects/projectFormConfig.ts`
 - **Change**: declare the already-implicit `crud-form:staff:staff_time_project` host in
   EP-01, and add named `groupId`s so `CrudFormInjectionSpots.group(...)` targets are stable.
+- **Implemented in P3.** The audit was wrong about the group ids: `createProjectFormGroups`
+  already emitted stable named ids (`basics`, `billing`, `budget`, `status`, `team`,
+  `rounding`, `details`). What was missing was their being a *published* contract, so they
+  are now exported as `PROJECT_FORM_GROUP_IDS` / `PROJECT_FORM_COMPACT_GROUP_IDS`,
+  documented in the module `AGENTS.md` and pinned by
+  `projects/__tests__/projectFormGroupIds.test.ts`. Both pages now pass
+  `injectionSpotId={extensionPoints.hosts.projectForm.spotId}` — the same string `CrudForm`
+  already derived, so the wire behaviour is unchanged and the declaration becomes `bound`.
 
 #### EP-29 · `crud-form` · Expose a form host for the time-entry dialog
 - **Edit**: `lib/time-tracking-ui/TimeEntryDialog.tsx`, `lib/time-tracking-ui/EntryDetailsFields.tsx`
 - **Change**: render `InjectionSpot`s for `crud-form:staff:staff_time_entry:{before-fields,fields,after-fields,footer}`
   and run the `onFieldChange` / `onBeforeSave` / `onAfterSave` lifecycle handlers, so the
   hand-rolled dialog behaves like a `CrudForm` host without being rewritten.
+- **Implemented in P3** in `TimeEntryDialog.tsx` (the four spots plus the lifecycle);
+  `EntryDetailsFields.tsx` needed no change — it is a controlled field group with no save
+  path of its own. `onBeforeSave` mirrors `CrudForm`: `ok: false` blocks the write, the
+  message is flashed, `fieldErrors` for `taskId`/`durationMinutes` land under those fields,
+  and `requestHeaders` merge into the request **under** the optimistic-lock header so a
+  widget cannot displace it. `onFieldChange` diffs the ten-field form snapshot and writes
+  `value` / `sideEffects` back through the dialog's own setters, with a
+  `injectedFieldWritesRef` guard so a handler rewriting its own field is not re-dispatched.
+  Pinned by four cases in `__tests__/TimeEntryDialog.test.tsx`.
 
 #### EP-30 · `crud-form` · Form hosts for task and report creation
 - **Edit**: `lib/time-tracking-ui/NewTaskDialog.tsx`,
   `backend/staff/time-tracking/reports/create/page.tsx`
 - **Add**: `crud-form:staff:staff_time_task:*` and `crud-form:staff:staff_time_report:*`
+- **Implemented in P3** as `crud-form:staff.staff_time_task:*` and
+  `crud-form:staff.staff_time_report:*` (dot form — see EP-01). `NewTaskDialog` also runs
+  `onBeforeSave` (block + message) and `onAfterSave`; the report create page ships the four
+  render spots only — it has no per-field state worth diffing and its submit is a preview
+  handoff, not the report write.
 
 #### EP-31 · `component` · Register replaceable time-tracking components
 - **Add**: `packages/core/src/modules/staff/widgets/components.ts` exporting
@@ -408,6 +467,13 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `staff.report_sheet`, `staff.project_card`, `staff.entries_summary_footer`
 - **Unlocks**: `replace` / `wrapper` / `props` overrides per
   `apps/docs/docs/framework/widget-injection.md`.
+- **Implemented in P3.** `widgets/components.ts` exports `componentOverrides` (empty — the
+  module overrides nobody else's components) and catalogues the ten handles. Each component
+  registers itself with `registerComponent` and resolves through `useRegisteredComponent`
+  in its own module, following the `customers` idiom, and each publishes an accurate zod
+  `propsSchema` built from the shared helpers in `lib/time-tracking/componentContracts.ts`
+  — `useRegisteredComponent` parses it in development and falls back to the original
+  component when a replacement does not satisfy it.
 
 ### Group 6 — Domain strategy registries (10)
 
@@ -571,7 +637,7 @@ with the current behaviour registered as the built-in default (no behaviour chan
 |---|---|---|
 | **P1 — Correctness first** | EP-02, EP-03, EP-04, EP-08, EP-10, EP-11 | Fixes the dormant-events defect, the under-firing budget subscriber and the skipped mutation guards. No new API, immediate value, needed by everything downstream. |
 | **P2 — Backend seams** | EP-12, EP-13, EP-14, EP-15, EP-16, EP-05, EP-07, EP-09 | Interceptors, enrichers, sync subscribers, broadcasts, webhooks — all built on P1. |
-| **P3 — UI hosts** | EP-17…EP-31 | Mostly additive props and `InjectionSpot` renders; low risk, high visible value. |
+| **P3 — UI hosts** ✅ | EP-17…EP-31 | Mostly additive props and `InjectionSpot` renders; low risk, high visible value. **Shipped**, except the server-side "my work" section contract (EP-25), deferred to P4 with reasoning above. |
 | **P4 — Domain registries** | EP-32…EP-41 | Each ships with the current behaviour as the registered default; requires a migration only for EP-37. |
 | **P5 — Data model & settings** | EP-42…EP-45 | `ce.ts`, `data/extensions.ts`, `translations.ts`, settings registry — needs `yarn db:generate` review for the custom-field indexes. |
 | **P6 — Reach** | EP-46…EP-51 | Search, analytics, notifications, AI, portal, workers. |

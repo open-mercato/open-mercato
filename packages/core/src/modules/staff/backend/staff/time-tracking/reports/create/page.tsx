@@ -50,6 +50,9 @@ import {
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -89,6 +92,7 @@ const PREVIEW_API = '/api/staff/timesheets/reports/preview'
 const REPORTS_API_PATH = 'staff/timesheets/reports'
 const RATES_FEATURE = 'staff.timesheets.rates.view'
 const MUTATION_CONTEXT_ID = 'staff.time_tracking.reportCreate'
+const REPORT_ENTITY_ID = 'staff:staff_time_report'
 const RESOURCE_KIND = 'staff.timesheets.time_report'
 const CANDIDATE_PAGE_SIZE = 100
 
@@ -349,6 +353,34 @@ export default function TimeTrackingReportCreatePage() {
     )
   }, [])
 
+  const reportFormValues = React.useMemo(
+    () => ({
+      customerId,
+      timeProjectIds: selectedIds,
+      periodFrom: period.from,
+      periodTo: period.to,
+      grouping,
+      nonbillableMode,
+      showRates,
+      includeAlreadyReported,
+      title,
+    }),
+    [customerId, grouping, includeAlreadyReported, nonbillableMode, period.from, period.to, selectedIds, showRates, title],
+  )
+
+  const reportFormInjectionContext = React.useMemo(
+    () => ({
+      formId: MUTATION_CONTEXT_ID,
+      entityId: REPORT_ENTITY_ID,
+      recordId: null,
+      resourceKind: 'staff.timesheets.time_report',
+      resourceId: 'new',
+      operation: 'create' as const,
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+
   const canSubmit =
     Boolean(customerId) &&
     selectedIds.length > 0 &&
@@ -440,6 +472,12 @@ export default function TimeTrackingReportCreatePage() {
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <div className="flex flex-col gap-6">
+            <InjectionSpot
+              spotId={extensionSpotChildId(extensionPoints.hosts.reportForm.spotId, 'before-fields')}
+              context={reportFormInjectionContext}
+              data={reportFormValues}
+            />
+
             <section className="flex flex-col gap-2">
               <Label htmlFor="report-customer">{labels.customer}</Label>
               <CustomerPicker
@@ -655,6 +693,12 @@ export default function TimeTrackingReportCreatePage() {
                 </div>
               </div>
             </section>
+
+            <InjectionSpot
+              spotId={extensionSpotChildId(extensionPoints.hosts.reportForm.spotId, 'fields')}
+              context={reportFormInjectionContext}
+              data={reportFormValues}
+            />
           </div>
 
           <aside className="flex flex-col gap-4">
@@ -788,7 +832,18 @@ export default function TimeTrackingReportCreatePage() {
           </aside>
         </div>
 
+        <InjectionSpot
+          spotId={extensionSpotChildId(extensionPoints.hosts.reportForm.spotId, 'after-fields')}
+          context={reportFormInjectionContext}
+          data={reportFormValues}
+        />
+
         <div className="mt-6 flex items-center justify-end gap-2">
+          <InjectionSpot
+            spotId={extensionSpotChildId(extensionPoints.hosts.reportForm.spotId, 'footer')}
+            context={reportFormInjectionContext}
+            data={reportFormValues}
+          />
           <Button variant="ghost" onClick={() => router.push(REPORTS_HREF)}>
             {t('staff.time_tracking.reports.create.cancel', 'Cancel')}
           </Button>

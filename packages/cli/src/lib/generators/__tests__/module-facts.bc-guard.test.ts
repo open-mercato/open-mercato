@@ -175,8 +175,21 @@ describe('module-facts BC resolve guard (T2)', () => {
     // multiplicative blow-up this detector exists to catch. The delta cap on
     // the next line did NOT absorb it — the union measured 1,810,803 against a
     // 1,800,000 delta, 0.6% over — so it is raised from that measurement too.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_250_000)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_900_000)
+    //
+    // Raised again by the staff time-tracking UMES host catalog
+    // (2026-08-24-time-tracking-umes-extension-points, phase P3): the module's
+    // new `extension-points.ts` declares 33 hosts, which the data-table and
+    // crud-form surface tables expand into 110 emitted host facts, and its new
+    // `widgets/components.ts` adds one more override-target render. That
+    // measures 4,289,542 bytes against the then-4_250_000 cap, 0.9% over.
+    // Linear growth in one module's declared surface, not the multiplicative
+    // blow-up this detector exists to catch; the cap is set from the
+    // measurement with bounded headroom.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_350_000)
+    // The v2-over-legacy delta grows with the same host facts (they exist only in
+    // the v2 extension surface), measuring 1,900,068 against the 1,900,000 above —
+    // 0.004% over. Raised from that measurement with the same bounded headroom.
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_950_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution

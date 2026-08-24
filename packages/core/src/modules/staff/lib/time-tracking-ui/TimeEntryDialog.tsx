@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, X } from 'lucide-react'
 import {
@@ -38,6 +39,16 @@ import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverE
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import {
+  callbackProp,
+  opaqueProp,
+  optionalCallbackProp,
+} from '../time-tracking/componentContracts'
+import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { hasFeature } from '@open-mercato/shared/security/features'
@@ -73,6 +84,22 @@ import {
 const logger = createLogger('staff').child({ component: 'TimeEntryDialog' })
 
 export const TIME_ENTRY_DIALOG_MUTATION_CONTEXT_ID = 'staff.time_tracking.entryDialog'
+const TIME_ENTRY_ENTITY_ID = 'staff:staff_time_entry'
+
+type TimeEntryFormInjectionContext = {
+  formId: string
+  entityId: string
+  recordId: string | null
+  resourceKind: string
+  resourceId: string
+  operation: 'create' | 'update'
+  locked: boolean
+  retryLastMutation: () => Promise<boolean>
+}
+
+function fieldValueSnapshot(value: unknown): string {
+  return JSON.stringify(value ?? null)
+}
 export const RATES_FEATURE = 'staff.timesheets.rates.view'
 export const ENTRIES_LIST_PATH = '/backend/staff/time-tracking/entries'
 export const REPORTS_PATH = '/backend/staff/time-tracking/reports'
@@ -281,7 +308,7 @@ function readErrorCode(error: unknown): string | null {
  *     `409 entry_locked`, so the form shows the lock and a way to the report that
  *     closed it instead of letting someone compose a request that cannot succeed.
  */
-export function TimeEntryDialog({
+function DefaultTimeEntryDialog({
   open,
   onOpenChange,
   entryId,
@@ -761,6 +788,166 @@ export function TimeEntryDialog({
 
   const rateOverrideAmount = rateOverrideEnabled ? parseRateText(rateText) : null
   const currencyCode = project?.currencyCode ?? entry?.currencyCode ?? null
+
+  /**
+   * The dialog is hand-rolled, so it plays the `CrudForm` host contract by hand:
+   * the four render spots below, plus the `onFieldChange` / `onBeforeSave` /
+   * `onAfterSave` lifecycle, dispatched with the same semantics `CrudForm` uses —
+   * a widget returning `ok: false` from `onBeforeSave` blocks the write and its
+   * message is surfaced, and a value returned from `onFieldChange` is written back
+   * into the form.
+   */
+  const entryFormValues = React.useMemo<FormValues>(
+    () => ({
+      taskId,
+      description,
+      date,
+      startText: startClock,
+      endText: endClock,
+      durationMinutes,
+      isBillable,
+      rateOverrideEnabled,
+      rateOverrideAmount,
+      tagIds,
+    }),
+    [
+      date,
+      description,
+      durationMinutes,
+      endClock,
+      isBillable,
+      rateOverrideAmount,
+      rateOverrideEnabled,
+      startClock,
+      tagIds,
+      taskId,
+    ],
+  )
+
+  const entryInjectionContext = React.useMemo<TimeEntryFormInjectionContext>(
+    () => ({
+      formId: TIME_ENTRY_DIALOG_MUTATION_CONTEXT_ID,
+      entityId: TIME_ENTRY_ENTITY_ID,
+      recordId: entryId ?? null,
+      resourceKind: 'staff.timesheets.time_entry',
+      resourceId: entryId ?? 'new',
+      operation: isEdit ? 'update' : 'create',
+      locked,
+      retryLastMutation,
+    }),
+    [entryId, isEdit, locked, retryLastMutation],
+  )
+
+  const { triggerEvent: triggerEntryFormEvent } = useInjectionSpotEvents<
+    TimeEntryFormInjectionContext,
+    FormValues
+  >(extensionPoints.hosts.timeEntryForm.spotId)
+
+  /**
+   * Fields the last write to came from a widget, not from the person. Without it
+   * an `onFieldChange` handler that rewrites its own field would see the rewrite
+   * as a fresh edit and be dispatched again on every apply.
+   */
+  const injectedFieldWritesRef = React.useRef(new Set<string>())
+
+  const applyInjectedFieldValue = React.useCallback((fieldId: string, value: unknown) => {
+    switch (fieldId) {
+      case 'taskId':
+        injectedFieldWritesRef.current.add(fieldId)
+        setTaskId(typeof value === 'string' && value.length > 0 ? value : null)
+        return
+      case 'description':
+        injectedFieldWritesRef.current.add(fieldId)
+        setDescription(typeof value === 'string' ? value : '')
+        return
+      case 'date':
+        if (typeof value !== 'string') return
+        injectedFieldWritesRef.current.add(fieldId)
+        setDate(value)
+        return
+      case 'isBillable':
+        injectedFieldWritesRef.current.add(fieldId)
+        setIsBillable(value === true)
+        return
+      case 'rateOverrideEnabled':
+        injectedFieldWritesRef.current.add(fieldId)
+        setRateOverrideEnabled(value === true)
+        return
+      case 'rateOverrideAmount':
+        injectedFieldWritesRef.current.add(fieldId)
+        setRateText(typeof value === 'number' || typeof value === 'string' ? String(value) : '')
+        return
+      case 'tagIds':
+        if (!Array.isArray(value)) return
+        injectedFieldWritesRef.current.add(fieldId)
+        setTagIds(value.filter((id): id is string => typeof id === 'string'))
+        return
+      case 'startText':
+        if (typeof value !== 'string') return
+        injectedFieldWritesRef.current.add(fieldId)
+        setIntervalState((current) => reduceIntervalState(current, { field: 'start', value }))
+        return
+      case 'endText':
+        if (typeof value !== 'string') return
+        injectedFieldWritesRef.current.add(fieldId)
+        setIntervalState((current) => reduceIntervalState(current, { field: 'end', value }))
+        return
+      case 'durationMinutes':
+        injectedFieldWritesRef.current.add(fieldId)
+        setIntervalState((current) =>
+          reduceIntervalState(current, {
+            field: 'duration',
+            minutes: typeof value === 'number' ? value : null,
+            invalid: false,
+          }),
+        )
+        return
+      default:
+    }
+  }, [])
+
+  const previousEntryFormValuesRef = React.useRef<FormValues | null>(null)
+
+  React.useEffect(() => {
+    if (!open || locked) {
+      previousEntryFormValuesRef.current = null
+      injectedFieldWritesRef.current.clear()
+      return
+    }
+    const previous = previousEntryFormValuesRef.current
+    previousEntryFormValuesRef.current = entryFormValues
+    if (!previous) return
+    const injectedWrites = injectedFieldWritesRef.current
+    const changedFieldIds = (Object.keys(entryFormValues) as Array<keyof FormValues>).filter(
+      (fieldId) => fieldValueSnapshot(previous[fieldId]) !== fieldValueSnapshot(entryFormValues[fieldId]),
+    )
+    for (const fieldId of changedFieldIds) {
+      if (injectedWrites.delete(fieldId)) continue
+      void triggerEntryFormEvent('onFieldChange', entryFormValues, entryInjectionContext, {
+        fieldId,
+        fieldValue: entryFormValues[fieldId],
+      })
+        .then((result) => {
+          if (!result.ok || !result.fieldChange) return
+          const change = result.fieldChange
+          if (change.value !== undefined) applyInjectedFieldValue(fieldId, change.value)
+          for (const [sideFieldId, sideValue] of Object.entries(change.sideEffects ?? {})) {
+            applyInjectedFieldValue(sideFieldId, sideValue)
+          }
+          for (const message of change.messages ?? []) flash(message.text, message.severity)
+        })
+        .catch((err) => {
+          logger.error('staff.time_tracking entry dialog onFieldChange failed', { err })
+        })
+    }
+  }, [
+    applyInjectedFieldValue,
+    entryFormValues,
+    entryInjectionContext,
+    locked,
+    open,
+    triggerEntryFormEvent,
+  ])
   const roundedMinutes = roundMinutes(durationMinutes ?? 0, settings.rounding)
   const rate = applicableRate({ rateOverrideAmount }, { hourlyRate: project?.hourlyRate ?? null })
   const cost = entryAmount(
@@ -943,12 +1130,32 @@ export function TimeEntryDialog({
         return
       }
       const body = buildPayload()
+
+      const beforeSave = await triggerEntryFormEvent('onBeforeSave', entryFormValues, entryInjectionContext)
+      if (!beforeSave.ok) {
+        if (beforeSave.fieldErrors) {
+          const taskIssue = beforeSave.fieldErrors.taskId ?? beforeSave.fieldErrors.task ?? null
+          const durationIssue =
+            beforeSave.fieldErrors.durationMinutes ?? beforeSave.fieldErrors.duration ?? null
+          if (taskIssue || durationIssue) setFieldIssues({ task: taskIssue, duration: durationIssue })
+        }
+        flash(
+          beforeSave.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+          'error',
+        )
+        return
+      }
+      const injectedRequestHeaders = beforeSave.requestHeaders ?? {}
+
       setSavingMode(mode)
       try {
         const saved = await runMutation({
           operation: () =>
             withScopedApiRequestHeaders(
-              isEdit ? buildOptimisticLockHeader(versionRef.current) : {},
+              {
+                ...injectedRequestHeaders,
+                ...(isEdit ? buildOptimisticLockHeader(versionRef.current) : {}),
+              },
               () =>
                 apiCallOrThrow<Record<string, unknown>>(
                   '/api/staff/timesheets/time-entries',
@@ -975,6 +1182,11 @@ export function TimeEntryDialog({
           },
         })
         const savedId = typeof saved?.result?.id === 'string' ? saved.result.id : entryId ?? null
+        try {
+          await triggerEntryFormEvent('onAfterSave', entryFormValues, entryInjectionContext)
+        } catch (err) {
+          logger.error('staff.time_tracking entry dialog onAfterSave failed', { err })
+        }
         flash(t('staff.time_tracking.entryDialog.saved', 'Time entry saved.'), 'success')
         if (mode === 'again') {
           // Note 3: the dialog stays open, the description and the times clear,
@@ -1019,7 +1231,9 @@ export function TimeEntryDialog({
       canSubmit,
       date,
       endClock,
+      entryFormValues,
       entryId,
+      entryInjectionContext,
       interval.crossesMidnight,
       isBillable,
       isEdit,
@@ -1036,6 +1250,7 @@ export function TimeEntryDialog({
       t,
       tagIds,
       taskId,
+      triggerEntryFormEvent,
       validateRequired,
     ],
   )
@@ -1149,6 +1364,12 @@ export function TimeEntryDialog({
 
     return (
       <div className="flex flex-col gap-4">
+        <InjectionSpot
+          spotId={extensionSpotChildId(extensionPoints.hosts.timeEntryForm.spotId, 'before-fields')}
+          context={entryInjectionContext}
+          data={entryFormValues}
+        />
+
         {locked ? (
           <Alert status="warning" data-testid="entry-dialog-locked">
             <AlertTitle className="flex items-center gap-2">
@@ -1533,6 +1754,12 @@ export function TimeEntryDialog({
           </div>
         </div>
 
+        <InjectionSpot
+          spotId={extensionSpotChildId(extensionPoints.hosts.timeEntryForm.spotId, 'fields')}
+          context={entryInjectionContext}
+          data={entryFormValues}
+        />
+
         <Alert status="information" data-testid="entry-dialog-creator">
           <AlertDescription>
             {selfQuery.data?.displayName
@@ -1547,6 +1774,12 @@ export function TimeEntryDialog({
                 )}
           </AlertDescription>
         </Alert>
+
+        <InjectionSpot
+          spotId={extensionSpotChildId(extensionPoints.hosts.timeEntryForm.spotId, 'after-fields')}
+          context={entryInjectionContext}
+          data={entryFormValues}
+        />
       </div>
     )
   })()
@@ -1625,6 +1858,11 @@ export function TimeEntryDialog({
             <Kbd>esc</Kbd>
             {t('staff.time_tracking.entryDialog.shortcutCancel', 'cancel')}
           </span>
+          <InjectionSpot
+            spotId={extensionSpotChildId(extensionPoints.hosts.timeEntryForm.spotId, 'footer')}
+            context={entryInjectionContext}
+            data={entryFormValues}
+          />
           <Button type="button" variant="ghost" onClick={() => { void requestClose() }}>
             {locked
               ? t('staff.time_tracking.entryDialog.close', 'Close')
@@ -1658,6 +1896,34 @@ export function TimeEntryDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+const timeEntryDialogPropsSchema: z.ZodType<TimeEntryDialogProps> = z.object({
+  open: z.boolean(),
+  onOpenChange: callbackProp<(open: boolean) => void>(),
+  entryId: z.string().nullable().optional(),
+  defaults: opaqueProp<TimeEntryDialogDefaults>().optional(),
+  headerHint: z.string().nullable().optional(),
+  onSaved: optionalCallbackProp<(result: { id: string | null; keptOpen: boolean }) => void>(),
+  onShowEntry: optionalCallbackProp<(entryId: string) => void>(),
+})
+
+registerComponent<TimeEntryDialogProps>({
+  id: extensionPoints.hosts.timeEntryDialogComponent.componentId,
+  component: DefaultTimeEntryDialog,
+  metadata: {
+    module: 'staff',
+    description: 'Create/edit dialog for a single time entry.',
+    propsSchema: timeEntryDialogPropsSchema,
+  },
+})
+
+export function TimeEntryDialog(props: TimeEntryDialogProps) {
+  const Resolved = useRegisteredComponent<TimeEntryDialogProps>(
+    extensionPoints.hosts.timeEntryDialogComponent.componentId,
+    DefaultTimeEntryDialog,
+  )
+  return <Resolved {...props} />
 }
 
 export default TimeEntryDialog

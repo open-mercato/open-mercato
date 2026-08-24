@@ -11,6 +11,7 @@
  * selection to the configuration screen rather than making the user re-pick it.
  */
 
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FileText, Lock, Plus } from 'lucide-react'
@@ -199,6 +200,7 @@ export default function TimeTrackingReportsPage() {
     <Page>
       <PageBody>
         <DataTable<ReportRow>
+          extensionTableId={extensionPoints.hosts.timeReportsTable.tableId}
           title={t('staff.time_tracking.nav.reports', 'Reports')}
           columns={columns}
           data={rows}

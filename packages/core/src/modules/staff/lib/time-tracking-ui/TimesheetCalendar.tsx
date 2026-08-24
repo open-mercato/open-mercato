@@ -1,10 +1,20 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import { Plus } from 'lucide-react'
 import { Progress } from '@open-mercato/ui/primitives/progress'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  InjectionSpot,
+  useInjectionWidgets,
+  type LoadedInjectionSpotWidget,
+} from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { callbackProp, opaqueProp } from '../time-tracking/componentContracts'
 import { formatDuration } from '../time-tracking/duration'
 import {
   buildCalendarWeeks,
@@ -62,7 +72,7 @@ function weekdayLabels(locale: string | undefined): string[] {
   })
 }
 
-export function TimesheetCalendar({
+function DefaultTimesheetCalendar({
   monthAnchors,
   days,
   scaleMinutes,
@@ -76,6 +86,15 @@ export function TimesheetCalendar({
   const weekdays = React.useMemo(() => weekdayLabels(locale), [locale])
   const addLabel = t('staff.time_tracking.timesheet.calendar.add', '+ add')
   const nonBillableLabel = t('staff.time_tracking.timesheet.calendar.nonBillable', 'Non-billable')
+  /**
+   * Loaded once for the whole grid and handed to every cell as an override: a
+   * month renders ~35 cells, and letting each one resolve the spot on its own
+   * would mean 35 registry reads and 35 state updates for a spot that is empty
+   * on every stock install.
+   */
+  const { widgets: dayCellActionWidgets } = useInjectionWidgets(
+    extensionPoints.hosts.timesheetDayCellActions.spotId,
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -103,6 +122,7 @@ export function TimesheetCalendar({
                   onAddEntry={onAddEntry}
                   onSelectEntry={onSelectEntry}
                   locale={locale}
+                  dayCellActionWidgets={dayCellActionWidgets}
                 />
               ))}
           </div>
@@ -121,6 +141,7 @@ function CalendarDayCell({
   onAddEntry,
   onSelectEntry,
   locale,
+  dayCellActionWidgets,
 }: {
   cell: TimesheetCalendarCell
   day: { totalMinutes: number; entries: TimesheetEntry[] } | null
@@ -130,6 +151,7 @@ function CalendarDayCell({
   onAddEntry: (date: string) => void
   onSelectEntry: (entry: TimesheetEntry) => void
   locale?: string
+  dayCellActionWidgets: LoadedInjectionSpotWidget[]
 }) {
   const totalMinutes = day?.totalMinutes ?? 0
   const entries = day?.entries ?? []
@@ -201,6 +223,43 @@ function CalendarDayCell({
           {addLabel}
         </button>
       ) : null}
+      {cell.inPeriod ? (
+        <InjectionSpot
+          spotId={extensionPoints.hosts.timesheetDayCellActions.spotId}
+          context={{ date: cell.date, isToday: cell.isToday, isWeekend: cell.isWeekend, totalMinutes }}
+          data={entries}
+          widgetsOverride={dayCellActionWidgets}
+        />
+      ) : null}
     </div>
   )
+}
+
+const timesheetCalendarPropsSchema: z.ZodType<TimesheetCalendarProps> = z.object({
+  monthAnchors: z.array(z.string()),
+  days: opaqueProp<TimesheetDayIndex>(),
+  scaleMinutes: z.number().nullable(),
+  todayDate: z.string(),
+  onAddEntry: callbackProp<(date: string) => void>(),
+  onSelectEntry: callbackProp<(entry: TimesheetEntry) => void>(),
+  locale: z.string().optional(),
+  showMonthHeadings: z.boolean().optional(),
+})
+
+registerComponent<TimesheetCalendarProps>({
+  id: extensionPoints.hosts.timesheetCalendarComponent.componentId,
+  component: DefaultTimesheetCalendar,
+  metadata: {
+    module: 'staff',
+    description: 'Timesheet month calendar with per-day load bars and entry chips.',
+    propsSchema: timesheetCalendarPropsSchema,
+  },
+})
+
+export function TimesheetCalendar(props: TimesheetCalendarProps) {
+  const Resolved = useRegisteredComponent<TimesheetCalendarProps>(
+    extensionPoints.hosts.timesheetCalendarComponent.componentId,
+    DefaultTimesheetCalendar,
+  )
+  return <Resolved {...props} />
 }

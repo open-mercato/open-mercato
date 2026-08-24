@@ -33,6 +33,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { formatCurrency, formatDate } from '@open-mercato/ui/utils/format'
 import { hasFeature } from '@open-mercato/shared/security/features'
@@ -73,6 +75,16 @@ import {
 } from './taskDrawerData'
 
 const logger = createLogger('staff').child({ component: 'TaskDrawer' })
+
+const TASK_ENTITY_ID = 'staff:staff_time_task'
+
+type TaskDetailInjectionContext = {
+  entityId: string
+  recordId: string
+  taskId: string
+  timeProjectId: string | null
+  retryLastMutation: () => Promise<boolean>
+}
 
 export const TASK_DRAWER_MUTATION_CONTEXT_ID = 'staff.time_tracking.task_drawer'
 export const RATES_FEATURE = 'staff.timesheets.rates.view'
@@ -215,6 +227,17 @@ export function TaskDrawer({
   const task = taskQuery.data?.task ?? null
   const createdAt = taskQuery.data?.createdAt ?? null
   const projectId = task?.timeProjectId ?? null
+
+  const taskInjectionContext = React.useMemo<TaskDetailInjectionContext>(
+    () => ({
+      entityId: TASK_ENTITY_ID,
+      recordId: taskId,
+      taskId,
+      timeProjectId: projectId,
+      retryLastMutation,
+    }),
+    [projectId, retryLastMutation, taskId],
+  )
   const isChildTask = !!task?.parentTaskId
 
   React.useEffect(() => {
@@ -1301,7 +1324,18 @@ export function TaskDrawer({
               )}
             </p>
           </div>
+          <InjectionSpot
+            spotId={extensionPoints.hosts.taskDetailSidebar.spotId}
+            context={taskInjectionContext}
+            data={task}
+          />
         </section>
+
+        <InjectionSpot
+          spotId={extensionPoints.hosts.taskDetailTabs.spotId}
+          context={taskInjectionContext}
+          data={task}
+        />
       </div>
     )
   })()
@@ -1330,9 +1364,19 @@ export function TaskDrawer({
               {task?.reference ? (
                 <span className="text-xs text-muted-foreground">{task.reference}</span>
               ) : null}
+              <InjectionSpot
+                spotId={extensionPoints.hosts.taskDetailStatusBadges.spotId}
+                context={taskInjectionContext}
+                data={task}
+              />
             </div>
             <DrawerTitle className="truncate">{task?.title ?? ''}</DrawerTitle>
             <DrawerDescription>{headerLine}</DrawerDescription>
+            <InjectionSpot
+              spotId={extensionPoints.hosts.taskDetailHeader.spotId}
+              context={taskInjectionContext}
+              data={task}
+            />
           </div>
         </DrawerHeader>
         <DrawerBody>{body}</DrawerBody>
@@ -1343,6 +1387,11 @@ export function TaskDrawer({
             </span>
           }
         >
+          <InjectionSpot
+            spotId={extensionPoints.hosts.taskDetailFooter.spotId}
+            context={taskInjectionContext}
+            data={task}
+          />
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('staff.time_tracking.taskDrawer.close', 'Close')}
           </Button>

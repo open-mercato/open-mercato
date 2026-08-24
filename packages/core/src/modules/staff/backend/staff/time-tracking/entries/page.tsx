@@ -40,6 +40,7 @@
  * currencies together; see `summarizeTimeEntries`.
  */
 
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import * as React from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Copy, Lock, Plus } from 'lucide-react'
@@ -1081,6 +1082,7 @@ export default function TimeTrackingEntriesPage() {
     <Page>
       <PageBody>
         <DataTable<TimeEntryListRow>
+          extensionTableId={extensionPoints.hosts.timeEntriesTable.tableId}
           title={labels.title}
           data={rows}
           columns={columns}

@@ -186,6 +186,51 @@ jest.mock('@open-mercato/ui/primitives/select', () => {
   }
 })
 
+type InjectionTriggerCall = { event: string; fieldId?: string; fieldValue?: unknown }
+
+type BeforeSaveOutcome = {
+  ok: boolean
+  message?: string
+  requestHeaders?: Record<string, string>
+}
+
+type FieldChangeOutcome = {
+  value?: unknown
+  sideEffects?: Record<string, unknown>
+  messages?: Array<{ text: string; severity: 'info' | 'warning' | 'error' }>
+}
+
+const mockInjection: {
+  calls: InjectionTriggerCall[]
+  beforeSave: BeforeSaveOutcome
+  fieldChange: FieldChangeOutcome | null
+} = { calls: [], beforeSave: { ok: true }, fieldChange: null }
+
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => {
+  const triggerEvent = async (
+    event: string,
+    _data: unknown,
+    _context: unknown,
+    meta?: { fieldId?: string; fieldValue?: unknown },
+  ) => {
+    mockInjection.calls.push({ event, fieldId: meta?.fieldId, fieldValue: meta?.fieldValue })
+    if (event === 'onBeforeSave') return mockInjection.beforeSave
+    if (event === 'onFieldChange') {
+      return mockInjection.fieldChange
+        ? { ok: true, fieldChange: mockInjection.fieldChange }
+        : { ok: true, fieldChange: { value: meta?.fieldValue } }
+    }
+    return { ok: true }
+  }
+  const events = { triggerEvent, widgets: [] }
+  return {
+    __esModule: true,
+    InjectionSpot: () => null,
+    useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
+    useInjectionSpotEvents: () => events,
+  }
+})
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => {
   const actual = jest.requireActual('@open-mercato/ui/backend/utils/apiCall')
   return {
@@ -344,6 +389,9 @@ function lastWriteBody(): Record<string, unknown> {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockInjection.calls = []
+  mockInjection.beforeSave = { ok: true }
+  mockInjection.fieldChange = null
   settingsPayload = {
     rounding: { unitMinutes: 0, direction: 'up' },
     defaults: { billable: true, chainStartFromPreviousEnd: true },
@@ -1061,5 +1109,85 @@ describe('TimeEntryDialog — field-level validation', () => {
     await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
     await waitFor(() => expect(mockFlash).not.toHaveBeenCalled())
     expect(screen.queryByTestId('entry-dialog-task-error')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * EP-29: the dialog is hand-rolled, so it plays the `CrudForm` host contract by
+ * hand. These pin the three lifecycle semantics `CrudForm` guarantees.
+ */
+describe('TimeEntryDialog — crud-form host lifecycle', () => {
+  it('blocks the save when a widget returns ok: false and surfaces its message', async () => {
+    mockInjection.beforeSave = { ok: false, message: 'Needs a purchase order' }
+
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Needs a purchase order', 'error'))
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('merges widget request headers without displacing the optimistic lock header', async () => {
+    mockInjection.beforeSave = { ok: true, requestHeaders: { 'x-purchase-order': 'PO-42' } }
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        started_at: '2026-07-20T09:00:00.000Z',
+        ended_at: '2026-07-20T10:00:00.000Z',
+        duration_minutes: 60,
+        description: 'Analiza planów zapytań',
+        task_id: TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+
+    renderDialog({ entryId: ENTRY_ID })
+    await waitFor(() =>
+      expect((screen.getByTestId('entry-dialog-description') as HTMLInputElement).value).toBe(
+        'Analiza planów zapytań',
+      ),
+    )
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(mockWithScopedHeaders).toHaveBeenCalledWith(
+      { 'x-purchase-order': 'PO-42', [OPTIMISTIC_LOCK_HEADER_NAME]: VERSION },
+      expect.any(Function),
+    )
+  })
+
+  it('runs onAfterSave once the write succeeded', async () => {
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockInjection.calls.some((call) => call.event === 'onAfterSave')).toBe(true))
+    const order = mockInjection.calls.map((call) => call.event)
+    expect(order.indexOf('onBeforeSave')).toBeLessThan(order.indexOf('onAfterSave'))
+  })
+
+  it('dispatches onFieldChange for an edited field and writes the returned value back', async () => {
+    mockInjection.fieldChange = { value: 'Rewritten by the widget' }
+
+    renderDialog()
+    await pickTask()
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Typed' } })
+
+    await waitFor(() =>
+      expect((screen.getByTestId('entry-dialog-description') as HTMLInputElement).value).toBe(
+        'Rewritten by the widget',
+      ),
+    )
+    expect(
+      mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'description'),
+    ).toBe(true)
   })
 })

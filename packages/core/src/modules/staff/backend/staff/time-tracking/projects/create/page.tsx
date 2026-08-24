@@ -1,5 +1,6 @@
 "use client"
 
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -49,6 +50,7 @@ export default function TimeTrackingProjectCreatePage() {
           schema={formSchema}
           initialValues={INITIAL_VALUES}
           entityIds={[E.staff.staff_time_project]}
+          injectionSpotId={extensionPoints.hosts.projectForm.spotId}
           submitLabel={t('staff.timesheets.projects.form.actions.create', 'Create')}
           onSubmit={async (values) => {
             if (!values.name?.trim() || !values.code?.trim() || !values.customerId) {

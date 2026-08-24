@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import { useDraggable } from '@dnd-kit/core'
 import { ArrowRightLeft, Check, Play, Plus, Square } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
@@ -8,6 +9,11 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Progress } from '@open-mercato/ui/primitives/progress'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { callbackProp, opaqueProp, optionalCallbackProp } from '../time-tracking/componentContracts'
 import {
   formatBoardMinutes,
   initialsFromName,
@@ -36,6 +42,8 @@ export function useCoarsePointer(): boolean {
   }, [])
   return coarse
 }
+
+const TASK_ENTITY_ID = 'staff:staff_time_task'
 
 export type KanbanTagOption = {
   id: string
@@ -188,6 +196,18 @@ function KanbanCardImpl({
     ? 'opacity-100'
     : 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
 
+  const cardInjectionContext = React.useMemo(
+    () => ({
+      entityId: TASK_ENTITY_ID,
+      recordId: task.id,
+      taskId: task.id,
+      timeProjectId: task.timeProjectId ?? null,
+      taskStatusId: task.taskStatusId ?? null,
+      timerRunning,
+    }),
+    [task.id, task.taskStatusId, task.timeProjectId, timerRunning],
+  )
+
   const subtaskPercent = subtasks && subtasks.total > 0
     ? Math.round((subtasks.done / subtasks.total) * 100)
     : 0
@@ -216,6 +236,12 @@ function KanbanCardImpl({
           ))}
         </div>
       ) : null}
+
+      <InjectionSpot
+        spotId={extensionPoints.hosts.taskBoardCardBadges.spotId}
+        context={cardInjectionContext}
+        data={task}
+      />
 
       {subtasks && subtasks.total > 0 ? (
         <div className="flex flex-col gap-1">
@@ -354,10 +380,56 @@ function KanbanCardImpl({
           </div>
         ) : null}
       </div>
+
+      <InjectionSpot
+        spotId={extensionPoints.hosts.taskBoardCardFooter.spotId}
+        context={cardInjectionContext}
+        data={task}
+      />
     </div>
   )
 }
 
-export const KanbanCard = React.memo(KanbanCardImpl)
+const DefaultKanbanCard = React.memo(KanbanCardImpl)
+
+const kanbanTagOptionSchema = z.object({ id: z.string(), label: z.string() })
+
+const kanbanMoveTargetSchema = z.object({ id: z.string(), name: z.string() })
+
+const kanbanCardPropsSchema: z.ZodType<KanbanCardProps> = z.object({
+  task: opaqueProp<BoardTask>(),
+  assigneeName: z.string().nullable(),
+  tags: z.array(kanbanTagOptionSchema),
+  subtasks: opaqueProp<SubtaskProgress>().nullable(),
+  timerRunning: z.boolean(),
+  pending: z.boolean(),
+  isActiveDrag: z.boolean(),
+  moveTargets: z.array(kanbanMoveTargetSchema).optional(),
+  onOpen: callbackProp<(taskId: string) => void>(),
+  onStartTimer: callbackProp<(taskId: string) => void>(),
+  onStopTimer: callbackProp<(taskId: string) => void>(),
+  onAddTime: callbackProp<(taskId: string) => void>(),
+  onMoveToColumn: optionalCallbackProp<(taskId: string, targetStatusId: string) => void>(),
+})
+
+registerComponent<KanbanCardProps>({
+  id: extensionPoints.hosts.kanbanCardComponent.componentId,
+  component: DefaultKanbanCard,
+  metadata: {
+    module: 'staff',
+    description: 'One task card on the time-tracking Kanban board.',
+    propsSchema: kanbanCardPropsSchema,
+  },
+})
+
+function KanbanCardHost(props: KanbanCardProps): React.ReactElement {
+  const Resolved = useRegisteredComponent<KanbanCardProps>(
+    extensionPoints.hosts.kanbanCardComponent.componentId,
+    DefaultKanbanCard,
+  )
+  return <Resolved {...props} />
+}
+
+export const KanbanCard = React.memo(KanbanCardHost)
 
 export default KanbanCard

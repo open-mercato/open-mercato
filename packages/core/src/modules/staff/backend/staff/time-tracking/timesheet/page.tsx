@@ -49,6 +49,8 @@ import { PeriodSelector, TimesheetFilterSelect } from '../../../../lib/time-trac
 import { TimesheetViewSwitch } from '../../../../lib/time-tracking-ui/TimesheetViewSwitch'
 import { TimesheetCalendar } from '../../../../lib/time-tracking-ui/TimesheetCalendar'
 import { TimesheetPeriodFooter } from '../../../../lib/time-tracking-ui/TimesheetPeriodFooter'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import {
   ALL_OPTION_VALUE,
   resolveEffectiveView,
@@ -404,6 +406,18 @@ export default function TimesheetPage() {
   const days = React.useMemo(() => buildTimesheetDays(range, data.entries), [data.entries, range])
   const dayIndex = React.useMemo(() => indexDaysByDate(days), [days])
   const summary = React.useMemo(() => summarizeTimesheet(days, range, data.dailyHours), [days, data.dailyHours, range])
+  const timesheetInjectionContext = React.useMemo(
+    () => ({
+      staffMemberId: data.staffMemberId,
+      periodKind,
+      periodFrom: range.from,
+      periodTo: range.to,
+      view,
+      readOnly,
+      retryLastMutation,
+    }),
+    [data.staffMemberId, periodKind, range.from, range.to, readOnly, retryLastMutation, view],
+  )
   const scaleMinutes = React.useMemo(
     () => resolveLoadScaleMinutes(days, data.dailyHours),
     [days, data.dailyHours],
@@ -679,6 +693,11 @@ export default function TimesheetPage() {
                 view={view}
                 views={viewsForPeriod(periodKind)}
                 onViewChange={handleViewChange}
+              />
+              <InjectionSpot
+                spotId={extensionPoints.hosts.timesheetToolbar.spotId}
+                context={timesheetInjectionContext}
+                data={summary}
               />
             </div>
           </div>

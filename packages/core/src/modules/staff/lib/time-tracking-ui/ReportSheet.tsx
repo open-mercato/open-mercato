@@ -26,14 +26,26 @@
  */
 
 import * as React from 'react'
+import { z } from 'zod'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { opaqueProp } from '../time-tracking/componentContracts'
 import { formatReportMinutes } from '../timesheets-reports/reportTotals'
 import type { PreviewGroup, PreviewLine } from '../timesheets-reports/reportConfigData'
 
 export type ReportSheetProps = {
+  /**
+   * Identifies the rendered report to the sheet's injection spots. Optional so
+   * the preview host, which renders a sheet no report row exists for yet, keeps
+   * working unchanged.
+   */
+  reportId?: string | null
   reference: string
   customerName: string
   periodLabel: string
@@ -52,6 +64,8 @@ export type ReportSheetProps = {
 
 const EM_DASH = '—'
 
+const REPORT_ENTITY_ID = 'staff:staff_time_report'
+
 function useMoney(currencyCode: string | null) {
   return React.useCallback(
     (amount: number | null | undefined) => {
@@ -62,7 +76,8 @@ function useMoney(currencyCode: string | null) {
   )
 }
 
-export function ReportSheet({
+function DefaultReportSheet({
+  reportId = null,
   reference,
   customerName,
   periodLabel,
@@ -76,6 +91,10 @@ export function ReportSheet({
 }: ReportSheetProps) {
   const t = useT()
   const money = useMoney(currencyCode)
+  const sheetInjectionContext = React.useMemo(
+    () => ({ entityId: REPORT_ENTITY_ID, recordId: reportId, reportId, reference, periodLabel, currencyCode }),
+    [currencyCode, periodLabel, reference, reportId],
+  )
 
   return (
     <section className="rounded-lg border border-border bg-card">
@@ -100,6 +119,12 @@ export function ReportSheet({
           <span className="font-mono text-xs text-muted-foreground">{reference}</span>
         </div>
       </header>
+
+      <InjectionSpot
+        spotId={extensionPoints.hosts.reportSheetBeforeLines.spotId}
+        context={sheetInjectionContext}
+        data={groups}
+      />
 
       {groups.length === 0 ? (
         <p className="p-6 text-sm text-muted-foreground">
@@ -133,6 +158,12 @@ export function ReportSheet({
         </div>
         <span className="font-mono text-xl font-semibold tabular-nums">{money(totals.totalAmount)}</span>
       </footer>
+
+      <InjectionSpot
+        spotId={extensionPoints.hosts.reportSheetAfterTotals.spotId}
+        context={sheetInjectionContext}
+        data={totals}
+      />
     </section>
   )
 }
@@ -285,6 +316,42 @@ function ReportSheetLine({ line, depth, isNonBillable, showRates, money }: LineP
       ) : null}
     </>
   )
+}
+
+const reportSheetPropsSchema: z.ZodType<ReportSheetProps> = z.object({
+  reportId: z.string().nullable().optional(),
+  reference: z.string(),
+  customerName: z.string(),
+  periodLabel: z.string(),
+  issuedByLabel: z.string().nullable(),
+  issuedAtLabel: z.string().nullable(),
+  currencyCode: z.string().nullable(),
+  showRates: z.boolean(),
+  groups: z.array(opaqueProp<PreviewGroup>()),
+  totals: z.object({
+    billableMinutes: z.number(),
+    nonbillableMinutes: z.number(),
+    totalAmount: z.number().nullable(),
+  }),
+  roundingLabel: z.string(),
+})
+
+registerComponent<ReportSheetProps>({
+  id: extensionPoints.hosts.reportSheetComponent.componentId,
+  component: DefaultReportSheet,
+  metadata: {
+    module: 'staff',
+    description: 'Client-facing time and cost statement for one report.',
+    propsSchema: reportSheetPropsSchema,
+  },
+})
+
+export function ReportSheet(props: ReportSheetProps) {
+  const Resolved = useRegisteredComponent<ReportSheetProps>(
+    extensionPoints.hosts.reportSheetComponent.componentId,
+    DefaultReportSheet,
+  )
+  return <Resolved {...props} />
 }
 
 export default ReportSheet

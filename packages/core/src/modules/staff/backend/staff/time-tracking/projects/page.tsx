@@ -1,5 +1,6 @@
 "use client"
 
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -1149,6 +1150,7 @@ export default function TimesheetProjectsPage() {
           </div>
         ) : (
           <DataTable<ProjectRow>
+            extensionTableId={extensionPoints.hosts.timeProjectsTable.tableId}
             title={labels.title}
             data={rows}
             columns={columns}

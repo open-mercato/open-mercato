@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { formatDuration } from '../time-tracking/duration'
 import type { TimesheetSummary } from './timesheetData'
 
@@ -23,6 +25,10 @@ export function TimesheetPeriodFooter({
   dailyHours: number | null
 }) {
   const t = useT()
+  const footerInjectionContext = React.useMemo(
+    () => ({ workingDays: summary.workingDays, dailyHours }),
+    [dailyHours, summary.workingDays],
+  )
   const targetLabel =
     dailyHours !== null
       ? t('staff.time_tracking.timesheet.footer.targetWithDays', 'Target ({days} d × {hours} h)', {
@@ -62,6 +68,11 @@ export function TimesheetPeriodFooter({
           ) : null}
         </>
       ) : null}
+      <InjectionSpot
+        spotId={extensionPoints.hosts.timesheetPeriodFooter.spotId}
+        context={footerInjectionContext}
+        data={summary}
+      />
     </div>
   )
 }

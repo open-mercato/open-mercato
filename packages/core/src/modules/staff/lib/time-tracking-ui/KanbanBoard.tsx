@@ -37,6 +37,8 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { sumTaskLoggedMinutes } from '../timesheets-tasks/taskHoursTotals'
 import { KanbanColumn, KANBAN_COLUMN_DROPPABLE_PREFIX } from './KanbanColumn'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { TaskDrawer } from './TaskDrawer'
 import type { KanbanMoveTarget, KanbanTagOption } from './KanbanCard'
 import {
@@ -861,6 +863,12 @@ export function KanbanBoard({
 
   return (
     <div className="flex flex-col gap-4">
+      <InjectionSpot
+        spotId={extensionPoints.hosts.taskBoardToolbar.spotId}
+        context={{ timeProjectId, projectName: projectName ?? null, statusIds: visibleStatuses.map((status) => status.id) }}
+        data={summary}
+      />
+
       {failedMove ? (
         <Alert status="error" data-testid="kanban-move-retry">
           <AlertDescription className="flex flex-wrap items-center gap-3">

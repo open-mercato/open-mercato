@@ -49,6 +49,8 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { ReportSheet } from '../../../../../lib/time-tracking-ui/ReportSheet'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import {
   parseReportSheet,
   type ReportHistoryEvent,
@@ -73,6 +75,19 @@ type MutationContext = {
   formId: string
   resourceKind: string
   resourceId: string
+  retryLastMutation: () => Promise<boolean>
+}
+
+const REPORT_ENTITY_ID = 'staff:staff_time_report'
+
+type ReportDetailInjectionContext = {
+  entityId: string
+  recordId: string
+  reportId: string
+  reference: string
+  isClosed: boolean
+  periodFrom: string | null
+  periodTo: string | null
   retryLastMutation: () => Promise<boolean>
 }
 
@@ -323,6 +338,17 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
 
   const lastExport = sheet.events.find((event) => event.eventType === 'exported') ?? null
 
+  const reportInjectionContext: ReportDetailInjectionContext = {
+    entityId: REPORT_ENTITY_ID,
+    recordId: reportId,
+    reportId,
+    reference: sheet.report.reference,
+    isClosed,
+    periodFrom: sheet.report.periodFrom ?? null,
+    periodTo: sheet.report.periodTo ?? null,
+    retryLastMutation,
+  }
+
   return (
     <Page>
       <PageBody>
@@ -332,14 +358,21 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
           title={sheet.report.title}
           subtitle={`${sheet.report.periodFrom ?? ''} – ${sheet.report.periodTo ?? ''}`}
           statusBadge={
-            isClosed ? (
-              <Badge variant="success">
-                <Lock aria-hidden="true" className="size-3" />
-                {t('staff.time_tracking.reports.status.closed', 'Closed')}
-              </Badge>
-            ) : (
-              <Badge variant="warning">{t('staff.time_tracking.reports.status.draft', 'Draft')}</Badge>
-            )
+            <>
+              {isClosed ? (
+                <Badge variant="success">
+                  <Lock aria-hidden="true" className="size-3" />
+                  {t('staff.time_tracking.reports.status.closed', 'Closed')}
+                </Badge>
+              ) : (
+                <Badge variant="warning">{t('staff.time_tracking.reports.status.draft', 'Draft')}</Badge>
+              )}
+              <InjectionSpot
+                spotId={extensionPoints.hosts.reportDetailStatusBadges.spotId}
+                context={reportInjectionContext}
+                data={sheet.report}
+              />
+            </>
           }
           actionsContent={
             <div className="flex flex-wrap items-center gap-2">
@@ -371,6 +404,11 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
                   {t('staff.time_tracking.reports.close.action', 'Close & lock')}
                 </Button>
               ) : null}
+              <InjectionSpot
+                spotId={extensionPoints.hosts.reportDetailHeader.spotId}
+                context={reportInjectionContext}
+                data={sheet.report}
+              />
             </div>
           }
         />
@@ -417,6 +455,7 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
             totalAmount: sheet.totals.totalAmount,
           }}
           roundingLabel={roundingLabel}
+          reportId={reportId}
         />
 
         {isClosed ? (
@@ -556,6 +595,12 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <InjectionSpot
+          spotId={extensionPoints.hosts.reportDetailFooter.spotId}
+          context={reportInjectionContext}
+          data={sheet.report}
+        />
 
         {ConfirmDialogElement}
       </PageBody>

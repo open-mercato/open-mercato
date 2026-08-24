@@ -22,11 +22,32 @@ import {
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { BoardStatus } from './kanbanBoardData'
 
 export const NEW_TASK_MUTATION_CONTEXT_ID = 'staff.time_tracking.board.newTask'
+const TASK_ENTITY_ID = 'staff:staff_time_task'
+
+type TaskFormValues = {
+  title: string
+  taskStatusId: string | null
+  timeProjectId: string
+  assigneeStaffMemberId: string | null
+}
+
+type TaskFormInjectionContext = {
+  formId: string
+  entityId: string
+  recordId: string | null
+  resourceKind: string
+  resourceId: string
+  operation: 'create'
+  retryLastMutation: () => Promise<boolean>
+}
 
 /**
  * "Nowe zadanie" (screen 6 page head → screen 7).
@@ -78,9 +99,42 @@ export function NewTaskDialog({
     blockedMessage: t('staff.time_tracking.board.newTask.error', 'Could not create the task.'),
   })
 
+  const taskFormValues = React.useMemo<TaskFormValues>(
+    () => ({
+      title,
+      taskStatusId: statusId,
+      timeProjectId,
+      assigneeStaffMemberId,
+    }),
+    [assigneeStaffMemberId, statusId, timeProjectId, title],
+  )
+
+  const taskInjectionContext = React.useMemo<TaskFormInjectionContext>(
+    () => ({
+      formId: NEW_TASK_MUTATION_CONTEXT_ID,
+      entityId: TASK_ENTITY_ID,
+      recordId: null,
+      resourceKind: 'staff.timesheets.task',
+      resourceId: timeProjectId,
+      operation: 'create',
+      retryLastMutation,
+    }),
+    [retryLastMutation, timeProjectId],
+  )
+
+  const { triggerEvent: triggerTaskFormEvent } = useInjectionSpotEvents<
+    TaskFormInjectionContext,
+    TaskFormValues
+  >(extensionPoints.hosts.taskForm.spotId)
+
   const submit = React.useCallback(async () => {
     const trimmed = title.trim()
     if (!trimmed || !statusId || isSaving) return
+    const beforeSave = await triggerTaskFormEvent('onBeforeSave', taskFormValues, taskInjectionContext)
+    if (!beforeSave.ok) {
+      flash(beforeSave.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+      return
+    }
     setIsSaving(true)
     try {
       const created = await runMutation({
@@ -106,6 +160,7 @@ export function NewTaskDialog({
           retryLastMutation,
         },
       })
+      await triggerTaskFormEvent('onAfterSave', taskFormValues, taskInjectionContext)
       onOpenChange(false)
       onCreated(typeof created?.result?.id === 'string' ? created.result.id : null)
     } catch (error) {
@@ -128,8 +183,11 @@ export function NewTaskDialog({
     runMutation,
     statusId,
     t,
+    taskFormValues,
+    taskInjectionContext,
     timeProjectId,
     title,
+    triggerTaskFormEvent,
   ])
 
   return (
@@ -149,6 +207,12 @@ export function NewTaskDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          <InjectionSpot
+            spotId={extensionSpotChildId(extensionPoints.hosts.taskForm.spotId, 'before-fields')}
+            context={taskInjectionContext}
+            data={taskFormValues}
+          />
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="board-new-task-title">
               {t('staff.time_tracking.board.newTask.titleLabel', 'Task title')}
@@ -186,9 +250,26 @@ export function NewTaskDialog({
               </SelectContent>
             </Select>
           </div>
+
+          <InjectionSpot
+            spotId={extensionSpotChildId(extensionPoints.hosts.taskForm.spotId, 'fields')}
+            context={taskInjectionContext}
+            data={taskFormValues}
+          />
+
+          <InjectionSpot
+            spotId={extensionSpotChildId(extensionPoints.hosts.taskForm.spotId, 'after-fields')}
+            context={taskInjectionContext}
+            data={taskFormValues}
+          />
         </div>
 
         <DialogFooter>
+          <InjectionSpot
+            spotId={extensionSpotChildId(extensionPoints.hosts.taskForm.spotId, 'footer')}
+            context={taskInjectionContext}
+            data={taskFormValues}
+          />
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('staff.time_tracking.board.newTask.cancel', 'Cancel')}
           </Button>

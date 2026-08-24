@@ -238,6 +238,121 @@ earlier, and an earlier subscriber's `modifiedPayload` is visible to the next on
 
 Proved end to end in `__tests__/time-tracking-sync-subscribers.test.ts`.
 
+## Host extension points
+
+Declared in [`extension-points.ts`](./extension-points.ts) and emitted into the generated
+extension-point catalog and module-facts by `yarn generate` + the CLI build. Every id below
+is a **FROZEN** contract surface (BC surface #6): a third-party widget names it verbatim, so
+renaming one silently unbinds every contribution aimed at it. `__tests__/timeTrackingExtensionHosts.test.ts`
+pins the whole list, verifies each declaration's `source` file exists and references
+`extensionPoints.hosts.<key>` (an unreferenced declaration is emitted as an
+`unbound-declaration` diagnostic, not a usable host).
+
+**Two id conventions meet here and neither is negotiable.** `crud-form:` hosts carry the
+**dot** form of the entity id (`staff.staff_time_project`) because `CrudForm` derives its
+own spot id from `entityIds` by replacing every colon with a dot — the colon form would
+name a spot no widget is ever loaded for. `detail:` hosts carry the **colon** form
+(`detail:staff:staff_time_task:header`); nothing derives those, the host picks them.
+
+### DataTable hosts
+
+| Table id | Screen |
+|---|---|
+| `staff.time_entries.list` | `backend/staff/time-tracking/entries/page.tsx` |
+| `staff.time_projects.list` | `backend/staff/time-tracking/projects/page.tsx` |
+| `staff.time_reports.list` | `backend/staff/time-tracking/reports/page.tsx` |
+
+Each derives the nine standard surfaces — `data-table:<id>:{columns,row-actions,bulk-actions,filters,toolbar,search-trailing,header,footer,empty-state}`.
+
+### CrudForm hosts
+
+| Spot id | Host |
+|---|---|
+| `crud-form:staff.staff_time_project` | `backend/staff/time-tracking/projects/{create,[id]/edit}/page.tsx` (real `CrudForm`) |
+| `crud-form:staff.staff_time_entry` | `lib/time-tracking-ui/TimeEntryDialog.tsx` (hand-rolled host) |
+| `crud-form:staff.staff_time_task` | `lib/time-tracking-ui/NewTaskDialog.tsx` (hand-rolled host) |
+| `crud-form:staff.staff_time_report` | `backend/staff/time-tracking/reports/create/page.tsx` (hand-rolled host) |
+
+Each carries the standard child spots (`:before-fields`, `:fields`, `:after-fields`,
+`:footer`, `:group:<groupId>`, `:field:<fieldId>:{before,after}`, …).
+
+The project form's group ids are a published contract — `PROJECT_FORM_GROUP_IDS` in
+[`backend/staff/time-tracking/projects/projectFormConfig.ts`](./backend/staff/time-tracking/projects/projectFormConfig.ts):
+`basics`, `billing`, `budget`, `status`, `team`, `rounding`, `details` (a `compact` host
+renders `basics` + `billing` only). Address one with `CrudFormInjectionSpots.group(...)`.
+
+The three hand-rolled hosts are not `CrudForm`s; they replay its contract by hand. What
+they support and what they do not:
+
+| Lifecycle | TimeEntryDialog | NewTaskDialog | Report create |
+|---|---|---|---|
+| `onFieldChange` (value + `sideEffects` + messages written back) | yes | no | no |
+| `onBeforeSave` (`ok: false` blocks the write, `message` is flashed, `fieldErrors` map onto the task/duration fields, `requestHeaders` are merged into the request **under** the optimistic-lock header) | yes | `ok`/`message` only | no |
+| `onAfterSave` | yes | yes | no |
+| `transformFormData` / delete lifecycle | no | no | no |
+
+Pinned by `lib/time-tracking-ui/__tests__/TimeEntryDialog.test.tsx` →
+"crud-form host lifecycle".
+
+### Injection spots
+
+| Spot id | Host | Context |
+|---|---|---|
+| `detail:staff:staff_time_project:{header,status-badges,tabs,sidebar,footer}` | `backend/staff/time-tracking/projects/[id]/page.tsx` | `{ entityId, recordId, projectId, path, retryLastMutation }` |
+| `detail:staff:staff_time_task:{header,status-badges,tabs,sidebar,footer}` | `lib/time-tracking-ui/TaskDrawer.tsx` | `{ entityId, recordId, taskId, timeProjectId, retryLastMutation }` |
+| `detail:staff:staff_time_report:{header,status-badges,footer}` | `backend/staff/time-tracking/reports/[id]/page.tsx` | `{ entityId, recordId, reportId, reference, isClosed, periodFrom, periodTo, retryLastMutation }` |
+| `staff.time_report.sheet:{before-lines,after-totals}` | `lib/time-tracking-ui/ReportSheet.tsx` | `{ entityId, recordId, reportId, reference, periodLabel, currencyCode }` |
+| `staff.timesheet:toolbar` | `backend/staff/time-tracking/timesheet/page.tsx` | `{ staffMemberId, periodKind, periodFrom, periodTo, view, readOnly, retryLastMutation }` |
+| `staff.timesheet:period-footer` | `lib/time-tracking-ui/TimesheetPeriodFooter.tsx` | `{ workingDays, dailyHours }` |
+| `staff.timesheet:day-cell-actions` | `lib/time-tracking-ui/TimesheetCalendar.tsx` | `{ date, isToday, isWeekend, totalMinutes }` |
+| `staff.time_task.board:toolbar` | `lib/time-tracking-ui/KanbanBoard.tsx` | `{ timeProjectId, projectName, statusIds }` |
+| `staff.time_task.board:column-header` | `lib/time-tracking-ui/KanbanColumn.tsx` | `{ statusId, statusName, isDone, total, loggedMinutes }` |
+| `staff.time_task.board:{card-badges,card-footer}` | `lib/time-tracking-ui/KanbanCard.tsx` | `{ entityId, recordId, taskId, timeProjectId, taskStatusId, timerRunning }` |
+| `staff.my_work:{before-sections,after-sections}` | `backend/staff/time-tracking/page.tsx` | `{ staffMemberId, today, projectIds, retryLastMutation }` |
+| `staff.time_tracking.settings:sections` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage }` |
+| `staff.timesheets.timer-bar:actions` | `lib/timesheets-ui/TimerBar.tsx` | `{ staffMemberId, retryLastMutation }` |
+
+No context carries a rate, cost or amount; contributions that need money must ask for it
+behind `staff.timesheets.rates.view` themselves. An empty spot renders nothing and changes
+no DOM — pinned by `__tests__/timeTrackingInjectionSpots.test.ts`.
+
+**Tabs.** `detail:staff:staff_time_project:tabs` is a real tab host: a widget mapped to it
+with `placement: { kind: 'tab', groupId, groupLabel, priority }` gets its own
+`TabsTrigger` and its own `TabsContent` in the page's `<Tabs>` (higher `priority` first,
+`metadata.title` as the label fallback). `detail:staff:staff_time_task:tabs` is **not** —
+the task drawer is a single-column stack with no tab strip, so the spot renders a
+contributed widget as an additional panel at the end of the drawer body.
+
+**Server-side "my work" sections (deferred).** `staff.my_work:{before,after}-sections` are
+client render spots only. The spec's server-side section-contribution contract — a module
+adding its own section to `api/timesheets/my-work/myWorkAggregate.ts` — is **not**
+implemented: the aggregate returns one closed, zod-validated shape that the page's KPI
+strip, quick-entry targets and totals all read positionally, so a contributed section
+needs its own registry, its own per-section scoping and its own response slot before it can
+be added without loosening that contract. A client spot fetching its own data covers the
+same use case today.
+
+### Replaceable components
+
+`replace` / `wrapper` / `props` targets, registered by each component's own module through
+`registerComponent` and resolved with `useRegisteredComponent`. Every one publishes a zod
+`propsSchema`, which `useRegisteredComponent` parses in development — a replacement that
+does not satisfy it falls back to the original component. Catalogued in
+[`widgets/components.ts`](./widgets/components.ts).
+
+| Handle | Component |
+|---|---|
+| `staff.time_entry_dialog` | `lib/time-tracking-ui/TimeEntryDialog.tsx` |
+| `staff.timer_bar` | `lib/timesheets-ui/TimerBar.tsx` |
+| `staff.kanban_card` | `lib/time-tracking-ui/KanbanCard.tsx` |
+| `staff.kanban_column` | `lib/time-tracking-ui/KanbanColumn.tsx` |
+| `staff.timesheet_grid` | `backend/staff/time-tracking/timesheet/GridView.tsx` |
+| `staff.timesheet_list` | `lib/timesheets-ui/ListView.tsx` |
+| `staff.timesheet_calendar` | `lib/time-tracking-ui/TimesheetCalendar.tsx` |
+| `staff.report_sheet` | `lib/time-tracking-ui/ReportSheet.tsx` |
+| `staff.project_card` | `lib/timesheets-projects-ui/ProjectCard.tsx` |
+| `staff.entries_summary_footer` | `lib/time-tracking-ui/TimeEntriesSummaryFooter.tsx` |
+
 ## Internal-Only Surfaces (NOT public contract)
 
 These are subject to change without deprecation; do not import them from non-staff code:

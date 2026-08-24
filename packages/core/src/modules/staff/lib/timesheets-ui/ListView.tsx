@@ -1,6 +1,15 @@
 'use client'
 
 import * as React from 'react'
+import { z } from 'zod'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import {
+  callbackProp,
+  opaqueProp,
+  optionalCallbackProp,
+} from '../time-tracking/componentContracts'
 import { Copy, Lock, Pencil, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -213,7 +222,7 @@ function InlineDescription({
   )
 }
 
-export function ListView({
+function DefaultListView({
   days,
   scaleMinutes,
   dailyTargetMinutes,
@@ -546,4 +555,39 @@ function QuickAddRow({
       </Button>
     </div>
   )
+}
+
+const listViewPropsSchema: z.ZodType<ListViewProps> = z.object({
+  days: z.array(opaqueProp<TimesheetDay>()),
+  scaleMinutes: z.number().nullable(),
+  dailyTargetMinutes: z.number().nullable(),
+  expandedDate: z.string().nullable(),
+  onExpandedDateChange: callbackProp<(date: string | null) => void>(),
+  targets: z.array(opaqueProp<TimesheetLogTarget>()),
+  showAuthor: z.boolean(),
+  authorNames: opaqueProp<ReadonlyMap<string, string>>(),
+  canManage: z.boolean(),
+  onQuickAdd: callbackProp<(input: ListViewQuickAdd) => Promise<void> | void>(),
+  onEditEntry: callbackProp<(entry: TimesheetEntry) => void>(),
+  onDuplicateEntry: callbackProp<(entry: TimesheetEntry) => void>(),
+  onEntryUpdated: optionalCallbackProp<() => void>(),
+  locale: z.string().optional(),
+})
+
+registerComponent<ListViewProps>({
+  id: extensionPoints.hosts.timesheetListComponent.componentId,
+  component: DefaultListView,
+  metadata: {
+    module: 'staff',
+    description: 'Timesheet list view — one expandable row per day.',
+    propsSchema: listViewPropsSchema,
+  },
+})
+
+export function ListView(props: ListViewProps) {
+  const Resolved = useRegisteredComponent<ListViewProps>(
+    extensionPoints.hosts.timesheetListComponent.componentId,
+    DefaultListView,
+  )
+  return <Resolved {...props} />
 }

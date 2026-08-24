@@ -49,6 +49,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { hasFeature } from '@open-mercato/shared/security/features'
@@ -298,6 +300,16 @@ export default function TimeTrackingMyWorkPage() {
     [retryLastMutation],
   )
 
+  const myWorkInjectionContext = React.useMemo(
+    () => ({
+      staffMemberId: data.staffMember?.id ?? null,
+      today: data.today,
+      projectIds: data.projects.map((project) => project.id),
+      retryLastMutation,
+    }),
+    [data.projects, data.staffMember?.id, data.today, retryLastMutation],
+  )
+
   const quickTargets = React.useMemo(
     () =>
       buildLogTargets(
@@ -474,6 +486,11 @@ export default function TimeTrackingMyWorkPage() {
           <NoTimeProjectAssignments />
         ) : (
           <div className="flex flex-col gap-6">
+            <InjectionSpot
+              spotId={extensionPoints.hosts.myWorkBeforeSections.spotId}
+              context={myWorkInjectionContext}
+              data={data}
+            />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <KpiCard
                 title={t('staff.time_tracking.myWork.kpi.today', 'Today')}
@@ -783,6 +800,11 @@ export default function TimeTrackingMyWorkPage() {
                 </section>
               </div>
             </div>
+            <InjectionSpot
+              spotId={extensionPoints.hosts.myWorkAfterSections.spotId}
+              context={myWorkInjectionContext}
+              data={data}
+            />
           </div>
         )}
       </PageBody>
