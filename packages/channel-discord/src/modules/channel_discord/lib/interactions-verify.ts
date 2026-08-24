@@ -23,6 +23,28 @@ function isHex(value: string): boolean {
   return value.length > 0 && value.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(value)
 }
 
+/** An Ed25519 signature is 64 bytes, so 128 hex characters. */
+const ED25519_SIGNATURE_HEX_LENGTH = 128
+
+/**
+ * Whether the request's signature headers are even capable of verifying —
+ * present, hex, and the right length. This depends on the REQUEST ALONE, never
+ * on a candidate channel, which is why it is exported separately: the route runs
+ * it before it loads any channel, so an unsigned or malformed POST is rejected
+ * without a single database round-trip.
+ *
+ * `verifyDiscordSignature` applies the same guard itself, so this is an
+ * optimisation of *when* the answer is known, never a replacement for the
+ * fail-closed check.
+ */
+export function hasVerifiableSignatureHeaders(
+  signatureHex: string | undefined | null,
+  timestamp: string | undefined | null,
+): signatureHex is string {
+  if (!signatureHex || !timestamp) return false
+  return isHex(signatureHex) && signatureHex.length === ED25519_SIGNATURE_HEX_LENGTH
+}
+
 function publicKeyFromHex(publicKeyHex: string) {
   if (!isHex(publicKeyHex) || publicKeyHex.length !== 64) {
     throw new Error('invalid ed25519 public key')
@@ -45,8 +67,7 @@ export interface VerifyDiscordSignatureInput {
  */
 export function verifyDiscordSignature(input: VerifyDiscordSignatureInput): boolean {
   const { publicKeyHex, signatureHex, timestamp, rawBody } = input
-  if (!signatureHex || !timestamp) return false
-  if (!isHex(signatureHex) || signatureHex.length !== 128) return false
+  if (!hasVerifiableSignatureHeaders(signatureHex, timestamp)) return false
   try {
     const key = publicKeyFromHex(publicKeyHex)
     const message = Buffer.from(String(timestamp) + rawBody, 'utf-8')
@@ -110,6 +131,7 @@ export interface ParsedInteraction {
   user?: { id?: string; username?: string; global_name?: string | null }
   channel_id?: string
   guild_id?: string
+  application_id?: string
   id?: string
   token?: string
   [key: string]: unknown
@@ -129,4 +151,21 @@ export function parseInteractionBody(rawBody: string): ParsedInteraction | null 
   } catch {
     return null
   }
+}
+
+/**
+ * The `application_id` an interaction body claims, or `null` when the body does
+ * not carry a usable one.
+ *
+ * UNTRUSTED — this value is read before any signature has been verified, so it
+ * may only ever be used to NARROW the set of candidate channels the signature is
+ * then checked against. It is never an authorization decision: a body claiming
+ * another tenant's application still has to carry that tenant's Ed25519
+ * signature to be accepted, and a body claiming nothing falls back to the full
+ * candidate set rather than being let through.
+ */
+export function readInteractionApplicationId(rawBody: string): string | null {
+  const interaction = parseInteractionBody(rawBody)
+  const applicationId = interaction?.application_id
+  return typeof applicationId === 'string' && applicationId.length > 0 ? applicationId : null
 }
