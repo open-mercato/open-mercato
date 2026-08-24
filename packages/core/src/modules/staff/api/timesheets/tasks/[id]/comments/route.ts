@@ -51,6 +51,7 @@ import {
   staffTimeTaskCommentUpdateSchema,
 } from '../../../../../data/validators'
 import { staffTimeTaskCommentCommandIds } from '../../../../../commands/timesheets-task-comments'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
 import {
   loadTagProjectAccess as loadTaskProjectAccess,
   requireAccessibleTask,
@@ -59,7 +60,7 @@ import {
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/tasks/comments' })
 
-const RESOURCE_KIND = 'staff.timesheets.task_comment'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.timeTaskComment
 
 const VIEW_FEATURE = 'staff.timesheets.tasks.view'
 const MANAGE_FEATURE = 'staff.timesheets.tasks.manage'

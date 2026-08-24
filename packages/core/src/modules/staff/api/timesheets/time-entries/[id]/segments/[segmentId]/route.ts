@@ -12,11 +12,16 @@ import { LockMode } from '@mikro-orm/core'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
+import { emitStaffEvent } from '../../../../../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../../guards'
+
+const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/segments' })
 
 const routeMetadata = {
   PATCH: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -96,7 +101,7 @@ export async function PATCH(req: Request) {
       tenantId,
       organizationId,
       userId: auth.sub ?? '',
-      resourceKind: 'staff.timesheets.time_entry_segment',
+      resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
       resourceId: segment.id,
       operation: 'update',
       requestMethod: req.method,
@@ -166,13 +171,22 @@ export async function PATCH(req: Request) {
       tenantId,
       organizationId,
       userId: auth.sub ?? '',
-      resourceKind: 'staff.timesheets.time_entry_segment',
+      resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
       resourceId: updatedSegment.id,
       operation: 'update',
       requestMethod: req.method,
       requestHeaders: req.headers,
     })
   }
+
+  void emitStaffEvent('staff.timesheets.time_entry_segment.updated', {
+    id: updatedSegment.id,
+    timeEntryId: updatedSegment.timeEntryId,
+    tenantId,
+    organizationId,
+  }, { persistent: true }).catch((err) => {
+    logger.error('staff.timesheets emit time_entry_segment.updated failed', { err })
+  })
 
   return NextResponse.json({
     ok: true,

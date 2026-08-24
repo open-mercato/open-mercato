@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { staffTimeTaskStatusCrudEvents } from '../../../lib/crud'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { StaffTimeTaskStatus } from '../../../data/entities'
@@ -121,6 +122,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  events: staffTimeTaskStatusCrudEvents,
   indexer: { entityType: 'staff:staff_time_task_status' },
   list: {
     schema: listSchema,

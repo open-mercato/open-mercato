@@ -25,9 +25,9 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffTimeReportUnlockSchema } from '../../../../../data/validators'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
 import {
   staffTimeReportCommandIds,
-  STAFF_TIME_REPORT_RESOURCE_KIND,
   type StaffTimeReportUnlockResult,
 } from '../../../../../commands/timesheets-reports'
 import { resolveReportRequestContext } from '../../shared'
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
         userFeatures: grantedFeatures ?? undefined,
       },
       input: {
-        resourceKind: STAFF_TIME_REPORT_RESOURCE_KIND,
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeReport,
         resourceId: reportId,
         operation: 'update',
         mutationPayload: parsed,
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
           undoToken: '',
           commandId: logEntry.commandId,
           actionLabel: logEntry.actionLabel ?? null,
-          resourceKind: logEntry.resourceKind ?? STAFF_TIME_REPORT_RESOURCE_KIND,
+          resourceKind: logEntry.resourceKind ?? STAFF_TIME_TRACKING_RESOURCE_KINDS.timeReport,
           resourceId: logEntry.resourceId ?? reportId,
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         }),

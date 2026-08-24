@@ -11,8 +11,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffTimeProjectChangeCurrencySchema } from '../../../../../data/validators'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
 import {
   staffTimeProjectChangeCurrencyCommandId,
   type StaffTimeProjectChangeCurrencyCommandInput,
@@ -22,7 +24,7 @@ import {
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-projects/change-currency' })
 
 const MANAGE_FEATURE = 'staff.timesheets.projects.manage'
-const RESOURCE_KIND = 'staff.timesheets.time_project'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.timeProject
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: [MANAGE_FEATURE] },
@@ -153,6 +155,17 @@ export async function POST(req: Request) {
     })
 
     await guardResult.runAfterSuccess()
+
+    void emitStaffEvent('staff.timesheets.time_project.currency_changed', {
+      id: result?.timeProjectId ?? timeProjectId,
+      tenantId,
+      organizationId,
+      currencyCode: result?.currencyCode ?? effective.currencyCode,
+      previousCurrencyCode: result?.previousCurrencyCode ?? null,
+      converted: false,
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit time_project.currency_changed failed', { err })
+    })
 
     const response = NextResponse.json(
       {

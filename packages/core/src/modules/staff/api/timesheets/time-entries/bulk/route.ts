@@ -30,8 +30,10 @@ import {
   type LockedTimeEntryRef,
 } from '../../../../commands/timesheets-entries'
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
+import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
 import {
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
@@ -238,7 +240,7 @@ export async function POST(req: Request) {
       tenantId,
       organizationId,
       userId: auth.sub ?? '',
-      resourceKind: 'staff.timesheets.time_entry',
+      resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
       resourceId: staffMemberId,
       operation: 'update' as const,
       requestMethod: req.method,
@@ -503,13 +505,26 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
         resourceId: staffMemberId,
         operation: 'update',
         requestMethod: req.method,
         requestHeaders: req.headers,
       })
     }
+
+    // One batch-level event beside the per-row CRUD events already flushed above.
+    // It carries no `id`, so the entry-scoped subscribers that key off one record
+    // skip it and only the batch-aware ones (payroll exports, audit mirrors) react.
+    void emitStaffEvent('staff.timesheets.time_entry.bulk_updated', {
+      tenantId,
+      organizationId,
+      staffMemberId,
+      ...counts,
+      entryIds: pendingChanges.map((change) => change.entity.id),
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit time_entry.bulk_updated failed', { err })
+    })
 
     return NextResponse.json({ ok: true, ...counts }, { status: 200 })
   } catch (err) {

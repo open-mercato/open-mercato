@@ -23,11 +23,22 @@ const PROJECTS_LIST_HREF = '/backend/staff/time-tracking/projects'
 
 /**
  * Every write that can move a project's logged minutes or cost travels as a
- * `staff.timesheets.time_entry.*` event — create, update, delete (soft), the bulk
- * route and both timer transitions all emit through the same CRUD event config with
- * the same `{ id, tenantId, organizationId }` payload. Subscribing to the family
- * rather than three exact ids is what keeps a future write path from silently
- * skipping the budget check.
+ * `staff.timesheets.time_entry.*` event, but not all of them by the same route:
+ *
+ *  - create / update / delete (soft) are emitted by the time-entry **commands**
+ *    through `staffTimeEntryCrudEvents` (`lib/crud.ts`), which the CRUD route and
+ *    `/copy-day` and `/[id]/duplicate` all drive;
+ *  - `/bulk` emits the same config itself, once per changed row, because it writes
+ *    through the EntityManager instead of the command bus;
+ *  - the timer transitions emit `…timer_started` / `…timer_stopped` explicitly.
+ *
+ * All of those carry the `{ id, tenantId, organizationId }` payload this handler
+ * needs. The batch-level members of the family — `…bulk_updated`, `…locked`,
+ * `…unlocked` — deliberately carry no `id` and fall out at the guard below, because
+ * the per-row events of the same write already covered every affected project.
+ *
+ * Subscribing to the family rather than three exact ids is what keeps a future write
+ * path from silently skipping the budget check.
  *
  * `persistent: true`: this ends in a user-visible alert about money and hours
  * already spent. It has to survive a worker restart and be retried on failure — an

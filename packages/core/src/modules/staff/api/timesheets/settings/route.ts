@@ -8,9 +8,11 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../events'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { staffTimeTrackingSettingsSchema } from '../../../data/validators'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
 import {
   readTimeTrackingSettings,
   writeTimeTrackingSettings,
@@ -21,7 +23,7 @@ const logger = createLogger('staff').child({ component: 'api/timesheets/settings
 
 const VIEW_FEATURE = 'staff.timesheets.view'
 const MANAGE_FEATURE = 'staff.timesheets.settings.manage'
-const RESOURCE_KIND = 'staff.timesheets.settings'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.settings
 const RESOURCE_ID = 'time_tracking'
 
 export const metadata = {
@@ -165,6 +167,14 @@ async function PUT(req: Request) {
     )
 
     await guardResult.runAfterSuccess()
+
+    void emitStaffEvent('staff.timesheets.time_tracking.settings_updated', {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      settings,
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit time_tracking.settings_updated failed', { err })
+    })
 
     return NextResponse.json(settings)
   } catch (err) {

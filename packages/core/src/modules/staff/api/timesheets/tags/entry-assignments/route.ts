@@ -18,18 +18,24 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   staffTimeEntryTagAssignmentSchema,
   type StaffTimeEntryTagAssignmentInput,
 } from '../../../../data/validators'
 import { staffTimeTagCommandIds } from '../../../../commands/timesheets-tags'
-import { resolveUserFeatures, runStaffMutationGuardAfterSuccess, runStaffMutationGuards } from '../../../guards'
+import {
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../../guards'
 import { loadTagProjectAccess, requireAccessibleTimeEntry, type TagAssignmentScope } from '../access'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/tags/entry-assignments' })
 
-const RESOURCE_KIND = 'staff.timesheets.entry_tag'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.entryTag
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.tasks.manage'] },
@@ -147,6 +153,16 @@ async function handle(req: Request, commandId: string, operation: 'create' | 'de
       requestHeaders: req.headers,
     })
   }
+
+  // A tag write is a change to the entry itself, so it travels as the entry's own
+  // `updated` event rather than an assignment-shaped one no subscriber knows about.
+  void emitStaffEvent('staff.timesheets.time_entry.updated', {
+    id: input.timeEntryId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }, { persistent: true }).catch((err) => {
+    logger.error('staff.timesheets emit time_entry.updated failed', { err })
+  })
 
   const assignment = result as AssignmentResult | undefined
   const unassignment = result as UnassignmentResult | undefined

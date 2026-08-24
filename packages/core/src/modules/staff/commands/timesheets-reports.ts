@@ -1075,6 +1075,20 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
       logger.error('staff.timesheets emit time_report.closed failed', { err })
     })
 
+    // The close froze `lockedEntryCount` entries. The entry-scoped subscribers key
+    // off a single record id, so this batch-level notice carries none and reaches
+    // only the ones that care about a period being frozen.
+    if (lockedEntryCount > 0) {
+      void emitStaffEvent('staff.timesheets.time_entry.locked', {
+        tenantId: report.tenantId,
+        organizationId: report.organizationId,
+        reportId: report.id,
+        lockedEntryCount,
+      }).catch((err) => {
+        logger.error('staff.timesheets emit time_entry.locked failed', { err })
+      })
+    }
+
     return result
   },
   buildLog: async ({ snapshots, ctx }) => {
@@ -1239,6 +1253,17 @@ const unlockReportCommand: CommandHandler<StaffTimeReportUnlockInput, StaffTimeR
     }).catch((err) => {
       logger.error('staff.timesheets emit time_report.unlocked failed', { err })
     })
+
+    if (unlockedEntryCount > 0) {
+      void emitStaffEvent('staff.timesheets.time_entry.unlocked', {
+        tenantId: report.tenantId,
+        organizationId: report.organizationId,
+        reportId: report.id,
+        unlockedEntryCount,
+      }).catch((err) => {
+        logger.error('staff.timesheets emit time_entry.unlocked failed', { err })
+      })
+    }
 
     return { reportId: report.id, unlockedEntryCount }
   },

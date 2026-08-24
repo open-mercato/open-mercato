@@ -37,6 +37,7 @@ jest.mock('../../events', () => ({
   emitStaffEvent: (...args: unknown[]) => emitStaffEvent(...(args as [])),
 }))
 
+import { staffTimeEntryCrudEvents } from '../../lib/crud'
 import handle, {
   metadata,
   buildBudgetThresholdGroupKey,
@@ -333,6 +334,41 @@ describe('staff time project budget threshold subscriber', () => {
     expect(claimBudgetThresholdAlert.mock.calls[0][0]).toMatchObject({ tenantId: tenantB, organizationId })
     const [, scope] = createForFeature.mock.calls[0] as [Record<string, unknown>, Record<string, unknown>]
     expect(scope).toEqual({ tenantId: tenantB, organizationId })
+  })
+
+  /**
+   * A manual entry write reaches this handler through the time-entry commands, a
+   * grid save through the `/bulk` route's own `emitCrudSideEffects` call — two code
+   * paths, but one `staffTimeEntryCrudEvents` config, so both build the payload with
+   * the same `buildPayload`. Driving the handler with the payload that config really
+   * produces is what stops a future change to either path from silently starving the
+   * budget alert (the defect the module comment used to describe).
+   */
+  describe.each([
+    ['a manual create through the CRUD route', 'created' as const],
+    ['a grid save through /bulk', 'updated' as const],
+  ])('%s', (_label, action) => {
+    it('reaches the handler with a payload it can act on', async () => {
+      loadTimeProjectBudgetStateForEntry.mockImplementation(async () => hoursProject())
+      computeProjectFinancials.mockImplementation(async () => financials({ totalMinutes: 85 * 60, cost: null }))
+
+      const emitted = staffTimeEntryCrudEvents.buildPayload!({
+        identifiers: { id: timeEntryId, organizationId, tenantId: tenantA },
+      } as never) as Record<string, unknown>
+
+      expect(`${staffTimeEntryCrudEvents.module}.${staffTimeEntryCrudEvents.entity}.${action}`).toBe(
+        `staff.timesheets.time_entry.${action}`,
+      )
+
+      await handle(emitted, ctx)
+
+      expect(createForFeature).toHaveBeenCalledTimes(1)
+      const [input] = createForFeature.mock.calls[0] as [Record<string, unknown>]
+      expect(input).toMatchObject({
+        type: 'staff.timesheets.time_project.budget_threshold_reached',
+        sourceEntityId: timeProjectId,
+      })
+    })
   })
 })
 

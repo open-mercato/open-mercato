@@ -41,6 +41,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../../events'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -48,11 +49,12 @@ import { StaffTimeEntry } from '../../../../../data/entities'
 import { staffTimeEntryCommandIds } from '../../../../../commands/timesheets-entries'
 import { resolveProjectAccess, type ProjectAccess } from '../../../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../../../lib/time-tracking/settings'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/duplicate' })
 
 const MANAGE_OWN_FEATURE = 'staff.timesheets.manage_own'
-const RESOURCE_KIND = 'staff.timesheets.time_entry'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: [MANAGE_OWN_FEATURE] },
@@ -255,6 +257,17 @@ export async function POST(req: Request) {
     )
 
     await guardResult.runAfterSuccess()
+
+    if (result?.timeEntryId) {
+      void emitStaffEvent('staff.timesheets.time_entry.copied', {
+        id: result.timeEntryId,
+        sourceId: timeEntryId,
+        tenantId,
+        organizationId,
+      }, { persistent: true }).catch((err) => {
+        logger.error('staff.timesheets emit time_entry.copied failed', { err })
+      })
+    }
 
     return NextResponse.json({ id: result?.timeEntryId ?? null, sourceId: timeEntryId }, { status: 201 })
   } catch (err) {

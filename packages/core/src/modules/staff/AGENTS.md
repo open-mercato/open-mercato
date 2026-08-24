@@ -87,6 +87,36 @@ The following feature IDs are stored in role configurations and MUST NOT be rena
 
 Money is gated on `staff.timesheets.rates.view` and is **absent** from payloads for anyone else, not blanked — never re-add a rate or cost field to a response for a caller without it.
 
+### Time-tracking mutation-guard `resourceKind` taxonomy (BC surface #2 — STABLE)
+
+Every hand-rolled `/api/staff/timesheets/*` write route runs the same guard set as
+`makeCrudRoute` (`api/guards.ts` → `runStaffMutationGuards`, which collects
+`getAllMutationGuardInstances()` plus the bridged legacy DI service). The
+`resourceKind` a guard matches on is published as
+`STAFF_TIME_TRACKING_RESOURCE_KINDS` in [`api/guards.ts`](./api/guards.ts) — import it
+rather than re-typing a string:
+
+| Key | `resourceKind` | Routes |
+|-----|----------------|--------|
+| `timeEntry` | `staff.timesheets.time_entry` | `time-entries/{bulk,copy-day,start-timer}`, `time-entries/[id]/{duplicate,timer-start,timer-stop}` |
+| `timeEntrySegment` | `staff.timesheets.time_entry_segment` | `time-entries/[id]/segments`, `time-entries/[id]/segments/[segmentId]` |
+| `timeTask` | `staff.timesheets.time_task` | `tasks/[id]/status` |
+| `timeTaskComment` | `staff.timesheets.task_comment` | `tasks/[id]/comments` |
+| `timeProject` | `staff.timesheets.time_project` | `time-projects/[id]/change-currency` |
+| `timeProjectMember` | `staff.timesheets.time_project_member` | `my-projects/[projectId]` |
+| `timeReport` | `staff.timesheets.time_report` | `reports/[id]/close`, `reports/[id]/unlock` |
+| `entryTag` | `staff.timesheets.entry_tag` | `tags/entry-assignments` |
+| `taskTag` | `staff.timesheets.task_tag` | `tags/task-assignments` |
+| `settings` | `staff.timesheets.settings` | `settings`, `settings/reapply-rounding` |
+| `accessRequest` | `staff.timesheets.access_request` | `access-requests` |
+
+These are the **guard** resource kinds. The eight `makeCrudRoute` time-tracking
+resources derive their own tag from the `events` config the factory reads
+(`resolveResourceAliasesList`), so a guard targeting a factory route matches that
+derived tag instead — for example `staff.timesheets.time.entry` for
+`/api/staff/timesheets/time-entries`. `packages/core/src/modules/staff/__tests__/time-tracking-write-path-contracts.test.ts`
+fails if a route re-types a literal or an entry above stops being used.
+
 ## Internal-Only Surfaces (NOT public contract)
 
 These are subject to change without deprecation; do not import them from non-staff code:

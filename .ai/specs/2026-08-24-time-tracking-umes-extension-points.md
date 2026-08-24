@@ -34,18 +34,18 @@ catalog or in UMES DevTools.
 | 8 | Search, analytics and notifications contributions | 4 | Full-text tasks/entries/reports, analytics on tasks/projects, reactive alerts |
 | 9 | AI tools/agents, portal surface, workers/CLI | 3 | "Log my week", client-facing report portal, custom recalculation jobs |
 
-**Highest-value fixes, and one live defect.** Three of these are not just missing
-extensibility but a correctness gap that ships today: (a) **34 of the 40 event ids
-declared in `staff/events.ts` are never emitted**, because no time-tracking
-`makeCrudRoute` declares an `events:` config; (b) as a direct consequence the
-budget-threshold subscriber, which subscribes to `staff.timesheets.time_entry.*` and
-whose own comment asserts "create, update, delete, the bulk route and both timer
-transitions all emit through the same CRUD event config", **only ever fires on timer
-start/stop** — manual entry creates, edits, deletes and bulk writes never trigger a
-budget alert; (c) `runStaffMutationGuards` bridges only the legacy container guard and
-never calls `getAllMutationGuardInstances()`, so module-registered `data/guards.ts`
-guards **never run** on any of the 15 custom time-tracking mutation routes. EP-02,
-EP-03 and EP-12 fix these.
+**Highest-value fixes, and one live defect.**
+(a) **No time-tracking `makeCrudRoute` declares an `events:` config**, so the factory's
+`runSyncBeforeEvent` / `runSyncAfterEvent` never dispatch — sync lifecycle subscribers
+are impossible on every time-tracking resource (G-4). The CRUD event *ids* themselves do
+fire today, emitted by the commands through `emitCrudSideEffects` with the
+`staff*CrudEvents` configs in `lib/crud.ts`; a small set of custom-route transitions had
+no id at all (G-2, corrected below).
+(b) `runStaffMutationGuards` bridges only the legacy container guard and never calls
+`getAllMutationGuardInstances()`, so module-registered `data/guards.ts` guards **never
+run** on any of the 15 custom time-tracking mutation routes (G-5).
+(c) The custom mutation routes run **no API interceptors at all**, before or after (G-6).
+EP-02, EP-03, EP-10 and EP-12 fix these.
 
 **What this gives a framework user.** After this plan, a third-party module can:
 add a "Jira issue" column and a "Push to Jira" row action to the time-entries table
@@ -90,8 +90,8 @@ whole `TimeEntryDialog` for its own — all without touching a line of core code
 | Gap | Evidence |
 |---|---|
 | G-1 No extension-point catalog | `packages/core/src/modules/staff/extension-points.ts` does not exist. 20 other modules have one (`customers`, `wms`, `sales`, `warranty_claims`, `messages`, `portal`, …). |
-| G-2 34/40 declared events never emitted | `grep emitStaffEvent` across `commands/`, `api/`, `subscribers/` yields only `time_entry.timer_started`, `time_entry.timer_stopped`, `time_task.status_changed`, `time_report.closed`, `time_report.unlocked`, `project_access.requested`, `time_project.budget_threshold_reached`. No TT `makeCrudRoute` declares `events:` (verified on all 8), and `factory.ts` emits nothing without it. |
-| G-3 Budget subscriber under-fires | `subscribers/time-project-budget-threshold-notification.ts:38` subscribes `staff.timesheets.time_entry.*`; only the two timer events match. Manual create/update/delete, `/bulk`, `/copy-day` and `/[id]/duplicate` never reach it. |
+| G-2 Some transitions have no event id ~~34/40 declared events never emitted~~ | **Corrected during P1.** The original audit grepped only for `emitStaffEvent(` and missed `emitCrudSideEffects({ events: staffTimeEntryCrudEvents, … })` in `commands/timesheets-*.ts` (`lib/crud.ts:57-64`), which emits the `staff.timesheets.*.{created,updated,deleted}` family. Those ids **do** fire. What was genuinely missing: no id existed for `time_entry.{bulk_updated,copied,locked,unlocked}`, `time_entry_segment.*`, `time_report.exported`, `time_project.currency_changed`, `time_project_access.*`, `time_tracking.{settings_updated,rounding_reapplied}` — and `time_tag` / `time_task_status` still have no declared CRUD ids. EP-04 closes the first set. |
+| G-3 ~~Budget subscriber under-fires~~ | **Retracted during P1.** The subscriber's `staff.timesheets.time_entry.*` subscription is matched by the command-emitted CRUD ids, so manual creates, edits, deletes and `/bulk` writes did reach it. The doc comment was accurate; only the claim in this audit was not. |
 | G-4 No sync lifecycle subscribers possible | `deriveLifecycleEventIds` (`factory.ts:637`) returns nulls without `opts.events`, so `runSyncBeforeEvent` / `runSyncAfterEvent` never dispatch for TT. |
 | G-5 Registry mutation guards skipped on custom routes | `api/guards.ts:runStaffMutationGuards` calls `runMutationGuards([legacyGuard], …)` — it never calls `getAllMutationGuardInstances()` the way `factory.ts:679` does. 15 custom mutation routes are affected. |
 | G-6 Custom routes run no API interceptors | `runApiInterceptorsBefore` / `runCustomRouteAfterInterceptors` are used by `wms` and `auth`, never by `staff`. |
@@ -144,7 +144,16 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
 - **Note**: the entity string must reproduce the existing declared ids exactly
   (`staff.timesheets.time_entry.created`) — the ids in `events.ts` are a FROZEN
   contract surface; this EP makes them true, it must not rename them.
-- **Fixes**: G-2, G-3, G-4. **Unlocks**: async subscribers, sync subscribers, webhooks.
+- **Fixes**: G-4. **Unlocks**: sync lifecycle subscribers (EP-07), and aligns the factory
+  routes with the command-side event configs already in `lib/crud.ts`.
+- **Known side effect (accepted in P1)**: `resolveResourceAliasesList` (`factory.ts:525-535`)
+  prefers the `events`-derived resource tag over the command-derived one, so the 7 factory
+  routes move off the shared `staff.timesheet` tag onto distinct per-entity tags. This
+  changes CRUD list-cache tags (re-pinned in `lib/timesheets/timeEntryCacheInvalidation.ts`),
+  `command_logs.resource_kind` values going forward, and the optimistic-lock reader key —
+  which previously *collided* across all 7 routes on a first-wins basis and is now correct
+  per route. A third-party mutation guard filtering a factory route on the literal
+  `staff.timesheet` must be updated; documented in the staff `AGENTS.md` taxonomy section.
 
 #### EP-03 · `event` · Emit lifecycle events from the custom mutation routes
 - **Edit**: `time-entries/bulk/route.ts`, `time-entries/copy-day/route.ts`,
@@ -186,11 +195,13 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
 - **Unlocks**: in-pipeline veto and payload modification (e.g. "block billable time on
   a closed client", "stamp a cost centre from an HR system").
 
-#### EP-08 · `event` · Fix and document the budget-threshold subscriber's contract
+#### EP-08 · `event` · Document and pin the budget-threshold subscriber's contract
 - **Edit**: `subscribers/time-project-budget-threshold-notification.ts`
-- **Change**: keep the `staff.timesheets.time_entry.*` subscription (correct once EP-02
-  lands), correct the comment, and add a regression test asserting a manual create and a
-  `/bulk` write both reach it.
+- **Change**: keep the `staff.timesheets.time_entry.*` subscription, rewrite the doc
+  comment to name the real emission sites (the commands' `emitCrudSideEffects`, `/bulk`'s
+  own emit, the explicit timer emits) and to explain why the new batch-level ids carry no
+  `id`, and add a regression test asserting a manual create and a `/bulk` write both
+  reach it. Not a bug fix — G-3 was retracted; this pins behaviour that already held.
 
 #### EP-09 · `event` · Expose TT events to webhooks
 - **Add**: webhook event registration for the `staff.timesheets.*` family

@@ -82,6 +82,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../../../../guards', () => ({
+  ...jest.requireActual('../../../../guards'),
   resolveUserFeatures: jest.fn(() => ['staff.timesheets.manage_own']),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) =>

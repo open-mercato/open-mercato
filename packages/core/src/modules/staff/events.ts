@@ -54,6 +54,24 @@ const events = [
   { id: 'staff.timesheets.time_report.unlocked', label: 'Time Report Unlocked', entity: 'time_report', category: 'lifecycle' },
   { id: 'staff.timesheets.time_project.budget_threshold_reached', label: 'Time Project Budget Threshold Reached', entity: 'time_project', category: 'lifecycle' },
   { id: 'staff.timesheets.project_access.requested', label: 'Time Project Access Requested', entity: 'time_project', category: 'lifecycle' },
+
+  // Time tracking (Phase 3) — transitions owned by the hand-rolled routes that sit
+  // beside the CRUD factory resources. Declared here so a third-party module can
+  // subscribe to a bulk grid save, a copy, a segment edit, an export or a settings
+  // change with the same contract the CRUD ids already offer.
+  { id: 'staff.timesheets.time_entry.bulk_updated', label: 'Time Entries Bulk Saved', entity: 'time_entry', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_entry.copied', label: 'Time Entry Copied', entity: 'time_entry', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_entry.locked', label: 'Time Entries Locked', entity: 'time_entry', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_entry.unlocked', label: 'Time Entries Unlocked', entity: 'time_entry', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_entry_segment.created', label: 'Time Entry Segment Created', entity: 'time_entry_segment', category: 'crud' },
+  { id: 'staff.timesheets.time_entry_segment.updated', label: 'Time Entry Segment Updated', entity: 'time_entry_segment', category: 'crud' },
+  { id: 'staff.timesheets.time_entry_segment.deleted', label: 'Time Entry Segment Deleted', entity: 'time_entry_segment', category: 'crud' },
+  { id: 'staff.timesheets.time_report.exported', label: 'Time Report Exported', entity: 'time_report', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_project.currency_changed', label: 'Time Project Currency Changed', entity: 'time_project', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_project_access.granted', label: 'Time Project Access Granted', entity: 'time_project', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_project_access.denied', label: 'Time Project Access Denied', entity: 'time_project', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_tracking.settings_updated', label: 'Time Tracking Settings Updated', entity: 'time_tracking', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_tracking.rounding_reapplied', label: 'Time Tracking Rounding Reapplied', entity: 'time_tracking', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

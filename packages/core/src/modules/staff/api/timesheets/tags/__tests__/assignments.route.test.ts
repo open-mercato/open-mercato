@@ -48,6 +48,7 @@ jest.mock('../../../../lib/time-tracking/access', () => ({
 }))
 
 jest.mock('../../../guards', () => ({
+  ...jest.requireActual('../../../guards'),
   resolveUserFeatures: jest.fn(() => []),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) => mockRunAfterSuccess(...args)),

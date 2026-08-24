@@ -11,11 +11,12 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTeamMember, StaffTimeProject } from '../../../data/entities'
 import { emitStaffEvent } from '../../../events'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/access-requests' })
 
 const VIEW_FEATURE = 'staff.timesheets.view'
-const RESOURCE_KIND = 'staff.timesheets.access_request'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.accessRequest
 
 /**
  * Spec D-6: one pending request per user per project (or per user for the

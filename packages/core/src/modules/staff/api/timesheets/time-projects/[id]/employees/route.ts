@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { staffTimeProjectMemberCrudEvents } from '../../../../../lib/crud'
+import { emitStaffEvent } from '../../../../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -55,6 +58,14 @@ const listSchema = z
   })
   .passthrough()
 
+const logger = createLogger('staff').child({ component: 'api/timesheets/time-projects/employees' })
+
+function readMemberId(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null
+  const value = (result as { timeProjectMemberId?: unknown }).timeProjectMemberId
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -64,6 +75,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  events: staffTimeProjectMemberCrudEvents,
   indexer: { entityType: 'staff:staff_time_project_member' },
   list: {
     schema: listSchema,
@@ -108,7 +120,22 @@ const crud = makeCrudRoute({
         const body = { ...raw, timeProjectId: raw?.timeProjectId ?? projectId }
         return parseScopedCommandInput(staffTimeProjectMemberAssignSchema, body, ctx, translate)
       },
-      response: ({ result }) => ({ id: result?.timeProjectMemberId ?? null }),
+      // The assignment IS the grant: `timeTrackingAccessResolver` reads exactly this
+      // table, so a module wiring an approval workflow onto `access-requests` learns
+      // the outcome here rather than by polling the membership list.
+      response: ({ result, ctx }) => {
+        const timeProjectMemberId = readMemberId(result)
+        if (timeProjectMemberId) {
+          void emitStaffEvent('staff.timesheets.time_project_access.granted', {
+            id: timeProjectMemberId,
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          }, { persistent: true }).catch((err) => {
+            logger.error('staff.timesheets emit time_project_access.granted failed', { err })
+          })
+        }
+        return { id: timeProjectMemberId }
+      },
       status: 201,
     },
     // Re-dating an assignment (D-12) is an update of the existing row, not a

@@ -35,7 +35,7 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } from '../../../data/entities'
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
 import { buildTimeEntryListFilters, isParseableDateFilter } from '../../../lib/timesheets/timeEntryListFilters'
-import { staffTimeEntryCommandIds } from '../../../lib/crud'
+import { staffTimeEntryCommandIds, staffTimeEntryCrudEvents } from '../../../lib/crud'
 import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
@@ -538,6 +538,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  events: staffTimeEntryCrudEvents,
   indexer: { entityType: 'staff:staff_time_entry' },
   list: {
     schema: listSchema,

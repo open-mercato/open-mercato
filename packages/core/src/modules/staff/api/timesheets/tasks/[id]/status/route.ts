@@ -39,8 +39,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeTask } from '../../../../../data/entities'
 import { staffTimeTaskStatusChangeSchema } from '../../../../../data/validators'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
 import {
-  STAFF_TIME_TASK_RESOURCE_KIND,
   staffTimeTaskCommandIds,
   type StaffTimeTaskStatusChangeCommandInput,
   type StaffTimeTaskStatusChangeResult,
@@ -174,7 +174,7 @@ export async function PATCH(req: Request, context?: RouteContext): Promise<Respo
         userFeatures: grantedFeatures ?? undefined,
       },
       input: {
-        resourceKind: STAFF_TIME_TASK_RESOURCE_KIND,
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeTask,
         resourceId: taskId,
         operation: 'update',
         mutationPayload: parsed,
@@ -217,7 +217,7 @@ export async function PATCH(req: Request, context?: RouteContext): Promise<Respo
           undoToken: logEntry.undoToken,
           commandId: logEntry.commandId,
           actionLabel: logEntry.actionLabel ?? null,
-          resourceKind: logEntry.resourceKind ?? STAFF_TIME_TASK_RESOURCE_KIND,
+          resourceKind: logEntry.resourceKind ?? STAFF_TIME_TRACKING_RESOURCE_KINDS.timeTask,
           resourceId: logEntry.resourceId ?? taskId,
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         }),

@@ -13,6 +13,7 @@ import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entit
 import { assertTimeEntryUnlocked, resolveRoundedMinutes } from '../../../../../commands/timesheets-entries'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 import {
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
         resourceId: entry.id,
         operation: 'update',
         requestMethod: req.method,
@@ -189,7 +190,7 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
         resourceId: entry.id,
         operation: 'update',
         requestMethod: req.method,

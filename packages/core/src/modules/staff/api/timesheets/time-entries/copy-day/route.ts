@@ -59,6 +59,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../events'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -66,12 +67,13 @@ import { StaffTimeEntry, StaffTimeEntryTag } from '../../../../data/entities'
 import { staffTimeEntryCommandIds, TIME_ENTRY_LOCKED_CODE } from '../../../../commands/timesheets-entries'
 import { resolveProjectAccess, type ProjectAccess } from '../../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/copy-day' })
 
 const MANAGE_OWN_FEATURE = 'staff.timesheets.manage_own'
 const MANAGE_ALL_FEATURE = 'staff.timesheets.manage_all'
-const RESOURCE_KIND = 'staff.timesheets.time_entry'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry
 
 /** The 409 a second "copy yesterday" click gets, rather than a doubled day. */
 export const COPY_DAY_TARGET_NOT_EMPTY_CODE = 'copy_day_target_not_empty'
@@ -426,6 +428,19 @@ export async function POST(req: Request) {
     }
 
     await guardResult.runAfterSuccess()
+
+    for (const [sourceId, createdId] of copiedIdBySource) {
+      void emitStaffEvent('staff.timesheets.time_entry.copied', {
+        id: createdId,
+        sourceId,
+        tenantId,
+        organizationId,
+        staffMemberId,
+        date: toDay,
+      }, { persistent: true }).catch((err) => {
+        logger.error('staff.timesheets emit time_entry.copied failed', { err, sourceId })
+      })
+    }
 
     // Screen 1 note 5: these are drafts to correct, so the response carries the
     // rows themselves rather than a count the UI would have to go and re-fetch.

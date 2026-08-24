@@ -21,6 +21,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeReport, StaffTimeReportEvent } from '../../../../../data/entities'
 import { loadReportProjectIds } from '../../../../../commands/timesheets-reports'
@@ -206,6 +207,18 @@ export async function GET(req: Request) {
       // failed would be the wrong trade.
       logger.error('staff.timesheets.reports.export audit event failed', { err })
     }
+
+    void emitStaffEvent('staff.timesheets.time_report.exported', {
+      id: report.id,
+      tenantId,
+      organizationId,
+      reference: report.reference,
+      format,
+      grouping: sheet.grouping,
+      rowCount: rows.length,
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit time_report.exported failed', { err })
+    })
 
     return new NextResponse(new Uint8Array(file.body), {
       status: 200,

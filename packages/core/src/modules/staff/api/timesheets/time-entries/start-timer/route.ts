@@ -11,6 +11,7 @@ import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffTimeEntryStartTimerSchema, type StaffTimeEntryStartTimerInput } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
 
 const logger = createLogger('staff')
 
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
           undoToken: logEntry.undoToken,
           commandId: logEntry.commandId,
           actionLabel: logEntry.actionLabel ?? null,
-          resourceKind: logEntry.resourceKind ?? 'staff.timesheets.time_entry',
+          resourceKind: logEntry.resourceKind ?? STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
           resourceId: logEntry.resourceId ?? result?.timeEntryId ?? null,
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         }),

@@ -12,6 +12,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeProjectMember, StaffTeamMember } from '../../../../data/entities'
 import { staffMyProjectVisibilityUpdateSchema } from '../../../../data/validators'
 import {
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
@@ -120,7 +121,7 @@ export async function PATCH(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_project_member',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeProjectMember,
         resourceId: membership.id,
         operation: 'update',
         requestMethod: req.method,
@@ -144,7 +145,7 @@ export async function PATCH(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_project_member',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeProjectMember,
         resourceId: membership.id,
         operation: 'update',
         requestMethod: req.method,

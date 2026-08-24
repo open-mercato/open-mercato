@@ -15,11 +15,13 @@ import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entit
 import { staffTimeEntrySegmentCreateSchema } from '../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 import {
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../../events'
 
 const logger = createLogger('staff')
 
@@ -97,7 +99,7 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry_segment',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
         resourceId: entry.id,
         operation: 'create',
         requestMethod: req.method,
@@ -148,13 +150,22 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry_segment',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
         resourceId: segment.id,
         operation: 'create',
         requestMethod: req.method,
         requestHeaders: req.headers,
       })
     }
+
+    void emitStaffEvent('staff.timesheets.time_entry_segment.created', {
+      id: segment.id,
+      timeEntryId: segment.timeEntryId,
+      tenantId,
+      organizationId,
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit time_entry_segment.created failed', { err })
+    })
 
     return NextResponse.json(
       {

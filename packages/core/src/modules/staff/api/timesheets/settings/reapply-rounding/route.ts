@@ -28,8 +28,10 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ProgressService } from '../../../../../progress/lib/progressService'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
 import {
   STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
   STAFF_TIME_REAPPLY_ROUNDING_QUEUE,
@@ -41,7 +43,7 @@ import {
 const logger = createLogger('staff').child({ component: 'api/timesheets/settings/reapply-rounding' })
 
 const MANAGE_FEATURE = 'staff.timesheets.settings.manage'
-const RESOURCE_KIND = 'staff.timesheets.settings'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.settings
 const RESOURCE_ID = 'time_tracking'
 
 export const metadata = {
@@ -158,6 +160,15 @@ export async function POST(req: Request) {
     await queue.enqueue({ progressJobId: progressJob.id, scope })
 
     await guardResult.runAfterSuccess()
+
+    void emitStaffEvent('staff.timesheets.time_tracking.rounding_reapplied', {
+      tenantId,
+      organizationId,
+      progressJobId: progressJob.id,
+      candidateCount,
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
+    })
 
     return NextResponse.json(
       responseSchema.parse({ ok: true, progressJobId: progressJob.id, candidateCount }),
