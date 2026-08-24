@@ -25,7 +25,7 @@ export function LocationField({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+      <label className="text-sm font-medium">
         {getFieldLabel(activityType, 'location', t, 'customers.schedule.location', 'Location')}
       </label>
       <Input

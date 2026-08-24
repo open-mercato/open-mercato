@@ -39,32 +39,27 @@ const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ classNa
   { type: 'note', icon: StickyNote, labelKey: 'customers.schedule.types.note', fallback: 'Note' },
 ]
 
-type DialogChrome = { titleKey: string; titleFallback: string; subtitleKey: string; subtitleFallback: string; saveKey: string; saveFallback: string; saveIcon: React.ComponentType<{ className?: string }> }
+type DialogChrome = { titleKey: string; titleFallback: string; saveKey: string; saveFallback: string; saveIcon: React.ComponentType<{ className?: string }> }
 
 const TYPE_CHROME: Record<ActivityType, DialogChrome> = {
   meeting: {
     titleKey: 'customers.schedule.meeting.title', titleFallback: 'New meeting',
-    subtitleKey: 'customers.schedule.meeting.subtitle', subtitleFallback: 'Block time on the calendar with attendees',
     saveKey: 'customers.schedule.meeting.save', saveFallback: 'Save activity', saveIcon: Calendar,
   },
   call: {
     titleKey: 'customers.schedule.call.title', titleFallback: 'Log call',
-    subtitleKey: 'customers.schedule.call.subtitle', subtitleFallback: 'Log a call you just had or schedule one',
     saveKey: 'customers.schedule.call.save', saveFallback: 'Log call', saveIcon: Phone,
   },
   task: {
     titleKey: 'customers.schedule.task.title', titleFallback: 'New task',
-    subtitleKey: 'customers.schedule.task.subtitle', subtitleFallback: 'Capture something to follow up on',
     saveKey: 'customers.schedule.task.save', saveFallback: 'Save task', saveIcon: Check,
   },
   email: {
     titleKey: 'customers.schedule.email.title', titleFallback: 'Compose email',
-    subtitleKey: 'customers.schedule.email.subtitle', subtitleFallback: 'Compose and send a tracked email',
     saveKey: 'customers.schedule.email.save', saveFallback: 'Send email', saveIcon: Mail,
   },
   note: {
     titleKey: 'customers.schedule.note.title', titleFallback: 'Add note',
-    subtitleKey: 'customers.schedule.note.subtitle', subtitleFallback: 'Write down a note about this interaction',
     saveKey: 'customers.schedule.note.save', saveFallback: 'Save note', saveIcon: StickyNote,
   },
 }
@@ -109,8 +104,6 @@ export function ScheduleActivityDialog({
   onClose,
   entityId,
   dealId = null,
-  entityName,
-  companyName,
   entityType,
   onActivityCreated,
   editData,
@@ -488,20 +481,9 @@ export function ScheduleActivityDialog({
 
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-background px-6 py-5">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">
-              {isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {t(chrome.subtitleKey, chrome.subtitleFallback)}
-            </p>
-            {entityName ? (
-              <p className="mt-0.5 text-xs text-muted-foreground/80">
-                {t('customers.schedule.context', 'On timeline: {{name}}', { name: entityName })}
-                {companyName ? ` · ${companyName}` : ''}
-              </p>
-            ) : null}
-          </div>
+          <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">
+            {isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}
+          </h2>
           <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background" aria-label={t('customers.schedule.cancel', 'Cancel')}>
             <X className="size-4 text-muted-foreground" />
           </IconButton>
@@ -547,9 +529,9 @@ export function ScheduleActivityDialog({
 
         {/* Title */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+          <label className="text-sm font-medium">
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
-            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            <span className="text-status-error-text"> *</span>
           </label>
           <Input
             type="text"
@@ -595,7 +577,7 @@ export function ScheduleActivityDialog({
         {state.activityType === 'call' && (
           <div className="flex flex-col gap-3">
             <div>
-              <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+              <label className="text-sm font-medium">
                 {t('customers.schedule.call.directionLabel', 'Direction')}
               </label>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -622,7 +604,7 @@ export function ScheduleActivityDialog({
               </div>
             </div>
             <div>
-              <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+              <label className="text-sm font-medium">
                 {t('customers.schedule.call.outcomeLabel', 'Outcome')}
               </label>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -654,7 +636,7 @@ export function ScheduleActivityDialog({
         {/* Task: Priority chips */}
         {state.activityType === 'task' && (
           <div>
-            <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+            <label className="text-sm font-medium">
               {t('customers.schedule.task.priorityLabel', 'Priority')}
             </label>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -696,7 +678,7 @@ export function ScheduleActivityDialog({
         {/* Location (or phone number for calls) */}
         {state.activityType === 'call' ? (
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="schedule-call-phone" className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+            <label htmlFor="schedule-call-phone" className="text-sm font-medium">
               {t('customers.schedule.call.phoneLabel', 'Phone number')}
             </label>
             <PhoneNumberField
@@ -729,7 +711,7 @@ export function ScheduleActivityDialog({
 
         {/* Description */}
         <div>
-          <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+          <label className="text-sm font-medium">
             {getFieldLabel(state.activityType, 'description', t, 'customers.schedule.description', 'Description')}
           </label>
           <div className="mt-[8px]">

@@ -255,7 +255,7 @@ export function LinkedEntitiesField({
 
   return (
     <div>
-      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+      <label className="text-sm font-medium">
         {sectionLabel}
       </label>
       <div className="mt-2.5 flex flex-wrap content-center items-center gap-2">

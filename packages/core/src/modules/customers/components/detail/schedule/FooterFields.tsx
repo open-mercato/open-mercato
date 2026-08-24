@@ -63,7 +63,7 @@ export function FooterFields({
     <div className="flex gap-3">
       {showReminder && (
         <div className="flex flex-1 flex-col gap-1.5">
-          <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+          <label className="text-sm font-medium">
             {getFieldLabel(activityType, 'reminder', t, 'customers.schedule.reminder', 'Reminder')}
           </label>
           <Select
@@ -86,7 +86,7 @@ export function FooterFields({
       )}
       {showVisibility && (
         <div className="flex flex-1 flex-col gap-1.5">
-          <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+          <label className="text-sm font-medium">
             {getFieldLabel(activityType, 'visibility', t, 'customers.schedule.visibility', 'Visibility')}
           </label>
           <Select value={visibility} onValueChange={setVisibility}>

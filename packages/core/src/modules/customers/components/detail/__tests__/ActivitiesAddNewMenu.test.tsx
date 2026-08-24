@@ -20,10 +20,11 @@ describe('ActivitiesAddNewMenu', () => {
     })
 
     await waitFor(() => expect(screen.getByText('New meeting')).toBeInTheDocument())
+    // Items expose the menu ARIA contract while still rendering through the DS Button.
     const optionButtons = screen
-      .getAllByRole('button')
+      .getAllByRole('menuitem')
       .filter((node) => node.getAttribute('data-slot') === 'button')
-    expect(optionButtons.length).toBeGreaterThanOrEqual(5)
+    expect(optionButtons.length).toBe(4)
   })
 
   it('invokes onSelect with the chosen activity kind and closes the menu', async () => {

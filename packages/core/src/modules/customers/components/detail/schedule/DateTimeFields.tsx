@@ -110,9 +110,9 @@ export function DateTimeFields({
       {/* Date / Time / Duration */}
       <div className="flex flex-wrap gap-3">
         <div className="flex min-w-0 flex-[1.5] flex-col gap-1.5">
-          <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+          <label className="text-sm font-medium">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
-            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            <span className="text-status-error-text"> *</span>
           </label>
           <DatePicker
             value={parseIsoDate(date)}
@@ -133,9 +133,9 @@ export function DateTimeFields({
         </div>
         {showStartTime && (
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+            <label className="text-sm font-medium">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
-              <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+              <span className="text-status-error-text"> *</span>
             </label>
             <TimePicker
               value={startTime || null}
@@ -159,7 +159,7 @@ export function DateTimeFields({
         )}
         {showDuration && (
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+            <label className="text-sm font-medium">
               {getFieldLabel(activityType, 'duration', t, 'customers.schedule.duration', 'Duration')}
             </label>
             <Select
