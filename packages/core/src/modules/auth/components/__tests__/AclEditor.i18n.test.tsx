@@ -32,8 +32,16 @@ describe('AclEditor i18n', () => {
                 title: 'Create checkout links and templates',
                 module: 'checkout',
               },
+              {
+                id: 'thirdparty.custom',
+                title: 'Manage custom integration',
+                module: 'thirdparty',
+              },
             ],
-            modules: [{ id: 'checkout', title: 'Checkout' }],
+            modules: [
+              { id: 'checkout', title: 'Checkout' },
+              { id: 'thirdparty', title: 'Third-party integration' },
+            ],
           },
         }
       }
@@ -44,7 +52,7 @@ describe('AclEditor i18n', () => {
         result: {
           hasCustomAcl: true,
           isSuperAdmin: false,
-          features: [],
+          features: ['checkout.settings.email.*'],
           organizations: null,
         },
       }
@@ -64,6 +72,7 @@ describe('AclEditor i18n', () => {
         dict: {
           'auth.acl.modules.checkout': 'Kasa',
           'auth.acl.features.checkout.create': 'Twórz linki i szablony płatności',
+          'auth.acl.wildcards.allGroup': 'Wszystkie uprawnienia w grupie {group}',
         },
       },
     )
@@ -71,6 +80,8 @@ describe('AclEditor i18n', () => {
     expect(await screen.findByText('Kasa')).toBeInTheDocument()
     expect(screen.getByText('Twórz linki i szablony płatności', { exact: false })).toBeInTheDocument()
     expect(screen.queryByText('Create checkout links and templates', { exact: false })).not.toBeInTheDocument()
+    expect(screen.getByText('Manage custom integration', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('Wszystkie uprawnienia w grupie Settings / Email', { exact: false })).toBeInTheDocument()
   })
 
   it('uses translations for the super-admin control copy', async () => {

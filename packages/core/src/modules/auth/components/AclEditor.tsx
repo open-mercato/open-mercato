@@ -31,7 +31,11 @@ function formatWildcardLabel(t: TranslateFn, moduleId: string, wildcard: string)
   const prefix = `${moduleId}.`
   const suffix = wildcard.startsWith(prefix) ? wildcard.slice(prefix.length, -2) : wildcard.slice(0, -2)
   if (!suffix) return t('auth.acl.wildcards.allFeatures', 'All features')
-  return t('auth.acl.wildcards.allGroup', 'All permissions in {group}', { group: suffix })
+  const group = suffix
+    .split('.')
+    .map((segment) => segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()))
+    .join(' / ')
+  return t('auth.acl.wildcards.allGroup', 'All permissions in {group}', { group })
 }
 
 type Feature = { id: string; title: string; module: string; dependsOn?: string[] }
@@ -340,7 +344,7 @@ export function AclEditor({
                       {idx > 0 && ', '}
                       <Link 
                         href={`/backend/roles/${roleId}/edit`}
-                        className="font-semibold text-status-info-text underline transition-colors"
+                        className="font-semibold text-status-info-text underline"
                       >
                         {roleName}
                       </Link>
