@@ -46,6 +46,17 @@ Ship the verified dashboard comparison-label corrections while keeping issue #54
 - Dashboard-only scope note on issue #5497: https://github.com/open-mercato/open-mercato/issues/5497#issuecomment-5389418692
 - PR #5539: https://github.com/open-mercato/open-mercato/pull/5539
 
+## Validation Record
+
+- Runner: local, using the bundled Node.js v24.19.0 runtime; no Docker Compose `app` service was running.
+- `yarn build:packages` — passed before and after generation.
+- `yarn generate` — passed with no tracked generated drift.
+- `yarn i18n:check-sync` — passed; all five locale sets are synchronized.
+- `yarn i18n:check-usage` — passed with advisory unused-key output only.
+- `yarn typecheck` — passed across all configured package tasks.
+- `yarn test` — passed across all 33 workspace tasks. Two earlier attempts encountered unrelated Jest worker `SIGSEGV`s under concurrent machine load; both affected suites passed serially, and the final exact full command passed.
+- `yarn build:app` — passed; existing Turbopack dynamic-filesystem warnings remained non-blocking.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
