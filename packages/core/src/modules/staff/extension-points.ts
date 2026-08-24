@@ -42,6 +42,31 @@ const pageHost = (spotId: string, source: string) => injectionExtensionHost({
   source,
 })
 
+/**
+ * EP-32…EP-41. Each registry is a `specialized-registry` host: contributions
+ * arrive through the module's own `register*` function rather than through the
+ * widget registries, which is what `registry-contribution` names.
+ *
+ * `runtimeContract` is the id of the built-in strategy the registry ships with.
+ * It is the guarantee that makes this whole group additive: with no contribution
+ * the built-in is the only candidate, and it is the same code the module ran
+ * before the registry existed.
+ */
+const registryHost = (
+  spotId: string,
+  source: string,
+  contextContract: string,
+  builtInId: string,
+) => injectionExtensionHost({
+  family: 'specialized-registry',
+  spotId,
+  supported: ['registry-contribution'],
+  contextContract,
+  scopeContract: 'tenant+organization',
+  runtimeContract: builtInId,
+  source,
+})
+
 export const extensionPoints = defineModuleExtensionPoints({
   moduleId: 'staff',
   hosts: {
@@ -113,6 +138,67 @@ export const extensionPoints = defineModuleExtensionPoints({
     timeTrackingSettingsSections: pageHost('staff.time_tracking.settings:sections', 'backend/staff/time-tracking/settings/page.tsx'),
 
     timerBarActions: pageHost('staff.timesheets.timer-bar:actions', 'lib/timesheets-ui/TimerBar.tsx'),
+
+    timeRoundingRegistry: registryHost(
+      'staff.time_tracking.rounding',
+      'lib/time-tracking/rounding.ts',
+      'staff.time_tracking.rounding.v1',
+      'staff.time_tracking.rounding.unit',
+    ),
+    timeRateRegistry: registryHost(
+      'staff.time_tracking.rate',
+      'lib/time-tracking/cost.ts',
+      'staff.time_tracking.rate.v1',
+      'staff.time_tracking.rate.entry_override_then_project',
+    ),
+    timeBillabilityRegistry: registryHost(
+      'staff.time_tracking.billability',
+      'lib/time-tracking/billability.ts',
+      'staff.time_tracking.billability.v1',
+      'staff.time_tracking.billability.project_then_tenant',
+    ),
+    reportExportFormatRegistry: registryHost(
+      'staff.time_tracking.report_export_format',
+      'lib/timesheets-reports/reportExportFormats.ts',
+      'staff.time_tracking.report_export_format.v1',
+      'pdf',
+    ),
+    reportGroupingRegistry: registryHost(
+      'staff.time_tracking.report_grouping',
+      'lib/timesheets-reports/reportGroupings.ts',
+      'staff.time_tracking.report_grouping.v1',
+      'project_task',
+    ),
+    timeEntrySourceRegistry: registryHost(
+      'staff.time_tracking.time_entry_source',
+      'lib/time-tracking/timeEntrySources.ts',
+      'staff.time_tracking.time_entry_source.v1',
+      'manual',
+    ),
+    overlapPolicyRegistry: registryHost(
+      'staff.time_tracking.overlap_policy',
+      'lib/time-tracking/overlap.ts',
+      'staff.time_tracking.overlap_policy.v1',
+      'staff.time_tracking.overlap.warn_when_enabled',
+    ),
+    projectCodeGeneratorRegistry: registryHost(
+      'staff.time_tracking.project_code_generator',
+      'lib/time-tracking/projectCode.ts',
+      'staff.time_tracking.project_code_generator.v1',
+      'staff.time_tracking.project_code.initials',
+    ),
+    capacityProviderRegistry: registryHost(
+      'staff.time_tracking.capacity_provider',
+      'lib/time-tracking/capacity.ts',
+      'staff.time_tracking.capacity_provider.v1',
+      'staff.time_tracking.capacity.flat_daily_hours',
+    ),
+    reportApprovalPolicyRegistry: registryHost(
+      'staff.time_tracking.report_approval_policy',
+      'lib/timesheets-reports/reportApprovalPolicies.ts',
+      'staff.time_tracking.report_approval_policy.v1',
+      'staff.time_tracking.report_approval.acl_only',
+    ),
 
     timeEntryDialogComponent: componentExtensionHost({
       componentId: 'staff.time_entry_dialog',

@@ -379,7 +379,7 @@ const previewLineSchema: z.ZodType<unknown> = z.lazy(() =>
 
 const previewResponseSchema = z.object({
   currencyCode: z.string().nullable(),
-  grouping: z.enum(['project_task', 'project_person', 'project_day']),
+  grouping: z.string(),
   nonbillableMode: z.enum(['separate', 'exclude']),
   includeAlreadyReported: z.boolean(),
   showRates: z.boolean(),

@@ -30,6 +30,10 @@ import {
   type StaffTimeReportCloseResult,
 } from '../../../../../commands/timesheets-reports'
 import { resolveReportRequestContext } from '../../shared'
+import {
+  evaluateReportClosePolicies,
+  notifyReportClosed,
+} from '../../../../../lib/timesheets-reports/reportApprovalPolicies'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/close' })
 
@@ -51,6 +55,21 @@ export async function POST(req: Request) {
     // shape that leaked rates on the report routes where no such backstop existed.
     if (!(await resolveFeatureAccess(container, auth.sub ?? null, [LOCK_FEATURE], { tenantId, organizationId })).allowed) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
+    }
+
+    // EP-41 runs strictly AFTER the ACL gate above and can only refuse. A policy
+    // never grants, so nothing here can open a report a caller has no feature for.
+    const approvalContext = {
+      tenantId,
+      organizationId,
+      reportId,
+      actorUserId: typeof auth.sub === 'string' ? auth.sub : null,
+      actorFeatures: grantedFeatures ?? [],
+      status: 'draft',
+    }
+    const refusal = evaluateReportClosePolicies(approvalContext)
+    if (refusal) {
+      throw forbidden(translate(refusal.messageKey, translate('staff.errors.forbidden', 'Forbidden')))
     }
 
     const interceptors = await runTimesheetInterceptors({
@@ -95,6 +114,13 @@ export async function POST(req: Request) {
     )
 
     await guardResult.runAfterSuccess()
+
+    for (const failure of await notifyReportClosed({ ...approvalContext, status: 'closed' })) {
+      logger.error('staff.timesheets.reports.close approval hook failed', {
+        policyId: failure.policyId,
+        err: failure.error,
+      })
+    }
 
     const response = await session.respond(200, {
       id: result?.reportId ?? reportId,
@@ -162,7 +188,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing report id or scope' },
         { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Missing staff.timesheets.lock' },
+        { status: 403, description: 'Missing staff.timesheets.lock, or refused by a registered report approval policy' },
         { status: 404, description: 'Report not found or not accessible' },
         { status: 409, description: 'Report is already closed (report_closed)' },
         { status: 422, description: 'Report covers no entries (report_empty)' },

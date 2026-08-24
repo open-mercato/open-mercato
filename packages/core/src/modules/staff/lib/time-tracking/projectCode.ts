@@ -1,3 +1,24 @@
+/**
+ * EP-39 — the project code generator provider.
+ *
+ * `deriveProjectCode` keeps its signature and its meaning; the three-letter
+ * initials rule plus the collision counter now live in the built-in generator
+ * `staff.time_tracking.project_code.initials`, which `deriveProjectCode`
+ * delegates to. A contributed generator outranks it only when the caller passes
+ * a complete tenant + organization scope.
+ *
+ * Two runtime call sites exist and both are client-side —
+ * `lib/time-tracking-ui/ProjectCodeField.tsx` derives the suggestion as the user
+ * types a project name and again when the field is reset. Neither has a tenant
+ * id to hand, so both resolve the built-in today.
+ * `lib/time-tracking/migrateProjectCodes.ts` uses `deriveProjectCodeBase`, not
+ * this function.
+ */
+
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
+import { selectScopedStrategy, type ScopedResolverContext } from './registries/scope'
+
 export const PROJECT_CODE_MAX_LENGTH = 20
 
 /**
@@ -102,7 +123,7 @@ export function deriveProjectCodeBase(name: string): string {
  * of substituting a letter, because a fourth character is still readable while
  * `APQ` is a different project as far as anybody reading it is concerned.
  */
-export function deriveProjectCode(name: string, taken: Set<string> = new Set()): string {
+function deriveInitialsCode(name: string, taken: Set<string>): string {
   const base = deriveProjectCodeBase(name)
   const reserved = new Set(Array.from(taken ?? []).map((value) => String(value).toUpperCase()))
   if (!reserved.has(base)) return base
@@ -126,4 +147,58 @@ export function deriveProjectCode(name: string, taken: Set<string> = new Set()):
     if (!reserved.has(candidate)) return candidate
   }
   return longBase
+}
+
+export type ProjectCodeContext = ScopedResolverContext & {
+  customerId?: string | null
+  timeProjectId?: string | null
+}
+
+export type ProjectCodeGenerator = {
+  id: string
+  priority?: number
+  generate(name: string, taken: Set<string>, ctx: ProjectCodeContext): string
+}
+
+export const PROJECT_CODE_GENERATOR_REGISTRY_ID = extensionPoints.hosts.projectCodeGeneratorRegistry.spotId
+
+export const BUILT_IN_PROJECT_CODE_GENERATOR_ID = 'staff.time_tracking.project_code.initials'
+
+const generatorRegistry = createStrategyRegistry<ProjectCodeGenerator>(PROJECT_CODE_GENERATOR_REGISTRY_ID)
+
+export function registerProjectCodeGenerator(generator: ProjectCodeGenerator): () => void {
+  return generatorRegistry.register(generator)
+}
+
+export function listProjectCodeGenerators(): ProjectCodeGenerator[] {
+  return generatorRegistry.list()
+}
+
+export function getProjectCodeGenerator(id: string | null | undefined): ProjectCodeGenerator | null {
+  return generatorRegistry.get(id)
+}
+
+const builtInProjectCodeGenerator: ProjectCodeGenerator = {
+  id: BUILT_IN_PROJECT_CODE_GENERATOR_ID,
+  priority: BUILT_IN_STRATEGY_PRIORITY,
+  generate: (name, taken) => deriveInitialsCode(name, taken),
+}
+
+registerProjectCodeGenerator(builtInProjectCodeGenerator)
+
+export function resolveProjectCodeGenerator(
+  ctx?: ScopedResolverContext | null,
+): ProjectCodeGenerator {
+  return (
+    selectScopedStrategy(generatorRegistry.list(), BUILT_IN_PROJECT_CODE_GENERATOR_ID, ctx) ??
+    builtInProjectCodeGenerator
+  )
+}
+
+export function deriveProjectCode(
+  name: string,
+  taken: Set<string> = new Set(),
+  ctx?: ProjectCodeContext | null,
+): string {
+  return resolveProjectCodeGenerator(ctx).generate(name, taken ?? new Set(), ctx ?? {})
 }

@@ -30,9 +30,15 @@ import { buildReportRows } from '../../../../../lib/timesheets-reports/reportRow
 import {
   normalizeReportExportFormat,
   serializeReportExport,
+  supportedReportExportFormats,
   type ReportExportLabels,
 } from '../../../../../lib/timesheets-reports/reportExport'
-import type { ReportGrouping } from '../../../../../lib/timesheets-reports/reportTotals'
+import {
+  hasReportGrouping,
+  reportGroupingIds,
+  type ReportGrouping,
+} from '../../../../../lib/timesheets-reports/reportGroupings'
+import { z } from 'zod'
 import { resolveReportRequestContext, reportSheetLabels, type Translate } from '../../shared'
 import {
   readSearchParamsRecord,
@@ -46,15 +52,28 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.reports.view'] },
 }
 
+/**
+ * EP-35 / EP-36: both accepted sets come from their registries, so a contributed
+ * format or grouping is accepted here without this file being edited.
+ */
 function readQuery(params: URLSearchParams): { format: string | null; grouping: ReportGrouping | undefined } {
   const grouping = params.get('grouping')
   return {
     format: params.get('format'),
-    grouping:
-      grouping === 'project_task' || grouping === 'project_person' || grouping === 'project_day'
-        ? grouping
-        : undefined,
+    grouping: hasReportGrouping(grouping) ? (grouping as ReportGrouping) : undefined,
   }
+}
+
+/**
+ * Read lazily rather than frozen at module load: a module registering a format
+ * after this route file is first imported must still appear in the published
+ * schema.
+ */
+function exportQuerySchema(): z.ZodTypeAny {
+  return z.object({
+    format: z.enum(supportedReportExportFormats() as [string, ...string[]]),
+    grouping: z.enum(reportGroupingIds() as [string, ...string[]]).optional(),
+  })
 }
 
 function exportLabels(translate: Translate): ReportExportLabels {
@@ -134,6 +153,7 @@ export async function GET(req: Request) {
           'staff.time_tracking.reports.errors.unsupportedFormat',
           'Supported export formats are pdf, csv and xlsx.',
         ),
+        supportedFormats: supportedReportExportFormats(),
       })
     }
 
@@ -278,6 +298,9 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Export a customer report',
+      get query() {
+        return exportQuerySchema()
+      },
       description:
         'Renders the report as `pdf` (mirrors the on-screen sheet, client-facing), `csv` or `xlsx` (raw accounting columns: date, project, task, person, description, raw and rounded minutes, billable, rate, amount). Honours the report grouping — overridable per request with `?grouping=` — plus its filters, rounding and currency. Appends an `exported` report event; exporting never locks entries. Rates and amounts are omitted for a caller without staff.timesheets.rates.view.',
       responses: [{ status: 200, description: 'The rendered report file' }],

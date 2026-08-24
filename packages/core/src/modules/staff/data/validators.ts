@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { PROJECT_COLOR_KEYS } from '../lib/timesheets-ui/colors'
+import { hasTimeEntrySource, timeEntrySourceIds } from '../lib/time-tracking/timeEntrySources'
+import { hasReportGrouping, reportGroupingIds } from '../lib/timesheets-reports/reportGroupings'
 
 const projectColorSchema = z
   .string()
@@ -259,7 +261,22 @@ export type StaffTeamMemberSelfCreateInput = z.infer<typeof staffTeamMemberSelfC
 
 // --- Timesheets validators (Phase 1) ---
 
-const timeEntrySourceSchema = z.enum(['manual', 'timer', 'kiosk', 'mobile'])
+/**
+ * EP-37: validated against the time-entry source registry rather than a literal
+ * enum, so a contributed source is accepted on write the moment its module is
+ * enabled. `superRefine` rather than `z.enum(...)` because the accepted set is
+ * only known at call time.
+ */
+const timeEntrySourceSchema = z
+  .string()
+  .superRefine((value, ctx) => {
+    if (hasTimeEntrySource(value)) return
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `[internal] unknown time entry source: ${value}`,
+      params: { accepted: timeEntrySourceIds() },
+    })
+  })
 const timeProjectStatusSchema = z.enum(['active', 'on_hold', 'completed'])
 const timeProjectMemberStatusSchema = z.enum(['active', 'inactive'])
 const timeEntrySegmentTypeSchema = z.enum(['work', 'break'])
@@ -493,7 +510,17 @@ export type StaffMyProjectVisibilityUpdateInput = z.infer<typeof staffMyProjectV
 
 const timeSlugSchema = z.string().trim().min(1).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
 const timeReportPeriodKindSchema = z.enum(['week', 'month', 'year', 'custom'])
-const timeReportGroupingSchema = z.enum(['project_task', 'project_person', 'project_day'])
+/** EP-36: validated against the report grouping registry, not a literal enum. */
+const timeReportGroupingSchema = z
+  .string()
+  .superRefine((value, ctx) => {
+    if (hasReportGrouping(value)) return
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `[internal] unknown report grouping: ${value}`,
+      params: { accepted: reportGroupingIds() },
+    })
+  })
 const timeReportNonbillableModeSchema = z.enum(['separate', 'exclude'])
 const timeRoundingDirectionSchema = z.enum(['up', 'nearest'])
 const timeRoundingUnitMinutesSchema = z.union([

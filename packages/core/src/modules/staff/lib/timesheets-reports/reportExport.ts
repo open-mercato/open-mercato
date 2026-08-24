@@ -17,12 +17,27 @@ import { buildPdf, PDF_CONTENT_TYPE, type PdfLine } from './pdf'
 import { buildXlsx, XLSX_CONTENT_TYPE } from './xlsx'
 import { formatReportMinutes, type ReportGroup, type ReportLine } from './reportTotals'
 import type { ReportRow } from './reportRows'
+import {
+  getReportExportFormat,
+  registerBuiltInReportExportFormat,
+  reportExportFormatIds,
+  type ReportExportFormat,
+} from './reportExportFormats'
 
-export type ReportExportFormat = 'pdf' | 'csv' | 'xlsx'
+export type { ReportExportFormat }
 
+/**
+ * EP-35: the accepted set is the registry, not a literal union, so a contributed
+ * format is accepted here and documented by the route's OpenAPI enum without
+ * either being edited.
+ */
 export function normalizeReportExportFormat(value: unknown): ReportExportFormat | null {
-  if (value === 'pdf' || value === 'csv' || value === 'xlsx') return value
-  return null
+  if (typeof value !== 'string') return null
+  return getReportExportFormat(value) ? value : null
+}
+
+export function supportedReportExportFormats(): string[] {
+  return reportExportFormatIds()
 }
 
 export type ReportExportLabels = {
@@ -269,21 +284,46 @@ export function buildReportTable(input: ReportExportInput): PreparedExport {
   return { columns, rows }
 }
 
-export function serializeReportExport(
-  format: ReportExportFormat,
-  input: ReportExportInput,
-): SerializedReportExport {
-  const base = input.reference || 'report'
-  if (format === 'pdf') {
-    return {
-      body: buildPdf({ title: input.title, lines: buildReportPdfLines(input) }),
-      contentType: PDF_CONTENT_TYPE,
-      filename: `${base}.pdf`,
-    }
-  }
+function exportBaseName(input: ReportExportInput): string {
+  return input.reference || 'report'
+}
 
-  const table = buildReportTable(input)
-  if (format === 'xlsx') {
+registerBuiltInReportExportFormat({
+  id: 'pdf',
+  labelKey: 'staff.time_tracking.reports.export.format.pdf',
+  mimeType: PDF_CONTENT_TYPE,
+  extension: 'pdf',
+  serialize: (input) => ({
+    body: buildPdf({ title: input.title, lines: buildReportPdfLines(input) }),
+    contentType: PDF_CONTENT_TYPE,
+    filename: `${exportBaseName(input)}.pdf`,
+  }),
+})
+
+registerBuiltInReportExportFormat({
+  id: 'csv',
+  labelKey: 'staff.time_tracking.reports.export.format.csv',
+  mimeType: 'text/csv',
+  extension: 'csv',
+  serialize: (input) => {
+    const serialized = serializeExport(buildReportTable(input), 'csv')
+    return {
+      // The BOM is what makes Excel open a UTF-8 CSV with Polish names intact
+      // instead of mojibake; every other consumer ignores it.
+      body: Buffer.concat([Buffer.from('﻿', 'utf8'), Buffer.from(serialized.body, 'utf8')]),
+      contentType: serialized.contentType,
+      filename: `${exportBaseName(input)}.csv`,
+    }
+  },
+})
+
+registerBuiltInReportExportFormat({
+  id: 'xlsx',
+  labelKey: 'staff.time_tracking.reports.export.format.xlsx',
+  mimeType: XLSX_CONTENT_TYPE,
+  extension: 'xlsx',
+  serialize: (input) => {
+    const table = buildReportTable(input)
     const rows = [
       table.columns.map((column) => column.header),
       ...table.rows.map((row) =>
@@ -298,18 +338,20 @@ export function serializeReportExport(
       ),
     ]
     return {
-      body: buildXlsx({ name: base.slice(0, 31), rows }),
+      body: buildXlsx({ name: exportBaseName(input).slice(0, 31), rows }),
       contentType: XLSX_CONTENT_TYPE,
-      filename: `${base}.xlsx`,
+      filename: `${exportBaseName(input)}.xlsx`,
     }
-  }
+  },
+})
 
-  const serialized = serializeExport(table, 'csv')
-  return {
-    // The BOM is what makes Excel open a UTF-8 CSV with Polish names intact
-    // instead of mojibake; every other consumer ignores it.
-    body: Buffer.concat([Buffer.from('﻿', 'utf8'), Buffer.from(serialized.body, 'utf8')]),
-    contentType: serialized.contentType,
-    filename: `${base}.csv`,
+export function serializeReportExport(
+  format: ReportExportFormat,
+  input: ReportExportInput,
+): SerializedReportExport {
+  const definition = getReportExportFormat(format)
+  if (!definition) {
+    throw new Error(`[internal] unknown report export format: ${String(format)}`)
   }
+  return definition.serialize(input)
 }

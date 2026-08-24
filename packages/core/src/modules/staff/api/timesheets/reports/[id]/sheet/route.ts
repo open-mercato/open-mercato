@@ -28,7 +28,7 @@ import { StaffTimeReport, StaffTimeReportEvent } from '../../../../../data/entit
 import { loadReportProjectIds } from '../../../../../commands/timesheets-reports'
 import { buildReportSheet } from '../../../../../lib/timesheets-reports/buildReportSheet'
 import { buildReportRows } from '../../../../../lib/timesheets-reports/reportRows'
-import type { ReportGrouping } from '../../../../../lib/timesheets-reports/reportTotals'
+import { hasReportGrouping, type ReportGrouping } from '../../../../../lib/timesheets-reports/reportGroupings'
 import { resolveReportRequestContext, reportSheetLabels, MAX_SHEET_ROWS } from '../../shared'
 import {
   readSearchParamsRecord,
@@ -42,10 +42,10 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.reports.view'] },
 }
 
+/** EP-36: the accepted set is the grouping registry, not a literal union. */
 function readGrouping(params: URLSearchParams): ReportGrouping | undefined {
   const value = params.get('grouping')
-  if (value === 'project_task' || value === 'project_person' || value === 'project_day') return value
-  return undefined
+  return hasReportGrouping(value) ? (value as ReportGrouping) : undefined
 }
 
 export async function GET(req: Request) {

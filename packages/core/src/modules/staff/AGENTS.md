@@ -17,6 +17,12 @@ See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../..
 | Key | Contract |
 |-----|----------|
 | `availabilityAccessResolver` | Resolves an `AvailabilityWriteAccess` shape for the authenticated request, including whether the caller may edit availability for all members vs only themselves. Consumed by `planner/api/access.ts` via `container.resolve(..., { allowUnregistered: true })` — planner gracefully degrades to `403 staff_module_not_loaded` when staff is absent. |
+| `timeRoundingResolver` | Server entry point to the rounding registry (EP-32). `resolveStrategy(ctx?)` returns the strategy a scoped call site should run; `roundMinutes(raw, settings, ctx?)` is the module function. See § Time-tracking strategy registries. |
+| `timeRateResolver` | Server entry point to the rate resolver chain (EP-33). `resolveRate(ctx)`. |
+| `timeBillabilityResolver` | Server entry point to the billability chain (EP-34). `resolveBillability(ctx)`. |
+| `timeCapacityResolver` | Server entry point to the capacity provider (EP-40). `resolveCapacity(staffMemberId, dateRange, ctx)`. |
+| `timeOverlapPolicyResolver` | Server entry point to the overlap policy (EP-38). `evaluate(spans, ctx)`. |
+| `timeProjectCodeResolver` | Server entry point to the project code generator (EP-39). `generate(name, taken, ctx?)`. |
 | `timeTrackingAccessResolver` | The single project-access resolver every time-tracking route consults (board, tasks, entries, timesheets, reports). Returns `{ canManageAll, projectIds, staffMemberId }`. `canManageAll: true` (holder of `staff.timesheets.projects.manage`, wildcard-aware) means **unrestricted** — `projectIds` is then empty and MUST NOT be read as "no projects". Otherwise `projectIds` lists the projects with an active, non-deleted `staff_time_project_members` row for the caller. A caller with no staff profile is a normal outcome (`staffMemberId: null`, empty `projectIds`) that drives the no-access screen, never an error. Every query is scoped by `tenantId` + `organizationId`; a request missing either fails closed. |
 
 Resolver shapes (from `lib/availabilityAccess.ts` and `lib/time-tracking/access.ts`):
@@ -352,6 +358,79 @@ does not satisfy it falls back to the original component. Catalogued in
 | `staff.report_sheet` | `lib/time-tracking-ui/ReportSheet.tsx` |
 | `staff.project_card` | `lib/timesheets-projects-ui/ProjectCard.tsx` |
 | `staff.entries_summary_footer` | `lib/time-tracking-ui/TimeEntriesSummaryFooter.tsx` |
+
+## Time-tracking strategy registries
+
+EP-32…EP-41. Ten closed pure functions and DB enums are now registries. **Every one
+registers the module's existing implementation as its built-in default at module load,
+so with no contribution the observable behaviour is the one the module shipped.** The
+built-in ids below are the `runtimeContract` of the matching `specialized-registry` host
+in [`extension-points.ts`](./extension-points.ts).
+
+| EP | Registry id / host | Register with | Built-in default | Resolution |
+|---|---|---|---|---|
+| 32 | `staff.time_tracking.rounding` | `registerTimeRoundingStrategy({ id, labelKey, priority?, round(raw, ctx) })` — [`lib/time-tracking/rounding.ts`](./lib/time-tracking/rounding.ts) | `staff.time_tracking.rounding.unit` (`up`/`nearest` × `0\|5\|10\|15`) | single winner |
+| 33 | `staff.time_tracking.rate` | `registerTimeRateResolver({ id, priority?, resolve(ctx): number \| null })` — [`lib/time-tracking/cost.ts`](./lib/time-tracking/cost.ts) | `staff.time_tracking.rate.entry_override_then_project` | chain, first non-null |
+| 34 | `staff.time_tracking.billability` | `registerBillabilityResolver({ id, priority?, resolve(ctx): boolean \| null })` — [`lib/time-tracking/billability.ts`](./lib/time-tracking/billability.ts) | `staff.time_tracking.billability.project_then_tenant` | chain, first non-null |
+| 35 | `staff.time_tracking.report_export_format` | `registerReportExportFormat({ id, labelKey, mimeType, extension, serialize(input) })` — [`lib/timesheets-reports/reportExportFormats.ts`](./lib/timesheets-reports/reportExportFormats.ts) | `pdf`, `csv`, `xlsx` | keyed by id |
+| 36 | `staff.time_tracking.report_grouping` | `registerReportGrouping({ id, labelKey, groupOf(entry), labelOf(key, ctx), sort })` — [`lib/timesheets-reports/reportGroupings.ts`](./lib/timesheets-reports/reportGroupings.ts) | `project_task`, `project_person`, `project_day` | keyed by id |
+| 37 | `staff.time_tracking.time_entry_source` | `registerTimeEntrySource({ id, labelKey, icon, editable })` — [`lib/time-tracking/timeEntrySources.ts`](./lib/time-tracking/timeEntrySources.ts) | `manual`, `timer`, `kiosk`, `mobile` | keyed by id |
+| 38 | `staff.time_tracking.overlap_policy` | `registerOverlapPolicy({ id, priority?, evaluate(spans, ctx) })` — [`lib/time-tracking/overlap.ts`](./lib/time-tracking/overlap.ts) | `staff.time_tracking.overlap.warn_when_enabled` | max severity |
+| 39 | `staff.time_tracking.project_code_generator` | `registerProjectCodeGenerator({ id, priority?, generate(name, taken, ctx) })` — [`lib/time-tracking/projectCode.ts`](./lib/time-tracking/projectCode.ts) | `staff.time_tracking.project_code.initials` | single winner |
+| 40 | `staff.time_tracking.capacity_provider` | `registerCapacityProvider({ id, priority?, resolve(staffMemberId, dateRange, ctx) })` — [`lib/time-tracking/capacity.ts`](./lib/time-tracking/capacity.ts) | `staff.time_tracking.capacity.flat_daily_hours` | single winner |
+| 41 | `staff.time_tracking.report_approval_policy` | `registerReportApprovalPolicy({ id, priority?, canClose?, canUnlock?, onClosed? })` — [`lib/timesheets-reports/reportApprovalPolicies.ts`](./lib/timesheets-reports/reportApprovalPolicies.ts) | `staff.time_tracking.report_approval.acl_only` | conjunction, first refusal |
+
+### The four resolution orders
+
+All four order candidates by **descending `priority` (default `0`), ties by registration
+order**, and every built-in registers at `BUILT_IN_STRATEGY_PRIORITY` (`-1000`) so it is
+always the last candidate. They differ only in what they do with that order:
+
+- **single winner** — the first candidate runs; nothing else is consulted.
+- **chain, first non-null** — candidates are asked in order and the first non-`null`
+  answer wins. Returning `null` is an abstention, not a "no", so an unopinionated
+  contribution cannot change an entry.
+- **max severity** (`block` > `warn` > `allow`) — a contributed overlap policy can only
+  ESCALATE. Nothing can suppress a warning the tenant asked for.
+- **conjunction, first refusal** — every approval policy must agree. `canClose`/`canUnlock`
+  return a refusal or nothing, **never a grant**, so no policy can open a door the ACL
+  closed. The ACL check in the close/unlock routes runs first and unconditionally.
+
+### Scoping — fail closed to the built-in
+
+Every resolver context carries `tenantId` + `organizationId`
+([`lib/time-tracking/registries/scope.ts`](./lib/time-tracking/registries/scope.ts)). A
+**contributed** strategy is consulted only when both are present; with either missing the
+built-in is the only candidate. Failing closed lands on the built-in rather than on an
+error, because the built-in is the same pure code that ran before the registries existed.
+
+### Client-side call sites
+
+The registries are plain module-scope `Map`s (the `registerPaymentProvider` idiom), not DI
+singletons, so the browser bundle reaches them by importing the `register*` function
+directly — no container. The DI keys in the table above are the *server* entry point and
+exist so an app can replace a resolver through `entry.overrides` DI; resolving one and
+calling the module function are equivalent.
+
+Four call sites run in the browser and none of them has a tenant id to hand, so all four
+resolve the built-in today, byte-identically to before:
+`lib/time-tracking-ui/TimeEntryDialog.tsx` (rate + cost preview),
+`lib/time-tracking-ui/timeTrackingSettingsForm.ts` (`buildRoundingExamples`),
+`lib/time-tracking-ui/ProjectCodeField.tsx` (`deriveProjectCode`), and
+`lib/time-tracking/roundingImpact.ts`. A client host that wants a contribution to apply
+must pass the scope explicitly.
+
+### Schema
+
+EP-37 and EP-36 replaced two database enums with registry-backed validation:
+`staff_time_entries.source` and `staff_time_reports.grouping` are plain `text` columns
+(`Migration20260824143357_staff.ts` drops `staff_time_entries_source_check` and
+`staff_time_reports_grouping_check`). The write-side guard moved into
+`data/validators.ts`, which asks the registries rather than a literal `z.enum`, and
+`normalizeTimeEntrySource` / `normalizeReportGrouping` coerce a stored value whose
+contributing module has since been removed back to `manual` / `project_task`.
+
+Pinned by [`lib/time-tracking/__tests__/strategyRegistries.test.ts`](./lib/time-tracking/__tests__/strategyRegistries.test.ts).
 
 ## Internal-Only Surfaces (NOT public contract)
 

@@ -438,7 +438,10 @@ export async function POST(req: Request) {
             existing.durationMinutes = interval.durationMinutes
             // D-7 keeps `rounded_minutes` the only input to cost, so it is restated
             // from the effective duration the reconciliation settled on.
-            existing.roundedMinutes = roundedMinutesFor(interval.durationMinutes, settings)
+            existing.roundedMinutes = roundedMinutesFor(interval.durationMinutes, settings, {
+              tenantId,
+              organizationId,
+            })
             if (entry.taskId !== undefined) existing.taskId = task?.id ?? null
             if (entry.isBillable !== undefined) existing.isBillable = entry.isBillable
             if (entry.rateOverrideAmount !== undefined) {
@@ -459,9 +462,17 @@ export async function POST(req: Request) {
             timeProjectId,
             taskId: task?.id ?? null,
             durationMinutes: entry.durationMinutes,
-            roundedMinutes: roundedMinutesFor(entry.durationMinutes, settings),
+            roundedMinutes: roundedMinutesFor(entry.durationMinutes, settings, {
+              tenantId,
+              organizationId,
+            }),
             notes: notes ?? null,
-            isBillable: resolveTimeEntryBillable({ requested: entry.isBillable, project, settings }),
+            isBillable: resolveTimeEntryBillable({
+              requested: entry.isBillable,
+              project,
+              settings,
+              scope: { tenantId, organizationId },
+            }),
             rateOverrideAmount: toStoredTimeEntryRateOverride(entry.rateOverrideAmount),
             rateCurrencyCode: project?.currencyCode ?? null,
             source: 'manual',

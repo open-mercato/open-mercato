@@ -246,7 +246,7 @@ describe('staff timesheets time-entry overlaps route', () => {
 
     const { body } = await callOverlaps({ date: today, startedAt: '09:00', endedAt: '10:00' })
 
-    expect(body).toEqual({ items: [], total: 0 })
+    expect(body).toEqual({ items: [], total: 0, decision: 'allow' })
   })
 
   it('accepts a start plus duration instead of an explicit end', async () => {
@@ -264,7 +264,7 @@ describe('staff timesheets time-entry overlaps route', () => {
       excludeId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
     })
 
-    expect(body).toEqual({ items: [], total: 0 })
+    expect(body).toEqual({ items: [], total: 0, decision: 'allow' })
   })
 
   it('matches a midnight-crossing candidate against an entry on the following day', async () => {
@@ -340,7 +340,7 @@ describe('staff timesheets time-entry overlaps route', () => {
 
     const { body } = await callOverlaps({ date: today, startedAt: '11:45', endedAt: '13:30' })
 
-    expect(body).toEqual({ items: [], total: 0 })
+    expect(body).toEqual({ items: [], total: 0, decision: 'allow' })
   })
 
   it('still warns about the caller own entries that carry no project', async () => {
@@ -362,7 +362,7 @@ describe('staff timesheets time-entry overlaps route', () => {
 
     const { body } = await callOverlaps({ date: today, startedAt: '11:45', endedAt: '13:30' })
 
-    expect(body).toEqual({ items: [], total: 0 })
+    expect(body).toEqual({ items: [], total: 0, decision: 'allow' })
     const entryQuery = findWithDecryption.mock.calls.find((call) => call[1] === StaffTimeEntry)
     expect(entryQuery?.[2]).toMatchObject({ tenantId: tenantA, organizationId })
   })
@@ -371,7 +371,7 @@ describe('staff timesheets time-entry overlaps route', () => {
     const { status, body } = await callOverlaps({ date: today, startedAt: '11:45' })
 
     expect(status).toBe(200)
-    expect(body).toEqual({ items: [], total: 0 })
+    expect(body).toEqual({ items: [], total: 0, decision: 'allow' })
     expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
@@ -379,7 +379,7 @@ describe('staff timesheets time-entry overlaps route', () => {
     const { status, body } = await callOverlaps({ date: today, startedAt: '11:45', endedAt: '11:45' })
 
     expect(status).toBe(200)
-    expect(body).toEqual({ items: [], total: 0 })
+    expect(body).toEqual({ items: [], total: 0, decision: 'allow' })
   })
 
   it('returns no warning when the caller has no linked staff member', async () => {
@@ -388,7 +388,7 @@ describe('staff timesheets time-entry overlaps route', () => {
     const { status, body } = await callOverlaps({ date: today, startedAt: '11:45', endedAt: '13:30' })
 
     expect(status).toBe(200)
-    expect(body).toEqual({ items: [], total: 0 })
+    expect(body).toEqual({ items: [], total: 0, decision: 'allow' })
   })
 
   it('rejects a malformed date without touching the database', async () => {

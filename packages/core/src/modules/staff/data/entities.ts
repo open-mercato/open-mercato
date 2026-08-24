@@ -1,5 +1,7 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Enum, Index, ManyToOne, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import type { TimeEntrySource } from '../lib/time-tracking/timeEntrySources'
+import type { ReportGrouping } from '../lib/timesheets-reports/reportGroupings'
 
 export type StaffLeaveRequestStatus = 'pending' | 'approved' | 'rejected'
 
@@ -366,13 +368,19 @@ export class StaffTeamMemberAddress {
 
 // --- Timesheets entities (Phase 1) ---
 
-export type StaffTimeEntrySource = 'manual' | 'timer' | 'kiosk' | 'mobile'
+/**
+ * EP-37: the accepted values are the time-entry source registry, not a database
+ * enum, so an import integration can ship its own source. Re-exported from the
+ * registry so the entity and the registry cannot drift.
+ */
+export type StaffTimeEntrySource = TimeEntrySource
 export type StaffTimeProjectStatus = 'active' | 'on_hold' | 'completed'
 export type StaffTimeProjectMemberStatus = 'active' | 'inactive'
 export type StaffTimeEntrySegmentType = 'work' | 'break'
 export type StaffTimeProjectBudgetKind = 'none' | 'hours' | 'amount'
 export type StaffTimeReportPeriodKind = 'week' | 'month' | 'year' | 'custom'
-export type StaffTimeReportGrouping = 'project_task' | 'project_person' | 'project_day'
+/** EP-36: the accepted values are the report grouping registry, not a DB enum. */
+export type StaffTimeReportGrouping = ReportGrouping
 export type StaffTimeReportNonBillableMode = 'separate' | 'exclude'
 export type StaffTimeReportStatus = 'draft' | 'closed'
 export type StaffTimeReportEventType = 'closed' | 'unlocked' | 'exported'
@@ -447,7 +455,7 @@ export class StaffTimeEntry {
   @Property({ name: 'locked_at', type: Date, nullable: true })
   lockedAt?: Date | null
 
-  @Enum({ items: ['manual', 'timer', 'kiosk', 'mobile'], type: 'text', name: 'source', default: 'manual' })
+  @Property({ name: 'source', type: 'text', default: 'manual' })
   source: StaffTimeEntrySource = 'manual'
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
@@ -892,7 +900,7 @@ export class StaffTimeReport {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Enum({ items: ['project_task', 'project_person', 'project_day'], type: 'text', name: 'grouping', default: 'project_task' })
+  @Property({ name: 'grouping', type: 'text', default: 'project_task' })
   grouping: StaffTimeReportGrouping = 'project_task'
 
   @Enum({ items: ['separate', 'exclude'], type: 'text', name: 'nonbillable_mode', default: 'separate' })

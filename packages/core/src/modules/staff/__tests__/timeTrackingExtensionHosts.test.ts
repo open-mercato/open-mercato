@@ -60,6 +60,24 @@ const EXPECTED_INJECTION_SPOT_IDS = [
   'staff.timesheets.timer-bar:actions',
 ]
 
+/**
+ * EP-32…EP-41. Each id is the registry's own identifier, reused as the catalog
+ * host id, and each registry module reads it back off this declaration so the
+ * two cannot drift.
+ */
+const EXPECTED_REGISTRY_IDS = [
+  'staff.time_tracking.billability',
+  'staff.time_tracking.capacity_provider',
+  'staff.time_tracking.overlap_policy',
+  'staff.time_tracking.project_code_generator',
+  'staff.time_tracking.rate',
+  'staff.time_tracking.report_approval_policy',
+  'staff.time_tracking.report_export_format',
+  'staff.time_tracking.report_grouping',
+  'staff.time_tracking.rounding',
+  'staff.time_tracking.time_entry_source',
+]
+
 const EXPECTED_COMPONENT_IDS = [
   'staff.entries_summary_footer',
   'staff.kanban_card',
@@ -99,6 +117,17 @@ describe('staff time-tracking extension host catalog', () => {
       .map((host) => String(host.spotId))
       .sort()
     expect(declared).toEqual([...EXPECTED_INJECTION_SPOT_IDS].sort())
+  })
+
+  it('publishes exactly the ten domain strategy registries', () => {
+    expect(idsOfFamily('specialized-registry', 'spotId')).toEqual([...EXPECTED_REGISTRY_IDS].sort())
+  })
+
+  it('names each registry built-in as the host runtime contract', () => {
+    const runtimeContracts = Object.values(hosts)
+      .filter((host) => host.family === 'specialized-registry')
+      .map((host) => String(host.runtimeContract))
+    expect(runtimeContracts.filter(Boolean)).toHaveLength(EXPECTED_REGISTRY_IDS.length)
   })
 
   it('publishes exactly the ten replaceable component handles', () => {

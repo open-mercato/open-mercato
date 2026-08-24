@@ -2550,13 +2550,8 @@
           "default": "'manual'",
           "comment": null,
           "collation": null,
-          "enumItems": [
-            "manual",
-            "timer",
-            "kiosk",
-            "mobile"
-          ],
-          "mappedType": "enum"
+          "enumItems": [],
+          "mappedType": "text"
         },
         "staff_member_id": {
           "name": "staff_member_id",
@@ -2743,14 +2738,7 @@
           "unique": false
         }
       ],
-      "checks": [
-        {
-          "name": "staff_time_entries_source_check",
-          "expression": "\"source\" in ('manual', 'timer', 'kiosk', 'mobile')",
-          "definition": "check (\"source\" in ('manual', 'timer', 'kiosk', 'mobile'))",
-          "columnName": "source"
-        }
-      ],
+      "checks": [],
       "triggers": [],
       "foreignKeys": {},
       "comment": null
@@ -4687,12 +4675,8 @@
           "default": "'project_task'",
           "comment": null,
           "collation": null,
-          "enumItems": [
-            "project_task",
-            "project_person",
-            "project_day"
-          ],
-          "mappedType": "enum"
+          "enumItems": [],
+          "mappedType": "text"
         },
         "id": {
           "name": "id",
@@ -5071,12 +5055,6 @@
         }
       ],
       "checks": [
-        {
-          "name": "staff_time_reports_grouping_check",
-          "expression": "\"grouping\" in ('project_task', 'project_person', 'project_day')",
-          "definition": "check (\"grouping\" in ('project_task', 'project_person', 'project_day'))",
-          "columnName": "grouping"
-        },
         {
           "name": "staff_time_reports_nonbillable_mode_check",
           "expression": "\"nonbillable_mode\" in ('separate', 'exclude')",

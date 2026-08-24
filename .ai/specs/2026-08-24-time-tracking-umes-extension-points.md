@@ -99,7 +99,7 @@ whole `TimeEntryDialog` for its own — all without touching a line of core code
 | G-8 No injection spots in TT UI | `grep -rn "InjectionSpot\|useInjection\|spotId"` over `backend/`, `lib/`, `components/` returns **zero** hits. Project detail (`projects/[id]/page.tsx`, 1350 lines) builds its tabs with raw `<Tabs>`. |
 | G-9 No component replacement handles | No `widgets/components.ts`; no TT component calls `registerComponent`. |
 | G-10 Only one CrudForm host, undeclared | Project create/edit pass `entityIds={[E.staff.staff_time_project]}`, so `crud-form:staff.staff_time_project:*` spots exist implicitly (**dot** form — `CrudForm.tsx:840` normalises the colon away; this row originally spelled it with a colon, corrected in P3) — but are not declared anywhere. `TimeEntryDialog`, `NewTaskDialog`, `TaskDrawer` and report creation are hand-rolled and expose nothing. |
-| G-11 Closed business rules | `lib/time-tracking/rounding.ts` (union `0\|5\|10\|15` × `up\|nearest`), `lib/time-tracking/cost.ts:applicableRate` (override → project rate, nothing else), `lib/timesheets-reports/reportExport.ts:21` (`'pdf'\|'csv'\|'xlsx'`), `lib/timesheets-reports/reportTotals.ts:34` (`'project_task'\|'project_person'\|'project_day'`), `data/entities.ts` `@Enum({ items: ['manual','timer','kiosk','mobile'] })`, `lib/time-tracking/overlap.ts`, `lib/time-tracking/projectCode.ts`, `lib/time-tracking-ui/timesheetTargets.ts`. All pure functions or DB enums with no registry, provider or DI seam. |
+| G-11 Closed business rules | `lib/time-tracking/rounding.ts` (union `0\|5\|10\|15` × `up\|nearest`), `lib/time-tracking/cost.ts:applicableRate` (override → project rate, nothing else), `lib/timesheets-reports/reportExport.ts:21` (`'pdf'\|'csv'\|'xlsx'`), `lib/timesheets-reports/reportTotals.ts:34` (`'project_task'\|'project_person'\|'project_day'`), `data/entities.ts` `@Enum({ items: ['manual','timer','kiosk','mobile'] })`, `lib/time-tracking/overlap.ts`, `lib/time-tracking/projectCode.ts`, `lib/time-tracking-ui/timesheetTargets.ts`. All pure functions or DB enums with no registry, provider or DI seam. **Closed in P4** — every one of the eight is now a registry with the original implementation as its built-in default; see Group 6. |
 | G-12 TT entities absent from `ce.ts` | `ce.ts` declares only `staff_team_member` ⇒ no custom fields on time entries, projects, tasks, reports or tags. |
 | G-13 No `data/extensions.ts` | `customer_id`, `deal_id`, `order_id` on `StaffTimeEntry` are raw FK ids with no declared link. |
 | G-14 Search covers 1 of 5 TT entities | `search.ts:195` indexes only `staff:staff_time_project`. |
@@ -475,11 +475,37 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   — `useRegisteredComponent` parses it in development and falls back to the original
   component when a replacement does not satisfy it.
 
-### Group 6 — Domain strategy registries (10)
+### Group 6 — Domain strategy registries (10) ✅
 
 Each of these replaces a closed pure function or DB enum with a
 `specialized-registry` style contract registered at module load and resolved through DI,
 with the current behaviour registered as the built-in default (no behaviour change).
+
+**Implemented in P4.** All ten shipped. What is common to every one of them:
+
+- The registry is a plain module-scope `Map` built by
+  `lib/time-tracking/registries/registry.ts`, following the
+  `registerPaymentProvider` / `registerShippingProvider` idiom in
+  `modules/sales/lib/providers/registry.ts`. `register*` returns its own disposer.
+  Module scope rather than DI because four of these strategies back **client**
+  previews that cannot resolve a container.
+- Six matching DI keys (`timeRoundingResolver`, `timeRateResolver`,
+  `timeBillabilityResolver`, `timeCapacityResolver`, `timeOverlapPolicyResolver`,
+  `timeProjectCodeResolver`) are the **server** entry point to the same registries, so
+  server code never `new`s a resolver and an app can replace one through
+  `entry.overrides` DI. The three keyed registries (export format, grouping, entry
+  source) are lookups by id and need no resolver service.
+- Candidates are ordered by descending `priority` (default `0`), ties by registration
+  order, and every built-in registers at `BUILT_IN_STRATEGY_PRIORITY` (`-1000`), so a
+  built-in is always the last candidate considered.
+- Every resolver context carries `tenantId` + `organizationId`
+  (`lib/time-tracking/registries/scope.ts`). A **contributed** strategy is consulted only
+  when both are present; failing closed lands on the built-in rather than on an error,
+  which is what keeps an unscoped client preview byte-identical.
+- Behaviour preservation is pinned by
+  `lib/time-tracking/__tests__/strategyRegistries.test.ts` on top of the existing
+  `rounding`, `cost`, `overlap`, `projectCode`, `reportTotals` and `reportExport` suites,
+  which pass unmodified.
 
 #### EP-32 · `registry` · Rounding strategy registry
 - **Edit**: `lib/time-tracking/rounding.ts`; call sites
@@ -489,6 +515,12 @@ with the current behaviour registered as the built-in default (no behaviour chan
   `timeRoundingResolver` DI key; keep `up`/`nearest` × `0|5|10|15` as built-ins.
 - **Unlocks**: per-client billing increments, "round down", "minimum 15m per entry",
   "first 15m free" rules.
+- **Shipped**: `registerTimeRoundingStrategy({ id, labelKey, priority?, round(raw, ctx) })`
+  in `lib/time-tracking/rounding.ts`; built-in `staff.time_tracking.rounding.unit`; DI key
+  `timeRoundingResolver`. `roundMinutes(raw, settings, ctx?)` keeps its signature and
+  gained an optional scope; `roundedMinutesFor` / `resolveRoundedMinutes` gained one too
+  and every server write path now passes it. `label` shipped as `labelKey` — the module
+  may not hold user-facing literals.
 
 #### EP-33 · `registry` · Rate resolver chain
 - **Edit**: `lib/time-tracking/cost.ts:applicableRate`; call sites
@@ -500,12 +532,25 @@ with the current behaviour registered as the built-in default (no behaviour chan
 - **Unlocks**: seniority/role rates, task-type rates, date-effective rate cards,
   customer contract rates, currency-converted rates. **The single most requested
   customisation in any consulting time tracker.**
+- **Shipped**: `registerTimeRateResolver({ id, priority?, resolve(ctx): number | null })`
+  in `lib/time-tracking/cost.ts`; built-in
+  `staff.time_tracking.rate.entry_override_then_project`; DI key `timeRateResolver`.
+  `applicableRate` / `entryAmount` keep their signatures and gained an optional third
+  context argument. `reportTotals.resolveEntryValues` stopped restating the chain inline
+  and calls `applicableRate`. The route call site the spec named moved into
+  `lib/timesheets/timeEntryDecoration.ts` in P2 and reaches the registry through
+  `entryAmount`.
 
 #### EP-34 · `registry` · Billability resolver
 - **Edit**: `commands/timesheets-entries.ts` (project default → tenant default chain)
 - **Add**: `registerBillabilityResolver({ id, priority, resolve(ctx): boolean | null })`
 - **Unlocks**: "internal projects are never billable", "travel is billable at 50%",
   activity-type-driven billability.
+- **Shipped**: `lib/time-tracking/billability.ts`; built-in
+  `staff.time_tracking.billability.project_then_tenant`; DI key `timeBillabilityResolver`.
+  `resolveTimeEntryBillable` in `commands/timesheets-entries.ts` forwards to it and gained
+  an optional `scope`; the entries command and the grid bulk save both pass it. `null` is
+  an abstention, so an unopinionated contribution cannot change an entry.
 
 #### EP-35 · `registry` · Report export format registry
 - **Edit**: `lib/timesheets-reports/reportExport.ts:21,272`,
@@ -514,12 +559,30 @@ with the current behaviour registered as the built-in default (no behaviour chan
   register `pdf`, `csv`, `xlsx` as built-ins and drive `normalizeReportExportFormat`
   and the OpenAPI enum off the registry.
 - **Unlocks**: `invoice-xml`, `datev`, `json`, customer-branded PDF.
+- **Shipped**: `registerReportExportFormat({ id, labelKey, mimeType, extension, serialize })`
+  in `lib/timesheets-reports/reportExportFormats.ts` — its own file so `reportExport.ts`,
+  which owns the three serializers, can register into it without an import cycle.
+  `normalizeReportExportFormat` now asks the registry, the 400 body lists
+  `supportedFormats`, and the route's OpenAPI `query` is a **getter** returning
+  `z.enum(supportedReportExportFormats())` so a format registered after the route module
+  first loads still appears in the published schema.
 
 #### EP-36 · `registry` · Report grouping strategy registry
 - **Edit**: `lib/timesheets-reports/reportTotals.ts:34`, `buildReportSheet.ts:72`
 - **Add**: `registerReportGrouping({ id, label, groupOf(row), sort })`; built-ins
   `project_task`, `project_person`, `project_day`.
 - **Unlocks**: `project_month`, `customer_project`, `tag`, `activity_type` groupings.
+- **Shipped**: `registerReportGrouping({ id, labelKey, groupOf(entry), labelOf(key, ctx), sort })`
+  in `lib/timesheets-reports/reportGroupings.ts`. `groupOf` returns `{ key, parentKey }`
+  so D-2's inclusive task rollup stays expressible; `labelOf` is the strategy's because
+  only it knows which directory to look a key up in. `computeReportTotals` resolves the
+  strategy once and uses `grouping.sort` for both the billable and non-billable line
+  lists. **Round-trip**: the value is persisted on `staff_time_reports.grouping`, which
+  was a DB enum with a check constraint AND a literal `z.enum` in `data/validators.ts` —
+  both were the real blocker, so the EP-37 migration drops
+  `staff_time_reports_grouping_check` too and the validator asks the registry.
+  `normalizeReportGrouping` coerces a stored id whose module has been removed back to
+  `project_task`. The export and sheet routes read `?grouping=` through the registry.
 
 #### EP-37 · `registry` · Time-entry source registry
 - **Edit**: `data/entities.ts` `StaffTimeEntry.source` (`@Enum({ items: [...] })`) →
@@ -528,16 +591,42 @@ with the current behaviour registered as the built-in default (no behaviour chan
   `manual`, `timer`, `kiosk`, `mobile`.
 - **Unlocks**: `jira`, `toggl`, `badge-terminal`, `gps`, `calendar-import` sources with
   their own icons and edit rules. **Blocking today** for any import integration.
+- **Shipped**: `registerTimeEntrySource({ id, labelKey, icon, editable })` in
+  `lib/time-tracking/timeEntrySources.ts`; built-ins `manual`, `timer`, `kiosk`, `mobile`
+  (`kiosk` is the one that is not `editable`). `StaffTimeEntry.source` is now
+  `@Property({ type: 'text' })` and `data/validators.ts` validates against the registry
+  instead of `z.enum`. `Migration20260824143357_staff.ts` drops
+  `staff_time_entries_source_check` (and the EP-36 grouping check); the snapshot diff is
+  scoped to those two columns. `normalizeTimeEntrySource` replaces the guarantee the
+  dropped constraint gave. **Not run**: `yarn db:migrate`.
 
 #### EP-38 · `registry` · Overlap policy provider
 - **Edit**: `lib/time-tracking/overlap.ts`, `api/timesheets/time-entries/overlaps/route.ts`
 - **Add**: `registerOverlapPolicy({ id, evaluate(spans, ctx): 'allow' | 'warn' | 'block' })`
 - **Unlocks**: hard-blocking overlaps for payroll compliance vs. warn-only for consulting.
+- **Shipped**: in `lib/time-tracking/overlap.ts`; built-in
+  `staff.time_tracking.overlap.warn_when_enabled` returns `warn` when the tenant's
+  `warnings.overlap` setting is on and something intersects, `allow` otherwise — which is
+  exactly today's behaviour including the setting's off state. Policies combine by **max
+  severity**, so a contribution can only escalate; nothing can suppress a warning the
+  tenant asked for. The route reads the setting itself now (it previously read only the
+  grace window) and publishes the verdict as an additive `decision` field. The **item
+  list is deliberately unchanged** by the policy: the endpoint answers "what intersects",
+  `decision` answers "and what should happen".
 
 #### EP-39 · `registry` · Project code generator provider
 - **Edit**: `lib/time-tracking/projectCode.ts:105`, `lib/time-tracking/migrateProjectCodes.ts:80`
 - **Add**: `registerProjectCodeGenerator({ id, generate(name, taken, ctx) })`
 - **Unlocks**: ERP-aligned codes, customer-prefixed codes, sequence-based codes.
+- **Shipped**: in `lib/time-tracking/projectCode.ts`; built-in
+  `staff.time_tracking.project_code.initials`; DI key `timeProjectCodeResolver`.
+  **Correction to the audit**: `deriveProjectCode` DOES have a runtime call site — two,
+  both client-side, in `lib/time-tracking-ui/ProjectCodeField.tsx` (the live suggestion
+  as a project name is typed, and the reset-to-derived action). It is therefore reachable
+  from project creation and editing, not only from tests. The migration helper
+  `lib/time-tracking/migrateProjectCodes.ts` uses `deriveProjectCodeBase`, a different
+  function, which is why the audit read it as unwired. Because both call sites are
+  unscoped, both resolve the built-in today.
 
 #### EP-40 · `registry` · Capacity / target provider
 - **Edit**: `lib/time-tracking-ui/timesheetTargets.ts`, `lib/time-tracking/settings.ts`
@@ -545,12 +634,25 @@ with the current behaviour registered as the built-in default (no behaviour chan
 - **Add**: `registerCapacityProvider({ id, resolve(staffMemberId, dateRange, ctx) })`
 - **Unlocks**: contract-hours-aware targets, leave-aware capacity (via the existing
   `staff_leave_requests`), part-time schedules — instead of one flat daily number.
+- **Shipped**: `lib/time-tracking/capacity.ts`; built-in
+  `staff.time_tracking.capacity.flat_daily_hours`; DI key `timeCapacityResolver`.
+  `resolve` answers `{ targetMinutesByDate, totalTargetMinutes }` so a contributed
+  provider can vary per day; the built-in spreads `targets.dailyHours` over the caller's
+  working days and answers `totalTargetMinutes: null` when the tenant set no target.
 
 #### EP-41 · `registry` · Report approval / lock policy provider
 - **Edit**: `api/timesheets/reports/[id]/{close,unlock}/route.ts`,
   `commands/timesheets-reports.ts`
 - **Add**: `registerReportApprovalPolicy({ id, canClose(ctx), canUnlock(ctx), onClosed(ctx) })`
 - **Unlocks**: multi-step approval, four-eyes unlock, accounting-period freezes.
+- **Shipped**: `lib/timesheets-reports/reportApprovalPolicies.ts`; built-in
+  `staff.time_tracking.report_approval.acl_only`, which refuses nothing. **A policy can
+  only refuse, never grant** — `canClose` / `canUnlock` return a refusal
+  (`{ code, messageKey }`) or nothing, so there is no shape in which a policy opens a
+  door the ACL closed, and the `staff.timesheets.lock` /
+  `staff.timesheets.reports.unlock` checks still run first and unconditionally in the
+  routes. Every policy must agree; the first refusal becomes a 403. `onClosed` fires
+  after the freeze has committed and a throwing hook is logged, never unwound.
 
 ### Group 7 — Data model and settings (4)
 
@@ -638,7 +740,7 @@ with the current behaviour registered as the built-in default (no behaviour chan
 | **P1 — Correctness first** | EP-02, EP-03, EP-04, EP-08, EP-10, EP-11 | Fixes the dormant-events defect, the under-firing budget subscriber and the skipped mutation guards. No new API, immediate value, needed by everything downstream. |
 | **P2 — Backend seams** | EP-12, EP-13, EP-14, EP-15, EP-16, EP-05, EP-07, EP-09 | Interceptors, enrichers, sync subscribers, broadcasts, webhooks — all built on P1. |
 | **P3 — UI hosts** ✅ | EP-17…EP-31 | Mostly additive props and `InjectionSpot` renders; low risk, high visible value. **Shipped**, except the server-side "my work" section contract (EP-25), deferred to P4 with reasoning above. |
-| **P4 — Domain registries** | EP-32…EP-41 | Each ships with the current behaviour as the registered default; requires a migration only for EP-37. |
+| **P4 — Domain registries** ✅ | EP-32…EP-41 | Each ships with the current behaviour as the registered default. **Shipped.** One migration (`Migration20260824143357_staff.ts`) covers EP-37 **and** EP-36: the grouping check constraint was as much a blocker to a contributed grouping round-tripping as the source constraint was to a contributed source, so both were dropped together. |
 | **P5 — Data model & settings** | EP-42…EP-45 | `ce.ts`, `data/extensions.ts`, `translations.ts`, settings registry — needs `yarn db:generate` review for the custom-field indexes. |
 | **P6 — Reach** | EP-46…EP-51 | Search, analytics, notifications, AI, portal, workers. |
 | **P0 — Runs alongside** | EP-01 | Grow `extension-points.ts` as each phase lands; it is the catalog of everything above. |

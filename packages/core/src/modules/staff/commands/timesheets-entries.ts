@@ -19,6 +19,8 @@ import {
 import { emitStaffEvent } from '../events'
 import { deriveInterval, formatClock, parseClock } from '../lib/time-tracking/interval'
 import { roundMinutes } from '../lib/time-tracking/rounding'
+import { resolveBillability } from '../lib/time-tracking/billability'
+import type { ScopedResolverContext } from '../lib/time-tracking/registries/scope'
 import {
   DEFAULT_TIME_TRACKING_SETTINGS,
   readTimeTrackingSettings,
@@ -223,13 +225,23 @@ export function resolveTimeEntryProjectId(
  * The billable default chain, in one place: an explicit value wins, then the
  * project's own default — a fixed-price engagement is non-billable however the
  * tenant normally works — and the tenant setting only decides what is left.
+ *
+ * EP-34 moved that chain into the billability registry's built-in resolver; this
+ * stays the module's entry point and forwards the scope so a contributed
+ * resolver can be consulted ahead of it.
  */
 export function resolveTimeEntryBillable(params: {
   requested?: boolean | null
-  project?: { billableByDefault?: boolean | null } | null
+  project?: { id?: string | null; billableByDefault?: boolean | null } | null
   settings: TimeTrackingSettings
+  scope?: ScopedResolverContext | null
 }): boolean {
-  return params.requested ?? params.project?.billableByDefault ?? params.settings.defaults.billable
+  return resolveBillability({
+    ...(params.scope ?? {}),
+    requested: params.requested,
+    project: params.project ?? null,
+    settings: params.settings,
+  })
 }
 
 /**
@@ -278,8 +290,12 @@ export async function resolveRoundedMinutes(
   container: ContainerLike,
   tenantId: string,
   durationMinutes: number,
+  organizationId?: string | null,
 ): Promise<number> {
-  return roundedMinutesFor(durationMinutes, await readEntrySettingsFrom(container, tenantId))
+  return roundedMinutesFor(durationMinutes, await readEntrySettingsFrom(container, tenantId), {
+    tenantId,
+    organizationId: organizationId ?? undefined,
+  })
 }
 
 async function resolveGrantedFeatures(
@@ -382,8 +398,12 @@ export function toStoredTimeEntryRateOverride(amount: number | null | undefined)
  * later settings change from silently restating money that has already been
  * invoiced (risk R1).
  */
-export function roundedMinutesFor(durationMinutes: number, settings: TimeTrackingSettings): number {
-  return roundMinutes(durationMinutes, settings.rounding)
+export function roundedMinutesFor(
+  durationMinutes: number,
+  settings: TimeTrackingSettings,
+  scope?: ScopedResolverContext | null,
+): number {
+  return roundMinutes(durationMinutes, settings.rounding, scope)
 }
 
 export type TimeEntryInterval = {
@@ -802,7 +822,10 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       staffMemberId: effectiveStaffMemberId,
       date: parsed.date,
       durationMinutes: parsed.durationMinutes,
-      roundedMinutes: roundedMinutesFor(parsed.durationMinutes, settings),
+      roundedMinutes: roundedMinutesFor(parsed.durationMinutes, settings, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+      }),
       startedAt: parsed.startedAt ?? null,
       endedAt: parsed.endedAt ?? null,
       notes: resolveTimeEntryNotesInput(parsed) ?? null,
@@ -811,7 +834,12 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       customerId: parsed.customerId ?? null,
       dealId: parsed.dealId ?? null,
       orderId: parsed.orderId ?? null,
-      isBillable: resolveTimeEntryBillable({ requested: parsed.isBillable, project, settings }),
+      isBillable: resolveTimeEntryBillable({
+        requested: parsed.isBillable,
+        project,
+        settings,
+        scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      }),
       rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount),
       // Snapshotted rather than joined at read time so a later project currency
       // change cannot re-denominate money that has already been reported (D-3).
@@ -980,7 +1008,10 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
         staffMemberId: effectiveStaffMemberId,
         date: parsed.date,
         durationMinutes: 0,
-        roundedMinutes: roundedMinutesFor(0, settings),
+        roundedMinutes: roundedMinutesFor(0, settings, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        }),
         startedAt,
         endedAt: null,
         notes: parsed.notes ?? null,
@@ -1193,7 +1224,10 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       // recomputed from the tenant's current rule. D-7 makes it the only input to
       // cost, so a clock edit that changes the length of the work and leaves the
       // rounded twin behind would mis-bill it.
-      entry.roundedMinutes = roundedMinutesFor(interval.durationMinutes, settings)
+      entry.roundedMinutes = roundedMinutesFor(interval.durationMinutes, settings, {
+        tenantId: entry.tenantId,
+        organizationId: entry.organizationId,
+      })
     }
     if (projectChanged) {
       entry.timeProjectId = nextProjectId
@@ -1616,7 +1650,10 @@ const reapplyRoundingCommand: CommandHandler<
     const changed: StaffTimeEntry[] = []
     let unchangedCount = 0
     for (const entry of entries) {
-      const next = roundedMinutesFor(entry.durationMinutes, settings)
+      const next = roundedMinutesFor(entry.durationMinutes, settings, {
+        tenantId: entry.tenantId,
+        organizationId: entry.organizationId,
+      })
       if (entry.roundedMinutes === next) {
         unchangedCount += 1
         continue

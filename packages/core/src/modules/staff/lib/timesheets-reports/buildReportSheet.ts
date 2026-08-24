@@ -19,6 +19,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { StaffTimeReport } from '../../data/entities'
 import { loadReportData, type ReportDataScope } from './loadReportData'
+import { normalizeReportGrouping } from './reportGroupings'
 import {
   computeReportTotals,
   resolveReportCurrency,
@@ -69,7 +70,7 @@ function toDate(value: Date | string | null | undefined, fallback: Date): Date {
 export async function buildReportSheet(input: BuildReportSheetInput): Promise<ReportSheet> {
   const { em, scope, report, labels } = input
   const isClosed = report.status === 'closed'
-  const grouping = (input.grouping ?? report.grouping) as ReportGrouping
+  const grouping = normalizeReportGrouping(input.grouping ?? report.grouping)
   const nonbillableMode = report.nonbillableMode as ReportNonBillableMode
 
   const data = await loadReportData({

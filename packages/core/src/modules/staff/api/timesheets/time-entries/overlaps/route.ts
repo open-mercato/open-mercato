@@ -13,7 +13,11 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeProject, StaffTimeTask } from '../../../../data/entities'
 import { deriveInterval, formatClock, parseClock } from '../../../../lib/time-tracking/interval'
-import { findOverlaps, type OverlapSpan } from '../../../../lib/time-tracking/overlap'
+import {
+  evaluateOverlapPolicies,
+  findOverlaps,
+  type OverlapSpan,
+} from '../../../../lib/time-tracking/overlap'
 import { resolveFeatureAccess } from '../../../../lib/time-tracking/featureAccess'
 import {
   MANAGE_PROJECTS_FEATURE,
@@ -73,6 +77,12 @@ const overlapItemSchema = z.object({
 const overlapsResponseSchema = z.object({
   items: z.array(overlapItemSchema),
   total: z.number(),
+  /**
+   * EP-38. `warn` is what this route has always meant; the field exists so a
+   * contributed policy that escalates to `block` reaches the form, and so a
+   * caller can tell "the tenant turned the warning off" from "nothing overlaps".
+   */
+  decision: z.enum(['allow', 'warn', 'block']),
 })
 
 type OverlapItem = z.infer<typeof overlapItemSchema>
@@ -96,7 +106,7 @@ type EntryRow = Pick<
   | 'timeProjectId'
 > & { date: unknown }
 
-const EMPTY_OVERLAP_RESULT = { items: [], total: 0 }
+const EMPTY_OVERLAP_RESULT = { items: [], total: 0, decision: 'allow' as const }
 
 function pad(value: number): string {
   return String(value).padStart(2, '0')
@@ -181,16 +191,21 @@ async function resolveGrantedFeatures(
   }
 }
 
-async function resolveAssignmentGraceDays(
+async function resolveOverlapSettings(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
   tenantId: string,
-): Promise<number | null> {
+): Promise<{ assignmentGraceDays: number | null; warningsEnabled: boolean }> {
   try {
     const configService = container.resolve('moduleConfigService') as ModuleConfigService
     const settings = await readTimeTrackingSettings(configService, { tenantId })
-    return settings.access.assignmentGraceDays
+    return {
+      assignmentGraceDays: settings.access.assignmentGraceDays,
+      warningsEnabled: settings.warnings.overlap,
+    }
   } catch {
-    return null
+    // The same fail-safe the grace window uses: an unreadable settings row keeps
+    // the advisory warning on, which is what the module default says.
+    return { assignmentGraceDays: null, warningsEnabled: true }
   }
 }
 
@@ -302,6 +317,7 @@ export async function GET(req: Request) {
     const manageProjects = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
     const canManageAll = manageAll.allowed
 
+    const overlapSettings = await resolveOverlapSettings(container, tenantId)
     const access = await resolveProjectAccess({
       em,
       userId,
@@ -309,7 +325,7 @@ export async function GET(req: Request) {
       organizationId,
       canManageAll: manageProjects.allowed,
       userFeatures: manageAll.grantedFeatures,
-      assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
+      assignmentGraceDays: overlapSettings.assignmentGraceDays,
     })
 
     const staffMemberId =
@@ -342,12 +358,30 @@ export async function GET(req: Request) {
       .map((row) => toRowSpan(row))
       .filter((span): span is OverlapSpan => span !== null)
 
+    const candidateSpan: OverlapSpan = {
+      date: query.date,
+      start: derived.start,
+      end: derived.end,
+      durationMinutes: derived.durationMinutes,
+    }
     const overlaps = findOverlaps(
-      { date: query.date, start: derived.start, end: derived.end, durationMinutes: derived.durationMinutes },
+      candidateSpan,
       spans,
       query.excludeId ? { excludeId: query.excludeId } : undefined,
     )
-    if (!overlaps.length) return session.respond(200, EMPTY_OVERLAP_RESULT)
+    const decision = evaluateOverlapPolicies(overlaps, {
+      tenantId,
+      organizationId,
+      candidate: candidateSpan,
+      warningsEnabled: overlapSettings.warningsEnabled,
+      staffMemberId,
+      excludeId: query.excludeId ?? null,
+    })
+    // The item list is unchanged by the policy: this endpoint answers "what
+    // intersects", and `decision` answers "and what should happen". Collapsing
+    // the list when a tenant turns the warning off would make the two
+    // indistinguishable from "nothing intersects" for every other caller.
+    if (!overlaps.length) return session.respond(200, { ...EMPTY_OVERLAP_RESULT, decision })
 
     const taskIds = new Set<string>()
     const projectIds = new Set<string>()
@@ -384,7 +418,7 @@ export async function GET(req: Request) {
       })
     }
 
-    return session.respond(200, { items, total: items.length })
+    return session.respond(200, { items, total: items.length, decision })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

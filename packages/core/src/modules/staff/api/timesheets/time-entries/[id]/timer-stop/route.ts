@@ -170,7 +170,12 @@ export async function POST(req: Request) {
       // `rounded_minutes` the only input to cost — so it is restated here with the
       // same tenant rule the command applies, not left stale from the zero-minute
       // value the timer was created with.
-      lockedEntry.roundedMinutes = await resolveRoundedMinutes(container, tenantId, computedMinutes)
+      lockedEntry.roundedMinutes = await resolveRoundedMinutes(
+        container,
+        tenantId,
+        computedMinutes,
+        organizationId,
+      )
 
       await trx.flush()
       return { now: stoppedAt, durationMinutes: computedMinutes }

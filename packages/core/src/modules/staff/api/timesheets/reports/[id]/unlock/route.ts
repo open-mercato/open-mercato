@@ -33,6 +33,7 @@ import {
   type StaffTimeReportUnlockResult,
 } from '../../../../../commands/timesheets-reports'
 import { resolveReportRequestContext } from '../../shared'
+import { evaluateReportUnlockPolicies } from '../../../../../lib/timesheets-reports/reportApprovalPolicies'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/unlock' })
 
@@ -68,6 +69,22 @@ export async function POST(req: Request) {
     const { session } = interceptors
 
     const parsed = bodySchema.parse(session.body)
+
+    // EP-41 runs strictly AFTER the ACL gate above and can only refuse. A
+    // four-eyes or accounting-period policy narrows who may unlock; nothing here
+    // widens it past staff.timesheets.reports.unlock.
+    const refusal = evaluateReportUnlockPolicies({
+      tenantId,
+      organizationId,
+      reportId,
+      actorUserId: typeof auth.sub === 'string' ? auth.sub : null,
+      actorFeatures: grantedFeatures ?? [],
+      status: 'closed',
+      reason: parsed.reason,
+    })
+    if (refusal) {
+      throw forbidden(translate(refusal.messageKey, translate('staff.errors.forbidden', 'Forbidden')))
+    }
 
     const guardResult = await runRouteMutationGuards({
       container,
@@ -177,7 +194,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing or empty reason' },
         { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Missing staff.timesheets.reports.unlock' },
+        { status: 403, description: 'Missing staff.timesheets.reports.unlock, or refused by a registered report approval policy' },
         { status: 404, description: 'Report not found or not accessible' },
         { status: 409, description: 'Report is not closed (report_not_closed)' },
       ],

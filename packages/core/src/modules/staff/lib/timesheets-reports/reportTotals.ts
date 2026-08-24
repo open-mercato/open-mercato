@@ -29,9 +29,16 @@
  * rounding rule and today's project rate would produce.
  */
 
-import { entryAmount, round2, sumAmounts } from '../time-tracking/cost'
+import { applicableRate, entryAmount, round2, sumAmounts } from '../time-tracking/cost'
+import {
+  getReportGrouping,
+  DEFAULT_REPORT_GROUPING,
+  UNASSIGNED_LINE_KEY,
+  type ReportGrouping,
+  type ReportGroupingLabelContext,
+} from './reportGroupings'
 
-export type ReportGrouping = 'project_task' | 'project_person' | 'project_day'
+export type { ReportGrouping }
 export type ReportNonBillableMode = 'separate' | 'exclude'
 
 /** The freeze record of an entry already closed into an earlier report. */
@@ -140,7 +147,6 @@ export type ReportTotals = {
   alreadyReportedIn: AlreadyReportedSource[]
 }
 
-const UNASSIGNED_KEY = '__unassigned__'
 
 function finiteOrNull(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -183,8 +189,9 @@ export function resolveEntryValues(
 
   const minutes = effectiveMinutes(entry)
   const override = finiteOrNull(entry.rateOverrideAmount)
-  const projectRate = finiteOrNull(project?.hourlyRate ?? null)
-  const rate = override ?? projectRate
+  // EP-33: the override → project-rate chain is the rate registry's built-in, so
+  // the report path asks it rather than restating the chain here.
+  const rate = applicableRate({ rateOverrideAmount: override }, project ?? null)
   return {
     entryId: entry.id,
     minutes,
@@ -262,36 +269,14 @@ function collectValues(bucket: LineBucket): ResolvedEntryValues[] {
   return values
 }
 
-function lineKeyFor(
-  entry: ReportInputEntry,
-  grouping: ReportGrouping,
-): { key: string; parentKey: string | null } {
-  if (grouping === 'project_person') {
-    return { key: entry.staffMemberId ?? UNASSIGNED_KEY, parentKey: null }
-  }
-  if (grouping === 'project_day') {
-    return { key: entry.date || UNASSIGNED_KEY, parentKey: null }
-  }
-  const rootId = entry.rootTaskId ?? entry.taskId ?? null
-  const taskId = entry.taskId ?? null
-  if (!rootId) return { key: UNASSIGNED_KEY, parentKey: null }
-  // D-2: a child's time lands on the parent's line and is expandable underneath.
-  if (taskId && taskId !== rootId) return { key: taskId, parentKey: rootId }
-  return { key: rootId, parentKey: null }
-}
-
-function labelFor(
-  key: string,
-  grouping: ReportGrouping,
-  directory: ReportDirectory,
-  fallbacks: { unassignedTask: string; unassignedPerson: string },
-): string {
-  if (key === UNASSIGNED_KEY) {
-    return grouping === 'project_person' ? fallbacks.unassignedPerson : fallbacks.unassignedTask
-  }
-  if (grouping === 'project_person') return directory.personLabelById[key] ?? fallbacks.unassignedPerson
-  if (grouping === 'project_day') return key
-  return directory.taskLabelById[key] ?? fallbacks.unassignedTask
+/**
+ * Resolving the strategy once per computation keeps a stored id whose module has
+ * been removed from silently producing a different sheet on every call.
+ */
+function resolveGroupingStrategy(grouping: ReportGrouping) {
+  const strategy = getReportGrouping(grouping) ?? getReportGrouping(DEFAULT_REPORT_GROUPING)
+  if (!strategy) throw new Error('[internal] no report grouping strategy is registered')
+  return strategy
 }
 
 export type ComputeReportTotalsInput = {
@@ -310,6 +295,10 @@ export type ComputeReportTotalsInput = {
 
 export function computeReportTotals(input: ComputeReportTotalsInput): ReportTotals {
   const { entries, projects, directory, options, labels } = input
+  const grouping = resolveGroupingStrategy(options.grouping)
+  const labelContext: ReportGroupingLabelContext = { directory, fallbacks: labels }
+  const lineKeyFor = (entry: ReportInputEntry) => grouping.groupOf(entry)
+  const labelFor = (key: string) => grouping.labelOf(key, labelContext)
   const currentReportId = input.currentReportId ?? null
   const projectById = new Map(projects.map((project) => [project.id, project]))
   const projectOrder = projects.map((project) => project.id)
@@ -356,8 +345,8 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
       // group at zero so the client sees the full effort with an unambiguous total.
       if (options.nonbillableMode === 'exclude') continue
       nonbillableValues.push(values)
-      const { key } = lineKeyFor(entry, options.grouping)
-      const label = labelFor(key, options.grouping, directory, labels)
+      const { key } = lineKeyFor(entry)
+      const label = labelFor(key)
       let bucket = nonbillableBuckets.get(key)
       if (!bucket) {
         bucket = makeBucket(key, label)
@@ -377,16 +366,16 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
       billableBuckets.set(entry.timeProjectId, lines)
     }
 
-    const { key, parentKey } = lineKeyFor(entry, options.grouping)
+    const { key, parentKey } = lineKeyFor(entry)
     if (parentKey) {
       let parent = lines.get(parentKey)
       if (!parent) {
-        parent = makeBucket(parentKey, labelFor(parentKey, options.grouping, directory, labels))
+        parent = makeBucket(parentKey, labelFor(parentKey))
         lines.set(parentKey, parent)
       }
       let child = parent.children.get(key)
       if (!child) {
-        child = makeBucket(key, labelFor(key, options.grouping, directory, labels))
+        child = makeBucket(key, labelFor(key))
         parent.children.set(key, child)
       }
       child.values.push(values)
@@ -395,7 +384,7 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
 
     let bucket = lines.get(key)
     if (!bucket) {
-      bucket = makeBucket(key, labelFor(key, options.grouping, directory, labels))
+      bucket = makeBucket(key, labelFor(key))
       lines.set(key, bucket)
     }
     bucket.values.push(values)
@@ -409,7 +398,7 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
     const lines = Array.from((billableBuckets.get(projectId) ?? new Map<string, LineBucket>()).values()).map(
       bucketToLine,
     )
-    lines.sort((left, right) => right.minutes - left.minutes || left.label.localeCompare(right.label))
+    lines.sort(grouping.sort)
     groups.push({
       key: projectId,
       kind: 'project',
@@ -427,7 +416,7 @@ export function computeReportTotals(input: ComputeReportTotalsInput): ReportTota
 
   if (nonbillableValues.length > 0) {
     const lines = Array.from(nonbillableBuckets.values()).map(bucketToLine)
-    lines.sort((left, right) => right.minutes - left.minutes || left.label.localeCompare(right.label))
+    lines.sort(grouping.sort)
     groups.push({
       key: '__nonbillable__',
       kind: 'nonbillable',
