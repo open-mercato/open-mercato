@@ -3,12 +3,35 @@ import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 
+const rootYarnrcPath = path.resolve('.yarnrc.yml')
 const templateYarnrcPath = path.resolve('packages/create-app/template/.yarnrc.yml.template')
 const retryScriptPath = path.resolve('scripts/ci/npm-retry-on-quarantine.sh')
+
+const AGREED_MINIMAL_AGE_GATE = '5d'
 
 function readText(filePath) {
   return fs.readFileSync(filePath, 'utf8')
 }
+
+function readMinimalAgeGate(filePath) {
+  return readText(filePath).match(/^npmMinimalAgeGate:\s*(\S+)$/m)?.[1]
+}
+
+test('the monorepo and scaffolded apps quarantine third-party releases for the agreed duration', () => {
+  const root = readMinimalAgeGate(rootYarnrcPath)
+  const template = readMinimalAgeGate(templateYarnrcPath)
+
+  assert.equal(
+    root,
+    AGREED_MINIMAL_AGE_GATE,
+    '.yarnrc.yml must keep the release-age quarantine agreed in .ai/specs/briefs/2026-08-09-dependabot-cooldown-ci-gate.md — yarn defaults to 1d, which is shorter than the detection time of several known supply-chain incidents'
+  )
+  assert.equal(
+    template,
+    root,
+    'packages/create-app/template/.yarnrc.yml.template must declare the same npmMinimalAgeGate as the monorepo, otherwise scaffolded apps silently fall back to yarn\'s 1d default'
+  )
+})
 
 test('scaffolded apps preapprove the first-party scope against yarn minimum release age', () => {
   const template = readText(templateYarnrcPath)
