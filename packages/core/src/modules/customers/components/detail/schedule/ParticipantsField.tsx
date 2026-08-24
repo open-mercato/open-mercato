@@ -1,14 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { Check, CheckCircle2, Clock, Users, X, XCircle } from 'lucide-react'
+import { Check, CheckCircle2, Clock, X, XCircle } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { fetchAssignableStaffMembersPage } from '../assignableStaff'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
@@ -17,6 +16,32 @@ import type { Participant, RsvpStatus } from './useScheduleFormState'
 import { PARTICIPANT_COLORS } from './useScheduleFormState'
 
 const PAGE_SIZE = 20
+
+// Dismiss the type-ahead panel on outside pointer-down or Escape. Blur alone is
+// unreliable inside the dialog focus trap; Escape is swallowed so the dialog
+// itself stays open (same pattern as the calendar editor's useDropdownDismiss).
+function useDropdownDismiss(open: boolean, onClose: () => void): React.RefObject<HTMLDivElement | null> {
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
+  React.useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) onClose()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [open, onClose])
+  return rootRef
+}
 
 function ParticipantSearchPopover({
   existingIds,
@@ -30,6 +55,8 @@ function ParticipantSearchPopover({
   t: (key: string, fallback: string) => string
 }) {
   const [open, setOpen] = React.useState(false)
+  const closeDropdown = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, closeDropdown)
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ userId: string; name: string; email: string }>>([])
   const [page, setPage] = React.useState(1)
@@ -85,21 +112,16 @@ function ParticipantSearchPopover({
   }, [open, query])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="outline">
-          <Users className="size-3.5" />
-          {t('customers.schedule.addParticipant', 'Add participant')}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder={t('customers.schedule.searchParticipant', 'Search team members...')}
-          className="mb-2"
-          autoFocus
-        />
+    <div ref={rootRef} className="relative">
+      <SearchInput
+        value={query}
+        onChange={setQuery}
+        onFocus={() => setOpen(true)}
+        placeholder={t('customers.schedule.searchParticipant', 'Search team members...')}
+        aria-expanded={open}
+      />
+      {open ? (
+      <div className="absolute z-dropdown mt-1 w-full rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
         {selectableResults.length ? (
           <div className="mb-2">
             <Button
@@ -138,7 +160,6 @@ function ParticipantSearchPopover({
                 disabled={alreadyAdded}
                 onClick={() => {
                   onAdd({ userId: r.userId, name: r.name, email: r.email, color: PARTICIPANT_COLORS[existingIds.size % PARTICIPANT_COLORS.length] })
-                  setOpen(false)
                   setQuery('')
                 }}
                 className={cn(
@@ -166,8 +187,9 @@ function ParticipantSearchPopover({
             </div>
           ) : null}
         </div>
-      </PopoverContent>
-    </Popover>
+      </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -225,7 +247,7 @@ export function ParticipantsField({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, avatar + label + × */}
           {participants.map((p, index) => (
-            <div key={p.userId ?? p.email ?? index} className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-background pl-1 pr-1.5">
+            <div key={p.userId ?? p.email ?? index} className="inline-flex h-6 items-center gap-1 rounded-sm bg-muted pl-1 pr-1.5">
               <span className={cn('inline-flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-white', p.color ?? 'bg-primary')}>
                 {p.name.charAt(0).toUpperCase()}
               </span>

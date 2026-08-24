@@ -65,9 +65,9 @@ const TYPE_CHROME: Record<ActivityType, DialogChrome> = {
   },
 }
 
-const CALL_DIRECTIONS: Array<{ key: 'outbound' | 'inbound'; labelKey: string; labelFallback: string; icon: React.ComponentType<{ className?: string }>; iconClass: string }> = [
-  { key: 'outbound', labelKey: 'customers.schedule.call.direction.outbound', labelFallback: 'Outbound', icon: PhoneOutgoing, iconClass: 'text-status-info-icon' },
-  { key: 'inbound', labelKey: 'customers.schedule.call.direction.inbound', labelFallback: 'Inbound', icon: PhoneIncoming, iconClass: 'text-status-success-icon' },
+const CALL_DIRECTIONS: Array<{ key: 'outbound' | 'inbound'; labelKey: string; labelFallback: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { key: 'outbound', labelKey: 'customers.schedule.call.direction.outbound', labelFallback: 'Outbound', icon: PhoneOutgoing },
+  { key: 'inbound', labelKey: 'customers.schedule.call.direction.inbound', labelFallback: 'Inbound', icon: PhoneIncoming },
 ]
 
 
@@ -234,7 +234,6 @@ export function ScheduleActivityDialog({
         ),
         confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
         cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
-        variant: 'destructive',
       })
       if (ok) onClose()
     } finally {
@@ -461,7 +460,7 @@ export function ScheduleActivityDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
       <DialogContent
-        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
+        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[640px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
         onKeyDown={handleKeyDown}
         aria-describedby={undefined}
       >
@@ -482,7 +481,7 @@ export function ScheduleActivityDialog({
         </div>
 
         <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-4 bg-background p-5">
+        <div className="flex flex-col gap-5 bg-background p-5">
 
         {/* Conflict warning */}
         {state.conflict && (
@@ -575,11 +574,12 @@ export function ScheduleActivityDialog({
                       className={cn(
                         'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
                         isActive
-                          ? 'border-foreground bg-background font-semibold text-foreground'
+                          ? 'border-accent-indigo bg-background font-semibold text-foreground'
                           : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
                       )}
                     >
-                      <DirectionIcon className={cn('size-3.5', opt.iconClass)} aria-hidden />
+                      {/* Icon follows selection: muted at rest, accent when chosen. */}
+                      <DirectionIcon className={cn('size-3.5', isActive ? 'text-accent-indigo' : 'text-muted-foreground')} aria-hidden />
                       {t(opt.labelKey, opt.labelFallback)}
                     </button>
                   )
@@ -610,7 +610,7 @@ export function ScheduleActivityDialog({
                       // Selection reads as emphasis, not inversion: the colored glyph
                       // stays visible, so a filled-black active state is unnecessary.
                       isActive
-                        ? 'border-foreground bg-background font-semibold text-foreground'
+                        ? 'border-accent-indigo bg-background font-semibold text-foreground'
                         : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
                     )}
                   >
@@ -622,6 +622,10 @@ export function ScheduleActivityDialog({
             </div>
           </div>
         )}
+
+        {/* Content dividers between the section groups keep the long form from
+            reading as one undifferentiated column (DS drawer/modal anatomy). */}
+        {visibleFields.has('participants') ? <div aria-hidden className="h-px shrink-0 bg-border" /> : null}
 
         {/* Participants */}
         <ParticipantsField
@@ -660,6 +664,8 @@ export function ScheduleActivityDialog({
           />
         )}
 
+        {visibleFields.has('linkedEntities') ? <div aria-hidden className="h-px shrink-0 bg-border" /> : null}
+
         {/* Linked Entities */}
         <LinkedEntitiesField
           visible={visibleFields}
@@ -668,12 +674,14 @@ export function ScheduleActivityDialog({
           setLinkedEntities={state.setLinkedEntities}
         />
 
+        <div aria-hidden className="h-px shrink-0 bg-border" />
+
         {/* Description */}
         <div>
           <label className="text-sm font-medium">
             {getFieldLabel(state.activityType, 'description', t, 'customers.schedule.description', 'Description')}
           </label>
-          <div className="mt-[8px]">
+          <div className="mt-2">
             <SwitchableMarkdownInput
               value={state.description}
               onChange={state.setDescription}
@@ -683,6 +691,8 @@ export function ScheduleActivityDialog({
             />
           </div>
         </div>
+
+        {(visibleFields.has('reminder') || visibleFields.has('visibility')) ? <div aria-hidden className="h-px shrink-0 bg-border" /> : null}
 
         {/* Reminder + Visibility */}
         <FooterFields

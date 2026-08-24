@@ -43,7 +43,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
+    fireEvent.focus(screen.getByPlaceholderText('Search...'))
     fireEvent.click(screen.getByRole('radio', { name: 'Offer' }))
 
     await waitFor(() => {
@@ -84,7 +84,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
+    fireEvent.focus(screen.getByPlaceholderText('Search...'))
 
     await waitFor(() => {
       expect(screen.getByText('Company 1')).toBeInTheDocument()
@@ -118,7 +118,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
+    fireEvent.focus(screen.getByPlaceholderText('Search...'))
 
     await waitFor(() => {
       expect(screen.getByText('Company 1')).toBeInTheDocument()
@@ -161,7 +161,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
+    fireEvent.focus(screen.getByPlaceholderText('Search...'))
 
     await waitFor(() => {
       expect(screen.getByText('Company 1')).toBeInTheDocument()
