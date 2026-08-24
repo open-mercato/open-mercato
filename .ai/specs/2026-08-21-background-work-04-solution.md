@@ -114,7 +114,7 @@ flowchart LR
   end
   subgraph P["progress module (grown)"]
     SVC["progressService<br/>existing: createJob · startJob · updateProgress · … · cancelJob<br/>new: createLeasedJob · enqueueLeasedJob · claim · heartbeatLease · yieldSlice · completeSlice · failSlice · failSliceTerminal · releaseLease · redrive · sweepStaleJobs · registerJobKind · getJobKind · reconcileOnce"]
-    REG["job-kind registry (process-wide, every process)<br/>fed by auto-discovered job-kinds.ts: { kind, queue, step, orphanPolicy, lease, budget, retry, requiredFeatures, mirror?, maxMirrorAttempts?, onTransition?, onRedrive?, onCancel?, onAfterTransition?, onAfterRedrive? }"]
+    REG["job-kind registry (process-wide, every process)<br/>fed by auto-discovered job-kinds.ts: { kind, queue, step, orphanPolicy, lease, budget, retry, retention, requiredFeatures, mirror?, maxMirrorAttempts?, onTransition?, onRedrive?, onCancel?, onAfterTransition?, onAfterRedrive? }"]
     SLICE["runSlice() — the worker body"]
     REC["reconciler: transport-repeatable tick (30 s, WorkerMeta.repeatable) + retention job (daily)"]
     T[("progress_jobs<br/>+ lease_owner · lease_epoch · lease_expires_at · lock_key · queue_name · queue_job_id<br/>+ subject_type/id · continuation_seq · redrives · redrives_since_commit · interruptions · consecutive_failures<br/>+ pending_since · next_run_at · last_committed_at · parked_at · error_code<br/>+ domain_mirrored_at · mirror_attempts")]

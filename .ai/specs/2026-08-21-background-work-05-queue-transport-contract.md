@@ -11,7 +11,7 @@ The leased tier (part 6) needs four things from the transport it cannot get toda
 
 ## 📝 Problem Statement
 
-Part 2 §Q: the processor is one-argument so BullMQ never creates a signal (Q-1); `lockRenewalFailed` has no listener (Q-26); `close()` is unbounded (Q-2); no custom job ids, attempts or backoff are exposed (Q-3, Q-12); there is no conformance suite so local and async drift (Q-15, Q-17). Part 3 C-8 (a lost lock is not a stopped handler) and C-3 (shutdown is not a signal) are the classes.
+Part 2 §Q: the processor is one-argument so BullMQ never creates a signal (Q-1); `lockRenewalFailed` has no listener (Q-26); `close()` is unbounded and a second SIGTERM is ignored (Q-15, Q-17); no per-job id or dedup key is expressible (Q-2); per-job attempts, backoff and fail-fast are not either (Q-3, Q-11, Q-12); and the two strategies drift unchecked because nothing exercises them against one contract (part 3 C-14 — every async test mocks `bullmq`; the local strategy's own divergences are Q-14, Q-16). Part 3 C-8 (a lost lock is not a stopped handler) and C-3 (shutdown is not a signal) are the classes.
 
 ## 📝 Contract additions (all additive)
 
