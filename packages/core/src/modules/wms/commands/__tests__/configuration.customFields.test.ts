@@ -84,9 +84,17 @@ function createWarehouseStore(initial: WarehouseRecord[] = []) {
   return { em, records }
 }
 
+function createDataEngine(setCustomFields = jest.fn().mockResolvedValue(undefined)) {
+  return {
+    setCustomFields,
+    markOrmEntityChange: jest.fn(),
+    flushOrmEntityChanges: jest.fn().mockResolvedValue(undefined),
+  }
+}
+
 function createCtx(
   em: ReturnType<typeof createWarehouseStore>['em'],
-  dataEngine?: { setCustomFields: jest.Mock },
+  dataEngine = createDataEngine(),
 ) {
   return {
     auth: { tenantId: TENANT, orgId: ORG },
@@ -96,12 +104,13 @@ function createCtx(
         if (name === 'em') {
           return { fork: () => em }
         }
-        if (name === 'dataEngine' && dataEngine) {
+        if (name === 'dataEngine') {
           return dataEngine
         }
         throw new Error(`unexpected resolve: ${name}`)
       },
     },
+    dataEngine,
   }
 }
 
@@ -111,10 +120,11 @@ describe('WMS warehouse custom fields', () => {
     await import('../configuration')
   })
 
-  it('does not resolve dataEngine when creating a warehouse without custom fields', async () => {
+  it('indexes a warehouse create without writing custom fields', async () => {
     const store = createWarehouseStore()
     const handler = commandRegistry.get('wms.warehouses.create')!
-    const ctx = createCtx(store.em)
+    const dataEngine = createDataEngine()
+    const ctx = createCtx(store.em, dataEngine)
 
     const result = await handler.execute!(
       {
@@ -129,13 +139,18 @@ describe('WMS warehouse custom fields', () => {
     expect(result.warehouseId).toBeTruthy()
     expect(typeof result.updatedAt).toBe('string')
     expect(result.updatedAt).toBeTruthy()
+    expect(dataEngine.setCustomFields).not.toHaveBeenCalled()
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'created',
+      identifiers: expect.objectContaining({ id: result.warehouseId }),
+    }))
   })
 
   it('persists custom fields on warehouse create and update', async () => {
     const store = createWarehouseStore()
-    const setCustomFields = jest.fn().mockResolvedValue(undefined)
+    const dataEngine = createDataEngine()
     const handler = commandRegistry.get('wms.warehouses.create')!
-    const ctx = createCtx(store.em, { setCustomFields })
+    const ctx = createCtx(store.em, dataEngine)
 
     const created = await handler.execute!(
       {
@@ -151,7 +166,7 @@ describe('WMS warehouse custom fields', () => {
       ctx as never,
     )
 
-    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
       entityId: E.wms.warehouse,
       recordId: created.warehouseId,
       tenantId: TENANT,
@@ -159,7 +174,7 @@ describe('WMS warehouse custom fields', () => {
       values: expect.objectContaining({ dock_code: 'DOCK-A' }),
     }))
 
-    setCustomFields.mockClear()
+    dataEngine.setCustomFields.mockClear()
     const updateHandler = commandRegistry.get('wms.warehouses.update')!
     await updateHandler.execute!(
       {
@@ -171,7 +186,7 @@ describe('WMS warehouse custom fields', () => {
       ctx as never,
     )
 
-    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
       entityId: E.wms.warehouse,
       recordId: created.warehouseId,
       values: expect.objectContaining({ dock_code: 'DOCK-B' }),
@@ -180,9 +195,9 @@ describe('WMS warehouse custom fields', () => {
 
   it('clears custom fields when undoing warehouse create', async () => {
     const store = createWarehouseStore()
-    const setCustomFields = jest.fn().mockResolvedValue(undefined)
+    const dataEngine = createDataEngine()
     const handler = commandRegistry.get('wms.warehouses.create')!
-    const ctx = createCtx(store.em, { setCustomFields })
+    const ctx = createCtx(store.em, dataEngine)
 
     const created = await handler.execute!(
       {
@@ -195,7 +210,7 @@ describe('WMS warehouse custom fields', () => {
       ctx as never,
     )
     const record = store.records.get(created.warehouseId)!
-    setCustomFields.mockClear()
+    dataEngine.setCustomFields.mockClear()
 
     await handler.undo!({
       input: {},
@@ -228,7 +243,7 @@ describe('WMS warehouse custom fields', () => {
     } as never)
 
     expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
       entityId: E.wms.warehouse,
       recordId: created.warehouseId,
       values: expect.objectContaining({ dock_code: null }),
@@ -237,10 +252,10 @@ describe('WMS warehouse custom fields', () => {
 
   it('restores previous custom fields when undoing warehouse update', async () => {
     const store = createWarehouseStore()
-    const setCustomFields = jest.fn().mockResolvedValue(undefined)
+    const dataEngine = createDataEngine()
     const createHandler = commandRegistry.get('wms.warehouses.create')!
     const updateHandler = commandRegistry.get('wms.warehouses.update')!
-    const ctx = createCtx(store.em, { setCustomFields })
+    const ctx = createCtx(store.em, dataEngine)
 
     const created = await createHandler.execute!(
       {
@@ -279,7 +294,7 @@ describe('WMS warehouse custom fields', () => {
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
     }
-    setCustomFields.mockClear()
+    dataEngine.setCustomFields.mockClear()
 
     await updateHandler.undo!({
       input: {},
@@ -295,7 +310,7 @@ describe('WMS warehouse custom fields', () => {
       undoToken: 'undo-update-cf',
     } as never)
 
-    expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
       entityId: E.wms.warehouse,
       recordId: created.warehouseId,
       values: expect.objectContaining({ dock_code: 'DOCK-A' }),

@@ -85,6 +85,7 @@ import {
   normalizeOptionalString,
   requireId,
   toNumericString,
+  warehouseCrudIndexer,
   warehouseZoneCrudIndexer,
 } from './shared'
 import { emitWmsEvent } from '../events'
@@ -407,6 +408,30 @@ async function writeZoneCustomFields(
 // `events` is deliberately omitted: the module already emits `wms.zone.*` itself,
 // and adding an events config here would introduce a second, undeclared
 // `wms.warehouse_zone.*` event id for the same write.
+async function emitWarehouseCrudSideEffects(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'updated' | 'deleted',
+  warehouse: Warehouse,
+  origin: 'write' | 'undo' = 'write',
+): Promise<void> {
+  const options = {
+    dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+    action,
+    entity: warehouse,
+    identifiers: {
+      id: warehouse.id,
+      organizationId: warehouse.organizationId,
+      tenantId: warehouse.tenantId,
+    },
+    indexer: warehouseCrudIndexer,
+  }
+  if (origin === 'undo') {
+    await emitCrudUndoSideEffects(options)
+    return
+  }
+  await emitCrudSideEffects(options)
+}
+
 async function emitZoneCrudSideEffects(
   ctx: CommandRuntimeContext,
   action: 'created' | 'updated' | 'deleted',
@@ -803,6 +828,7 @@ const createWarehouseCommand: CommandHandler<
       throw err
     }
     await persistWarehouseCustomFields(ctx, warehouse, custom)
+    await emitWarehouseCrudSideEffects(ctx, 'created', warehouse)
     void emitWmsEvent('wms.warehouse.created', {
       id: warehouse.id,
       warehouseId: warehouse.id,
@@ -852,6 +878,7 @@ const createWarehouseCommand: CommandHandler<
     record.deletedAt = new Date()
     await em.flush()
     await persistWarehouseCustomFields(ctx, after, buildCustomFieldResetMap(undefined, after.custom ?? undefined))
+    await emitWarehouseCrudSideEffects(ctx, 'deleted', record, 'undo')
     if (payload.demotedPrimariesBefore?.length) {
       await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
       await em.flush()
@@ -932,6 +959,7 @@ const updateWarehouseCommand: CommandHandler<
       throw err
     }
     await persistWarehouseCustomFields(ctx, warehouse, custom)
+    await emitWarehouseCrudSideEffects(ctx, 'updated', warehouse)
     void emitWmsEvent('wms.warehouse.updated', {
       id: warehouse.id,
       warehouseId: warehouse.id,
@@ -1017,6 +1045,7 @@ const updateWarehouseCommand: CommandHandler<
       before,
       buildCustomFieldResetMap(before.custom ?? undefined, payload.after?.custom ?? undefined),
     )
+    await emitWarehouseCrudSideEffects(ctx, 'updated', record, 'undo')
     if (payload.demotedPrimariesBefore?.length) {
       await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
       await em.flush()
@@ -1038,6 +1067,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const warehouse = await loadWarehouse(em, ctx, warehouseId)
     warehouse.deletedAt = new Date()
     await em.flush()
+    await emitWarehouseCrudSideEffects(ctx, 'deleted', warehouse)
     return { warehouseId: warehouse.id }
   },
   buildLog: async ({ input, result, ctx, snapshots }) => {
@@ -1092,6 +1122,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
       record.metadata = before.metadata
     }
     await em.flush()
+    await emitWarehouseCrudSideEffects(ctx, 'created', record, 'undo')
   },
 }
 
