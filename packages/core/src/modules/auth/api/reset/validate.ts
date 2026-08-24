@@ -12,8 +12,6 @@ const resetValidateRateLimitConfig = readEndpointRateLimitConfig('RESET_VALIDATE
   points: 10, duration: 300, keyPrefix: 'reset-validate',
 })
 
-// validation via validatePasswordResetTokenSchema
-
 export async function POST(req: Request) {
   const form = await req.formData()
   const token = String(form.get('token') ?? '')
@@ -24,8 +22,8 @@ export async function POST(req: Request) {
   // A malformed token is reported as simply not valid: the caller learns nothing
   // it could not learn by posting the same token to /api/auth/reset/confirm.
   if (!parsed.success) return NextResponse.json({ ok: true, valid: false })
-  const c = await createRequestContainer()
-  const auth = c.resolve<AuthService>('authService')
+  const container = await createRequestContainer()
+  const auth = container.resolve<AuthService>('authService')
   const valid = await auth.isPasswordResetTokenValid(parsed.data.token)
   return NextResponse.json({ ok: true, valid })
 }
