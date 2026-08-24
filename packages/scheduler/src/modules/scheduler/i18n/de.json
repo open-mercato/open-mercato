@@ -49,6 +49,8 @@
   "scheduler.error.unauthorized": "Nicht autorisiert",
   "scheduler.error.update_failed": "Fehler beim Aktualisieren des Zeitplans",
   "scheduler.errors.id_required": "Zeitplankennung ist erforderlich.",
+  "scheduler.errors.module_target_immutable": "Von Modulen erstellte Zeitpläne besitzen ihr Ziel; nur operative Felder können hier geändert werden.",
+  "scheduler.errors.queue_not_approved": "Ziel-Queue ist kein genehmigtes Scheduler-Ziel. Nur Worker, die sich angemeldet haben, können ausgewählt werden.",
   "scheduler.execution.actions": "Aktionen",
   "scheduler.execution.completed_message": "Diese Ausführung wurde erfolgreich ohne Fehler abgeschlossen.",
   "scheduler.execution.details_title": "Ausführungsdetails",

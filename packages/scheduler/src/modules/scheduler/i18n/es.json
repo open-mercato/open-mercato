@@ -49,6 +49,8 @@
   "scheduler.error.unauthorized": "No autorizado",
   "scheduler.error.update_failed": "Error al actualizar la programación",
   "scheduler.errors.id_required": "El identificador de programación es obligatorio.",
+  "scheduler.errors.module_target_immutable": "Los programados creados por módulos poseen su destino; solo los campos operativos pueden modificarse aquí.",
+  "scheduler.errors.queue_not_approved": "La cola de destino no es un destino aprobado del planificador. Solo se pueden seleccionar workers que hayan optado.",
   "scheduler.execution.actions": "Acciones",
   "scheduler.execution.completed_message": "Esta ejecución se completó con éxito sin errores.",
   "scheduler.execution.details_title": "Detalles de ejecución",

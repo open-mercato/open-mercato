@@ -470,3 +470,16 @@ describe('jwt helpers', () => {
     })
   })
 })
+
+describe('isMfaPendingJwtPayload', () => {
+  it('flags pending challenge payloads only', async () => {
+    const { isMfaPendingJwtPayload } = await import('../jwt')
+    expect(isMfaPendingJwtPayload({ mfa_pending: true, mfa_verified: false })).toBe(true)
+    expect(isMfaPendingJwtPayload({ mfa_pending: true })).toBe(true)
+    expect(isMfaPendingJwtPayload({ mfa_pending: true, mfa_verified: true })).toBe(false)
+    expect(isMfaPendingJwtPayload({ mfa_pending: false, mfa_verified: true })).toBe(false)
+    expect(isMfaPendingJwtPayload({})).toBe(false)
+    expect(isMfaPendingJwtPayload(null)).toBe(false)
+    expect(isMfaPendingJwtPayload('token')).toBe(false)
+  })
+})

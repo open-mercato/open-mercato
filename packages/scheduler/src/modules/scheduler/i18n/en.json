@@ -49,6 +49,8 @@
   "scheduler.error.unauthorized": "Unauthorized",
   "scheduler.error.update_failed": "Failed to update schedule",
   "scheduler.errors.id_required": "Schedule identifier is required.",
+  "scheduler.errors.module_target_immutable": "Module-authored schedules own their target; only operational fields can be updated here.",
+  "scheduler.errors.queue_not_approved": "Target queue is not an approved scheduler target. Only workers that opted into scheduling can be selected.",
   "scheduler.execution.actions": "Actions",
   "scheduler.execution.completed_message": "This execution completed successfully without errors.",
   "scheduler.execution.details_title": "Execution Details",
