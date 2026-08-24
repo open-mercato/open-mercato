@@ -1,8 +1,17 @@
 import { cookies } from 'next/headers.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { verifyJwt } from './jwt'
+import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
+import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
 import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
+
+function readRequestPathname(req: Request): string | null {
+  try {
+    return new URL(req.url).pathname
+  } catch {
+    return null
+  }
+}
 
 const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
@@ -59,6 +68,16 @@ export type TrustedAuthContextEnvelope = {
   status?: AuthResolutionStatus
 }
 
+/**
+ * Attach an already-resolved auth context to a synthetic request.
+ *
+ * INVARIANT callers MUST uphold: `envelope.auth` has to be the product of a gated resolution —
+ * `getAuthFromRequest` / `getAuthFromCookies` (or an equivalently validated principal such as an
+ * API-key record). The envelope short-circuits `resolveAuthFromRequestDetailed` ahead of both the
+ * MFA-pending gate and `resolveCanonicalStaffAuthContext`, so an envelope built straight from an
+ * unvalidated JWT would reinstate the MFA bypass this module closes and skip session-revocation
+ * checks as well. Never populate it from raw request credentials.
+ */
 export function attachTrustedAuthContext(
   request: Request,
   envelope: TrustedAuthContextEnvelope
@@ -353,6 +372,9 @@ export async function resolveAuthFromCookiesDetailed(): Promise<AuthResolution> 
     const payload = verifyJwt(token) as AuthContext
     if (!payload) return { auth: null, status: 'invalid' }
     if (payload.type === 'customer') return { auth: null, status: 'invalid' }
+    // MFA-pending tokens are provisional: pages never complete the second factor, so they
+    // must not resolve to an authenticated context anywhere in the RSC/page flow.
+    if (isMfaPendingJwtPayload(payload)) return { auth: null, status: 'invalid' }
     const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
     if (!canonicalAuth) return { auth: null, status: 'invalid' }
     const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
@@ -372,6 +394,8 @@ export async function getAuthFromCookies(): Promise<AuthContext> {
 }
 
 export async function resolveAuthFromRequestDetailed(req: Request): Promise<AuthResolution> {
+  // Deliberately ahead of the MFA-pending gate below: the envelope carries a context that was
+  // already gated by its producer (see `attachTrustedAuthContext`), not raw request credentials.
   const trusted = readTrustedAuthContext(req)
   if (trusted) {
     return {
@@ -395,6 +419,14 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
     try {
       const payload = verifyJwt(token) as AuthContext
       if (payload && payload.type === 'customer') return { auth: null, status: 'invalid' }
+      if (payload && isMfaPendingJwtPayload(payload)) {
+        // MFA-pending tokens authenticate only the registered challenge-completion routes;
+        // everywhere else they resolve to `invalid` so the dispatcher answers 401 (clearing
+        // staff auth cookies) instead of restoring the account's roles/features.
+        if (!isMfaPendingAccessAllowed(req.method, readRequestPathname(req))) {
+          return { auth: null, status: 'invalid' }
+        }
+      }
       if (payload) {
         const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
         if (canonicalAuth) {
