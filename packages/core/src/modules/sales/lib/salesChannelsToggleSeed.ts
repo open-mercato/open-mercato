@@ -16,10 +16,16 @@ export const SALES_CHANNELS_TOGGLE_DEFINITION = {
 // same way portal, customers and wms register theirs. Shipping it only in the
 // core defaults file left it unregistered on every database initialized before
 // the toggle existed, and `useSalesChannelsEnabled` then 404s on every mount.
+//
+// The lookup deliberately does not filter on `deletedAt`. Deletion is soft
+// (`feature_toggles.global.delete`) while `feature_toggles_identifier_unique`
+// covers every row, so filtering would make this insert a duplicate and fail the
+// whole seed run on any installation where the toggle was deleted. Matching the
+// create command's own uniqueness check also leaves an operator's deletion alone
+// instead of resurrecting the definition on every tenant seed.
 export async function seedSalesChannelsToggle(em: EntityManager): Promise<void> {
   const existing = await findOneWithDecryption(em, FeatureToggle, {
     identifier: SALES_CHANNELS_TOGGLE_DEFINITION.identifier,
-    deletedAt: null,
   })
   if (existing) return
   em.persist(

@@ -30,11 +30,12 @@ describe('seedSalesChannelsToggle', () => {
 
     await seedSalesChannelsToggle(em as never)
 
-    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
-      em,
-      FeatureToggle,
-      expect.objectContaining({ identifier: SALES_CHANNELS_TOGGLE_ID, deletedAt: null }),
-    )
+    // The filter must stay `deletedAt`-free: deletion is soft and the identifier
+    // unique constraint covers deleted rows too, so a `deletedAt: null` filter
+    // would turn a deleted toggle into a duplicate insert.
+    expect(findOneWithDecryptionMock).toHaveBeenCalledWith(em, FeatureToggle, {
+      identifier: SALES_CHANNELS_TOGGLE_ID,
+    })
     expect(em.create).toHaveBeenCalledWith(
       FeatureToggle,
       expect.objectContaining({
@@ -49,6 +50,21 @@ describe('seedSalesChannelsToggle', () => {
 
   it('is idempotent when the toggle already exists', async () => {
     findOneWithDecryptionMock.mockResolvedValue({ id: 'existing' })
+    const em = createEm()
+
+    await seedSalesChannelsToggle(em as never)
+
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  // Deleting a toggle sets `deleted_at` but keeps the row, and
+  // `feature_toggles_identifier_unique` is not scoped to live rows, so seeding on
+  // top of a deleted definition must skip rather than raise a unique violation
+  // and abort the whole seed run.
+  it('does not insert when the definition row exists but was soft-deleted', async () => {
+    findOneWithDecryptionMock.mockResolvedValue({ id: 'deleted', deletedAt: new Date() })
     const em = createEm()
 
     await seedSalesChannelsToggle(em as never)
