@@ -28,10 +28,27 @@ export type AddressValue = {
   taxIdType?: string | null
 }
 
+/**
+ * Tax-id labels keyed by `taxIdType`, for a caller that wants the identifier named correctly rather
+ * than generically.
+ *
+ * A two-letter prefix is stored as `eu_vat` whatever the country, so a German `DE811907980` reads
+ * "EU VAT" and not the neutral fallback. `other` covers a non-domestic address whose number carries
+ * no country prefix, and also an address written before `taxIdType` existed. An unrecognised type
+ * takes the `other` route rather than a guess: naming a foreign number after a domestic scheme
+ * renames it, which is worse than saying nothing specific.
+ */
+export type TaxIdLabelByType = {
+  plNip: string
+  euVat: string
+  other: string
+}
+
 /** Labels for the contact block. A key that is absent hides its field, so this is opt-in per field. */
 export type AddressContactLabels = {
   phone?: string
-  taxId?: string
+  /** One label for every type, or a label per type when the distinction matters to the reader. */
+  taxId?: string | TaxIdLabelByType
 }
 
 export type AddressContactField = 'phone' | 'taxId'
@@ -139,8 +156,26 @@ export function formatAddressString(address: AddressValue, format: AddressFormat
  * of those places.
  *
  * `taxIdType` never becomes a pair — it is metadata that interprets `taxId` (and will gate its
- * display in a later phase), not something to print beside it.
+ * display), not something to print beside it.
  */
+const TAX_ID_LABEL_KEY_BY_TYPE: Record<string, keyof TaxIdLabelByType> = {
+  pl_nip: 'plNip',
+  eu_vat: 'euVat',
+}
+
+/**
+ * The label a tax identifier should carry, given its type. Exported because the editor renders the
+ * same identifier as an input and must name it the same way this formatter does — two copies of the
+ * mapping is exactly how a foreign number ends up under a domestic scheme's name.
+ */
+export function resolveTaxIdLabel(labels: AddressContactLabels, taxIdType: string | null | undefined): string | undefined {
+  const label = labels.taxId
+  if (!label) return undefined
+  if (typeof label === 'string') return label
+  const key = TAX_ID_LABEL_KEY_BY_TYPE[typeof taxIdType === 'string' ? taxIdType : ''] ?? 'other'
+  return label[key]
+}
+
 export function formatAddressContactPairs(
   address: AddressValue,
   labels: AddressContactLabels | undefined,
@@ -152,7 +187,7 @@ export function formatAddressContactPairs(
     const trimmed = typeof value === 'string' ? value.trim() : ''
     if (trimmed) pairs.push({ field, label, value: trimmed })
   }
-  push('taxId', labels.taxId, address.taxId)
+  push('taxId', resolveTaxIdLabel(labels, address.taxIdType), address.taxId)
   push('phone', labels.phone, address.phone)
   return pairs
 }

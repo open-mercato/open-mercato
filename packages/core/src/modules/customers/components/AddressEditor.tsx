@@ -24,7 +24,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
-import type { AddressFormatStrategy } from '../utils/addressFormat'
+import { resolveTaxIdLabel, type AddressFormatStrategy } from '../utils/addressFormat'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
@@ -79,6 +79,12 @@ type AddressEditorProps = {
   disabled?: boolean
   errors?: Partial<Record<AddressEditorField, string>>
   hidePrimaryToggle?: boolean
+  /**
+   * Interprets `taxId` for its label only — a `pl_nip` reads "NIP", an `eu_vat` reads "EU VAT". It is
+   * metadata about the value, never an edited field, which is why it is a prop rather than a member
+   * of the draft: nothing in this component may write it.
+   */
+  taxIdType?: string | null
   showFormatHint?: boolean
   showCoordinateFields?: boolean
 }
@@ -91,6 +97,7 @@ export function AddressEditor({
   disabled = false,
   errors = {},
   hidePrimaryToggle = false,
+  taxIdType,
   showFormatHint = true,
   showCoordinateFields = false,
 }: AddressEditorProps) {
@@ -492,6 +499,24 @@ export function AddressEditor({
         <Input
           className={inputClass('taxId')}
           placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+          // The type names the identifier once it has a value, the way the country field shows its
+          // ISO code. A placeholder cannot do it: it disappears exactly when the value arrives.
+          rightIcon={
+            current.taxId ? (
+              <span className="text-xs">
+                {resolveTaxIdLabel(
+                  {
+                    taxId: {
+                      plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
+                      euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
+                      other: t('customers.people.detail.addresses.fields.taxId.other', 'Tax number'),
+                    },
+                  },
+                  taxIdType,
+                )}
+              </span>
+            ) : null
+          }
           value={current.taxId ?? ''}
           onChange={(evt) => update('taxId', evt.target.value)}
           disabled={disabled}
@@ -501,6 +526,15 @@ export function AddressEditor({
         <Input
           className={inputClass('phone')}
           placeholder={t('customers.people.detail.addresses.fields.phone', 'Phone')}
+          // Same reason as the tax id above: the placeholder is this field's only label, and it
+          // disappears the moment someone types. A phone left bare sits directly under the postcode,
+          // and `81 333-53-64` beside `96-534` gives a reader nothing to tell them apart by. Constant,
+          // not resolved: a phone has no type to interpret.
+          rightIcon={
+            current.phone ? (
+              <span className="text-xs">{t('customers.people.detail.addresses.fields.phone', 'Phone')}</span>
+            ) : null
+          }
           inputMode="tel"
           value={current.phone ?? ''}
           onChange={(evt) => update('phone', evt.target.value)}
