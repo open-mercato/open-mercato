@@ -60,12 +60,19 @@ type HandlerContext = {
 type GatewayJobPayload = {
   /** Optional tenant filter; when absent, all active discord channels connect. */
   tenantId?: string
+  /**
+   * Optional organization filter, narrowing within `tenantId`. Both the channel
+   * query and the reconciliation honour it, so a job scoped to one organization
+   * never opens, and never tears down, a socket belonging to another.
+   */
   organizationId?: string | null
 }
 
 export interface GatewayConnectionEntry {
   handle: DiscordGatewayHandle
   tenantId: string
+  /** Owning organization, or `null` for a tenant-wide channel. Scopes teardown. */
+  organizationId: string | null
   /** SHA-256 of the bot token, never the token itself — see `botTokenFingerprint`. */
   botTokenFingerprint?: string
 }
@@ -129,23 +136,44 @@ export function isConnectionLive(entry: GatewayConnectionEntry | undefined): boo
   }
 }
 
+/** The scope a reconciliation run is allowed to tear connections down within. */
+export interface GatewayReconcileScope {
+  tenantId?: string
+  organizationId?: string | null
+}
+
+/**
+ * The channel query for one job payload. Every scope key the payload carries
+ * narrows the query: a job scoped to an organization must connect that
+ * organization's channels and no others, and the same scope is then handed to
+ * the reconciliation so it tears down exactly the set it queried.
+ */
+export function buildGatewayChannelFilter(scope: GatewayReconcileScope): Record<string, unknown> {
+  const filter: Record<string, unknown> = { providerKey: 'discord', isActive: true, deletedAt: null }
+  if (scope.tenantId) filter.tenantId = scope.tenantId
+  if (scope.organizationId != null) filter.organizationId = scope.organizationId
+  return filter
+}
+
 /**
  * Close + drop any live connection whose channel is no longer in the active set
  * (deactivated / soft-deleted / re-scoped). Without this the socket + heartbeat
- * timer would leak forever after a channel is disconnected. When `tenantFilter`
- * is set, only that tenant's connections are eligible for teardown (a scoped
- * refresh must not touch other tenants' sockets). Returns the ids reconciled
- * away. Pure over its arguments so it is unit-testable.
+ * timer would leak forever after a channel is disconnected. When `scope` names a
+ * tenant and/or an organization, only connections inside that scope are eligible
+ * for teardown — a scoped refresh reconciles exactly the set it queried and
+ * never touches another tenant's or organization's sockets. Returns the ids
+ * reconciled away. Pure over its arguments so it is unit-testable.
  */
 export function reconcileGatewayConnections(
   activeChannelIds: Set<string>,
   connections: Map<string, GatewayConnectionEntry> = activeConnections,
-  tenantFilter?: string,
+  scope: GatewayReconcileScope = {},
 ): string[] {
   const removed: string[] = []
   for (const [channelId, entry] of connections) {
     if (activeChannelIds.has(channelId)) continue
-    if (tenantFilter && entry.tenantId !== tenantFilter) continue
+    if (scope.tenantId && entry.tenantId !== scope.tenantId) continue
+    if (scope.organizationId != null && entry.organizationId !== scope.organizationId) continue
     try {
       entry.handle.close()
     } catch {
@@ -182,10 +210,18 @@ export default async function handle(job: QueuedJob<GatewayJobPayload>, ctx: Han
     return
   }
 
-  const filter: Record<string, unknown> = { providerKey: 'discord', isActive: true, deletedAt: null }
-  if (job.payload?.tenantId) filter.tenantId = job.payload.tenantId
+  // A scoped job narrows the query by every scope key it carries — a payload
+  // that names an organization must not silently connect the whole tenant.
+  const scope: GatewayReconcileScope = {
+    tenantId: job.payload?.tenantId,
+    organizationId: job.payload?.organizationId ?? null,
+  }
 
-  const channels = (await findWithDecryption(em, CommunicationChannel, filter)) as CommunicationChannel[]
+  const channels = (await findWithDecryption(
+    em,
+    CommunicationChannel,
+    buildGatewayChannelFilter(scope),
+  )) as CommunicationChannel[]
 
   // The refresh job is a *reconciler*, not a re-connector: a channel whose
   // session is still running is left alone. Restarting it (the previous
@@ -213,10 +249,10 @@ export default async function handle(job: QueuedJob<GatewayJobPayload>, ctx: Han
 
   // Full reconciliation: close sockets for channels that dropped out of the
   // active set since the last run (deactivated / soft-deleted). A scoped run
-  // (tenant filter) only reconciles within that tenant so a per-tenant refresh
-  // never tears down another tenant's live sockets.
+  // reconciles within exactly the scope it queried, so a per-tenant or
+  // per-organization refresh never tears down sockets it did not consider.
   const activeIds = new Set(channels.map((channel) => channel.id))
-  const removed = reconcileGatewayConnections(activeIds, activeConnections, job.payload?.tenantId)
+  const removed = reconcileGatewayConnections(activeIds, activeConnections, scope)
   if (removed.length > 0) {
     logger.info('reconciled away stale discord gateway connections', { channelIds: removed })
   }
@@ -350,7 +386,12 @@ async function startChannelConnection(
       activeConnections.delete(channel.id)
     },
   })
-  activeConnections.set(channel.id, { handle, tenantId: channel.tenantId, botTokenFingerprint: fingerprint })
+  activeConnections.set(channel.id, {
+    handle,
+    tenantId: channel.tenantId,
+    organizationId: channel.organizationId ?? null,
+    botTokenFingerprint: fingerprint,
+  })
 }
 
 /**

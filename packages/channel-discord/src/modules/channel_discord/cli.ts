@@ -10,16 +10,6 @@ import gatewayHandle, { CHANNEL_DISCORD_GATEWAY_QUEUE } from './workers/discord-
 
 const logger = createLogger('channel_discord').child({ component: 'cli' })
 
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (let i = 0; i < args.length; i += 2) {
-    const key = args[i]?.replace(/^-+/, '')
-    const value = args[i + 1]
-    if (key && value) result[key] = value
-  }
-  return result
-}
-
 /**
  * Split `--key value` pairs from bare `--flag` switches so a boolean flag does
  * not shift the positional pairing of the remaining arguments.
@@ -67,10 +57,10 @@ export function parseFlagsAndValues(args: string[]): { flags: Set<string>; value
 const startGateway: ModuleCli = {
   command: 'start-gateway',
   async run(rest: string[]) {
-    const args = parseArgs(rest)
-    const tenantId = args.tenant ?? args.tenantId ?? args.t
-    const refreshSeconds = Number.isFinite(Number(args.refresh ?? args.r))
-      ? Math.max(0, Number(args.refresh ?? args.r))
+    const { values } = parseFlagsAndValues(rest)
+    const tenantId = values.tenant ?? values.tenantId ?? values.t
+    const refreshSeconds = Number.isFinite(Number(values.refresh ?? values.r))
+      ? Math.max(0, Number(values.refresh ?? values.r))
       : 60
 
     assertInboundDeliverable(process.env.QUEUE_STRATEGY)

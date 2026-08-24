@@ -25,7 +25,7 @@ function fakeEntry(
   active = true,
 ): GatewayConnectionEntry {
   const handle: DiscordGatewayHandle = { close: jest.fn(), isActive: () => active }
-  return { handle, tenantId, botTokenFingerprint: fingerprint }
+  return { handle, tenantId, organizationId: null, botTokenFingerprint: fingerprint }
 }
 
 describe('botTokenFingerprint', () => {

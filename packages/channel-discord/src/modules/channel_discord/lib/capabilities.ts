@@ -15,8 +15,6 @@ export const DISCORD_MAX_BODY_LENGTH = 2000
  * is declared `false` and stays `false` until the corresponding code lands.
  *
  * Enabled, with the implementation behind each:
- * - `threading` — `convertOutbound` emits `message_reference`, so a reply is
- *   attached to the message it answers.
  * - `richText` / `supportedBodyFormats: ['text', 'markdown']` — Discord content
  *   is markdown-native; HTML is down-converted in `convertOutbound`.
  * - `reactions` / `editMessage` / `deleteMessage` — backed by the matching
@@ -28,6 +26,15 @@ export const DISCORD_MAX_BODY_LENGTH = 2000
  *
  * Deliberately disabled until implemented (declaring them would make the hub
  * hand this adapter work it silently drops):
+ * - `threading` — `convertOutbound` reads `channelMetadata.replyToExternalId`
+ *   and emits `message_reference` from it, but nothing hub-side ever writes that
+ *   key into OUTBOUND metadata: `replyToExternalId` exists only on the inbound
+ *   `NormalizedInboundMessage` shape, and the hub's outbound metadata producers
+ *   (`send-as-user.ts`, `deliver-outbound-message.ts`) write the email-shaped
+ *   `inReplyTo` / `references` instead. The conversion is therefore unreachable
+ *   in production — confirmed against a live bot in #5541. The flag flips back
+ *   to `true` in the same change that gives the hub an outbound reply producer
+ *   this adapter can read, guarded by a contract test.
  * - `fileSharing` / `inlineImages` — `convertOutbound` drops
  *   `input.content.attachments` and `discord-rest` has no multipart upload, so
  *   outbound attachments never reach Discord. `maxFileSize` /
@@ -52,7 +59,7 @@ export const discordCapabilities: ChannelCapabilities = {
   recipientFormat: 'provider-native',
 
   // Core
-  threading: true,
+  threading: false,
   richText: true,
   fileSharing: false,
   readReceipts: false,

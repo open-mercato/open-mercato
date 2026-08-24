@@ -17,7 +17,10 @@ export const integration: IntegrationDefinition = {
   icon: 'discord',
   docsUrl: 'https://discord.com/developers/docs/intro',
   package: '@open-mercato/channel-discord',
-  version: '0.6.6',
+  // The provider descriptor's own version, deliberately independent of the
+  // monorepo release the package happens to ship in — a copied monorepo version
+  // rots on every release bump and reads as a claim it is not making.
+  version: '1.0.0',
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
@@ -76,8 +79,8 @@ export const integration: IntegrationDefinition = {
         required: false,
         placeholder: '123456789012345678',
         helpText:
-          'Default text channel the adapter posts to when an outbound message names no Discord channel. Note: the hub'
-          + ' test-send endpoint still validates its recipient as an email address, so it cannot exercise this yet (#4976).',
+          'Default text channel the adapter posts to when an outbound message names no Discord channel. The hub'
+          + ' test-send endpoint accepts a channel snowflake as its recipient, so you can use it to verify this end to end.',
       },
     ],
   },

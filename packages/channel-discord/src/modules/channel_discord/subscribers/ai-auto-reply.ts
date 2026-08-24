@@ -146,7 +146,7 @@ export default async function handler(payload: MessageReceivedPayload, ctx: Ctx)
   // (5) Easy → draft + send. Everything is guarded so any failure degrades to a
   // no-op (the channel keeps working as a plain inbox).
   try {
-    await draftAndSendEasyReply({ ctx, em, channel, message, agentId, body, scope: dscope })
+    await draftAndSendEasyReply({ ctx, em, message, agentId, body, scope: dscope })
   } catch (err) {
     logger.warn('discord AI auto-reply failed — degrading to no-op', { channelId: payload.channelId, err })
   }
@@ -155,13 +155,12 @@ export default async function handler(payload: MessageReceivedPayload, ctx: Ctx)
 async function draftAndSendEasyReply(args: {
   ctx: Ctx
   em: EntityManager
-  channel: CommunicationChannel
   message: Message
   agentId: string
   body: string
   scope: { tenantId: string; organizationId: string | null }
 }): Promise<void> {
-  const { ctx, em, channel, message, agentId, body, scope } = args
+  const { ctx, em, message, agentId, body, scope } = args
 
   // Dynamic import keeps `ai_assistant` a truly optional peer — when the package
   // is not installed the import throws and we no-op (already gated by the DI
@@ -226,5 +225,4 @@ async function draftAndSendEasyReply(args: {
       organizationIds: scope.organizationId ? [scope.organizationId] : null,
     } as never,
   })
-  void channel
 }

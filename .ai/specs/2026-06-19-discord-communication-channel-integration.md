@@ -252,7 +252,7 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
 |-------------------------|------------------------|
 | `providerKey` | `'discord'` |
 | `channelType` | `'discord'` (the contract's `channelType` is `'whatsapp' \| 'slack' \| 'email' \| 'sms' \| string` — `'discord'` is allowed as a string) |
-| `capabilities` | `threading: true` (Discord threads + reply-to), `richText: true` (markdown), `reactions: true`, `multiReactionPerUser: false`, `editMessage: true`, `deleteMessage: true`, `fileSharing: true` (≤8 MB default tier), `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`, `interactiveComponents: true` |
+| `capabilities` | **As shipped.** Declared `true`: `recipientFormat: 'provider-native'` (a Discord recipient is a channel snowflake, never an address), `richText: true` (markdown), `reactions: true`, `editMessage: true`, `deleteMessage: true`, `conversationHistory: true`, `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`. Declared **`false`**, because the first release does not implement them and the hub would otherwise route work this adapter silently drops — each with its reason recorded in `lib/capabilities.ts`: `threading` (nothing hub-side writes `replyToExternalId` into *outbound* metadata; it exists only on the inbound normalized shape), `fileSharing` / `inlineImages` (`convertOutbound` drops attachments and the REST client has no multipart upload), `interactiveComponents` (the Interactions endpoint verifies and defers; nothing round-trips yet), plus `multiReactionPerUser`, `typingIndicators`, `presence`, `richBlocks`, `stickers`, `readReceipts`, `deliveryReceipts`, `contactCards`, `locationSharing`, `voiceNotes`. A flag flips back to `true` only in the change that implements it, guarded by the parity test in `lib/__tests__/capabilities.test.ts` |
 | `sendMessage` | REST `POST /channels/{id}/messages` (`Authorization: Bot <token>`) |
 | `verifyWebhook` | Ed25519 verify of interactions POST; **throws** on failure (fail-closed). Plain messages do not arrive here — they come via the gateway worker — so for a non-interaction body it returns `eventType: 'other'` (route acks without tenant-scoped work) |
 | `normalizeInbound` | Discord message object → `NormalizedInboundMessage` (sender id/handle, content, attachments, `replyToExternalId` from `message_reference`) |
@@ -493,9 +493,13 @@ channels*. This is done **without** new framework primitives, using the programm
 export const metadata = {
   event: 'communication_channels.message.received',
   persistent: true,
-  id: 'discord-ai-auto-reply',
+  id: 'channel_discord:ai-auto-reply',
 }
 ```
+
+The `id` is `module_id:subscriber-name`, matching the shipped code. Subscriber ids drive
+dedup, so this string is a contract in its own right: renaming it makes the platform treat
+the subscriber as a new one and re-deliver events it has already handled.
 
 The handler:
 
@@ -1018,6 +1022,27 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-08-24 — Spec re-aligned with the shipped implementation (review of PR #4391)
+
+- **§ Adapter method map → `capabilities`.** The row still advertised the pre-implementation
+  intent — `threading: true`, `fileSharing: true` (≤8 MB default tier) and
+  `interactiveComponents: true` — while the shipped `lib/capabilities.ts` declares all three
+  `false`. The row now carries the shipped values, split into what is backed by an adapter
+  method and what is deliberately declared `false` with its reason, and names the parity test
+  that pins them. A spec that over-promises a capability is worse than one that says nothing:
+  the hub routes work on these flags, so a `true` nothing implements is work silently dropped.
+- **§ Subscriber `metadata.id`.** The spec gave `'discord-ai-auto-reply'`; the code ships
+  `'channel_discord:ai-auto-reply'`. Subscriber ids drive dedup, so an id copied from the spec
+  into a later change would have been read as a different subscriber and re-delivered events
+  already handled. The spec now carries the shipped id and states why it is a contract.
+- **`threading` was demoted, not merely re-documented.** It shipped as `true` on the strength
+  of `convertOutbound` emitting `message_reference` from `channelMetadata.replyToExternalId` —
+  but no hub producer writes that key into *outbound* metadata (`send-as-user.ts` and
+  `deliver-outbound-message.ts` write the email-shaped `inReplyTo` / `references`), and
+  `replyToExternalId` exists only on the inbound `NormalizedInboundMessage` shape, so the
+  branch was unreachable in production. Confirmed against a live bot in #5541. The conversion
+  is kept so the flag flips back with the hub-side producer and nothing else.
 
 ### 2026-08-13 — Hub sender-identity contract decided: Variant A (issue #4975)
 

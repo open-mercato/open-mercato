@@ -75,8 +75,10 @@ export async function convertOutboundForDiscord(input: ConvertOutboundInput): Pr
     metadata: {
       allowedMentions,
       droppedAttachmentCount,
-      // Reply threading: the hub's outbound metadata may carry the id of the
-      // Discord message we're replying to.
+      // Reply threading, dormant: no hub producer writes `replyToExternalId`
+      // into outbound metadata today, which is why `capabilities.threading` is
+      // declared `false`. Kept so that flag flips back with the hub-side
+      // producer and nothing else.
       messageReferenceId:
         typeof input.channelMetadata?.replyToExternalId === 'string'
           ? (input.channelMetadata.replyToExternalId as string)

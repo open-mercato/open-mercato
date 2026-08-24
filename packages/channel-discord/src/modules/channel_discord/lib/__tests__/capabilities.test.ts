@@ -43,13 +43,38 @@ describe('discordCapabilities honesty', () => {
     expect(discordCapabilities.stickers).toBe(false)
   })
 
+  it('does not advertise threading while no hub producer writes an outbound reply id', async () => {
+    // `convertOutboundForDiscord` reads `channelMetadata.replyToExternalId` and
+    // would emit a `message_reference` from it — but that key only ever exists on
+    // the INBOUND `NormalizedInboundMessage` shape. The hub's outbound metadata
+    // producers (`send-as-user.ts`, `deliver-outbound-message.ts`) write the
+    // email-shaped `inReplyTo` / `references` instead, so the branch below is
+    // unreachable in production. Confirmed against a live bot in #5541.
+    expect(discordCapabilities.threading).toBe(false)
+
+    const withoutReplyId = await convertOutboundForDiscord({
+      body: 'hello',
+      bodyFormat: 'text',
+      channelMetadata: { inReplyTo: 'some-parent-id', references: ['some-parent-id'] },
+    } as Parameters<typeof convertOutboundForDiscord>[0])
+    expect(withoutReplyId.metadata?.messageReferenceId).toBeUndefined()
+
+    // The conversion itself stays ready, so the flag flips back with the hub-side
+    // producer and nothing else.
+    const withReplyId = await convertOutboundForDiscord({
+      body: 'hello',
+      bodyFormat: 'text',
+      channelMetadata: { replyToExternalId: 'parent-snowflake' },
+    } as Parameters<typeof convertOutboundForDiscord>[0])
+    expect(withReplyId.metadata?.messageReferenceId).toBe('parent-snowflake')
+  })
+
   it('does not advertise rich blocks or interactive components while the endpoint only defers', () => {
     expect(discordCapabilities.richBlocks).toBe(false)
     expect(discordCapabilities.interactiveComponents).toBe(false)
   })
 
   it('keeps the capabilities that are actually backed by adapter methods', () => {
-    expect(discordCapabilities.threading).toBe(true)
     expect(discordCapabilities.richText).toBe(true)
     expect(discordCapabilities.reactions).toBe(true)
     expect(discordCapabilities.editMessage).toBe(true)
