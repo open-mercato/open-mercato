@@ -282,3 +282,71 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
     ).toBeGreaterThan(0)
   })
 })
+
+function describedTextFor(input: HTMLInputElement): string[] {
+  const ids = (input.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
+  return ids.map((id) => document.getElementById(id)?.textContent ?? '')
+}
+
+describe('MyTimesheetsPage — duration error accessibility (#5507)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    stubApiRoutes()
+  })
+
+  it('describes every cell with the accepted duration formats, not only a native tooltip', async () => {
+    const inputs = await renderGrid()
+
+    expect(describedTextFor(inputs[0])).toContain(
+      'Enter hours (8 or 1.5), h:mm (1:30) or minutes (90m). Max 24h per day.',
+    )
+  })
+
+  it('exposes the out-of-range reason to assistive tech instead of hiding it in the title attribute', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], '30')
+
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
+    const message = 'Maximum 24h per day. Use 1:30 or 90m for shorter entries.'
+    expect(describedTextFor(inputs[0])).toContain(message)
+
+    const errorId = inputs[0].getAttribute('aria-errormessage') as string
+    expect(errorId).toBeTruthy()
+    const errorNode = document.getElementById(errorId) as HTMLElement
+    expect(errorNode).toHaveTextContent(message)
+    expect(errorNode).toHaveAttribute('role', 'alert')
+  })
+
+  it('exposes the unparseable-input reason the same way', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], 'abc')
+
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
+    expect(describedTextFor(inputs[0])).toContain(
+      'Unrecognised duration. Use 8, 1.5, 1:30, 90m or 1h 30m.',
+    )
+  })
+
+  it('describes only the offending cell, leaving its neighbours announced as valid', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], 'abc')
+
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
+    expect(inputs[1]).not.toHaveAttribute('aria-errormessage')
+    expect(describedTextFor(inputs[1])).not.toContain(
+      'Unrecognised duration. Use 8, 1.5, 1:30, 90m or 1h 30m.',
+    )
+  })
+
+  it('withdraws the announced error once the cell is corrected', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], 'abc')
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-errormessage'))
+    const errorId = inputs[0].getAttribute('aria-errormessage') as string
+
+    typeAndBlur(inputs[0], '1:30')
+    await waitFor(() => expect(inputs[0]).not.toHaveAttribute('aria-invalid', 'true'))
+    expect(inputs[0]).not.toHaveAttribute('aria-errormessage')
+    expect(document.getElementById(errorId)).toBeNull()
+  })
+})
