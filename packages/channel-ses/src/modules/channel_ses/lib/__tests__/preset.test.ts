@@ -76,6 +76,20 @@ describe('channel_ses env preset', () => {
     expect(flush).toHaveBeenCalledTimes(1)
   })
 
+  it('still completes tenant seeding when the channel row cannot be written', async () => {
+    mockedFindOneWithDecryption.mockRejectedValue(new Error('connection terminated'))
+    const save = jest.fn().mockResolvedValue(undefined)
+
+    await expect(applySesEnvPreset({
+      em: { flush: jest.fn() } as never,
+      container: { resolve: () => ({ save }) } as never,
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })).resolves.toBeUndefined()
+
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
   it('requires an explicit region and sender address', () => {
     delete process.env.AWS_SES_REGION
     delete process.env.AWS_REGION

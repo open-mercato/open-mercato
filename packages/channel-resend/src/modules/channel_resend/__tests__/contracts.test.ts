@@ -7,11 +7,11 @@ describe('channel_resend contracts', () => {
   it('declares supported module metadata and coordinated versions', () => {
     expect(metadata).toEqual(expect.objectContaining({
       id: 'channel_resend',
-      version: '0.6.6',
+      version: '0.1.0',
       requires: ['communication_channels', 'integrations'],
     }))
     expect(integration).toEqual(expect.objectContaining({
-      version: '0.6.6',
+      version: '0.1.0',
       healthCheck: { service: 'channelResendHealthCheck' },
     }))
     expect(metadata).not.toHaveProperty('dependencies')

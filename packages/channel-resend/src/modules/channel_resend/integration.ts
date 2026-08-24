@@ -12,7 +12,7 @@ export const integration: IntegrationDefinition = {
   icon: 'mail',
   docsUrl: 'https://resend.com/docs',
   package: '@open-mercato/channel-resend',
-  version: '0.6.6',
+  version: '0.1.0',
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',

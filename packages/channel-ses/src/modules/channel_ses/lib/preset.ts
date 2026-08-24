@@ -1,8 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { normalizeEnvString, resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
+import { ensureSystemEmailChannel } from '@open-mercato/core/modules/communication_channels/lib/ensure-system-email-channel'
 import { sesCapabilities } from '../capabilities'
 
 type PresetScope = {
@@ -49,45 +48,12 @@ export async function applySesEnvPreset(ctx: PresetScope): Promise<void> {
     userId: null,
   })
 
-  const dscope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-  const existing = await findOneWithDecryption(
-    ctx.em,
-    CommunicationChannel,
-    {
-      providerKey: 'ses',
-      channelType: 'email',
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      userId: null,
-      deletedAt: null,
-    },
-    undefined,
-    dscope,
-  )
-
-  if (existing) {
-    existing.displayName = 'Amazon SES system email'
-    existing.externalIdentifier = preset.fromAddress
-    existing.capabilities = { ...sesCapabilities }
-    existing.isActive = true
-    existing.status = 'connected'
-    existing.lastError = null
-    await ctx.em.flush()
-    return
-  }
-
-  const channel = ctx.em.create(CommunicationChannel, {
-    providerKey: 'ses',
-    channelType: 'email',
-    displayName: 'Amazon SES system email',
-    externalIdentifier: preset.fromAddress,
-    capabilities: { ...sesCapabilities },
-    isActive: true,
-    status: 'connected',
-    userId: null,
-    pollIntervalSeconds: null,
+  await ensureSystemEmailChannel(ctx.em, {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
+    providerKey: 'ses',
+    externalIdentifier: preset.fromAddress,
+    displayName: 'Amazon SES system email',
+    capabilities: { ...sesCapabilities },
   })
-  await ctx.em.persist(channel).flush()
 }

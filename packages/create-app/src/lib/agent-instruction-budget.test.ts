@@ -221,7 +221,7 @@ test('generated classic Codex root and representative initial chains fit their b
     // point, and the pointer-form fallback was accepted deliberately. The routing line below
     // survives both forms, so the cost is one directory listing; develop already had no headroom
     // left after warranty_claims, so trimming prose here would have lasted until the next module.
-    // Reclaiming real headroom is tracked as a separate harness change.
+    // Reclaiming real headroom so the index can be enumerated again is tracked in #5437.
     assert.equal(
       shedIndex,
       true,

@@ -12,7 +12,7 @@ export const integration: IntegrationDefinition = {
   icon: 'mail',
   docsUrl: 'https://docs.aws.amazon.com/ses/',
   package: '@open-mercato/channel-ses',
-  version: '0.6.6',
+  version: '0.1.0',
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
