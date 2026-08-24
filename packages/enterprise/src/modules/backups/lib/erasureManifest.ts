@@ -14,6 +14,7 @@ export class ErasureManifestService implements ErasureManifestServiceContract {
     organizationId: string
     subjectKind: string
     subjectId: string
+    dataClassIds?: string[]
     executedAt: Date
   }): Promise<void> {
     const entry: ErasureManifestEntry = {
@@ -23,6 +24,9 @@ export class ErasureManifestService implements ErasureManifestServiceContract {
       organizationId: requireValue(input.organizationId, 'organizationId'),
       subjectKind: requireValue(input.subjectKind, 'subjectKind'),
       subjectId: requireValue(input.subjectId, 'subjectId'),
+      ...(input.dataClassIds
+        ? { dataClassIds: Array.from(new Set(input.dataClassIds.map((id) => requireValue(id, 'dataClassId')))).sort() }
+        : {}),
       executedAt: input.executedAt.toISOString(),
     }
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
@@ -83,6 +87,10 @@ function isEntry(value: unknown): value is ErasureManifestEntry {
     && typeof entry.organizationId === 'string'
     && typeof entry.subjectKind === 'string'
     && typeof entry.subjectId === 'string'
+    && (entry.dataClassIds === undefined || (
+      Array.isArray(entry.dataClassIds)
+      && entry.dataClassIds.every((id) => typeof id === 'string' && id.trim().length > 0)
+    ))
     && typeof entry.executedAt === 'string'
     && Number.isFinite(new Date(entry.executedAt).getTime())
 }

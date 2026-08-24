@@ -5,6 +5,7 @@ import type { PrivacyDataClassHandler } from '@open-mercato/shared/lib/privacy'
 import { PrivacyPolicyService } from './services/policyService'
 import { PrivacyLegalHoldService } from './services/legalHoldService'
 import { PrivacyGovernanceService } from './services/governanceService'
+import { PrivacyRestoreReapplicationService } from './services/restoreReapplicationService'
 
 export function register(container: AppContainer) {
   container.register({
@@ -23,5 +24,13 @@ export function register(container: AppContainer) {
         ? container.resolve('erasureManifestService')
         : null,
     })).scoped(),
+    privacyRestoreReapplicationService: asFunction((
+      privacyGovernanceService: PrivacyGovernanceService,
+    ) => new PrivacyRestoreReapplicationService(
+      privacyGovernanceService,
+      () => container.hasRegistration('erasureManifestService')
+        ? container.resolve('erasureManifestService')
+        : null,
+    )).scoped(),
   })
 }

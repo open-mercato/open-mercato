@@ -82,6 +82,7 @@ export type ErasureManifestEntry = {
   organizationId: string
   subjectKind: string
   subjectId: string
+  dataClassIds?: string[]
   executedAt: string
 }
 

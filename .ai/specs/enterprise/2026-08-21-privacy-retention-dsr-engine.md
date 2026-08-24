@@ -83,7 +83,9 @@ The command rejects payload scope that differs from the schedule context. `dryRu
 
 The `backups` module owns an append-only filesystem manifest. A successful erasure appends one entry. Verification and restore return entries executed after the selected backup completed. The CLI prints the list and uses a distinct exit code so an operator cannot miss the required reapplication step.
 
-The restore list is advisory. It never deletes data automatically.
+The restore list is advisory until an operator runs `data_erasure restore-reapply`. The command defaults to dry-run, rechecks legal holds, preserves the original tenant, organization, subject, and known data-class scope, and requires `--apply --confirm REAPPLY_RESTORED_ERASURES` before deleting. It also refuses to start unless the active `DATABASE_URL` identifies the same host, port, and database as `OM_BACKUP_RESTORE_DATABASE_URL`.
+
+Older manifest entries without `dataClassIds` are reapplied to every currently registered data class that supports erasure for the recorded subject kind. New entries record the successfully executed data classes. Reapplication does not append another manifest entry, so repeated restore exercises do not multiply the durable action list.
 
 ## API Surface
 
@@ -111,6 +113,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 4. Add the backups erasure manifest and restore report.
 5. Generate module artifacts and validate the affected packages and integration test discovery.
 6. Register a scheduler-safe recurring retention command with strict tenant and organization scope checks.
+7. Add a bounded, dry-run-first restore reapplication command with target-database verification and explicit apply confirmation.
 
 ## Integration Coverage
 
@@ -129,6 +132,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 - the API lifecycle creates real user and customer fixtures, resolves/discovers/exports them, applies anonymization or erasure, and verifies the post-operation state;
 - all fixtures are created and removed by the tests.
 - a scheduled retention run requires `data_erasure.manage`, inherits the schedule tenant and organization, defaults to dry-run, and rejects a mismatched payload scope.
+- restore reapplication refuses a database other than the configured restore target, preserves entry scope, rechecks legal holds, stays bounded, and does not duplicate manifest entries.
 
 ## Migration and Backward Compatibility
 
@@ -152,6 +156,8 @@ The migration creates new Enterprise tables only. It does not change existing bu
 | Partial multi-module erasure | Reports record each class result. Re-execution is idempotent and uses a new operation row. |
 | A recurring schedule runs with stale or forged scope | Scheduler re-authorizes its creator on every run and the command verifies tenant and organization against the schedule-bound context. |
 | A schedule begins deleting data immediately after creation | Scheduled retention defaults to dry-run; apply mode must be explicitly selected in the schedule payload. |
+| Erasure replay targets the live database instead of the restored database | The CLI compares the active and configured restore database identities before opening a request container. |
+| Restore replay bypasses a later legal hold | Every entry returns through the normal subject-erasure path and evaluates current legal holds. |
 
 ## Relationship to the Existing Erasure Spec
 
@@ -163,3 +169,4 @@ This specification implements and broadens `.ai/specs/enterprise/2026-07-08-gdpr
 - 2026-08-21: Implemented registry and Core handlers, Enterprise policies/legal holds/DSR orchestration, restore manifest reporting, module flags, migration, unit coverage, and Playwright API coverage. Full ephemeral execution remains blocked before Playwright by the pre-existing application Client Component build graph.
 - 2026-08-24: Extended SEC-010 with opt-in time-based retention for inactive users and people, current-actor exclusion, email-to-subject resolution, and real-record API lifecycle coverage.
 - 2026-08-24: Added scope-bound recurring retention through the existing Scheduler, with per-run RBAC and dry-run by default.
+- 2026-08-24: Added controlled post-restore erasure reapplication with database-target verification, bounded batches, current legal-hold checks, and explicit apply confirmation.
