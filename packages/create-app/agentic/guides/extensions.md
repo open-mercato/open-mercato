@@ -7,7 +7,7 @@ Use the smallest extension mechanism that preserves installed-module ownership. 
 Resolve an installed extension in this order:
 
 1. Choose the mechanism by intent below; the mechanism decides which contribution kind and host capability are required.
-2. Open only the named target module sheet at `.ai/guides/modules/<module>.md`. Its `UMES hosts` rows prove mountable exact/pattern targets; its `UMES contributions` rows preserve activation, phases/operations, feature and scope contracts, specialist routes, correlation resolution, and read/write/UI `roundTripId` links.
+2. Open only the named target module sheet at `.ai/guides/modules/<module>/index.md`. Its `UMES hosts` rows prove mountable exact/pattern targets; its `UMES contributions` rows preserve activation, phases/operations, feature and scope contracts, specialist routes, correlation resolution, and read/write/UI `roundTripId` links.
 3. For global shell, menu, dashboard, notification, or integration surfaces, use `.ai/guides/framework-extension-points.md`. Do not assign a framework-owned host to a business module or invent a `$framework` module.
 4. Follow a contribution's `fact-ref` or `specialistRoute` to the existing event/entity/API/command/search/AI/provider facts and owning specialist route. A specialized registry is not evidence for a generic widget target.
 5. Use `om-framework-context` for one named unresolved installed-version gap only. An `optional-external` target is explicit provenance and must degrade when its owner package is absent; an `unresolved` first-party target is a blocker, not permission to guess.

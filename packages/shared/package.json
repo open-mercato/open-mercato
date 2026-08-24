@@ -40,6 +40,10 @@
       "types": "./src/lib/bootstrap/dynamicLoader.ts",
       "default": "./dist/lib/bootstrap/dynamicLoader.js"
     },
+    "./lib/auth/principal-service": {
+      "types": "./src/lib/auth/principal-service.ts",
+      "default": "./dist/lib/auth/principal-service.js"
+    },
     "./lib/webhooks": {
       "types": "./src/lib/webhooks/index.ts",
       "default": "./dist/lib/webhooks/index.js"
@@ -106,8 +110,10 @@
     "@mikro-orm/decorators": "^7.1.8",
     "@mikro-orm/postgresql": "^7.1.8",
     "@open-mercato/cache": "workspace:*",
+    "@types/html-to-text": "^9.0.4",
     "@types/sanitize-html": "^2.16.1",
     "dotenv": "^17.4.2",
+    "html-to-text": "^10.0.0",
     "pino": "^10.3.1",
     "rate-limiter-flexible": "^11.2.0",
     "re2js": "2.8.6",

@@ -85,6 +85,9 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'resources:ResourcesResource': { status: 'enabled', resourceKind: 'resources.resource', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes sub-resource sends the lock header (Phase 7); tags exempt.' },
   'resources:ResourcesResourceType': { status: 'enabled', resourceKind: 'resources.resource_type', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
 
+  // --- devices ---
+  'devices:UserDevice': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — user devices are per-owner rows (rename/deactivate by the owning user or an admin), not a shared collaborative-edit surface; the hand-written deviceOps routes enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor (allowlisted in optimistic-lock-command-coverage). Enterprise record_locks migration deferred.' },
+
   // --- dictionaries ---
   'dictionaries:Dictionary': { status: 'enabled', resourceKind: 'dictionaries.dictionary', reason: 'enabled — Phase 6; routes migrated to the async command seam.' },
   'dictionaries:DictionaryEntry': { status: 'enabled', resourceKind: 'dictionaries.entry', reason: 'enabled — Phase 6; entry routes migrated to the async command seam; reorder/set-default exempt.' },
@@ -116,6 +119,18 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
 
   // --- messages ---
   'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
+
+  // --- warranty_claims ---
+  'warranty_claims:WarrantyClaim': { status: 'enabled', resourceKind: 'warranty_claims.claim', reason: 'enabled — CRUD decorator (floor + record_locks); triage-workspace guarded mutations use resourceKind warranty_claims.claim; action endpoints enforce the command-level lock on the parent claim.' },
+  'warranty_claims:WarrantyClaimLine': { status: 'enabled', resourceKind: 'warranty_claims.claim_line', reason: 'enabled — lines edit via their own CRUD decorator route (per-line updatedAt lock header); parent-claim status guard blocks writes on terminal claims.' },
+  'warranty_claims:WarrantyClaimSettings': { status: 'enabled', resourceKind: 'warranty_claims.settings', reason: 'enabled — the settings page is a hand-written form whose save wraps buildOptimisticLockHeader(generalSettings.updatedAt) and enforces the command-level updated_at floor; the header is omitted only on first save, when no row exists yet.' },
+  'warranty_claims:WarrantyClaimRegistration': { status: 'enabled', resourceKind: 'warranty_claims.registration', reason: 'enabled — CrudForm edit page spreads the full record into initialValues, so the lock header is auto-derived from updatedAt on update and delete; the CRUD route projects and returns updatedAt.' },
+  'warranty_claims:WarrantyVendorPolicy': { status: 'enabled', resourceKind: 'warranty_claims.vendor_policy', reason: 'enabled — CrudForm edit page auto-derives the lock header from initialValues.updatedAt; the CRUD route projects and returns updatedAt.' },
+  'warranty_claims:WarrantyTroubleshootingGuide': { status: 'enabled', resourceKind: 'warranty_claims.troubleshooting_guide', reason: 'enabled — CrudForm edit page auto-derives the lock header from initialValues.updatedAt; the CRUD route projects and returns updatedAt.' },
+
+  // --- notifications ---
+  'notifications:NotificationTypeOverride': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — a tenant-scoped operator override edited only via the custom `PATCH /api/notifications/types` handler (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and 409s a stale write on the shared conflict banner. Enterprise record_locks migration deferred.' },
+  'notifications:NotificationPreference': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — per-(user, type, channel) preference rows a user edits only for themselves (not a shared collaborative-edit surface); written via the idempotent `setPreferences` upsert, which is last-writer-wins by design. Carries updated_at for the OSS floor; tenant/org record_locks enrichment is not engaged.' },
 }
 
 /**

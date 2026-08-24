@@ -57,6 +57,11 @@ export function generateCodex(config: AgenticConfig): void {
     writeFileSync(agentsPath, agents)
   }
 
+  if (config.experimentalHooksValidator) {
+    copyFile('hooks.json', join(targetDir, '.codex', 'hooks.json'))
+    copyFile('hooks/gate-evidence.mjs', join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+  }
+
   // .codex/mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.codex', 'mcp.json.example'))
 

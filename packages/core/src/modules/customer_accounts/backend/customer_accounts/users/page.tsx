@@ -41,6 +41,7 @@ type UsersResponse = {
   items?: UserRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null | undefined, fallback: string): string {
@@ -235,6 +236,7 @@ export default function CustomerAccountsPage() {
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -314,6 +316,7 @@ export default function CustomerAccountsPage() {
         setRows(items)
         setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload?.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : t('customer_accounts.admin.error.loadUsers', 'Failed to load customer users')
@@ -579,7 +582,7 @@ export default function CustomerAccountsPage() {
               ]}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
         <CreateUserDialog

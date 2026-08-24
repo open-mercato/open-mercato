@@ -95,6 +95,6 @@ yarn install-skills
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 48-case read-only portability lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
+Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 49-case read-only portability lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
 
 If live capacity is unavailable, record the tool/version/model and sanitized provider error. Do not convert availability failure into a passing routing result.

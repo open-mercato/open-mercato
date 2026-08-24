@@ -1,8 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getGatewayAdapter, type WebhookEvent } from '@open-mercato/shared/modules/payment_gateways/types'
+import { isTrustedWebhookDispatch } from '@open-mercato/shared/lib/queue/dispatchOrigin'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import type { PaymentGatewayService } from './gateway-service'
 import { claimWebhookProcessing, releaseWebhookClaim } from './webhook-utils'
+
+const logger = createLogger('payment_gateways').child({ component: 'webhook-processor' })
 
 export type PaymentGatewayWebhookJobPayload = {
   providerKey: string
@@ -53,6 +57,13 @@ export async function processPaymentGatewayWebhookJob(
 ): Promise<void> {
   const { em, paymentGatewayService, integrationLogService } = deps
   const { providerKey, event } = payload
+  // Fail closed on untrusted dispatch origins (#5213): only jobs enqueued by the
+  // inbound webhook route (signature verified) may drive payment state. Jobs that
+  // arrive through any other path — e.g. a scheduled queue target — are dropped.
+  if (!isTrustedWebhookDispatch(payload)) {
+    logger.error('Dropping webhook job with missing or untrusted dispatch origin', { providerKey, eventType: event?.eventType ?? null })
+    return
+  }
   // Scope MUST come from the trusted route layer (derived from a verified GatewayTransaction).
   // Never fall back to attacker-controlled metadata on `event.data.metadata` — that was the
   // vector that allowed forged mock webhooks to mutate another tenant's payment state.

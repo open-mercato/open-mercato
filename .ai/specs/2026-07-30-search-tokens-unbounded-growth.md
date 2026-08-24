@@ -118,7 +118,7 @@ source-compatible. Missing fields resolve to the safe defaults above.
 |---|---|---|---|
 | Search terms beyond a configured field or token limit are omitted | Medium | Conservative defaults and explicit tuning variables | Operators must raise a limit when deep-document recall is more important than bounded index size |
 | Two application processes can schedule the same reindex | Low | The cooldown removes the per-request stampede in each process; the existing active-job guard prevents duplicate active work | A small number of redundant persistent events may still be queued during cross-process races |
-| Concurrent token replacements can leave temporary duplicate rows | Low | Queries use existence semantics and the next non-overlapping replacement heals duplicates | Rare duplicates can consume space until the next replacement |
+| Concurrent token replacements can leave temporary duplicate rows | Low | Queries use existence semantics and the next non-overlapping replacement heals duplicates. Since #5402 the batch path skips records whose tokens are unchanged, so "the next replacement" no longer happens unconditionally — the skip compares token *multiplicities* rather than a set, and a stored row count above the built count forces a full rewrite of the scope bucket, so a duplicated record is still routed through the healing rewrite | Rare duplicates can consume space until the next replacement. A duplicated record now also costs its whole scope bucket a rewrite, because the bounded pre-read stops at the built row count rather than reading far enough to identify which record is duplicated |
 | Debounce scope cache grows with tenant churn | Low | The map is capped at 10,000 entries and prunes expired keys | Eviction can allow one additional schedule under extreme scope churn |
 
 ## Migration & Backward Compatibility
@@ -142,6 +142,12 @@ source-compatible. Missing fields resolve to the safe defaults above.
 
 ## Changelog
 
+- 2026-08-20: Noted in the risk table how #5402 (skip rewriting unchanged search
+  tokens) interacts with duplicate healing: the batch path no longer rewrites
+  unconditionally, so healing now depends on the multiplicity comparison and on
+  the bounded pre-read falling back to a full bucket rewrite. The pre-read is
+  bounded by the built row count, which `OM_SEARCH_MAX_TOKENS_PER_RECORD` already
+  caps, so it does not reintroduce an unbounded read of this table.
 - 2026-08-02: Added regression coverage for distinct array-field token budgets
   and duplicated module instances, and completed the canonical environment
   setting references.
