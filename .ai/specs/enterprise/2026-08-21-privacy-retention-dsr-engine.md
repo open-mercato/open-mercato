@@ -4,7 +4,7 @@
 
 SEC-010 adds a common way to describe data classes and the privacy operations each module supports. MIT Core owns the contracts and module-owned handlers. Enterprise owns tenant policies, legal holds, retention execution, data-subject requests, operation reports, and restore follow-up.
 
-The first supported data classes are access logs, application users, and customer people. All three support bounded retention. Users and people also support discovery, export, erasure, anonymization, and email-to-subject resolution. New modules can register another class without changing the Enterprise engine.
+The first supported data classes are access logs, application users, and customer people. All three support bounded retention. Users and people also support discovery, export, erasure, anonymization, and email-to-subject resolution. New modules can register another class without changing the Enterprise engine. Active policies can be run periodically through the existing Scheduler module using an explicitly allowlisted, scope-bound command.
 
 ## Implementation Status
 
@@ -66,6 +66,12 @@ The service resolves a handler by its registered DI key. It never queries anothe
 
 Subject export data is returned to the authorized caller and is not stored in the operation report. Reports store only class ids, counts, timing, and errors.
 
+### Recurring retention
+
+The Enterprise module registers `data_erasure.retention.run` as a scheduler-safe command. An administrator creates an organization-scoped schedule in the existing Scheduler UI and supplies `policyId`, `dryRun`, and `maxBatches` as its target payload. Scheduler binds the tenant, organization, and authenticated schedule creator to the command context, then checks that the creator still has `data_erasure.manage` before each run.
+
+The command rejects payload scope that differs from the schedule context. `dryRun` defaults to `true`, so a newly configured schedule previews retention until the operator explicitly changes the payload to `dryRun: false`. The normal policy checks, legal holds, bounded batches, module-owned handlers, and PII-minimized operation report remain in force.
+
 ## Data Models
 
 - `privacy_retention_policies`: one policy per tenant, organization, and data class; stores retention days, action, batch size, active state, creator, and version timestamps.
@@ -91,6 +97,10 @@ The restore list is advisory. It never deletes data automatically.
 - `POST /api/data_erasure/subjects`
 - `POST /api/data_erasure/subjects/resolve`
 
+Scheduler target command:
+
+- `data_erasure.retention.run`
+
 Every route requires authentication and stable `data_erasure.view` or `data_erasure.manage` features. Mutation routes resolve the active organization, validate input with zod, run within that scope, and use optimistic locking when an existing policy or hold is changed.
 
 ## Implementation Plan
@@ -100,6 +110,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 3. Add the `data_erasure` entities, migration, ACL, setup, services, APIs, CLI, and tests.
 4. Add the backups erasure manifest and restore report.
 5. Generate module artifacts and validate the affected packages and integration test discovery.
+6. Register a scheduler-safe recurring retention command with strict tenant and organization scope checks.
 
 ## Integration Coverage
 
@@ -117,12 +128,13 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 - anonymization removes direct identifiers while preserving the required business record;
 - the API lifecycle creates real user and customer fixtures, resolves/discovers/exports them, applies anonymization or erasure, and verifies the post-operation state;
 - all fixtures are created and removed by the tests.
+- a scheduled retention run requires `data_erasure.manage`, inherits the schedule tenant and organization, defaults to dry-run, and rejects a mismatched payload scope.
 
 ## Migration and Backward Compatibility
 
 The change is additive. Existing cleanup commands, SSO, backup archives, and API routes keep their behavior. The Enterprise module is disabled unless both `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_DATA_ERASURE` are enabled.
 
-The shared registry and generic event ids are new additive contract surfaces. Handler service keys are module-owned. Existing modules that do not register a privacy data class are ignored by the engine.
+The shared registry, generic event ids, scheduler-safe registration exports, and `data_erasure.retention.run` command are new additive contract surfaces. Handler service keys are module-owned. Existing modules that do not register a privacy data class are ignored by the engine.
 
 The migration creates new Enterprise tables only. It does not change existing business records.
 
@@ -138,6 +150,8 @@ The migration creates new Enterprise tables only. It does not change existing bu
 | Exported PII lands in the ledger | Export payloads are returned only in the response. The operation row stores counts only. |
 | A restore resurrects erased data | Erasure entries live outside the database and restore reports all entries newer than the archive. |
 | Partial multi-module erasure | Reports record each class result. Re-execution is idempotent and uses a new operation row. |
+| A recurring schedule runs with stale or forged scope | Scheduler re-authorizes its creator on every run and the command verifies tenant and organization against the schedule-bound context. |
+| A schedule begins deleting data immediately after creation | Scheduled retention defaults to dry-run; apply mode must be explicitly selected in the schedule payload. |
 
 ## Relationship to the Existing Erasure Spec
 
@@ -148,3 +162,4 @@ This specification implements and broadens `.ai/specs/enterprise/2026-07-08-gdpr
 - 2026-08-21: Initial SEC-010 implementation specification.
 - 2026-08-21: Implemented registry and Core handlers, Enterprise policies/legal holds/DSR orchestration, restore manifest reporting, module flags, migration, unit coverage, and Playwright API coverage. Full ephemeral execution remains blocked before Playwright by the pre-existing application Client Component build graph.
 - 2026-08-24: Extended SEC-010 with opt-in time-based retention for inactive users and people, current-actor exclusion, email-to-subject resolution, and real-record API lifecycle coverage.
+- 2026-08-24: Added scope-bound recurring retention through the existing Scheduler, with per-run RBAC and dry-run by default.
