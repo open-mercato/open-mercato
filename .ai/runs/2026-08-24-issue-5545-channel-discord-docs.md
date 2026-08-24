@@ -75,6 +75,8 @@ then re-read the diff.
 
 ## Progress
 
+PR: #5587
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Operator guide
@@ -97,27 +99,69 @@ then re-read the diff.
 Runner: **local** (no compose `app` container running; only `mercato-postgres` / `-redis` /
 `-meilisearch`).
 
-Gate for this docs-only run:
+The full configured gate was run in order, all green:
+
+| # | Command | Result |
+|---|---|---|
+| 1 | `yarn build:packages` | ✅ |
+| 2 | `yarn generate` | ✅ |
+| 3 | `yarn build:packages` | ✅ |
+| 4 | `yarn i18n:check-sync` | ✅ |
+| 5 | `yarn i18n:check-usage` | ✅ |
+| 6 | `yarn typecheck` | ✅ |
+| 7 | `yarn test` | ✅ |
+| 8 | `yarn build:app` | ✅ |
+
+Plus the docs-specific checks:
 
 | Command | Result |
 |---|---|
-| `yarn build` (`apps/docs`, Docusaurus production build — validates every internal link) | ✅ pass |
+| `yarn build` (`apps/docs`, Docusaurus production build — validates every internal link and anchor) | ✅ pass |
 | `node --test __tests__/search-index.test.mjs __tests__/reference-example-module.test.mjs` | ✅ 6/6 pass |
-| Manual re-read of the diff | ✅ done — two factual errors found and fixed (899828d13) |
 
 The build reports one broken anchor, `/installation/wsl2#connecting-wsl2-to-a-windows-hosted-database`.
-It is **pre-existing** and untouched by this branch.
+It is **pre-existing** and untouched by this branch. Both docs commands were re-run after the review
+fixes.
 
-The remaining `validation.commands` entries (`build:packages`, `generate`, the i18n checkers,
-`typecheck`, `test`, `build:app`) cover code surfaces this branch does not touch: the diff is eight
-files, seven of them `.mdx`, plus `apps/docs/sidebars.ts`, which the Docusaurus build loads and
-type-checks as part of the run above.
+### Phase 5: Review pass (`om-auto-review-pr 5587 --autofix`)
 
-### Corrections found while re-reading the diff
+- [x] 5.1 Authoritative review + autofix — a34d4c915, 05d0a7920, d61c59511
 
-- **Invite permission integers.** Drafted from the spec's `67648` / `75840`; the correct OR of
-  `VIEW_CHANNEL` (0x400) + `SEND_MESSAGES` (0x800) + `READ_MESSAGE_HISTORY` (0x10000) +
+Verdict **approve**, no blockers. GitHub refuses self-approval, so the report was posted as a PR
+comment; a maintainer other than the author still owes the formal approval.
+
+One **major** and four **minor** findings, all fixed in this branch:
+
+- **major — unreachable capabilities presented as working.** The guide claimed channel history,
+  message edit and message delete work. None is reachable: `fetchHistory`'s only caller
+  (`poll-channel.ts:128`) returns early for `realtimePush: true` channels, `poll-now` answers 409,
+  `import-history` needs the unimplemented `importHistory()`, and `editMessage` / `deleteMessage`
+  have **no hub call site at all, for any provider**. This is the same defect the spec was corrected
+  for on 2026-08-24 when `threading` was demoted. Fixed in a34d4c915, which also gave the developer
+  guide the general rule: the registry proves the method exists, not that anything calls it.
+- **minor — wrong permission prerequisite.** Said admin access to Integrations; connecting is a
+  profile-page action gated by `communication_channels.connect_user_channel`. Fixed in a34d4c915.
+- **minor — invite permission integers.** Drafted from the spec's `67648` / `75840`; the correct OR
+  of `VIEW_CHANNEL` (0x400) + `SEND_MESSAGES` (0x800) + `READ_MESSAGE_HISTORY` (0x10000) +
   `ADD_REACTIONS` (0x40) is **68672**, and **76864** with `MANAGE_MESSAGES` (0x2000). The spec is
-  wrong; the docs now carry the right numbers.
-- **"Test send" button.** No such control exists — `test-send` is API-only. Replaced with the real
-  request and its actual body schema (`to` / `subject?` / `body?`).
+  wrong. Fixed in 899828d13.
+- **minor — "Test send" button.** No such control exists; `test-send` is API-only. Replaced with the
+  real request and its body schema. Fixed in 899828d13.
+- **minor — replay guard attributed to the wrong surface.** The freshness paragraph sat under the
+  adapter's `verifyWebhook`, which has no replay guard — it lives on the interactions route. Fixed in
+  d61c59511.
+
+### Open finding for the code PR, not fixable here
+
+`capabilities.conversationHistory: true` on the Discord adapter looks unreachable by the same test
+that demoted `threading` to `false`: the flag's only consumer is the polling worker, which
+`realtimePush: true` on the same object disables. Less harmful than the `threading` case (the method
+exists, so registry parity holds and no work is silently dropped), but the same class of
+over-declaration. Deserves a deliberate decision on #4391 — flip it to `false` with a reason, or keep
+it and record why the unreachability is acceptable. Not in this diff, so documented rather than
+fixed; these pages describe the observable behaviour truthfully either way.
+
+Also worth correcting on the #4391 branch: the spec's § Invite the bot carries the wrong permission
+integers, its Interactions Endpoint URL points at `/api/communication_channels/webhook/discord`
+rather than the shipped `/api/channel_discord/interactions`, and it references a
+`register-slash-commands` CLI command `cli.ts` does not define.
