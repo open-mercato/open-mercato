@@ -43,6 +43,7 @@ Ship the verified dashboard comparison-label corrections while keeping issue #54
 ## External References
 
 - Issue #5497: https://github.com/open-mercato/open-mercato/issues/5497
+- Dashboard-only scope note on issue #5497: https://github.com/open-mercato/open-mercato/issues/5497#issuecomment-5389418692
 - PR #5539: https://github.com/open-mercato/open-mercato/pull/5539
 
 ## Progress
