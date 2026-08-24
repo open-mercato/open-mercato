@@ -24,6 +24,28 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Interaction participants may omit `userId` — external calendar guests (#5115)
+
+`interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.
+
+Nothing that was previously accepted is now rejected, and no field was removed from any response. What changes for consumers is that `participants[].userId` in the `GET /api/customers/interactions` response — and in the OpenAPI document generated from `interactionListItemSchema` — is now **optional rather than required**. Every participant that could exist before still carries its `userId`; the key is absent only on guest participants, a row shape that could not be stored until this release.
+
+**Action for API consumers:** treat `participants[].userId` as optional. A generated client or hand-written type that declares it required keeps working until someone in that tenant actually invites an external guest, at which point a strict response validator will reject the payload and a `participant.userId` dereference will yield `undefined`. Identify a participant by `userId` when present and fall back to the normalized (trimmed, lower-cased) `email` otherwise — that is exactly the canonical actor key the platform's own calendar mapping, participant dedupe and conflict detection now use (`lib/calendar/participantIdentity.ts`). No database migration is required: `customer_interactions.participants` is a schemaless JSONB column with no foreign key or constraint.
+
+### CRM deal status filters and closures now use one canonical vocabulary (#5107)
+
+`customer_deals.status` is a lenient text column whose writers disagreed on spelling: UI closure flows persist `win` / `loose`, the AI tool `customers.update_deal_stage` persists `won` / `lost`, and the seeded dictionary also carries `closed`. Deal filtering previously matched whatever spelling the caller sent, so "won" results differed between the CRM list view, the Kanban board, and deals closed through different surfaces.
+
+Three behavior changes ship together — additive on the wire, but visible to operators:
+
+1. **Status filters are expanded through the canonical vocabulary** (`expandDealStatusAliases` in `@open-mercato/core/modules/customers/lib/dealStatus.ts`, shared by the deals list route, the Kanban lane queries, the map route, and the Kanban aggregate route). `win` / `won` both match won deals, `loose` / `lost` both match lost deals, values are matched case-insensitively (each result also keeps the caller's original token), and **the seeded `closed` option now matches the whole terminal set (`win`, `won`, `loose`, `lost`, `closed`) instead of the single literal `closed` status**, which no writer ever persisted. Any other value passes through trimmed, alongside its lower-case form, for exact matching.
+2. **Closing a deal by status alone now records full closure state.** `customers.deals.update` derives `closureOutcome` from a terminal status spelling when the request carries no explicit outcome or stage (UI spellings `win`/`loose` and AI spellings `won`/`lost` behave identically) and relocates the deal to the pipeline's terminal Won/Lost stage when one exists. Conversely, updating an already-closed deal to a non-terminal status without an explicit `closureOutcome` now clears `closureOutcome`, `lossReasonId`, and `lossNotes`.
+3. **The AI mutation-approval card projects these derived writes** (terminal stage, closure outcome, cleared loss columns), so what the operator approves matches what the command persists.
+
+No API route, method, request field, or response field was removed; the aggregate route's accepted `status` values were widened. On `GET /api/customers/deals/aggregate` an injected `status = 'open'` for `isOverdue=true` is now suppressed when the caller supplies an explicit status filter (matching `GET /api/customers/deals`), so combined overdue+status lane header counts change accordingly. A deal moved into a terminal stage by Kanban drag-and-drop keeps its previous status — it is placed by stage but not matched by status filters until it is closed through a closure flow; recording that gap is deliberate, and automating status on drag is future work. Existing rows closed by the AI tool before this change keep their stored status and lane — they match the corrected filters via spelling expansion but are not retroactively moved to a terminal stage; re-saving such a deal through any closure flow applies the new state. No data backfill runs automatically.
+
+**Action for module authors:** if you filtered deals with raw status spellings outside the shared helpers, prefer `lib/dealStatus.ts` (`expandDealStatusAliases`, `isClosedDealStatus`) so your reads stay consistent with the platform views.
+
 ### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
 
 `loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
@@ -930,6 +952,75 @@ Same root cause as above, in the enterprise `security` module. Because `security
 3. **Enforcement compliance & policies.** `GET /api/security/enforcement/compliance` now requires platform-admin for `scope=platform` (previously it counted users across all tenants) and validates `scope=tenant|organisation` ownership; enforcement policy list/create/update/delete reject foreign-tenant/org scopes for non-super-admins (`403`). The unfiltered `em.find(User, { deletedAt: null })` is unreachable for non-super-admins.
 
 *Action for downstream:* none unless internal tooling relied on a tenant admin viewing other tenants' MFA posture or using `scope=platform` — those calls now require a platform/super-admin. No DB schema change; no ACL feature IDs renamed. Service methods (`MfaAdminService`, `MfaEnforcementService`) gained an **optional** actor-context backstop param — additive, existing callers unaffected. Reuses the core `enforceTenantSelection`/`resolveIsSuperAdmin` helpers, so the enterprise build must be paired with a core that has them (true since ≤ 0.6.4). See [`.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md`](.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md).
+
+### Scheduler queue targets restricted to authorized safe workers (security)
+
+The scheduler job API previously let any user holding `scheduler.jobs.manage` point a
+schedule at **any** registered queue worker with an arbitrary JSON payload, and both
+dispatch paths delivered that payload to the worker nearly verbatim — turning the
+scheduler into a confused deputy for privileged internal operations (e.g. a scheduled
+payload could synthesize Stripe webhook events with attacker-chosen scope).
+
+Queue targeting is now an explicit opt-in:
+
+- A worker declares itself schedulable by adding `schedulerSafe: true` to its
+  `WorkerMeta` (`packages/queue`); the module registry propagates the flag and the
+  scheduler honors it everywhere:
+  - `GET /api/scheduler/targets` advertises only safe queues (response shape unchanged).
+  - Create/update via `/api/scheduler/jobs` rejects any other queue with a validation
+    error on `targetQueue`.
+  - Dispatch re-authorizes before enqueue: module-authored schedules
+    (`sourceType: 'module'`) keep working against their own internal queues;
+    API-authored schedules may only target safe queues.
+- The dispatcher rebuilds tenant/organization authority context server-side. Keys named
+  `scope`, `tenantId`, or `organizationId` — plus every `_`-prefixed envelope key — are
+  stripped from author-supplied payloads at the root and inside the local-strategy
+  `payload` wrapper, then replaced with trusted values derived from the schedule row.
+  Module-authored payloads that already stored their own scope equal to the schedule's
+  scope (communication channels, integrations, data-sync) behave identically.
+- Provenance is now server-owned. `sourceType`/`sourceModule` are no longer accepted
+  from API request bodies (unknown keys are dropped silently): schedules created
+  through `/api/scheduler/jobs` are always user-authored and stamped with the acting
+  user. Module-authored schedules keep targeting internal queues **only while their
+  recorded `sourceModule` still owns the queue in the live module registry AND the row
+  carries no acting-user stamp** (`created_by_user_id IS NULL`) — `schedulerService.register()`
+  never sets one, while every session-authenticated API write does. **Known residual:**
+  a row created before the upgrade by a **non-user-bound API key** also lacks that
+  stamp and is indistinguishable from a genuine registration at rest; such rows still
+  pass the dispatch guard. Audit them after upgrading with
+  `yarn mercato scheduler audit-queue-targets`, which lists every module-authored
+  queue-target row with its current dispatch verdict so unrecognized ALLOWED entries
+  can be disabled. Module-authored schedules also reject API changes to their
+  target/payload; unchanged targets are treated as no-ops so operational edits (name,
+  schedule, enabled) keep working from the backend UI, and legacy user rows pointing at
+  now-unapproved queues can still be disabled from the UI (retargeting or leaving such
+  a row active requires an approved queue).
+- Error-status changes on `PUT /api/scheduler/jobs`: retargeting onto an unapproved
+  queue now returns `422` from the update command instead of a zod `400`, rewriting a
+  module-authored schedule's target returns `403`, and saving a user-authored row in a
+  way that leaves it active on an unapproved queue returns `422`. Clients asserting on
+  `400` for these cases should match the new codes.
+- Opted-in targets can declare per-target creator features via
+  `schedulerRequiredFeatures` in worker metadata and a payload schema through
+  `registerSchedulerQueuePayloadSchema(queue, schema)`; both are enforced when
+  creating/updating schedules and re-checked immediately before dispatch. The shipped
+  `scheduler-test` QA queue demonstrates the full descriptor (`{ message?: string }`
+  plus arbitrary keys).
+- Payment webhook processors now fail closed on untrusted dispatch origins: only jobs
+  enqueued by the inbound webhook route (signature verified) carry the trusted origin
+  marker; scheduler-originated or unmarked jobs are dropped with an error log. Jobs that
+  were already sitting in Redis during an upgrade window will be dropped once. The
+  route now enqueues the marked payload flat (`queue.enqueue(jobPayload)`), matching
+  `Queue.enqueue(data)` semantics across strategies.
+
+**Action required:** if your module relied on users scheduling work onto one of your
+queues, add `schedulerSafe: true` to that worker's metadata and validate the schedule
+payload shape in the worker; if you enqueued payment webhook jobs from custom code,
+migrate that code to the standard webhook route or mark the payload with
+`markQueueJobOrigin(payload, 'inbound-webhook')` from
+`@open-mercato/shared/lib/queue/dispatchOrigin`.
+
+No database, ACL-feature, API-route-URL, or response-shape changes ship with this fix.
 
 ### New `om-prepare-issue` skill (deferred-work capture)
 
