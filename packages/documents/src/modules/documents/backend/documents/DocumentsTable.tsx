@@ -36,6 +36,7 @@ type DocumentsTableProps = {
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped: boolean
   hasTemplates: boolean
   canCreateDocument: boolean
   canInstantiateTemplate: boolean
@@ -146,6 +147,7 @@ export function DocumentsTable(props: DocumentsTableProps) {
       stickyActionsColumn
       pagination={{
         page: props.page, pageSize: props.pageSize, total: props.total, totalPages: props.totalPages,
+        totalIsCapped: props.totalIsCapped,
         onPageChange: props.onPageChange, onPageSizeChange: props.onPageSizeChange,
       }}
       rowActions={(row) => {

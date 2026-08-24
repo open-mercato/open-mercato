@@ -4,7 +4,7 @@ import type { ActivityType } from './fieldConfig'
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
 export type Participant = {
-  userId: string
+  userId?: string
   name: string
   email?: string
   color?: string
@@ -36,7 +36,7 @@ export type ScheduleActivityEditData = {
   allDay?: boolean | null
   recurrenceRule?: string | null
   recurrenceEnd?: string | null
-  participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  participants?: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
   reminderMinutes?: number | null
   visibility?: string | null
   linkedEntities?: Array<{ id: string; type: string; label: string }> | null
@@ -136,7 +136,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
           Array.isArray(editData.participants)
             ? editData.participants.map((p, i) => ({
                 userId: p.userId,
-                name: p.name ?? p.userId,
+                name: p.name ?? p.email ?? p.userId ?? '',
                 email: p.email,
                 color: PARTICIPANT_COLORS[i % PARTICIPANT_COLORS.length],
                 status: (p.status ?? 'pending') as RsvpStatus,
@@ -219,8 +219,8 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
     setReminderMinutes(DEFAULT_REMINDER_MINUTES[activityType])
   }, [activityType, editData, open])
 
-  const removeParticipant = React.useCallback((userId: string) => {
-    setParticipants((prev) => prev.filter((p) => p.userId !== userId))
+  const removeParticipant = React.useCallback((index: number) => {
+    setParticipants((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
   const toggleRecurrenceDay = React.useCallback((index: number) => {

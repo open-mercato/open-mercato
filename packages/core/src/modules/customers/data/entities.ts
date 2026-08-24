@@ -650,7 +650,7 @@ export class CustomerInteraction {
   recurrenceEnd?: Date | null
 
   @Property({ name: 'participants', type: 'jsonb', nullable: true })
-  participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  participants?: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
 
   @Property({ name: 'reminder_minutes', type: 'int', nullable: true })
   reminderMinutes?: number | null

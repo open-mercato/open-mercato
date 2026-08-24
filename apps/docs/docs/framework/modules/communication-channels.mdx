@@ -371,6 +371,19 @@ A `ChannelAdapter` is the only thing a provider package must expose. The complet
 - `normalizeInbound(raw)` — provider-native payload → `NormalizedInboundMessage`
 - `capabilities` — declares feature support; validated against implemented methods
 
+### Recipient shape
+
+`capabilities.recipientFormat` tells the hub what an outbound recipient looks like for this provider:
+
+| Value | Hub validation | Use for |
+|---|---|---|
+| `'email'` (default when omitted) | Full email-address validation | Email providers — Gmail, IMAP |
+| `'provider-native'` | Length plus transport safety only — the recipient must match the allowlist `^[A-Za-z0-9._:@+-]+$` and must not contain `..` | Providers addressed by a provider-issued id — e.g. a Discord channel snowflake |
+
+A provider that declares `'provider-native'` owns the format check itself and MUST treat the recipient as untrusted input — the hub deliberately does not know what a valid id looks like for your transport.
+
+The transport-safety check is an **allowlist**, not a denylist, because the recipient reaches adapters that interpolate it into a REST path (Discord posts to `/channels/{recipient}/messages`). Anything outside the permitted set — path separators, query and fragment markers, whitespace, percent-encoded separators such as `%2F`, and control bytes — is rejected before your adapter sees it. If your transport's identifiers need a character outside that set, widen the allowlist in `lib/outbound-recipient.ts` deliberately rather than routing around the check.
+
 ### Optional extensions
 
 - `fetchHistory(input)` — required for polling-based providers (`realtimePush: false`)
