@@ -58,6 +58,15 @@ Nothing changes at runtime beyond the tag name — no prop was added, removed, o
 Request-side contracts are untouched — query parameters, the `sortField` values (`lastSeenAt`, `createdAt`, `updatedAt`, already camelCase), request bodies, and the `POST`/`PUT`/`DELETE` response shapes are unchanged, as are the database columns themselves. The one behavior difference for a caller already reading the snake_case keys is that timestamp columns now always serialize as ISO-8601 strings under both spellings. `push_token` remains absent from every response under either spelling.
 
 **Action for API consumers:** switch to the camelCase keys. A client that keeps reading the snake_case ones works unchanged until the aliases are removed.
+### The lost-deal status is spelled `lost`, not `loose`
+
+`customer_deals.status` used `loose` as its canonical lost-deal spelling, a misspelling of `lost` that no other surface shared: `closure_outcome` stores `lost`, the AI tool `customers.update_deal_stage` writes `lost`, and every operator-facing label reads "Lost". `lost` is now the canonical status. Writers persist it, `canonicalDealStatus` normalizes `loose` to `lost` rather than the reverse, and the seeded `deal_status` and `pipeline_stage` dictionaries ship `{ value: 'lost', label: 'Lost' }`.
+
+Nothing that was previously accepted is now rejected. `loose` remains a read alias in `LOST_DEAL_STATUS_LIST`, `expandDealStatusAliases`, `TERMINAL_PIPELINE_STAGE_LABELS` and the win/loss SQL, so a status filter, a KPI count and a closure-outcome derivation all behave identically whichever spelling a row carries. The deal `status` field was already a free-form `z.string().max(50)`, and the `closureOutcome` enum (`won` / `lost`) is unchanged.
+
+`Migration20260824180000_deal_status_lost` rewrites stored `loose` values in `customer_deals.status` and `customer_deals.pipeline_stage`, renames the `loose` dictionary entry for the `deal_status` and `pipeline_stage` kinds, and replaces the seeded `Loose` stage label with `Lost`. It deletes nothing. A dictionary entry is left alone when the same scope already holds a `lost` entry, because `customer_dictionary_entries_unique` covers (organization, tenant, kind, normalized value), and a label is only corrected when it is still the seeded `Loose`, so a tenant that renamed the option keeps its own wording. Rows the migration deliberately skips keep classifying correctly through the read aliases.
+
+**Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
 
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 

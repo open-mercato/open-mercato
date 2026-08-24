@@ -28,6 +28,7 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { Briefcase, AlertTriangle, X } from 'lucide-react'
+import { isLostDealStatus } from '../../../lib/dealStatus'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
@@ -86,7 +87,7 @@ function makeDealsPresets(): FilterPreset[] {
       },
     },
     // The Deal entity has no dedicated "at risk" or health-score field — `customer_deals`
-    // exposes only `status` (open/win/loose/closed/in_progress, dictionary-driven) and
+    // exposes only `status` (open/win/lost/closed/in_progress, dictionary-driven) and
     // `closure_outcome`. Rather than fabricate a mapping, the "At risk" preset is omitted
     // until the data model exposes a first-class signal.
     {
@@ -859,7 +860,7 @@ export default function CustomersDealsPage() {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.won')}</span>
             )
-          } else if (row.original.status === 'loose') {
+          } else if (isLostDealStatus(row.original.status)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
             )
