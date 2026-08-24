@@ -7,6 +7,7 @@ import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import {
   assertActorCanAccessUserTarget,
@@ -313,6 +314,9 @@ export async function PUT(req: Request) {
     throw err
   }
 
+  // An omitted feature list is already stored and in effect. Re-sanitizing it
+  // during an unrelated organization edit would silently revoke grants the
+  // actor did not touch, so only an explicitly submitted list is sanitized.
   const effectiveFeatures = actorIsSuperAdmin || !featuresWereProvided
     ? requestedFeatures
     : sanitizeTenantFeatures(requestedFeatures)
@@ -328,6 +332,16 @@ export async function PUT(req: Request) {
     } else {
       effectiveIsSuperAdmin = existingIsSuperAdmin
     }
+  }
+
+  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && requestedOrganizations !== null) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      error: translate(
+        'auth.acl.organizationWarning',
+        'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.',
+      ),
+    }, { status: 400 })
   }
 
   const hasCustomAcl = effectiveIsSuperAdmin
@@ -442,7 +456,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user ACL',
-      description: 'Configures per-user ACL overrides, including super admin access, feature list, and organization scope.',
+      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. An organization-scoped non-super-admin override requires at least one feature grant.',
       requestBody: {
         contentType: 'application/json',
         schema: putSchema,

@@ -50,6 +50,12 @@ jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
   logCrudAccess: jest.fn(async () => undefined),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback: string) => fallback,
+  })),
+}))
+
 jest.mock('@open-mercato/core/modules/auth/lib/grantChecks', () => ({
   assertActorCanAccessUserTarget: jest.fn(async () => undefined),
   assertActorCanGrantAcl: jest.fn(async () => undefined),
@@ -181,18 +187,75 @@ describe('user ACL sanitized-request reporting', () => {
     })
   })
 
-  it('keeps an organization-only ACL when no override exists yet', async () => {
+  it('rejects an organization-only ACL when no override exists yet', async () => {
     mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
-    mockEm.findOne.mockResolvedValue(null)
+    mockEm.findOne.mockImplementation(async (ctor: unknown) => {
+      if (ctor === User) return { id: TARGET_USER_ID, tenantId: TENANT_ID }
+      return null
+    })
 
     const res = await PUT(partialPutRequest({ organizations: ['org-next'] }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.',
+    })
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('preserves stored super admin access when the field is omitted', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+    mockEm.findOne.mockImplementation(async (ctor: unknown) => {
+      if (ctor === User) return { id: TARGET_USER_ID, tenantId: TENANT_ID }
+      if (ctor === UserAcl) {
+        return {
+          id: 'acl-1',
+          isSuperAdmin: true,
+          featuresJson: [],
+          organizationsJson: null,
+        }
+      }
+      return null
+    })
+
+    const res = await PUT(partialPutRequest({ features: ['catalog.view'] }))
+
+    expect(res.status).toBe(200)
+    expect(commandAclInput()).toMatchObject({
+      isSuperAdmin: true,
+      features: ['catalog.view'],
+      organizations: null,
+      clear: false,
+    })
+  })
+
+  it('explicitly revokes super admin access and clears every ACL dimension', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+    mockEm.findOne.mockImplementation(async (ctor: unknown) => {
+      if (ctor === User) return { id: TARGET_USER_ID, tenantId: TENANT_ID }
+      if (ctor === UserAcl) {
+        return {
+          id: 'acl-1',
+          isSuperAdmin: true,
+          featuresJson: ['catalog.view'],
+          organizationsJson: ['org-existing'],
+        }
+      }
+      return null
+    })
+
+    const res = await PUT(partialPutRequest({
+      isSuperAdmin: false,
+      features: [],
+      organizations: null,
+    }))
 
     expect(res.status).toBe(200)
     expect(commandAclInput()).toMatchObject({
       isSuperAdmin: false,
       features: [],
-      organizations: ['org-next'],
-      clear: false,
+      organizations: null,
+      clear: true,
     })
   })
 })
