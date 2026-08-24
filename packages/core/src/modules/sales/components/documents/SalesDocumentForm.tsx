@@ -660,8 +660,7 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 t={t}
                 onChange={(next) => updateValue('billingAddressDraft', next)}
                 hidePrimaryToggle
-                showPhoneField
-                showTaxIdField
+                showContactFields
               />
               <SwitchField
                 containerClassName="col-span-2"
@@ -1274,7 +1273,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   t={t}
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
-                  showPhoneField
+                  showContactFields
                 />
                 <SwitchField
                   containerClassName="col-span-2"
