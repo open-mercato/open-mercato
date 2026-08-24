@@ -575,4 +575,172 @@ describe('calculateDocumentTotals', () => {
       unregister()
     }
   })
+
+  it('applies a stored discountAmount as the line total, not per unit, on quantity > 1 lines (issue #3757)', async () => {
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: [
+        {
+          kind: 'product',
+          quantity: 3,
+          currencyCode: 'USD',
+          unitPriceNet: 85,
+          discountPercent: 5,
+          discountAmount: 12.75,
+          taxRate: 0,
+        },
+      ],
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.lines[0].discountAmount).toBeCloseTo(12.75, 4)
+    expect(result.lines[0].netAmount).toBeCloseTo(242.25, 4)
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(242.25, 4)
+    expect(result.totals.discountTotalAmount).toBeCloseTo(12.75, 4)
+  })
+
+  it('applies a stored discountAmount unchanged on quantity 1 lines', async () => {
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: [
+        {
+          kind: 'product',
+          quantity: 1,
+          currencyCode: 'USD',
+          unitPriceNet: 85,
+          discountAmount: 12.75,
+          taxRate: 0,
+        },
+      ],
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.lines[0].discountAmount).toBeCloseTo(12.75, 4)
+    expect(result.lines[0].netAmount).toBeCloseTo(72.25, 4)
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(72.25, 4)
+  })
+
+  it('keeps discountPercent-only lines scaling with quantity', async () => {
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: [
+        {
+          kind: 'product',
+          quantity: 1,
+          currencyCode: 'USD',
+          unitPriceNet: 100,
+          discountPercent: 10,
+          taxRate: 0,
+        },
+        {
+          kind: 'product',
+          quantity: 4,
+          currencyCode: 'USD',
+          unitPriceNet: 100,
+          discountPercent: 10,
+          taxRate: 0,
+        },
+      ],
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.lines[0].discountAmount).toBeCloseTo(10, 4)
+    expect(result.lines[0].netAmount).toBeCloseTo(90, 4)
+    expect(result.lines[1].discountAmount).toBeCloseTo(40, 4)
+    expect(result.lines[1].netAmount).toBeCloseTo(360, 4)
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(450, 4)
+    expect(result.totals.discountTotalAmount).toBeCloseTo(50, 4)
+  })
+
+  it('clamps a stored discountAmount that exceeds the line subtotal', async () => {
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: [
+        {
+          kind: 'product',
+          quantity: 2,
+          currencyCode: 'USD',
+          unitPriceNet: 50,
+          discountAmount: 500,
+          taxRate: 0,
+        },
+      ],
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.lines[0].discountAmount).toBeCloseTo(100, 4)
+    expect(result.lines[0].netAmount).toBeCloseTo(0, 4)
+  })
+
+  it('stays stable when the persisted discountAmount is fed back into repeated recalculations (issue #3757)', async () => {
+    let storedDiscountAmount: number | null = null
+
+    for (let pass = 0; pass < 5; pass += 1) {
+      const result = await calculateDocumentTotals({
+        documentKind: 'order',
+        lines: [
+          {
+            kind: 'product',
+            quantity: 3,
+            currencyCode: 'USD',
+            unitPriceNet: 85,
+            discountPercent: 5,
+            discountAmount: storedDiscountAmount,
+            taxRate: 0,
+          },
+        ],
+        adjustments: [],
+        context: { ...baseContext, metadata: {} },
+      })
+
+      expect(result.lines[0].discountAmount).toBeCloseTo(12.75, 4)
+      expect(result.lines[0].netAmount).toBeCloseTo(242.25, 4)
+      storedDiscountAmount = result.lines[0].discountAmount
+    }
+  })
+
+  it('keeps the order subtotal net consistent with gross after return credits on a discounted multi-unit line (issue #3757)', async () => {
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: [
+        {
+          kind: 'product',
+          quantity: 3,
+          currencyCode: 'USD',
+          unitPriceNet: 85,
+          discountPercent: 5,
+          discountAmount: 12.75,
+          taxRate: 0,
+          totalNetAmount: 242.25,
+          totalGrossAmount: 242.25,
+        },
+      ],
+      adjustments: [
+        {
+          scope: 'line',
+          kind: 'return',
+          amountNet: 20.1,
+          amountGross: 20.1,
+          currencyCode: 'USD',
+        },
+        {
+          scope: 'line',
+          kind: 'return',
+          amountNet: 15,
+          amountGross: 15,
+          currencyCode: 'USD',
+        },
+      ],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(207.15, 4)
+    expect(result.totals.subtotalGrossAmount).toBeCloseTo(207.15, 4)
+    expect(result.totals.grandTotalNetAmount).toBeCloseTo(207.15, 4)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(207.15, 4)
+  })
 })

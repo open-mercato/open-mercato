@@ -85,14 +85,25 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
     (line.unitPriceGross !== null && line.unitPriceGross !== undefined
       ? toNumber(line.unitPriceGross) / (1 + taxRate)
       : 0)
-  const discountPerUnit =
+  const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity
+  // `discountAmount` is a per-LINE total everywhere it is produced or consumed:
+  // the write path persists this function's own `discountTotal` back into it and
+  // the UI validates it against `percent * unitPriceNet * quantity`. Reading it
+  // as a per-unit rate and multiplying by `quantity` inflated the discount
+  // `quantity`-fold on multi-unit lines, clamping their net contribution to 0
+  // while gross stayed correct (#3757). The percent branch is unchanged:
+  // `percent / 100 * unitNet * quantity` is the same value as
+  // `percent / 100 * netSubtotalBeforeDiscount`.
+  const discountRequested =
     line.discountAmount ??
     (line.discountPercent !== null && line.discountPercent !== undefined
-      ? toNumber(line.discountPercent, 0) / 100 * toNumber(unitNet, 0)
+      ? toNumber(line.discountPercent, 0) / 100 * netSubtotalBeforeDiscount
       : 0)
 
-  const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity
-  const discountTotal = Math.min(Math.max(discountPerUnit * quantity, 0), netSubtotalBeforeDiscount)
+  const discountTotal = Math.min(
+    Math.max(toNumber(discountRequested, 0), 0),
+    netSubtotalBeforeDiscount
+  )
   const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0)
   const explicitTaxAmount = line.taxAmount !== null && line.taxAmount !== undefined
   let taxAmount = explicitTaxAmount
