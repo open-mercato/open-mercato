@@ -779,7 +779,10 @@ body[data-ai-chat-open="true"] .om-demo-feedback-floating {
 }
 .om-mdx-editor [role="toolbar"] [role="combobox"] {
   height: 1.75rem;
-  max-width: 7rem;
+  /* Vendor CSS pins a wide min-width on the select — unlayered again, so both
+     constraints need !important for the toolbar to hold one row at 640px. */
+  min-width: 0 !important;
+  max-width: 6rem !important;
   font-size: 0.8125rem;
 }
 .om-mdx-prose {
