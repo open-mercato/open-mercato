@@ -13,5 +13,10 @@
   "channel_discord.connect.fields.publicKey": "Clave pública",
   "channel_discord.connect.save": "Conectar",
   "channel_discord.connect.title": "Conectar bot de Discord",
+  "channel_discord.interactions.commandReceived": "Recibido: `/{command}` ya está en la bandeja de entrada de Open Mercato y alguien se encargará desde allí.",
+  "channel_discord.interactions.componentReceived": "Recibido: tu respuesta ya está en la bandeja de entrada de Open Mercato y alguien se encargará desde allí.",
+  "channel_discord.interactions.dispatchFailed": "Open Mercato no ha podido registrar esta interacción ahora mismo. Inténtalo de nuevo en un momento.",
+  "channel_discord.interactions.notDispatchable": "A esta interacción le falta el contexto de canal o de usuario que Open Mercato necesita, así que no se registró.",
+  "channel_discord.interactions.unsupported": "El canal de Discord de Open Mercato no gestiona este tipo de interacción.",
   "channel_discord.provider.label": "Discord"
 }

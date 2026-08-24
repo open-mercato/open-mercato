@@ -13,5 +13,10 @@
   "channel_discord.connect.fields.publicKey": "Öffentlicher Schlüssel",
   "channel_discord.connect.save": "Verbinden",
   "channel_discord.connect.title": "Discord-Bot verbinden",
+  "channel_discord.interactions.commandReceived": "Empfangen — `/{command}` liegt jetzt im Open-Mercato-Posteingang und wird von dort bearbeitet.",
+  "channel_discord.interactions.componentReceived": "Empfangen — Deine Antwort liegt jetzt im Open-Mercato-Posteingang und wird von dort bearbeitet.",
+  "channel_discord.interactions.dispatchFailed": "Open Mercato konnte diese Interaktion gerade nicht erfassen. Bitte versuche es gleich noch einmal.",
+  "channel_discord.interactions.notDispatchable": "Dieser Interaktion fehlt der Kanal- oder Benutzerkontext, den Open Mercato benötigt, daher wurde sie nicht erfasst.",
+  "channel_discord.interactions.unsupported": "Der Discord-Kanal von Open Mercato verarbeitet diesen Interaktionstyp nicht.",
   "channel_discord.provider.label": "Discord"
 }

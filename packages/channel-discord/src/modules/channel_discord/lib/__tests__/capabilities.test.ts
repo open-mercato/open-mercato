@@ -1,6 +1,19 @@
+import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import { discordCapabilities, DISCORD_MAX_BODY_LENGTH } from '../capabilities'
 import { getDiscordRestClient } from '../discord-rest'
 import { convertOutboundForDiscord } from '../convert-outbound'
+import { buildInteractionInboundJob, sendInteractionFollowUp } from '../interactions-dispatch'
+import { handleDiscordInteraction } from '../interactions-handler'
+import { DiscordInteractionResponseType, DiscordInteractionType } from '../interactions-verify'
+
+function makeSigner() {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+  const spki = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
+  return {
+    publicKeyHex: spki.subarray(spki.length - 32).toString('hex'),
+    sign: (message: string) => cryptoSign(null, Buffer.from(message, 'utf-8'), privateKey).toString('hex'),
+  }
+}
 
 /**
  * The hub routes work to the adapter based on these flags, so a capability that
@@ -69,9 +82,79 @@ describe('discordCapabilities honesty', () => {
     expect(withReplyId.metadata?.messageReferenceId).toBe('parent-snowflake')
   })
 
-  it('does not advertise rich blocks or interactive components while the endpoint only defers', () => {
+  it('does not advertise rich blocks — outbound is plain markdown, no embeds are built', () => {
     expect(discordCapabilities.richBlocks).toBe(false)
-    expect(discordCapabilities.interactiveComponents).toBe(false)
+  })
+
+  /**
+   * The parity check issue #4663 asks for. `interactiveComponents: true` claims
+   * three separate things, so this drives all three end to end rather than
+   * asserting the flag against itself: a signed component press is DISPATCHED
+   * (not merely deferred), the dispatch NORMALIZES into the hub's inbound path
+   * under the matched tenant, and the deferred acknowledgement is REPLACED over
+   * Discord's interaction-webhook endpoints. Break any one of them and the flag
+   * has to go back to `false`.
+   */
+  it('advertises interactive components only because a component press really round-trips', async () => {
+    expect(discordCapabilities.interactiveComponents).toBe(true)
+
+    const signer = makeSigner()
+    const timestamp = '1700000000'
+    const rawBody = JSON.stringify({
+      type: DiscordInteractionType.MESSAGE_COMPONENT,
+      id: 'interaction-1',
+      token: 'interaction-token',
+      application_id: 'app-1',
+      channel_id: 'discord-channel-1',
+      member: { user: { id: 'user-1', username: 'ada' } },
+      data: { custom_id: 'escalate', values: ['tier-2'] },
+    })
+
+    // 1. The endpoint answers with a deferred ack AND the work that will replace it.
+    const result = handleDiscordInteraction({
+      rawBody,
+      signatureHex: signer.sign(timestamp + rawBody),
+      timestamp,
+      freshness: { nowEpochSeconds: Number(timestamp) },
+      candidates: [
+        {
+          channelId: 'ch-1',
+          channelType: 'discord',
+          tenantId: 't-1',
+          organizationId: 'o-1',
+          publicKey: signer.publicKeyHex,
+          applicationId: 'app-1',
+          credentialScope: { tenantId: 't-1', organizationId: 'o-1', userId: null },
+        },
+      ],
+    })
+    expect(result.body).toEqual({ type: DiscordInteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE })
+    expect(result.dispatch).not.toBeNull()
+
+    // 2. That dispatch becomes a hub inbound job pinned to the matched tenant.
+    const inboundJob = buildInteractionInboundJob({
+      dispatch: result.dispatch!,
+      channel: { channelId: 'ch-1', channelType: 'discord', tenantId: 't-1', organizationId: 'o-1' },
+    })
+    expect(inboundJob).toMatchObject({ providerKey: 'discord', scope: { tenantId: 't-1', organizationId: 'o-1' } })
+
+    // 3. And the "thinking…" placeholder is really replaced over REST.
+    const editOriginalInteractionResponse = jest.fn(async () => {})
+    const delivery = await sendInteractionFollowUp(
+      { editOriginalInteractionResponse } as unknown as Parameters<typeof sendInteractionFollowUp>[0],
+      { applicationId: 'app-1', interactionToken: result.dispatch!.token, content: 'recorded' },
+    )
+    expect(delivery).toBe('edited-original')
+    expect(editOriginalInteractionResponse).toHaveBeenCalledWith('app-1', 'interaction-token', {
+      content: 'recorded',
+      ephemeral: undefined,
+    })
+
+    // The REST client the adapter actually uses must expose both halves of the
+    // follow-up contract, so a client swap cannot quietly drop them.
+    const restClient = getDiscordRestClient() as unknown as Record<string, unknown>
+    expect(typeof restClient.editOriginalInteractionResponse).toBe('function')
+    expect(typeof restClient.createInteractionFollowUp).toBe('function')
   })
 
   it('keeps the capabilities that are actually backed by adapter methods', () => {

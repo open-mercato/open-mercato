@@ -239,12 +239,14 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
    the platform `Message`, and emits `communication_channels.message.received`.
 2. **Reactions**: `MESSAGE_REACTION_ADD/REMOVE` → `normalizeInboundReaction` →
    reaction-processor (existing hub path).
-3. **Slash commands / buttons**: Discord POSTs to
-   `/api/communication_channels/webhook/discord`; the route fans out across active `discord`
-   channels and calls `adapter.verifyWebhook` (Ed25519). On the initial `PING` (type 1) the route
-   must answer `{ type: 1 }` (PONG); for application commands/components it normalizes to an inbound
-   event. (Note: the existing route returns 202 + enqueues; the spec calls out that the interactions
-   handshake needs a synchronous `{ type: 1 }` body — see § Backward compatibility, hub touch-point.)
+3. **Slash commands / buttons**: Discord POSTs to the provider-owned
+   `/api/channel_discord/interactions`; the route screens the request, fans out Ed25519
+   verification across the active `discord` channels of the claimed application, and pins the
+   tenant to the channel whose public key verifies. The initial `PING` (type 1) is answered
+   synchronously with `{ type: 1 }` (PONG) — which is why the route is provider-owned rather than
+   the hub's generic webhook route, which 202-acks and enqueues. Application commands, components
+   and modal submissions are answered with a deferred ack and dispatched into the SAME hub inbound
+   queue used above — see § Interactions dispatch.
 
 ### Adapter method map
 
@@ -252,7 +254,7 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
 |-------------------------|------------------------|
 | `providerKey` | `'discord'` |
 | `channelType` | `'discord'` (the contract's `channelType` is `'whatsapp' \| 'slack' \| 'email' \| 'sms' \| string` — `'discord'` is allowed as a string) |
-| `capabilities` | **As shipped.** Declared `true`: `recipientFormat: 'provider-native'` (a Discord recipient is a channel snowflake, never an address), `richText: true` (markdown), `reactions: true`, `editMessage: true`, `deleteMessage: true`, `conversationHistory: true`, `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`. Declared **`false`**, because the first release does not implement them and the hub would otherwise route work this adapter silently drops — each with its reason recorded in `lib/capabilities.ts`: `threading` (nothing hub-side writes `replyToExternalId` into *outbound* metadata; it exists only on the inbound normalized shape), `fileSharing` / `inlineImages` (`convertOutbound` drops attachments and the REST client has no multipart upload), `interactiveComponents` (the Interactions endpoint verifies and defers; nothing round-trips yet), plus `multiReactionPerUser`, `typingIndicators`, `presence`, `richBlocks`, `stickers`, `readReceipts`, `deliveryReceipts`, `contactCards`, `locationSharing`, `voiceNotes`. A flag flips back to `true` only in the change that implements it, guarded by the parity test in `lib/__tests__/capabilities.test.ts` |
+| `capabilities` | **As shipped.** Declared `true`: `recipientFormat: 'provider-native'` (a Discord recipient is a channel snowflake, never an address), `richText: true` (markdown), `reactions: true`, `editMessage: true`, `deleteMessage: true`, `conversationHistory: true`, `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`, `interactiveComponents: true` (slash commands, buttons, select menus and modal submissions are dispatched into the hub's inbound queue and answered with a real follow-up — see § Interactions dispatch). Declared **`false`**, because the first release does not implement them and the hub would otherwise route work this adapter silently drops — each with its reason recorded in `lib/capabilities.ts`: `threading` (nothing hub-side writes `replyToExternalId` into *outbound* metadata; it exists only on the inbound normalized shape), `fileSharing` / `inlineImages` (`convertOutbound` drops attachments and the REST client has no multipart upload), plus `multiReactionPerUser`, `typingIndicators`, `presence`, `richBlocks`, `stickers`, `readReceipts`, `deliveryReceipts`, `contactCards`, `locationSharing`, `voiceNotes`. A flag flips back to `true` only in the change that implements it, guarded by the parity test in `lib/__tests__/capabilities.test.ts` |
 | `sendMessage` | REST `POST /channels/{id}/messages` (`Authorization: Bot <token>`) |
 | `verifyWebhook` | Ed25519 verify of interactions POST; **throws** on failure (fail-closed). Plain messages do not arrive here — they come via the gateway worker — so for a non-interaction body it returns `eventType: 'other'` (route acks without tenant-scoped work) |
 | `normalizeInbound` | Discord message object → `NormalizedInboundMessage` (sender id/handle, content, attachments, `replyToExternalId` from `message_reference`) |
@@ -336,12 +338,15 @@ No new hub entities. Discord reuses the hub's existing entities (`CommunicationC
 | Route | Method | Use for Discord |
 |-------|--------|-----------------|
 | `/api/communication_channels/channels/connect/credentials` | POST | Connect a Discord channel with bot token + public key (credential-based connect, same as IMAP). |
-| `/api/communication_channels/webhook/discord` | POST | Discord **Interactions** endpoint (slash commands, buttons, PING handshake). Unauthenticated; Ed25519 verification is the auth. |
 | `/api/communication_channels/channels/{id}/test-send` | POST | Smoke-test outbound to the default channel. |
 | `/api/communication_channels/channels/{id}/import-history` | POST | Optional backlog import via `fetchHistory`. |
 | `/api/communication_channels/messages/{id}/reactions` | POST | Add a reaction (hub → `sendReaction`). |
 
 ### New provider-owned surface
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/channel_discord/interactions` | POST | Discord **Interactions** endpoint (slash commands, buttons, modal submissions, PING handshake). Unauthenticated at the platform layer; Ed25519 verification is the auth, fail-closed. Provider-owned because Discord requires a synchronous PONG the hub's generic webhook route cannot return. |
 
 | File | Purpose |
 |------|---------|
@@ -353,13 +358,59 @@ No new hub entities. Discord reuses the hub's existing entities (`CommunicationC
 | `lib/discord-rest.ts` | REST client (send/edit/delete/reactions/history/`users/@me`). Swappable via `setDiscordRestClient` test hook. |
 | `lib/discord-gateway-client.ts` | Gateway WebSocket client (identify/heartbeat/resume). Swappable via `setDiscordGatewayClient` test hook. |
 | `lib/interactions-verify.ts` | Ed25519 verification (`tweetnacl` or Node `crypto.verify('ed25519', …)`) + PING handling. |
+| `lib/interactions-handler.ts` | Screening gate, per-candidate signature fan-out, tenant pinning, and the response the endpoint returns for each interaction type. |
+| `lib/interactions-dispatch.ts` | Pure builders: read a verified interaction, render it as text, synthesize the hub inbound job, send the follow-up. |
+| `lib/interactions-queue.ts` | `channel_discord_interactions` queue name, job payload type, memoized queue instance. |
+| `lib/slash-commands.ts` | The command definitions `register-slash-commands` registers, plus validation for an operator-supplied JSON list. |
+| `workers/discord-interactions.ts` | Interaction dispatch worker → hub inbound queue + Discord follow-up. |
 | `lib/health.ts` | `channelDiscordHealthCheck` — validates bot token via `GET /users/@me`. |
 | `workers/discord-gateway.ts` | Long-running gateway bridge → hub ingest. |
 | `lib/capabilities.ts` | `ChannelCapabilities` (`realtimePush: true`, `editMessage: true`, `deleteMessage: true`). |
-| `commands/register-slash-commands.ts` | Optional: registers application (slash) commands with Discord on connect. |
+| `cli.ts` → `register-slash-commands` | Registers application (slash) commands against one guild (`PUT /applications/{app}/guilds/{guild}/commands`). Operator-run, not automatic — registration is a per-guild decision. |
 
-All API route files MUST export `openApi` (none are added here — the reused routes already exist).
+All API route files MUST export `openApi`; `api/post/interactions/route.ts` does, and pins its operator-facing path explicitly in `metadata.path`.
 The provider module MUST run `yarn generate` after adding DI/setup/acl/integration files.
+
+### Interactions dispatch (issue #4663)
+
+Discord closes an interaction that is not answered within **three seconds**, and a
+deferred acknowledgement leaves the user looking at "thinking…" until something
+replaces it. Both facts shape the design: the HTTP route does only what is fast
+and synchronous, and the two slow halves — the hub write and the follow-up REST
+call — run in a worker.
+
+| Stage | Where | What it does |
+|-------|-------|--------------|
+| Screen | `lib/interactions-handler.ts` → `screenInteractionRequest` | Rejects on the request alone (missing / malformed signature header, stale timestamp) before any database work. |
+| Verify + pin | `handleDiscordInteraction` | Ed25519 fan-out over the `application_id`-narrowed candidates; the match pins tenant and organization. |
+| Answer | `api/post/interactions/route.ts` | PING → PONG. Dispatchable type → deferred ack **plus** the `dispatch` payload. Autocomplete → empty choice list (Discord rejects a deferred ack there). Anything else, or a payload with no follow-up token / channel / invoking user → an ephemeral "not handled" reply, never a promise the provider cannot keep. |
+| Hand off | route → `lib/interactions-queue.ts` | Enqueues on `channel_discord_interactions` **before** returning the ack; a queue that cannot accept the job downgrades the response to a visible error. |
+| Dispatch | `workers/discord-interactions.ts` | Synthesizes a Discord message object from the interaction, enqueues it on the hub's existing `communication-channels-inbound` queue, then replaces the placeholder over Discord's interaction-webhook endpoints. |
+
+**Dispatchable types:** `APPLICATION_COMMAND` (2), `MESSAGE_COMPONENT` (3) and
+`MODAL_SUBMIT` (5). Each becomes one hub message whose `externalMessageId` is the
+interaction snowflake, so a redelivered interaction dedups instead of duplicating.
+
+**Why a synthesized message rather than a new hub path:** the hub contract stays
+untouched. `inbound-processor` calls `adapter.normalizeInbound` on whatever `raw`
+it is handed, so an interaction lands in the same conversation, under the same
+tenant scope, with the same dedup discipline as anything typed in the channel.
+`normalizeInboundDiscordMessage` adds `discordInteractionId` /
+`discordInteractionType` / `discordCommandName` / `discordComponentCustomId` to
+`channelMetadata` so a consumer can tell a command from a chat message without
+re-parsing `channelPayload`.
+
+**Follow-up:** `PATCH /webhooks/{app}/{token}/messages/@original` first, because
+that is the call that ends the "thinking…" state; `POST /webhooks/{app}/{token}`
+is the fallback when the original response is already gone. Neither carries the
+bot token — the interaction token in the URL is the credential — and the queue
+payload carries a credential *scope*, never a secret, because the local queue
+strategy persists payloads to disk as plain JSON.
+
+**Capability contract:** `interactiveComponents` flips to `true` in the same
+change, pinned by the parity test in `lib/__tests__/capabilities.test.ts`, which
+drives the whole path (dispatch → hub job → follow-up) rather than asserting the
+flag against itself.
 
 ---
 
@@ -402,13 +453,16 @@ In the application's **General Information** tab, set **Interactions Endpoint UR
 hub route:
 
 ```
-https://<your-host>/api/communication_channels/webhook/discord
+https://<your-host>/api/channel_discord/interactions
 ```
 
 Discord immediately sends a signed `PING`; saving succeeds only if the endpoint answers `{ "type": 1 }`
 with a valid Ed25519 verification against the **Public Key**. (Locally, expose the route via a tunnel
 such as `cloudflared` / `ngrok`.) If you only need messages (not slash commands), this step is
 optional — message traffic uses the Gateway, not this endpoint.
+
+Once the endpoint is set and commands are registered (§ 5), a slash command or a button press is
+recorded in the hub inbox and answered in Discord — see § Interactions dispatch.
 
 ### 4. Connect the channel in Open Mercato
 
@@ -435,9 +489,15 @@ CLI command — same pattern as other providers):
 yarn dev
 # 2. Confirm the gateway connected (look for the identify/ready log)
 #    The worker emits communication_channels.channel.requires_reauth on 4004/4014 auth failures.
-# 3. (Optional) register slash commands
-yarn mercato channel_discord register-slash-commands --tenant <tenantId>
+# 3. (Optional) register slash commands for a guild
+yarn mercato channel_discord register-slash-commands --tenant <tenantId> --org <organizationId>
+#    Add --guild <guildId> to override the stored credential, or
+#    --commands <path-to-json> to register your own definitions.
 ```
+
+The dispatch worker (`channel_discord_interactions`) is an ordinary module worker
+picked up by the app's standard worker runner — unlike `start-gateway`, nothing
+has to be started by hand for slash commands to be answered.
 
 ### 6. Test it
 
@@ -554,10 +614,10 @@ up in teardown, no reliance on seeded/demo data). Discord REST + Gateway are stu
 | TC-CHANNEL-DISCORD-002 | Outbound `test-send` | `convertOutbound` + `sendMessage` posts to `defaultChannelId`; `ExternalMessage` + `MessageChannelLink` persisted; `message.sent` emitted. |
 | TC-CHANNEL-DISCORD-003 | Inbound message via gateway worker | A stubbed `MESSAGE_CREATE` → `ingest_inbound` → `message.received`; dedup on replay; bot's own messages ignored. |
 | TC-CHANNEL-DISCORD-004 | Inbound reaction | Stubbed `MESSAGE_REACTION_ADD/REMOVE` → reaction processor; reaction visible on platform message. |
-| TC-CHANNEL-DISCORD-005 | Interactions endpoint security | `PING` with valid Ed25519 → `{ type: 1 }`; tampered signature → 401, no tenant-scoped work; non-interaction body → `eventType: 'other'` ack. |
+| TC-CHANNEL-DISCORD-005 | Interactions endpoint security | `PING` with valid Ed25519 → `{ type: 1 }`; tampered signature → 401, no tenant-scoped work; non-interaction body → `eventType: 'other'` ack; a fully-formed slash command signed by an unknown key → 401, never a deferred ack. |
 | TC-CHANNEL-DISCORD-006 | Contact resolution | Unknown Discord sender creates an external contact; a stored-handle match links to an existing CRM person. |
 | TC-CHANNEL-DISCORD-007 | Health check | `channelDiscordHealthCheck` returns healthy for a valid token stub, unhealthy on `401`. |
-| TC-CHANNEL-DISCORD-008 | Tenant isolation | The shared webhook route's candidate fan-out pins the request to the channel whose public key verifies; a second tenant's Discord channel never receives another tenant's interaction. |
+| TC-CHANNEL-DISCORD-008 | Tenant isolation | The interactions route's candidate fan-out pins the request to the channel whose public key verifies; a second tenant's Discord channel never receives another tenant's interaction. |
 | TC-CHANNEL-DISCORD-009 | AI auto-reply (AI module present) | Easy message → `runAiAgentText` stub → `deliver-outbound-message`; complex message → propose-only, no auto-send. |
 | TC-CHANNEL-DISCORD-010 | AI peer absent | With `ai_assistant` disabled, the subscriber no-ops and inbound still ingests (module-decoupling). |
 
@@ -1022,6 +1082,34 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-08-24 — Interactions dispatch implemented; `interactiveComponents` flips to `true` (issue #4663)
+
+- **New § Interactions dispatch.** The endpoint no longer stops at a deferred
+  acknowledgement. A verified `APPLICATION_COMMAND` / `MESSAGE_COMPONENT` /
+  `MODAL_SUBMIT` is handed to `workers/discord-interactions.ts`, which normalizes
+  it into the hub's existing `communication-channels-inbound` queue as a
+  synthesized Discord message and then replaces the "thinking…" placeholder over
+  Discord's interaction-webhook endpoints. The hub contract is untouched: the
+  interaction reaches the hub through `adapter.normalizeInbound`, exactly like a
+  message typed in the channel.
+- **§ Adapter method map → `capabilities`.** `interactiveComponents` moves from
+  the deliberately-`false` list to the shipped-`true` list, in the same change
+  that makes components round-trip, guarded by a parity test that drives dispatch
+  → hub job → follow-up rather than asserting the flag against itself.
+- **Autocomplete and unhandled types are answered honestly.** Autocomplete gets
+  the empty choice list Discord requires (it rejects a deferred ack there);
+  anything else, and any payload missing the follow-up token / channel / invoking
+  user, gets a visible ephemeral reply. The endpoint never returns a deferred ack
+  it cannot redeem.
+- **§ 3 Set the Interactions endpoint.** The URL was still the hub's generic
+  `/api/communication_channels/webhook/discord`; the shipped route is
+  `/api/channel_discord/interactions`, and operators who copied the old value
+  would have failed the PING handshake.
+- **§ New provider-owned surface.** The speculative
+  `commands/register-slash-commands.ts` row is replaced by the shipped
+  `cli.ts → register-slash-commands` command, and the four new interaction files
+  are listed.
 
 ### 2026-08-24 — Spec re-aligned with the shipped implementation (review of PR #4391)
 

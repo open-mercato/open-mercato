@@ -57,6 +57,18 @@ export function normalizeInboundDiscordMessage(message: DiscordMessageObject): N
       discordAuthorUsername: author?.username,
       discordAuthorGlobalName: author?.global_name ?? undefined,
       discordAuthorIsBot: Boolean(author?.bot),
+      // Only present when the record came from a slash command or a component
+      // press rather than someone typing. A consumer that treats every inbound
+      // message the same can ignore these; one that answers commands
+      // specifically needs to tell them apart without re-parsing `channelPayload`.
+      ...(message.discord_interaction
+        ? {
+            discordInteractionId: message.discord_interaction.id,
+            discordInteractionType: message.discord_interaction.type,
+            discordCommandName: message.discord_interaction.commandName,
+            discordComponentCustomId: message.discord_interaction.customId,
+          }
+        : {}),
     },
   }
 }

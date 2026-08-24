@@ -13,5 +13,10 @@
   "channel_discord.connect.fields.publicKey": "Public key",
   "channel_discord.connect.save": "Connect",
   "channel_discord.connect.title": "Connect Discord bot",
+  "channel_discord.interactions.commandReceived": "Received — `/{command}` is now in the Open Mercato inbox and someone will pick it up from there.",
+  "channel_discord.interactions.componentReceived": "Received — your response is now in the Open Mercato inbox and someone will pick it up from there.",
+  "channel_discord.interactions.dispatchFailed": "Open Mercato could not record this interaction right now. Please try again in a moment.",
+  "channel_discord.interactions.notDispatchable": "This interaction is missing the channel or user context Open Mercato needs, so it was not recorded.",
+  "channel_discord.interactions.unsupported": "The Open Mercato Discord channel does not handle this interaction type.",
   "channel_discord.provider.label": "Discord"
 }

@@ -4,6 +4,7 @@ import {
   freshTimestamp,
   interactionsUrl,
   pingInteractionBody,
+  slashCommandInteractionBody,
   staleTimestamp,
 } from './helpers/discordSignature'
 
@@ -22,13 +23,21 @@ import {
  *  - a signed timestamp outside the replay window → 401 `stale_timestamp`,
  *    which also proves the freshness guard runs BEFORE the per-candidate
  *    verify fan-out (constant cost for a replayed capture)
+ *  - a fully-formed slash command signed by an unknown key → 401, never a
+ *    deferred ack: since #4663 a deferred ack promises a hub write and a
+ *    follow-up, so it must stay strictly behind the signature gate
  *
  * A rejection must never leak which tenants have Discord channels, so the
  * response body is asserted to carry nothing but the error code.
  *
- * The PONG (`{ type: 1 }`) success path needs a channel whose stored public key
- * matches the signer; connecting one requires a live bot token, so that half
- * stays unit-tested in `lib/__tests__/interactions-handler.test.ts`.
+ * The success paths — PONG (`{ type: 1 }`) and the dispatched slash command /
+ * component (`{ type: 5 }` plus the hub job and the Discord follow-up) — need a
+ * channel whose stored public key matches the signer; connecting one requires a
+ * live bot token. That half stays unit-tested, in
+ * `lib/__tests__/interactions-handler.test.ts`,
+ * `lib/__tests__/interactions-dispatch.test.ts`,
+ * `lib/__tests__/capabilities.test.ts` (the capability parity check) and
+ * `workers/__tests__/discord-interactions.test.ts`.
  */
 test.describe('TC-CHANNEL-DISCORD-005: interactions endpoint is fail-closed', () => {
   test('an unsigned interaction is rejected', async ({ request }) => {
@@ -110,6 +119,28 @@ test.describe('TC-CHANNEL-DISCORD-005: interactions endpoint is fail-closed', ()
       await response.json(),
       'the replay guard must answer before any per-candidate verification',
     ).toEqual({ error: 'stale_timestamp' })
+  })
+
+  test('an unverified slash command gets no deferred ack and no dispatch', async ({ request }) => {
+    // The endpoint now DISPATCHES verified commands (issue #4663), which means a
+    // deferred ack is a promise to write into a tenant's hub and post back to
+    // Discord. That promise must stay behind the signature gate: a command
+    // signed by a key no channel stores is rejected exactly like a PING, never
+    // acknowledged with `{ type: 5 }`.
+    const signer = createDiscordSigner()
+    const timestamp = freshTimestamp()
+    const body = slashCommandInteractionBody()
+
+    const response = await request.post(interactionsUrl(), {
+      headers: {
+        'content-type': 'application/json',
+        'x-signature-ed25519': signer.sign(timestamp, body),
+        'x-signature-timestamp': timestamp,
+      },
+      data: body,
+    })
+    expect(response.status(), 'an unverified slash command must be rejected, not deferred').toBe(401)
+    expect(await response.json()).toEqual({ error: 'invalid_signature' })
   })
 
   test('a non-JSON body cannot crash the endpoint', async ({ request }) => {

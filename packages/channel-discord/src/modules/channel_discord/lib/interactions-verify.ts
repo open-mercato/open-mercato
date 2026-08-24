@@ -122,6 +122,9 @@ export const DiscordInteractionResponseType = {
   CHANNEL_MESSAGE_WITH_SOURCE: 4,
   DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: 5,
   DEFERRED_UPDATE_MESSAGE: 6,
+  // Autocomplete is the one interaction type Discord will not accept a deferred
+  // ack for — it must be answered synchronously with this type and a choice list.
+  APPLICATION_COMMAND_AUTOCOMPLETE_RESULT: 8,
 } as const
 
 export interface ParsedInteraction {

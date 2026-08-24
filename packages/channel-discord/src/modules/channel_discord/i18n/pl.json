@@ -13,5 +13,10 @@
   "channel_discord.connect.fields.publicKey": "Klucz publiczny",
   "channel_discord.connect.save": "Połącz",
   "channel_discord.connect.title": "Połącz bota Discord",
+  "channel_discord.interactions.commandReceived": "Odebrano — `/{command}` trafiło do skrzynki Open Mercato i ktoś się tym zajmie.",
+  "channel_discord.interactions.componentReceived": "Odebrano — Twoja odpowiedź trafiła do skrzynki Open Mercato i ktoś się tym zajmie.",
+  "channel_discord.interactions.dispatchFailed": "Open Mercato nie mogło teraz zapisać tej interakcji. Spróbuj ponownie za chwilę.",
+  "channel_discord.interactions.notDispatchable": "Tej interakcji brakuje kontekstu kanału lub użytkownika, którego potrzebuje Open Mercato, więc nie została zapisana.",
+  "channel_discord.interactions.unsupported": "Kanał Discord w Open Mercato nie obsługuje tego typu interakcji.",
   "channel_discord.provider.label": "Discord"
 }

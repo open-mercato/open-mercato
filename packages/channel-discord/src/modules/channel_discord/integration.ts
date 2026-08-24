@@ -53,7 +53,9 @@ export const integration: IntegrationDefinition = {
         type: 'text',
         required: true,
         placeholder: '123456789012345678',
-        helpText: 'Developer Portal → General Information → Application ID. Used to register slash commands.',
+        helpText:
+          'Developer Portal → General Information → Application ID. Used to register slash commands'
+          + ' (mercato channel_discord register-slash-commands) and to answer interactions.',
       },
       {
         key: 'publicKey',
@@ -62,7 +64,8 @@ export const integration: IntegrationDefinition = {
         required: true,
         placeholder: '64-character hex Ed25519 public key',
         helpText:
-          'Developer Portal → General Information → Public Key. Verifies signed interaction requests (slash commands, buttons).',
+          'Developer Portal → General Information → Public Key. Verifies signed interaction requests; a verified'
+          + ' slash command or button press is recorded in the inbox and answered back in Discord.',
       },
       {
         key: 'guildId',

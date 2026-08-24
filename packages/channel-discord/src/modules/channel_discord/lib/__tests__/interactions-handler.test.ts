@@ -1,5 +1,6 @@
 import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import {
+  DEFAULT_INTERACTION_MESSAGES,
   handleDiscordInteraction,
   resolveDiscordInteraction,
   screenInteractionRequest,
@@ -26,10 +27,12 @@ describe('handleDiscordInteraction', () => {
     const rawBody = JSON.stringify({ type: DiscordInteractionType.PING })
     const candidate: InteractionCandidate = {
       channelId: 'ch-1',
+      channelType: 'discord',
       tenantId: 't-1',
       organizationId: 'o-1',
       publicKey: signer.publicKeyHex,
       applicationId: 'app-1',
+      credentialScope: { tenantId: 't-1', organizationId: 't-1', userId: null },
     }
     const result = handleDiscordInteraction({
       rawBody,
@@ -48,10 +51,12 @@ describe('handleDiscordInteraction', () => {
     const rawBody = JSON.stringify({ type: DiscordInteractionType.PING })
     const candidate: InteractionCandidate = {
       channelId: 'ch-1',
+      channelType: 'discord',
       tenantId: 't-1',
       organizationId: null,
       publicKey: signer.publicKeyHex,
       applicationId: 'app-1',
+      credentialScope: { tenantId: 't-1', organizationId: 't-1', userId: null },
     }
     const result = handleDiscordInteraction({
       rawBody,
@@ -67,23 +72,35 @@ describe('handleDiscordInteraction', () => {
   it('pins to the channel whose public key verifies (tenant isolation)', () => {
     const tenantA = makeSigner()
     const tenantB = makeSigner()
-    const rawBody = JSON.stringify({ type: DiscordInteractionType.APPLICATION_COMMAND })
+    const rawBody = JSON.stringify({
+      type: DiscordInteractionType.APPLICATION_COMMAND,
+      id: 'interaction-1',
+      token: 'interaction-token',
+      application_id: 'app-b',
+      channel_id: 'discord-channel-1',
+      member: { user: { id: 'user-1', username: 'ada' } },
+      data: { name: 'mercato' },
+    })
     // Signed with tenant B's key only.
     const signatureHex = tenantB.sign(timestamp + rawBody)
     const candidates: InteractionCandidate[] = [
       {
         channelId: 'ch-a',
+        channelType: 'discord',
         tenantId: 't-a',
         organizationId: null,
         publicKey: tenantA.publicKeyHex,
         applicationId: 'app-a',
+        credentialScope: { tenantId: 't-a', organizationId: 't-a', userId: null },
       },
       {
         channelId: 'ch-b',
+        channelType: 'discord',
         tenantId: 't-b',
         organizationId: null,
         publicKey: tenantB.publicKeyHex,
         applicationId: 'app-b',
+        credentialScope: { tenantId: 't-b', organizationId: 't-b', userId: null },
       },
     ]
     const result = handleDiscordInteraction({ rawBody, signatureHex, timestamp, candidates, freshness })
@@ -91,6 +108,9 @@ describe('handleDiscordInteraction', () => {
     expect(result.matchedChannel?.channelId).toBe('ch-b')
     expect(result.matchedChannel?.tenantId).toBe('t-b')
     expect(result.body).toEqual({ type: DiscordInteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE })
+    // The dispatch travels with the ack, so the follow-up is sent under the
+    // channel that verified rather than the first candidate offered.
+    expect(result.dispatch?.id).toBe('interaction-1')
   })
 
   it('rejects a replayed capture (valid signature, stale timestamp) BEFORE any verify work', () => {
@@ -98,10 +118,12 @@ describe('handleDiscordInteraction', () => {
     const rawBody = JSON.stringify({ type: DiscordInteractionType.PING })
     const candidate: InteractionCandidate = {
       channelId: 'ch-1',
+      channelType: 'discord',
       tenantId: 't-1',
       organizationId: null,
       publicKey: signer.publicKeyHex,
       applicationId: 'app-1',
+      credentialScope: { tenantId: 't-1', organizationId: 't-1', userId: null },
     }
     const result = handleDiscordInteraction({
       rawBody,
@@ -127,10 +149,12 @@ describe('handleDiscordInteraction', () => {
       candidates: [
         {
           channelId: 'ch',
+          channelType: 'discord',
           tenantId: 't',
           organizationId: null,
           publicKey: other.publicKeyHex,
           applicationId: 'app',
+          credentialScope: { tenantId: 't', organizationId: 't', userId: null },
         },
       ],
     })
@@ -219,10 +243,12 @@ describe('resolveDiscordInteraction candidate-loading discipline', () => {
     const loadCandidates = jest.fn(async () => [
       {
         channelId: 'ch-1',
+        channelType: 'discord',
         tenantId: 't-1',
         organizationId: null,
         publicKey: signer.publicKeyHex,
         applicationId: 'app-1',
+        credentialScope: { tenantId: 't-1', organizationId: 't-1', userId: null },
       },
     ])
     const result = await resolveDiscordInteraction({
@@ -243,10 +269,12 @@ describe('resolveDiscordInteraction candidate-loading discipline', () => {
     const loadCandidates = jest.fn(async () => [
       {
         channelId: 'ch-1',
+        channelType: 'discord',
         tenantId: 't-1',
         organizationId: null,
         publicKey: signer.publicKeyHex,
         applicationId: 'app-1',
+        credentialScope: { tenantId: 't-1', organizationId: 't-1', userId: null },
       },
     ])
     const result = await resolveDiscordInteraction({
@@ -274,10 +302,12 @@ describe('resolveDiscordInteraction candidate-loading discipline', () => {
       return [
         {
           channelId: 'ch-victim',
+          channelType: 'discord',
           tenantId: 't-victim',
           organizationId: null,
           publicKey: victim.publicKeyHex,
           applicationId: 'app-victim',
+          credentialScope: { tenantId: 't-victim', organizationId: 't-victim', userId: null },
         },
       ]
     })
@@ -291,5 +321,149 @@ describe('resolveDiscordInteraction candidate-loading discipline', () => {
     expect(result.status).toBe(401)
     expect(result.body).toEqual({ error: 'invalid_signature' })
     expect(result.matchedChannel).toBeNull()
+  })
+})
+
+/**
+ * A deferred acknowledgement is a promise: Discord shows "thinking…" until
+ * something replaces it. These tests assert that the handler never makes that
+ * promise without also handing the caller the `dispatch` that keeps it — the
+ * defect #4663 was filed for was exactly a deferred ack with no follow-up.
+ */
+describe('handleDiscordInteraction dispatch', () => {
+  function signedCandidate(signer: ReturnType<typeof makeSigner>): InteractionCandidate {
+    return {
+      channelId: 'ch-1',
+      channelType: 'discord',
+      tenantId: 't-1',
+      organizationId: 'o-1',
+      publicKey: signer.publicKeyHex,
+      applicationId: 'app-1',
+      credentialScope: { tenantId: 't-1', organizationId: 'o-1', userId: null },
+    }
+  }
+
+  function verified(body: Record<string, unknown>) {
+    const signer = makeSigner()
+    const rawBody = JSON.stringify(body)
+    return handleDiscordInteraction({
+      rawBody,
+      signatureHex: signer.sign(timestamp + rawBody),
+      timestamp,
+      freshness,
+      candidates: [signedCandidate(signer)],
+    })
+  }
+
+  const invoker = { user: { id: 'user-1', username: 'ada' } }
+
+  it('defers a slash command AND returns the dispatch that will answer it', () => {
+    const result = verified({
+      type: DiscordInteractionType.APPLICATION_COMMAND,
+      id: 'interaction-1',
+      token: 'interaction-token',
+      application_id: 'app-1',
+      channel_id: 'discord-channel-1',
+      guild_id: 'guild-1',
+      member: invoker,
+      data: { name: 'mercato', options: [{ name: 'message', value: 'the printer is jammed' }] },
+    })
+
+    expect(result.body).toEqual({ type: DiscordInteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE })
+    expect(result.dispatch).toMatchObject({
+      id: 'interaction-1',
+      token: 'interaction-token',
+      applicationId: 'app-1',
+      discordChannelId: 'discord-channel-1',
+      commandName: 'mercato',
+      content: '/mercato message:the printer is jammed',
+    })
+    // Tenant pinning is the same guarantee the PING path asserts.
+    expect(result.matchedChannel?.tenantId).toBe('t-1')
+  })
+
+  it('defers a component press AND returns its dispatch', () => {
+    const result = verified({
+      type: DiscordInteractionType.MESSAGE_COMPONENT,
+      id: 'interaction-2',
+      token: 'component-token',
+      application_id: 'app-1',
+      channel_id: 'discord-channel-1',
+      member: invoker,
+      data: { custom_id: 'escalate', values: ['tier-2'] },
+    })
+
+    expect(result.body).toEqual({ type: DiscordInteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE })
+    expect(result.dispatch?.customId).toBe('escalate')
+    expect(result.dispatch?.content).toBe('[component] escalate tier-2')
+  })
+
+  it('answers visibly, never with a deferred ack, when the payload cannot be dispatched', () => {
+    // No token and no channel: there would be nothing to send a follow-up to.
+    const result = verified({
+      type: DiscordInteractionType.APPLICATION_COMMAND,
+      id: 'interaction-3',
+      application_id: 'app-1',
+      member: invoker,
+      data: { name: 'mercato' },
+    })
+
+    expect(result.dispatch).toBeNull()
+    expect(result.body).toEqual({
+      type: DiscordInteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: DEFAULT_INTERACTION_MESSAGES.notDispatchable, flags: 64 },
+    })
+  })
+
+  it('answers autocomplete with an empty choice list — Discord rejects a deferred ack there', () => {
+    const result = verified({
+      type: DiscordInteractionType.APPLICATION_COMMAND_AUTOCOMPLETE,
+      id: 'interaction-4',
+      token: 'autocomplete-token',
+      application_id: 'app-1',
+      channel_id: 'discord-channel-1',
+      member: invoker,
+      data: { name: 'mercato' },
+    })
+
+    expect(result.body).toEqual({
+      type: DiscordInteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT,
+      data: { choices: [] },
+    })
+    expect(result.dispatch).toBeNull()
+  })
+
+  it('tells the user an unknown interaction type is not handled instead of deferring forever', () => {
+    const result = verified({
+      type: 99,
+      id: 'interaction-5',
+      token: 'unknown-token',
+      application_id: 'app-1',
+      channel_id: 'discord-channel-1',
+      member: invoker,
+    })
+
+    expect(result.dispatch).toBeNull()
+    expect(result.body).toEqual({
+      type: DiscordInteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: DEFAULT_INTERACTION_MESSAGES.unsupported, flags: 64 },
+    })
+  })
+
+  it('uses the caller-supplied localized copy when it is given one', () => {
+    const signer = makeSigner()
+    const rawBody = JSON.stringify({ type: 99, id: 'i', token: 't', application_id: 'app-1' })
+    const result = handleDiscordInteraction({
+      rawBody,
+      signatureHex: signer.sign(timestamp + rawBody),
+      timestamp,
+      freshness,
+      candidates: [signedCandidate(signer)],
+      messages: { notDispatchable: 'nie zapisano', unsupported: 'nieobsługiwane' },
+    })
+    expect(result.body).toEqual({
+      type: DiscordInteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: 'nieobsługiwane', flags: 64 },
+    })
   })
 })

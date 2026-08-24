@@ -1,11 +1,15 @@
+import { readFile } from 'node:fs/promises'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createCredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { createIntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
+import { parseDiscordCredentialsOrThrow } from './lib/credentials'
+import { getDiscordRestClient } from './lib/discord-rest'
 import { applyDiscordEnvPreset } from './lib/preset'
 import { assertInboundDeliverable } from './lib/queue-strategy'
+import { DISCORD_DEFAULT_SLASH_COMMANDS, parseSlashCommandDefinitions } from './lib/slash-commands'
 import gatewayHandle, { CHANNEL_DISCORD_GATEWAY_QUEUE } from './workers/discord-gateway'
 
 const logger = createLogger('channel_discord').child({ component: 'cli' })
@@ -148,6 +152,83 @@ const configureFromEnv: ModuleCli = {
   },
 }
 
-const channelDiscordCliCommands = [startGateway, configureFromEnv]
+/**
+ * Register the provider's application (slash) commands against one guild.
+ *
+ * WHY IT EXISTS: a slash command only appears in Discord once the application
+ * has registered it. Nothing does that automatically — registration is a
+ * per-guild, operator-scoped decision — so without this command the Interactions
+ * endpoint is reachable but nobody can produce an interaction to send to it.
+ *
+ * Guild-scoped (`PUT /applications/{app}/guilds/{guild}/commands`) rather than
+ * global on purpose: guild registrations take effect immediately, while global
+ * ones take up to an hour to propagate, and the provider already recommends
+ * scoping the bot to one server.
+ *
+ * The call REPLACES the guild's command list for this application, so it is
+ * idempotent — re-running it converges rather than accumulating duplicates.
+ *
+ * Usage:
+ *   mercato channel_discord register-slash-commands --tenant <id> --org <id>
+ *     [--guild <guildId>] [--commands <path-to-json>]
+ *
+ * `--guild` overrides the `guildId` credential; `--commands` registers an
+ * operator-authored definition array instead of the shipped default.
+ */
+const registerSlashCommands: ModuleCli = {
+  command: 'register-slash-commands',
+  async run(rest: string[]) {
+    const { values } = parseFlagsAndValues(rest)
+    const tenantId = values.tenant ?? values.tenantId
+    const organizationId = values.org ?? values.organization ?? values.organizationId
+
+    if (!tenantId || !organizationId) {
+      logger.error('register-slash-commands requires --tenant <tenantId> --org <organizationId>')
+      throw new Error('[internal] channel_discord register-slash-commands requires --tenant and --org')
+    }
+
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const credentials = await createCredentialsService(em).resolve('channel_discord', {
+      tenantId,
+      organizationId,
+    })
+    if (!credentials) {
+      throw new Error(
+        `[internal] No Discord credentials for tenant ${tenantId} / organization ${organizationId}. ` +
+          'Connect the channel in /backend/integrations first.',
+      )
+    }
+    const parsed = parseDiscordCredentialsOrThrow(credentials)
+
+    const guildId = values.guild ?? values.guildId ?? parsed.guildId
+    if (!guildId) {
+      throw new Error(
+        '[internal] channel_discord register-slash-commands needs a guild: set the guildId credential ' +
+          'or pass --guild <guildId>.',
+      )
+    }
+
+    const commands = values.commands
+      ? parseSlashCommandDefinitions(JSON.parse(await readFile(values.commands, 'utf-8')))
+      : DISCORD_DEFAULT_SLASH_COMMANDS
+
+    await getDiscordRestClient().registerGuildCommands(
+      { botToken: parsed.botToken },
+      parsed.applicationId,
+      guildId,
+      commands,
+    )
+
+    logger.info('registered Discord guild slash commands', {
+      tenantId,
+      organizationId,
+      guildId,
+      commands: commands.map((command) => command.name),
+    })
+  },
+}
+
+const channelDiscordCliCommands = [startGateway, configureFromEnv, registerSlashCommands]
 
 export default channelDiscordCliCommands

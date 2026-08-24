@@ -36,6 +36,23 @@ export function pingInteractionBody(): string {
   return JSON.stringify({ type: 1, id: 'integration-ping', application_id: 'integration' })
 }
 
+/**
+ * A fully-formed `APPLICATION_COMMAND` body — everything the dispatch path needs
+ * (id, follow-up token, application, channel and invoking user), so a rejection
+ * can only come from the signature gate and never from an incomplete payload.
+ */
+export function slashCommandInteractionBody(): string {
+  return JSON.stringify({
+    type: 2,
+    id: 'integration-command',
+    token: 'integration-follow-up-token',
+    application_id: 'integration',
+    channel_id: 'integration-channel',
+    member: { user: { id: 'integration-user', username: 'integration' } },
+    data: { name: 'mercato', options: [{ name: 'message', value: 'integration probe' }] },
+  })
+}
+
 /** Current unix seconds as the signed timestamp header value. */
 export function freshTimestamp(): string {
   return String(Math.floor(Date.now() / 1000))

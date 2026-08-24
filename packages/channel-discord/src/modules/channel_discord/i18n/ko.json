@@ -13,5 +13,10 @@
   "channel_discord.connect.fields.publicKey": "공개 키",
   "channel_discord.connect.save": "연결",
   "channel_discord.connect.title": "Discord 봇 연결",
+  "channel_discord.interactions.commandReceived": "접수됨 — `/{command}` 이(가) Open Mercato 받은편지함에 등록되었으며 담당자가 이어서 처리합니다.",
+  "channel_discord.interactions.componentReceived": "접수됨 — 응답이 Open Mercato 받은편지함에 등록되었으며 담당자가 이어서 처리합니다.",
+  "channel_discord.interactions.dispatchFailed": "Open Mercato가 지금은 이 상호작용을 기록하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  "channel_discord.interactions.notDispatchable": "이 상호작용에는 Open Mercato에 필요한 채널 또는 사용자 정보가 없어 기록되지 않았습니다.",
+  "channel_discord.interactions.unsupported": "Open Mercato Discord 채널은 이 상호작용 유형을 처리하지 않습니다.",
   "channel_discord.provider.label": "Discord"
 }

@@ -23,6 +23,14 @@ export const DISCORD_MAX_BODY_LENGTH = 2000
  * - `realtimePush` — the provider owns a long-running Gateway WebSocket worker
  *   that delivers `MESSAGE_CREATE` / reaction events in real time, so the hub's
  *   polling scheduler skips this channel (no redundant `fetchHistory`).
+ * - `interactiveComponents` — slash commands, buttons, select menus and modal
+ *   submissions round-trip for real: the signed Interactions endpoint answers
+ *   with a deferred acknowledgement AND hands the interaction to
+ *   `workers/discord-interactions.ts`, which normalizes it into the hub's
+ *   existing inbound queue under the matched channel's tenant scope and then
+ *   replaces the "thinking…" placeholder over Discord's interaction-webhook
+ *   endpoints. Pinned by the parity test in `lib/__tests__/capabilities.test.ts`,
+ *   which drives the whole path rather than asserting the flag alone.
  *
  * Deliberately disabled until implemented (declaring them would make the hub
  * hand this adapter work it silently drops):
@@ -43,9 +51,6 @@ export const DISCORD_MAX_BODY_LENGTH = 2000
  * - `presence` — the bot identifies without the `GUILD_PRESENCES` intent and no
  *   presence dispatch is handled.
  * - `richBlocks` — outbound is plain markdown `content`; embeds are not built.
- * - `interactiveComponents` — the Interactions endpoint verifies the signature
- *   and answers with a deferred ack only; it never sends components or a
- *   follow-up, so nothing interactive round-trips yet.
  * - `stickers` — no sticker is sent or normalized.
  */
 export const discordCapabilities: ChannelCapabilities = {
@@ -73,7 +78,7 @@ export const discordCapabilities: ChannelCapabilities = {
   deleteMessage: true,
   presence: false,
   richBlocks: false,
-  interactiveComponents: false,
+  interactiveComponents: true,
   inlineImages: false,
   conversationHistory: true,
   contactCards: false,

@@ -14,6 +14,8 @@
  *   - getCurrentUser  → GET    /users/@me
  *   - getGatewayBot   → GET    /gateway/bot
  *   - registerGuildCommands → PUT /applications/{app}/guilds/{guild}/commands
+ *   - editOriginalInteractionResponse → PATCH /webhooks/{app}/{token}/messages/@original
+ *   - createInteractionFollowUp       → POST  /webhooks/{app}/{token}
  */
 import { fetchWithTimeout, FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 
@@ -32,6 +34,21 @@ export interface DiscordUser {
   avatar?: string | null
 }
 
+/**
+ * Open Mercato marker carried by a message object that was SYNTHESIZED from a
+ * Discord interaction rather than received from Discord. Discord never returns
+ * this key; it exists so `normalizeInboundDiscordMessage` can tell a hub
+ * consumer that the record came from a slash command or a component press
+ * instead of someone typing in the channel.
+ */
+export interface DiscordInteractionOrigin {
+  id: string
+  type: number
+  applicationId: string
+  commandName?: string
+  customId?: string
+}
+
 export interface DiscordMessageObject {
   id: string
   channel_id: string
@@ -41,6 +58,8 @@ export interface DiscordMessageObject {
   timestamp: string
   attachments?: Array<{ id: string; url: string; filename: string; content_type?: string; size?: number }>
   message_reference?: { message_id?: string; channel_id?: string; guild_id?: string }
+  /** Present only on interaction-derived messages — see `DiscordInteractionOrigin`. */
+  discord_interaction?: DiscordInteractionOrigin
   [key: string]: unknown
 }
 
@@ -50,6 +69,21 @@ export interface CreateMessageInput {
   messageReferenceId?: string
   allowedMentions?: Record<string, unknown>
 }
+
+/**
+ * Body of a message that replaces (or follows) a deferred interaction response.
+ *
+ * `ephemeral` maps to Discord's `flags: 64` — only the invoking user sees the
+ * message. It is the right default for an operational acknowledgement that would
+ * otherwise be noise for everyone else in the channel.
+ */
+export interface InteractionResponseInput {
+  content: string
+  ephemeral?: boolean
+}
+
+/** Discord message flag: visible only to the user who triggered the interaction. */
+export const DISCORD_MESSAGE_FLAG_EPHEMERAL = 64
 
 export interface GatewayBotResponse {
   url: string
@@ -75,6 +109,29 @@ export interface DiscordRestClient {
     applicationId: string,
     guildId: string,
     commands: Array<Record<string, unknown>>,
+  ): Promise<void>
+  /**
+   * Replace the "thinking…" placeholder a deferred interaction response left
+   * behind. This is the call that ends the pending state, so it is the one the
+   * dispatch worker makes first.
+   *
+   * Takes NO bot token: the interaction token in the URL is the credential, and
+   * Discord documents these webhook endpoints as requiring no authorization. The
+   * token is single-interaction and expires after 15 minutes.
+   */
+  editOriginalInteractionResponse(
+    applicationId: string,
+    interactionToken: string,
+    input: InteractionResponseInput,
+  ): Promise<void>
+  /**
+   * Post an ADDITIONAL message against the same interaction token. Used as the
+   * fallback when the original response can no longer be edited.
+   */
+  createInteractionFollowUp(
+    applicationId: string,
+    interactionToken: string,
+    input: InteractionResponseInput,
   ): Promise<void>
 }
 
@@ -201,16 +258,43 @@ class FetchDiscordRestClient implements DiscordRestClient {
     )
   }
 
+  async editOriginalInteractionResponse(
+    applicationId: string,
+    interactionToken: string,
+    input: InteractionResponseInput,
+  ): Promise<void> {
+    await this.request<unknown>(
+      null,
+      'PATCH',
+      `/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(interactionToken)}/messages/@original`,
+      interactionResponseBody(input),
+    )
+  }
+
+  async createInteractionFollowUp(
+    applicationId: string,
+    interactionToken: string,
+    input: InteractionResponseInput,
+  ): Promise<void> {
+    await this.request<unknown>(
+      null,
+      'POST',
+      `/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(interactionToken)}`,
+      interactionResponseBody(input),
+    )
+  }
+
   private async request<T>(
-    auth: DiscordAuth,
+    auth: DiscordAuth | null,
     method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
     path: string,
     body?: unknown,
   ): Promise<T> {
     const url = `${DISCORD_API_BASE}${path}`
-    const headers: Record<string, string> = {
-      Authorization: `Bot ${auth.botToken}`,
-    }
+    // `auth === null` is the interaction-webhook family: the token in the path is
+    // the credential and Discord rejects nothing for the missing header, so
+    // sending the bot token there would leak it for no benefit.
+    const headers: Record<string, string> = auth ? { Authorization: `Bot ${auth.botToken}` } : {}
     let payload: BodyInit | undefined
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json'
@@ -253,6 +337,16 @@ class FetchDiscordRestClient implements DiscordRestClient {
       attempt += 1
     }
     throw lastError ?? new DiscordApiError(`Discord API ${method} ${path} exhausted retries`, 599, 'retries exhausted')
+  }
+}
+
+function interactionResponseBody(input: InteractionResponseInput): Record<string, unknown> {
+  return {
+    content: input.content,
+    // Interaction replies quote whatever the user typed, so mentions inside it
+    // must not become live pings — same guard `createMessage` applies.
+    allowed_mentions: { parse: [] },
+    ...(input.ephemeral ? { flags: DISCORD_MESSAGE_FLAG_EPHEMERAL } : {}),
   }
 }
 
