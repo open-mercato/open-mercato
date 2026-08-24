@@ -70,10 +70,6 @@ on:
       - develop
       - feat/wms
   pull_request:
-    branches:
-      - main
-      - develop
-      - feat/wms
 
 # Cancel any in-progress run on the same branch when a new push arrives.
 # Prevents multiple long runs queuing up from rapid pushes.
@@ -1031,8 +1027,21 @@ jobs:
           context: .
           file: Dockerfile
           push: false
+          load: true
+          tags: open-mercato-ci:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan fullapp image for fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: open-mercato-ci:${{ github.sha }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
 
       - name: Build opencode container
         uses: docker/build-push-action@v7
