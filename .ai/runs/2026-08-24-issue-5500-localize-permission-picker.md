@@ -53,4 +53,4 @@ The auth module's user and role edit metadata, ACL picker labels, ACL catalog te
 ### Phase 3: Validate and publish
 
 - [x] 3.1 Run the configured validation gate and authoritative review — 2f4117c4a
-- [ ] 3.2 Update the PR documentation and labels, push the completed branch, and release the claim
+- [x] 3.2 Update the PR documentation and labels, push the completed branch, and release the claim — 65f5eea2f
