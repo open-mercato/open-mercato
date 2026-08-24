@@ -43,10 +43,21 @@ const runRetention: ModuleCli = {
       }
       const container = await createRequestContainer()
       const service = container.resolve<PrivacyGovernanceService>('privacyGovernanceService')
+      const tenantId = stringFlag(args, 'tenant')
+      const organizationId = stringFlag(args, 'organization')
+      const actorId = stringFlag(args, 'actor')
       const operation = await service.runRetention(
-        { tenantId: stringFlag(args, 'tenant'), organizationId: stringFlag(args, 'organization') },
-        stringFlag(args, 'actor'),
+        { tenantId, organizationId },
+        actorId,
         { policyId: stringFlag(args, 'policy'), dryRun: !apply, maxBatches },
+        {
+          container,
+          auth: null,
+          organizationScope: null,
+          selectedOrganizationId: organizationId,
+          organizationIds: [organizationId],
+          systemActor: true,
+        },
       )
       console.log(JSON.stringify({
         operationId: operation.id,

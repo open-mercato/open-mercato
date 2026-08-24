@@ -18,6 +18,7 @@ import type {
   EnvironmentSanitizationInput,
   RetentionRunInput,
   SubjectRequestInput,
+  SubjectResolutionInput,
 } from '../data/validators'
 import type { PrivacyPolicyService } from './policyService'
 import type { PrivacyLegalHoldService } from './legalHoldService'
@@ -61,6 +62,13 @@ type SanitizationClassResult = {
   errorCode: string | null
 }
 
+type SubjectResolutionClassResult = {
+  dataClassId: string
+  status: 'completed' | 'failed'
+  subjectCount: number
+  errorCode: string | null
+}
+
 export class PrivacyGovernanceService {
   constructor(private readonly dependencies: GovernanceDependencies) {}
 
@@ -88,6 +96,7 @@ export class PrivacyGovernanceService {
     scope: PrivacyScope,
     actorId: string,
     input: RetentionRunInput,
+    commandContext?: CommandRuntimeContext,
   ): Promise<PrivacyOperation> {
     const policy = await this.dependencies.privacyPolicyService.get(scope, input.policyId)
     if (!policy.isActive) throw new PrivacyServiceError('Retention policy is inactive.', 'POLICY_INACTIVE', 409)
@@ -138,6 +147,8 @@ export class PrivacyGovernanceService {
           batchSize: policy.batchSize,
           dryRun: input.dryRun,
           excludedSubjects,
+          actorId,
+          commandContext,
         })
         matched += result.matched
         affected += result.affected
@@ -160,6 +171,95 @@ export class PrivacyGovernanceService {
         errorCode: error instanceof PrivacyServiceError ? error.code : 'EXECUTION_FAILED',
       })
     }
+  }
+
+  async resolveSubjects(
+    scope: PrivacyScope,
+    actorId: string,
+    input: SubjectResolutionInput,
+  ): Promise<{
+    operation: PrivacyOperation
+    subjects: Record<string, Array<{ kind: string; id: string }>>
+  }> {
+    const requested = input.dataClassIds ? new Set(input.dataClassIds) : null
+    if (requested) {
+      for (const id of requested) {
+        if (!listPrivacyDataClasses().some((definition) => definition.id === id)) {
+          throw new PrivacyServiceError('Data class not found.', 'DATA_CLASS_NOT_FOUND', 400)
+        }
+      }
+    }
+    const definitions = listPrivacyDataClasses().filter((definition) => (
+      (!requested || requested.has(definition.id))
+      && definition.subjectIdentifierKinds?.includes(input.identifier.kind)
+    ))
+    if (definitions.length === 0) {
+      throw new PrivacyServiceError('No data class supports this identifier.', 'SUBJECT_IDENTIFIER_NOT_SUPPORTED', 400)
+    }
+
+    const operation = await this.createOperation(scope, actorId, {
+      type: 'discover',
+      dryRun: true,
+    })
+    const results: SubjectResolutionClassResult[] = []
+    const subjects: Record<string, Array<{ kind: string; id: string }>> = {}
+    for (const definition of definitions) {
+      const handler = this.dependencies.resolveHandler(definition.handlerService)
+      if (!handler.resolveSubjects) {
+        results.push({
+          dataClassId: definition.id,
+          status: 'failed',
+          subjectCount: 0,
+          errorCode: 'HANDLER_NOT_AVAILABLE',
+        })
+        continue
+      }
+      try {
+        const resolved = await handler.resolveSubjects({
+          scope,
+          identifier: input.identifier,
+          actorId,
+        })
+        const allowedKinds = new Set(definition.subjectKinds)
+        const unique = new Map<string, { kind: string; id: string }>()
+        for (const subject of resolved.subjects) {
+          if (!allowedKinds.has(subject.kind) || !subject.id.trim()) continue
+          unique.set(`${subject.kind}:${subject.id}`, subject)
+        }
+        const classSubjects = Array.from(unique.values())
+        subjects[definition.id] = classSubjects
+        results.push({
+          dataClassId: definition.id,
+          status: 'completed',
+          subjectCount: classSubjects.length,
+          errorCode: null,
+        })
+      } catch {
+        results.push({
+          dataClassId: definition.id,
+          status: 'failed',
+          subjectCount: 0,
+          errorCode: 'EXECUTION_FAILED',
+        })
+      }
+    }
+
+    const failed = results.filter((result) => result.status === 'failed').length
+    const status: PrivacyOperationStatus = failed === 0
+      ? 'completed'
+      : failed === results.length
+        ? 'failed'
+        : 'partial'
+    const completed = await this.completeOperation(operation, status, {
+      identifierKind: input.identifier.kind,
+      classes: results,
+      totals: {
+        classes: results.length,
+        failed,
+        subjects: results.reduce((sum, result) => sum + result.subjectCount, 0),
+      },
+    })
+    return { operation: completed, subjects }
   }
 
   async runEnvironmentSanitization(

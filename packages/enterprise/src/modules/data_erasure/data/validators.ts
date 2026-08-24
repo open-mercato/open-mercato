@@ -43,6 +43,14 @@ export const subjectRequestSchema = z.object({
   dryRun: z.boolean().default(true),
 })
 
+export const subjectResolutionSchema = z.object({
+  identifier: z.object({
+    kind: z.literal('email'),
+    value: z.string().trim().email().max(320),
+  }),
+  dataClassIds: z.array(dataClassIdSchema).max(100).optional(),
+})
+
 export const environmentSanitizationSchema = z.object({
   profile: z.literal('sandbox-strict').default('sandbox-strict'),
   dryRun: z.boolean().default(true),
@@ -69,4 +77,5 @@ export type RetentionPolicyUpdateInput = z.infer<typeof retentionPolicyUpdateSch
 export type LegalHoldCreateInput = z.infer<typeof legalHoldCreateSchema>
 export type RetentionRunInput = z.infer<typeof retentionRunSchema>
 export type SubjectRequestInput = z.infer<typeof subjectRequestSchema>
+export type SubjectResolutionInput = z.infer<typeof subjectResolutionSchema>
 export type EnvironmentSanitizationInput = z.infer<typeof environmentSanitizationSchema>

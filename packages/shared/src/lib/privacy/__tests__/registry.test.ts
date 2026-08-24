@@ -17,6 +17,7 @@ describe('privacy data class registry', () => {
       title: 'People',
       handlerService: 'customerPeoplePrivacyHandler',
       subjectKinds: ['customers:person', 'customers:person'],
+      subjectIdentifierKinds: ['email', 'email'],
       subjectActions: ['discover', 'export'],
     })
     registerPrivacyDataClass({
@@ -34,6 +35,7 @@ describe('privacy data class registry', () => {
       title: 'Customer people',
       handlerService: 'customerPeoplePrivacyHandler',
       subjectKinds: ['customers:person'],
+      subjectIdentifierKinds: ['email', 'email'],
       subjectActions: ['discover', 'export', 'erase'],
     })
 
@@ -42,6 +44,7 @@ describe('privacy data class registry', () => {
       'customers.people',
     ])
     expect(getPrivacyDataClass('customers.people')?.title).toBe('Customer people')
+    expect(getPrivacyDataClass('customers.people')?.subjectIdentifierKinds).toEqual(['email'])
   })
 
   it('rejects malformed public definitions', () => {

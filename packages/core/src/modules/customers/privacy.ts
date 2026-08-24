@@ -1,12 +1,24 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type {
   PrivacyDataClassHandler,
   PrivacyEnvironmentSanitizationInput,
+  PrivacyRetentionInput,
+  PrivacySubjectResolutionInput,
   PrivacySubjectInput,
 } from '@open-mercato/shared/lib/privacy'
 import { registerPrivacyDataClass } from '@open-mercato/shared/lib/privacy'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  findAndCountWithDecryption,
+  findOneWithDecryption,
+  findWithDecryption,
+} from '@open-mercato/shared/lib/encryption/find'
+import {
+  findEntityIdsBySearchTokens,
+  type SearchTokenDatabase,
+} from '@open-mercato/shared/lib/search/tokenLookup'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   CustomerActivity,
@@ -29,6 +41,8 @@ registerPrivacyDataClass({
   description: 'Customer person profiles and directly attached personal records.',
   handlerService: 'customerPeoplePrivacyHandler',
   subjectKinds: ['customers:person'],
+  subjectIdentifierKinds: ['email'],
+  retention: { actions: ['delete', 'anonymize'], defaultDays: 365 },
   subjectActions: ['discover', 'export', 'erase', 'anonymize'],
   environmentSanitization: { categories: ['personal_data'] },
 })
@@ -38,6 +52,78 @@ export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
     private readonly em: EntityManager,
     private readonly commandBus: CommandBus,
   ) {}
+
+  async runRetention(input: PrivacyRetentionInput) {
+    const where = buildCustomerPeopleRetentionFilter(input)
+    if (input.dryRun) {
+      return {
+        matched: await this.em.count(CustomerEntity, where),
+        affected: 0,
+        hasMore: false,
+      }
+    }
+
+    const [people, total] = await findAndCountWithDecryption(
+      this.em,
+      CustomerEntity,
+      where,
+      {
+        limit: input.batchSize,
+        orderBy: { updatedAt: 'asc', id: 'asc' },
+      },
+      input.scope,
+    )
+    const execution = requireRetentionExecutionContext(input)
+    let affected = 0
+    for (const person of people) {
+      const subjectInput: PrivacySubjectInput = {
+        scope: input.scope,
+        subject: { kind: 'customers:person', id: person.id },
+        dryRun: false,
+        actorId: execution.actorId,
+        commandContext: execution.commandContext,
+      }
+      const result = input.action === 'delete'
+        ? await this.eraseSubject(subjectInput)
+        : await this.anonymizeSubject(subjectInput)
+      affected += result.affected
+    }
+    return {
+      matched: people.length,
+      affected,
+      hasMore: total > people.length,
+    }
+  }
+
+  async resolveSubjects(input: PrivacySubjectResolutionInput) {
+    if (input.identifier.kind !== 'email') return { subjects: [] }
+    const searchConfig = resolveSearchConfig()
+    const lookup = await findEntityIdsBySearchTokens({
+      db: this.em.getKysely<SearchTokenDatabase>(),
+      entityType: 'customers:customer_entity',
+      query: input.identifier.value,
+      fields: ['primary_email'],
+      scope: input.scope,
+      config: { ...searchConfig, enabled: true },
+    })
+    if (!lookup.matched || lookup.ids.length === 0) return { subjects: [] }
+    const people = await findWithDecryption(
+      this.em,
+      CustomerEntity,
+      {
+        id: { $in: lookup.ids },
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+        kind: 'person',
+        deletedAt: null,
+      },
+      { limit: 100, orderBy: { id: 'asc' } },
+      input.scope,
+    )
+    return {
+      subjects: people.map((person) => ({ kind: 'customers:person', id: person.id })),
+    }
+  }
 
   async discoverSubject(input: PrivacySubjectInput) {
     const entity = await this.findEntity(input)
@@ -370,6 +456,35 @@ export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
       organizationId: input.scope.organizationId,
     }
   }
+}
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
+
+export function buildCustomerPeopleRetentionFilter(input: PrivacyRetentionInput): FilterQuery<CustomerEntity> {
+  const cutoff = new Date((input.now ?? new Date()).getTime() - input.retentionDays * MILLISECONDS_PER_DAY)
+  const excludedIds = input.excludedSubjects
+    .filter((subject) => subject.kind === 'customers:person')
+    .map((subject) => subject.id)
+  return {
+    tenantId: input.scope.tenantId,
+    organizationId: input.scope.organizationId,
+    kind: 'person',
+    isActive: false,
+    deletedAt: null,
+    createdAt: { $lt: cutoff },
+    updatedAt: { $lt: cutoff },
+    ...(excludedIds.length > 0 ? { id: { $nin: excludedIds } } : {}),
+  }
+}
+
+function requireRetentionExecutionContext(input: PrivacyRetentionInput): {
+  actorId: string
+  commandContext: CommandRuntimeContext
+} {
+  if (!input.actorId || !input.commandContext) {
+    throw new Error('[internal] Applied customer retention requires an actor and command context')
+  }
+  return { actorId: input.actorId, commandContext: input.commandContext }
 }
 
 function requireCommandContext(input: PrivacySubjectInput): CommandRuntimeContext {
