@@ -25,15 +25,16 @@ import {
   CreateLink,
   InsertImage,
   InsertTable,
-  InsertThematicBreak,
   Separator,
   diffSourcePlugin,
   viewMode$,
+  applyFormat$,
+  insertThematicBreak$,
   usePublisher,
   useCellValue,
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
-import { MoreHorizontal } from 'lucide-react'
+import { Check, Minus, MoreHorizontal, Subscript, Superscript } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { IconButton } from '../../primitives/icon-button'
@@ -49,6 +50,10 @@ function ToolbarMoreMenu() {
   const [open, setOpen] = React.useState(false)
   const setViewMode = usePublisher(viewMode$)
   const currentViewMode = useCellValue(viewMode$)
+  const applyFormat = usePublisher(applyFormat$)
+  const insertThematicBreak = usePublisher(insertThematicBreak$)
+  const rowClass =
+    'flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-sm text-foreground hover:bg-accent'
   const viewModes: Array<{ mode: ViewMode; label: string }> = [
     { mode: 'rich-text', label: t('ui.markdown.viewMode.richText', 'Rich text') },
     { mode: 'source', label: t('ui.markdown.viewMode.source', 'Markdown source') },
@@ -62,10 +67,26 @@ function ToolbarMoreMenu() {
         </IconButton>
       </PopoverTrigger>
       <PopoverContent align="end" className="min-w-0 w-56 p-1">
-        <div className="flex items-center gap-0.5 px-1 py-0.5">
-          <StrikeThroughSupSubToggles options={['Sub', 'Sup']} />
-          <InsertThematicBreak />
-        </div>
+        <ul role="menu" className="flex flex-col">
+          <li role="none">
+            <button type="button" role="menuitem" className={rowClass} onClick={() => { applyFormat('superscript'); setOpen(false) }}>
+              <Superscript className="size-4 text-muted-foreground" aria-hidden />
+              {t('ui.markdown.superscript', 'Superscript')}
+            </button>
+          </li>
+          <li role="none">
+            <button type="button" role="menuitem" className={rowClass} onClick={() => { applyFormat('subscript'); setOpen(false) }}>
+              <Subscript className="size-4 text-muted-foreground" aria-hidden />
+              {t('ui.markdown.subscript', 'Subscript')}
+            </button>
+          </li>
+          <li role="none">
+            <button type="button" role="menuitem" className={rowClass} onClick={() => { insertThematicBreak(); setOpen(false) }}>
+              <Minus className="size-4 text-muted-foreground" aria-hidden />
+              {t('ui.markdown.horizontalRule', 'Horizontal rule')}
+            </button>
+          </li>
+        </ul>
         <div className="my-1 h-px bg-border" aria-hidden />
         <ul role="menu" className="flex flex-col">
           {viewModes.map(({ mode, label }) => (
@@ -75,11 +96,9 @@ function ToolbarMoreMenu() {
                 role="menuitemradio"
                 aria-checked={currentViewMode === mode}
                 onClick={() => { setViewMode(mode); setOpen(false) }}
-                className={cn(
-                  'flex h-8 w-full items-center rounded-sm px-2 text-left text-sm hover:bg-accent',
-                  currentViewMode === mode ? 'font-medium text-foreground' : 'text-muted-foreground',
-                )}
+                className={cn(rowClass, currentViewMode === mode && 'font-medium')}
               >
+                <Check className={cn('size-4', currentViewMode === mode ? 'text-accent-indigo' : 'invisible')} aria-hidden />
                 {label}
               </button>
             </li>
