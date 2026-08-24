@@ -47,8 +47,8 @@ The auth module's user and role edit metadata, ACL picker labels, ACL catalog te
 
 ### Phase 2: Address requested changes
 
-- [ ] 2.1 Localize role edit metadata and verify shipped metadata keys resolve
-- [ ] 2.2 Add ACL catalog drift and fallback regressions, restore readable wildcard labels, and remove the dead transition utility
+- [x] 2.1 Localize role edit metadata and verify shipped metadata keys resolve — c15aabbc1
+- [x] 2.2 Add ACL catalog drift and fallback regressions, restore readable wildcard labels, and remove the dead transition utility — c15aabbc1
 
 ### Phase 3: Validate and publish
 
