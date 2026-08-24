@@ -9,6 +9,7 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 
 type Policy = {
   id: string
@@ -26,6 +27,16 @@ type LegalHold = {
 }
 
 test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
+  test('renders the privacy administration page', async ({ page }) => {
+    await login(page, 'admin')
+    await page.goto('/backend/security/privacy')
+    await expect(page.getByRole('heading', { name: 'Privacy and retention' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Retention policies' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Legal holds' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Data-subject requests' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Operation history' })).toBeVisible()
+  })
+
   test('registers data classes, runs retention, and blocks erasure under a legal hold', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let policy: Policy | null = null
