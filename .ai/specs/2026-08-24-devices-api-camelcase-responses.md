@@ -27,7 +27,8 @@ Every other module transforms the projection before serializing — `sales/order
 - Add `transformDeviceListItem` to `api/deviceList.ts` and wire it as `list.transformItem` on both list routes. It reads each column under either spelling, normalizes timestamps to ISO strings, and emits camelCase keys.
 - Extract the admin detail serializer into `api/deviceSerialization.ts` as `serializeDeviceDetail`, emitting the same camelCase keys, so both surfaces share one casing decision and the serializer becomes unit-testable outside a route module.
 - Keep every snake_case key alongside its camelCase counterpart as a deprecated alias, produced by a single shared helper (`toDeprecatedSnakeCaseAliases`) so removing the bridge later is a one-site change.
-- Document both spellings in the OpenAPI item schemas (`deviceListItemSchema`, `deviceDetailItemSchema`), with each deprecated key describing the canonical key that replaces it.
+- List both spellings in the OpenAPI item schemas (`deviceListItemSchema`, `deviceDetailItemSchema`) and state the deprecation in the endpoint descriptions, which is where the generator actually renders prose.
+- Pin the admin list's export columns to the canonical key set so the aliases do not double every column in the CSV/JSON/XML export.
 - Migrate the first-party consumers — the devices admin list and edit pages, and the push-notifications send page's device picker — to the canonical keys.
 - Cover the change with module unit tests and a new integration spec that pins both the camelCase contract and the alias bridge.
 
@@ -52,9 +53,10 @@ Two behaviors are deliberately **not** changed:
 6. Timestamp columns serialize as ISO strings under both spellings.
 7. `push_token` / `pushToken` is absent from every list and detail response.
 8. Sorting (`sortField=lastSeenAt|createdAt|updatedAt`), the `?platform=` / `?userId=` filters, self-serve user scoping, admin org scoping and the advanced-filter hardening on the self list are unchanged.
-9. The OpenAPI document describes both spellings, marking the snake_case keys as deprecated aliases.
-10. The devices admin list page, the devices edit page (including its optimistic-lock header source) and the push-notifications device picker read the canonical camelCase keys.
-11. Unit tests cover the list transform and the detail serializer; an integration spec covers both list routes and the detail route, asserting the camelCase contract and the alias bridge.
+9. The OpenAPI document lists both spellings, and its rendered endpoint descriptions state that the snake_case keys are deprecated aliases scheduled for removal. (The `.describe()` markers on the schema properties themselves do **not** reach the document: the shared `zodToJsonSchema` converter emits per-property descriptions for parameters and request bodies but not for object schema properties. That is a framework-wide limitation, not a devices one, so the notice is carried by the endpoint description instead and the markers are kept as in-code contract documentation.)
+10. The admin list export emits one column per canonical key — the deprecated aliases must not double the export's column set.
+11. The devices admin list page, the devices edit page (including its optimistic-lock header source) and the push-notifications device picker read the canonical camelCase keys.
+12. Unit tests cover the list transform and the detail serializer; an integration spec covers both list routes and the detail route, asserting the camelCase contract and the alias bridge.
 
 ## Architecture
 
@@ -63,7 +65,8 @@ Two behaviors are deliberately **not** changed:
 | `packages/core/src/modules/devices/api/deviceList.ts` | Adds `transformDeviceListItem`, `toDeprecatedSnakeCaseAliases` and the shared `toRecord`/`readString`/`toIso` readers; `deviceListItemSchema` gains the camelCase keys and describes the snake_case ones as deprecated |
 | `packages/core/src/modules/devices/api/deviceSerialization.ts` | New. `serializeDeviceDetail` + `deviceDetailItemSchema` for the admin detail route |
 | `packages/core/src/modules/devices/api/route.ts` | `list.transformItem: transformDeviceListItem` |
-| `packages/core/src/modules/devices/api/admin/devices/route.ts` | `list.transformItem: transformDeviceListItem` |
+| `packages/core/src/modules/devices/api/admin/devices/route.ts` | `list.transformItem: transformDeviceListItem`, plus `list.export.columns` pinned to `deviceExportColumnFields` |
+| `packages/core/src/modules/devices/api/openapi.ts` | Exports `DEPRECATED_SNAKE_CASE_NOTICE` and appends it to the generated list description |
 | `packages/core/src/modules/devices/api/admin/devices/[id]/route.ts` | Uses the shared serializer and detail schema instead of its local copies |
 | `packages/core/src/modules/devices/backend/devices/page.tsx` | Row type, column accessors and cell readers use camelCase |
 | `packages/core/src/modules/devices/backend/devices/[id]/page.tsx` | Detail type, header fields, `initialValues` and `optimisticLockUpdatedAt` use camelCase |

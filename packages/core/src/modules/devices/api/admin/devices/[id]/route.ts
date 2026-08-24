@@ -16,6 +16,7 @@ import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/dire
 import { resolveDeviceActorUserId } from '../../../auth'
 import { executeUpdate, executeDeactivate, type DeviceMutationContext } from '../../../deviceOps'
 import { serializeDeviceDetail, deviceDetailItemSchema } from '../../../deviceSerialization'
+import { DEPRECATED_SNAKE_CASE_NOTICE } from '../../../openapi'
 
 const logger = createLogger('devices')
 
@@ -169,7 +170,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get any device',
-      description: 'Admin: fetch a single device by id (push_token is never returned).',
+      description: `Admin: fetch a single device by id (push_token is never returned). ${DEPRECATED_SNAKE_CASE_NOTICE}`,
       responses: [{ status: 200, description: 'Device', schema: detailResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid id', schema: errorResponseSchema },

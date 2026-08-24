@@ -1,4 +1,4 @@
-import { transformDeviceListItem, deviceListItemSchema } from '../api/deviceList'
+import { transformDeviceListItem, deviceListItemSchema, deviceExportColumnFields } from '../api/deviceList'
 import { serializeDeviceDetail, deviceDetailItemSchema } from '../api/deviceSerialization'
 import type { UserDevice } from '../data/entities'
 
@@ -82,6 +82,18 @@ describe('devices list response casing', () => {
 
   it('satisfies the documented list item schema', () => {
     expect(() => deviceListItemSchema.parse(transformDeviceListItem(rawListRow))).not.toThrow()
+  })
+
+  it('pins export columns to the canonical spelling so aliases do not double every column', () => {
+    const item = transformDeviceListItem(rawListRow) as Record<string, unknown>
+    expect(deviceExportColumnFields.filter((field) => field.includes('_'))).toEqual([])
+    for (const field of deviceExportColumnFields) {
+      expect(item[field]).toBeDefined()
+    }
+    // Every non-alias key of a transformed row must be exported; a new column added to the projection
+    // without a matching export entry would silently disappear from the CSV.
+    const canonicalKeys = Object.keys(item).filter((key) => !key.includes('_'))
+    expect(canonicalKeys.sort()).toEqual([...deviceExportColumnFields].sort())
   })
 })
 

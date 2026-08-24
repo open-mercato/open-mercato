@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { toHeaderLabel } from '@open-mercato/shared/lib/crud/exporters'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -26,6 +27,7 @@ import {
   deviceListFields,
   deviceListSortFieldMap,
   deviceListItemSchema,
+  deviceExportColumnFields,
   transformDeviceListItem,
 } from '../../deviceList'
 import { executeRegister, type DeviceMutationContext } from '../../deviceOps'
@@ -63,6 +65,9 @@ const crud = makeCrudRoute({
     sortFieldMap: deviceListSortFieldMap,
     // The query engine projects raw column names; expose them in camelCase like every other module.
     transformItem: transformDeviceListItem,
+    // Without an explicit column set the factory's default export spreads each item, so the deprecated
+    // snake_case aliases would double every column in the CSV/JSON/XML export.
+    export: { columns: deviceExportColumnFields.map((field) => ({ field, header: toHeaderLabel(field) })) },
     // Tenant + org scope is enforced by the factory (orm.tenantField + orm.orgField); only the optional
     // userId/platform narrowing is left to do here.
     buildFilters: async (query) => {

@@ -30,6 +30,26 @@ export const deviceListFields: string[] = [
   'updated_at',
 ]
 
+// The admin list enables exports, and the factory's default export derives its columns by spreading
+// each item — which would emit both spellings of every aliased key. Pin the canonical camelCase set
+// so the export stays single-spelled and does not change shape when the aliases are dropped.
+export const deviceExportColumnFields: string[] = [
+  'id',
+  'tenantId',
+  'organizationId',
+  'userId',
+  'deviceId',
+  'platform',
+  'clientAppVersion',
+  'osVersion',
+  'locale',
+  'pushProvider',
+  'pushTokenUpdatedAt',
+  'lastSeenAt',
+  'createdAt',
+  'updatedAt',
+]
+
 export const deviceListSortFieldMap: Record<string, string> = {
   lastSeenAt: 'last_seen_at',
   createdAt: 'created_at',
@@ -124,6 +144,9 @@ export function toIso(value: unknown): string | null {
   return null
 }
 
+// In-code contract markers. The shared zodToJsonSchema converter does not currently emit per-property
+// descriptions for object schemas, so the rendered deprecation notice lives on the endpoint description
+// (`DEPRECATED_SNAKE_CASE_NOTICE` in ./openapi); these become visible for free if that changes.
 const deprecatedAlias = (of: string) => `Deprecated alias for \`${of}\`; removed in the next minor release.`
 
 export const deviceListItemSchema = z.object({

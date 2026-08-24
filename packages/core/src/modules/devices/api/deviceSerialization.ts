@@ -23,6 +23,7 @@ export function serializeDeviceDetail(device: UserDevice): Record<string, unknow
   return { ...camel, ...toDeprecatedSnakeCaseAliases(camel) }
 }
 
+// See the note in ./deviceList — the rendered deprecation notice lives on the endpoint description.
 const deprecatedAlias = (of: string) => `Deprecated alias for \`${of}\`; removed in the next minor release.`
 
 export const deviceDetailItemSchema = z.object({
