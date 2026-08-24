@@ -203,9 +203,9 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
       </div>
 
       <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 basis-40">
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
               <h4 className="truncate text-sm font-semibold text-foreground">{title}</h4>
               {showExternalLink ? <ExternalLink className="size-3.5 text-muted-foreground" /> : null}
             </div>
@@ -217,7 +217,7 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
             ) : null}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {isOpenInteractionStatus(activity.status) ? (
               <Button
                 type="button"

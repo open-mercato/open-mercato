@@ -502,9 +502,15 @@ export function ScheduleActivityDialog({
           className="w-full"
         >
           {TYPE_TABS.map(({ type, icon: Icon, labelKey, fallback }) => (
-            <SegmentedControlItem key={type} value={type} className="min-w-0 flex-1 gap-1.5">
+            <SegmentedControlItem
+              key={type}
+              value={type}
+              aria-label={t(labelKey, fallback)}
+              className="min-w-0 flex-1 gap-1.5"
+            >
               <Icon className="size-3.5 shrink-0" />
-              <span className="truncate">{t(labelKey, fallback)}</span>
+              {/* Icons-only below sm — five labels truncated to "Sp…" at phone widths. */}
+              <span className="hidden truncate sm:inline">{t(labelKey, fallback)}</span>
             </SegmentedControlItem>
           ))}
         </SegmentedControl>
