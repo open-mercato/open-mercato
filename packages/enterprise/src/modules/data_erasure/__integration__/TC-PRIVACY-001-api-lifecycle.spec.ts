@@ -244,10 +244,11 @@ test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
     }
   })
 
-  test('resolves a customer person by phone without persisting the phone in the operation report', async ({ request }) => {
+  test('resolves a customer person by phone and name without persisting identifiers', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const phone = `+48 500 ${String(stamp).slice(-3)} ${String(stamp + 17).slice(-3)}`
+    const displayName = `Privacy Phone ${stamp}`
     let personId: string | null = null
 
     try {
@@ -256,7 +257,7 @@ test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
         data: {
           firstName: 'Privacy',
           lastName: `Phone ${stamp}`,
-          displayName: `Privacy Phone ${stamp}`,
+          displayName,
           primaryPhone: phone,
           status: 'active',
         },
@@ -281,6 +282,22 @@ test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
       expect(resolution.operation.status).toBe('completed')
       expect(resolution.subjects['customers.people']).toEqual([{ kind: 'customers:person', id: personId }])
       expect(JSON.stringify(resolution.operation.report)).not.toContain(phone)
+
+      const nameResolutionResponse = await apiRequest(request, 'POST', '/api/data_erasure/subjects/resolve', {
+        token,
+        data: {
+          identifier: { kind: 'name', value: displayName },
+          dataClassIds: ['customers.people'],
+        },
+      })
+      expect(nameResolutionResponse.ok()).toBeTruthy()
+      const nameResolution = await nameResolutionResponse.json() as {
+        operation: { status: string; report: Record<string, unknown> }
+        subjects: Record<string, Array<{ kind: string; id: string }>>
+      }
+      expect(nameResolution.operation.status).toBe('completed')
+      expect(nameResolution.subjects['customers.people']).toEqual([{ kind: 'customers:person', id: personId }])
+      expect(JSON.stringify(nameResolution.operation.report)).not.toContain(displayName)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }

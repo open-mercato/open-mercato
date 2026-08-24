@@ -53,6 +53,10 @@ export const subjectResolutionSchema = z.object({
       kind: z.literal('phone'),
       value: z.string().trim().min(3).max(80),
     }),
+    z.object({
+      kind: z.literal('name'),
+      value: z.string().trim().min(2).max(200),
+    }),
   ]),
   dataClassIds: z.array(dataClassIdSchema).max(100).optional(),
 })

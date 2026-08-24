@@ -125,4 +125,27 @@ describe('CustomerPeoplePrivacyHandler retention', () => {
       scope,
     }))
   })
+
+  it('resolves customer people by scoped display-name search tokens', async () => {
+    const getKysely = jest.fn(() => ({ selectFrom: jest.fn() }))
+    mockFindEntityIdsBySearchTokens.mockResolvedValueOnce({ matched: true, ids: ['person-3'] })
+    mockFindWithDecryption.mockResolvedValueOnce([{ id: 'person-3' } as CustomerEntity])
+    const handler = new CustomerPeoplePrivacyHandler(
+      { getKysely } as unknown as EntityManager,
+      { execute: jest.fn() } as unknown as CommandBus,
+    )
+
+    const result = await handler.resolveSubjects({
+      scope,
+      identifier: { kind: 'name', value: 'Jan Kowalski' },
+      actorId: 'actor-user',
+    })
+
+    expect(result.subjects).toEqual([{ kind: 'customers:person', id: 'person-3' }])
+    expect(mockFindEntityIdsBySearchTokens).toHaveBeenCalledWith(expect.objectContaining({
+      query: 'Jan Kowalski',
+      fields: ['display_name'],
+      scope,
+    }))
+  })
 })

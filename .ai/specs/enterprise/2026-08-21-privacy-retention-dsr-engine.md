@@ -74,7 +74,7 @@ The command rejects payload scope that differs from the schedule context. `dryRu
 
 ### Administration UI
 
-The Enterprise settings page `/backend/security/privacy` requires `data_erasure.manage` and exposes the existing scoped APIs without adding a second execution path. Administrators can create and edit retention policies, preview or apply a policy, create and release legal holds, resolve an email or phone number to opaque subject references, run supported subject actions, and review the latest operation reports. Policy edits and hold releases send optimistic-lock versions, and every non-form mutation uses the shared mutation guard path.
+The Enterprise settings page `/backend/security/privacy` requires `data_erasure.manage` and exposes the existing scoped APIs without adding a second execution path. Administrators can create and edit retention policies, preview or apply a policy, create and release legal holds, resolve an email, phone number, or customer name to opaque subject references, run supported subject actions, and review the latest operation reports. Policy edits and hold releases send optimistic-lock versions, and every non-form mutation uses the shared mutation guard path.
 
 ## Data Models
 
@@ -121,6 +121,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 8. Add a guarded Enterprise administration page for policies, legal holds, subject requests, and operation history.
 9. Extend privacy subject identifiers additively with phone-number lookup for customer people through the encrypted-field search-token index.
 10. Include access logs in user discovery and export while keeping their removal controlled by the audit retention policy.
+11. Add name-based candidate resolution for customer people through scoped encrypted search tokens. Names can return multiple candidates and require operator verification before a DSR action.
 
 ## Integration Coverage
 
@@ -143,6 +144,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 - the privacy administration route requires `data_erasure.manage`, renders all four workflow areas, and sends every mutation through the guarded API path. This path is covered by a Playwright integration scenario that runs in CI with the Enterprise test environment.
 - phone resolution searches only scoped customer-person phone tokens, returns opaque subject references, and does not persist the submitted phone number.
 - a resolved `auth:user` reference is propagated to compatible registered data classes, access-log discovery and export remain tenant- and organization-scoped, and no subject mutation is exposed for audit evidence.
+- name resolution is scoped to customer people and may return multiple opaque candidate references; the operator selects the verified record before any action.
 
 ## Migration and Backward Compatibility
 
@@ -183,3 +185,4 @@ This specification implements and broadens `.ai/specs/enterprise/2026-07-08-gdpr
 - 2026-08-24: Added the Enterprise privacy administration page for retention policies, legal holds, data-subject actions, and operation history.
 - 2026-08-24: Added phone-number subject resolution for customer people through tenant- and organization-scoped encrypted search tokens.
 - 2026-08-24: Added actor-scoped access-log discovery and export to user DSR, without adding per-subject audit-log deletion.
+- 2026-08-24: Added name-based candidate resolution for customer people, with tenant and organization scoping and explicit operator selection.
