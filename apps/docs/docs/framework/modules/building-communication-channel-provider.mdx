@@ -1,0 +1,621 @@
+---
+title: Building on the Communications Hub
+description: Developer guide — react to inbound channel messages from your own module, send through the hub, and build a new channel provider package, using @open-mercato/channel-discord as the worked example.
+sidebar_label: Building on the Communications Hub
+---
+
+# Building on the Communications Hub
+
+Two things a developer can do with the [Communications Hub](communication-channels.mdx), covered in
+that order:
+
+1. **[Consume it](#part-1--consume-the-hub-from-your-own-module)** — react to inbound messages and
+   send outbound ones from your own module, without knowing which provider is behind the channel.
+2. **[Extend it](#part-2--build-a-channel-provider)** — ship a new provider package so a transport
+   the hub does not support yet becomes one more channel.
+
+Both parts use `@open-mercato/channel-discord` as the worked example. Discord is the interesting
+case because it breaks three assumptions the email providers never did: its recipients are not email
+addresses, its inbound arrives over a WebSocket instead of a webhook or a poll, and its interactions
+endpoint needs a synchronous signed response. If your transport is unusual, it is probably unusual
+in one of those ways.
+
+:::info Scope
+This page is the hub's *extension* guide. For the hub's own architecture, entities, environment
+variables and deploy runbook see [Communications Hub](communication-channels.mdx); for the
+`ChannelAdapter` type itself, read
+`packages/core/src/modules/communication_channels/lib/adapter.ts` — it is the contract, and it is
+commented.
+:::
+
+---
+
+## Part 1 — Consume the hub from your own module
+
+Everything here works the same whether the channel behind it is Gmail, IMAP or Discord. That is the
+point of the hub: your module talks to messages and channels, never to a provider.
+
+### React to an inbound message
+
+When a message arrives on any channel, the hub materialises it into the **Messages** module and
+emits `communication_channels.message.received`. Subscribe to it from a file under your module's
+`subscribers/` directory — auto-discovery picks it up, no registration needed:
+
+```ts
+// packages/<pkg>/src/modules/<module>/subscribers/on-channel-message.ts
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Message } from '@open-mercato/core/modules/messages/data/entities'
+
+export const metadata = {
+  event: 'communication_channels.message.received',
+  persistent: true,
+  id: 'my_module:on-channel-message',
+}
+
+type MessageReceivedPayload = {
+  messageId: string
+  externalMessageId: string
+  channelLinkId: string
+  conversationId: string
+  channelId: string
+  providerKey: string
+  channelType: string
+  direction: 'inbound'
+  tenantId: string
+  organizationId: string | null
+}
+
+type SubscriberContext = { resolve: <T = unknown>(name: string) => T }
+
+export default async function handler(
+  payload: MessageReceivedPayload,
+  ctx: SubscriberContext,
+): Promise<void> {
+  if (payload.providerKey !== 'discord') return
+
+  const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null }
+  const em = ctx.resolve<EntityManager>('em').fork()
+  const message = await findOneWithDecryption(
+    em,
+    Message,
+    { id: payload.messageId, ...scope, deletedAt: null },
+    undefined,
+    scope,
+  )
+  if (!message) return
+
+  // …your logic, using message.body / message.subject / message.threadId
+}
+```
+
+Three rules this example encodes, all of which matter:
+
+- **`metadata.id` is a contract.** Subscriber ids drive delivery dedup. Changing one later makes the
+  bus treat it as a brand-new subscriber and re-deliver events you already handled.
+- **Re-fetch by id; do not trust the payload for content.** The payload carries identifiers so the
+  subscriber stays decoupled from the message's shape. The row is the source of truth.
+- **The scope in the payload is the scope you query with.** A subscriber runs outside a request, so
+  nothing scopes your queries for you. Pass `tenantId` / `organizationId` explicitly, and read
+  encrypted entities through `findOneWithDecryption` / `findWithDecryption` rather than
+  `em.findOne` / `em.find`.
+
+### The other events worth subscribing to
+
+| Event | Fires when | Key payload fields |
+|---|---|---|
+| `communication_channels.message.received` | An inbound message was ingested | `messageId`, `conversationId`, `channelId`, `providerKey`, `direction` |
+| `communication_channels.message.sent` | An outbound message reached the provider | `messageId`, `channelId`, `providerKey` |
+| `communication_channels.message.delivery_failed` | Outbound delivery gave up | `messageId`, `channelId`, `providerKey` |
+| `communication_channels.conversation.created` | A message opened a new external conversation | `conversationId`, `externalConversationId`, `channelId` |
+| `communication_channels.contact.resolved` | An inbound sender matched a CRM person | `conversationId`, `contactPersonId` |
+| `communication_channels.reaction.added` / `.removed` | A reaction landed, from either direction | `reactionId`, `messageId`, `emoji`, `reactedByExternalId`, `reactedByDisplayName` |
+| `communication_channels.channel.requires_reauth` / `.disconnected` / `.deleted` | Channel lifecycle | `channelId` |
+
+Every payload carries `tenantId` and `organizationId`. The message and reaction events also declare
+`clientBroadcast: true`, so they reach the browser over SSE — see the
+[DOM Event Bridge](../widget-injection.md#dom-event-bridge-sse) if you want a backoffice page to
+react live rather than in a worker.
+
+### Send a message through the hub
+
+There is no "post to Discord" call, by design. Your module composes a **Message**; the hub's
+outbound bridge notices the message belongs to a channel-linked thread and delivers it through
+whichever adapter owns that channel:
+
+```
+messages.messages.compose            (your module)
+        │
+        ▼
+messages.message.sent                (event)
+        │
+        ▼
+subscribers/outbound-bridge.ts       (hub — resolves the channel from the thread mapping)
+        │
+        ▼
+deliver-outbound-message command → ChannelAdapter.sendMessage
+```
+
+Replying inside an existing conversation is the easy case, and the one you want: set
+`parentMessageId` to the message you are replying to and the thread mapping resolves the channel for
+you.
+
+```ts
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { resolveCommunicationChannelsSystemUserId } from '@open-mercato/core/modules/communication_channels/lib/system-user'
+
+const commandBus = ctx.resolve<CommandBus>('commandBus')
+const userId = await resolveCommunicationChannelsSystemUserId(em, scope.tenantId, null)
+
+await commandBus.execute('messages.messages.compose', {
+  input: {
+    type: 'channel.discord',
+    visibility: 'public' as const,
+    subject: 'Discord reply',
+    body: 'Thanks — someone from the team will pick this up shortly.',
+    bodyFormat: 'markdown' as const,
+    priority: 'normal' as const,
+    sendViaEmail: false,
+    parentMessageId: inbound.threadId ?? inbound.id,
+    isDraft: false,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId,
+  },
+  ctx: {
+    container: { resolve: (name: string) => ctx.resolve(name) } as never,
+    auth: null,
+    organizationScope: null,
+    selectedOrganizationId: scope.organizationId,
+    organizationIds: scope.organizationId ? [scope.organizationId] : null,
+  } as never,
+})
+```
+
+Nothing in that snippet is Discord-specific except the `type` string and the body format. The same
+code replies over Gmail if the thread's channel is a Gmail channel.
+
+For a user-initiated send from a channel the user owns, prefer the `sendAsUser` facade — either over
+HTTP (`POST /api/communication_channels/send-as-user`, `communication_channels.manage`) or in
+process via DI, which avoids an HTTP self-call:
+
+```ts
+import type { sendAsUser as SendAsUser } from '@open-mercato/core/modules/communication_channels/lib/send-as-user'
+
+const sendAsUser = container.resolve<typeof SendAsUser>('communicationChannelsSendAsUser')
+const result = await sendAsUser(container, { userId, tenantId, organizationId, auth }, {
+  userChannelId,
+  to: ['someone@example.com'],
+  subject: 'Order #1042',
+  body: { plain: 'Shipped this morning.' },
+})
+if (!result.ok) { /* result.status carries 403 / 404 / 409 / 422 */ }
+```
+
+:::warning `send-as-user` is email-shaped today
+The HTTP route validates `to` as a list of **email addresses**, so it rejects a Discord channel
+snowflake before the adapter is consulted. The in-process facade does not apply that validation, but
+it is still built around an email-shaped message (subject, `externalEmail`). For a non-email
+provider, the compose path above is the supported route, and
+`POST /api/communication_channels/channels/{id}/test-send` is the only endpoint that validates the
+recipient against the provider's own `recipientFormat`. Widening the outbound routes is tracked
+hub-side; do not work around it by calling a provider's REST client directly.
+:::
+
+### The security context your code runs in
+
+| Concern | What actually happens |
+|---|---|
+| **Tenant scoping** | Nothing implicit. Subscribers and workers run outside a request, so every query filters on the `tenantId` / `organizationId` from the event payload. Cross-tenant reads are a bug, not a configuration mistake. |
+| **Outbound identity** | The message is attributed to the composing `userId`, and to the tenant's system user when there is no human author (`resolveCommunicationChannelsSystemUserId`). What the *recipient* sees is provider-dependent: Gmail shows the connected mailbox; Discord always shows the bot. Discord has no send-on-behalf-of-a-user mechanism for bots. |
+| **ACL** | `communication_channels.connect_user_channel` to connect a personal channel, `communication_channels.connect_tenant_channel` for a tenant-wide one, `.manage` to send as a user, `.react` to react, `.channel.import_history` for backfill. Use `requireFeatures` in route/page metadata; never `requireRoles`. |
+| **Channel ownership** | A user-scoped channel can only be sent through by its owner — `sendAsUser` returns 403 otherwise, and personal channels are not exposed to admins. |
+| **Credentials** | Encrypted at rest per tenant. Adapters receive plaintext only inside the call; your module never handles them. |
+| **Non-deliverable channels** | `guardOutboundCreate` maps `requires_reauth` / `disconnected` to a 422 with field errors before anything is enqueued. Do not bypass it. |
+
+---
+
+## Part 2 — Build a channel provider
+
+A provider is a workspace package that registers one `ChannelAdapter`. The hub's webhook router,
+connect routes, admin UI and outbound worker discover it by `providerKey`; **no hub change is
+required** to add one.
+
+### 1. Scaffold the package
+
+Copy the build/watch/jest/tsconfig templates from an existing provider and follow the layout:
+
+```
+packages/channel-myprovider/
+├── package.json
+├── tsconfig.json
+└── src/
+    └── modules/
+        └── channel_myprovider/
+            ├── index.ts            # module metadata
+            ├── integration.ts      # integration manifest (admin UI, credential fields, health)
+            ├── acl.ts              # feature ids
+            ├── setup.ts            # adapter registration + tenant defaults
+            ├── di.ts               # DI bindings (adapter, health check)
+            ├── lib/
+            │   ├── adapter.ts      # the ChannelAdapter
+            │   ├── capabilities.ts # the capability contract
+            │   ├── credentials.ts  # zod schema for the credential blob
+            │   ├── convert-outbound.ts
+            │   ├── normalize-inbound.ts
+            │   └── health.ts
+            └── i18n/en.json
+```
+
+Add `{ id: 'channel_myprovider', from: '@open-mercato/channel-myprovider' }` to
+`apps/mercato/src/modules.ts`, then `yarn generate`.
+
+### 2. Declare the credential blob
+
+A zod schema in `lib/credentials.ts` is the single definition of what the provider stores. Use
+`.passthrough()`, not `.strict()` — the hub's connect command stashes bookkeeping fields alongside
+your values:
+
+```ts
+export const discordCredentialsSchema = z
+  .object({
+    botToken: z.string().min(1, 'Bot token required'),
+    applicationId: z.string().min(1, 'Application ID required'),
+    publicKey: z
+      .string()
+      .regex(/^[0-9a-fA-F]+$/, 'Public key must be hex')
+      .refine((value) => value.length === 64, 'Public key must be a 32-byte (64 hex char) Ed25519 key'),
+    guildId: z.string().optional(),
+    defaultChannelId: z.string().optional(),
+  })
+  .passthrough()
+```
+
+The same schema drives `validateCredentials`, so a bad field comes back as a field-level error in the
+connect form rather than as a channel that cannot authenticate.
+
+### 3. Write the capability contract — and be honest in it
+
+`capabilities` is not documentation. The hub **routes work on these flags**: a `true` that nothing
+implements is work silently dropped, and the registry only catches five of those pairs at boot
+(`reactions` → `sendReaction`/`removeReaction`, `editMessage`, `deleteMessage`,
+`conversationHistory` → `fetchHistory`). Everything else is on you.
+
+Declare `false` for anything you have not implemented, and say why in a comment — the reason is what
+stops the next person flipping it back optimistically. From
+`packages/channel-discord/.../lib/capabilities.ts`:
+
+```ts
+export const discordCapabilities: ChannelCapabilities = {
+  recipientFormat: 'provider-native',   // Discord recipients are channel snowflakes, not addresses
+  richText: true,
+  reactions: true,
+  editMessage: true,
+  deleteMessage: true,
+  conversationHistory: true,
+  supportedBodyFormats: ['text', 'markdown'],
+  maxBodyLength: 2000,                  // Discord's own REST limit on `content`
+  realtimePush: true,                   // a gateway worker delivers inbound; do not poll this channel
+
+  threading: false,        // convertOutbound can emit a reply reference, but no hub producer
+                           // writes the metadata key it reads — the branch is unreachable
+  fileSharing: false,      // outbound attachments are dropped; there is no multipart upload
+  inlineImages: false,
+  interactiveComponents: false, // the interactions route acks; it never sends components
+  richBlocks: false,
+  typingIndicators: false,
+  presence: false,
+  stickers: false,
+  readReceipts: false,
+  deliveryReceipts: false,
+  multiReactionPerUser: false,
+  contactCards: false,
+  locationSharing: false,
+  voiceNotes: false,
+}
+```
+
+Two flags decide more than they look like they do:
+
+**`recipientFormat`** tells the hub how to validate an outbound recipient. It defaults to `'email'`,
+so a provider that omits it and is not addressed by email has **no working outbound path at all** —
+every recipient is rejected as "not a valid email address". `'provider-native'` switches the hub to
+transport safety only (length plus the `^[A-Za-z0-9._:@+-]+$` allowlist), which means **your adapter
+owns the format check** and must keep treating the value as untrusted: it is about to be interpolated
+into a REST path.
+
+**`realtimePush`** decides whether the hub polls the channel. It defaults to `true` (nothing is
+polled), and only an explicit `false` opts you into hub-managed polling with `fetchHistory`. Declare
+`true` only when you really do own a real-time delivery path — otherwise inbound is silently dead.
+
+### 4. Implement the adapter
+
+Five methods are required; the rest are opt-in and must match your flags.
+
+```ts
+class DiscordChannelAdapter implements ChannelAdapter {
+  readonly providerKey = 'discord'
+  readonly channelType = 'discord'
+  readonly capabilities = discordCapabilities
+  // readonly channelScope = 'tenant'   // omit for the default: one channel per user
+
+  async sendMessage(input: SendMessageInput): Promise<SendMessageResult> { /* … */ }
+  async verifyWebhook(input: VerifyWebhookInput): Promise<InboundMessage> { /* … */ }
+  async getStatus(input: GetMessageStatusInput): Promise<MessageStatus> { /* … */ }
+  async convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent> { /* … */ }
+  async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> { /* … */ }
+}
+```
+
+`sendMessage` returns a result rather than throwing, and the shape of that result is how the hub
+learns what happened:
+
+```ts
+try {
+  const message = await getDiscordRestClient().createMessage(/* … */)
+  return {
+    externalMessageId: message.id,
+    conversationId: `discord-channel:${message.channel_id}`,
+    status: 'sent',
+    metadata: { discordChannelId: message.channel_id, discordMessageId: message.id },
+  }
+} catch (error) {
+  if (error instanceof DiscordApiError && error.status === 401) {
+    // Protocol sentinel: the hub classifies this and flips the channel to
+    // requires_reauth, which fires the operator notification and the outbound guard.
+    return { externalMessageId: '', status: 'failed', error: 'requires_reauth' }
+  }
+  return { externalMessageId: '', status: 'failed', error: String(error) }
+}
+```
+
+`normalizeInbound` maps the provider payload onto the hub's canonical shape. Pick an
+`externalConversationId` prefix that identifies your provider (`discord-channel:<id>`,
+`gmail-thread:<id>`) so everything in one remote conversation threads into one hub conversation.
+
+:::tip Resolve the destination in one place, and prefer the conversation
+An outbound message can name its destination three ways. Discord resolves them in a fixed order —
+provider metadata, then the conversation's own id, then the recipient from `metadata.to`, then the
+configured default. The conversation deliberately outranks the recipient so a stray `to` can never
+redirect a reply out of its own thread; the recipient only decides when there is no conversation to
+belong to, which is exactly the test-send case. Validating a recipient and then quietly ignoring it
+is worse than rejecting it.
+:::
+
+### 5. `verifyWebhook` must fail closed
+
+This is the security-critical method, and the trap is that its contract is inverted from what it
+looks like. The shared `api/post/webhook/[provider]` route treats **a non-throwing return as
+"verified"** and pins the request to that candidate channel's tenant. A best-effort implementation
+that returns normally on an unverified request is a tenant-spoofing fail-open.
+
+So there are exactly two correct behaviours:
+
+- **You can verify:** throw on any failure — missing header, malformed key, bad signature, anything.
+- **You have no webhook** (polling providers, or a provider served by its own signed route): return
+  `{ raw: {}, eventType: 'other' }` so the route acknowledges (202) without doing tenant-scoped work.
+
+```ts
+async verifyWebhook(input: VerifyWebhookInput): Promise<InboundMessage> {
+  const rawBody = typeof input.rawBody === 'string' ? input.rawBody : input.rawBody.toString('utf-8')
+  const interaction = parseInteractionBody(rawBody)
+  if (!interaction) {
+    // Not ours — Discord messages arrive over the gateway. Ack without tenant-scoped work.
+    return { raw: {}, eventType: 'other', metadata: { reason: 'discord-uses-gateway-for-messages' } }
+  }
+
+  const parsed = discordCredentialsSchema.safeParse(input.credentials)
+  const headers = normalizeHeaders(input.headers)
+  const ok = verifyDiscordSignature({
+    publicKeyHex: parsed.success ? parsed.data.publicKey : '',
+    signatureHex: headers['x-signature-ed25519'],
+    timestamp: headers['x-signature-timestamp'],
+    rawBody,
+  })
+  if (!ok) throw new Error('[internal] Discord interaction signature verification failed')
+
+  return { raw: { discordInteraction: interaction }, eventType: 'other' }
+}
+```
+
+The verification helper itself is fail-closed too: it returns `false` on a missing header, a
+malformed key or any error, and never `true` on doubt.
+
+Signature verification alone is not freshness. A captured request stays cryptographically valid
+forever, so a provider whose signature covers a timestamp needs an explicit replay window — Discord
+rejects anything outside ±300 seconds, **before** the signature fan-out, so a replay costs no crypto
+work.
+
+#### When you need your own signed route
+
+A provider whose handshake must be answered *synchronously* cannot use the shared webhook route,
+which only 202-acks. Ship your own route from the provider package instead of changing the hub —
+Discord does exactly this for its Interactions endpoint:
+
+```ts
+// api/post/interactions/route.ts  →  /api/channel_discord/interactions
+export const metadata = {
+  path: '/channel_discord/interactions',
+  POST: {
+    requireAuth: false,   // the Ed25519 signature IS the auth, and it is fail-closed
+    rateLimit: { points: 120, duration: 60, keyPrefix: 'discord_interactions' },
+  },
+}
+```
+
+An unauthenticated route needs a cost story as well as a security story. Reject everything decidable
+from the request alone — missing, malformed or wrong-length signature header, stale timestamp —
+*before* loading a single candidate channel, so unsigned traffic costs zero database round-trips and
+zero credential decrypts. Then verify against the candidates: the one whose key verifies is what
+pins the tenant. If a body carries an id you can narrow candidates by, treat it as **narrowing only**
+— it is unverified input and must never be an authorization decision, and a body claiming nothing
+falls back to the full candidate set rather than being let through.
+
+### 6. Inbound over something that is not a webhook
+
+Discord does not POST messages anywhere: they arrive on a persistent WebSocket. The pattern for any
+socket-, stream-, or long-poll-based transport is a **provider-owned worker** that bridges into the
+hub's existing queues, so the hub itself stays unchanged:
+
+```
+Gateway WebSocket (provider-owned worker)
+        │
+        ▼
+buildInboundMessageJob(...)  →  communication-channels-inbound queue
+buildReactionJob(...)        →  communication-channels-reactions queue
+        │
+        ▼
+the hub's existing inbound / reaction processors  →  ingest command  →  Messages
+```
+
+The jobs are the same ones the webhook route enqueues, so `normalizeInbound` runs exactly as it
+would have. A worker file under `workers/` is auto-discovered; declare `concurrency: 1` when the
+transport requires a single connection per credential.
+
+Four things this pattern gets wrong if you skip them:
+
+- **A feedback-loop guard.** Drop anything your own bot authored, or you ingest and answer yourself.
+  Discord drops every bot-authored message, not just its own, so other bots in the channel cannot
+  drive a loop either.
+- **A cross-process reality check.** A separate worker process can only hand work to the app server
+  if the queue is genuinely shared. Under an in-process queue strategy the jobs vanish with no error
+  and no retry while the channel still reports *Connected* — so refuse to start instead:
+
+  ```ts
+  export function assertInboundDeliverable(queueStrategy: string | undefined): void {
+    if (queueStrategy === 'async') return
+    throw new Error('[internal] start-gateway requires QUEUE_STRATEGY=async (with Redis configured). …')
+  }
+  ```
+
+- **A quarantine for fatal errors.** When the remote rejects the credential or a required permission
+  (Discord's `4004` / `4014` closes), retrying cannot help. Write `status: 'requires_reauth'` and
+  stop reopening — otherwise a 60-second reconnect loop burns ~1440 session starts a day against a
+  ~1000/day budget while the admin UI still reads *connected*. Writing that status also engages the
+  reauth banner, the outbound mutation guard and the operator's reconnect flow with no hub change.
+- **A way to start it.** No hub event enqueues your worker. Ship a CLI command
+  (`mercato channel_discord start-gateway`) and document it — inbound is dead until an operator runs
+  it. Give it a periodic *reconciler* pass that picks up newly connected channels and closes sockets
+  for deactivated ones, and make that pass leave healthy sessions alone so a short interval costs one
+  query per tick.
+
+### 7. Persist provider state, tenant-scoped
+
+Providers that resume a session need somewhere to keep a cursor. `CommunicationChannel.channelState`
+is a JSONB column for exactly that — but a socket callback fires long after the job handler returned,
+so nothing scopes the write for you:
+
+```ts
+export async function persistDiscordChannelState(params: {
+  em: EntityManager
+  channelId: string
+  scope: { tenantId: string; organizationId: string | null }
+  patch: DiscordChannelStatePatch
+}): Promise<'written' | 'skipped' | 'not_found'> {
+  const fork = params.em.fork()
+  const channel = await findOneWithDecryption(
+    fork,
+    CommunicationChannel,
+    { id: params.channelId, tenantId: params.scope.tenantId, organizationId: params.scope.organizationId, deletedAt: null },
+    undefined,
+    { tenantId: params.scope.tenantId, organizationId: params.scope.organizationId ?? params.scope.tenantId },
+  )
+  if (!channel) return 'not_found'
+  const merged = mergeDiscordChannelState(channel.channelState, params.patch, new Date())
+  if (!merged) return 'skipped'
+  channel.channelState = merged
+  await fork.flush()
+  return 'written'
+}
+```
+
+The rules that make it safe: capture the scope up front from the row the job loaded and replay it on
+every write, **filter by `tenant_id` / `organization_id` and never by id alone**, run on a fresh
+`em.fork()` so the flush does not ride on a stale request context, merge only the keys you own so a
+concurrent edit elsewhere in the blob is not clobbered, and drop a patch that would rewind a cursor —
+a late callback from a superseded connection must not overwrite fresher state.
+
+### 8. Integration manifest, health check and DI
+
+`integration.ts` is what the **Integrations** admin UI renders: title, description, credential
+fields (with `helpText` — the operator reads it while looking at the provider's console), API
+versions, and the health-check service name.
+
+```ts
+export const integration: IntegrationDefinition = {
+  id: 'channel_discord',
+  title: 'Discord',
+  category: 'communication',
+  hub: 'communication_channels',
+  providerKey: 'discord',
+  package: '@open-mercato/channel-discord',
+  credentials: { fields: [ /* key, label, type: 'secret' | 'text', required, helpText */ ] },
+  healthCheck: { service: 'channelDiscordHealthCheck' },
+}
+```
+
+Make the health check a **real probe** — a cheap authenticated call such as `GET /users/@me` —
+rather than a credentials-present check, and map the failure modes to actionable messages (`401` →
+"token rejected"). Then register both the adapter and the health check under the exact service name
+the manifest declares; if that name does not resolve, the channel reports permanently unhealthy:
+
+```ts
+// di.ts
+export function register(container: AppContainer): void {
+  if (!hasChannelAdapter('discord')) registerChannelAdapter(getDiscordChannelAdapter())
+  container.register({
+    channelDiscordAdapter: asValue(getDiscordChannelAdapter()),
+    channelDiscordHealthCheck: asValue(channelDiscordHealthCheck),
+  })
+}
+```
+
+`setup.ts` registers the adapter at import time as well — the registry is process-wide, so guard with
+`hasChannelAdapter` to stay idempotent across dev-mode HMR and repeated test imports — and is where
+`defaultRoleFeatures` and any `onTenantCreated` work (such as applying an env preset through the
+standard credentials service) belong.
+
+### 9. Add a connect surface
+
+Ship a connect widget from your package, injected into the profile page's channel list, rather than
+asking the hub to know about you:
+
+```ts
+// widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  'profile:communication-channels:connect': [
+    { widgetId: 'channel_discord.injection.connect', priority: 120 },
+  ],
+}
+```
+
+The widget collects the credential fields and posts them to the hub's own connect route
+(`POST /api/communication_channels/channels/connect/credentials` for a user-owned channel,
+`…/connect/tenant-credentials` for a tenant-wide one), gated by
+`communication_channels.connect_user_channel`. Use `apiCall` and `useGuardedMutation`; never raw
+`fetch`. All user-facing strings go through `useT()` and your module's `i18n/` files.
+
+### 10. Verify it
+
+```bash
+yarn generate && yarn build:packages && yarn test
+yarn mercato configs cache structural --all-tenants   # after any modules.ts change
+```
+
+Unit-test the pure parts — capability/method parity, signature verification (every rejection path,
+not just the happy one), inbound normalization, outbound conversion, the state-merge rules. Ship
+integration specs under `__integration__/` that drive the real app for everything that does not need
+a live remote account: adapter registration, fail-closed credential validation, the signed route's
+rejections, reaction round-trip through the thread mapping, tenant-scoped health guards. Where a
+sub-assertion genuinely needs a live account, say so in the spec and name the unit test that owns
+that half — a stated ceiling is worth more than a test that pretends.
+
+---
+
+## Related
+
+- [Communications Hub](communication-channels.mdx) — architecture, entities, env vars, deploy runbook
+- [Set up Discord](../../user-guide/communication-channels-discord.mdx) — the operator side of the worked example
+- [Building a Gateway Provider](building-gateway-provider.mdx) — the same shape for payments and shipping
+- [Messages module](messages.mdx) — the unified inbox the hub materialises into
+- [Integrations + Data Sync](integrations-data-sync.mdx) — the credentials and admin-UI layer
