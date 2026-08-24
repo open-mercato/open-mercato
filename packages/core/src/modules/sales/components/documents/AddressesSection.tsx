@@ -1083,7 +1083,6 @@ export function SalesDocumentAddressesSection({
     )
   }
 
-
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
