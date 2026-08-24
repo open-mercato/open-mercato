@@ -68,6 +68,16 @@ export type TrustedAuthContextEnvelope = {
   status?: AuthResolutionStatus
 }
 
+/**
+ * Attach an already-resolved auth context to a synthetic request.
+ *
+ * INVARIANT callers MUST uphold: `envelope.auth` has to be the product of a gated resolution —
+ * `getAuthFromRequest` / `getAuthFromCookies` (or an equivalently validated principal such as an
+ * API-key record). The envelope short-circuits `resolveAuthFromRequestDetailed` ahead of both the
+ * MFA-pending gate and `resolveCanonicalStaffAuthContext`, so an envelope built straight from an
+ * unvalidated JWT would reinstate the MFA bypass this module closes and skip session-revocation
+ * checks as well. Never populate it from raw request credentials.
+ */
 export function attachTrustedAuthContext(
   request: Request,
   envelope: TrustedAuthContextEnvelope
@@ -384,6 +394,8 @@ export async function getAuthFromCookies(): Promise<AuthContext> {
 }
 
 export async function resolveAuthFromRequestDetailed(req: Request): Promise<AuthResolution> {
+  // Deliberately ahead of the MFA-pending gate below: the envelope carries a context that was
+  // already gated by its producer (see `attachTrustedAuthContext`), not raw request credentials.
   const trusted = readTrustedAuthContext(req)
   if (trusted) {
     return {

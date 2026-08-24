@@ -197,8 +197,9 @@ Ready for implementation in external-extension mode, contingent on prerequisites
 
 The interceptor's provisional token (`mfa_pending: true`, `mfa_verified: false`) was
 accepted by every staff API because the canonical auth resolvers never inspected the
-assurance claims. This amendment defines the platform-wide gate that rejects pending
-credentials everywhere except registered MFA completion routes.
+assurance claims. This amendment defines the gate that rejects pending credentials on every
+path that resolves them — general staff APIs, RSC/page loads, and the session-refresh route —
+except registered MFA completion routes.
 
 ### Contract
 
@@ -213,6 +214,21 @@ credentials everywhere except registered MFA completion routes.
   in `packages/shared/src/lib/auth/server.ts`: pending payloads resolve to
   `{ auth: null, status: 'invalid' }` unless the request matches a registered completion
   route; cookie/RSC resolution rejects pending tokens unconditionally.
+- Alternate credential paths — the gate above only covers credentials that reach those two
+  resolvers. `GET|POST /api/auth/session/refresh` is `requireAuth: false` and mints a staff JWT
+  from the `session_token` cookie without consulting them, so two additional closures are part
+  of this amendment:
+  - `packages/core/src/modules/auth/api/login.ts` clears `session_token` whenever an interceptor
+    replaces the issued token. A provisional login must not leave a remember-me cookie from an
+    earlier, pre-enrollment login usable.
+  - `packages/core/src/modules/auth/api/session/refresh.ts` refuses to mint (401 / redirect to
+    `/login`, staff cookies cleared) when the caller presents an MFA-pending `auth_token` cookie
+    or bearer token.
+- Known residual — `AuthService.refreshFromSessionToken` itself remains MFA-unaware, and the
+  SSO callback (`packages/enterprise/src/modules/sso/api/callback/oidc/route.ts`) plants
+  `session_token` without passing through the login interceptor, so it never enters the pending
+  state at all. Making session refresh aware of an unsatisfied enforced MFA policy is tracked
+  separately and is out of scope for this amendment.
 
 ### Ownership boundary
 
@@ -232,6 +248,9 @@ credentials everywhere except registered MFA completion routes.
 | `registerMfaPendingAccessRoutes` / `isMfaPendingAccessAllowed` / `listMfaPendingAccessRoutes` / `isMfaPendingJwtPayload` | ADDITIVE-ONLY | New exports; signatures frozen as shipped here. Future evolution must keep existing call sites working or follow the deprecation protocol (§27). |
 | Registry default set | CHANGED (security-narrowing) | Pre-amendment builds effectively allowed the provisional token everywhere; the fix intentionally narrows pending tokens to registered completion routes. No stable contract is removed — pending tokens were never documented as general credentials. |
 | Login/MFA endpoint URLs, methods, request/response shapes | UNCHANGED | Completion endpoints keep requiring `auth.mfa_pending === true`; verified replacement tokens and non-MFA logins behave exactly as before. |
+| `POST /api/auth/login` `Set-Cookie` behavior | CHANGED (security-narrowing) | When an interceptor replaces the issued token, the response now clears `session_token` instead of leaving a previously planted one in place. URL, method, request and response body shapes are unchanged. MFA accounts never had a usable remember-me cookie after verification (`issueVerifiedMfaToken` does not issue one), so no supported flow loses a capability. |
+| `GET\|POST /api/auth/session/refresh` reachability | CHANGED (security-narrowing) | A caller presenting an MFA-pending `auth_token` now gets a redirect to `/login` (GET) or 401 (POST) with staff cookies cleared, instead of a freshly minted staff JWT. Response shapes for every other caller are unchanged. |
+| `POST /api/auth/logout` reachability | CHANGED (security-narrowing) | The route is `requireAuth: true` and is deliberately **not** on the pending allowlist, so a pending token is rejected at the dispatcher before the handler runs. The browser still ends up logged out (the dispatcher clears the staff cookies), but the handler's session revocation and the `auth.logout` event do not fire, leaving an unrevoked `Session` row per abandoned challenge. Those rows are inert: the session's refresh token is dropped from the interceptor's replaced body and never set as a cookie, and the `sid` only appears in a pending token that is now rejected everywhere. Allowlisting `/api/auth/logout` was considered and rejected — it would widen the pending window for no security benefit. |
 | Third-party MFA modules | MIGRATION REQUIRED (one line) | Any implementation that completes challenges on its own endpoints must call `registerMfaPendingAccessRoutes` during bootstrap; without it its completion routes reject pending tokens (fail-closed). |
 
 ### Integration coverage
@@ -244,3 +263,6 @@ credentials everywhere except registered MFA completion routes.
 | `POST /api/security/mfa/prepare` / `verify` with pending token | reachable, contracts unchanged | `TC-SEC-014` |
 | Verified replacement token | normal read + mutation access restored | `TC-SEC-014` |
 | Failed-challenge cleanup / attempt exhaustion | correct code rejected after lockout; fresh challenge works | `TC-SEC-014`; TTL expiry at service level in `MfaVerificationService.test.ts` |
+| `POST /api/auth/login` reaching the challenge | pre-enrollment remember-me `session_token` cleared by the challenge response | `TC-SEC-014`; unit: `api/__tests__/login.test.ts` |
+| `GET /api/auth/session/refresh` replaying a planted `session_token` with a pending `auth_token` | no staff token minted; redirect to `/login`, cookies cleared | `TC-SEC-014`; unit: `api/__tests__/session.refresh.test.ts` |
+| `GET\|POST /api/auth/session/refresh` after challenge completion | refreshes normally once the token is no longer pending | unit: `api/__tests__/session.refresh.test.ts` |

@@ -383,6 +383,11 @@ export function verifyAudienceJwt(audience: string, token: string): JwtPayload |
  * has not been completed yet (`mfa_pending: true`, `mfa_verified` not `true`). Such tokens are
  * provisional — general staff APIs must reject them and only the MFA completion routes may
  * accept them (see `@open-mercato/shared/lib/auth/mfaPendingAccess`).
+ *
+ * The predicate keys on `mfa_pending` alone by design. `mfa_verified` is NOT a durable session
+ * property: routes that legitimately re-sign a staff token (`PUT /api/auth/profile`,
+ * `GET|POST /api/auth/session/refresh`) rebuild the claims without it. Tightening this to require
+ * `mfa_verified === true` would therefore silently downgrade those sessions.
  */
 export function isMfaPendingJwtPayload(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return false

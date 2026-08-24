@@ -66,5 +66,5 @@ export function isMfaPendingAccessAllowed(
 export function listMfaPendingAccessRoutes(): ReadonlyArray<Readonly<MfaPendingAccessRoute>> {
   return Array.from(registeredMethodsByPath.entries())
     .map(([path, methods]) => ({ path, methods: Array.from(methods).sort((first, second) => (first < second ? -1 : first > second ? 1 : 0)) }))
-    .sort((first, second) => first.path.localeCompare(second.path))
+    .sort((first, second) => (first.path < second.path ? -1 : first.path > second.path ? 1 : 0))
 }
