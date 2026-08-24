@@ -92,7 +92,10 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
                 <Separator />
                 <BoldItalicUnderlineToggles />
                 <CodeToggle />
-                <StrikeThroughSupSubToggles />
+                {/* Sub/superscript stay available via markdown; their buttons (and the
+                    thematic-break one — `---` still works as a shortcut) are dropped so
+                    the toolbar fits one row inside dialog-width hosts. */}
+                <StrikeThroughSupSubToggles options={['Strikethrough']} />
                 <Separator />
                 <ListsToggle />
                 <Separator />
@@ -102,7 +105,6 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
                 <InsertImage />
                 <Separator />
                 <InsertTable />
-                <InsertThematicBreak />
               </DiffSourceToggleWrapper>
             ),
           }),
