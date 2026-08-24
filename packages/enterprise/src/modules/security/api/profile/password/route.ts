@@ -69,12 +69,12 @@ export async function PUT(req: Request) {
     })
     return NextResponse.json({ ok: true })
   } catch (error) {
+    if (error instanceof CrudHttpError) {
+      return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+    }
     const interceptorRejection = getCommandInterceptorHttpRejection(error)
     if (interceptorRejection) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
-    if (error instanceof CrudHttpError) {
-      return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
     }
     logger.error('Profile password update failed', { err: error })
     return NextResponse.json(
