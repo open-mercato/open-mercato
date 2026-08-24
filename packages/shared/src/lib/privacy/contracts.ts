@@ -10,6 +10,13 @@ export type PrivacySubjectReference = {
   id: string
 }
 
+export type PrivacySubjectIdentifierKind = 'email'
+
+export type PrivacySubjectIdentifier = {
+  kind: PrivacySubjectIdentifierKind
+  value: string
+}
+
 export type PrivacyRetentionAction = 'delete' | 'anonymize'
 export type PrivacySubjectAction = 'discover' | 'export' | 'erase' | 'anonymize'
 export type PrivacyEnvironmentSanitizationCategory =
@@ -27,6 +34,7 @@ export type PrivacyDataClassDefinition = {
   description?: string
   handlerService: string
   subjectKinds: readonly string[]
+  subjectIdentifierKinds?: readonly PrivacySubjectIdentifierKind[]
   retention?: {
     actions: readonly PrivacyRetentionAction[]
     defaultDays: number
@@ -44,6 +52,9 @@ export type PrivacyRetentionInput = {
   batchSize: number
   dryRun: boolean
   excludedSubjects: readonly PrivacySubjectReference[]
+  actorId?: string
+  commandContext?: CommandRuntimeContext
+  now?: Date
 }
 
 export type PrivacyRetentionResult = {
@@ -74,6 +85,16 @@ export type PrivacySubjectMutationResult = {
   affected: number
 }
 
+export type PrivacySubjectResolutionInput = {
+  scope: PrivacyScope
+  identifier: PrivacySubjectIdentifier
+  actorId: string
+}
+
+export type PrivacySubjectResolutionResult = {
+  subjects: PrivacySubjectReference[]
+}
+
 export type PrivacyEnvironmentSanitizationInput = {
   scope: PrivacyScope
   dryRun: boolean
@@ -98,6 +119,7 @@ export type PrivacyEnvironmentSanitizationVerificationResult = {
 
 export type PrivacyDataClassHandler = {
   runRetention?: (input: PrivacyRetentionInput) => Promise<PrivacyRetentionResult>
+  resolveSubjects?: (input: PrivacySubjectResolutionInput) => Promise<PrivacySubjectResolutionResult>
   discoverSubject?: (input: PrivacySubjectInput) => Promise<PrivacySubjectDiscoveryResult>
   exportSubject?: (input: PrivacySubjectInput) => Promise<PrivacySubjectExportResult>
   eraseSubject?: (input: PrivacySubjectInput) => Promise<PrivacySubjectMutationResult>

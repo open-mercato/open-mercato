@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   clearPrivacyDataClasses,
   registerPrivacyDataClass,
@@ -20,6 +21,7 @@ describe('PrivacyGovernanceService', () => {
       title: 'Test people',
       handlerService: 'testPeoplePrivacyHandler',
       subjectKinds: ['test:person'],
+      subjectIdentifierKinds: ['email'],
       subjectActions: ['discover', 'export', 'erase', 'anonymize'],
     })
   })
@@ -63,6 +65,66 @@ describe('PrivacyGovernanceService', () => {
 
     expect(result.exports?.['test.people']?.data).toEqual({ email: 'private@example.com' })
     expect(JSON.stringify(result.operation.reportJson)).not.toContain('private@example.com')
+  })
+
+  it('resolves an email without persisting the identifier value', async () => {
+    const { service } = createService({
+      handler: {
+        resolveSubjects: async () => ({
+          subjects: [{ kind: 'test:person', id: 'person-1' }],
+        }),
+      },
+    })
+
+    const result = await service.resolveSubjects(scope, 'actor-1', {
+      identifier: { kind: 'email', value: 'private@example.com' },
+    })
+
+    expect(result.subjects).toEqual({
+      'test.people': [{ kind: 'test:person', id: 'person-1' }],
+    })
+    expect(JSON.stringify(result.operation.reportJson)).not.toContain('private@example.com')
+    expect(result.operation.reportJson).toEqual(expect.objectContaining({ identifierKind: 'email' }))
+  })
+
+  it('passes actor and command context into bounded retention', async () => {
+    registerPrivacyDataClass({
+      id: 'test.retained_people',
+      module: 'test',
+      title: 'Retained people',
+      handlerService: 'testPeoplePrivacyHandler',
+      subjectKinds: ['test:person'],
+      retention: { actions: ['delete'], defaultDays: 365 },
+      subjectActions: [],
+    })
+    const runRetention = jest.fn(async () => ({ matched: 1, affected: 1, hasMore: false }))
+    const commandContext = { container: {} } as CommandRuntimeContext
+    const { service } = createService({
+      handler: { runRetention },
+      holds: [{ subjectKind: 'test:person', subjectId: 'held-person' }],
+      policy: {
+        id: 'policy-1',
+        dataClassId: 'test.retained_people',
+        retentionDays: 365,
+        action: 'delete',
+        batchSize: 25,
+        isActive: true,
+      },
+    })
+
+    const operation = await service.runRetention(
+      scope,
+      'actor-1',
+      { policyId: 'policy-1', dryRun: false, maxBatches: 1 },
+      commandContext,
+    )
+
+    expect(operation.status).toBe('completed')
+    expect(runRetention).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: 'actor-1',
+      commandContext,
+      excludedSubjects: [{ kind: 'test:person', id: 'held-person' }],
+    }))
   })
 
   it('writes a restore manifest after a completed erasure', async () => {
@@ -191,6 +253,7 @@ function createService(input: {
     subjectId: string
     executedAt: Date
   }) => Promise<void>
+  policy?: Record<string, unknown>
 }) {
   let sequence = 0
   const flush = jest.fn(async () => undefined)
@@ -209,7 +272,9 @@ function createService(input: {
   const legalHoldService = {
     findActive: jest.fn(async () => input.holds ?? []),
   } as unknown as PrivacyLegalHoldService
-  const policyService = {} as PrivacyPolicyService
+  const policyService = {
+    get: jest.fn(async () => input.policy),
+  } as unknown as PrivacyPolicyService
   const service = new PrivacyGovernanceService({
     em,
     privacyPolicyService: policyService,

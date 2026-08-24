@@ -14,9 +14,13 @@ export type {
   PrivacySubjectAction,
   PrivacySubjectDiscoveryResult,
   PrivacySubjectExportResult,
+  PrivacySubjectIdentifier,
+  PrivacySubjectIdentifierKind,
   PrivacySubjectInput,
   PrivacySubjectMutationResult,
   PrivacySubjectReference,
+  PrivacySubjectResolutionInput,
+  PrivacySubjectResolutionResult,
 } from './contracts'
 
 export {

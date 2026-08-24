@@ -45,6 +45,9 @@ export function registerPrivacyDataClass(definition: PrivacyDataClassDefinition)
   store().set(definition.id, {
     ...definition,
     subjectKinds: [...new Set(definition.subjectKinds)],
+    ...(definition.subjectIdentifierKinds
+      ? { subjectIdentifierKinds: [...new Set(definition.subjectIdentifierKinds)] }
+      : {}),
     subjectActions: [...new Set(definition.subjectActions)],
     ...(definition.retention
       ? { retention: { ...definition.retention, actions: [...new Set(definition.retention.actions)] } }

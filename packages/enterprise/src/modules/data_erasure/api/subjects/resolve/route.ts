@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { retentionRunSchema } from '../../../data/validators'
+import { subjectResolutionSchema } from '../../../data/validators'
 import { resolvePrivacyApiContext } from '../../context'
 import { privacyApiError } from '../../errors'
 import { serializeOperation } from '../../serialize'
@@ -14,9 +14,9 @@ export const metadata = {
 export async function POST(request: Request) {
   const context = await resolvePrivacyApiContext(request)
   if (context instanceof Response) return context
-  const parsed = retentionRunSchema.safeParse(await readJsonSafe(request, {}))
+  const parsed = subjectResolutionSchema.safeParse(await readJsonSafe(request, {}))
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid retention request', details: parsed.error.flatten() }, { status: 400 })
+    return NextResponse.json({ error: 'Invalid subject resolution request', details: parsed.error.flatten() }, { status: 400 })
   }
   try {
     const guard = await beginPrivacyMutation(context, request, {
@@ -26,15 +26,17 @@ export async function POST(request: Request) {
       payload: parsed.data,
     })
     if (guard.blockedResponse) return guard.blockedResponse
-    const guarded = retentionRunSchema.parse(guard.modifiedPayload)
-    const operation = await context.privacyGovernanceService.runRetention(
+    const guarded = subjectResolutionSchema.parse(guard.modifiedPayload)
+    const result = await context.privacyGovernanceService.resolveSubjects(
       context.scope,
       context.actorId,
       guarded,
-      context.commandContext,
     )
-    await guard.afterSuccess(operation.id)
-    return NextResponse.json(serializeOperation(operation))
+    await guard.afterSuccess(result.operation.id)
+    return NextResponse.json({
+      operation: serializeOperation(result.operation),
+      subjects: result.subjects,
+    })
   } catch (error) {
     return privacyApiError(error)
   }
@@ -42,8 +44,11 @@ export async function POST(request: Request) {
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Data Erasure',
-  summary: 'Run retention',
+  summary: 'Resolve data-subject references',
   methods: {
-    POST: { summary: 'Run or preview a retention policy', requestBody: { contentType: 'application/json', schema: retentionRunSchema } },
+    POST: {
+      summary: 'Resolve an email address to tenant-scoped subject references',
+      requestBody: { contentType: 'application/json', schema: subjectResolutionSchema },
+    },
   },
 }

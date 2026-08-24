@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 type Policy = {
@@ -159,7 +166,102 @@ test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
     expect(body.operation.report.classes.length).toBeGreaterThan(0)
     expect(JSON.stringify(body.operation.report)).not.toContain('passwordHash')
   })
+
+  test('resolves, discovers, exports, anonymizes, and erases a real application user', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { organizationId, tenantId } = getTokenContext(token)
+    const stamp = Date.now()
+    const email = `tc-privacy-user-${stamp}@example.com`
+    let roleId: string | null = null
+    let userId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, token, { name: `TC Privacy ${stamp}`, tenantId })
+      userId = await createUserFixture(request, token, {
+        email,
+        password: 'Privacy-Test-1!',
+        organizationId,
+        roles: [roleId],
+        name: 'Privacy Test User',
+      })
+
+      const resolutionResponse = await apiRequest(request, 'POST', '/api/data_erasure/subjects/resolve', {
+        token,
+        data: {
+          identifier: { kind: 'email', value: email },
+          dataClassIds: ['auth.users'],
+        },
+      })
+      expect(resolutionResponse.ok()).toBeTruthy()
+      const resolution = await resolutionResponse.json() as {
+        operation: { status: string; report: Record<string, unknown> }
+        subjects: Record<string, Array<{ kind: string; id: string }>>
+      }
+      expect(resolution.operation.status).toBe('completed')
+      expect(resolution.subjects['auth.users']).toEqual([{ kind: 'auth:user', id: userId }])
+      expect(JSON.stringify(resolution.operation.report)).not.toContain(email)
+
+      const discovery = await runSubjectAction(request, token, 'discover', userId, true)
+      expect(discovery.operation.status).toBe('completed')
+      expect(discovery.operation.report.totals.recordCount).toBe(1)
+
+      const exported = await runSubjectAction(request, token, 'export', userId, true)
+      expect(exported.exports?.['auth.users']?.data).toEqual(expect.objectContaining({ email }))
+
+      const anonymized = await runSubjectAction(request, token, 'anonymize', userId, false)
+      expect(anonymized.operation.status).toBe('completed')
+      expect(anonymized.operation.report.totals.affected).toBe(1)
+
+      const anonymizedExport = await runSubjectAction(request, token, 'export', userId, true)
+      expect(anonymizedExport.exports?.['auth.users']?.data).toEqual(expect.objectContaining({
+        email: `anonymized+${userId}@example.invalid`,
+        name: null,
+      }))
+
+      const erased = await runSubjectAction(request, token, 'erase', userId, false)
+      expect(erased.operation.status).toBe('completed')
+      expect(erased.operation.report.totals.affected).toBe(1)
+
+      const absent = await runSubjectAction(request, token, 'discover', userId, true)
+      expect(absent.operation.status).toBe('completed')
+      expect(absent.operation.report.totals.recordCount).toBe(0)
+      userId = null
+    } finally {
+      await deleteUserIfExists(request, token, userId)
+      await deleteRoleIfExists(request, token, roleId)
+    }
+  })
 })
+
+type SubjectActionResponse = {
+  operation: {
+    status: string
+    report: {
+      totals: { recordCount: number; affected: number }
+    }
+  }
+  exports?: Record<string, { data: Record<string, unknown> | null }>
+}
+
+async function runSubjectAction(
+  request: APIRequestContext,
+  token: string,
+  action: 'discover' | 'export' | 'erase' | 'anonymize',
+  subjectId: string,
+  dryRun: boolean,
+): Promise<SubjectActionResponse> {
+  const response = await apiRequest(request, 'POST', '/api/data_erasure/subjects', {
+    token,
+    data: {
+      action,
+      subject: { kind: 'auth:user', id: subjectId },
+      dataClassIds: ['auth.users'],
+      dryRun,
+    },
+  })
+  expect(response.ok(), `${action} subject request failed with status ${response.status()}`).toBeTruthy()
+  return response.json() as Promise<SubjectActionResponse>
+}
 
 async function updatePolicy(
   request: APIRequestContext,

@@ -1,15 +1,23 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type {
   PrivacyDataClassHandler,
   PrivacyEnvironmentSanitizationInput,
+  PrivacyRetentionInput,
+  PrivacySubjectResolutionInput,
   PrivacySubjectInput,
 } from '@open-mercato/shared/lib/privacy'
 import { registerPrivacyDataClass } from '@open-mercato/shared/lib/privacy'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  findAndCountWithDecryption,
+  findOneWithDecryption,
+  findWithDecryption,
+} from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { PasswordReset, Session, User, UserSidebarPreference } from './data/entities'
 import { emitAuthEvent } from './events'
+import { emailHashLookupValues } from './lib/emailHash'
 
 export const AUTH_USERS_DATA_CLASS_ID = 'auth.users'
 
@@ -20,6 +28,8 @@ registerPrivacyDataClass({
   description: 'User profile, authentication state, sessions, and preferences.',
   handlerService: 'authUsersPrivacyHandler',
   subjectKinds: ['auth:user'],
+  subjectIdentifierKinds: ['email'],
+  retention: { actions: ['delete', 'anonymize'], defaultDays: 365 },
   subjectActions: ['discover', 'export', 'erase', 'anonymize'],
   environmentSanitization: { categories: ['personal_data', 'authentication'] },
 })
@@ -29,6 +39,68 @@ export class AuthUsersPrivacyHandler implements PrivacyDataClassHandler {
     private readonly em: EntityManager,
     private readonly commandBus: CommandBus,
   ) {}
+
+  async runRetention(input: PrivacyRetentionInput) {
+    const where = buildAuthUserRetentionFilter(input)
+    if (input.dryRun) {
+      return {
+        matched: await this.em.count(User, where),
+        affected: 0,
+        hasMore: false,
+      }
+    }
+
+    const [users, total] = await findAndCountWithDecryption(
+      this.em,
+      User,
+      where,
+      {
+        limit: input.batchSize,
+        orderBy: { createdAt: 'asc', id: 'asc' },
+      },
+      input.scope,
+    )
+    const execution = requireRetentionExecutionContext(input)
+    let affected = 0
+    for (const user of users) {
+      const subjectInput: PrivacySubjectInput = {
+        scope: input.scope,
+        subject: { kind: 'auth:user', id: user.id },
+        dryRun: false,
+        actorId: execution.actorId,
+        commandContext: execution.commandContext,
+      }
+      const result = input.action === 'delete'
+        ? await this.eraseSubject(subjectInput)
+        : await this.anonymizeSubject(subjectInput)
+      affected += result.affected
+    }
+    return {
+      matched: users.length,
+      affected,
+      hasMore: total > users.length,
+    }
+  }
+
+  async resolveSubjects(input: PrivacySubjectResolutionInput) {
+    if (input.identifier.kind !== 'email') return { subjects: [] }
+    const users = await findWithDecryption(
+      this.em,
+      User,
+      {
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId,
+        deletedAt: null,
+        kind: 'human',
+        emailHash: { $in: emailHashLookupValues(input.identifier.value) },
+      },
+      { limit: 100, orderBy: { id: 'asc' } },
+      input.scope,
+    )
+    return {
+      subjects: users.map((user) => ({ kind: 'auth:user', id: user.id })),
+    }
+  }
 
   async discoverSubject(input: PrivacySubjectInput) {
     const user = await this.findUser(input)
@@ -220,6 +292,40 @@ export class AuthUsersPrivacyHandler implements PrivacyDataClassHandler {
       input.scope,
     )
   }
+}
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
+
+export function buildAuthUserRetentionFilter(input: PrivacyRetentionInput): FilterQuery<User> {
+  const cutoff = new Date((input.now ?? new Date()).getTime() - input.retentionDays * MILLISECONDS_PER_DAY)
+  const excludedIds = new Set(
+    input.excludedSubjects
+      .filter((subject) => subject.kind === 'auth:user')
+      .map((subject) => subject.id),
+  )
+  if (input.actorId) excludedIds.add(input.actorId)
+  return {
+    tenantId: input.scope.tenantId,
+    organizationId: input.scope.organizationId,
+    deletedAt: null,
+    kind: 'human',
+    createdAt: { $lt: cutoff },
+    ...(excludedIds.size > 0 ? { id: { $nin: Array.from(excludedIds) } } : {}),
+    $and: [
+      { $or: [{ updatedAt: null }, { updatedAt: { $lt: cutoff } }] },
+      { $or: [{ lastLoginAt: null }, { lastLoginAt: { $lt: cutoff } }] },
+    ],
+  }
+}
+
+function requireRetentionExecutionContext(input: PrivacyRetentionInput): {
+  actorId: string
+  commandContext: CommandRuntimeContext
+} {
+  if (!input.actorId || !input.commandContext) {
+    throw new Error('[internal] Applied user retention requires an actor and command context')
+  }
+  return { actorId: input.actorId, commandContext: input.commandContext }
 }
 
 function requireCommandContext(input: PrivacySubjectInput): CommandRuntimeContext {
