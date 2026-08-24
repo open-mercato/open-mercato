@@ -96,6 +96,21 @@ is additive and, being unreleased, requires no deprecation bridge.
 - 4.1 Run the docs validation gate and commit the spec, brief, and this plan.
 - 4.2 Push to the fork head, link the plan from the PR body, and post the summary comment.
 
+### Phase 5: Re-review remediation (2026-08-24)
+
+- 5.1 Add the site-scoped serialization point (invariant 14) so `is_active` — the state that
+  decides membership — is covered by a lock, and state the site-key-before-warehouse-keys
+  acquisition order.
+- 5.2 State membership behavior for the warehouse-deactivation path and note that `hashtext`
+  collisions are harmless (they only over-serialize; they never miss an exclusion).
+- 5.3 Add the activate-vs-add-mapping and deactivate-vs-add-mapping overlapping-transaction
+  test cases.
+- 5.4 Name the two same-site interleavings in the membership-drift risk row.
+- 5.5 Add the create-undo refusal `409` row to the error contract table.
+- 5.6 Correct the Final Compliance Report's stale "creation undo deactivates" row.
+- 5.7 Record the changelog entry and the `Review — 2026-08-24` decision record, and mirror the
+  site-lock decision into the decision brief.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -126,6 +141,16 @@ is additive and, being unreleased, requires no deprecation bridge.
 
 - [x] 4.1 Run the docs validation gate and commit — 8e63ed411
 - [x] 4.2 Push, link the plan from the PR body, and post the summary comment — 4426ff7df
+
+### Phase 5: Re-review remediation (2026-08-24)
+
+- [x] 5.1 Add the site-scoped serialization point to invariant 14 — 306cac9c3
+- [x] 5.2 Document warehouse-deactivation membership behavior and `hashtext` collision safety — 306cac9c3
+- [x] 5.3 Add the same-site overlapping-transaction test cases — 306cac9c3
+- [x] 5.4 Name the two interleavings in the membership-drift risk row — 306cac9c3
+- [x] 5.5 Add the create-undo refusal `409` to the error contract — 306cac9c3
+- [x] 5.6 Correct the stale compliance-matrix row — 306cac9c3
+- [x] 5.7 Add the changelog entry, review record, and brief update — 306cac9c3
 
 ### Resume notes — 2026-08-23
 
