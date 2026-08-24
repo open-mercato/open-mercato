@@ -1291,6 +1291,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       className={`relative min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}
       style={{ '--topbar-height': '61px' } as React.CSSProperties}
     >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-tooltip focus:rounded-md focus:border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-focus"
+      >
+        {t('appShell.skipToMainContent', 'Skip to main content')}
+      </a>
       {/* Desktop sidebar collapse/expand toggle — sits on the divider line between
           sidebar and content, like Notion/Vercel. Hidden on mobile (hamburger in
           topbar handles the drawer). */}
@@ -1466,7 +1472,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         </header>
         <ProgressTopBar t={t} className="sticky top-0 z-sticky" completedAutoHideMs={progressCompletedAutoHideMs} />
-        <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />

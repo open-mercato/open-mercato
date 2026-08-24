@@ -315,7 +315,7 @@ export function MitigationActionsSection({
       </div>
 
       <DataTable<MitigationActionRow>
-        title={translate('eudr.mitigationActions.tableTitle')}
+        title={<h2>{translate('eudr.mitigationActions.tableTitle')}</h2>}
         columns={columns}
         data={rows}
         isLoading={loading}

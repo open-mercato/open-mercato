@@ -205,7 +205,7 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
       </p>
 
       <DataTable
-        title={t('webhooks.deliveries.title')}
+        title={<h2>{t('webhooks.deliveries.title')}</h2>}
         columns={columns}
         data={items}
         onRowClick={(row) => { void handleDeliveryOpen(row) }}

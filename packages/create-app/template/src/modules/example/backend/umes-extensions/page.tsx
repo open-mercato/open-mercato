@@ -308,7 +308,7 @@ export default function UmesExtensionsPage() {
             <div>{t('example.umes.extensions.phaseF.hint4', '4. After selecting rows: bulk action `Set normal priority` should update priorities via API.')}</div>
           </div>
           <DataTable
-            title={t('example.umes.extensions.table.title', 'Replacement Handles')}
+            title={<h2>{t('example.umes.extensions.table.title', 'Replacement Handles')}</h2>}
             columns={columns}
             data={SAMPLE_HANDLES}
             perspective={{ tableId: 'example.umes.extensions' }}

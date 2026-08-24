@@ -220,7 +220,7 @@ export function StatementRiskSection({
       )}
 
       <DataTable<RiskHistoryRow>
-        title={translate('eudr.risk.history.title')}
+        title={<h2>{translate('eudr.risk.history.title')}</h2>}
         columns={historyColumns}
         data={historyRows}
         isLoading={historyLoading}

@@ -466,7 +466,7 @@ export default function PaymentTransactionsPage() {
       <PageBody className="space-y-6">
         <DataTable
           stickyActionsColumn
-          title={t('payment_gateways.transactions.tableTitle', 'Transactions')}
+          title={<h2>{t('payment_gateways.transactions.tableTitle', 'Transactions')}</h2>}
           columns={columns}
           data={rows}
           filters={filters}

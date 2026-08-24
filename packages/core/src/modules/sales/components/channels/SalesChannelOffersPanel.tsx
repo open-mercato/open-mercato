@@ -196,7 +196,7 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
 
   return (
     <DataTable<OfferRow>
-      title={tableTitle}
+      title={<h2>{tableTitle}</h2>}
       actions={actions}
       columns={columns}
       data={rows}

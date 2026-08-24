@@ -3272,7 +3272,11 @@ export function DataTable<T extends RowData>({
 
   const titleContent = hasTitle ? (
     <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
-      {typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title}
+      {typeof title === 'string'
+        ? embedded
+          ? <h2 className="text-base font-semibold">{title}</h2>
+          : <h1 className="text-base font-semibold">{title}</h1>
+        : title}
     </div>
   ) : <div className="min-h-[2.25rem]" />
 

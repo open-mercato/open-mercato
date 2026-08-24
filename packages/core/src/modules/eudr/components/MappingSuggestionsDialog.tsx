@@ -321,7 +321,7 @@ export function MappingSuggestionsDialog({
           ) : (
             <div className="space-y-3">
               <DataTable<MappingSuggestion>
-                title={t('eudr.suggestions.tableTitle')}
+                title={<h2>{t('eudr.suggestions.tableTitle')}</h2>}
                 columns={columns}
                 data={items}
                 emptyState={(

@@ -19,6 +19,36 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 type Row = { id: string; name: string }
 
 describe('DataTable SSR render', () => {
+  it('uses a page heading for top-level tables and a section heading when embedded', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[]} title="People" />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      expect(screen.getByRole('heading', { level: 1, name: 'People' })).toBeInTheDocument()
+
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[]} title="People" embedded />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      expect(screen.getByRole('heading', { level: 2, name: 'People' })).toBeInTheDocument()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
   it('renders built-in FilterBar when search/filters provided', () => {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name' },

@@ -770,7 +770,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           stickyActionsColumn
           title={(
             <div className="flex flex-col">
-              <span>{title}</span>
+              <h1>{title}</h1>
               <span className="text-sm font-normal text-muted-foreground">{subtitle}</span>
             </div>
           )}

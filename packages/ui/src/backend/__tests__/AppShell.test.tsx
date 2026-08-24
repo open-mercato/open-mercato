@@ -88,6 +88,7 @@ jest.mock('../devtools', () => ({
 
 const dict = {
   'appShell.productName': 'Mercato',
+  'appShell.skipToMainContent': 'Skip to main content',
   'appShell.menu': 'Menu',
   'appShell.toggleSidebar': 'Toggle sidebar',
   'appShell.collapseSidebar': 'Collapse',
@@ -205,6 +206,19 @@ describe('AppShell', () => {
         },
       }),
     )
+  })
+
+  it('provides a skip link targeting the focusable main content landmark', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
+    expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
   })
 
   it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {

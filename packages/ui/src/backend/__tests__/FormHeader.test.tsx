@@ -65,7 +65,7 @@ describe('FormHeader', () => {
       { dict: {} },
     )
 
-    expect(screen.getByText('Edit Person')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Edit Person' })).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:form-header:edit')).toBeInTheDocument()
     expect(mockInjectionSpot).toHaveBeenCalledWith(
       expect.objectContaining({

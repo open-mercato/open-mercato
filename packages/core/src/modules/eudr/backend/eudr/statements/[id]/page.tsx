@@ -711,7 +711,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">{translate('eudr.statements.detail.submissions')}</h2>
           <DataTable<LinkedSubmissionRow>
-            title={translate('eudr.statements.detail.submissionsTableTitle')}
+            title={<h2>{translate('eudr.statements.detail.submissionsTableTitle')}</h2>}
             columns={submissionColumns}
             data={submissionRows}
             isLoading={submissionsLoading}

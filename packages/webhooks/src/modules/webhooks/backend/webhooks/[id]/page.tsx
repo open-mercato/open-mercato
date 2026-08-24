@@ -642,7 +642,7 @@ export default function WebhookDetailPage() {
 
         <div className="mt-8">
           <DataTable
-            title={t('webhooks.deliveries.title')}
+            title={<h2>{t('webhooks.deliveries.title')}</h2>}
             actions={(
               <div className="flex items-center gap-2">
                 <span className="hidden text-xs text-muted-foreground md:inline">

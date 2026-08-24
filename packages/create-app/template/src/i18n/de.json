@@ -106,6 +106,7 @@
   "appShell.sidebarCustomizationVariantsEmpty": "No saved variants yet",
   "appShell.sidebarRoleHasPreset": "verwendet dieses Preset",
   "appShell.sidebarRoleWillClear": "Preset wird entfernt",
+  "appShell.skipToMainContent": "Zum Hauptinhalt springen",
   "appShell.toggleSidebar": "Seitenleiste umschalten",
   "appShell.userFallback": "Benutzer",
   "appShell.version": "Version {{version}}",
