@@ -24,6 +24,28 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Interaction participants may omit `userId` — external calendar guests (#5115)
+
+`interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.
+
+Nothing that was previously accepted is now rejected, and no field was removed from any response. What changes for consumers is that `participants[].userId` in the `GET /api/customers/interactions` response — and in the OpenAPI document generated from `interactionListItemSchema` — is now **optional rather than required**. Every participant that could exist before still carries its `userId`; the key is absent only on guest participants, a row shape that could not be stored until this release.
+
+**Action for API consumers:** treat `participants[].userId` as optional. A generated client or hand-written type that declares it required keeps working until someone in that tenant actually invites an external guest, at which point a strict response validator will reject the payload and a `participant.userId` dereference will yield `undefined`. Identify a participant by `userId` when present and fall back to the normalized (trimmed, lower-cased) `email` otherwise — that is exactly the canonical actor key the platform's own calendar mapping, participant dedupe and conflict detection now use (`lib/calendar/participantIdentity.ts`). No database migration is required: `customer_interactions.participants` is a schemaless JSONB column with no foreign key or constraint.
+
+### CRM deal status filters and closures now use one canonical vocabulary (#5107)
+
+`customer_deals.status` is a lenient text column whose writers disagreed on spelling: UI closure flows persist `win` / `loose`, the AI tool `customers.update_deal_stage` persists `won` / `lost`, and the seeded dictionary also carries `closed`. Deal filtering previously matched whatever spelling the caller sent, so "won" results differed between the CRM list view, the Kanban board, and deals closed through different surfaces.
+
+Three behavior changes ship together — additive on the wire, but visible to operators:
+
+1. **Status filters are expanded through the canonical vocabulary** (`expandDealStatusAliases` in `@open-mercato/core/modules/customers/lib/dealStatus.ts`, shared by the deals list route, the Kanban lane queries, the map route, and the Kanban aggregate route). `win` / `won` both match won deals, `loose` / `lost` both match lost deals, values are matched case-insensitively (each result also keeps the caller's original token), and **the seeded `closed` option now matches the whole terminal set (`win`, `won`, `loose`, `lost`, `closed`) instead of the single literal `closed` status**, which no writer ever persisted. Any other value passes through trimmed, alongside its lower-case form, for exact matching.
+2. **Closing a deal by status alone now records full closure state.** `customers.deals.update` derives `closureOutcome` from a terminal status spelling when the request carries no explicit outcome or stage (UI spellings `win`/`loose` and AI spellings `won`/`lost` behave identically) and relocates the deal to the pipeline's terminal Won/Lost stage when one exists. Conversely, updating an already-closed deal to a non-terminal status without an explicit `closureOutcome` now clears `closureOutcome`, `lossReasonId`, and `lossNotes`.
+3. **The AI mutation-approval card projects these derived writes** (terminal stage, closure outcome, cleared loss columns), so what the operator approves matches what the command persists.
+
+No API route, method, request field, or response field was removed; the aggregate route's accepted `status` values were widened. On `GET /api/customers/deals/aggregate` an injected `status = 'open'` for `isOverdue=true` is now suppressed when the caller supplies an explicit status filter (matching `GET /api/customers/deals`), so combined overdue+status lane header counts change accordingly. A deal moved into a terminal stage by Kanban drag-and-drop keeps its previous status — it is placed by stage but not matched by status filters until it is closed through a closure flow; recording that gap is deliberate, and automating status on drag is future work. Existing rows closed by the AI tool before this change keep their stored status and lane — they match the corrected filters via spelling expansion but are not retroactively moved to a terminal stage; re-saving such a deal through any closure flow applies the new state. No data backfill runs automatically.
+
+**Action for module authors:** if you filtered deals with raw status spellings outside the shared helpers, prefer `lib/dealStatus.ts` (`expandDealStatusAliases`, `isClosedDealStatus`) so your reads stay consistent with the platform views.
+
 ### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
 
 `loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
@@ -156,6 +178,53 @@ beforeExecute: async (input, context) => ({
 The key is `logContext`, not `context`, specifically so that the generic `metadata` payload an interceptor already passes to its own `afterExecute` hook is never silently promoted into audit storage.
 
 **Also changed:** `ActionLog.context_json` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context` (in ascending precedence). Previously `buildLog().context` replaced `options.metadata.context` wholesale, so entries where both were set now carry the union of their keys rather than only the former's. **Action:** if you read `context_json` and relied on absent base keys, key off the specific fields you own rather than the object's shape.
+
+### List totals are capped at 10 000 by default — treat `total` as a floor when `totalIsCapped` is true
+
+Every CRUD list count is now bounded: the database stops counting after
+`OM_LIST_COUNT_CAP` (default `10000`) matching rows. Below the cap, `total` stays
+exact and responses are byte-identical to before. At the cap, the response
+reports `total: <cap>` together with a new optional `totalIsCapped: true` field
+(and `meta.listCountCapWarning` from the query engine). **When `totalIsCapped`
+is true, both `total` and `totalPages` are floors, not values** — rows past the
+cap exist and remain servable (data queries are offset-based and independent of
+the count), but any pager that derives its page count from `total` will stop
+offering them. The platform's `Pagination`/`DataTable` handle this: a capped
+pager never clamps the current page down to the floor, suppresses the last-page
+jump, and keeps Next available through short-page detection while pages come
+back full. A custom pager built on `total` must do the same or its users cannot
+reach rows past the cap. This is a **value-level behavior change on a STABLE
+response surface**, shipped enabled, because an exact `COUNT` over arbitrary
+filters is `O(matching rows)` and dominates list latency on large tables.
+
+**Action for API clients:** wherever you consume `total` as ground truth about
+the full result set (loop bounds, "N results" labels, reconciliation), treat it
+as a floor whenever `totalIsCapped` is `true`. To enumerate a full result set,
+page until a page comes back with fewer rows than requested — never until you
+have collected `total` rows.
+
+**Action for UI authors:** thread `totalIsCapped` from your list response into
+`DataTable`'s `pagination` prop. Every in-tree list does this already, and a
+CI guard (`yarn check:pagination-capped`) keeps the set closed, so this applies
+to tables you maintain outside the repo. It is not only a labelling concern: an
+unadopted table renders the floor as if it were exact **and stops offering rows
+past it**, because its page count is derived from a capped `total`. With the
+flag threaded, `DataTable` renders "10 000+", keeps Next available while pages
+come back full, and never clamps a deep-linked page down to the floor.
+
+**Escape hatch:** `OM_LIST_COUNT_CAP=0` disables capping and restores exact
+count *values* globally. It is read per request from the environment, is
+permanently supported, and needs no redeploy. Note it restores the values, not
+the previous query shape: counts keep running through the rebuilt
+scope-and-filters query (with filters as `EXISTS` semi-joins), which is
+strictly lighter on unfiltered lists and plans set-oriented on filtered ones.
+
+**Doc-storage counts count rows, not distinct record ids.** Custom-entity
+(doc-storage) list counts changed from `count(distinct entity_id)` to
+`count(*)`. Within one organization the two are identical. Across a scope
+spanning several organizations that hold a row for the same record id, the
+count now matches the item list — which returns one row per storage row — where
+it previously under-reported relative to the items.
 
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
@@ -453,6 +522,14 @@ This is an opt-in security hardening step for existing apps and the default for 
 
 **Action for module authors:** none, unless you write to `onboarding_requests` directly. Deduplicating a signup request means matching `email_hash`, never `email`; code that already does that is unaffected. The one pattern that changes behavior is an upsert declaring `ON CONFLICT (email)` — Postgres requires a unique index for that inference, so such a statement now raises an error instead of silently never conflicting. Rewrite it against `email_hash`. Nothing else changes: no column, table, type, or API is renamed or removed, and every insert or update accepted before is still accepted.
 
+### `GET /api/attachments` serves an empty page past the end instead of clamping (#5299)
+
+The record-scoped attachments list was the only paged endpoint that clamped a requested page down to the last existing page — both for the database offset it used and for the `page` value it echoed back. Asking for page 7 of a 3-page result returned page 3's items labelled `page: 3`. It now behaves like every other query-engine-backed list: the offset is `(page - 1) * pageSize` unclamped, so a page past the end returns an empty `items` array, and `page` echoes exactly what was requested.
+
+**Action for API consumers:** none, unless you relied on the clamp. The route, method, and response shape are unchanged — `items`, `total`, `page`, `pageSize`, and `totalPages` are all still returned, and `page` is still an integer of at least `1`. Two patterns are worth checking. A loop that pages while the returned page is full previously never terminated on this endpoint and now does, which is the point of the change. A caller that used a deliberately large page number as a shorthand for "give me the last page" now receives an empty page instead, and must compute the last page from `totalPages` itself.
+
+**For module authors:** a client-side workaround that treated an echoed page lower than the requested one as the end of the list — the pattern `AttachmentsSection` adopted in #5274 — remains correct; it simply never triggers now. You can drop it when convenient, but nothing forces you to.
+
 ## 0.6.6 → 0.6.7 (2026-08-05)
 
 ### CLI bundling: local `*.client` dynamic imports are replaced by an inert stub (#4623)
@@ -628,6 +705,19 @@ Contributor action:
 - If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
 - To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
 
+### Documents module — optional realtime-collaboration sidecar and env vars
+
+The new `documents` module ships an optional realtime-collaboration sidecar: the `documents-collab` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the create-app template equivalents), started with `yarn documents:collab`. Every related environment variable is **optional** and the stack degrades gracefully when they are unset:
+
+- `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` — browser-reachable `ws(s)://` endpoint, embedded into the client at **build time**. Unset → the document editor works in single-user mode (no realtime collaboration). A malformed or loopback production value is logged and ignored at runtime, so an optional collaboration misconfiguration cannot abort the platform image build.
+- `DOCUMENTS_COLLAB_JWT_SECRET_V2` — shared secret between the app and the sidecar; required only when collaboration is enabled. Must contain at least 32 UTF-8 bytes; the sidecar fails closed (refuses to serve collaboration tokens, `/healthz` reports 503) when it is missing or too short.
+- `DOCUMENTS_COLLAB_REDIS_URL` (falls back to `REDIS_URL`) — Redis endpoint used for multi-instance collaboration sync. The bundled compose files wire both to the stack's Redis out of the box.
+- `DOCUMENTS_COLLAB_REDIS_PREFIX` — deployment-scoped collaboration namespace. It is required when Redis is configured in production; use one shared value for all replicas of a deployment and a different value for every deployment sharing the Redis database. Bundled compose files derive an isolated default from `DEPLOY_ENV`.
+- `TENANT_DATA_ENCRYPTION_KEY` and the other `TENANT_DATA_ENCRYPTION*` vars — the sidecar decrypts the same tenant data as the app, so the compose files now pass the app service's encryption configuration to `documents-collab` too. If you run the sidecar outside the bundled compose files, forward your encryption configuration to it yourself.
+- PDF export requires Chromium. Both production Dockerfiles default `INSTALL_CHROMIUM=0`; opt in with `--build-arg INSTALL_CHROMIUM=1` (or `INSTALL_CHROMIUM=1 docker compose build app`). Without it, PDF export returns 503 and everything else keeps working. The measured Alpine runtime-image cost is **236 MB → 1.26 GB** (**+1.02 GB**), so deployments that need PDF export take that cost explicitly.
+
+*Action for downstream:* none for existing deployments — with no documents env vars set, images build and `docker compose config/ps/up` run exactly as before (the compose files use `:-` defaults, never `:?` required interpolation, and `APP_URL` keeps its `http://localhost:3000` default). The sidecar is behind the `documents-collab` Compose profile and no longer starts or binds port 4101 during a normal `up`. In the monorepo Compose files it reuses the exact image built by the `app` service rather than rebuilding the same tag with a different build-argument set; standalone templates retain Compose's project-scoped service images. To enable collaboration, set the collaboration URL and v2 secret, rebuild the app image, and start with `docker compose --profile documents-collab up`. Set `INSTALL_CHROMIUM=1` only when the deployment needs PDF export.
+
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
 The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).
@@ -793,6 +883,42 @@ The heal is delivered as a version-gated **Upgrade Action** (`attachments.reconc
 
 *Action for downstream:* if you ran a multi-org setup on an affected build, enable Upgrade Actions and run `attachments.reconcile-organization` once per tenant to heal misfiled attachments; a self-hoster with single-org or clean data can leave Upgrade Actions off. No contract surface changed (the reconciliation helper and upgrade-action entry are additive). See [`.ai/specs`](.ai/specs/) and issue #3765.
 
+### Role ACL organization semantics widened — review `role_acls` rows before upgrading
+
+`RbacService` changed how a role's organization grant is interpreted. Both changes widen access, so review your `role_acls` data before deploying.
+
+**1. An empty `organizations_json` array widens access for API-key principals only — human principals are unchanged.**
+
+For a **human user**, an empty array remains a deny-all organization scope: it projects to an empty accessible set, so `resolveOrganizationScope` still falls back to the user's **account organization and its descendants** and scoped reads and deletes fail closed. This is deliberate — collapsing it to `null` (unrestricted) would reopen the scoped-deletion hole closed by #4033, where a deny-all actor could delete an organization-bound API key. The role's *features* still apply; only its organization reach stays empty.
+
+For an **API-key principal**, an empty role allowlist now means "inherit the key's own organization binding" rather than contributing nothing. A key with a concrete `organization_id` therefore stays bound to that organization; only a key without one widens to the tenant.
+
+Find rows whose meaning depends on this distinction:
+
+```sql
+SELECT role_id, tenant_id FROM role_acls WHERE organizations_json = '[]'::jsonb AND deleted_at IS NULL;
+```
+
+No action is required for human-facing roles. Review these rows only where the role is assigned to API keys, and set an explicit allowlist (`'["<org-uuid>", …]'::jsonb`) if a key should stay narrower than its own binding. Use the explicit `["__all__"]` sentinel when tenant-wide access is what you actually want — it has always meant that and is unambiguous.
+
+**2. A role's organization grants now match the selected organization's ancestor chain.**
+
+`roleAclAllowsOrganization` used to require the selected organization to appear literally in `organizations_json`. It now also matches when any **ancestor** of the selected organization is listed, so a role scoped to a parent organization applies in that parent's descendants. This mirrors what `resolveOrganizationScope` already did when expanding parent grants to descendants, so most deployments see no change — but a role deliberately pinned to a parent org *without* wanting it to reach children now reaches them. Ancestor expansion requires the Directory hierarchy service; when Directory is disabled, matching stays exact and fails closed.
+
+**3. An organization-restricted role-level super-admin grant is no longer global.**
+
+A `RoleAcl` with `is_super_admin = true` *and* a non-empty, non-`__all__` `organizations_json` no longer short-circuits to global super-admin. It is now evaluated through the scoped ACL projection and stays bounded by its organization list. This is a **narrowing** — an operator relying on such a row for tenant-wide administration will lose that reach. Clear the row's `organizations_json` (or set `["__all__"]`) to restore global super-admin.
+
+Find affected rows:
+
+```sql
+SELECT role_id, tenant_id, organizations_json FROM role_acls
+WHERE is_super_admin = true AND jsonb_array_length(COALESCE(organizations_json, '[]'::jsonb)) > 0
+  AND NOT organizations_json ? '__all__' AND deleted_at IS NULL;
+```
+
+*Action for downstream:* run both queries against each tenant, decide per row, and adjust before deploying. No API, DI, or type surface changed — `RbacService` gained an optional third constructor argument (the Directory hierarchy seam) and keeps working without it.
+
 ### Removed — `MODULE_FACTS_ALLOWLIST` export (module fact-sheet auto-discovery) (#3752, #3798, #3754)
 
 The module fact-sheet generator no longer gates on a hard-coded 9-module allowlist. It now **auto-discovers** every source-available package module: the `create-app` build (and `mercato agentic:init`) bundle a fact-sheet for every package-provided module (`discoverPackageModuleSources`), shipped to scaffolded apps as `.ai/guides/module-facts.json` + per-module sheets. The monorepo no longer emits a committed `apps/mercato/src/module-facts.generated.json` — that artifact had no runtime or test consumer and has been removed along with its generator (`generateModuleFacts`) and the unused registry-driven `discoverEnabledModuleSources` path.
@@ -836,6 +962,75 @@ Same root cause as above, in the enterprise `security` module. Because `security
 3. **Enforcement compliance & policies.** `GET /api/security/enforcement/compliance` now requires platform-admin for `scope=platform` (previously it counted users across all tenants) and validates `scope=tenant|organisation` ownership; enforcement policy list/create/update/delete reject foreign-tenant/org scopes for non-super-admins (`403`). The unfiltered `em.find(User, { deletedAt: null })` is unreachable for non-super-admins.
 
 *Action for downstream:* none unless internal tooling relied on a tenant admin viewing other tenants' MFA posture or using `scope=platform` — those calls now require a platform/super-admin. No DB schema change; no ACL feature IDs renamed. Service methods (`MfaAdminService`, `MfaEnforcementService`) gained an **optional** actor-context backstop param — additive, existing callers unaffected. Reuses the core `enforceTenantSelection`/`resolveIsSuperAdmin` helpers, so the enterprise build must be paired with a core that has them (true since ≤ 0.6.4). See [`.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md`](.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md).
+
+### Scheduler queue targets restricted to authorized safe workers (security)
+
+The scheduler job API previously let any user holding `scheduler.jobs.manage` point a
+schedule at **any** registered queue worker with an arbitrary JSON payload, and both
+dispatch paths delivered that payload to the worker nearly verbatim — turning the
+scheduler into a confused deputy for privileged internal operations (e.g. a scheduled
+payload could synthesize Stripe webhook events with attacker-chosen scope).
+
+Queue targeting is now an explicit opt-in:
+
+- A worker declares itself schedulable by adding `schedulerSafe: true` to its
+  `WorkerMeta` (`packages/queue`); the module registry propagates the flag and the
+  scheduler honors it everywhere:
+  - `GET /api/scheduler/targets` advertises only safe queues (response shape unchanged).
+  - Create/update via `/api/scheduler/jobs` rejects any other queue with a validation
+    error on `targetQueue`.
+  - Dispatch re-authorizes before enqueue: module-authored schedules
+    (`sourceType: 'module'`) keep working against their own internal queues;
+    API-authored schedules may only target safe queues.
+- The dispatcher rebuilds tenant/organization authority context server-side. Keys named
+  `scope`, `tenantId`, or `organizationId` — plus every `_`-prefixed envelope key — are
+  stripped from author-supplied payloads at the root and inside the local-strategy
+  `payload` wrapper, then replaced with trusted values derived from the schedule row.
+  Module-authored payloads that already stored their own scope equal to the schedule's
+  scope (communication channels, integrations, data-sync) behave identically.
+- Provenance is now server-owned. `sourceType`/`sourceModule` are no longer accepted
+  from API request bodies (unknown keys are dropped silently): schedules created
+  through `/api/scheduler/jobs` are always user-authored and stamped with the acting
+  user. Module-authored schedules keep targeting internal queues **only while their
+  recorded `sourceModule` still owns the queue in the live module registry AND the row
+  carries no acting-user stamp** (`created_by_user_id IS NULL`) — `schedulerService.register()`
+  never sets one, while every session-authenticated API write does. **Known residual:**
+  a row created before the upgrade by a **non-user-bound API key** also lacks that
+  stamp and is indistinguishable from a genuine registration at rest; such rows still
+  pass the dispatch guard. Audit them after upgrading with
+  `yarn mercato scheduler audit-queue-targets`, which lists every module-authored
+  queue-target row with its current dispatch verdict so unrecognized ALLOWED entries
+  can be disabled. Module-authored schedules also reject API changes to their
+  target/payload; unchanged targets are treated as no-ops so operational edits (name,
+  schedule, enabled) keep working from the backend UI, and legacy user rows pointing at
+  now-unapproved queues can still be disabled from the UI (retargeting or leaving such
+  a row active requires an approved queue).
+- Error-status changes on `PUT /api/scheduler/jobs`: retargeting onto an unapproved
+  queue now returns `422` from the update command instead of a zod `400`, rewriting a
+  module-authored schedule's target returns `403`, and saving a user-authored row in a
+  way that leaves it active on an unapproved queue returns `422`. Clients asserting on
+  `400` for these cases should match the new codes.
+- Opted-in targets can declare per-target creator features via
+  `schedulerRequiredFeatures` in worker metadata and a payload schema through
+  `registerSchedulerQueuePayloadSchema(queue, schema)`; both are enforced when
+  creating/updating schedules and re-checked immediately before dispatch. The shipped
+  `scheduler-test` QA queue demonstrates the full descriptor (`{ message?: string }`
+  plus arbitrary keys).
+- Payment webhook processors now fail closed on untrusted dispatch origins: only jobs
+  enqueued by the inbound webhook route (signature verified) carry the trusted origin
+  marker; scheduler-originated or unmarked jobs are dropped with an error log. Jobs that
+  were already sitting in Redis during an upgrade window will be dropped once. The
+  route now enqueues the marked payload flat (`queue.enqueue(jobPayload)`), matching
+  `Queue.enqueue(data)` semantics across strategies.
+
+**Action required:** if your module relied on users scheduling work onto one of your
+queues, add `schedulerSafe: true` to that worker's metadata and validate the schedule
+payload shape in the worker; if you enqueued payment webhook jobs from custom code,
+migrate that code to the standard webhook route or mark the payload with
+`markQueueJobOrigin(payload, 'inbound-webhook')` from
+`@open-mercato/shared/lib/queue/dispatchOrigin`.
+
+No database, ACL-feature, API-route-URL, or response-shape changes ship with this fix.
 
 ### New `om-prepare-issue` skill (deferred-work capture)
 

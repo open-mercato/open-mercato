@@ -39,6 +39,7 @@ type PortalClaimsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null, fallback: string, locale: string): string {
@@ -63,6 +64,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
   const [pageSize, setPageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
@@ -102,6 +104,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
         setRows(res.result.items)
         setTotal(res.result.total)
         setTotalPages(res.result.totalPages)
+        setTotalIsCapped(res.result.totalIsCapped === true)
       })
       .catch(() => {
         if (!cancelled) {
@@ -271,6 +274,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
           pageSize,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
           onPageSizeChange: (nextPageSize) => {
             setPageSize(nextPageSize)

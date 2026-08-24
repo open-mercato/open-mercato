@@ -63,6 +63,7 @@ const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
+const isOrganizationReadAccessAllowedMock = jest.fn(() => true)
 
 jest.mock('../../../../../lib/interactionRequestContext', () => ({
   resolveCustomersRequestContext: jest.fn(async () => mockContext),
@@ -85,9 +86,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScopeGuard', () => ({
+  isOrganizationReadAccessAllowed: (...args: unknown[]) => isOrganizationReadAccessAllowedMock(...args),
+}))
+
 describe('/api/customers/companies/[id]/roles', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    isOrganizationReadAccessAllowedMock.mockReturnValue(true)
     mockCommandBus.execute.mockResolvedValue({
       result: { roleId },
       logEntry: null,
@@ -185,5 +191,46 @@ describe('/api/customers/companies/[id]/roles', () => {
     expect(response.status).toBe(403)
     expect(await response.json()).toEqual({ error: 'Access denied' })
     expect(findWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
+  it('denies a cross-org write as not-found (404), byte-identical to a missing entity (#5504)', async () => {
+    // ensureRouteOrganizationAccess is shared by GET/POST/PUT/DELETE. A caller who
+    // holds customers.roles.manage but whose scope excludes the company's org must
+    // not learn the company exists through the write path: the org denial collapses
+    // into the same 404 the caller gets for a company that does not exist. The org
+    // guard runs before the request body is read, so pinning POST covers all four
+    // methods at once (#5504).
+    userHasAllFeaturesMock.mockResolvedValue(true)
+    isOrganizationReadAccessAllowedMock.mockReturnValue(false)
+    const { POST } = await import('../route')
+
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      id: companyId,
+      kind: 'company',
+      tenantId,
+      organizationId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      deletedAt: null,
+    })
+    const foreignOrgResponse = await POST(
+      new Request(`http://localhost/api/customers/companies/${companyId}/roles`, { method: 'POST', body: '{}' }),
+      { params: { id: companyId } },
+    )
+
+    findOneWithDecryptionMock.mockResolvedValueOnce(null)
+    const missingResponse = await POST(
+      new Request(`http://localhost/api/customers/companies/${companyId}/roles`, { method: 'POST', body: '{}' }),
+      { params: { id: companyId } },
+    )
+
+    const foreignOrgBody = await foreignOrgResponse.json()
+    const missingBody = await missingResponse.json()
+
+    expect(foreignOrgResponse.status).toBe(404)
+    expect(missingResponse.status).toBe(404)
+    // The oracle is closed only if the two rejections are indistinguishable.
+    expect(missingBody).toEqual(foreignOrgBody)
+    expect(foreignOrgBody).toEqual({ error: 'Customer not found' })
+    // The cross-org write never reached the command bus.
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 })
