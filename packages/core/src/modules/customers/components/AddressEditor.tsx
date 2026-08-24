@@ -87,6 +87,16 @@ type AddressEditorProps = {
   taxIdType?: string | null
   showFormatHint?: boolean
   showCoordinateFields?: boolean
+  /**
+   * Render the tax identifier and phone. Off by default, and opt-in for the same reason
+   * `showCoordinateFields` is: only a caller whose storage can hold a field should offer it. The
+   * sales document snapshot is schemaless and keeps both; `CustomerAddress` has neither column until
+   * Phase 3, so the address book would present two inputs it silently drops on save.
+   *
+   * This gates the CALLER, not the field. Inside a tile that opts in, both render whether or not they
+   * carry a value and take the same `disabled` as every neighbour.
+   */
+  showContactFields?: boolean
 }
 
 export function AddressEditor({
@@ -100,6 +110,7 @@ export function AddressEditor({
   taxIdType,
   showFormatHint = true,
   showCoordinateFields = false,
+  showContactFields = false,
 }: AddressEditorProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -494,8 +505,10 @@ export function AddressEditor({
           Ordinary fields, not a block rendered beside the editor. An address's tax identifier and
           phone are as much part of it as its street, so they render always and edit the same way —
           whether the address can be edited at all is a property of the address, not decided per
-          field.
+          field. Whether they appear at all is the CALLER's answer, above.
         */}
+        {showContactFields ? (
+        <>
         <Input
           className={inputClass('taxId')}
           placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
@@ -540,6 +553,8 @@ export function AddressEditor({
           aria-invalid={errors.phone ? 'true' : undefined}
         />
         {errors.phone ? <p className="text-xs text-destructive">{errors.phone}</p> : null}
+        </>
+        ) : null}
       </div>
       {!hidePrimaryToggle ? (
         <label className="inline-flex items-center gap-2 text-sm">

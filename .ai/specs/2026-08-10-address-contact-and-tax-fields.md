@@ -162,7 +162,9 @@ Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, 
 
 **Phase 1 must extend `emptyDraft` when it adds `phone` or `taxId` to the editor.** A field the editor writes without being part of that draft shape reverts to its previous value on save.
 
-The `SalesDocumentForm.tsx` copy is deliberately left alone: it runs only on document creation, where no prior snapshot exists, so a merge-back there would be permanently inert. Collapsing the two copies is separate work with its own justification.
+The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document creation, where no prior snapshot exists, so one there would be permanently inert. It does need the same **assign list** — a key the editor writes and the list omits is simply absent from the payload, which is reachable on the create page and silent. Collapsing the two copies is separate work with its own justification, and now has a second reason.
+
+**Only a caller whose storage can hold the fields may render them.** `AddressEditor` takes `showContactFields`, off by default, in the shape `showCoordinateFields` already established. The document snapshot is schemaless and keeps both keys, so the document detail tiles and the create form opt in. `CustomerAddress` has neither column until Phase 3, so the customer address book does not — an input there would take a value and drop it on save with nothing to show for it. This gates the caller, not the field: inside a tile that opts in, both render whether or not they carry a value and take the same `disabled` as every neighbour.
 
 ### Phase 1 — contact fields and render
 1. `AddressValue` gains `phone` / `taxId` / `taxIdType`, and `resolveTaxIdLabel` names an identifier from its type.

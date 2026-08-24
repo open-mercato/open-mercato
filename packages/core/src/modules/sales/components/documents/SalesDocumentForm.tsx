@@ -454,6 +454,11 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
   assign('region', 'region')
   assign('postalCode', 'postalCode')
   assign('country', 'country')
+  // The editor writes these two, so this list must carry them: a key it writes and this omits is
+  // simply absent from the payload, and the value is gone with no error to show for it. There is no
+  // merge-back here to catch it — the document does not exist yet, so there is no prior snapshot.
+  assign('taxId', 'taxId')
+  assign('phone', 'phone')
   assign('isPrimary', 'isPrimary')
   return Object.keys(normalized).length ? normalized : null
 }
@@ -655,6 +660,7 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 t={t}
                 onChange={(next) => updateValue('billingAddressDraft', next)}
                 hidePrimaryToggle
+                showContactFields
               />
               <SwitchField
                 containerClassName="col-span-2"
@@ -1267,6 +1273,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   t={t}
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
+                  showContactFields
                 />
                 <SwitchField
                   containerClassName="col-span-2"
