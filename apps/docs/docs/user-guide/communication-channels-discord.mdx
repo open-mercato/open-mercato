@@ -110,7 +110,7 @@ Pick the **minimum** permissions the features you actually use need:
 | Manage Messages | `0x2000` | Editing or deleting a sent message |
 
 The `permissions` value is the OR of the bits you picked. View Channels + Send Messages + Read
-Message History + Add Reactions is `67648`; add Manage Messages for `75840`.
+Message History + Add Reactions is `68672`; add Manage Messages for `76864`.
 
 Open the URL, choose the target server, authorize. Then, with **Developer Mode** enabled in Discord
 (User Settings → Advanced → Developer Mode), collect two more ids by right-clicking:
@@ -233,9 +233,18 @@ you want the plumbing in place; do not present slash commands to users as workin
 
 ## Part 6 — Verify it end to end
 
-**Outbound.** On the channel row use **Test send**, with a Discord **channel id** as the recipient
-(not an email address — this provider is addressed by channel snowflake). The bot should post to
-that channel within a second. Leave the recipient at your default channel to test the fallback path.
+**Outbound.** The hub's test-send endpoint takes a Discord **channel id** as its recipient (not an
+email address — this provider is addressed by channel snowflake). There is no button for it yet;
+call it directly, signed in as the user who owns the channel:
+
+```bash
+curl -X POST https://<your-host>/api/communication_channels/channels/<channelId>/test-send \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"<discordChannelId>","body":"Hello from Open Mercato"}'
+```
+
+The bot should post to that channel within a second. A recipient the endpoint cannot resolve falls
+back to the channel's `Default channel ID`, so use a real channel id to test the path you care about.
 
 **Inbound.** Type a message in the connected Discord channel. With the Gateway worker running it
 should reach the unified inbox in about a second. If it does not, the worker is the first thing to
