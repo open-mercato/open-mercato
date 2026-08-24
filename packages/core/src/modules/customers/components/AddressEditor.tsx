@@ -506,11 +506,9 @@ export function AddressEditor({
               <span className="text-xs">
                 {resolveTaxIdLabel(
                   {
-                    taxId: {
-                      plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
-                      euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
-                      other: t('customers.people.detail.addresses.fields.taxId.other', 'Tax number'),
-                    },
+                    plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
+                    euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
+                    other: t('customers.people.detail.addresses.fields.taxId.other', 'Tax number'),
                   },
                   taxIdType,
                 )}

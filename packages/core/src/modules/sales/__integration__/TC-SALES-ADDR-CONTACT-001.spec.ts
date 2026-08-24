@@ -99,10 +99,16 @@ test.describe('TC-SALES-ADDR-CONTACT-001: contact details on the document addres
     await page.goto(resolveUrl(`/backend/sales/orders/${orderId}`))
     await page.getByRole('button', { name: 'Addresses' }).click()
 
-    // The labels come from sales.documents.detail.addresses.{taxId,phone}; the values are the
-    // snapshot's own. The tax id TYPE is metadata and must not surface as a line of its own.
-    await expect(page.getByText('Tax ID: PL1234567890')).toBeVisible()
-    await expect(page.getByText('Phone: +48 600 100 200')).toBeVisible()
+    // Both are ordinary inputs on the tile, so there is no "<label>: <value>" line to match — the
+    // value is the field's value, and the label is its placeholder until something is typed.
+    await expect(page.getByPlaceholder('Tax number')).toHaveValue('PL1234567890')
+    await expect(page.getByPlaceholder('Phone')).toHaveValue('+48 600 100 200')
+
+    // A filled field keeps its name at the right edge, and for the tax id that name is chosen by
+    // `taxIdType` — `PL1234567890` is an EU VAT number, not a domestic one.
+    await expect(page.getByText('EU VAT')).toBeVisible()
+
+    // The type interprets the value; it is never rendered as a value itself.
     await expect(page.getByText(/eu_vat/)).toHaveCount(0)
 
     // Postal-purity downstream: the one-line summaries built from the postal lines must not have

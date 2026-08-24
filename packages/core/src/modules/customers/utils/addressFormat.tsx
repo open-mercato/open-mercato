@@ -45,22 +45,6 @@ export type TaxIdLabelByType = {
   other: string
 }
 
-/** Labels for the contact block. A key that is absent hides its field, so this is opt-in per field. */
-export type AddressContactLabels = {
-  phone?: string
-  /** One label for every type, or a label per type when the distinction matters to the reader. */
-  taxId?: string | TaxIdLabelByType
-}
-
-export type AddressContactField = 'phone' | 'taxId'
-
-/**
- * One rendered contact line. `field` is the stable identity — React keys and any caller grouping key
- * on it rather than on `label`, which is translated and therefore not guaranteed unique across
- * locales.
- */
-export type AddressContactPair = { field: AddressContactField; label: string; value: string }
-
 export type AddressJsonShape = {
   format: AddressFormatStrategy
   companyName: string | null
@@ -169,28 +153,14 @@ const TAX_ID_LABEL_KEY_BY_TYPE: Record<string, keyof TaxIdLabelByType> = {
  * same identifier as an input and must name it the same way this formatter does — two copies of the
  * mapping is exactly how a foreign number ends up under a domestic scheme's name.
  */
-export function resolveTaxIdLabel(labels: AddressContactLabels, taxIdType: string | null | undefined): string | undefined {
-  const label = labels.taxId
+export function resolveTaxIdLabel(
+  label: string | TaxIdLabelByType | undefined,
+  taxIdType: string | null | undefined,
+): string | undefined {
   if (!label) return undefined
   if (typeof label === 'string') return label
   const key = TAX_ID_LABEL_KEY_BY_TYPE[typeof taxIdType === 'string' ? taxIdType : ''] ?? 'other'
   return label[key]
-}
-
-export function formatAddressContactPairs(
-  address: AddressValue,
-  labels: AddressContactLabels | undefined,
-): AddressContactPair[] {
-  if (!labels) return []
-  const pairs: AddressContactPair[] = []
-  const push = (field: AddressContactField, label: string | undefined, value: string | null | undefined) => {
-    if (!label) return
-    const trimmed = typeof value === 'string' ? value.trim() : ''
-    if (trimmed) pairs.push({ field, label, value: trimmed })
-  }
-  push('taxId', resolveTaxIdLabel(labels, address.taxIdType), address.taxId)
-  push('phone', labels.phone, address.phone)
-  return pairs
 }
 
 type AddressViewProps = {
@@ -198,15 +168,6 @@ type AddressViewProps = {
   format: AddressFormatStrategy
   className?: string
   lineClassName?: string
-  /**
-   * Opt in to the contact block by supplying labels. Omitted (the default) renders exactly what this
-   * component always rendered — no extra element, no wrapper, no class changes.
-   *
-   * Labels rather than hardcoded strings because this module is i18n-free by design; the calling
-   * component already has `useT()`.
-   */
-  contactLabels?: AddressContactLabels
-  contactClassName?: string
 }
 
 export function AddressView({
@@ -214,22 +175,14 @@ export function AddressView({
   format,
   className,
   lineClassName,
-  contactLabels,
-  contactClassName,
 }: AddressViewProps): React.ReactElement | null {
   const lines = formatAddressLines(address, format)
-  const contact = formatAddressContactPairs(address, contactLabels)
-  if (!lines.length && !contact.length) return null
+  if (!lines.length) return null
   return (
     <div className={className}>
       {lines.map((line, index) => (
         <div key={`${index}-${line}`} className={lineClassName}>
           {line}
-        </div>
-      ))}
-      {contact.map(({ field, label, value }) => (
-        <div key={`contact-${field}`} className={contactClassName ?? lineClassName}>
-          {label}: {value}
         </div>
       ))}
     </div>
