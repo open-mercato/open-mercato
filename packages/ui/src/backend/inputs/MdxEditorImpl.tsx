@@ -64,17 +64,30 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
     if (!ariaLabelledBy || typeof document === 'undefined') return
     const wrapper = wrapperRef.current
     if (!wrapper) return
-    const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable="true"]')
-    if (!contentEditable) return
-    if (id) {
-      contentEditable.setAttribute('id', id)
+
+    const applyLabelAttributes = () => {
+      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable]')
+      if (!contentEditable) return
+      if (id) {
+        contentEditable.setAttribute('id', id)
+      }
+      contentEditable.setAttribute('aria-labelledby', ariaLabelledBy)
     }
-    contentEditable.setAttribute('aria-labelledby', ariaLabelledBy)
+
+    applyLabelAttributes()
+    const observer = new MutationObserver(applyLabelAttributes)
+    observer.observe(wrapper, { childList: true, subtree: true })
+
     return () => {
+      observer.disconnect()
+      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable]')
+      if (!contentEditable) return
       if (id && contentEditable.getAttribute('id') === id) {
         contentEditable.removeAttribute('id')
       }
-      contentEditable.removeAttribute('aria-labelledby')
+      if (contentEditable.getAttribute('aria-labelledby') === ariaLabelledBy) {
+        contentEditable.removeAttribute('aria-labelledby')
+      }
     }
   }, [ariaLabelledBy, id])
 
@@ -93,12 +106,12 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
       <MDXEditor
         ref={editorRef}
         markdown={value ?? ''}
-        contentEditableClassName="om-mdx-prose"
         onChange={(markdown) => {
           typingRef.current = true
           latestRef.current = markdown
         }}
         className={cn('om-mdx-editor', resolvedTheme === 'dark' && 'dark-theme')}
+        contentEditableClassName="om-mdx-prose"
         plugins={[
           headingsPlugin(),
           listsPlugin(),

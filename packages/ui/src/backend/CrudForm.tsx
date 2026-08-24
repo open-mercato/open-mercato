@@ -3452,6 +3452,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           return (
             <FieldControl
               key={f.id}
+              formId={formId}
               field={f}
               value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
               error={errors[f.id]}
@@ -4017,6 +4018,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 return (
                   <FieldControl
                     key={f.id}
+                    formId={formId}
                     field={f}
                     value={values[f.id]}
                     error={errors[f.id]}
@@ -4506,6 +4508,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ id, valu
 }, (prev, next) => prev.value === next.value)
 
 type FieldControlProps = {
+  formId: string
   field: CrudField
   value: unknown
   error?: string
@@ -4623,6 +4626,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
 })
 
 const FieldControl = React.memo(function FieldControlImpl({
+  formId,
   field,
   value,
   error,
@@ -4669,8 +4673,17 @@ const FieldControl = React.memo(function FieldControlImpl({
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
-  const controlId = field.id
+  const controlId = `${formId}-${field.id}`
   const labelId = `${controlId}-label`
+  const hasVisibleLabel = field.label.trim().length > 0
+  const usesContentEditableRichText =
+    field.type === 'richtext' && field.editor !== 'simple'
+  const usesGroupedCheckboxes =
+    field.type === 'select' && Boolean(field.multiple) && field.listbox !== true
+  const hasLabelableControl =
+    field.type !== 'custom' && !usesContentEditableRichText && !usesGroupedCheckboxes
+  const visibleLabelId = !hasLabelableControl && hasVisibleLabel ? labelId : undefined
+  const labelHtmlFor = hasLabelableControl ? controlId : undefined
   const singleSelectValue = Array.isArray(value)
     ? String(value[0] ?? '')
     : value == null
@@ -4696,12 +4709,12 @@ const FieldControl = React.memo(function FieldControlImpl({
           }
         : undefined}
     >
-      {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
+      {field.type !== 'checkbox' && hasVisibleLabel ? (
         <label
-          id={field.type === 'richtext' ? labelId : undefined}
-          htmlFor={controlId}
+          id={visibleLabelId}
+          htmlFor={labelHtmlFor}
           className="block text-sm font-medium"
-          onClick={field.type === 'richtext'
+          onClick={usesContentEditableRichText
             ? () => {
                 document.getElementById(controlId)?.focus?.()
               }
@@ -4838,7 +4851,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'richtext' && builtin?.editor === 'html' && (
         <HtmlRichEditorField
           id={controlId}
-          ariaLabelledBy={labelId}
+          ariaLabelledBy={visibleLabelId}
           value={String(value ?? '')}
           onChange={fieldSetValue}
         />
@@ -4846,7 +4859,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
         <MarkdownEditor
           id={controlId}
-          ariaLabelledBy={labelId}
+          ariaLabelledBy={visibleLabelId}
           value={String(value ?? '')}
           onChange={fieldSetValue}
         />
@@ -4953,7 +4966,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={visibleLabelId}>
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
