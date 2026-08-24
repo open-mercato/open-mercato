@@ -22,6 +22,14 @@ type CredentialsServiceLike = {
   ) => Promise<void>
 }
 
+type IntegrationStateServiceLike = {
+  upsert: (
+    integrationId: string,
+    input: { isEnabled: boolean },
+    scope: { organizationId: string; tenantId: string },
+  ) => Promise<unknown>
+}
+
 export function readResendEnvPreset(): { apiKey: string; fromAddress: string } | null {
   const apiKey = normalizeEnvString(process.env.RESEND_API_KEY)
   const fromAddress = resolveDefaultEmailFromAddress()
@@ -55,6 +63,20 @@ export async function applyResendEnvPreset(ctx: PresetScope): Promise<void> {
     organizationId: ctx.organizationId,
     userId: null,
   })
+
+  try {
+    const integrationStateService = ctx.container.resolve('integrationStateService') as IntegrationStateServiceLike
+    await integrationStateService.upsert('channel_resend', { isEnabled: true }, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  } catch (err) {
+    logger.warn('Failed to enable the Resend integration state; Integrations will read Disabled while email is live', {
+      err,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  }
 
   await ensureSystemEmailChannel(ctx.em, {
     tenantId: ctx.tenantId,
