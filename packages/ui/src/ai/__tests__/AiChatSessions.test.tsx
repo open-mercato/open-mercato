@@ -24,6 +24,10 @@ jest.mock('../conversation-store', () => {
   }
 })
 
+jest.mock('../useAiAssistantAvailable', () => ({
+  useAiAssistantAvailable: jest.fn(() => true),
+}))
+
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
     debug: jest.fn(),
@@ -41,9 +45,11 @@ import {
   listAiServerConversations,
   createAiServerConversation,
 } from '../conversation-store'
+import { useAiAssistantAvailable } from '../useAiAssistantAvailable'
 
 const listMock = listAiServerConversations as jest.MockedFunction<typeof listAiServerConversations>
 const createMock = createAiServerConversation as jest.MockedFunction<typeof createAiServerConversation>
+const aiAvailableMock = useAiAssistantAvailable as jest.MockedFunction<typeof useAiAssistantAvailable>
 const loggerError = createLogger('ui').error as jest.Mock
 const loggerWarn = createLogger('ui').warn as jest.Mock
 
@@ -84,6 +90,8 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
     listMock.mockResolvedValue(null)
     createMock.mockReset()
     createMock.mockResolvedValue(null)
+    aiAvailableMock.mockReset()
+    aiAvailableMock.mockReturnValue(true)
     loggerError.mockClear()
     loggerWarn.mockClear()
     // Reset scope to a known starting point. The module-level state in
@@ -290,5 +298,51 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
     })
 
     expect(window.localStorage.getItem(scopedKey(null, null))).not.toBeNull()
+  })
+})
+
+describe('<AiChatSessionsProvider> — ai_assistant availability gate', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    listMock.mockReset()
+    listMock.mockResolvedValue([])
+    createMock.mockReset()
+    createMock.mockResolvedValue(null)
+    aiAvailableMock.mockReset()
+    loggerError.mockClear()
+    loggerWarn.mockClear()
+    act(() => {
+      emitOrganizationScopeChanged({ tenantId: 'T1', organizationId: 'O1' })
+    })
+  })
+
+  afterEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('skips the server conversation sync when the AI assistant is unavailable', async () => {
+    aiAvailableMock.mockReturnValue(false)
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    // Children still render — the provider owns context every backend page needs.
+    await waitFor(() => {
+      expect(screen.getByTestId('session-count').textContent).toBe('0')
+    })
+
+    expect(listMock).not.toHaveBeenCalled()
+    expect(loggerWarn).not.toHaveBeenCalled()
+    expect(loggerError).not.toHaveBeenCalled()
+  })
+
+  it('syncs once when the AI assistant is available', async () => {
+    aiAvailableMock.mockReturnValue(true)
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(listMock).toHaveBeenCalledTimes(1)
+    })
+    expect(listMock).toHaveBeenCalledWith({ limit: 100 })
   })
 })
