@@ -44,6 +44,7 @@ type MessageListItem = {
   sourceEntityType?: string | null
   priority: string
   status: string
+  isDraft: boolean
   hasObjects: boolean
   objectCount: number
   hasAttachments: boolean
@@ -300,6 +301,7 @@ export function MessagesInboxPageClient() {
               bodyFormat: 'text' as const,
               priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
+              isDraft: item.isDraft,
               senderName: getMessageListParticipantLabel(item, folder, t),
               hasObjects: item.hasObjects,
               objectCount: item.objectCount,

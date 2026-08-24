@@ -24,7 +24,9 @@ export function MessageListComponent({ message, onClick }: MessageListItemProps)
   const t = useT()
   const senderLabel = message.senderName || '—'
   const body = normalizeBody(message.body)
-  const sentAtLabel = formatSentTime(message.sentAt, t('messages.unknownDate', 'Unknown date'))
+  const sentAtLabel = message.isDraft
+    ? '—'
+    : formatSentTime(message.sentAt, t('messages.unknownDate', 'Unknown date'))
 
   return (
     <div

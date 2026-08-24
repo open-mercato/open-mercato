@@ -124,7 +124,9 @@ export function MessageHeader(props: MessageHeaderProps) {
           mode="detail"
           title={showSubject ? props.detail.subject : undefined}
           subtitle={`${t('messages.detail.from', 'From')}: ${senderLabel}`}
-          statusBadge={<p className="text-xs text-muted-foreground">{formatDateTime(props.detail.sentAt, t('messages.unknownDate', 'Unknown date'))}</p>}
+          statusBadge={<p className="text-xs text-muted-foreground">{props.detail.isDraft
+            ? '—'
+            : formatDateTime(props.detail.sentAt, t('messages.unknownDate', 'Unknown date'))}</p>}
           utilityActions={canReply ? (
             <IconButton
               type="button"

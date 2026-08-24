@@ -5,6 +5,7 @@
  */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { raw } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -148,14 +149,20 @@ function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'des
   if (sortField === 'createdAt') {
     return { createdAt: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return {
+    [raw(`occurred_at ${sortDir} nulls last`)]: null,
+    [raw(`created_at ${sortDir} nulls last`)]: null,
+  }
 }
 
 function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
     return { createdAt: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return {
+    [raw(`occurred_at ${sortDir} nulls last`)]: null,
+    [raw(`created_at ${sortDir} nulls last`)]: null,
+  }
 }
 
 function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {

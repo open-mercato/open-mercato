@@ -1,3 +1,4 @@
+import { raw } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
@@ -167,7 +168,13 @@ export async function buildPersonEmailThreads(
     em,
     CustomerInteraction,
     interactionWhere as never,
-    { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: maxThreads * 20 },
+    {
+      orderBy: {
+        [raw('occurred_at desc nulls last')]: null,
+        [raw('created_at desc nulls last')]: null,
+      },
+      limit: maxThreads * 20,
+    },
     dscope,
   )) as CustomerInteraction[]
 
@@ -351,7 +358,10 @@ function compareNullableIsochronological(
   rightTieBreaker: string,
   direction: 'asc' | 'desc' = 'asc',
 ): number {
-  if (leftValue === rightValue) return leftTieBreaker.localeCompare(rightTieBreaker)
+  if (leftValue === rightValue) {
+    const tie = leftTieBreaker.localeCompare(rightTieBreaker)
+    return direction === 'asc' ? tie : -tie
+  }
   if (leftValue === null) return 1
   if (rightValue === null) return -1
   return direction === 'asc'
