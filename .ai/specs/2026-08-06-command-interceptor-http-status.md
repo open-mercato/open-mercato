@@ -2,7 +2,7 @@
 
 **Status:** implemented
 **Issue:** #5045 (transport rollout: #5097)
-**PR:** #5067
+**PR:** #5067 (transport rollout: #5181)
 **Extends:** [`SPEC-041m4-command-interceptors.md`](implemented/SPEC-041m4-command-interceptors.md)
 
 ## Problem
@@ -128,7 +128,10 @@ classified by hand.
 
 Additive throughout, per `BACKWARD_COMPATIBILITY.md` § Type interfaces ("Optional fields may be added
 freely"). See the `Command Interceptor HTTP Status (2026-08-06)` entry in `BACKWARD_COMPATIBILITY.md`
-for the surface-by-surface classification.
+for the surface-by-surface classification — it carries three HTTP-response-shape rows: the two
+transports that shipped with #5067, the direct-`execute` rollout in #5181, and the surfaces
+deliberately left uncovered, so the blast radius a future interceptor change has to consider can be
+read off that entry alone.
 
 - `CommandInterceptorBeforeResult` — two new optional fields; every existing interceptor compiles and
   behaves identically.
@@ -182,5 +185,5 @@ instead of a generic 500. Omitting `status` keeps the historical behaviour.
 | Undo transport | `packages/core/src/modules/audit_logs/api/__tests__/undo.route.test.ts` | 409 with the message, 422 with an explicit body, generic 400 without a status, generic 400 for an unrelated failure. |
 | Direct-`execute` adoption (#5097) | `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts` | Static guard, six assertions: the scan finds a non-trivial route set; every **catch chain** that can receive a command-bus failure consults the mapper (path-scoped, so a partially-migrated file fails); the uncaught-call list matches the AST exactly in both directions; the batch exemption carries no stale entries; every batch-exempt route still keeps its bus calls behind a per-item `catch`; and no route sits in both exemptions. |
 | Direct-`execute` behavior (#5097) | One route test per module family with edited routes: `audit_logs` (redo), `auth` (profile PUT), `customers` (todos), `dictionaries` (entries reorder), `directory` (organization-branding), `feature_toggles` (overrides), `messages` (reply), `resources` (tags assign), `sales` (quotes accept), `staff` (leave-requests accept), `translations` (entity PUT), `warranty_claims` (transition, plus the portal withdraw action), `wms` (warehouse-assignment DELETE) | Each asserts both directions: 422 with the explicit body, and the route's own historical answer for a statusless rejection — generic 400, generic 500, adapter headers preserved (customers), or a rethrow (messages reply and the warranty-claims portal actions, whose catches rethrow unmapped errors). `communication_channels` has no edited route: all nine of its bus call sites are in the uncaught list, and the same is true of the two `auth` ACL routes (`api/roles/acl`, `api/users/acl`) that #5365 added to the base after this change was written. |
-| Batch-route behavior (#5097) | `packages/core/src/modules/eudr/api/plots/import/__tests__/route.interceptor.test.ts` | Pins what the batch exemption actually buys: an interceptor block on one feature — with or without a status — stays a `failed[]` entry on an `HTTP 200` while the rest of the batch imports, and a failure raised outside the per-item loop still reaches the route-level generic 500. |
+| Batch-route behavior (#5097) | `packages/core/src/modules/eudr/api/plots/import/__tests__/route.interceptor.test.ts` and `packages/core/src/modules/eudr/api/product-mappings/suggestions/apply/__tests__/route.interceptor.test.ts` — one per batch-exempt route, so the exemption rests on observed behavior for both rather than on one route plus an assumption about its twin | Pins what the batch exemption actually buys: an interceptor block on one item — with or without a status — stays a `failed[]` entry on an `HTTP 200` while the rest of the batch proceeds, and a failure raised outside the per-item loop still reaches the route-level generic 500. |
 | Module-level mappers (#5097) | `packages/checkout/src/modules/checkout/api/__tests__/helpers.error-mapping.test.ts`, `packages/enterprise/src/modules/security/api/__tests__/error-mapping.interceptor.test.ts`, `packages/documents/src/modules/documents/api/__tests__/error-mapping.interceptor.test.ts` | Status-carrying rejection, message-derived body, statusless rejection keeping the generic 500, and `CrudHttpError` still mapped first. |
