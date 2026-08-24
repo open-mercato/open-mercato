@@ -146,7 +146,8 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   contract surface; this EP makes them true, it must not rename them.
 - **Fixes**: G-4. **Unlocks**: sync lifecycle subscribers (EP-07), and aligns the factory
   routes with the command-side event configs already in `lib/crud.ts`.
-- **Known side effect (accepted in P1)**: `resolveResourceAliasesList` (`factory.ts:525-535`)
+- **Known side effect (raised in P1, accepted by the module owner on 2026-08-24 —
+  keep the new tags, no compat alias)**: `resolveResourceAliasesList` (`factory.ts:525-535`)
   prefers the `events`-derived resource tag over the command-derived one, so the 7 factory
   routes move off the shared `staff.timesheet` tag onto distinct per-entity tags. This
   changes CRUD list-cache tags (re-pinned in `lib/timesheets/timeEntryCacheInvalidation.ts`),
