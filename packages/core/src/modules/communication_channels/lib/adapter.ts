@@ -48,6 +48,20 @@ export interface ChannelCapabilities {
    * Optional; existing chat providers (Slack, WhatsApp) omit and are treated as `true`.
    */
   realtimePush?: boolean
+
+  /**
+   * Shape of the outbound recipient this provider's `sendMessage` accepts as
+   * `metadata.to`. Optional; when absent the hub validates recipients as email
+   * addresses, so every provider that predates this field keeps its exact
+   * behavior.
+   *
+   * Declare `'provider-native'` when recipients are provider-issued identifiers
+   * rather than email addresses (e.g. a Discord channel snowflake). The hub then
+   * applies transport-safety checks only (see `validateOutboundRecipient`) and
+   * the adapter owns the provider-specific format — it MUST treat the value as
+   * untrusted input.
+   */
+  recipientFormat?: 'email' | 'provider-native'
 }
 
 // ── Send / status / sender listing ────────────────────────────

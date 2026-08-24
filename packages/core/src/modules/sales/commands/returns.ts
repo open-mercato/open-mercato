@@ -198,8 +198,10 @@ function buildCalculationContext(order: SalesOrder) {
 }
 
 /**
- * Recalculates order totals (including line-scoped return adjustments) for display.
- * Returns the totals object to merge into an order API response, or null if order not found.
+ * Recalculates order totals (including line-scoped return adjustments) from lines and
+ * adjustments. Do not merge this into GET /api/sales/orders responses: provider
+ * calculators re-emit shipping/payment fees on top of already-persisted adjustments
+ * and make list vs detail totals diverge (#5438). Persist via commands instead.
  */
 export async function recalculateOrderTotalsForDisplay(
   em: EntityManager,

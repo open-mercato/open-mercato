@@ -291,7 +291,22 @@ async function listCanonicalActivities(
   organizationIds: string[] | null,
   query: z.infer<typeof listSchema>,
   options?: { includeDeleted?: boolean; source?: string | string[] | null; paginate?: boolean },
+  isUnrestricted?: boolean,
 ): Promise<CanonicalActivityListResult> {
+  if (organizationIds && organizationIds.length === 0 && !isUnrestricted) {
+    return {
+      items: [],
+      total: 0,
+      bridgeIds: new Set(),
+    }
+  }
+  if (organizationIds === null && !isUnrestricted) {
+    return {
+      items: [],
+      total: 0,
+      bridgeIds: new Set(),
+    }
+  }
   const where: Record<string, unknown> = {
     tenantId,
     interactionType: { $ne: 'task' },
@@ -368,7 +383,14 @@ async function listLegacyActivities(
   query: z.infer<typeof listSchema>,
   options?: { paginate?: boolean },
   selectedOrganizationId?: string | null,
+  isUnrestricted?: boolean,
 ): Promise<{ items: ActivityItem[]; total: number }> {
+  if (organizationIds && organizationIds.length === 0 && !isUnrestricted) {
+    return { items: [], total: 0 }
+  }
+  if (organizationIds === null && !isUnrestricted) {
+    return { items: [], total: 0 }
+  }
   const where: Record<string, unknown> = { tenantId }
   if (organizationIds && organizationIds.length > 0) {
     where.organizationId = { $in: organizationIds }
@@ -417,10 +439,29 @@ export async function GET(request: Request): Promise<Response> {
       organizationIds,
       container,
       selectedOrganizationId,
+      scope,
     } = await resolveCustomersRequestContext(request)
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     if (!flags.legacyAdapters) {
       return await legacyAdaptersDisabledResponse()
+    }
+
+    const isUnrestricted = auth.isSuperAdmin === true || scope?.allowedIds === null
+    if (!isUnrestricted && (!organizationIds || organizationIds.length === 0)) {
+      logger.warn('activities.list collapsed organization scope — returning empty page', {
+        tenantId: auth.tenantId,
+        organizationIds,
+        scope,
+      })
+      return withAdapterHeaders(
+        NextResponse.json({
+          items: [],
+          total: 0,
+          page: query.page,
+          pageSize: query.pageSize,
+          totalPages: 1,
+        }),
+      )
     }
 
     const sortDir = query.sortDir ?? 'desc'
@@ -434,6 +475,8 @@ export async function GET(request: Request): Promise<Response> {
           auth.tenantId,
           organizationIds,
           query,
+          undefined,
+          isUnrestricted,
         )
       : await (async () => {
         const windowSize = Math.min(
@@ -449,6 +492,7 @@ export async function GET(request: Request): Promise<Response> {
             windowedQuery,
             { paginate: true },
             selectedOrganizationId,
+            isUnrestricted,
           ),
           listCanonicalActivities(
             em,
@@ -463,6 +507,7 @@ export async function GET(request: Request): Promise<Response> {
               paginate: true,
               source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
             },
+            isUnrestricted,
           ),
         ])
         const merged = sortActivityItems(

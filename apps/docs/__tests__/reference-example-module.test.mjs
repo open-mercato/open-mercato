@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 const inventoryUrl = new URL(
   '../../mercato/src/modules/example/references/surface-inventory.json',
@@ -81,7 +82,7 @@ test('reference-example-module.mdx links only source paths that exist on disk', 
   assert.ok(linkedPaths.size > 0, 'the docs page must link at least one source path');
 
   const missing = [...linkedPaths].filter((relativePath) => {
-    const absolutePath = resolve(mercatoRoot.pathname, relativePath);
+    const absolutePath = resolve(fileURLToPath(mercatoRoot), relativePath);
     return !existsSync(absolutePath);
   });
   assert.deepEqual(

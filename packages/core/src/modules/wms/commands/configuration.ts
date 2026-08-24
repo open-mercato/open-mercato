@@ -33,11 +33,20 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import {
+  emitCrudSideEffects,
+  emitCrudUndoSideEffects,
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+} from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
+import { E } from '#generated/entities.ids.generated'
 import {
   InventoryLot,
   type InventoryLotStatus,
@@ -76,6 +85,7 @@ import {
   normalizeOptionalString,
   requireId,
   toNumericString,
+  warehouseZoneCrudIndexer,
 } from './shared'
 import { emitWmsEvent } from '../events'
 
@@ -196,6 +206,7 @@ type WarehouseZoneSnapshot = {
   name: string
   priority: number
   metadata: JsonValue | null
+  custom?: Record<string, unknown>
   createdAt: string
   updatedAt: string
 }
@@ -331,7 +342,67 @@ async function loadWarehouseZoneSnapshot(
   id: string,
 ): Promise<WarehouseZoneSnapshot | null> {
   const record = await findOneWithDecryption(em, WarehouseZone, { id }, undefined, resolveScope(ctx))
-  return record ? snapshotWarehouseZone(record) : null
+  if (!record) return null
+  const snapshot = snapshotWarehouseZone(record)
+  // The snapshot always carries custom values because undo has to restore them, and
+  // every caller (prepare on update/delete, captureAfter on create/update) feeds undo.
+  // For the common tenant that defined no zone custom fields this costs a single
+  // `custom_field_values` lookup: `loadCustomFieldValues` returns early on an empty
+  // result and never reaches the `custom_field_defs` query.
+  snapshot.custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.wms.warehouse_zone,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
+  return snapshot
+}
+
+async function writeZoneCustomFields(
+  ctx: CommandRuntimeContext,
+  zone: { id: string; organizationId: string; tenantId: string },
+  values: Record<string, unknown>,
+): Promise<void> {
+  if (!values || !Object.keys(values).length) return
+  await setCustomFieldsIfAny({
+    dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+    entityId: E.wms.warehouse_zone,
+    recordId: zone.id,
+    organizationId: zone.organizationId,
+    tenantId: zone.tenantId,
+    values,
+  })
+}
+
+// Zone reads go through the hybrid query engine, which projects `cf:*` from
+// `entity_indexes`. Emitting the CRUD side effect is therefore what makes a
+// custom field value written above observable through the zones list API — without
+// it the value sits in `custom_field_values` that no read path consults (#5239).
+// `events` is deliberately omitted: the module already emits `wms.zone.*` itself,
+// and adding an events config here would introduce a second, undeclared
+// `wms.warehouse_zone.*` event id for the same write.
+async function emitZoneCrudSideEffects(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'updated' | 'deleted',
+  zone: WarehouseZone,
+  origin: 'write' | 'undo' = 'write',
+): Promise<void> {
+  const options = {
+    dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+    action,
+    entity: zone,
+    identifiers: {
+      id: zone.id,
+      organizationId: zone.organizationId,
+      tenantId: zone.tenantId,
+    },
+    indexer: warehouseZoneCrudIndexer,
+  }
+  if (origin === 'undo') {
+    await emitCrudUndoSideEffects(options)
+    return
+  }
+  await emitCrudSideEffects(options)
 }
 
 function snapshotWarehouseLocation(record: WarehouseLocation): WarehouseLocationSnapshot {
@@ -989,7 +1060,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
   },
 }
 
-async function restoreZoneFromSnapshot(em: EntityManager, before: WarehouseZoneSnapshot): Promise<void> {
+async function restoreZoneFromSnapshot(em: EntityManager, before: WarehouseZoneSnapshot): Promise<WarehouseZone> {
   const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
   const warehouseRef = await findOneWithDecryption(em, Warehouse, { id: before.warehouseId }, undefined, scope)
   if (!warehouseRef) {
@@ -1018,12 +1089,13 @@ async function restoreZoneFromSnapshot(em: EntityManager, before: WarehouseZoneS
     record.metadata = before.metadata
     record.deletedAt = null
   }
+  return record
 }
 
 const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zoneId: string }> = {
   id: 'wms.zones.create',
   async execute(rawInput, ctx) {
-    const parsed = warehouseZoneCreateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseZoneCreateSchema, rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = resolveEm(ctx)
@@ -1039,6 +1111,8 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
       metadata: toJsonValue(parsed.metadata),
     })
     await em.persist(zone).flush()
+    await writeZoneCustomFields(ctx, zone, custom)
+    await emitZoneCrudSideEffects(ctx, 'created', zone)
     void emitWmsEvent('wms.zone.created', {
       id: zone.id,
       zoneId: zone.id,
@@ -1074,6 +1148,8 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     await em.flush()
+    await writeZoneCustomFields(ctx, record, buildCustomFieldResetMap(undefined, after.custom))
+    await emitZoneCrudSideEffects(ctx, 'deleted', record, 'undo')
   },
 }
 
@@ -1086,7 +1162,7 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = warehouseZoneUpdateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseZoneUpdateSchema, rawInput ?? {})
     const em = resolveEm(ctx)
     const zone = await loadZone(em, ctx, parsed.id)
     if (parsed.warehouseId !== undefined) {
@@ -1102,6 +1178,8 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
     if (parsed.priority !== undefined) zone.priority = parsed.priority
     if (parsed.metadata !== undefined) zone.metadata = toJsonValue(parsed.metadata)
     await em.flush()
+    await writeZoneCustomFields(ctx, zone, custom)
+    await emitZoneCrudSideEffects(ctx, 'updated', zone)
     void emitWmsEvent('wms.zone.updated', {
       id: zone.id,
       zoneId: zone.id,
@@ -1128,8 +1206,10 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
     const em = resolveEm(ctx)
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    await restoreZoneFromSnapshot(em, before)
+    const record = await restoreZoneFromSnapshot(em, before)
     await em.flush()
+    await writeZoneCustomFields(ctx, record, buildCustomFieldResetMap(before.custom, payload?.after?.custom))
+    await emitZoneCrudSideEffects(ctx, 'updated', record, 'undo')
   },
 }
 
@@ -1147,6 +1227,7 @@ const deleteWarehouseZoneCommand: CommandHandler<{ id?: string }, { zoneId: stri
     const zone = await loadZone(em, ctx, zoneId)
     zone.deletedAt = new Date()
     await em.flush()
+    await emitZoneCrudSideEffects(ctx, 'deleted', zone)
     return { zoneId: zone.id }
   },
   buildLog: async ({ input, result, ctx, snapshots }) => {
@@ -1161,8 +1242,10 @@ const deleteWarehouseZoneCommand: CommandHandler<{ id?: string }, { zoneId: stri
     const em = resolveEm(ctx)
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    await restoreZoneFromSnapshot(em, before)
+    const record = await restoreZoneFromSnapshot(em, before)
     await em.flush()
+    await writeZoneCustomFields(ctx, record, buildCustomFieldResetMap(before.custom, undefined))
+    await emitZoneCrudSideEffects(ctx, 'created', record, 'undo')
   },
 }
 

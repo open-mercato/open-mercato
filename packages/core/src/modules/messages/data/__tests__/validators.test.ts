@@ -48,6 +48,72 @@ describe('messages validators', () => {
     expect(invalidPublicResult.success).toBe(false)
   })
 
+  describe('conditional externalEmail requirement (#4975, Variant A)', () => {
+    const publicBase = {
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public' as const,
+      recipients: [],
+    }
+
+    it('still requires an external email when no channel type is supplied', () => {
+      const result = composeMessageSchema.safeParse(publicBase)
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+    })
+
+    it('still requires an external email for an email-typed channel', () => {
+      const result = composeMessageSchema.safeParse({ ...publicBase, sourceChannelType: 'email' })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+    })
+
+    it('accepts a public message from a non-email channel with no external email', () => {
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'discord',
+        externalName: 'Karol Kapsa',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('accepts a non-email channel message with no sender identity at all', () => {
+      // The identity of a non-email sender lives on `ExternalMessage.sender_identifier`
+      // and is joined to this message through `MessageChannelLink`, so compose must
+      // not invent a second requirement in its place.
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'discord',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('fails closed for an unrecognized channel type', () => {
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'not-a-real-channel',
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+    })
+
+    it('keeps every other public-visibility rule for non-email channels', () => {
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'discord',
+        recipients: [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' }],
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
+    })
+  })
+
   it('allows saving draft without recipients, subject, or body', () => {
     const result = composeMessageSchema.safeParse({
       isDraft: true,

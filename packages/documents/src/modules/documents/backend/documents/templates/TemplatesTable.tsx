@@ -12,12 +12,13 @@ import { getEntityRegistryEntry } from '../../../lib/entityRegistry'
 import { formatDateTime } from '../documentUi'
 import type { TemplateRow } from '../components/templateUi'
 
-export function TemplatesTable({ rows, page, pageSize, total, totalPages, search, isLoading, canManageTemplates, onSearchChange, onPageChange, onPageSizeChange, onRefresh, onEdit, onDelete }: {
+export function TemplatesTable({ rows, page, pageSize, total, totalPages, totalIsCapped, search, isLoading, canManageTemplates, onSearchChange, onPageChange, onPageSizeChange, onRefresh, onEdit, onDelete }: {
   rows: TemplateRow[]
   page: number
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped: boolean
   search: string
   isLoading: boolean
   canManageTemplates: boolean
@@ -58,6 +59,7 @@ export function TemplatesTable({ rows, page, pageSize, total, totalPages, search
         pageSize,
         total,
         totalPages,
+        totalIsCapped,
         onPageChange,
         onPageSizeChange,
         pageSizeOptions: [25, 50, 100],
