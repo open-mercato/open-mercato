@@ -191,10 +191,27 @@ describe('AuthService', () => {
       usedAt: null,
       user: { id: 'u1' },
     })
+    em.findOne.mockResolvedValueOnce({ id: 'u1' })
     const svc = new AuthService(em)
     await expect(svc.isPasswordResetTokenValid('raw-token-value')).resolves.toBe(true)
     expect(em.nativeUpdate).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('isPasswordResetTokenValid rejects a live token whose user has been soft-deleted', async () => {
+    const { em } = makeEm()
+    em.findOne.mockResolvedValueOnce({
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() + 60000),
+      usedAt: null,
+      user: { id: 'u1' },
+    })
+    em.findOne.mockResolvedValueOnce(null)
+    const svc = new AuthService(em)
+    await expect(svc.isPasswordResetTokenValid('raw-token-value')).resolves.toBe(false)
+    expect((em.findOne as jest.Mock).mock.calls[1][1]).toEqual({ id: 'u1', deletedAt: null })
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
   it('isPasswordResetTokenValid rejects an already-used token', async () => {

@@ -144,21 +144,27 @@ export class AuthService {
     return { user, token: rawToken }
   }
 
-  async isPasswordResetTokenValid(token: string): Promise<boolean> {
+  private async findUnconsumedPasswordReset(token: string): Promise<PasswordReset | null> {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
     const row = await this.em.findOne(PasswordReset, { token: hashedToken })
+    if (!row) return null
+    if (row.usedAt && row.usedAt <= now) return null
+    if (row.expiresAt <= now) return null
+    return row
+  }
+
+  async isPasswordResetTokenValid(token: string): Promise<boolean> {
+    const row = await this.findUnconsumedPasswordReset(token)
     if (!row) return false
-    if (row.usedAt && row.usedAt <= now) return false
-    if (row.expiresAt <= now) return false
-    return true
+    const user = await findOneWithDecryption(this.em, User, { id: row.user.id, deletedAt: null })
+    return user != null
   }
 
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
-    const hashedToken = hashAuthToken(token)
-    const row = await this.em.findOne(PasswordReset, { token: hashedToken })
-    if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
+    const row = await this.findUnconsumedPasswordReset(token)
+    if (!row) return null
 
     // Atomic compare-and-set: only mark used if still unused — prevents token replay under concurrency
     const affected = await this.em.nativeUpdate(
