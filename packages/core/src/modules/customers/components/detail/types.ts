@@ -144,7 +144,7 @@ export type InteractionSummary = {
   authorEmail?: string | null
   dealTitle?: string | null
   customValues?: Record<string, unknown> | null
-  participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  participants?: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
   reminderMinutes?: number | null
   visibility?: string | null
   linkedEntities?: Array<{ id: string; type: string; label: string }> | null

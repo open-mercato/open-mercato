@@ -2338,7 +2338,7 @@ test('family 12: source-reference applicability follows real starter presets and
   const records = projectedInventory().records
   const byId = new Map(records.map((record) => [record.referenceId, record]))
   const record = recordIn(records, DESIGN_IMPLEMENTATION_REFERENCE)
-  assert.deepEqual(record.presets, ['classic', 'crm', 'empty'])
+  assert.deepEqual(record.presets, ['classic', 'crm', 'empty', 'wms'])
   assert.deepEqual(record.tiers, ['core'])
 
   const root = stageExampleApp()

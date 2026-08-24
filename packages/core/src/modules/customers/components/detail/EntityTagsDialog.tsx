@@ -6,6 +6,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn, slugifyTagLabel } from '@open-mercato/shared/lib/utils'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -388,8 +389,19 @@ export function EntityTagsDialog({
   const [creatingKind, setCreatingKind] = React.useState<string | null>(null)
   const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
   const [activeCategoryPage, setActiveCategoryPage] = React.useState(1)
-  const [activeCategoryTotalPages, setActiveCategoryTotalPages] = React.useState(1)
+  // Short-page termination instead of `page < totalPages` — see
+  // `hasMoreFromPage`. Like the page number it belongs to whichever category is
+  // active: the fetch effect below rewrites it on every category, search and
+  // page change, and the reset effect clears it alongside the page so a
+  // category with more entries never leaves the affordance behind on one
+  // without.
+  const [activeCategoryHasMore, setActiveCategoryHasMore] = React.useState(false)
   const [activeCategoryLoading, setActiveCategoryLoading] = React.useState(false)
+  // A transport failure is not an end-of-list signal: it leaves the affordance
+  // in place and turns the next click into a retry of the page that failed,
+  // rather than advancing past it.
+  const [activeCategoryLoadFailed, setActiveCategoryLoadFailed] = React.useState(false)
+  const [activeCategoryReloadToken, setActiveCategoryReloadToken] = React.useState(0)
   const creationInFlightRef = React.useRef<string | null>(null)
   const mutationContextId = React.useMemo(
     () => `customer-tags:${entityType}:${entityId}`,
@@ -713,12 +725,15 @@ export function EntityTagsDialog({
   React.useEffect(() => {
     if (!open) return
     setActiveCategoryPage(1)
+    setActiveCategoryHasMore(false)
+    setActiveCategoryLoadFailed(false)
   }, [activeCategoryKind, open, searchValue])
 
   React.useEffect(() => {
     if (!open || !activeCategoryKindValue || (activeCategorySource !== 'tags' && activeCategorySource !== 'labels')) {
       setActiveCategoryLoading(false)
-      setActiveCategoryTotalPages(1)
+      setActiveCategoryHasMore(false)
+      setActiveCategoryLoadFailed(false)
       return
     }
 
@@ -752,16 +767,36 @@ export function EntityTagsDialog({
       }))
 
     setActiveCategoryLoading(true)
-    void apiCall<{ items?: Array<DictEntry | LabelItem>; totalPages?: number }>(endpoint, {
+    void apiCall<{ items?: Array<DictEntry | LabelItem>; page?: number }>(endpoint, {
       cache: 'no-store',
       headers: { 'x-om-unauthorized-redirect': '0' },
     })
       .then((response) => {
-        if (!response.ok || cancelled) return
-        const fetchedEntries = mapEntries(Array.isArray(response.result?.items) ? response.result.items : [])
-        setActiveCategoryTotalPages(
-          typeof response.result?.totalPages === 'number' ? response.result.totalPages : 1,
+        if (cancelled) return
+        if (!response.ok) {
+          setActiveCategoryLoadFailed(true)
+          return
+        }
+        setActiveCategoryLoadFailed(false)
+        const servedEntries = Array.isArray(response.result?.items) ? response.result.items : []
+        const fetchedEntries = mapEntries(servedEntries)
+        // The two sources paginate differently. `/api/customers/tags` is a
+        // query-engine list, so a page past the end comes back empty and the
+        // served count alone terminates the sequence. `/api/customers/labels`
+        // clamps the requested page to the last one and re-serves it in full
+        // forever, so short-page termination needs the second half of the
+        // helper's obligation 2: take an echoed page below the one asked for as
+        // the end of the list. Same guard as `AttachmentsSection`, whose
+        // endpoint clamps the same way.
+        const returnedPage =
+          typeof response.result?.page === 'number' ? response.result.page : activeCategoryPage
+        const servedRequestedPage = returnedPage >= activeCategoryPage
+        // Measured on what the endpoint served, before `mergeOptions` folds the
+        // page into the entries already on screen.
+        setActiveCategoryHasMore(
+          servedRequestedPage && hasMoreFromPage(servedEntries.length, REMOTE_CATEGORY_PAGE_SIZE),
         )
+        if (!servedRequestedPage) return
         updateCategoryEntries(activeCategoryKindValue, (currentEntries) =>
           activeCategoryPage <= 1
             ? mergeOptions(seedEntries, fetchedEntries)
@@ -770,8 +805,10 @@ export function EntityTagsDialog({
       })
       .catch(() => {
         if (cancelled) return
-        setActiveCategoryTotalPages(1)
-        updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
+        setActiveCategoryLoadFailed(true)
+        if (activeCategoryPage <= 1) {
+          updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -785,6 +822,7 @@ export function EntityTagsDialog({
   }, [
     activeCategoryKindValue,
     activeCategoryPage,
+    activeCategoryReloadToken,
     activeCategorySource,
     entityId,
     entityOrganizationId,
@@ -1250,15 +1288,23 @@ export function EntityTagsDialog({
                               {t('customers.personTags.loading', 'Loading...')}
                             </div>
                           ) : null}
-                          {(activeCategory.source === 'tags' || activeCategory.source === 'labels') && activeCategoryPage < activeCategoryTotalPages ? (
+                          {(activeCategory.source === 'tags' || activeCategory.source === 'labels') && activeCategoryHasMore ? (
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
                               className="rounded-lg px-3 text-xs"
-                              onClick={() => setActiveCategoryPage((current) => current + 1)}
+                              onClick={() => {
+                                if (activeCategoryLoadFailed) {
+                                  setActiveCategoryReloadToken((current) => current + 1)
+                                  return
+                                }
+                                setActiveCategoryPage((current) => current + 1)
+                              }}
                             >
-                              {t('customers.activities.loadMore', 'Load more')}
+                              {activeCategoryLoadFailed
+                                ? t('customers.personTags.retry', 'Retry')
+                                : t('customers.activities.loadMore', 'Load more')}
                             </Button>
                           ) : null}
                         </div>
