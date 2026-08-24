@@ -205,6 +205,10 @@ export type ModuleWorker = {
    */
   onJobAbandoned?: (payload: unknown, info: { jobId: string | null; reason: string }) => void | Promise<void>
   handler: ModuleWorkerHandler
+  /** Opt-in flag exposing this queue as a user-facing scheduler target (issue #5213). */
+  schedulerSafe?: boolean
+  /** Creator features required beyond scheduler.jobs.manage when schedulerSafe is set. */
+  schedulerRequiredFeatures?: string[]
 }
 
 export type ModuleInfo = {

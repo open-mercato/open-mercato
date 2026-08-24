@@ -10,6 +10,8 @@ export const ACTIVITY_DATE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.d
 export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.timeRequired'
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
+export const INTERACTION_PARTICIPANT_IDENTITY_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.participantIdentityRequired'
+export const INTERACTION_PARTICIPANT_EMAIL_INVALID_MESSAGE_KEY = 'customers.activities.errors.participantEmailInvalid'
 
 // customer_deals.description is an unbounded `text` column; this cap only exists to keep
 // request bodies, fulltext search documents and query-index documents from growing without limit.
@@ -424,12 +426,36 @@ export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
 /** @deprecated See {@link interactionStatusValues}. */
 export type InteractionStatus = typeof interactionStatusValues[number]
 
-const interactionParticipantSchema = z.object({
-  userId: z.string().uuid(),
-  name: z.string().trim().max(200).optional(),
-  email: z.string().trim().max(320).optional(),
-  status: z.string().trim().max(50).optional(),
-})
+// A participant is either a real record (`userId`) or an external guest carrying
+// no id at all. A guest is only addressable through its email, so that email is
+// required and must actually be routable — an unparseable string would persist
+// and only fail later, at invitation or calendar-sync time. Participants that DO
+// have a userId keep an unvalidated auxiliary email, as before.
+const interactionParticipantSchema = z
+  .object({
+    userId: z.string().uuid().optional(),
+    name: z.string().trim().max(200).optional(),
+    email: z.string().trim().max(320).optional(),
+    status: z.string().trim().max(50).optional(),
+  })
+  .superRefine((participant, ctx) => {
+    if (participant.userId) return
+    if (!participant.email) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: INTERACTION_PARTICIPANT_IDENTITY_REQUIRED_MESSAGE_KEY,
+      })
+      return
+    }
+    if (!z.string().email().safeParse(participant.email).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: INTERACTION_PARTICIPANT_EMAIL_INVALID_MESSAGE_KEY,
+      })
+    }
+  })
 
 const interactionLinkedEntitySchema = z.object({
   id: z.string().uuid(),
