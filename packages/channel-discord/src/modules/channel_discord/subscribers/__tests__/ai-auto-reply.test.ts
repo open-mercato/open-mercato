@@ -1,38 +1,32 @@
 /**
- * Unit coverage for the AI auto-reply subscriber's own control flow.
+ * Unit coverage for the AI auto-reply subscriber's control flow (issue #4778).
  *
- * ⚠️ What these tests do NOT prove (review of #4391, @pkarw 2026-07-30 Major 2):
- * the AI runtime below is a stub, so nothing here says an armed subscriber would
- * actually be allowed to run. It would not: every agent this repository ships is
- * chat-mode and feature-gated, and `runAiAgentObject` is refused by the real
- * agent policy for the `features: []` call this subscriber makes. That gap is
- * why the release de-scopes AI auto-reply (→ open-mercato/open-mercato#4778),
- * which owns the configurable agent identity and the coverage that drives the
- * real policy instead of a stub.
+ * The AI runtime is stubbed here on purpose: `@open-mercato/ai-assistant` is a
+ * soft-optional peer, so a unit test that imported the real runtime would couple
+ * this package to it and break the decoupling property the subscriber exists to
+ * respect. What the stub cannot prove — that the REAL agent policy accepts the
+ * call the subscriber makes — is proven separately, against the real
+ * `agent-policy` / `agent-runtime`, in
+ * `packages/channel-discord/src/modules/channel_discord/__tests__/ai-auto-reply.policy.integration.test.ts`.
  *
- * The stub is not a shortcut: `@open-mercato/ai-assistant` is a genuinely
- * soft-optional peer — deliberately absent from this package's dependencies and
- * peerDependencies so the module-decoupling contract holds — hence
- * `{ virtual: true }`. A test that imported the real runtime here would break
- * the very decoupling property it is meant to protect.
- *
- * The complementary guarantee — that no product surface can arm this subscriber
- * in the first place — is executable, and lives in `ai-auto-reply.dormancy.test.ts`.
+ * The three tiers this file pins down:
+ *   - easy + the model is confident and asks for no human → auto-send;
+ *   - anything else → a proposal a human approves, never a send;
+ *   - peer absent / channel not armed / malformed output → clean no-op.
  */
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 jest.mock('@open-mercato/core/modules/communication_channels/lib/system-user', () => ({
+  COMMUNICATION_CHANNELS_SYSTEM_USER_ID: '00000000-0000-0000-0000-000000000000',
   resolveCommunicationChannelsSystemUserId: jest.fn(async () => 'system-user-id'),
 }))
-jest.mock(
-  '@open-mercato/ai-assistant',
-  () => ({ runAiAgentObject: jest.fn(async () => ({ mode: 'generate', object: { reply: 'We are open 9-5.' } })) }),
-  { virtual: true },
-)
+jest.mock('@open-mercato/ai-assistant', () => ({ runAiAgentObject: jest.fn() }), { virtual: true })
 
 import handler from '../ai-auto-reply'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID } from '../../ai-agents'
+import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
 const aiMod = jest.requireMock('@open-mercato/ai-assistant') as { runAiAgentObject: jest.Mock }
@@ -40,10 +34,16 @@ const aiMod = jest.requireMock('@open-mercato/ai-assistant') as { runAiAgentObje
 type ResolveMap = {
   commandBus?: { execute: jest.Mock }
   aiPresent?: boolean
+  threadAssignee?: string | null
 }
 
 function makeCtx(map: ResolveMap) {
-  const em = { fork: () => ({}) }
+  const forked = {
+    findOne: jest.fn(async () =>
+      map.threadAssignee ? { assignedUserId: map.threadAssignee } : null,
+    ),
+  }
+  const em = { fork: () => forked }
   const commandBus =
     map.commandBus ?? { execute: jest.fn(async () => ({ result: { id: 'reply-msg', threadId: null } })) }
   const resolve = jest.fn((name: string) => {
@@ -55,7 +55,7 @@ function makeCtx(map: ResolveMap) {
     if (name === 'commandBus') return commandBus
     return {}
   })
-  return { ctx: { resolve }, commandBus, resolve }
+  return { ctx: { resolve }, commandBus, resolve, forked }
 }
 
 const basePayload = {
@@ -72,13 +72,27 @@ function channelRow(overrides: Record<string, unknown> = {}) {
     id: 'c-1',
     tenantId: 't-1',
     organizationId: 'o-1',
-    channelState: { aiAutoReplyEnabled: true, aiAgentId: 'customers.support' },
+    userId: null,
+    channelState: { aiAutoReplyEnabled: true, aiAgentId: CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID },
     ...overrides,
   }
 }
 
 function messageRow(body: string) {
-  return { id: 'm-1', threadId: 'thread-1', subject: 'Discord', body }
+  return { id: 'm-1', threadId: 'thread-1', subject: 'Discord', type: 'channel.discord', body }
+}
+
+function agentOutput(overrides: Record<string, unknown> = {}) {
+  return {
+    mode: 'generate',
+    object: {
+      reply: 'We are open 9-5.',
+      summary: 'Asks about opening hours.',
+      confidence: 0.9,
+      requiresHuman: false,
+      ...overrides,
+    },
+  }
 }
 
 describe('channel_discord ai-auto-reply subscriber — cheap early returns', () => {
@@ -114,16 +128,14 @@ describe('channel_discord ai-auto-reply subscriber — cheap early returns', () 
   })
 })
 
-describe('channel_discord ai-auto-reply subscriber — gating, driven from a hand-armed channel', () => {
+describe('channel_discord ai-auto-reply subscriber — routing', () => {
   beforeEach(() => {
     findOne.mockReset()
-    aiMod.runAiAgentObject.mockClear()
-    aiMod.runAiAgentObject.mockResolvedValue({ mode: 'generate', object: { reply: 'We are open 9-5.' } })
+    aiMod.runAiAgentObject.mockReset()
+    aiMod.runAiAgentObject.mockResolvedValue(agentOutput())
   })
 
-  // Asserts the wiring, NOT a shipped capability: the channel below is armed by
-  // hand with state no product surface writes, and the agent call is stubbed.
-  it('(easy) routes a stubbed draft through the generic hub compose command', async () => {
+  it('(easy, confident) sends through the generic hub compose command', async () => {
     findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
     const { ctx, commandBus } = makeCtx({ aiPresent: true })
 
@@ -135,15 +147,94 @@ describe('channel_discord ai-auto-reply subscriber — gating, driven from a han
     expect(commandId).toBe('messages.messages.compose')
     expect(args.input.body).toContain('We are open 9-5.')
     expect(args.input.parentMessageId).toBe('thread-1')
+    expect(args.input.visibility).toBe('public')
+    expect(args.input.isDraft).toBe(false)
   })
 
-  it('(complex) is propose-only — NEVER auto-sends', async () => {
-    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('I want a refund on my order'))
-    const { ctx, commandBus } = makeCtx({ aiPresent: true })
+  it('runs the agent under a real service principal, never features: [] and never super-admin', async () => {
+    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx } = makeCtx({ aiPresent: true })
 
     await handler(basePayload, ctx)
 
-    expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
+    const [call] = aiMod.runAiAgentObject.mock.calls
+    expect(call[0].agentId).toBe(CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID)
+    expect(call[0].authContext.features).toContain('channel_discord.ai_auto_reply.run')
+    expect(call[0].authContext.features.length).toBeGreaterThan(0)
+    expect(call[0].authContext.isSuperAdmin).toBe(false)
+    expect(call[0].authContext.tenantId).toBe('t-1')
+    expect(call[0].authContext.organizationId).toBe('o-1')
+  })
+
+  it('(complex) drafts a proposal for a human and NEVER auto-sends', async () => {
+    findOne
+      .mockResolvedValueOnce(channelRow())
+      .mockResolvedValueOnce(messageRow('I want a refund on my order'))
+      .mockResolvedValueOnce(channelRow())
+    const { ctx, commandBus } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1' })
+
+    await handler(basePayload, ctx)
+
+    // The agent still runs — the proposal has to contain a drafted reply.
+    expect(aiMod.runAiAgentObject).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    const [, args] = commandBus.execute.mock.calls[0]
+    expect(args.input.type).toBe(CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE)
+    expect(args.input.visibility).toBe('internal')
+    expect(args.input.recipients).toEqual([{ userId: 'agent-user-1', type: 'to' }])
+    expect(args.input.sourceEntityId).toBe('m-1')
+    expect(args.input.body).toContain('We are open 9-5.')
+  })
+
+  it('(complex, nobody assigned) stores the proposal as a draft rather than losing it', async () => {
+    findOne
+      .mockResolvedValueOnce(channelRow())
+      .mockResolvedValueOnce(messageRow('I want a refund on my order'))
+      .mockResolvedValueOnce(channelRow())
+    const { ctx, commandBus } = makeCtx({ aiPresent: true, threadAssignee: null })
+
+    await handler(basePayload, ctx)
+
+    const [, args] = commandBus.execute.mock.calls[0]
+    expect(args.input.isDraft).toBe(true)
+    expect(args.input.recipients).toEqual([])
+    expect(args.input.visibility).toBe('internal')
+  })
+
+  it('(easy, model asks for a human) proposes instead of sending', async () => {
+    aiMod.runAiAgentObject.mockResolvedValue(agentOutput({ requiresHuman: true }))
+    findOne
+      .mockResolvedValueOnce(channelRow())
+      .mockResolvedValueOnce(messageRow('What are your opening hours?'))
+      .mockResolvedValueOnce(channelRow())
+    const { ctx, commandBus } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1' })
+
+    await handler(basePayload, ctx)
+
+    const [, args] = commandBus.execute.mock.calls[0]
+    expect(args.input.type).toBe(CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE)
+  })
+
+  it('(easy, low confidence) proposes instead of sending', async () => {
+    aiMod.runAiAgentObject.mockResolvedValue(agentOutput({ confidence: 0.4 }))
+    findOne
+      .mockResolvedValueOnce(channelRow())
+      .mockResolvedValueOnce(messageRow('What are your opening hours?'))
+      .mockResolvedValueOnce(channelRow())
+    const { ctx, commandBus } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1' })
+
+    await handler(basePayload, ctx)
+
+    const [, args] = commandBus.execute.mock.calls[0]
+    expect(args.input.type).toBe(CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE)
+  })
+
+  it('(malformed agent output) degrades to a no-op instead of sending something unvalidated', async () => {
+    aiMod.runAiAgentObject.mockResolvedValue({ mode: 'generate', object: { reply: 'hi' } })
+    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx, commandBus } = makeCtx({ aiPresent: true })
+
+    await expect(handler(basePayload, ctx)).resolves.toBeUndefined()
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 

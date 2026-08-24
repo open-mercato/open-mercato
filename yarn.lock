@@ -8338,6 +8338,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-discord@workspace:packages/channel-discord"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
@@ -8354,9 +8355,13 @@ __metadata:
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+  peerDependenciesMeta:
+    "@open-mercato/ai-assistant":
+      optional: true
   languageName: unknown
   linkType: soft
 

@@ -55,6 +55,7 @@
   "auth.acl.features.catalog.variants.manage": "Manage catalog variants",
   "auth.acl.features.channel_apns.configure": "Configure APNs credentials",
   "auth.acl.features.channel_apns.view": "View APNs channel configuration",
+  "auth.acl.features.channel_discord.ai_auto_reply.run": "Ejecutar el agente de respuesta automática de IA en Discord",
   "auth.acl.features.channel_discord.configure": "Configure Discord bot channel",
   "auth.acl.features.channel_discord.view": "View Discord channel configuration",
   "auth.acl.features.channel_expo.configure": "Configure Expo push credentials",

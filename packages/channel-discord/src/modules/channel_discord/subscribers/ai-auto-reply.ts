@@ -1,5 +1,4 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -7,54 +6,64 @@ import { CommunicationChannel } from '@open-mercato/core/modules/communication_c
 import { Message } from '@open-mercato/core/modules/messages/data/entities'
 import { resolveCommunicationChannelsSystemUserId } from '@open-mercato/core/modules/communication_channels/lib/system-user'
 import {
+  CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID,
+  discordAutoReplyOutputSchema,
+  type DiscordAutoReplyOutput,
+} from '../ai-agents'
+import {
   classifyDiscordMessage,
   isAiAssistantAvailable,
   isAiAutoReplyEnabled,
   resolveAiAgentId,
   type SubscriberResolver,
 } from '../lib/ai-reply'
+import { fileDiscordReplyProposal } from '../lib/ai-proposal'
+import { resolveDiscordAiPrincipal, type DiscordAiPrincipal } from '../lib/ai-service-principal'
 
 const logger = createLogger('channel_discord').child({ component: 'ai-auto-reply' })
 
 /**
- * AI auto-reply subscriber (SPEC 2026-06-19 § AI bot wiring) — DORMANT in this release.
+ * AI auto-reply subscriber (SPEC 2026-06-19 § AI bot wiring, issue #4778).
  *
- * ⚠️ Scope: the first release ships this subscriber as inert scaffolding and does
- * NOT promise AI auto-reply as a product capability. Nothing in the product writes
- * the two channel-state keys that arm it (`aiAutoReplyEnabled`, `aiAgentId`), there
- * is no configuration surface for them, and every agent this repository currently
- * ships is chat-mode and feature-gated — so `runAiAgentObject` below would be denied
- * by the agent policy even if the keys were set by hand. The production design
- * (an object-mode or service-principal agent identity, the configuration path that
- * writes those keys, the proposal surface for the `complex` tier, and an integration
- * test that drives the real policy/runtime instead of mocking it) is tracked in
- * open-mercato/open-mercato#4778 and lands with that issue, not here.
+ * Listens to `communication_channels.message.received`, filters to Discord, and —
+ * only when the channel opted in (default OFF) AND the optional `ai_assistant`
+ * peer is present — drafts a reply through the programmatic agent runtime. An
+ * "easy" message the model is confident about is answered directly through the
+ * generic hub outbound path (compose → outbound-bridge → `deliver_outbound` →
+ * Discord REST). Anything else becomes a proposal a human approves. Nothing
+ * Discord-specific leaks into the send path; any module could do the same.
  *
- * What it does when it does run: listens to `communication_channels.message.received`,
- * filters to Discord, and — only when the channel opted in (default OFF) AND the
- * optional `ai_assistant` peer is present — drafts a reply via the programmatic agent
- * runtime and sends it back through the generic hub outbound path (compose →
- * outbound-bridge → `deliver_outbound` → Discord REST). Nothing Discord-specific leaks
- * into the send path; any module could do the same.
+ * How the guarantees actually hold, rather than by convention:
  *
- * Safety (why shipping it dormant is safe rather than merely unused):
- *   - `ai_assistant` is an OPTIONAL peer resolved softly; absent → no-op.
- *   - Every path is opt-in and fails closed: no opt-in flag, no agent id, no peer,
- *     or any error inside the draft/send step all degrade to a silent no-op, so the
+ *   - `ai_assistant` is an OPTIONAL peer resolved softly; absent → no-op, and the
  *     channel keeps working as a plain inbox.
- *   - Complex / low-confidence messages (including suspected prompt injection) are
- *     never auto-sent. In this release they are dropped with a log line — the
- *     human-approval surface they are meant to reach is part of #4778.
- *   - The agent runs with the channel's tenant scope; `runAiAgentObject`
- *     enforces the agent's own `requiredFeatures` / `mutationPolicy` — this
- *     subscriber cannot widen them. Privileged writes still route through the AI
- *     mutation-approval gate.
+ *   - The agent runs under a real, tenant-scoped identity with real `features`
+ *     (`lib/ai-service-principal.ts`), never `features: []` and never as a
+ *     super-admin. `runAiAgentObject` enforces the agent's `requiredFeatures`,
+ *     `executionMode` and `mutationPolicy` against it; this subscriber cannot
+ *     widen them.
+ *   - The agent is object-mode, so the runtime never exposes a tool to the model
+ *     — no privileged action is reachable from an inbound Discord message at all,
+ *     let alone auto-executable.
+ *   - Auto-send needs THREE independent yeses: the conservative regex tiering
+ *     says `easy`, the model says it does not need a human, and the model's own
+ *     confidence clears {@link AUTO_SEND_MIN_CONFIDENCE}. Any single no routes the
+ *     draft to the approval surface instead.
+ *   - Every failure degrades to a no-op. A broken model, a denied policy check, a
+ *     malformed object — none of them can turn into a send.
  */
 export const metadata = {
   event: 'communication_channels.message.received',
   persistent: true,
   id: 'channel_discord:ai-auto-reply',
 }
+
+/**
+ * Below this, the model's own draft is proposed rather than sent. The number is
+ * deliberately high: the cost of a wrong auto-answer in a public Discord server
+ * is much higher than the cost of a human glancing at a proposal.
+ */
+export const AUTO_SEND_MIN_CONFIDENCE = 0.6
 
 type MessageReceivedPayload = {
   messageId?: string
@@ -82,7 +91,6 @@ interface AiAssistantModule {
     input: string
     authContext: Record<string, unknown>
     container: unknown
-    output: { schemaName: string; schema: unknown; mode: 'generate' }
     sessionId?: string
   }) => Promise<{ mode: string; object: unknown }>
 }
@@ -94,18 +102,19 @@ export default async function handler(payload: MessageReceivedPayload, ctx: Ctx)
   if (!payload?.messageId || !payload?.channelId || !payload?.tenantId) return
 
   const em = resolveFromCtx<EntityManager>(ctx, 'em').fork()
-  const dscope = { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null }
+  const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null }
 
   const channel = await findOneWithDecryption(
     em,
     CommunicationChannel,
-    { id: payload.channelId, tenantId: payload.tenantId, organizationId: payload.organizationId ?? null, deletedAt: null },
+    { id: payload.channelId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
     undefined,
-    dscope,
+    scope,
   )
   if (!channel) return
 
-  // (2) Per-channel opt-in (default OFF).
+  // (2) Per-channel opt-in (default OFF), written by the settings surface at
+  // `/backend/channel_discord/channels/<id>/ai-auto-reply`.
   if (!isAiAutoReplyEnabled(channel.channelState)) return
 
   // (3) Soft-resolve the optional AI peer — no-op when absent (module-decoupling).
@@ -114,115 +123,165 @@ export default async function handler(payload: MessageReceivedPayload, ctx: Ctx)
     return
   }
 
-  const agentId = resolveAiAgentId(channel.channelState)
-  if (!agentId) {
-    logger.debug('no aiAgentId configured on channel — skipping auto-reply')
-    return
-  }
+  // The settings form always stores an explicit agent id; the fallback covers a
+  // channel armed by an older preset or by hand.
+  const agentId = resolveAiAgentId(channel.channelState) ?? CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID
 
   const message = await findOneWithDecryption(
     em,
     Message,
-    { id: payload.messageId, tenantId: payload.tenantId, organizationId: payload.organizationId ?? null, deletedAt: null },
+    { id: payload.messageId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
     undefined,
-    dscope,
+    scope,
   )
   if (!message) return
   const body = (message.body ?? '').toString()
 
-  // (4) Classify — easy vs complex.
+  // (4) Classify — easy vs complex. Conservative by construction: it can only
+  // ever escalate a message away from auto-send.
   const classification = classifyDiscordMessage(body)
-  if (classification.tier === 'complex') {
-    // Never auto-send anything risky. The approval surface that is meant to show
-    // the proposed reply to a human is part of #4778; until it exists the message
-    // is dropped here with a log line rather than silently answered.
-    logger.info('discord message classified complex — no auto-send (approval surface tracked in #4778)', {
-      channelId: payload.channelId,
-      reason: classification.reason,
-    })
-    return
-  }
 
-  // (5) Easy → draft + send. Everything is guarded so any failure degrades to a
-  // no-op (the channel keeps working as a plain inbox).
   try {
-    await draftAndSendEasyReply({ ctx, em, message, agentId, body, scope: dscope })
+    await draftAndRoute({
+      ctx,
+      em,
+      message,
+      channelId: payload.channelId,
+      conversationId: payload.conversationId ?? null,
+      agentId,
+      body,
+      scope,
+      tier: classification.tier,
+      classificationReason: classification.reason,
+    })
   } catch (err) {
     logger.warn('discord AI auto-reply failed — degrading to no-op', { channelId: payload.channelId, err })
   }
 }
 
-async function draftAndSendEasyReply(args: {
+async function draftAndRoute(args: {
   ctx: Ctx
   em: EntityManager
   message: Message
+  channelId: string
+  conversationId: string | null
   agentId: string
   body: string
   scope: { tenantId: string; organizationId: string | null }
+  tier: 'easy' | 'complex'
+  classificationReason: string
 }): Promise<void> {
-  const { ctx, em, message, agentId, body, scope } = args
+  const { ctx, em, message, channelId, conversationId, agentId, body, scope, tier, classificationReason } = args
+
+  const principal = await resolveDiscordAiPrincipal({ em, resolver: { resolve: (name) => resolveFromCtx(ctx, name) }, scope })
+
+  const draft = await runAutoReplyAgent({ ctx, agentId, body, principal, sessionId: message.threadId ?? message.id })
+  if (!draft) return
+
+  const reply = draft.reply.trim()
+  if (!reply) return
+
+  const autoSend =
+    tier === 'easy' && !draft.requiresHuman && draft.confidence >= AUTO_SEND_MIN_CONFIDENCE
+  const commandBus = resolveFromCtx<CommandBus>(ctx, 'commandBus')
+  const containerCtx = {
+    container: { resolve: (name: string) => resolveFromCtx(ctx, name) },
+    auth: null,
+    organizationScope: null,
+    selectedOrganizationId: scope.organizationId,
+    organizationIds: scope.organizationId ? [scope.organizationId] : null,
+  }
+  const botUserId = await resolveCommunicationChannelsSystemUserId(em, scope.tenantId, null)
+
+  if (!autoSend) {
+    const reason = draft.requiresHuman
+      ? 'model-requested-review'
+      : draft.confidence < AUTO_SEND_MIN_CONFIDENCE
+        ? `low-confidence:${draft.confidence.toFixed(2)}`
+        : classificationReason
+    await fileDiscordReplyProposal({
+      em,
+      commandBus,
+      containerCtx,
+      scope,
+      channelId,
+      inboundMessage: message,
+      externalConversationId: conversationId,
+      botUserId,
+      proposedReply: reply,
+      summary: draft.summary,
+      reason,
+    })
+    return
+  }
+
+  // Easy + confident → answer directly. The hub's outbound-bridge subscriber
+  // picks up `messages.message.sent`, resolves the Discord channel via the
+  // ChannelThreadMapping, and delivers through `deliver_outbound` → `sendMessage`.
+  // No direct Discord call here — keep the send path generic and audited.
+  await commandBus.execute('messages.messages.compose', {
+    input: {
+      type: 'channel.discord',
+      visibility: 'public' as const,
+      subject: (message.subject ?? 'Discord reply').toString().slice(0, 200) || 'Discord reply',
+      body: reply,
+      bodyFormat: 'markdown' as const,
+      priority: 'normal' as const,
+      sendViaEmail: false,
+      parentMessageId: message.threadId ?? message.id,
+      isDraft: false,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: botUserId,
+    },
+    ctx: containerCtx as never,
+  })
+}
+
+async function runAutoReplyAgent(args: {
+  ctx: Ctx
+  agentId: string
+  body: string
+  principal: DiscordAiPrincipal
+  sessionId: string
+}): Promise<DiscordAutoReplyOutput | null> {
+  const { agentId, body, principal, sessionId } = args
 
   // Dynamic import keeps `ai_assistant` a truly optional peer — when the package
   // is not installed the import throws and we no-op (already gated by the DI
-  // presence check above, so this only runs when the peer is active).
+  // presence check in the handler, so this only runs when the peer is active).
   const mod = (await import('@open-mercato/ai-assistant')) as unknown as AiAssistantModule
-  if (typeof mod.runAiAgentObject !== 'function') return
+  if (typeof mod.runAiAgentObject !== 'function') return null
 
   // The runtime only touches `container.resolve(...)`; a proxy over the
   // subscriber resolver satisfies that without depending on a concrete DI name
   // (mirrors the inbound-processor's `containerProxy` pattern).
-  const container = { resolve: (name: string) => resolveFromCtx(ctx, name) }
-  const replySchema = z.object({ reply: z.string().min(1).max(2000) })
+  const container = { resolve: (name: string) => resolveFromCtx(args.ctx, name) }
 
+  // No `output` override: the agent declares its own schema, so the schema the
+  // policy layer validated the agent against is the schema the model is held to.
   const result = await mod.runAiAgentObject({
     agentId,
     input: body,
     authContext: {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      userId: null,
-      features: [],
-      isSuperAdmin: false,
+      tenantId: principal.tenantId,
+      organizationId: principal.organizationId,
+      userId: principal.userId,
+      features: principal.features,
+      isSuperAdmin: principal.isSuperAdmin,
     },
     container,
-    output: { schemaName: 'discord_auto_reply', schema: replySchema, mode: 'generate' },
     // Preserve multi-turn context per conversation thread.
-    sessionId: message.threadId ?? message.id,
+    sessionId,
   })
 
-  const parsed = replySchema.safeParse((result as { object?: unknown }).object)
-  if (!parsed.success || !parsed.data.reply.trim()) return
-
-  // Compose an outbound reply in the same thread. The hub's outbound-bridge
-  // subscriber picks up `messages.message.sent`, resolves the Discord channel via
-  // the ChannelThreadMapping, and delivers through `deliver_outbound` →
-  // `sendMessage`. No direct Discord call here — keep the send path generic +
-  // audited.
-  const commandBus = resolveFromCtx<CommandBus>(ctx, 'commandBus')
-  const userId = await resolveCommunicationChannelsSystemUserId(em, scope.tenantId, null)
-  const composeInput = {
-    type: 'channel.discord',
-    visibility: 'public' as const,
-    subject: (message.subject ?? 'Discord reply').toString().slice(0, 200) || 'Discord reply',
-    body: parsed.data.reply.trim(),
-    bodyFormat: 'markdown' as const,
-    priority: 'normal' as const,
-    sendViaEmail: false,
-    parentMessageId: message.threadId ?? message.id,
-    isDraft: false,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    userId,
+  const parsed = discordAutoReplyOutputSchema.safeParse((result as { object?: unknown }).object)
+  if (!parsed.success) {
+    logger.warn('auto-reply agent returned an object that does not match the declared schema', {
+      agentId,
+      issues: parsed.error.issues.map((issue) => issue.path.join('.')),
+    })
+    return null
   }
-
-  await commandBus.execute('messages.messages.compose', {
-    input: composeInput,
-    ctx: {
-      container: { resolve: (name: string) => resolveFromCtx(ctx, name) } as never,
-      auth: null,
-      organizationScope: null,
-      selectedOrganizationId: scope.organizationId,
-      organizationIds: scope.organizationId ? [scope.organizationId] : null,
-    } as never,
-  })
+  return parsed.data
 }

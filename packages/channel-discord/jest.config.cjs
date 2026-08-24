@@ -10,6 +10,10 @@ module.exports = {
   moduleNameMapper: {
     '^@open-mercato/channel-discord/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
+    // Test-only: lets the policy/runtime integration spec drive the REAL
+    // `agent-policy` / `agent-runtime` instead of a stub. The runtime dependency
+    // stays soft — production code reaches the peer through a dynamic import.
+    '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/../ai-assistant/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
     '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',
     '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',

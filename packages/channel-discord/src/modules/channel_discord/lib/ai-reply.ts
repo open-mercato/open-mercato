@@ -1,13 +1,12 @@
 import { discordChannelStateSchema, type DiscordChannelState } from './credentials'
 
 /**
- * AI auto-reply helpers (SPEC 2026-06-19 § AI bot wiring) — dormant in this release.
+ * AI auto-reply helpers (SPEC 2026-06-19 § AI bot wiring).
  *
- * The subscriber these helpers serve is inert scaffolding for now: no product
- * surface writes `aiAutoReplyEnabled` / `aiAgentId`, so `isAiAutoReplyEnabled`
- * answers `false` everywhere in practice. The production wiring is tracked in
- * open-mercato/open-mercato#4778; see `subscribers/ai-auto-reply.ts` for the full
- * scope note.
+ * `aiAutoReplyEnabled` / `aiAgentId` are written by the channel's AI auto-reply
+ * settings form (`backend/channel_discord/channels/[id]/ai-auto-reply`) through
+ * `PUT /api/channel_discord/channels/{id}/ai-auto-reply`. Both default to off, so
+ * a channel nobody configured never reaches the model.
  *
  * `ai_assistant` is an OPTIONAL peer. This module never statically imports it;
  * the subscriber resolves it softly via DI (`mcpToolRegistry`) and, only when it
@@ -102,9 +101,10 @@ function matchSignal(signals: RegExp[], raw: string, normalized: string): RegExp
  * Hardening note: signals are matched against a normalized copy as well as the
  * raw text, and injection/link/obfuscation attempts force `complex`. This is
  * defense-in-depth layering, not a proof — the real containment for anything
- * that slips through is downstream: propose-only for complex, `features: []`,
- * `isSuperAdmin: false`, `allowed_mentions: { parse: [] }`, and the audited
- * outbound path.
+ * that slips through is downstream: propose-only for complex, an object-mode
+ * agent the runtime never gives a tool to, a service principal holding one
+ * non-data feature and never `isSuperAdmin`, `allowed_mentions: { parse: [] }`,
+ * and the audited outbound path.
  */
 export function classifyDiscordMessage(body: string): ClassificationResult {
   const text = (body ?? '').trim()

@@ -52,6 +52,15 @@ export const DISCORD_MAX_BODY_LENGTH = 2000
  *   presence dispatch is handled.
  * - `richBlocks` — outbound is plain markdown `content`; embeds are not built.
  * - `stickers` — no sticker is sent or normalized.
+ *
+ * AI auto-reply (issue #4778) deliberately flips NONE of these back to `true`.
+ * `ChannelCapabilities` describes what the hub may hand this ADAPTER — message
+ * shapes, transport features, whether to schedule polling. Auto-reply is not an
+ * adapter capability at all: it is a subscriber on the hub's generic
+ * `message.received` event that composes a reply through the same outbound path
+ * any module uses. Adding a flag for it would tell the hub to route work here
+ * that the adapter does not implement, which is exactly the failure mode this
+ * list exists to prevent.
  */
 export const discordCapabilities: ChannelCapabilities = {
   // A Discord recipient is a channel snowflake, never an address. Without this

@@ -8,9 +8,9 @@ export const integration: IntegrationDefinition = {
   // Kept within the 68–132 character range the six sibling providers occupy: the
   // card grid gives every description the same fixed box, so a long one inflates
   // its whole row. The operational caveats it used to carry (gateway worker,
-  // queue strategy, no AI auto-reply) belong on the detail page and in the
-  // credential help texts, which is where they now live.
-  description: 'Two-way Discord bot channel: REST outbound, real-time Gateway inbound, signed slash-command endpoint.',
+  // queue strategy) belong on the detail page and in the credential help texts,
+  // which is where they now live.
+  description: 'Two-way Discord bot channel: REST outbound, real-time Gateway inbound, optional AI auto-reply.',
   category: 'communication',
   hub: 'communication_channels',
   providerKey: 'discord',
@@ -24,7 +24,10 @@ export const integration: IntegrationDefinition = {
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
-  tags: ['discord', 'chat', 'bot', 'gateway', 'communication'],
+  // `ai` returns here in the same change that makes auto-reply real: an agent the
+  // repository ships, a service principal with real features, a settings surface
+  // that arms it, and an approval surface for everything it must not send.
+  tags: ['discord', 'chat', 'bot', 'gateway', 'communication', 'ai'],
   detailPage: {
     widgetSpotId: channelDiscordDetailWidgetSpotId,
   },

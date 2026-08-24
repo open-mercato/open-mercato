@@ -55,6 +55,7 @@
   "auth.acl.features.catalog.variants.manage": "Zarządzaj wariantami w katalogu",
   "auth.acl.features.channel_apns.configure": "Konfiguruj dane dostępowe APNs",
   "auth.acl.features.channel_apns.view": "Wyświetl konfigurację kanału APNs",
+  "auth.acl.features.channel_discord.ai_auto_reply.run": "Uruchamiaj agenta automatycznych odpowiedzi AI na Discordzie",
   "auth.acl.features.channel_discord.configure": "Konfiguruj kanał bota Discord",
   "auth.acl.features.channel_discord.view": "Wyświetl konfigurację kanału Discord",
   "auth.acl.features.channel_expo.configure": "Konfiguruj dane dostępowe powiadomień push Expo",

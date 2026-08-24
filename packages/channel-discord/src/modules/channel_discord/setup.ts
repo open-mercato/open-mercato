@@ -32,8 +32,21 @@ ensureDiscordAdapterRegistered()
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
-    superadmin: ['channel_discord.view', 'channel_discord.configure'],
-    admin: ['channel_discord.view', 'channel_discord.configure'],
+    // `ai_auto_reply.run` is granted here so a tenant that creates a real
+    // channel-bot user and puts it in an admin role gets a principal that can
+    // invoke the auto-reply agent. Deployments without such a user do not need
+    // the grant at all — the provider's service principal carries it in code
+    // (`lib/ai-service-principal.ts`).
+    superadmin: [
+      'channel_discord.view',
+      'channel_discord.configure',
+      'channel_discord.ai_auto_reply.run',
+    ],
+    admin: [
+      'channel_discord.view',
+      'channel_discord.configure',
+      'channel_discord.ai_auto_reply.run',
+    ],
   },
   async onTenantCreated({ em, organizationId, tenantId }) {
     ensureDiscordAdapterRegistered()

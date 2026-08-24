@@ -30,7 +30,7 @@
 - Add a **Discord channel provider** package `@open-mercato/channel-discord` (module id `channel_discord`, provider key `discord`) under the existing `communication_channels` hub. No new framework primitives — it implements the existing `ChannelAdapter` contract.
 - **Two-way by reusing the hub**: outbound goes through the hub's `deliver-outbound-message` command → Discord REST API; inbound flows into the hub's `ingest-inbound-message` command and emits `communication_channels.message.received`. Because both directions are hub commands/events, **every module** can send and receive Discord messages exactly the way it already sends/receives Gmail/WhatsApp/Slack — no Discord-specific coupling in consumer modules.
 - **Open Mercato as a Discord bot**: a long-running **Gateway worker** (Discord's real-time WebSocket) bridges incoming Discord messages into the hub. A signed **Interactions** HTTP endpoint handles slash commands / button clicks (Discord Ed25519 request signing).
-- **AI agent connected to Discord** (design target, **de-scoped from the first release** — see § AI bot wiring): a hub subscriber on `communication_channels.message.received` (provider `discord`) invokes an `ai_assistant` agent through `runAiAgentText` / `runAiAgentObject`, then replies via `deliver-outbound-message`. The agent answers "easy" messages directly and produces a summary + proposed reply for "complex" ones (mutation-policy gated), mirroring SPEC-056. The implementation PR ships this subscriber dormant; production agent invocation and the configuration path are tracked in issue #4778.
+- **AI agent connected to Discord** (see § AI bot wiring): a hub subscriber on `communication_channels.message.received` (provider `discord`) invokes an object-mode `ai_assistant` agent through `runAiAgentObject` under a tenant-scoped service principal, then replies via the hub's generic compose → `deliver-outbound-message` path. The agent answers "easy" messages directly and produces a summary + proposed reply for "complex" ones, mirroring SPEC-056; the proposal lands in the operator's inbox with approve/dismiss actions. Off by default per channel, armed from the channel's AI auto-reply settings form.
 - The spec documents **how to configure Discord** (application, bot, intents, token, public key, invite URL/scopes), **how to run it** (gateway worker + interactions route), and **how to test it** (local smoke test + integration test list).
 
 **Concerns**
@@ -522,28 +522,34 @@ has to be started by hand for slash commands to be answered.
 The brief's headline: *an `ai_framework`-based agent can be connected to Discord via communication
 channels*. This is done **without** new framework primitives, using the programmatic agent runtime.
 
-> ### ⚠️ De-scoped from the first release (2026-08-01)
+> ### Delivered (2026-08-24, issue #4778)
 >
-> Everything in this section is the **design target**, not what the implementation PR delivers.
-> The 2026-07-30 re-review established that the subscriber as designed cannot invoke any agent
-> this repository ships: it calls `runAiAgentObject` with `features: []`, the object runtime
-> enforces object mode before applying the caller schema, and every shipped agent is chat-mode
-> and feature-gated — so a real call is denied. Compounding that, no product surface writes the
-> `aiAutoReplyEnabled` / `aiAgentId` channel-state keys that arm it, so there is no configuration
-> path either.
+> This section was a design target between 2026-08-01 and 2026-08-24. The 2026-07-30 re-review of
+> #4391 established that the subscriber as originally written could not invoke any agent the
+> repository shipped — it called `runAiAgentObject` with `features: []`, and every shipped agent was
+> chat-mode and feature-gated, so both the feature gate and the object-mode gate denied it — and that
+> no product surface wrote the `aiAutoReplyEnabled` / `aiAgentId` keys that arm it. The feature was
+> therefore de-scoped and tracked as #4778.
 >
-> Completing it means designing an object-mode (or explicit service-principal) agent identity for
-> channel auto-reply, a tenant-scoped configuration surface, and proposal storage plus an approval
-> UI for the `complex` tier — a feature in its own right, not a review fix, and one that should not
-> ride underneath an already large provider PR as unreviewed AI-invocation design.
+> #4778 closes all four halves of that finding, and the section below describes what ships:
 >
-> **What the first release therefore promises: nothing.** The provider does not advertise AI
-> auto-reply in its module or integration description, and the subscriber ships as inert,
-> fail-closed scaffolding (opt-in, default OFF, soft-optional peer, every failure degrading to a
-> no-op). The full production design — real agent invocation with real `features`, the
-> configuration path, the `complex`-tier proposal surface, the optional `@open-mercato/ai-assistant`
-> peer declaration, and an integration test driving the real policy/runtime instead of mocking it —
-> is tracked in issue **#4778** and lands with that issue. TC-CHANNEL-DISCORD-009/010 move with it.
+> 1. **An agent the repository actually ships.** `channel_discord/ai-agents.ts` declares
+>    `channel_discord.auto_reply` — object-mode, `readOnly`, `mutationPolicy: 'read-only'`, gated on
+>    the real feature `channel_discord.ai_auto_reply.run`.
+> 2. **A documented service-principal flow.** `lib/ai-service-principal.ts` resolves the tenant's
+>    channel-bot user and loads its real ACL, falling back to a single code-declared grant. It never
+>    passes `features: []` and never runs as a super-admin.
+> 3. **A configuration path.** `PUT /api/channel_discord/channels/{id}/ai-auto-reply` behind a
+>    `CrudForm` settings page, zod-validated, tenant-scoped, mutation-guarded, optimistic-locked on
+>    the channel's `updated_at`, and persisted through the command bus.
+> 4. **A proposal surface.** The `complex` tier files an internal message carrying the drafted reply
+>    with approve/dismiss actions, instead of logging and returning.
+>
+> `@open-mercato/ai-assistant` is declared as an optional peer
+> (`peerDependenciesMeta.optional`), the provider advertises AI auto-reply again (the `ai` tag is
+> back on the integration descriptor), and the policy/runtime are exercised for real in
+> `__tests__/ai-auto-reply.policy.integration.test.ts` rather than mocked away. The live end-to-end
+> validation against a real Discord application stays with #4665's TC-CHANNEL-DISCORD-009/010.
 
 ### Subscriber
 
@@ -568,28 +574,48 @@ The handler:
 2. **Resolves the AI runtime softly.** `ai_assistant` is an OPTIONAL peer — the subscriber uses a
    local `tryResolve` and, if the AI module/runtime is absent, no-ops (the channel still works as a
    plain inbox). It MUST NOT hard-`requires` the AI module.
-3. **Classifies** the message (easy vs complex) — reuse SPEC-056's tiering: a low-risk classifier
-   call (or a confidence threshold from the agent's structured output) decides whether the bot may
-   answer directly.
-4. **Easy** → calls `runAiAgentText({ agentId, messages, authContext, container, sessionId })` to
-   draft a reply, then sends it back through the hub command
-   `communication_channels.message.deliver_outbound` (NOT a direct Discord call — keep the
-   send path generic and audited). The Discord conversation/thread id is the `sessionId` so multi-turn
-   context is preserved.
-5. **Complex / low-confidence** → calls `runAiAgentObject` to produce a structured
-   `{ summary, proposedReply }`, stores it, and surfaces it for human approval in the inbox UI. The
-   human accepts/edits → `deliver-outbound-message`. No auto-send.
+3. **Classifies** the message (easy vs complex) — SPEC-056's tiering, implemented as a conservative
+   regex gate in `lib/ai-reply.ts` that can only ever escalate a message AWAY from auto-send.
+4. **Drafts** through `runAiAgentObject({ agentId, input, authContext, container, sessionId })`. The
+   Discord thread id is the `sessionId` so multi-turn context is preserved. The agent declares its
+   own output schema, so the subscriber passes no caller schema and the model is held to the shape
+   the policy layer validated the agent against:
+   `{ reply, summary, confidence, requiresHuman }`.
+5. **Routes** on three independent signals. Auto-send requires all of them: the tiering says `easy`,
+   the model sets `requiresHuman: false`, and `confidence` clears `AUTO_SEND_MIN_CONFIDENCE` (0.6).
+   Any single "no" files a proposal instead.
+   - **Auto-send** composes a public reply in the thread through
+     `messages.messages.compose`; the hub's outbound bridge then delivers it via
+     `deliver_outbound` (NOT a direct Discord call — the send path stays generic and audited).
+   - **Propose** files an INTERNAL message of type `channel_discord.ai_reply_proposal` addressed to
+     the conversation's assignee, carrying the drafted reply as its body and approve/dismiss
+     actions. Approving dispatches `channel_discord.ai_reply_proposal.approve`, which composes the
+     public reply attributed to the approving operator. With no assignee to address, the proposal is
+     stored as a draft so the text is not lost, and the subscriber logs that nobody was notified.
+
+The two proposal commands are dispatchable because `channel_discord/message-types.ts` declares them
+as `defaultActions` of its message type: the messages module builds its allowlist of dispatchable
+action commands from registered message types, so an action naming an unregistered command is
+rejected by the confused-deputy guard.
 
 ### Safety / RBAC
 
-- The agent runs with a tenant-scoped `authContext` (system/service principal for the channel's
-  tenant + org). `runAiAgentText` enforces the agent's `requiredFeatures`, `allowedTools`,
-  `executionMode`, and `mutationPolicy` — the subscriber cannot widen them.
-- **Auto-send never escalates privilege.** Any tool the agent might call that mutates data routes
-  through the AI mutation-approval gate (`ai_pending_actions`); auto-reply is text only. Privileged
-  actions surface as approval cards for a human, never executed unattended from a Discord message.
-- The agent and its features are declared in whichever module owns it (e.g. a support agent in
-  `customers`); `channel_discord` only wires the trigger. Tenants choose the agent id per channel.
+- The agent runs with a tenant-scoped `authContext` produced by
+  `lib/ai-service-principal.ts`. Two identities, in order: a real channel-bot user
+  (`system+communication_channels@<tenantId>.local`) whose role grants are loaded through
+  `rbacService.loadAcl`, or — when the tenant has none — the provider's own service principal
+  carrying exactly one non-data feature, `channel_discord.ai_auto_reply.run`. `isSuperAdmin` is
+  always false on both paths, so an inbound message from a public Discord server can never borrow a
+  super-admin's ACL. `runAiAgentObject` enforces the agent's `requiredFeatures`, `allowedTools`,
+  `executionMode`, and `mutationPolicy` against that principal — the subscriber cannot widen them.
+- **Auto-send never escalates privilege — structurally, not by convention.** The agent is
+  object-mode, and `runAiAgentObject` discards the resolved tool map before calling
+  `generateObject`, so no tool is reachable from an inbound Discord message at all. Auto-reply is
+  text only. An agent that did carry mutation tools would still route them through the AI
+  mutation-approval gate (`ai_pending_actions`).
+- Tenants choose the agent id per channel. The picker offers only object-mode agents, because those
+  are the only ones the runtime would accept; pointing a channel at an agent from another module
+  additionally requires granting that agent's `requiredFeatures` to the tenant's channel-bot user.
 
 ### Why this also satisfies "every module can send/receive Discord"
 
@@ -618,7 +644,7 @@ up in teardown, no reliance on seeded/demo data). Discord REST + Gateway are stu
 | TC-CHANNEL-DISCORD-006 | Contact resolution | Unknown Discord sender creates an external contact; a stored-handle match links to an existing CRM person. |
 | TC-CHANNEL-DISCORD-007 | Health check | `channelDiscordHealthCheck` returns healthy for a valid token stub, unhealthy on `401`. |
 | TC-CHANNEL-DISCORD-008 | Tenant isolation | The interactions route's candidate fan-out pins the request to the channel whose public key verifies; a second tenant's Discord channel never receives another tenant's interaction. |
-| TC-CHANNEL-DISCORD-009 | AI auto-reply (AI module present) | Easy message → `runAiAgentText` stub → `deliver-outbound-message`; complex message → propose-only, no auto-send. |
+| TC-CHANNEL-DISCORD-009 | AI auto-reply (AI module present) | Easy message → agent draft → `deliver-outbound-message`; complex message → propose-only, no auto-send. |
 | TC-CHANNEL-DISCORD-010 | AI peer absent | With `ai_assistant` disabled, the subscriber no-ops and inbound still ingests (module-decoupling). |
 
 Unit tests (provider package, jest): `convertOutbound`/`normalizeInbound` mapping, Ed25519 verify,
@@ -627,9 +653,16 @@ gateway identify/resume/backoff state machine, bot-self-message filter.
 ### What ships in the implementation PR, and where the ceiling is
 
 TC-CHANNEL-DISCORD-001..008 ship as executable Playwright specs in
-`packages/channel-discord/src/modules/channel_discord/__integration__/`. TC-009 and TC-010 are
-**deferred with the AI auto-reply feature itself** and tracked in issue #4778 — there is no
-production AI invocation path to assert against until that lands.
+`packages/channel-discord/src/modules/channel_discord/__integration__/`.
+
+TC-009 and TC-010 assert AI auto-reply behaviour. The behaviour now exists (#4778), and the halves
+that do not need a live Discord application or a live model are covered at the jest level, driving
+the **real** `agent-policy` / `agent-runtime` rather than a stub:
+`__tests__/ai-auto-reply.policy.integration.test.ts` (policy accepts the service principal in object
+mode, still denies `features: []`, still denies a chat-mode domain agent, and the subscriber reaches
+compose through the real runtime) and `subscribers/__tests__/ai-auto-reply.test.ts` (tiering, the
+propose-only guarantee, the peer-absent no-op that TC-010 describes). What stays with #4665 is the
+Playwright half: driving the real app against a real Discord application end to end.
 
 Each shipped spec drives the real app; where a sub-assertion would need a live Discord
 application, the spec states the ceiling and names the unit test that owns that half. The honest
@@ -1061,15 +1094,16 @@ rule 3), and no variant should be considered done without it.
   carries the channel's tenant scope into the ingest command; no cross-tenant data exposure. ✅
 - **Security**: Ed25519 fail-closed; encrypted bot token; no credential logging; auto-send is
   text-only and mutation-gated. ✅
-- **RBAC**: `channel_discord.view` / `.configure` added to `acl.ts` and `setup.ts`
-  `defaultRoleFeatures`; sync via `yarn mercato auth sync-role-acls`. ✅
+- **RBAC**: `channel_discord.view` / `.configure` / `.ai_auto_reply.run` added to `acl.ts` and
+  `setup.ts` `defaultRoleFeatures`; sync via `yarn mercato auth sync-role-acls`. ✅
 - **i18n / DS**: provider detail UI uses `useT` + locale files and DS tokens (no hardcoded strings
   or status colors). ✅
 - **Generation**: run `yarn generate` after adding module files (DI/setup/acl/integration/worker/
   subscriber). ✅
 - **Tests**: provider unit tests plus executable integration specs TC-CHANNEL-DISCORD-001..008,
-  shipped with the implementation PR; no live Discord calls in CI. TC-009/TC-010 ship with the AI
-  auto-reply feature they assert on (issue #4778). ✅ (see § What ships in the implementation PR)
+  shipped with the implementation PR; no live Discord calls in CI. TC-009/TC-010 land with the AI
+  auto-reply feature they assert on (issue #4778) — jest-level against the real policy/runtime here,
+  Playwright-level with #4665. ✅ (see § What ships in the implementation PR)
   ⚠️ TC-CHANNEL-DISCORD-003 currently passes on fixture data the adapter cannot produce — it MUST be
   rewritten to drive `normalizeInboundDiscordMessage` (§ Decided → Test consequence). The hub-side
   cause is fixed — the seed endpoint no longer bypasses compose — so that rewrite is now unblocked.
@@ -1082,6 +1116,53 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-08-24 — AI auto-reply implemented and re-scoped in (issue #4778)
+
+Reverses the 2026-08-01 de-scope. § AI bot wiring describes shipped behaviour again, and the
+provider advertises AI auto-reply in its module and integration descriptions with the `ai` tag
+restored — in the same change that makes the feature real, not before it.
+
+- **A production agent.** `channel_discord/ai-agents.ts` declares `channel_discord.auto_reply`:
+  object-mode with a declared `{ reply, summary, confidence, requiresHuman }` output schema,
+  `readOnly: true`, `mutationPolicy: 'read-only'`, `allowedTools: []`, and
+  `requiredFeatures: ['channel_discord.ai_auto_reply.run']`. Object mode is what makes the
+  propose-only guarantee mechanical: `runAiAgentObject` discards the resolved tool map before
+  calling `generateObject`, so no tool — privileged or otherwise — is reachable from an inbound
+  Discord message.
+- **A service principal with real features.** `lib/ai-service-principal.ts` replaces `features: []`.
+  It resolves the tenant's channel-bot user and loads its real ACL through `rbacService.loadAcl`,
+  falling back to one code-declared, non-data grant when a tenant has no such user. `isSuperAdmin`
+  is clamped to false on both paths, and the clamp is logged when a bot user turns out to be one.
+- **A configuration path.** `GET`/`PUT /api/channel_discord/channels/{id}/ai-auto-reply` behind a
+  `CrudForm` page at `/backend/channel_discord/channels/{id}/ai-auto-reply`, reached from an
+  AI auto-reply panel on the Discord integration's detail page. The write is zod-validated,
+  tenant-scoped, mutation-guarded, optimistic-locked on the channel's `updated_at`, and persisted
+  through `channel_discord.channel.update_ai_auto_reply` — which merges rather than replaces
+  `channelState`, so a settings save cannot clobber the gateway's resume cursor. Enabling is
+  refused when the AI peer is absent or the chosen agent is one the runtime would reject.
+- **A proposal surface for the `complex` tier.** `message-types.ts` registers
+  `channel_discord.ai_reply_proposal` with approve/dismiss `defaultActions`, which is also what
+  allowlists the two commands in `commands/ai-reply-proposal.ts` against the messages module's
+  confused-deputy guard. Approving composes the public reply attributed to the approving operator;
+  with no assignee to address, the proposal is stored as a draft and the miss is logged.
+- **Optional peer declared.** `@open-mercato/ai-assistant` is now in `peerDependencies` with
+  `peerDependenciesMeta.optional: true`. The runtime coupling stays soft — a dynamic import behind
+  a DI presence check — and the type import is erased at build.
+- **Tests.** `__tests__/ai-auto-reply.policy.integration.test.ts` drives the REAL `agent-policy` and
+  `agent-runtime` (only the model call is stubbed, through the runtime's own `generateObject`
+  escape hatch), asserting that the shipped agent passes in object mode, that `features: []` is
+  still denied, that a chat-mode domain agent is still denied, and that the subscriber reaches
+  compose through the real runtime. The dormancy contract that asserted nothing could arm the
+  subscriber is replaced by an armed contract asserting the inverse properties that now matter:
+  one writer for the arming keys, the write going through the command bus, and no `features: []`
+  regression. Plus unit coverage for the settings command (merge, clear-on-disable, 409 on a stale
+  save) and the approval commands.
+- **Capabilities untouched.** No `ChannelCapabilities` flag flips back to `true`: auto-reply is a
+  hub subscriber, not an adapter capability, and declaring a flag for it would route adapter work
+  here that the adapter does not implement. Documented in `lib/capabilities.ts`.
+- Live end-to-end validation against a real Discord application remains with #4665's
+  TC-CHANNEL-DISCORD-009/010.
 
 ### 2026-08-24 — Interactions dispatch implemented; `interactiveComponents` flips to `true` (issue #4663)
 

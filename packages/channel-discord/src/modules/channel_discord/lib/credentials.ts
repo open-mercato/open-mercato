@@ -50,12 +50,13 @@ export const discordChannelStateSchema = z
     botUserId: z.string().optional(),
     lastConnectedAt: z.string().optional(),
     // Per-channel AI auto-reply toggle (default OFF). When truthy, the AI
-    // auto-reply subscriber may answer "easy" inbound messages. No product
-    // surface writes this key in the first release — the configuration path
-    // ships with #4778, so in practice the subscriber stays dormant.
+    // auto-reply subscriber may answer "easy" inbound messages and proposes a
+    // reply for everything else. Written by the channel's AI auto-reply settings
+    // form via `PUT /api/channel_discord/channels/{id}/ai-auto-reply`.
     aiAutoReplyEnabled: z.boolean().optional(),
-    // Agent id to invoke when AI auto-reply is enabled. Also unwritten in the
-    // first release (#4778).
+    // Object-mode agent id invoked when auto-reply is enabled. Defaults to the
+    // provider's own `channel_discord.auto_reply` agent; a tenant may point it at
+    // any object-mode agent whose `requiredFeatures` its channel-bot user holds.
     aiAgentId: z.string().optional(),
   })
   .partial()
