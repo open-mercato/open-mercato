@@ -24,6 +24,30 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Device API responses are camelCase; the snake_case keys are deprecated aliases (#5513)
+
+`GET /api/devices`, `GET /api/devices/admin/devices` and `GET /api/devices/admin/devices/:id` returned the raw database column names (`device_id`, `user_id`, `last_seen_at`, …) while every other module returns camelCase. A client written against the platform convention read `undefined` for every field on this one module. All three routes now return camelCase keys as the canonical shape:
+
+| Deprecated alias | Canonical key |
+|------------------|---------------|
+| `tenant_id` | `tenantId` (list routes only) |
+| `organization_id` | `organizationId` (list routes only) |
+| `user_id` | `userId` |
+| `device_id` | `deviceId` |
+| `client_app_version` | `clientAppVersion` |
+| `os_version` | `osVersion` |
+| `push_provider` | `pushProvider` |
+| `push_token_updated_at` | `pushTokenUpdatedAt` |
+| `last_seen_at` | `lastSeenAt` |
+| `created_at` | `createdAt` |
+| `updated_at` | `updatedAt` |
+
+`id`, `platform` and `locale` are spelled the same either way and are unchanged. Nothing was removed: **every snake_case key is still returned**, holding the same value as its camelCase counterpart, and is marked deprecated in the OpenAPI document. The aliases are removed no earlier than the next minor release.
+
+Request-side contracts are untouched — query parameters, the `sortField` values (`lastSeenAt`, `createdAt`, `updatedAt`, already camelCase), request bodies, and the `POST`/`PUT`/`DELETE` response shapes are unchanged, as are the database columns themselves. The one behavior difference for a caller already reading the snake_case keys is that timestamp columns now always serialize as ISO-8601 strings under both spellings. `push_token` remains absent from every response under either spelling.
+
+**Action for API consumers:** switch to the camelCase keys. A client that keeps reading the snake_case ones works unchanged until the aliases are removed.
+
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 
 `interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.

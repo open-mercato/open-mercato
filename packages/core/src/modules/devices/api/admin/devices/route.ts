@@ -21,7 +21,13 @@ import {
 } from '../../../data/validators'
 import { resolveDeviceActorUserId } from '../../auth'
 import { createDevicesCrudOpenApi, createPagedListResponseSchema } from '../../openapi'
-import { deviceListSchema, deviceListFields, deviceListSortFieldMap, deviceListItemSchema } from '../../deviceList'
+import {
+  deviceListSchema,
+  deviceListFields,
+  deviceListSortFieldMap,
+  deviceListItemSchema,
+  transformDeviceListItem,
+} from '../../deviceList'
 import { executeRegister, type DeviceMutationContext } from '../../deviceOps'
 
 const logger = createLogger('devices')
@@ -55,6 +61,8 @@ const crud = makeCrudRoute({
     entityId: E.devices.user_device,
     fields: deviceListFields,
     sortFieldMap: deviceListSortFieldMap,
+    // The query engine projects raw column names; expose them in camelCase like every other module.
+    transformItem: transformDeviceListItem,
     // Tenant + org scope is enforced by the factory (orm.tenantField + orm.orgField); only the optional
     // userId/platform narrowing is left to do here.
     buildFilters: async (query) => {
