@@ -8,6 +8,7 @@ import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
@@ -154,17 +155,16 @@ function EntityLinkSearchPopover({
             </Button>
           ))}
         </div>
-        <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5 mb-2">
-          <Search className="size-3.5 text-muted-foreground shrink-0" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('customers.schedule.searchEntity', 'Search...')}
-            className="flex-1 bg-transparent text-sm focus:outline-none"
-            autoFocus
-          />
-        </div>
+        <Input
+          type="text"
+          size="sm"
+          leftIcon={<Search />}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('customers.schedule.searchEntity', 'Search...')}
+          className="mb-2"
+          autoFocus
+        />
         {selectableResults.length ? (
           <div className="mb-2">
             <Button

@@ -14,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { PhoneNumberField, SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
@@ -550,8 +551,9 @@ export function ScheduleActivityDialog({
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
             <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
           </label>
-          <input
+          <Input
             type="text"
+            size="lg"
             value={state.title}
             aria-required="true"
             onChange={(e) => state.setTitle(e.target.value)}
@@ -560,7 +562,6 @@ export function ScheduleActivityDialog({
                 ? t('customers.schedule.subjectPlaceholder', 'Subject...')
                 : t('customers.schedule.titlePlaceholder', 'Activity title...')
             }
-            className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-foreground"
             autoFocus
           />
         </div>

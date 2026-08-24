@@ -2,6 +2,7 @@
 
 import { MapPin } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Input } from '@open-mercato/ui/primitives/input'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
 
@@ -27,16 +28,14 @@ export function LocationField({
       <label className="text-overline font-semibold text-muted-foreground tracking-wider">
         {getFieldLabel(activityType, 'location', t, 'customers.schedule.location', 'Location')}
       </label>
-      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
-        <MapPin className="size-3.5 text-muted-foreground shrink-0" />
-        <input
-          type="text"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder={t('customers.schedule.locationPlaceholder', 'Add location or meeting link...')}
-          className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-        />
-      </div>
+      <Input
+        type="text"
+        size="lg"
+        leftIcon={<MapPin />}
+        value={location}
+        onChange={(e) => setLocation(e.target.value)}
+        placeholder={t('customers.schedule.locationPlaceholder', 'Add location or meeting link...')}
+      />
     </div>
   )
 }

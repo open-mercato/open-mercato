@@ -5,6 +5,7 @@ import { Globe, Repeat } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
 import { TimePicker } from '@open-mercato/ui/backend/inputs/TimePicker'
 import {
@@ -188,17 +189,15 @@ export function DateTimeFields({
       {showAllDay && (
         <div className="flex flex-wrap items-center gap-3.5 text-xs text-muted-foreground">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="rounded" />
+            <Checkbox checked={allDay} onCheckedChange={(checked) => setAllDay(checked === true)} />
             {t('customers.schedule.allDay', 'All day')}
           </label>
-          <span className="text-muted-foreground">&middot;</span>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
             {Intl.DateTimeFormat().resolvedOptions().timeZone} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
           </span>
           {showRecurrence && (
             <>
-              <span className="text-muted-foreground">&middot;</span>
               <Button
                 type="button"
                 variant="ghost"
