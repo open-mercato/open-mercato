@@ -83,13 +83,41 @@ then re-read the diff.
 
 ### Phase 2: Developer guide
 
-- [ ] 2.1 Write `apps/docs/docs/framework/modules/building-communication-channel-provider.mdx`
+- [x] 2.1 Write `apps/docs/docs/framework/modules/building-communication-channel-provider.mdx` — 30ef40fde
 
 ### Phase 3: Cross-links and navigation
 
-- [ ] 3.1 Enumerate Discord and link the new pages from the hub + user-guide pages
-- [ ] 3.2 Add both pages (and the orphaned hub page) to `apps/docs/sidebars.ts`
+- [x] 3.1 Enumerate Discord and link the new pages from the hub + user-guide pages — 5b6554a40
+- [x] 3.2 Add both pages (and the orphaned hub page) to `apps/docs/sidebars.ts` — 5b6554a40
 
 ### Phase 4: Validation
 
-- [ ] 4.1 Run the docs build and the advisory checkers; re-read the diff
+- [x] 4.1 Run the docs build and the advisory checkers; re-read the diff — 899828d13
+
+Runner: **local** (no compose `app` container running; only `mercato-postgres` / `-redis` /
+`-meilisearch`).
+
+Gate for this docs-only run:
+
+| Command | Result |
+|---|---|
+| `yarn build` (`apps/docs`, Docusaurus production build — validates every internal link) | ✅ pass |
+| `node --test __tests__/search-index.test.mjs __tests__/reference-example-module.test.mjs` | ✅ 6/6 pass |
+| Manual re-read of the diff | ✅ done — two factual errors found and fixed (899828d13) |
+
+The build reports one broken anchor, `/installation/wsl2#connecting-wsl2-to-a-windows-hosted-database`.
+It is **pre-existing** and untouched by this branch.
+
+The remaining `validation.commands` entries (`build:packages`, `generate`, the i18n checkers,
+`typecheck`, `test`, `build:app`) cover code surfaces this branch does not touch: the diff is eight
+files, seven of them `.mdx`, plus `apps/docs/sidebars.ts`, which the Docusaurus build loads and
+type-checks as part of the run above.
+
+### Corrections found while re-reading the diff
+
+- **Invite permission integers.** Drafted from the spec's `67648` / `75840`; the correct OR of
+  `VIEW_CHANNEL` (0x400) + `SEND_MESSAGES` (0x800) + `READ_MESSAGE_HISTORY` (0x10000) +
+  `ADD_REACTIONS` (0x40) is **68672**, and **76864** with `MANAGE_MESSAGES` (0x2000). The spec is
+  wrong; the docs now carry the right numbers.
+- **"Test send" button.** No such control exists — `test-send` is API-only. Replaced with the real
+  request and its actual body schema (`to` / `subject?` / `body?`).
