@@ -33,9 +33,14 @@ test('release-prepare opts out of husky, because it commits in the job it instal
     'this guard assumes release-prepare.yml still installs dependencies and then commits in the same job; revisit it if that changes'
   )
 
-  assert.match(
-    workflow,
-    /HUSKY:\s*['"]?0['"]?/,
+  // Ignore comment lines, so the inline rationale next to the opt-out cannot satisfy the guard on its own.
+  const optsOut = workflow
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('#'))
+    .some((line) => /^\s*HUSKY:\s*['"]?0['"]?\s*$/.test(line))
+
+  assert.ok(
+    optsOut,
     "release-prepare.yml must set HUSKY: '0' so its generated release commit does not run .husky/pre-commit. The root postinstall initializes husky wherever a .git directory exists, and actions/checkout provides one, so without the opt-out the hook's i18n and template --fix output would be staged into the machine-made chore: release commit"
   )
 })
