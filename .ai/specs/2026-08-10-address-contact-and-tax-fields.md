@@ -164,11 +164,18 @@ Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, 
 
 The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document creation, where no prior snapshot exists, so one there would be permanently inert. It does need the same **assign list** — a key the editor writes and the list omits is simply absent from the payload, which is reachable on the create page and silent. Collapsing the two copies is separate work with its own justification, and now has a second reason.
 
-**Only a caller whose storage can hold the fields may render them.** `AddressEditor` takes `showContactFields`, off by default, in the shape `showCoordinateFields` already established. The document snapshot is schemaless and keeps both keys, so the document detail tiles and the create form opt in. `CustomerAddress` has neither column until Phase 3, so the customer address book does not — an input there would take a value and drop it on save with nothing to show for it. This gates the caller, not the field: inside a tile that opts in, both render whether or not they carry a value and take the same `disabled` as every neighbour.
+**The two fields do not belong to the same addresses, and the editor takes a flag for each.** `AddressEditor` has `showPhoneField` and `showTaxIdField`, both off by default, in the shape `showCoordinateFields` already established.
+
+- **A phone belongs to any address a parcel goes to.** The Market Reference above records it as universal — Shopify, Medusa and commercetools all model one — and a parcel-locker delivery cannot be made without it. Both document tiles offer it.
+- **A tax identifier belongs only to the address a document was issued under.** Not one platform in that table puts one on an address at all: Shopify and Stripe hold it on the customer, Medusa and commercetools do not have it. This spec's own adopted rule is Stripe's ownership split — *the customer owns the identifier, the document freezes the value it was issued under* — and a shipping address is neither the customer nor the issued document. **Only the billing tile offers it.**
+
+`CustomerAddress` has neither column until Phase 3, so the customer address book offers neither.
+
+Both flags gate the caller, not the field: inside a tile that opts in, the input renders whether or not it carries a value and takes the same `disabled` as every neighbour.
 
 ### Phase 1 — contact fields and render
 1. `AddressValue` gains `phone` / `taxId` / `taxIdType`, and `resolveTaxIdLabel` names an identifier from its type.
-2. Render `taxId` and `phone` as ordinary `AddressEditor` fields, and own them in the snapshot tiles' draft (`emptyDraft` + the normalising assign list) so a manual save keeps them.
+2. Render them as ordinary `AddressEditor` fields — the phone on both document tiles, the tax id on the billing tile alone — and own both in the snapshot tiles' draft (`emptyDraft` + the normalising assign list) so a manual save keeps them.
 3. Add `taxIdType` to the type and the pair-formatter.
 4. Pass `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137`.
 5. Remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the errors it hides.
@@ -274,6 +281,8 @@ The justification above stands on the market comparison, not on any single deplo
 Two observations that shaped decisions above: the order-level tax-id rate exceeds the customer-level rate because business buyers reorder more often — an input to keeping the customer as master while the document freezes what it was issued under — and `buildingNumber` was populated on ~1% of addresses because house numbers are conventionally written into the street line, which is why this spec adds no further logic there.
 
 ## Changelog
+
+- Split the render opt-in into `showPhoneField` and `showTaxIdField`, and stopped offering a tax identifier on the shipping tile. Phase 1 said "wiring to the shipping/billing tiles" and nothing in this document justified the symmetry — the Market Reference has no platform putting a tax id on an address, and the adopted ownership split says the document freezes the value it was *issued under*, which a delivery address never is. Raised on the fork PR by the reviewer against a QA fixture whose shipping snapshot carried a tax id and duly rendered it.
 
 - Dropped the contact-rendering API before merge: `formatAddressContactPairs`, `AddressContactLabels`, `AddressContactPair`, `AddressContactField` and `AddressView`'s `contactLabels` / `contactClassName`. Rendering the fields in the editor left it with no caller, and freezing a public surface whose only consumer is its own test suite commits the project to supporting it forever for nothing. `resolveTaxIdLabel` stays — the editor's marker is a real caller — and takes the label map directly rather than reaching through a wrapper object. Phase 3's read-only tiles are where a render API earns its place.
 

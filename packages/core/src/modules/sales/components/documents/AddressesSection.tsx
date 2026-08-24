@@ -1129,7 +1129,7 @@ export function SalesDocumentAddressesSection({
                 value={shippingDraft}
                 format={addressFormat}
                 taxIdType={shippingAddressSnapshot?.taxIdType as string | undefined}
-                showContactFields
+                showPhoneField
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
@@ -1199,7 +1199,8 @@ export function SalesDocumentAddressesSection({
                     value={billingDraft}
                     format={addressFormat}
                     taxIdType={billingAddressSnapshot?.taxIdType as string | undefined}
-                    showContactFields
+                    showPhoneField
+                    showTaxIdField
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
