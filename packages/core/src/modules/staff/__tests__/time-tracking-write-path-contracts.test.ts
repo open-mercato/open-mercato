@@ -200,3 +200,55 @@ describe('the custom time-tracking routes run API interceptors', () => {
     expect(readRoute('reports', '[id]', 'export', 'route.ts')).toContain('session.respondWithDescriptor(')
   })
 })
+
+/**
+ * EP-07 — the sync lifecycle host. The AGENTS.md table a third party reads must be
+ * derived from the same `events` configs the factory reads, so the two cannot drift:
+ * `deriveLifecycleEventIds` builds `<module>.<entity>.<phase>` from the config alone
+ * (`factory.ts:637`), with the phases fixed by `LIFECYCLE_ACTION_MAP` (`factory.ts:631`).
+ */
+describe('the sync lifecycle host is documented for every resource that dispatches it', () => {
+  const LIFECYCLE_PHASES = [
+    ['created', 'creating'],
+    ['updated', 'updating'],
+    ['deleted', 'deleting'],
+  ] as const
+
+  const dispatchingResources = [
+    { route: ['time-entries'], config: staffTimeEntryCrudEvents },
+    { route: ['time-projects'], config: staffTimeProjectCrudEvents },
+    { route: ['time-projects', '[id]', 'employees'], config: staffTimeProjectMemberCrudEvents },
+    { route: ['tasks'], config: staffTimeTaskCrudEvents },
+    { route: ['task-statuses'], config: staffTimeTaskStatusCrudEvents },
+    { route: ['tags'], config: staffTimeTagCrudEvents },
+    { route: ['reports'], config: staffTimeReportCrudEvents },
+  ] as const
+
+  const agentsDoc = fs.readFileSync(path.join(MODULE_ROOT, 'AGENTS.md'), 'utf8')
+
+  it.each(dispatchingResources.map((entry) => [entry.route.join('/'), entry] as const))(
+    '%s declares the events config the sync dispatch needs',
+    (_name, entry) => {
+      expect(readRoute(...entry.route, 'route.ts')).toContain('events: staffTime')
+    },
+  )
+
+  it.each(dispatchingResources.map((entry) => [entry.config.entity, entry.config] as const))(
+    'documents the %s lifecycle entity',
+    (_name, config) => {
+      expect(agentsDoc).toContain(`\`${config.module}.${config.entity}\``)
+    },
+  )
+
+  it('documents every phase suffix a subscriber can target', () => {
+    for (const [after, before] of LIFECYCLE_PHASES) {
+      expect(agentsDoc).toContain(`\`.${before}\``)
+      expect(agentsDoc).toContain(`\`.${after}\``)
+    }
+  })
+
+  it('records that tasks/[id]/comments dispatches nothing, because it declares no events config', () => {
+    expect(readRoute('tasks', '[id]', 'comments', 'route.ts')).not.toContain('events:')
+    expect(agentsDoc).toContain('`/tasks/[id]/comments` declares no `events:` config')
+  })
+})

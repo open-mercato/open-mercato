@@ -179,6 +179,65 @@ both match, so nothing runs twice.
   against is [`events.payloads.ts`](./events.payloads.ts); `__tests__/timeTrackingEventPayloads.test.ts`
   fails if a declared `staff.timesheets.*` id has no schema or a schema without `tenantId`.
 
+### Time-tracking sync lifecycle subscribers (BC surface #5 — STABLE)
+
+The seven `makeCrudRoute` time-tracking resources declare an `events:` config, which is
+the only thing `deriveLifecycleEventIds` (`shared/lib/crud/factory.ts`) needs to resolve —
+so `runSyncBeforeEvent` / `runSyncAfterEvent` dispatch on every create, update and delete
+they serve. A sync subscriber runs **inside** the write pipeline: it can veto the write
+before the command executes, and rewrite the payload the command receives.
+
+The ids are `<events.module>.<events.entity>.<phase>`, with phases `creating|created`,
+`updating|updated`, `deleting|deleted` (`LIFECYCLE_ACTION_MAP`, `factory.ts:631`):
+
+| Route | Entity | `before` phases | `after` phases |
+|-------|--------|-----------------|----------------|
+| `/time-entries` | `staff.timesheets.time_entry` | `.creating` `.updating` `.deleting` | `.created` `.updated` `.deleted` |
+| `/time-projects` | `staff.timesheets.time_project` | same three | same three |
+| `/time-projects/[id]/employees` | `staff.timesheets.time_project_member` | same three | same three |
+| `/tasks` | `staff.timesheets.time_task` | same three | same three |
+| `/task-statuses` | `staff.timesheets.time_task_status` | same three | same three |
+| `/tags` | `staff.timesheets.time_tag` | same three | same three |
+| `/reports` | `staff.timesheets.time_report` | same three | same three |
+
+`/tasks/[id]/comments` declares no `events:` config and therefore dispatches no sync
+lifecycle event. `__tests__/time-tracking-write-path-contracts.test.ts` derives this table
+from the `events` configs and fails if the two disagree.
+
+**Declaring one.** A subscriber file under `subscribers/` exporting
+`metadata = { event, sync: true, priority?, id? }` plus a default handler. `event` accepts
+the wildcards `matchWildcardPattern` supports, so `staff.timesheets.*.creating` covers the
+whole family. `priority` sorts **ascending** and defaults to `50` — a lower number runs
+earlier, and an earlier subscriber's `modifiedPayload` is visible to the next one.
+
+**What a handler may return** (`SyncCrudEventResult`):
+
+- `undefined` — allow, change nothing.
+- `{ ok: false, status?, message?, body? }` — **veto**. The route answers with that status
+  (default `422`, body defaults to `{ error: message, subscriberId }`) and the command
+  never runs. Before-phase only.
+- `{ modifiedPayload }` — shallow-merged into the mutation payload.
+
+**Four things the types do not tell you.**
+
+1. On these routes the payload is the **mapped command input**, not the request body:
+   `mapInput` (`parseScopedCommandInput`) has already run, so field names are the
+   validator's camelCase, dates are coerced, and `tenantId` / `organizationId` are present.
+2. `modifiedPayload` is merged into that input and handed straight to the command — it is
+   **not** re-validated against the create/update schema. A subscriber can therefore write
+   a field the schema would have rejected; validate your own contribution.
+3. The **delete** phase is narrower: its payload carries no mutation data at all
+   (`payload` is `undefined`) and a `modifiedPayload` is ignored. Delete subscribers can
+   veto, not rewrite.
+4. The `after` ids are the same strings as the async CRUD events in `events.ts`, and
+   bootstrap registers a `sync: true` subscriber in **both** registries
+   (`bootstrap.ts` → `registerModuleSubscribers` and `registerSyncSubscribers`), so an
+   after-phase handler is invoked twice: once in-pipeline, once from the event bus. Put
+   in-pipeline work on the `before` phase and plain reactions on an ordinary async
+   subscriber. The `before` ids are never emitted on the bus and need no `events.ts` entry.
+
+Proved end to end in `__tests__/time-tracking-sync-subscribers.test.ts`.
+
 ## Internal-Only Surfaces (NOT public contract)
 
 These are subject to change without deprecation; do not import them from non-staff code:

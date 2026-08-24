@@ -201,6 +201,26 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `staff.timesheets.time_entry.creating|created|updating|updated|deleting|deleted`
 - **Unlocks**: in-pipeline veto and payload modification (e.g. "block billable time on
   a closed client", "stamp a cost centre from an HR system").
+- **Implemented in P2** (unblocked once the module owner accepted the EP-02 resource-tag
+  change). The host is documented in the staff `AGENTS.md`; the ids are derived from the
+  `events` configs rather than hand-written, and a test fails if the doc and the configs
+  disagree. Dispatch is proved end to end against the real time-entries handlers in
+  `__tests__/time-tracking-sync-subscribers.test.ts` (veto with the subscriber's own
+  status before the command runs, `modifiedPayload` reaching the command input, ascending
+  `priority` ordering, wildcard matching).
+- **Three findings the spec did not anticipate**, now documented:
+  (a) on a command-backed action the payload a subscriber sees is the **mapped command
+  input** (post-`mapInput` / `parseScopedCommandInput`), not the request body;
+  (b) `modifiedPayload` IS honoured on that path — the re-parse through the action schema
+  happens *before* the sync event, for the interceptor body, and nothing re-validates the
+  merged input, so a subscriber can write a field the schema would have rejected;
+  (c) the **delete** branch builds its sync payload with no mutation data and never merges
+  a `modifiedPayload`, so delete subscribers can veto but not rewrite.
+- **One gotcha worth a follow-up**: bootstrap registers a `sync: true` subscriber in both
+  the event bus and the sync store, so an `after`-phase handler runs twice — once
+  in-pipeline, once from the bus, since the after ids are the same strings as the async
+  CRUD events. Documented; not changed, because fixing it means touching bootstrap's
+  subscriber split for every module.
 
 #### EP-08 · `event` · Document and pin the budget-threshold subscriber's contract
 - **Edit**: `subscribers/time-project-budget-threshold-notification.ts`
