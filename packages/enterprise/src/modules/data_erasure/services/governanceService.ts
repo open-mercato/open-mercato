@@ -32,6 +32,7 @@ type ErasureManifestService = {
     organizationId: string
     subjectKind: string
     subjectId: string
+    dataClassIds?: string[]
     executedAt: Date
   }) => Promise<void>
 }
@@ -368,6 +369,7 @@ export class PrivacyGovernanceService {
     actorId: string,
     input: SubjectRequestInput,
     commandContext?: CommandRuntimeContext,
+    options?: { skipManifest?: boolean },
   ): Promise<{
     operation: PrivacyOperation
     exports?: Record<string, PrivacySubjectExportResult>
@@ -444,7 +446,7 @@ export class PrivacyGovernanceService {
         affected: results.reduce((sum, result) => sum + result.affected, 0),
       },
     }
-    if (!input.dryRun && input.action === 'erase' && hasCompletedClass) {
+    if (!input.dryRun && input.action === 'erase' && hasCompletedClass && !options?.skipManifest) {
       const manifest = this.dependencies.resolveManifest()
       if (manifest) {
         try {
@@ -453,6 +455,9 @@ export class PrivacyGovernanceService {
             ...scope,
             subjectKind: input.subject.kind,
             subjectId: input.subject.id,
+            dataClassIds: results
+              .filter((result) => result.status === 'completed')
+              .map((result) => result.dataClassId),
             executedAt: new Date(),
           })
           report.manifestStatus = 'completed'

@@ -145,7 +145,31 @@ describe('PrivacyGovernanceService', () => {
       requestId: result.operation.id,
       subjectKind: 'test:person',
       subjectId: 'person-1',
+      dataClassIds: ['test.people'],
     }))
+  })
+
+  it('does not duplicate the durable manifest while reapplying a restored erasure', async () => {
+    const append = jest.fn(async () => undefined)
+    const { service } = createService({
+      handler: { eraseSubject: async () => ({ affected: 1 }) },
+      appendManifest: append,
+    })
+
+    const result = await service.runSubjectRequest(
+      scope,
+      'actor-1',
+      {
+        action: 'erase',
+        subject: { kind: 'test:person', id: 'person-1' },
+        dryRun: false,
+      },
+      undefined,
+      { skipManifest: true },
+    )
+
+    expect(result.operation.status).toBe('completed')
+    expect(append).not.toHaveBeenCalled()
   })
 
   it('marks erasure partial when the restore manifest cannot be written', async () => {

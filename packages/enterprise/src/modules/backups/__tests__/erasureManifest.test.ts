@@ -30,6 +30,7 @@ describe('ErasureManifestService', () => {
       organizationId: 'organization-1',
       subjectKind: 'auth:user',
       subjectId: 'user-2',
+      dataClassIds: ['auth.users', 'auth.users'],
       executedAt: new Date('2026-08-21T11:00:00.000Z'),
     })
 
@@ -38,5 +39,6 @@ describe('ErasureManifestService', () => {
     expect(result).toHaveLength(1)
     expect(result[0]?.requestId).toBe('request-after')
     expect(result[0]?.subjectId).toBe('user-2')
+    expect(result[0]?.dataClassIds).toEqual(['auth.users'])
   })
 })
