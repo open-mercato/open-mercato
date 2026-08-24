@@ -71,12 +71,23 @@ const EXPECTED_REGISTRY_IDS = [
   'staff.time_tracking.overlap_policy',
   'staff.time_tracking.project_code_generator',
   'staff.time_tracking.rate',
+  'staff.time_tracking.recalculation',
   'staff.time_tracking.report_approval_policy',
   'staff.time_tracking.report_export_format',
   'staff.time_tracking.report_grouping',
   'staff.time_tracking.rounding',
   'staff.time_tracking.setting_key',
   'staff.time_tracking.time_entry_source',
+]
+
+/**
+ * EP-50. The customer-portal spots are their own family: their context is scoped
+ * by the signed-in customer as well as the tenant and organization, and a widget
+ * mapped to one runs in the portal shell, not the backoffice.
+ */
+const EXPECTED_PORTAL_SPOT_IDS = [
+  'portal:staff.time_report:after',
+  'portal:staff.time_report:before',
 ]
 
 const EXPECTED_COMPONENT_IDS = [
@@ -129,6 +140,10 @@ describe('staff time-tracking extension host catalog', () => {
       .filter((host) => host.family === 'specialized-registry')
       .map((host) => String(host.runtimeContract))
     expect(runtimeContracts.filter(Boolean)).toHaveLength(EXPECTED_REGISTRY_IDS.length)
+  })
+
+  it('publishes exactly the two customer-portal spots', () => {
+    expect(idsOfFamily('portal-page', 'spotId')).toEqual([...EXPECTED_PORTAL_SPOT_IDS].sort())
   })
 
   it('publishes exactly the ten replaceable component handles', () => {

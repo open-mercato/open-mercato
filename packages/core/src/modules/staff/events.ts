@@ -80,6 +80,35 @@ const events = [
   { id: 'staff.timesheets.time_project_access.denied', label: 'Time Project Access Denied', entity: 'time_project', category: 'lifecycle' },
   { id: 'staff.timesheets.time_tracking.settings_updated', label: 'Time Tracking Settings Updated', entity: 'time_tracking', category: 'lifecycle' },
   { id: 'staff.timesheets.time_tracking.rounding_reapplied', label: 'Time Tracking Rounding Reapplied', entity: 'time_tracking', category: 'lifecycle' },
+
+  // Time tracking (Phase 6) — the customer-portal bridge (EP-06 / EP-50).
+  //
+  // This is a SEPARATE id rather than `portalBroadcast: true` on
+  // `time_report.closed`, and the difference is a disclosure, not a style choice.
+  // The portal SSE stream (`customer_accounts/api/portal/events/stream.ts`)
+  // filters a broadcast by tenant + organization and narrows to specific people
+  // only when the payload carries `recipientUserId(s)`. One organization serves
+  // many customers, so flagging `time_report.closed` — which carries `reference`,
+  // `customerId` and the minute totals — would hand every client of the tenant a
+  // running feed of every other client's reports. `time_report.closed` also has
+  // `clientBroadcast: true` and a published webhook payload, so it cannot be
+  // narrowed without breaking its backoffice consumers.
+  //
+  // `subscribers/time-report-portal-broadcast.ts` is the only emitter: it pins
+  // `recipientUserIds` to the portal users of the report's own customer and does
+  // not emit at all when that list is empty — the rule
+  // `warranty_claims/AGENTS.md` states for its own portal event.
+  //
+  // Exports are deliberately not mirrored. An export changes nothing the portal
+  // renders; the portal reads the report, not the file.
+  {
+    id: 'staff.timesheets.time_report.portal_published',
+    label: 'Time Report Published To Portal',
+    entity: 'time_report',
+    category: 'lifecycle',
+    portalBroadcast: true,
+    excludeFromTriggers: true,
+  },
 ] as const
 
 export const eventsConfig = createModuleEvents({

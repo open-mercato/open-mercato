@@ -1,10 +1,22 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedStaffActivityTypes, seedStaffAddressTypes, seedStaffTeamExamples, type StaffSeedScope } from './lib/seeds'
 import { seedStaffTimeTrackingExamples } from './lib/timeTrackingSeeds'
 import { migrateProjectCodes } from './lib/time-tracking/migrateProjectCodes'
 import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+import {
+  STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
+  STAFF_TIME_REAPPLY_ROUNDING_QUEUE,
+  getStaffQueue,
+  type ReapplyRoundingScope,
+} from './lib/time-tracking/reapplyRounding'
+import {
+  listTimeTrackingRecalculations,
+  resolveTimeTrackingRecalculations,
+} from './lib/time-tracking/recalculations'
 
 const TIMESHEETS_DASHBOARD_WIDGET_IDS = [
   'staff.timesheets.timeReporting',
@@ -223,6 +235,109 @@ const seedTimesheetsWidgetsCommand: ModuleCli = {
   },
 }
 
+/**
+ * The progress job's name is rendered in the operator's top bar, so it goes
+ * through the locale files like every other user-facing string. A CLI has no
+ * request to derive a locale from; `resolveTranslations` falls back to the
+ * default one, and a failure to load them must not stop a backfill.
+ */
+async function resolveRecalculationJobName(): Promise<string> {
+  try {
+    const { translate } = await resolveTranslations()
+    return translate('staff.time_tracking.recalculate.jobName', 'Recalculate time tracking')
+  } catch {
+    return 'Recalculate time tracking'
+  }
+}
+
+/**
+ * EP-51. `mercato staff timesheets:recalculate` — the operator entry point to the
+ * recalculation registry.
+ *
+ * It enqueues; it does not do the work. That is deliberate and not merely
+ * convenient: the restatement is the same `ProgressJob` on the same queue the
+ * settings screen drives, so an operator running a backfill from a shell and a
+ * manager pressing the button in the UI produce the same job, visible in the same
+ * progress bar, cancellable the same way. A CLI that did the work in-process would
+ * be a second implementation of a write over billing data.
+ *
+ * `--hook` may be repeated (`--hook a --hook b`) or comma-separated. Omitting it
+ * runs the built-in rounding pass, which is what the settings route enqueues, so
+ * the flagless invocation is the documented equivalent of pressing the button.
+ */
+const recalculateCommand: ModuleCli = {
+  command: 'timesheets:recalculate',
+  async run(rest) {
+    const args = parseArgs(rest)
+    if (rest.includes('--list')) {
+      const registered = listTimeTrackingRecalculations()
+      if (registered.length === 0) {
+        console.log('No time-tracking recalculations are registered.')
+        return
+      }
+      console.log('Registered time-tracking recalculations:')
+      for (const entry of registered) console.log(`  ${entry.id}  (${entry.labelKey})`)
+      return
+    }
+
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    if (!tenantId) {
+      console.error('Usage: mercato staff timesheets:recalculate --tenant <tenantId> [--org <organizationId>] [--hook <id>]')
+      console.error('       mercato staff timesheets:recalculate --list')
+      console.error('Enqueues the registered recalculation hooks as a progress job. Locked entries are never touched.')
+      process.exit(1)
+      return
+    }
+
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    const hookIds = String(args.hook ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+
+    let resolvedHookIds: string[]
+    try {
+      resolvedHookIds = resolveTimeTrackingRecalculations(hookIds.length ? hookIds : null).map((hook) => hook.id)
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err))
+      console.error('Run `mercato staff timesheets:recalculate --list` to see the registered ids.')
+      process.exit(1)
+      return
+    }
+
+    const container = await createRequestContainer()
+    try {
+      const scope: ReapplyRoundingScope = {
+        tenantId,
+        organizationIds: organizationId ? [organizationId] : null,
+        userId: null,
+      }
+      const jobName = await resolveRecalculationJobName()
+      const progressService = container.resolve<ProgressService>('progressService')
+      const progressJob = await progressService.createJob(
+        {
+          jobType: STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
+          name: jobName,
+          description: `Running ${resolvedHookIds.join(', ')}. Locked entries are not changed.`,
+          totalCount: 0,
+          cancellable: true,
+          meta: { source: 'staff.timesheets.cli.recalculate', hookIds: resolvedHookIds },
+        },
+        { tenantId, organizationId: organizationId || null, userId: null },
+      )
+      const queue = getStaffQueue(STAFF_TIME_REAPPLY_ROUNDING_QUEUE)
+      await queue.enqueue({ progressJobId: progressJob.id, scope, hookIds: resolvedHookIds })
+      console.log('⏱️  Time-tracking recalculation enqueued:', resolvedHookIds.join(', '))
+      console.log('    Progress job:', progressJob.id)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
 export default [
   seedActivityTypesCommand,
   seedAddressTypesCommand,
@@ -230,4 +345,5 @@ export default [
   seedTimeTrackingExamplesCommand,
   seedTimesheetsWidgetsCommand,
   migrateProjectCodesCommand,
+  recalculateCommand,
 ]

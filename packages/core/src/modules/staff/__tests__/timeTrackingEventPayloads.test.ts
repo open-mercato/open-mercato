@@ -31,6 +31,16 @@ const schemaIds = Object.keys(staffTimeTrackingEventPayloadSchemas) as StaffTime
 
 const MONEY_FIELD_PATTERN = /rate|cost|amount/i
 
+/**
+ * EP-06. `time_report.portal_published` is a portal mirror, not a business
+ * transition: it is emitted only when a closed report has portal recipients, and
+ * it duplicates `time_report.closed`, which stays fully deliverable. So it ships
+ * `excludeFromTriggers: true` — an external system subscribes to the close, and a
+ * workflow trigger listing both would fire twice for one event. Its payload also
+ * carries `recipientUserIds`, which is an audience, not a fact about the report.
+ */
+const PORTAL_MIRROR_EVENT_IDS = new Set<string>(['staff.timesheets.time_report.portal_published'])
+
 describe('staff.timesheets.* webhook payload contracts', () => {
   it('covers every declared time-tracking event id', () => {
     expect([...schemaIds].sort()).toEqual([...declaredTimeTrackingIds].sort())
@@ -41,11 +51,23 @@ describe('staff.timesheets.* webhook payload contracts', () => {
     expect(schema.safeParse({ organizationId: 'org' }).success).toBe(false)
   })
 
+  it('excludes only the portal mirror from triggers and outbound delivery', () => {
+    for (const event of eventsConfig.events) {
+      if (!event.id.startsWith(TIME_TRACKING_PREFIX)) continue
+      const excluded = event.excludeFromTriggers ?? false
+      expect({ id: event.id, excluded }).toEqual({
+        id: event.id,
+        excluded: PORTAL_MIRROR_EVENT_IDS.has(event.id),
+      })
+    }
+  })
+
   it('is reachable by the outbound dispatcher', () => {
     // `shouldSkipOutboundDispatch` drops `webhooks.*`, `application.*`, `query_index.*`
     // and anything flagged `excludeFromTriggers`.
     for (const event of eventsConfig.events) {
       if (!event.id.startsWith(TIME_TRACKING_PREFIX)) continue
+      if (PORTAL_MIRROR_EVENT_IDS.has(event.id)) continue
       expect(event.id.startsWith('webhooks.')).toBe(false)
       expect(event.id.startsWith('application.')).toBe(false)
       expect(event.id.startsWith('query_index.')).toBe(false)

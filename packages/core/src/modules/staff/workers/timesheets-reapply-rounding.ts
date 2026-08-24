@@ -3,9 +3,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressService } from '../../progress/lib/progressService'
 import {
   STAFF_TIME_REAPPLY_ROUNDING_QUEUE,
-  reapplyRoundingWithProgress,
   type ReapplyRoundingJobPayload,
 } from '../lib/time-tracking/reapplyRounding'
+import { runTimeTrackingRecalculations } from '../lib/time-tracking/recalculationRunner'
 
 export const metadata: WorkerMeta = {
   queue: STAFF_TIME_REAPPLY_ROUNDING_QUEUE,
@@ -16,6 +16,16 @@ export const metadata: WorkerMeta = {
   concurrency: 1,
 }
 
+/**
+ * EP-51. The worker iterates the registered recalculation hooks rather than
+ * calling the rounding pass directly.
+ *
+ * A payload with no `hookIds` — which is every job the settings route enqueues —
+ * resolves to the built-in rounding hook alone, so a contribution cannot attach
+ * itself to the retro-rounding button somebody pressed in the settings screen.
+ * An explicit list comes only from the CLI, where running several is a deliberate
+ * operator act.
+ */
 export default async function handle(
   job: QueuedJob<ReapplyRoundingJobPayload>,
   _ctx: JobContext,
@@ -23,10 +33,11 @@ export default async function handle(
   const container = await createRequestContainer()
 
   try {
-    await reapplyRoundingWithProgress({
+    await runTimeTrackingRecalculations({
       container,
       progressJobId: job.payload.progressJobId,
       scope: job.payload.scope,
+      hookIds: job.payload.hookIds ?? null,
     })
   } catch (error) {
     const progressService = container.resolve('progressService') as ProgressService

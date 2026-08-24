@@ -135,6 +135,21 @@ const reportExported = scope
   })
   .passthrough()
 
+const reportPortalPublished = scope
+  .extend({
+    id: z.string(),
+    reference: z.string(),
+    periodFrom: z.string(),
+    periodTo: z.string(),
+    /**
+     * The portal SSE stream narrows a broadcast to these customer-user ids. The
+     * emitter never publishes this event with an empty list, so a report can only
+     * ever reach the portal users of its own customer.
+     */
+    recipientUserIds: z.array(z.string()).min(1),
+  })
+  .passthrough()
+
 const projectCurrencyChanged = scope
   .extend({
     id: z.string(),
@@ -220,6 +235,7 @@ export const staffTimeTrackingEventPayloadSchemas = {
   'staff.timesheets.time_report.closed': reportClosed,
   'staff.timesheets.time_report.unlocked': reportUnlocked,
   'staff.timesheets.time_report.exported': reportExported,
+  'staff.timesheets.time_report.portal_published': reportPortalPublished,
   'staff.timesheets.time_tracking.settings_updated': settingsUpdated,
   'staff.timesheets.time_tracking.rounding_reapplied': roundingReapplied,
 } as const

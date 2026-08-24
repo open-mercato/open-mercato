@@ -139,6 +139,29 @@ export const extensionPoints = defineModuleExtensionPoints({
 
     timerBarActions: pageHost('staff.timesheets.timer-bar:actions', 'lib/timesheets-ui/TimerBar.tsx'),
 
+    /**
+     * EP-50. The two customer-portal spots. `scopeContract` names the third
+     * dimension the backoffice spots do not have: a portal context is scoped by
+     * the signed-in **customer** as well as the tenant and organization, and the
+     * host passes no money and no staff identity into either spot.
+     */
+    portalTimeReportBefore: injectionExtensionHost({
+      family: 'portal-page',
+      spotId: 'portal:staff.time_report:before',
+      supported: ['render-widget'],
+      contextContract: 'staff.time_tracking.portal.report.v1',
+      scopeContract: 'tenant.organization.customer-session',
+      source: 'frontend/[orgSlug]/portal/time-reports/[id]/page.tsx',
+    }),
+    portalTimeReportAfter: injectionExtensionHost({
+      family: 'portal-page',
+      spotId: 'portal:staff.time_report:after',
+      supported: ['render-widget'],
+      contextContract: 'staff.time_tracking.portal.report.v1',
+      scopeContract: 'tenant.organization.customer-session',
+      source: 'frontend/[orgSlug]/portal/time-reports/[id]/page.tsx',
+    }),
+
     timeRoundingRegistry: registryHost(
       'staff.time_tracking.rounding',
       'lib/time-tracking/rounding.ts',
@@ -199,6 +222,20 @@ export const extensionPoints = defineModuleExtensionPoints({
       'staff.time_tracking.report_approval_policy.v1',
       'staff.time_tracking.report_approval.acl_only',
     ),
+    /**
+     * EP-51. The recalculation registry: a hook is a tenant-wide restatement of
+     * derived time-tracking values, run by the existing queue worker under the
+     * existing `ProgressJob`. The built-in is the retro-rounding pass the module
+     * already shipped, so a deployment with no contribution runs exactly what it
+     * ran before.
+     */
+    recalculationRegistry: registryHost(
+      'staff.time_tracking.recalculation',
+      'lib/time-tracking/recalculations.ts',
+      'staff.time_tracking.recalculation.v1',
+      'staff.time_tracking.recalculation.rounding',
+    ),
+
     /**
      * EP-42. The one registry whose scope contract is `tenant` rather than
      * `tenant+organization`: time-tracking settings are tenant-global by spec §10,

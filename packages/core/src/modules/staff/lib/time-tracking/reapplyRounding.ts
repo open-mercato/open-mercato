@@ -29,6 +29,11 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { buildSqlInClause } from './sqlInClause'
+import {
+  BUILT_IN_RECALCULATION_ID,
+  registerTimeTrackingRecalculation,
+} from './recalculations'
+import { BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
 import type { ProgressService, ProgressServiceContext } from '../../../progress/lib/progressService'
 import {
   staffTimeEntryCommandIds,
@@ -53,6 +58,13 @@ export type ReapplyRoundingScope = {
 export type ReapplyRoundingJobPayload = {
   progressJobId: string
   scope: ReapplyRoundingScope
+  /**
+   * EP-51. The recalculation hooks this job should run, in the order given.
+   * Absent — which is every job the settings route enqueues — means the built-in
+   * rounding hook alone, so the retro-rounding button keeps doing exactly what it
+   * did before the registry existed.
+   */
+  hookIds?: string[] | null
 }
 
 export type ReapplyRoundingSummary = {
@@ -166,22 +178,26 @@ function groupByOrganization(rows: readonly CandidateRow[]): Map<string, string[
   return grouped
 }
 
-export async function reapplyRoundingWithProgress(params: {
+/**
+ * The restatement itself, with the `ProgressJob` lifecycle lifted out (EP-51).
+ *
+ * `reapplyRoundingWithProgress` below owns start/complete/cancel and is unchanged
+ * for its callers; the recalculation runner owns the same lifecycle when several
+ * hooks share one job. Both drive this function, so there is exactly one copy of
+ * the candidate query, the batching and the locked-entry exclusion.
+ */
+export async function reapplyRoundingBatches(params: {
   container: AwilixContainer
-  progressJobId: string
   scope: ReapplyRoundingScope
+  report: {
+    setTotal(total: number): Promise<void>
+    advance(processed: number): Promise<void>
+    isCancellationRequested(): Promise<boolean>
+  }
 }): Promise<ReapplyRoundingSummary> {
-  const { container, progressJobId, scope } = params
+  const { container, scope, report } = params
   const em = (container.resolve('em') as EntityManager).fork()
   const commandBus = container.resolve('commandBus') as CommandBus
-  const progressService = container.resolve('progressService') as ProgressService
-  const progressContext: ProgressServiceContext = {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationIds?.length === 1 ? scope.organizationIds[0] : null,
-    userId: scope.userId ?? null,
-  }
-
-  await progressService.startJob(progressJobId, progressContext)
 
   const totalCount = await countReapplyRoundingCandidates(em, scope)
   const summary: ReapplyRoundingSummary = {
@@ -193,12 +209,9 @@ export async function reapplyRoundingWithProgress(params: {
     cancelled: false,
   }
 
-  if (totalCount === 0) {
-    await progressService.completeJob(progressJobId, { resultSummary: { ...summary } }, progressContext)
-    return summary
-  }
+  if (totalCount === 0) return summary
 
-  await progressService.updateProgress(progressJobId, { totalCount, processedCount: 0 }, progressContext)
+  await report.setTotal(totalCount)
 
   let cursor: string | null = null
   for (;;) {
@@ -206,6 +219,7 @@ export async function reapplyRoundingWithProgress(params: {
     if (page.length === 0) break
     cursor = page[page.length - 1].id
 
+    let pageProcessed = 0
     for (const [organizationId, entryIds] of groupByOrganization(page)) {
       const executed = await commandBus.execute<
         { tenantId: string; organizationId: string; entryIds: string[] },
@@ -219,23 +233,81 @@ export async function reapplyRoundingWithProgress(params: {
       summary.unchangedCount += result?.unchangedCount ?? 0
       summary.skippedCount += result?.skippedCount ?? 0
       summary.processedCount += entryIds.length
+      pageProcessed += entryIds.length
     }
 
-    await progressService.updateProgress(
-      progressJobId,
-      { totalCount, processedCount: Math.min(summary.processedCount, totalCount) },
-      progressContext,
-    )
+    await report.advance(pageProcessed)
 
-    if (await progressService.isCancellationRequested(progressJobId, scope.tenantId, progressContext.organizationId)) {
+    if (await report.isCancellationRequested()) {
       summary.cancelled = true
-      logger.info('staff.timesheets reapply-rounding cancelled', { progressJobId, ...summary })
-      await progressService.markCancelled(progressJobId, progressContext)
       return summary
     }
   }
 
-  await progressService.completeJob(progressJobId, { resultSummary: { ...summary } }, progressContext)
-  logger.info('staff.timesheets reapply-rounding finished', { progressJobId, ...summary })
   return summary
 }
+
+export async function reapplyRoundingWithProgress(params: {
+  container: AwilixContainer
+  progressJobId: string
+  scope: ReapplyRoundingScope
+}): Promise<ReapplyRoundingSummary> {
+  const { container, progressJobId, scope } = params
+  const progressService = container.resolve('progressService') as ProgressService
+  const progressContext: ProgressServiceContext = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationIds?.length === 1 ? scope.organizationIds[0] : null,
+    userId: scope.userId ?? null,
+  }
+
+  await progressService.startJob(progressJobId, progressContext)
+
+  let totalCount = 0
+  let processedCount = 0
+  const summary = await reapplyRoundingBatches({
+    container,
+    scope,
+    report: {
+      setTotal: async (total) => {
+        totalCount = total
+        await progressService.updateProgress(progressJobId, { totalCount, processedCount: 0 }, progressContext)
+      },
+      advance: async (processed) => {
+        processedCount += processed
+        await progressService.updateProgress(
+          progressJobId,
+          { totalCount, processedCount: Math.min(processedCount, totalCount) },
+          progressContext,
+        )
+      },
+      isCancellationRequested: () =>
+        progressService.isCancellationRequested(progressJobId, scope.tenantId, progressContext.organizationId),
+    },
+  })
+
+  if (summary.cancelled) {
+    logger.info('staff.timesheets reapply-rounding cancelled', { progressJobId, ...summary })
+    await progressService.markCancelled(progressJobId, progressContext)
+    return summary
+  }
+
+  await progressService.completeJob(progressJobId, { resultSummary: { ...summary } }, progressContext)
+  if (summary.totalCount > 0) {
+    logger.info('staff.timesheets reapply-rounding finished', { progressJobId, ...summary })
+  }
+  return summary
+}
+
+/**
+ * EP-51. The retro-rounding pass registers itself as the built-in recalculation,
+ * so `registerTimeTrackingRecalculation` has a working reference implementation
+ * and the worker has one code path for the shipped hook and a contributed one.
+ * `BUILT_IN_STRATEGY_PRIORITY` keeps it last in the registry's order, the same as
+ * every other built-in in this module.
+ */
+registerTimeTrackingRecalculation({
+  id: BUILT_IN_RECALCULATION_ID,
+  labelKey: 'staff.time_tracking.settings.retro.jobName',
+  priority: BUILT_IN_STRATEGY_PRIORITY,
+  run: ({ container, scope, report }) => reapplyRoundingBatches({ container, scope, report }),
+})

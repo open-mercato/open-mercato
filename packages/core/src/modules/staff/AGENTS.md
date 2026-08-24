@@ -185,6 +185,71 @@ both match, so nothing runs twice.
   against is [`events.payloads.ts`](./events.payloads.ts); `__tests__/timeTrackingEventPayloads.test.ts`
   fails if a declared `staff.timesheets.*` id has no schema or a schema without `tenantId`.
 
+### Customer-portal time reports (EP-50 — BC surface #7, STABLE)
+
+| Route / page | Guard | Notes |
+|---|---|---|
+| `GET /api/staff/portal/time-reports` | portal session + `portal.time_reports.view` | Closed reports of the signed-in customer only |
+| `GET /api/staff/portal/time-reports/{id}` | same | A report of another customer answers `404`, never `403` |
+| `/{orgSlug}/portal/time-reports` | `requireCustomerAuth` + `requireCustomerFeatures: ['portal.time_reports.view']` | Listed in the portal sidebar (`nav.group: 'main'`) |
+| `/{orgSlug}/portal/time-reports/{id}` | same | Hosts `portal:staff.time_report:{before,after}` |
+
+**The ownership check is four predicates in one WHERE clause, and all four come
+from the session:**
+
+```
+tenant_id       = auth.tenantId
+organization_id = auth.orgId
+customer_id     = auth.customerEntityId     -- customer_users.customer_entity_id
+status          = 'closed' AND deleted_at IS NULL
+```
+
+`customerEntityId` is the FK into `customers:customer_entity`, the same id
+`staff_time_reports.customer_id` holds (the link EP-44 declares). A portal session
+without one is refused with `403` rather than shown an unscoped list. The detail
+route loads the row **with** the predicates rather than loading it and checking
+afterwards, so a foreign id is never read even momentarily. The clause is written
+once, in [`lib/time-tracking/portalReports.ts`](./lib/time-tracking/portalReports.ts),
+and pinned by `api/portal/time-reports/__tests__/route.test.ts`.
+
+**Money is structurally absent on this surface, not conditionally hidden.**
+`staff.timesheets.rates.view` is a *staff* feature graded by `rbacService`; a
+portal identity is graded by `CustomerRbacService` against the disjoint `portal.*`
+namespace and can never hold it. So the portal response schemas carry no rate,
+cost, amount or currency field at all — the SQL does not select
+`frozen_rate_amount` or `frozen_amount`, and a test fails if a money-shaped key
+appears in a response body.
+
+`portal.time_reports.view` is granted to the `buyer` and `viewer` customer roles
+through `setup.defaultCustomerRoleFeatures`. It is deliberately **not** in
+[`acl.ts`](./acl.ts) — that file is the staff feature catalog.
+
+**Staff takes no static dependency on `customer_accounts`.** The routes resolve
+the portal identity with a dynamic `import()` and answer `401` if it fails, and
+`lib/time-tracking/portalRecipients.ts` reads `customer_users` by table name
+through Kysely rather than importing an entity. `requires` in
+[`index.ts`](./index.ts) is unchanged.
+
+### The portal event mirror (EP-06 — BC surface #5, FROZEN id)
+
+`staff.timesheets.time_report.portal_published` is `portalBroadcast: true` and
+`excludeFromTriggers: true`. `time_report.closed` and `.exported` are **not**
+portal-broadcast, and that is a security decision rather than an omission: the
+portal SSE stream (`customer_accounts/api/portal/events/stream.ts`) filters a
+broadcast by tenant + organization and narrows to named people only when the
+payload carries `recipientUserIds`. One organization serves many customers, so
+flagging `time_report.closed` — which carries `reference`, `customerId` and the
+minute totals — would give every client a feed of every other client's reports.
+That event is also `clientBroadcast: true` with a published webhook payload, so it
+cannot be narrowed without breaking its backoffice consumers.
+
+[`subscribers/time-report-portal-broadcast.ts`](./subscribers/time-report-portal-broadcast.ts)
+is the only emitter. It resolves the portal users of the report's own customer and
+**does not emit at all** when that list is empty — the same rule
+`warranty_claims/AGENTS.md` states for its portal event. The payload carries the
+reference and the period; no money, because SSE applies no feature check.
+Subscribe on the portal with `usePortalAppEvent`.
+
 ### Time-tracking sync lifecycle subscribers (BC surface #5 — STABLE)
 
 The seven `makeCrudRoute` time-tracking resources declare an `events:` config, which is
@@ -304,6 +369,7 @@ Pinned by `lib/time-tracking-ui/__tests__/TimeEntryDialog.test.tsx` →
 
 | Spot id | Host | Context |
 |---|---|---|
+| `portal:staff.time_report:{before,after}` | `frontend/[orgSlug]/portal/time-reports/[id]/page.tsx` | `{ orgSlug, reportId, reference, periodFrom, periodTo, resolvedFeatures }` — a **customer** session, never a staff one, and no money |
 | `detail:staff:staff_time_project:{header,status-badges,tabs,sidebar,footer}` | `backend/staff/time-tracking/projects/[id]/page.tsx` | `{ entityId, recordId, projectId, path, retryLastMutation }` |
 | `detail:staff:staff_time_task:{header,status-badges,tabs,sidebar,footer}` | `lib/time-tracking-ui/TaskDrawer.tsx` | `{ entityId, recordId, taskId, timeProjectId, retryLastMutation }` |
 | `detail:staff:staff_time_report:{header,status-badges,footer}` | `backend/staff/time-tracking/reports/[id]/page.tsx` | `{ entityId, recordId, reportId, reference, isClosed, periodFrom, periodTo, retryLastMutation }` |
@@ -380,6 +446,7 @@ in [`extension-points.ts`](./extension-points.ts).
 | 40 | `staff.time_tracking.capacity_provider` | `registerCapacityProvider({ id, priority?, resolve(staffMemberId, dateRange, ctx) })` — [`lib/time-tracking/capacity.ts`](./lib/time-tracking/capacity.ts) | `staff.time_tracking.capacity.flat_daily_hours` | single winner |
 | 41 | `staff.time_tracking.report_approval_policy` | `registerReportApprovalPolicy({ id, priority?, canClose?, canUnlock?, onClosed? })` — [`lib/timesheets-reports/reportApprovalPolicies.ts`](./lib/timesheets-reports/reportApprovalPolicies.ts) | `staff.time_tracking.report_approval.acl_only` | conjunction, first refusal |
 | 42 | `staff.time_tracking.setting_key` | `registerTimeTrackingSettingKey({ group, key, schema, default, labelKey, priority? })` — [`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) | the eight frozen keys | keyed by `<group>.<key>` |
+| 51 | `staff.time_tracking.recalculation` | `registerTimeTrackingRecalculation({ id, labelKey, priority?, run(ctx) })` — [`lib/time-tracking/recalculations.ts`](./lib/time-tracking/recalculations.ts) | `staff.time_tracking.recalculation.rounding` | keyed by id, run in order |
 
 ### The four resolution orders
 
@@ -563,6 +630,143 @@ now shows the translation-manager affordance. It is gated on `translations.view`
 record id, so create forms and callers without the feature see nothing. No list or detail
 output changes until a tenant actually writes a translation — the overlay substitutes a
 value only when a row exists for the request locale.
+
+## Time-tracking search, analytics, notifications and AI
+
+EP-46…EP-49 and EP-51. Four contribution surfaces plus the recalculation hook.
+
+### Search (EP-46) — and the one thing it cannot do
+
+[`search.ts`](./search.ts) indexes all five time-tracking entities. **Read this
+before adding a sixth.** An entity's `aclFeatures` is the *only* authorization the
+search pipeline applies. It is enforced twice per query — `resolveReadableEntityTypes`
+narrows the entity list before the query, `filterSearchResultsByEntityAccess`
+filters the results after it — but both decide **per entity type**.
+`SearchEntityConfig` has no row-level hook and `SearchOptions` has no record-id
+allowlist, so a search gate cannot reproduce the per-project membership
+intersection `resolveProjectAccess` applies on every time-tracking route.
+
+So each gate names the feature set whose holder already sees **every** record of
+that entity through the API:
+
+| Entity | `aclFeatures` | Why |
+|---|---|---|
+| `staff:staff_time_project` | `staff.timesheets.projects.view` | Unchanged; the projects list is not membership-narrowed |
+| `staff:staff_time_task` | `tasks.view` **+** `projects.manage` | `projects.manage` is what makes `resolveProjectAccess` answer `canManageAll` |
+| `staff:staff_time_report` | `reports.view` **+** `projects.manage` | Same; the reports list intersects with project membership otherwise |
+| `staff:staff_time_tag` | `staff.timesheets.view` | Tags are organization-global on their own route; exact match |
+| `staff:staff_time_entry` | `staff.timesheets.view` **+** `projects.manage` | Entry notes are the most sensitive text the module holds |
+
+A project member without `projects.manage` therefore gets **no** task, report or
+entry hits — including for their own records. That is deliberate: the gate cannot
+express "own", and half a gate would disclose other clients' work. Money columns
+are `fieldPolicy.excluded`, not merely left out of `searchable`. The tag entity
+resolves no URL — there is no tag detail screen and the entries list deep-links
+only `taskId` and `ids`, so an unlinked hit is more honest than a wrong link.
+
+### Analytics (EP-47)
+
+[`analytics.ts`](./analytics.ts) declares `staff:staff_time_entries`,
+`staff:staff_time_tasks`, `staff:staff_time_projects` and `staff:staff_time_reports`.
+
+- **No money column is mapped.** An `AnalyticsEntityConfig` carries one
+  `requiredFeatures` list for the whole entity, so there is no shape in which
+  `total_amount` or `hourly_rate` is gated on `staff.timesheets.rates.view` while
+  the rest stays readable. Minutes carry the same analysis without the disclosure.
+- **Custom fields are not dimensions and cannot be made into dimensions.**
+  `AnalyticsFieldMapping` is `{ dbColumn, type }` and the aggregation builder emits
+  `dbColumn` as a bare identifier against the one `tableName`, so a mapping can only
+  ever name a real column on that table. The EP-43 custom fields are EAV rows in the
+  `entities` module's tables — no join, and the jsonb-path form needs the values on
+  the row itself. The point is moot anyway while the write path drops `cf_*`.
+- `is_billable` / `billable_by_default` are typed `text` because
+  `AnalyticsFieldType` has no boolean; the type is read only to decide whether a
+  group-by column gets a `date_trunc`.
+
+### Notification types and reactive handlers (EP-48)
+
+[`notifications.ts`](./notifications.ts) adds four ids;
+[`notifications.handlers.ts`](./notifications.handlers.ts) is the module's browser
+reaction to them, one handler per type with a stable override key
+(`notifications.handlers.<id>`).
+
+| Type | Raised by |
+|---|---|
+| `staff.timesheets.time_report.approved` | **Core.** [`subscribers/time-report-approved-notification.ts`](./subscribers/time-report-approved-notification.ts) on `time_report.closed` — closing IS the approval; the recipient is the report's author, never the closer |
+| `staff.timesheets.time_report.ready_for_approval` | Contributable only — pairs with a `registerReportApprovalPolicy` (EP-41) that adds a review step. The module has one transition, draft → closed, so core has nothing to announce |
+| `staff.timesheets.time_entry.timer_running_long` | Contributable only — needs a scheduled sweep over open timers, which the module does not ship |
+| `staff.timesheets.timesheet.period_incomplete` | Contributable only — "incomplete" is the capacity provider's question (EP-40), and the built-in provider has no schedule and no opinion about when to complain |
+
+A contributable-only type is not a dormant id: the renderer, the delivery
+preferences and the browser handler are all in place, so a contributed raiser gets
+a working notification on day one without patching core.
+
+### AI tool pack and agent (EP-49)
+
+[`ai-tools.ts`](./ai-tools.ts) publishes six tools and
+[`ai-agents.ts`](./ai-agents.ts) one agent, `staff.time_tracking_assistant`
+(`mutationPolicy: 'confirm-required'`).
+
+| Tool | Kind | Gate | Backing route |
+|---|---|---|---|
+| `staff.log_time` | mutation | `manage_own` | `POST /staff/timesheets/time-entries` |
+| `staff.start_timer` | mutation | `manage_own` | `POST /staff/timesheets/time-entries/start-timer` |
+| `staff.stop_timer` | mutation | `manage_own` | `POST /staff/timesheets/time-entries/{id}/timer-stop` |
+| `staff.summarize_week` | read | `view` | `GET /staff/timesheets/time-entries` |
+| `staff.find_missing_days` | read | `view` | same |
+| `staff.draft_client_report` | read | `reports.view` | `POST /staff/timesheets/reports/preview` |
+
+**A module tool never calls `prepareMutation`.** That function is framework code:
+its only call site is `agent-tools.ts`, which intercepts the model's call,
+short-circuits the handler, persists an `AiPendingAction` and returns the preview
+card. A tool opts in by declaring `isMutation: true` plus a `loadBeforeRecord`
+resolver that renders the diff; the handler runs later, once, from the confirm
+route, with the stored input. Calling `prepareMutation` from a tool would be
+calling the interceptor from inside the thing it intercepts.
+
+Every tool is API-backed through `createAiApiOperationRunner`, which refuses a
+route whose `requiredFeatures` the tool does not itself declare. The gate is
+therefore checked twice, and the route still applies the project-access
+intersection, the mutation guards, the interceptors and the commands. Nothing in
+the pack writes a time entry itself. The tools act as the caller's own staff member
+and none accepts a `staffMemberId`. `staff.draft_client_report` asks for a preview
+with `showRates: false` and projects only minute columns, so an agent transcript
+never becomes a second, ungated copy of a customer's rate card.
+
+### Recalculation hooks and the CLI (EP-51)
+
+```ts
+registerTimeTrackingRecalculation({
+  id: 'billing.recalculate_rates',
+  labelKey: 'billing.recalculations.rates',
+  async run({ container, scope, report }) {
+    await report.setTotal(total)
+    // …batch, then `await report.advance(n)` and check `report.isCancellationRequested()`
+    return { totalCount, processedCount, updatedCount, unchangedCount, skippedCount, cancelled }
+  },
+})
+```
+
+- A hook does **not** own the `ProgressJob`. `runTimeTrackingRecalculations`
+  ([`lib/time-tracking/recalculationRunner.ts`](./lib/time-tracking/recalculationRunner.ts))
+  owns start / totals / cancel / complete, so several hooks share one progress bar;
+  marking a job failed is the worker's job. Hooks run **sequentially** in registry
+  order — they write the same rows.
+- `run` must carry `scope.tenantId` into every query, honour `organizationIds` when
+  it is not `null`, and never touch an entry locked into a closed report.
+- **A job with no `hookIds` runs the built-in rounding pass alone.** That is what
+  `POST /api/staff/timesheets/settings/reapply-rounding` enqueues, so a contributed
+  hook cannot attach itself to the retro-rounding button a tenant pressed. An
+  explicit list comes only from the CLI.
+
+```bash
+yarn mercato staff timesheets:recalculate --list
+yarn mercato staff timesheets:recalculate --tenant <id> [--org <id>] [--hook <id>[,<id>]]
+```
+
+The CLI enqueues onto the same queue with the same `ProgressJob` the settings
+screen uses; it does not do the work in process. An unknown `--hook` id refuses to
+start rather than silently doing nothing.
 
 ## Internal-Only Surfaces (NOT public contract)
 

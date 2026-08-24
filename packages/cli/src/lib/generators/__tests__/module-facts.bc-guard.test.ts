@@ -185,11 +185,22 @@ describe('module-facts BC resolve guard (T2)', () => {
     // Linear growth in one module's declared surface, not the multiplicative
     // blow-up this detector exists to catch; the cap is set from the
     // measurement with bounded headroom.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_350_000)
+    //
+    // Raised again by phase P6 of the same spec: staff gains a search entity for
+    // each of four more time-tracking tables (each one emits two query-lifecycle
+    // host facts), three analytics entities, four notification types, an AI tool
+    // pack of six, a portal page pair with two `portal-page` hosts, one more
+    // strategy registry and a `notifications.handlers.ts` override target. That
+    // measures 4,377,814 bytes against the then-4_350_000 cap, 0.6% over — again
+    // linear growth in one module's declared surface.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_450_000)
     // The v2-over-legacy delta grows with the same host facts (they exist only in
     // the v2 extension surface), measuring 1,900,068 against the 1,900,000 above —
     // 0.004% over. Raised from that measurement with the same bounded headroom.
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_950_000)
+    // P6 moves it again — the new query-lifecycle, portal-page and registry hosts
+    // exist only in the v2 surface — measuring 1,951,054 against the 1,950,000
+    // above, 0.05% over.
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_000_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution

@@ -102,13 +102,13 @@ whole `TimeEntryDialog` for its own — all without touching a line of core code
 | G-11 Closed business rules | `lib/time-tracking/rounding.ts` (union `0\|5\|10\|15` × `up\|nearest`), `lib/time-tracking/cost.ts:applicableRate` (override → project rate, nothing else), `lib/timesheets-reports/reportExport.ts:21` (`'pdf'\|'csv'\|'xlsx'`), `lib/timesheets-reports/reportTotals.ts:34` (`'project_task'\|'project_person'\|'project_day'`), `data/entities.ts` `@Enum({ items: ['manual','timer','kiosk','mobile'] })`, `lib/time-tracking/overlap.ts`, `lib/time-tracking/projectCode.ts`, `lib/time-tracking-ui/timesheetTargets.ts`. All pure functions or DB enums with no registry, provider or DI seam. **Closed in P4** — every one of the eight is now a registry with the original implementation as its built-in default; see Group 6. |
 | G-12 TT entities absent from `ce.ts` | `ce.ts` declares only `staff_team_member`. **Partly retracted in P5**: the second clause was wrong — custom fields were *definable* on all five all along, because `entities/api/entities.ts` lists every generated entity id in the Data designer. What is genuinely absent is the *value* path, and `ce.ts` is not what provides it. EP-43 closes the declaration; the write/read path is still open. |
 | G-13 No `data/extensions.ts` | `customer_id`, `deal_id`, `order_id` on `StaffTimeEntry` are raw FK ids with no declared link. **Closed in P5** (EP-44), with the caveat that a declared link is traversed by nothing today — see the EP entry. |
-| G-14 Search covers 1 of 5 TT entities | `search.ts:195` indexes only `staff:staff_time_project`. |
+| G-14 Search covers 1 of 5 TT entities | `search.ts:195` indexes only `staff:staff_time_project`. **Closed in P6** (EP-46), with a caveat the audit did not anticipate: the search layer has no row-level authorization, so the gate on each new entity had to be the feature set that already grants unrestricted access on the REST route. See the EP-46 entry. |
 | G-15 Enrichers not query-engine enabled | `data/enrichers.ts` has no `queryEngine: { enabled: true }`; enrichment is invisible to dashboards, exports and AI. |
-| G-16 No AI surface | No `ai-tools.ts` / `ai-agents.ts` in `staff` (`catalog`, `customers`, `eudr`, `warranty_claims` have them). |
-| G-17 No reactive notification handlers | No `notifications.handlers.ts`. |
+| G-16 No AI surface | No `ai-tools.ts` / `ai-agents.ts` in `staff` (`catalog`, `customers`, `eudr`, `warranty_claims` have them). **Closed in P6** (EP-49). |
+| G-17 No reactive notification handlers | No `notifications.handlers.ts`. **Closed in P6** (EP-48). |
 | G-18 Settings schema is closed | `TIME_TRACKING_SETTING_KEYS` is a frozen array; the settings route validates against a closed zod schema; the settings page renders a fixed form. **Closed in P5** (EP-42): all three read the key registry, and the settings page's `sections` spot can now read and write a contributed key through the draft. |
-| G-19 No portal surface | No portal page, no portal injection host, no `portalBroadcast: true` on any TT event. |
-| G-20 Events not webhook-exposed | No webhook registration for `staff.timesheets.*` (blocked by G-2 anyway). |
+| G-19 No portal surface | No portal page, no portal injection host, no `portalBroadcast: true` on any TT event. **Closed in P6** (EP-50), and the last clause was still true at the start of P6 — EP-06 had not been implemented in P2 as the phasing table claimed. See the EP-06 entry for why the fix is a separate event id rather than the flag the spec asked for. |
+| G-20 Events not webhook-exposed | No webhook registration for `staff.timesheets.*` (blocked by G-2 anyway). **Retracted in P2** — declaring the event IS its registration; see EP-09. |
 
 ---
 
@@ -207,8 +207,32 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   audited and carry no rate, cost or amount.
 
 #### EP-06 · `event` · `portalBroadcast: true` for the client-facing subset
-- **Edit**: `events.ts` — `time_report.closed`, `time_report.exported`
+- ~~**Edit**: `events.ts` — `time_report.closed`, `time_report.exported`~~
 - **Pairs with**: EP-50.
+- **Not implemented in P2, despite the phasing table listing it there.** Verified in
+  P6: `grep -rn portalBroadcast packages/core/src/modules/staff` returned nothing, and
+  neither the module `AGENTS.md` nor the EP-05 note mentions it. P2 shipped the
+  payload-narrowing half of the broadcast work and left this one alone.
+- **Implemented in P6 — and the spec's instruction was wrong, so it was not
+  followed.** Setting `portalBroadcast: true` on `time_report.closed` would have been
+  a cross-customer disclosure. `customer_accounts/api/portal/events/stream.ts`
+  filters a portal broadcast by tenant + organization and narrows to named people
+  **only** when the payload carries `recipientUserId(s)`; one organization serves many
+  customers, and the `closed` payload carries `reference`, `customerId` and the minute
+  totals. Every client of the tenant would have received a live feed of every other
+  client's reports. `closed` is also `clientBroadcast: true` with a published webhook
+  payload, so it could not be narrowed without breaking its backoffice consumers.
+- **What shipped instead** is the `warranty_claims` precedent
+  (`warranty_claims.claim.portal_status_changed`, and the rule in that module's
+  `AGENTS.md`: "never emit a portal-broadcast event without pinned customer-user
+  recipients"): a separate id, `staff.timesheets.time_report.portal_published`, with
+  `portalBroadcast: true` + `excludeFromTriggers: true`, emitted only by
+  `subscribers/time-report-portal-broadcast.ts`, only for a report that is closed,
+  only with `recipientUserIds` resolved from `customer_users.customer_entity_id`, and
+  **not at all** when that list is empty. The payload carries the reference and the
+  period — no money, because SSE applies no feature check.
+- `time_report.exported` is deliberately **not** mirrored: an export changes nothing
+  the portal renders; the portal reads the report, not the file.
 
 #### EP-07 · `event` · Sync lifecycle subscriber host for the write pipeline
 - **Depends on**: EP-02 (sync dispatch needs `events:`)
@@ -782,51 +806,187 @@ supposed to "unlock" is still missing. Each entry below says which it is.
   detail output changes until a tenant writes a translation — the overlay substitutes only
   when a row exists for the request locale.
 
-### Group 8 — Search, analytics, notifications (4)
+### Group 8 — Search, analytics, notifications (4) ✅
 
-#### EP-46 · `search` · Index the remaining TT entities
+**Implemented in P6.** Two of the four came with a correction; both are written into
+the entries below rather than into the implementation.
+
+#### EP-46 · `search` · Index the remaining TT entities ✅
 - **Edit**: `search.ts:122`
 - **Add**: index sources + presenters for `staff:staff_time_task`,
   `staff:staff_time_report`, `staff:staff_time_tag`, and optionally
   `staff:staff_time_entry` (notes) behind a feature gate.
 - **Unlocks**: command-palette and global search over tasks and reports; vector config
   contributions on top.
+- **Shipped**: all four, following the existing `buildTeamPresenter` idiom, with money
+  columns in `fieldPolicy.excluded` and no rate, cost or amount in any presenter.
+- **The question the spec did not ask, answered: yes, an indexed task or report WOULD
+  leak to a caller without project access — under the gate the spec implied.** The
+  search layer has **no row-level authorization**. `aclFeatures` is the only
+  authorization it applies, enforced twice per query (`resolveReadableEntityTypes`
+  narrows the entity list before, `filterSearchResultsByEntityAccess` filters results
+  after) but **per entity type** both times; `SearchEntityConfig` has no `filter` /
+  `authorize` hook and `SearchOptions` has no record-id allowlist. So a gate of
+  `tasks.view` alone would have handed every task title, reference and deep link in
+  the tenant to any holder of that feature, while `/api/staff/timesheets/tasks`
+  intersects the same query with `resolveProjectAccess`.
+- **What shipped instead**: each gate names the feature set whose holder already sees
+  every record of that entity through the API — `tasks.view` **+**
+  `projects.manage` for tasks, `reports.view` **+** `projects.manage` for reports,
+  `staff.timesheets.view` **+** `projects.manage` for entries (`projects.manage` is
+  what makes `resolveProjectAccess` answer `canManageAll`, the only state in which the
+  membership intersection stops). Tags are organization-global on their own route and
+  correctly carry only `staff.timesheets.view`. The consequence, documented in the
+  module `AGENTS.md`: a project member without `projects.manage` gets no task, report
+  or entry hits at all — including their own. The gate cannot express "own", and half
+  a gate discloses other clients' work.
+- **Tags resolve no URL.** There is no tag detail screen and the entries list
+  deep-links only `taskId` and `ids`, so `url` is left undefined (it is optional in
+  the result contract) rather than pointed somewhere wrong.
 
-#### EP-47 · `analytics` · Extend the analytics entity set
+#### EP-47 · `analytics` · Extend the analytics entity set ✅
 - **Edit**: `analytics.ts`
 - **Add**: `staff:staff_time_tasks`, `staff:staff_time_projects`,
-  `staff:staff_time_reports` entity configs; expose the custom-field columns from EP-43
-  through `fieldMappings` so contributed fields become dashboard dimensions.
+  `staff:staff_time_reports` entity configs; ~~expose the custom-field columns from
+  EP-43 through `fieldMappings` so contributed fields become dashboard dimensions~~.
+- **Shipped**: the three new configs plus additive mappings on the existing
+  `staff:staff_time_entries` (rounded minutes, task, customer, billability, lock),
+  each with `requiredFeatures` and `labelResolvers` pinned against the migration
+  snapshot by a test.
+- **The custom-field clause is struck, and the honest answer is no.**
+  `AnalyticsFieldMapping` is `{ dbColumn, type }`, and `dashboards/lib/aggregations.ts`
+  emits `dbColumn` as a bare identifier against the single `entityConfig.tableName`
+  (guarded by `isSafeIdentifier`). A mapping can therefore only ever name a real
+  column on that one table. The EP-43 custom fields are EAV rows in the `entities`
+  module's tables: there is no join facility, `labelResolvers` only resolves an
+  id → label from another table, and the jsonb-path form needs the values to live in a
+  jsonb column on the row itself. Even if the read path existed, P5 already
+  established the write path does not — a `cf_*` key posted to these command-backed
+  routes is dropped in silence.
+- **No money column is mapped**, deliberately: an `AnalyticsEntityConfig` carries one
+  `requiredFeatures` list for the whole entity, so there is no shape in which
+  `total_amount` or `hourly_rate` is gated on `staff.timesheets.rates.view` while the
+  rest of the entity stays readable by a plain viewer.
 
-#### EP-48 · `notification` · Reactive notification handlers + new types
+#### EP-48 · `notification` · Reactive notification handlers + new types ✅
 - **Add**: `notifications.handlers.ts` exporting `notificationHandlers`
 - **Edit**: `notifications.ts`
 - **Add types**: `time_entry.timer_running_long`, `time_report.ready_for_approval`,
   `time_report.approved`, `timesheet.period_incomplete`
-- **Unlocks**: `useNotificationEffect` reactions (auto-refresh, focus a row) and a
-  documented set of TT notification ids third parties can render or override.
+- **Shipped** as `staff.timesheets.time_entry.timer_running_long`,
+  `staff.timesheets.time_report.{ready_for_approval,approved}` and
+  `staff.timesheets.timesheet.period_incomplete` — the module's existing namespace —
+  each with actions, a `linkHref` and a browser handler carrying a stable override key.
+- **One of the four has a core raiser; three ship contributable-only, on purpose.**
+  `time_report.approved` is raised by `subscribers/time-report-approved-notification.ts`
+  on `time_report.closed`: closing IS the approval in this module (it freezes every
+  per-entry value, locks the entries and is gated on `staff.timesheets.lock`), and the
+  recipient is the report's author, never the closer. The other three would each need
+  machinery the module does not have and that inventing to justify an id would be the
+  tail wagging the dog — `ready_for_approval` needs a second approval step, which is
+  precisely what a `registerReportApprovalPolicy` contribution (EP-41) adds;
+  `timer_running_long` needs a scheduled sweep over open timers; `period_incomplete`
+  needs a capacity provider (EP-40) with an opinion about when to complain. Each ships
+  with its renderer, delivery preferences and browser handler in place, so a
+  contributed raiser gets a working notification without patching core. That is the
+  opposite of the dormant-id defect P1 removed: a dormant id was one core *claimed* to
+  emit and did not.
 
-#### EP-49 · `ai` · Time-tracking AI tool pack and agent
+#### EP-49 · `ai` · Time-tracking AI tool pack and agent ✅
 - **Add**: `packages/core/src/modules/staff/ai-tools.ts`, `ai-agents.ts`
 - **Tools**: `log_time`, `start_timer`, `stop_timer`, `summarize_week`,
-  `draft_client_report`, `find_missing_days` — mutations routed through
-  `prepareMutation` for the approval contract, ACL-gated by the `staff.timesheets.*` features.
-- **Read first**: `.ai/skills/om-create-ai-agent/SKILL.md`.
+  `draft_client_report`, `find_missing_days` — ~~mutations routed through
+  `prepareMutation` for the approval contract~~, ACL-gated by the `staff.timesheets.*`
+  features.
+- **Shipped**: six tools in `ai-tools/time-tracking-pack.ts` plus the
+  `staff.time_tracking_assistant` agent (`readOnly: false`,
+  `mutationPolicy: 'confirm-required'`).
+- **Correction: a module tool cannot route through `prepareMutation`, and none does.**
+  `prepareMutation` is framework code — its only production call site is
+  `agent-tools.ts` in `@open-mercato/ai-assistant`, which *intercepts* the model's tool
+  call, short-circuits the handler, persists an `AiPendingAction` and returns the
+  preview card. A tool opts into that contract by declaring `isMutation: true` and a
+  `loadBeforeRecord` resolver that renders the diff; the agent opts in with
+  `mutationPolicy: 'confirm-required'`. The handler then runs later, once, from the
+  confirm route, with the stored input. Calling `prepareMutation` from a tool would be
+  calling the interceptor from inside the thing it intercepts. (`.ai/skills/om-create-ai-agent/SKILL.md`
+  §5 and `packages/ai-assistant/AGENTS.md` line 170 both show the wrong skeleton; the
+  spec inherited it from them.)
+- **No time-entry write is reimplemented.** Every tool is API-backed through
+  `createAiApiOperationRunner`, which resolves the documented route from the generated
+  manifest and refuses a route whose `requiredFeatures` the tool does not itself
+  declare — so the gate is checked twice, and the route still applies the
+  project-access intersection, the mutation guards, the interceptors and the commands.
+- The pack acts as the caller's own staff member and no tool accepts a
+  `staffMemberId`. `draft_client_report` asks the preview route for `showRates: false`
+  and projects only minute columns, so an agent transcript never becomes a second,
+  ungated copy of a customer's rate card.
 
-### Group 9 — Portal and background work (2)
+### Group 9 — Portal and background work (2) ✅
 
-#### EP-50 · `portal` · Customer-portal report surface
+#### EP-50 · `portal` · Customer-portal report surface ✅
 - **Add**: a portal page under the `portal`/`customer_accounts` conventions rendering an
   approved `staff_time_report` for the signed-in customer, plus portal injection hosts
   `portal:staff.time_report:{before,after}` and portal nav injection.
 - **Depends on**: EP-06 (`portalBroadcast`), `requireCustomerFeatures` page guards.
 - **Unlocks**: clients seeing their own hours without a backoffice account.
+- **Shipped**: `frontend/[orgSlug]/portal/time-reports/{page,[id]/page}.tsx` with
+  `requireCustomerAuth` + `requireCustomerFeatures: ['portal.time_reports.view']` in
+  `page.meta.ts`, a `nav` block so the sidebar lists it, the two injection hosts on the
+  detail page, and `GET /api/staff/portal/time-reports{,/[id]}`.
+- **The ownership check, in full.** Four predicates in one WHERE clause, all four from
+  the customer session and none from the request:
+  `tenant_id = auth.tenantId`, `organization_id = auth.orgId`,
+  `customer_id = auth.customerEntityId`, `status = 'closed' AND deleted_at IS NULL`.
+  `customerEntityId` is `customer_users.customer_entity_id`, the FK into
+  `customers:customer_entity` — the same id `staff_time_reports.customer_id` holds, per
+  the link EP-44 declares. A session without one is refused `403` rather than shown an
+  unscoped list. The detail route loads the row **with** the predicates rather than
+  loading it and checking afterwards, so another customer's id is a `404` (never a
+  `403`, which would confirm it exists) and is never read even momentarily. The clause
+  lives once in `lib/time-tracking/portalReports.ts`.
+- **Money is structurally absent, not conditionally hidden.**
+  `staff.timesheets.rates.view` is a *staff* feature graded by `rbacService`; a portal
+  identity is graded by `CustomerRbacService` against the disjoint `portal.*` namespace
+  and can never hold it, so the module's "absent, not blanked" rule resolves to
+  "absent, always". The response schemas carry no rate, cost, amount or currency field
+  at all, the SQL does not select `frozen_rate_amount` / `frozen_amount`, and a test
+  fails if a money-shaped key appears in a response body.
+- **Staff takes no static dependency on `customer_accounts`**, so the extraction into
+  `@open-mercato/staff` stays possible: the routes resolve the portal identity with a
+  dynamic `import()` and answer `401` if it fails, and `portalRecipients.ts` reads
+  `customer_users` by table name through Kysely. `requires` is unchanged.
+- `portal.time_reports.view` is granted to `buyer` and `viewer` through
+  `setup.defaultCustomerRoleFeatures`, not `acl.ts` — that file is the staff catalog.
+- Portal broadcast is wired to the **new** EP-06 event, not to `time_report.closed`;
+  see the EP-06 entry for why.
 
-#### EP-51 · `worker` · Recalculation hook + CLI surface
+#### EP-51 · `worker` · Recalculation hook + CLI surface ✅
 - **Edit**: `workers/timesheets-reapply-rounding.ts`, `cli.ts`
 - **Add**: a `registerTimeTrackingRecalculation({ id, run(scope) })` hook the existing
   worker iterates, and matching `staff timesheets:recalculate --hook=<id>` CLI commands.
 - **Unlocks**: third-party rate/cost/rollup backfills reusing the progress + queue plumbing.
+- **Shipped** as `registerTimeTrackingRecalculation({ id, labelKey, priority?, run(ctx) })`
+  on P4's `createStrategyRegistry`, registry id `staff.time_tracking.recalculation`,
+  with the retro-rounding pass registered as the built-in
+  `staff.time_tracking.recalculation.rounding`. `run` receives `{ container, scope, report }`
+  and answers a count summary; it does **not** own the `ProgressJob`, because several
+  hooks share one when the CLI runs them together and a hook that started or completed
+  the job would fight the next one. `runTimeTrackingRecalculations` owns start / totals
+  / cancel / complete; marking a job failed stays the worker's, so the failure is never
+  written twice. Hooks run sequentially in registry order — they write the same rows.
+- **The settings route is byte-identical.** `ReapplyRoundingJobPayload` gained an
+  optional `hookIds`; absent — which is every job that route enqueues — resolves to the
+  built-in alone, so a contribution cannot attach itself to the retro-rounding button a
+  tenant pressed. `reapplyRoundingWithProgress` keeps its signature and behaviour (its
+  existing suite passes unmodified); the batching moved into `reapplyRoundingBatches`
+  so the runner and the wrapper share one copy of the candidate query and the
+  locked-entry exclusion.
+- **CLI**: `mercato staff timesheets:recalculate --tenant <id> [--org <id>] [--hook <id>[,<id>]]`
+  and `--list`. It enqueues onto the same queue with the same `ProgressJob` the
+  settings screen uses rather than doing the work in process — a CLI that wrote billing
+  data itself would be a second implementation of that write. An unknown `--hook` id
+  refuses to start rather than silently doing nothing.
 
 ---
 
@@ -839,7 +999,7 @@ supposed to "unlock" is still missing. Each entry below says which it is.
 | **P3 — UI hosts** ✅ | EP-17…EP-31 | Mostly additive props and `InjectionSpot` renders; low risk, high visible value. **Shipped**, except the server-side "my work" section contract (EP-25), deferred to P4 with reasoning above. |
 | **P4 — Domain registries** ✅ | EP-32…EP-41 | Each ships with the current behaviour as the registered default. **Shipped.** One migration (`Migration20260824143357_staff.ts`) covers EP-37 **and** EP-36: the grouping check constraint was as much a blocker to a contributed grouping round-tripping as the source constraint was to a contributed source, so both were dropped together. |
 | **P5 — Data model & settings** ✅ | EP-42…EP-45 | `ce.ts`, `data/extensions.ts`, `translations.ts`, settings registry. **Shipped**, with the honest scope written into each EP: EP-42 is a working registry, EP-43 and EP-44 are declaration surfaces whose consumers do not exist yet. **No migration** — `yarn db:generate` reports `staff: no changes`, because custom fields are EAV rows in the `entities` module's tables, not columns on the staff ones. Follow-up worth its own phase: the custom-field write/read path for the five command-backed time-tracking CRUD routes. |
-| **P6 — Reach** | EP-46…EP-51 | Search, analytics, notifications, AI, portal, workers. |
+| **P6 — Reach** ✅ | EP-46…EP-51, **and EP-06** | Search, analytics, notifications, AI, portal, workers. **Shipped.** EP-06 was **omitted from this phase table entirely** — it appears in no P1–P6 row, so no phase brief ever assigned it and it went unimplemented until P6 caught it. Closed here, though not the way the spec spelled it: the flag it asked for on `time_report.closed` would have broadcast one customer's report metadata to every other customer of the organization, so a separate pinned-recipient event id shipped instead. Two more spec claims corrected: search has no row-level authorization (EP-46), and a module tool cannot call `prepareMutation` (EP-49). Custom fields still cannot be analytics dimensions (EP-47). **No migration** — `yarn db:generate` reports no schema change; the phase adds no column. |
 | **P0 — Runs alongside** | EP-01 | Grow `extension-points.ts` as each phase lands; it is the catalog of everything above. |
 
 ## Part 4 — Cross-cutting requirements

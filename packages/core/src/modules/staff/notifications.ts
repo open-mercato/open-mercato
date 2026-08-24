@@ -120,6 +120,115 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/staff/time-tracking/projects/{sourceEntityId}',
     expiresAfterHours: 168, // 7 days
   },
+  {
+    /**
+     * EP-48. Raised by `subscribers/time-report-approved-notification.ts` when a
+     * report is closed — closing IS the approval in this module: it freezes every
+     * per-entry value and locks the entries, and `staff.timesheets.lock` is the
+     * feature that gates it. The recipient is the person who drafted the report,
+     * who otherwise learns about it only by reopening the screen.
+     */
+    type: 'staff.timesheets.time_report.approved',
+    module: 'staff',
+    titleKey: 'staff.notifications.timeReport.approved.title',
+    bodyKey: 'staff.notifications.timeReport.approved.body',
+    icon: 'file-check',
+    severity: 'success',
+    actions: [
+      {
+        id: 'open-report',
+        labelKey: 'staff.notifications.timeReport.actions.openReport',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/reports/{sourceEntityId}',
+      },
+    ],
+    primaryActionId: 'open-report',
+    linkHref: '/backend/staff/time-tracking/reports/{sourceEntityId}',
+    expiresAfterHours: 168, // 7 days
+  },
+  {
+    /**
+     * EP-48, contributable-only by design. The module has exactly one report
+     * transition — draft → closed — so there is no "submitted, awaiting a second
+     * pair of eyes" state for core to announce. This id exists so the multi-step
+     * approval a `registerReportApprovalPolicy` contribution (EP-41) implements
+     * has a published notification to raise instead of inventing its own, and so
+     * the renderer and delivery preferences are already in place when it does.
+     */
+    type: 'staff.timesheets.time_report.ready_for_approval',
+    module: 'staff',
+    titleKey: 'staff.notifications.timeReport.readyForApproval.title',
+    bodyKey: 'staff.notifications.timeReport.readyForApproval.body',
+    icon: 'file-clock',
+    severity: 'info',
+    actions: [
+      {
+        id: 'review-report',
+        labelKey: 'staff.notifications.timeReport.actions.reviewReport',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/reports/{sourceEntityId}',
+      },
+    ],
+    primaryActionId: 'review-report',
+    linkHref: '/backend/staff/time-tracking/reports/{sourceEntityId}',
+    expiresAfterHours: 168, // 7 days
+  },
+  {
+    /**
+     * EP-48, contributable-only by design. "This timer has been running for six
+     * hours" needs something that wakes up on a schedule and looks at open
+     * timers; the module ships no periodic job and inventing one to justify an id
+     * would be the tail wagging the dog. The id is the contract for a module that
+     * does ship one.
+     */
+    type: 'staff.timesheets.time_entry.timer_running_long',
+    module: 'staff',
+    titleKey: 'staff.notifications.timeEntryTimer.runningLong.title',
+    bodyKey: 'staff.notifications.timeEntryTimer.runningLong.body',
+    icon: 'timer',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'open-timesheet',
+        labelKey: 'staff.notifications.timesheet.actions.openTimesheet',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/timesheet',
+      },
+    ],
+    primaryActionId: 'open-timesheet',
+    linkHref: '/backend/staff/time-tracking/timesheet',
+    expiresAfterHours: 24,
+  },
+  {
+    /**
+     * EP-48, contributable-only by design. Whether a period is "incomplete" is
+     * the capacity provider's question (EP-40), and the built-in provider spreads
+     * one flat daily number over the caller's working days on demand — it has no
+     * schedule and no opinion about when to complain. A contributed provider that
+     * knows contract hours and leave is the thing that can raise this honestly.
+     */
+    type: 'staff.timesheets.timesheet.period_incomplete',
+    module: 'staff',
+    titleKey: 'staff.notifications.timesheet.periodIncomplete.title',
+    bodyKey: 'staff.notifications.timesheet.periodIncomplete.body',
+    icon: 'calendar-clock',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'open-timesheet',
+        labelKey: 'staff.notifications.timesheet.actions.openTimesheet',
+        variant: 'default',
+        icon: 'external-link',
+        href: '/backend/staff/time-tracking/timesheet',
+      },
+    ],
+    primaryActionId: 'open-timesheet',
+    linkHref: '/backend/staff/time-tracking/timesheet',
+    expiresAfterHours: 168, // 7 days
+  },
 ]
 
 export default notificationTypes

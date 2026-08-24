@@ -44,6 +44,21 @@ export const setup: ModuleSetupConfig = {
       'staff.timesheets.rates.view',
     ],
   },
+
+  /**
+   * EP-50. `portal.time_reports.view` is a **customer** feature, granted through
+   * `CustomerRoleAcl`, and it is deliberately absent from `acl.ts` — that file is
+   * the staff feature catalog and the two namespaces are graded by different RBAC
+   * services.
+   *
+   * `viewer` gets it as well as `buyer`: reading the hours already delivered is a
+   * read, and a client who may see their invoices may see what they paid for.
+   * `portal_admin` holds `portal.*` and needs no entry.
+   */
+  defaultCustomerRoleFeatures: {
+    buyer: ['portal.time_reports.view'],
+    viewer: ['portal.time_reports.view'],
+  },
 }
 
 export default setup
