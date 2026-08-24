@@ -56,7 +56,7 @@ Ship the verified dashboard comparison-label corrections while keeping issue #54
 
 ### Phase 2: Address requested review scope correction
 
-- [ ] 2.1 Replace the closing issue linkage and record the dashboard-only coverage on issue #5497
+- [x] 2.1 Replace the closing issue linkage and record the dashboard-only coverage on issue #5497 — f4da892
 
 ### Phase 3: Re-verify and review the final PR
 
