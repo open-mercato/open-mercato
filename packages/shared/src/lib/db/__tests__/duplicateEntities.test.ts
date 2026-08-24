@@ -1,5 +1,7 @@
 import 'reflect-metadata'
 import { EntitySchema, MetadataStorage } from '@mikro-orm/core'
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
+import { MikroORM } from '@mikro-orm/postgresql'
 import { findDuplicateRegisteredEntityClassNames } from '../duplicateEntities'
 import { Invoice as InvoiceBilling } from './fixtures/invoiceBilling'
 import { Invoice as InvoiceSubscriptions } from './fixtures/invoiceSubscriptions'
@@ -30,24 +32,65 @@ function clearModuleIdStamp(entity: unknown): void {
 }
 
 describe('MikroORM name-based resolution (upstream behaviour pin)', () => {
-  // Pins the @mikro-orm/core 7.1.9 behaviour this guard exists for. MetadataStorage
-  // keeps a constructor-keyed map and a name-keyed one, and `find()` falls through to
-  // the name-keyed one. If a future MikroORM starts detecting class-name collisions
-  // itself, this test fails and the guard can be reconsidered.
-  it('silently aliases a second entity class onto the first one sharing its name', () => {
+  // Pins the @mikro-orm/core 7.1.9 behaviour this guard exists for, through real
+  // discovery rather than bare MetadataStorage calls. Discovery keeps one metadata entry
+  // per constructor, so class-based lookups stay correct; the name-keyed map holds only
+  // one of the same-named classes, so everything resolved by name silently picks a
+  // winner. If a future MikroORM starts detecting class-name collisions itself, this
+  // test fails and the guard can be reconsidered.
+  //
+  // `connect: false` keeps it DB-free: discovery and metadata validation run in full,
+  // no connection is opened.
+  let orm: MikroORM
+
+  beforeAll(async () => {
+    orm = await MikroORM.init({
+      entities: [InvoiceBilling, InvoiceSubscriptions],
+      metadataProvider: ReflectMetadataProvider,
+      dbName: 'duplicate-entity-class-names-probe',
+      connect: false,
+      discovery: { warnWhenNoEntities: false },
+      allowGlobalContext: true,
+    })
+  })
+
+  afterAll(async () => {
+    await orm?.close(true)
+  })
+
+  it('accepts both same-named classes without any duplicate error', () => {
     expect(InvoiceBilling).not.toBe(InvoiceSubscriptions)
     expect(InvoiceBilling.name).toBe('Invoice')
     expect(InvoiceSubscriptions.name).toBe('Invoice')
+  })
 
-    const storage = new MetadataStorage()
-    storage.get(InvoiceBilling, true)
-    storage.get(InvoiceSubscriptions, true)
+  it('keeps class-based lookups correct, which is why this never fails loudly', () => {
+    const metadata = orm.getMetadata()
 
-    expect(storage.find(InvoiceBilling)?.class).toBe(InvoiceBilling)
-    // The collision: the second class never gets its own metadata, it resolves the
-    // first one's — so it would be mapped to the first class's table.
-    expect(storage.find(InvoiceSubscriptions)?.class).toBe(InvoiceBilling)
-    expect(storage.find('Invoice')?.class).toBe(InvoiceBilling)
+    expect(metadata.find(InvoiceBilling)?.tableName).toBe('duplicate_entity_fixture_billing')
+    expect(metadata.find(InvoiceSubscriptions)?.tableName).toBe('duplicate_entity_fixture_subscriptions')
+  })
+
+  it('resolves the name to exactly one of them, so the other is unreachable by name', () => {
+    const metadata = orm.getMetadata()
+    const byName = metadata.find('Invoice')
+
+    expect(byName).toBeDefined()
+    // Registration order decides the winner; the point is that one of the two is simply
+    // gone from every name-based path.
+    expect([
+      'duplicate_entity_fixture_billing',
+      'duplicate_entity_fixture_subscriptions',
+    ]).toContain(byName?.tableName)
+    expect(metadata.find(InvoiceBilling)?.tableName === byName?.tableName).not.toBe(
+      metadata.find(InvoiceSubscriptions)?.tableName === byName?.tableName,
+    )
+  })
+
+  it('hands a name-based repository the winner regardless of which module asked', () => {
+    const repositoryTable = orm.em.getRepository('Invoice').getEntityManager().getMetadata().find('Invoice')?.tableName
+
+    expect(repositoryTable).toBe(orm.getMetadata().find('Invoice')?.tableName)
   })
 })
 

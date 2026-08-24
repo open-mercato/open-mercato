@@ -6,7 +6,10 @@ import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from 
 import { getSslConfig } from './ssl'
 import { createLogger } from '../logger'
 import { findDuplicateRegisteredEntityClassNames } from './duplicateEntities'
-import { formatDuplicateEntityClassNamesWarning } from './duplicateEntityClassNames'
+import {
+  toDuplicateEntityClassNameFields,
+  type DuplicateEntityClassNameGroup,
+} from './duplicateEntityClassNames'
 
 const logger = createLogger('shared').child({ component: 'orm' })
 
@@ -16,17 +19,29 @@ let ormInstance: AppMikroORM | null = null
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
 const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
-// Same reason, plus HMR: a module-level set would reset on the very reloads it exists to
+// Same reason, plus HMR: a module-level map would reset on the very reloads it exists to
 // deduplicate across.
 const GLOBAL_REPORTED_DUPLICATE_ENTITY_NAMES_KEY = '__openMercatoReportedDuplicateEntityClassNames__'
 
-function getReportedDuplicateEntityClassNames(): Set<string> {
+function getReportedDuplicateEntityClassNames(): Map<string, string> {
   const globals = globalThis as Record<string, unknown>
   const existing = globals[GLOBAL_REPORTED_DUPLICATE_ENTITY_NAMES_KEY]
-  if (existing instanceof Set) return existing as Set<string>
-  const created = new Set<string>()
+  if (existing instanceof Map) return existing as Map<string, string>
+  const created = new Map<string, string>()
   globals[GLOBAL_REPORTED_DUPLICATE_ENTITY_NAMES_KEY] = created
   return created
+}
+
+/**
+ * Identifies a collision by the modules and files that contribute to it, so a
+ * re-registration reporting the same name from a different pair of modules is a new
+ * collision rather than a repeat.
+ */
+function fingerprintCollision(group: DuplicateEntityClassNameGroup): string {
+  return group.sources
+    .map((source) => `${source.moduleId ?? ''}|${source.sourcePath ?? ''}`)
+    .sort((left, right) => left.localeCompare(right))
+    .join(',')
 }
 
 function getRegisteredEntities(): any[] | null {
@@ -45,17 +60,17 @@ function setRegisteredEntities(entities: any[]): void {
 function warnOnDuplicateEntityClassNames(entities: readonly unknown[]): void {
   try {
     const duplicates = findDuplicateRegisteredEntityClassNames(entities)
-    if (duplicates.length === 0) return
-    // Development re-runs registration on every HMR reload, so report each colliding
-    // name once per process. Reprinting the whole warning on every reload buries it.
-    // A newly introduced collision still reports, because its name is not yet recorded.
+    // Development re-runs registration on every HMR reload, so report a collision only
+    // when it appears or its contributing modules change. Reprinting the same warning on
+    // every reload buries it, while tracking the previous registration rather than every
+    // name ever seen keeps a collision that was fixed and reintroduced reportable.
     const reported = getReportedDuplicateEntityClassNames()
-    const fresh = duplicates.filter((group) => !reported.has(group.className))
+    const current = new Map(duplicates.map((group) => [group.className, fingerprintCollision(group)]))
+    const fresh = duplicates.filter((group) => reported.get(group.className) !== current.get(group.className))
+    reported.clear()
+    for (const [className, fingerprint] of current) reported.set(className, fingerprint)
     if (fresh.length === 0) return
-    for (const group of fresh) reported.add(group.className)
-    logger.warn(`[Bootstrap] ${formatDuplicateEntityClassNamesWarning(fresh)}`, {
-      classNames: fresh.map((group) => group.className),
-    })
+    logger.warn('Duplicate entity class names across enabled modules', toDuplicateEntityClassNameFields(fresh))
   } catch (err) {
     // This check is a diagnostic. It must never be the reason a bootstrap fails.
     logger.debug('Duplicate entity class name check skipped', { err })

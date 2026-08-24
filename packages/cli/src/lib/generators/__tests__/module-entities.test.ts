@@ -196,3 +196,134 @@ describe('generateModuleEntities duplicate entity class names', () => {
     expect(warnSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('generateModuleEntities duplicate detection in standalone installs', () => {
+  // A standalone install resolves a package module to its compiled dist tree, where a
+  // decorated class is no longer a class declaration. Published packages ship
+  // src/modules too, so parsing prefers that mirror and falls back to the compiled file.
+  const PACKAGE = '@open-mercato/core'
+
+  let warnSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  function packageRoot(): string {
+    return path.join(tmpDir, 'app', 'node_modules', PACKAGE)
+  }
+
+  function createStandaloneResolver(enabled: ModuleEntry[]): PackageResolver {
+    const outputDir = path.join(tmpDir, 'app', '.mercato', 'generated')
+    fs.mkdirSync(outputDir, { recursive: true })
+
+    return {
+      isMonorepo: () => false,
+      getRootDir: () => path.join(tmpDir, 'app'),
+      getAppDir: () => path.join(tmpDir, 'app'),
+      getOutputDir: () => outputDir,
+      getModulesConfigPath: () => path.join(tmpDir, 'app', 'src', 'modules.ts'),
+      discoverPackages: () => [],
+      loadEnabledModules: () => enabled,
+      getModulePaths: (entry: ModuleEntry) => ({
+        appBase: path.join(tmpDir, 'app', 'src', 'modules', entry.id),
+        pkgBase: path.join(packageRoot(), 'dist', 'modules', entry.id),
+      }),
+      getModuleImportBase: (entry: ModuleEntry) => ({
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `${PACKAGE}/modules/${entry.id}`,
+      }),
+      getPackageOutputDir: () => outputDir,
+      getPackageRoot: () => packageRoot(),
+    }
+  }
+
+  const compiledEntity = (className: string, tableName: string) => `
+import { Entity } from "@mikro-orm/decorators/legacy";
+let ${className} = class {
+};
+${className} = __decorateClass([
+  Entity({ tableName: "${tableName}" })
+], ${className});
+export {
+  ${className}
+};
+`
+
+  const sourceEntity = (className: string, tableName: string) =>
+    `import { Entity } from '@mikro-orm/decorators/legacy'\n\n@Entity({ tableName: '${tableName}' })\nexport class ${className} {}\n`
+
+  function distModule(id: string, className: string, tableName: string): ModuleEntry {
+    touchFile(path.join(packageRoot(), 'dist', 'modules', id, 'data', 'entities.js'), compiledEntity(className, tableName))
+    return { id, from: PACKAGE }
+  }
+
+  function withSourceMirror(id: string, className: string, tableName: string): void {
+    touchFile(path.join(packageRoot(), 'src', 'modules', id, 'data', 'entities.ts'), sourceEntity(className, tableName))
+  }
+
+  it('detects a package-to-package collision through the shipped source mirror', async () => {
+    const modules = [
+      distModule('billing', 'Invoice', 'billing_invoices'),
+      distModule('subscriptions', 'Invoice', 'subscription_invoices'),
+    ]
+    withSourceMirror('billing', 'Invoice', 'billing_invoices')
+    withSourceMirror('subscriptions', 'Invoice', 'subscription_invoices')
+
+    const result = await generateModuleEntities({ resolver: createStandaloneResolver(modules), quiet: true })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const message = warnSpy.mock.calls[0][0] as string
+    expect(message).toContain('Invoice')
+    expect(message).toContain(path.join('src', 'modules', 'billing', 'data', 'entities.ts'))
+    expect(result.errors).toEqual([])
+    // The runtime import still points at the compiled package entry.
+    expect(readGenerated(tmpDir)).toContain(`from "${PACKAGE}/modules/billing/data/entities"`)
+  })
+
+  it('detects the collision from compiled output when a package ships dist only', async () => {
+    const modules = [
+      distModule('billing', 'Invoice', 'billing_invoices'),
+      distModule('subscriptions', 'Invoice', 'subscription_invoices'),
+    ]
+
+    await generateModuleEntities({ resolver: createStandaloneResolver(modules), quiet: true })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const message = warnSpy.mock.calls[0][0] as string
+    expect(message).toContain('Invoice')
+    expect(message).toContain(path.join('dist', 'modules', 'subscriptions', 'data', 'entities.js'))
+  })
+
+  it('detects a package-to-app collision', async () => {
+    const modules = [
+      distModule('billing', 'Invoice', 'billing_invoices'),
+      { id: 'reporting', from: '@app' } as ModuleEntry,
+    ]
+    withSourceMirror('billing', 'Invoice', 'billing_invoices')
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'reporting', 'data', 'entities.ts'),
+      sourceEntity('Invoice', 'reporting_invoices'),
+    )
+
+    await generateModuleEntities({ resolver: createStandaloneResolver(modules), quiet: true })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0][0] as string).toContain('reporting')
+  })
+
+  it('stays silent when compiled package entity class names are unique', async () => {
+    const modules = [
+      distModule('billing', 'Invoice', 'billing_invoices'),
+      distModule('subscriptions', 'Subscription', 'subscriptions'),
+    ]
+
+    await generateModuleEntities({ resolver: createStandaloneResolver(modules), quiet: true })
+
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+})

@@ -6,7 +6,7 @@ import {
   formatDuplicateEntityClassNamesWarning,
   type EntityClassNameEntry,
 } from '@open-mercato/shared/lib/db/duplicateEntityClassNames'
-import type { PackageResolver } from '../resolver'
+import type { ModuleEntry, PackageResolver } from '../resolver'
 import { parseEntityClassNames } from './entity-class-declarations'
 import { MODULE_CODE_EXTENSIONS, stripModuleCodeExtension } from './scanner'
 import {
@@ -102,7 +102,7 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     imports.push({ name: importName, moduleSpecifier: relImport })
     entitySources.push({ importName, moduleId: modId })
 
-    const entityFilePath = path.join(found.base, found.file)
+    const entityFilePath = resolveEntitySourceFile(resolver, entry, found)
     for (const className of parseEntityClassNames(entityFilePath)) {
       classNameEntries.push({ className, moduleId: modId, sourcePath: entityFilePath })
     }
@@ -241,6 +241,28 @@ function warnOnDuplicateEntityClassNames(entries: readonly EntityClassNameEntry[
   } catch {
     // This check is a diagnostic. It must never be the reason generation fails.
   }
+}
+
+/**
+ * The file to read class names out of, which is not always the file the runtime imports.
+ * A standalone install resolves a package module to its compiled `dist/modules` tree, and
+ * published packages ship `src/modules` alongside it — so prefer the shipped source, the
+ * way `eject` already does, and leave the runtime import pointing at `dist`. A package
+ * that ships compiled output only falls back to the resolved base, which the parser also
+ * understands.
+ */
+function resolveEntitySourceFile(
+  resolver: PackageResolver,
+  entry: ModuleEntry,
+  found: { base: string; file: string },
+): string {
+  const resolved = path.join(found.base, found.file)
+  const from = entry.from
+  if (!from || from === '@app') return resolved
+  const sourceBase = path.join(resolver.getPackageRoot(from), 'src', 'modules', entry.id, path.basename(found.base))
+  if (path.resolve(sourceBase) === path.resolve(found.base)) return resolved
+  const sourceFile = resolveConventionFile(sourceBase, stripModuleCodeExtension(found.file))
+  return sourceFile ?? resolved
 }
 
 function resolveConventionFile(baseDir: string, basename: string): string | null {

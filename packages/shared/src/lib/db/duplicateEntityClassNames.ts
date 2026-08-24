@@ -1,12 +1,12 @@
 /**
  * Detection and reporting for entity class names contributed by more than one module.
  *
- * MikroORM keys entity metadata by the JS class name. `MetadataStorage` holds both a
- * constructor-keyed map and a name-keyed one, and `find()` falls through to the
- * name-keyed one, so when discovery calls `get(cls, true)` for a second class sharing a
- * name it resolves the first class's metadata instead of creating its own. The two
- * classes silently collapse onto one set of metadata — table name included — rather
- * than failing discovery.
+ * MikroORM keys metadata by the JS class name. Discovery does keep a separate metadata
+ * entry per constructor, so class-based lookups such as `em.find(Invoice)` stay correct,
+ * but every name-based resolution — a string relation target, `getRepository('<Name>')`,
+ * relation discovery, serialization — goes through the name-keyed map, where only one of
+ * the same-named classes survives. Which one wins is decided by registration order, and
+ * the loser is reachable by class only. Nothing fails; the wrong table is simply used.
  *
  * Nothing upstream catches it: `discovery.checkDuplicateEntities` is declared as a
  * default in @mikro-orm/core 7.1.9 but is read nowhere, and the one live check compares
@@ -18,6 +18,16 @@
  * is kept separate from reporting so each caller decides whether a collision warns or
  * throws.
  */
+
+/**
+ * Stable, constant sentences shared by both reporting surfaces: the structured runtime
+ * log line puts them in fields, the generator renders them inline.
+ */
+export const DUPLICATE_ENTITY_CLASS_NAMES_REASON =
+  "MikroORM keeps one metadata entry per constructor, so class-based lookups such as em.find(<Name>) stay correct, but every name-based resolution — string relation targets, getRepository('<Name>'), relation discovery and serialization — goes through the name-keyed map, where only one of the same-named classes survives. Which one wins depends on registration order, so the other silently reads and writes the surviving class's table."
+
+export const DUPLICATE_ENTITY_CLASS_NAMES_REMEDIATION =
+  'Rename all but one of the colliding classes so every entity class name is unique across enabled modules, then update their exports, relation targets and imports. Table names may stay as they are.'
 
 export type EntityClassNameEntry = {
   className: string
@@ -105,8 +115,8 @@ export function formatDuplicateEntityClassNamesWarning(
   const names = groups.map((group) => `"${group.className}"`).join(', ')
   const lines = [
     `Duplicate entity class name(s) defined by more than one enabled module: ${names}.`,
-    "MikroORM resolves entities by JS class name for string relation targets, getRepository('<Name>'), relation discovery and serialization, so one silently shadows the other — the shadowed class ends up aliased to the surviving class's metadata, table name included. Class-based lookups such as em.find(<Name>) keep working, which is why this never fails loudly.",
-    'Rename all but one of the classes below so every entity class name is unique across enabled modules, then update their exports, relation targets and imports. Table names may stay as they are.',
+    DUPLICATE_ENTITY_CLASS_NAMES_REASON,
+    DUPLICATE_ENTITY_CLASS_NAMES_REMEDIATION,
   ]
   for (const group of groups) {
     lines.push(`  ${group.className}`)
@@ -115,4 +125,26 @@ export function formatDuplicateEntityClassNamesWarning(
     }
   }
   return lines.join('\n')
+}
+
+export type DuplicateEntityClassNameFields = {
+  classNames: string[]
+  duplicates: Array<{ className: string; sources: DuplicateEntityClassNameSource[] }>
+  reason: string
+  remediation: string
+}
+
+/**
+ * The same collisions as queryable fields, for callers logging through the structured
+ * facade, where the message must stay constant and the dynamic values live beside it.
+ */
+export function toDuplicateEntityClassNameFields(
+  groups: readonly DuplicateEntityClassNameGroup[],
+): DuplicateEntityClassNameFields {
+  return {
+    classNames: groups.map((group) => group.className),
+    duplicates: groups.map((group) => ({ className: group.className, sources: group.sources })),
+    reason: DUPLICATE_ENTITY_CLASS_NAMES_REASON,
+    remediation: DUPLICATE_ENTITY_CLASS_NAMES_REMEDIATION,
+  }
 }

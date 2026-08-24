@@ -1,6 +1,9 @@
 import {
+  DUPLICATE_ENTITY_CLASS_NAMES_REASON,
+  DUPLICATE_ENTITY_CLASS_NAMES_REMEDIATION,
   findDuplicateEntityClassNames,
   formatDuplicateEntityClassNamesWarning,
+  toDuplicateEntityClassNameFields,
 } from '../duplicateEntityClassNames'
 
 describe('findDuplicateEntityClassNames', () => {
@@ -97,7 +100,7 @@ describe('formatDuplicateEntityClassNamesWarning', () => {
     expect(message).toContain('  Invoice')
     expect(message).toContain('    - billing (/repo/modules/billing/data/entities.ts)')
     expect(message).toContain('    - subscriptions (/repo/modules/subscriptions/data/entities.ts)')
-    expect(message).toContain('Rename all but one of the classes below')
+    expect(message).toContain('Rename all but one of the colliding classes')
   })
 
   it('lists every colliding name in one message', () => {
@@ -135,5 +138,35 @@ describe('formatDuplicateEntityClassNamesWarning', () => {
 
     const sourceLine = message.split('\n').find((line) => line.startsWith('    - '))
     expect(sourceLine).toBe('    - billing')
+  })
+})
+
+describe('toDuplicateEntityClassNameFields', () => {
+  // The runtime surface logs through the structured facade, where the message must stay
+  // constant and every dynamic value has to be a queryable field.
+  it('carries the collisions as fields beside the constant explanation', () => {
+    const groups = findDuplicateEntityClassNames([
+      { className: 'Invoice', moduleId: 'billing', sourcePath: '/repo/modules/billing/data/entities.ts' },
+      { className: 'Invoice', moduleId: 'subscriptions', sourcePath: '/repo/modules/subscriptions/data/entities.ts' },
+    ])
+
+    expect(toDuplicateEntityClassNameFields(groups)).toEqual({
+      classNames: ['Invoice'],
+      duplicates: [
+        {
+          className: 'Invoice',
+          sources: [
+            { moduleId: 'billing', sourcePath: '/repo/modules/billing/data/entities.ts' },
+            { moduleId: 'subscriptions', sourcePath: '/repo/modules/subscriptions/data/entities.ts' },
+          ],
+        },
+      ],
+      reason: DUPLICATE_ENTITY_CLASS_NAMES_REASON,
+      remediation: DUPLICATE_ENTITY_CLASS_NAMES_REMEDIATION,
+    })
+  })
+
+  it('stays empty for no collisions', () => {
+    expect(toDuplicateEntityClassNameFields([]).classNames).toEqual([])
   })
 })

@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { MetadataStorage } from '@mikro-orm/core'
 import { Invoice as InvoiceBilling } from './fixtures/invoiceBilling'
 import { Invoice as InvoiceSubscriptions } from './fixtures/invoiceSubscriptions'
+import { Invoice as InvoiceReporting } from './fixtures/invoiceReporting'
 import { Ledger as LedgerBilling } from './fixtures/ledgerBilling'
 import { Ledger as LedgerSubscriptions } from './fixtures/ledgerSubscriptions'
 
@@ -58,13 +59,21 @@ describe('registerOrmEntities duplicate class name reporting', () => {
     registerOrmEntities(entities)
 
     expect(warn).toHaveBeenCalledTimes(1)
-    const message = warn.mock.calls[0][0] as string
-    expect(message).toContain('[Bootstrap] Duplicate entity class name(s)')
-    expect(message).toContain('Invoice')
-    expect(message).toContain('billing')
-    expect(message).toContain('subscriptions')
-    expect(message).toContain(readSourcePath(InvoiceBilling))
-    expect(message).toContain(readSourcePath(InvoiceSubscriptions))
+    // The structured-logging contract keeps the message constant and the dynamic values
+    // in queryable fields.
+    const [message, fields] = warn.mock.calls[0] as [string, Record<string, unknown>]
+    expect(message).toBe('Duplicate entity class names across enabled modules')
+    expect(fields.classNames).toEqual(['Invoice'])
+    expect(fields.duplicates).toEqual([
+      {
+        className: 'Invoice',
+        sources: [
+          { moduleId: 'billing', sourcePath: readSourcePath(InvoiceBilling) },
+          { moduleId: 'subscriptions', sourcePath: readSourcePath(InvoiceSubscriptions) },
+        ],
+      },
+    ])
+    expect(typeof fields.remediation).toBe('string')
     // Warning-only by design: registration must still complete.
     expect(getOrmEntities()).toBe(entities)
   })
@@ -120,9 +129,36 @@ describe('registerOrmEntities duplicate class name reporting', () => {
     registerOrmEntities([InvoiceBilling, InvoiceSubscriptions, LedgerBilling, LedgerSubscriptions])
 
     expect(warn).toHaveBeenCalledTimes(2)
-    const second = warn.mock.calls[1][0] as string
-    expect(second).toContain('Ledger')
     // The already-reported name is not repeated.
-    expect(second).not.toContain('  Invoice')
+    expect(warn.mock.calls[1][1].classNames).toEqual(['Ledger'])
+  })
+
+  it('reports a collision again after it was fixed and reintroduced', async () => {
+    const { registerOrmEntities } = await import('../mikro')
+
+    registerOrmEntities([InvoiceBilling, InvoiceSubscriptions])
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    // The developer renames one of them; the next reload is clean.
+    registerOrmEntities([InvoiceBilling])
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    // Reverting the rename must warn again rather than stay silent forever.
+    registerOrmEntities([InvoiceBilling, InvoiceSubscriptions])
+
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls[1][1].classNames).toEqual(['Invoice'])
+  })
+
+  it('reports again when the same class name starts colliding with a different module', async () => {
+    const { registerOrmEntities } = await import('../mikro')
+
+    registerOrmEntities([InvoiceBilling, InvoiceSubscriptions])
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    registerOrmEntities([InvoiceBilling, InvoiceReporting])
+
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls[1][1].classNames).toEqual(['Invoice'])
   })
 })
