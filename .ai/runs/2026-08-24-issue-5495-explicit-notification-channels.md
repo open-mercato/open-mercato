@@ -53,4 +53,4 @@ Keep the explicit built-in notification channel policy enforced across packages 
 
 ### Phase 2: Restore and verify CI coverage
 
-- [ ] 2.1 Register the cross-package notification policy test as a repo-wide guard, run the targeted and full validation gates, complete review, and push the verified fix
+- [x] 2.1 Register the cross-package notification policy test as a repo-wide guard, run the targeted and full validation gates, complete review, and push the verified fix — ce9a7c0a3
