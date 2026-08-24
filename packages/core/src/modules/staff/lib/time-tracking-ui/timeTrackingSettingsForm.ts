@@ -16,7 +16,8 @@
 
 import { formatDuration } from '../time-tracking/duration'
 import { roundMinutes, type RoundingSettings, type RoundingUnitMinutes } from '../time-tracking/rounding'
-import type { TimeTrackingSettings } from '../time-tracking/settings'
+import { contributedTimeTrackingSettingKeys } from '../time-tracking/settingKeys'
+import { readTimeTrackingSettingValue, type TimeTrackingSettings } from '../time-tracking/settings'
 
 export const ROUNDING_UNIT_OPTIONS: readonly RoundingUnitMinutes[] = [0, 5, 10, 15]
 
@@ -64,7 +65,14 @@ export type TimeTrackingSettingsDraft = {
   warningsOverlap: boolean
   warningsRunningTimer: boolean
   assignmentGraceDaysText: string
+  /**
+   * EP-42 — every contributed setting key, by its `<group>.<key>` id, carried through
+   * the draft untouched so the page's own Save round-trips a contribution it knows
+   * nothing about. The eight built-ins are NOT in here: the page renders those itself.
+   */
+  contributed: Record<string, unknown>
 }
+
 
 export const MAX_ASSIGNMENT_GRACE_DAYS_INPUT = 365
 
@@ -78,6 +86,12 @@ export function toSettingsDraft(settings: TimeTrackingSettings): TimeTrackingSet
     warningsOverlap: settings.warnings.overlap,
     warningsRunningTimer: settings.warnings.runningTimer,
     assignmentGraceDaysText: String(settings.access.assignmentGraceDays),
+    contributed: Object.fromEntries(
+      contributedTimeTrackingSettingKeys().map((entry) => [
+        entry.id,
+        readTimeTrackingSettingValue(settings, entry.id),
+      ]),
+    ),
   }
 }
 
@@ -116,7 +130,7 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
   const dailyHours = parseDailyHours(draft.dailyHoursText)
   const assignmentGraceDays = parseGraceDays(draft.assignmentGraceDaysText)
   if (dailyHours === undefined || assignmentGraceDays === undefined) return null
-  return {
+  const payload: TimeTrackingSettings = {
     rounding: draftRounding(draft),
     defaults: {
       billable: draft.defaultsBillable,
@@ -126,6 +140,12 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
     warnings: { overlap: draft.warningsOverlap, runningTimer: draft.warningsRunningTimer },
     access: { assignmentGraceDays },
   }
+  for (const entry of contributedTimeTrackingSettingKeys()) {
+    const group = (payload[entry.group] ?? {}) as Record<string, unknown>
+    group[entry.key] = draft.contributed[entry.id]
+    payload[entry.group] = group
+  }
+  return payload
 }
 
 export function isSettingsDraftDirty(
@@ -140,6 +160,9 @@ export function isSettingsDraftDirty(
     draft.dailyHoursText.trim() !== baseline.dailyHoursText.trim() ||
     draft.warningsOverlap !== baseline.warningsOverlap ||
     draft.warningsRunningTimer !== baseline.warningsRunningTimer ||
-    draft.assignmentGraceDaysText.trim() !== baseline.assignmentGraceDaysText.trim()
+    draft.assignmentGraceDaysText.trim() !== baseline.assignmentGraceDaysText.trim() ||
+    contributedTimeTrackingSettingKeys().some(
+      (entry) => !Object.is(draft.contributed[entry.id], baseline.contributed[entry.id]),
+    )
   )
 }

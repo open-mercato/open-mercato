@@ -11,7 +11,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../events'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { staffTimeTrackingSettingsSchema } from '../../../data/validators'
+import { buildTimeTrackingSettingsSchema } from '../../../lib/time-tracking/settingKeys'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
 import {
@@ -36,26 +36,14 @@ export const metadata = {
   PUT: { requireAuth: true, requireFeatures: [MANAGE_FEATURE] },
 }
 
-const settingsResponseSchema = z.object({
-  rounding: z.object({
-    unitMinutes: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(15)]),
-    direction: z.enum(['up', 'nearest']),
-  }),
-  defaults: z.object({
-    billable: z.boolean(),
-    chainStartFromPreviousEnd: z.boolean(),
-  }),
-  targets: z.object({
-    dailyHours: z.number().nullable(),
-  }),
-  warnings: z.object({
-    overlap: z.boolean(),
-    runningTimer: z.boolean(),
-  }),
-  access: z.object({
-    assignmentGraceDays: z.number(),
-  }),
-})
+/**
+ * EP-42 — derived from the setting-key registry, so a contributed key is published in
+ * the OpenAPI response shape instead of being invisible to it. Rebuilt per read for the
+ * same reason the request schema is: a key may be registered after this module loads.
+ */
+function settingsResponseSchema(): z.ZodTypeAny {
+  return buildTimeTrackingSettingsSchema()
+}
 
 type RbacServiceLike = {
   getGrantedFeatures?: (
@@ -170,7 +158,8 @@ async function PUT(req: Request) {
     if (!interceptors.ok) return interceptors.response
     const { session } = interceptors
 
-    const parsed = staffTimeTrackingSettingsSchema.parse(session.body)
+    const settingsSchema = buildTimeTrackingSettingsSchema()
+    const parsed = settingsSchema.parse(session.body)
 
     const guardResult = await runRouteMutationGuards({
       container: context.container,
@@ -191,7 +180,7 @@ async function PUT(req: Request) {
     if (!guardResult.ok) return guardResult.response
 
     const effective = guardResult.modifiedPayload
-      ? staffTimeTrackingSettingsSchema.parse({ ...parsed, ...guardResult.modifiedPayload })
+      ? settingsSchema.parse({ ...parsed, ...guardResult.modifiedPayload })
       : parsed
 
     const settings: TimeTrackingSettings = await writeTimeTrackingSettings(
@@ -237,19 +226,25 @@ async function errorResponse(err: unknown, message: string) {
 const getDoc: OpenApiMethodDoc = {
   summary: 'Read time tracking settings',
   tags: ['Staff'],
-  responses: [
-    { status: 200, description: 'Tenant time tracking settings', schema: settingsResponseSchema },
-    { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
-  ],
+  get responses() {
+    return [
+      { status: 200, description: 'Tenant time tracking settings', schema: settingsResponseSchema() },
+      { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+    ]
+  },
 }
 
 const putDoc: OpenApiMethodDoc = {
   summary: 'Update time tracking settings',
   tags: ['Staff'],
-  requestBody: { schema: staffTimeTrackingSettingsSchema },
-  responses: [
-    { status: 200, description: 'Updated time tracking settings', schema: settingsResponseSchema },
-  ],
+  get requestBody() {
+    return { schema: buildTimeTrackingSettingsSchema() }
+  },
+  get responses() {
+    return [
+      { status: 200, description: 'Updated time tracking settings', schema: settingsResponseSchema() },
+    ]
+  },
   errors: [
     { status: 400, description: 'Invalid request body' },
     { status: 401, description: 'Unauthorized' },

@@ -379,6 +379,7 @@ in [`extension-points.ts`](./extension-points.ts).
 | 39 | `staff.time_tracking.project_code_generator` | `registerProjectCodeGenerator({ id, priority?, generate(name, taken, ctx) })` — [`lib/time-tracking/projectCode.ts`](./lib/time-tracking/projectCode.ts) | `staff.time_tracking.project_code.initials` | single winner |
 | 40 | `staff.time_tracking.capacity_provider` | `registerCapacityProvider({ id, priority?, resolve(staffMemberId, dateRange, ctx) })` — [`lib/time-tracking/capacity.ts`](./lib/time-tracking/capacity.ts) | `staff.time_tracking.capacity.flat_daily_hours` | single winner |
 | 41 | `staff.time_tracking.report_approval_policy` | `registerReportApprovalPolicy({ id, priority?, canClose?, canUnlock?, onClosed? })` — [`lib/timesheets-reports/reportApprovalPolicies.ts`](./lib/timesheets-reports/reportApprovalPolicies.ts) | `staff.time_tracking.report_approval.acl_only` | conjunction, first refusal |
+| 42 | `staff.time_tracking.setting_key` | `registerTimeTrackingSettingKey({ group, key, schema, default, labelKey, priority? })` — [`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) | the eight frozen keys | keyed by `<group>.<key>` |
 
 ### The four resolution orders
 
@@ -397,6 +398,10 @@ always the last candidate. They differ only in what they do with that order:
   closed. The ACL check in the close/unlock routes runs first and unconditionally.
 
 ### Scoping — fail closed to the built-in
+
+EP-42 is the one exception to the paragraph below: settings are tenant-global by spec
+§10, so its host declares `scopeContract: 'tenant'` and a contributed key is stored with
+`{ tenantId }` and nothing else.
 
 Every resolver context carries `tenantId` + `organizationId`
 ([`lib/time-tracking/registries/scope.ts`](./lib/time-tracking/registries/scope.ts)). A
@@ -431,6 +436,133 @@ EP-37 and EP-36 replaced two database enums with registry-backed validation:
 contributing module has since been removed back to `manual` / `project_task`.
 
 Pinned by [`lib/time-tracking/__tests__/strategyRegistries.test.ts`](./lib/time-tracking/__tests__/strategyRegistries.test.ts).
+
+## Time-tracking data model and settings
+
+EP-42…EP-45. Four declaration surfaces. Read the "does not" column of each before
+building on one — three of the four are contracts that a later phase still has to make
+load-bearing, and pretending otherwise is how a third-party module ships a broken screen.
+
+### Contributed settings keys (EP-42 — BC surface #2, STABLE)
+
+`TIME_TRACKING_SETTING_KEYS`, `normalizeTimeTrackingSettings` and
+`staffTimeTrackingSettingsSchema` all read
+[`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) now. The eight
+keys the module shipped are registered there as built-ins, so with no contribution the
+defaults, the validating schema, the read and the eight `ModuleConfigService` rows are
+what they always were.
+
+```ts
+registerTimeTrackingSettingKey({
+  group: 'jira',            // top-level group in the settings object
+  key: 'projectKey',        // leaf inside it; the config row is named `jira.projectKey`
+  schema: z.string().min(1).max(20),
+  default: 'OPS',           // must satisfy `schema`, or registration throws
+  labelKey: 'jira.settings.projectKey',
+  priority: 0,
+})
+```
+
+- **Storage and scope.** One `ModuleConfigService` row per key under module id
+  `staff.time_tracking`, named `<group>.<key>`, written with `{ tenantId }` only.
+  A contributed value is therefore **tenant-global**, with `organization_id` null —
+  there is no per-organization, per-project or per-customer override, and a contribution
+  cannot opt into one. `GET`/`PUT /api/staff/timesheets/settings` carry it in the group
+  it declared.
+- **Validation.** `buildTimeTrackingSettingsSchema()` composes
+  `schema.optional().default(default)` per key and one `.optional().default({...})` per
+  group. The settings route builds it **per request**, and publishes it through OpenAPI
+  getters, so a key registered after the route module first loaded still validates and
+  still appears in the published schema. The exported `staffTimeTrackingSettingsSchema`
+  const is the load-time snapshot and stays for backward compatibility.
+- **A stored value that no longer validates falls back to the registered default**, the
+  same way a stored rounding unit the schema stopped accepting always did. Registering a
+  key whose id collides with one of the eight built-ins throws.
+- **Rendering it.** Pair the key with a widget on `staff.time_tracking.settings:sections`
+  (EP-26). The spot context carries `{ moduleId, canManage, keys, values, setValue }`:
+  `keys` is `contributedTimeTrackingSettingKeys()`, `values` is keyed by `<group>.<key>`
+  and holds contributed keys only, and `setValue(id, value)` writes into the page draft
+  so the page's own Save round-trips a key it knows nothing about. The eight built-ins
+  are absent from `values` — the page renders those itself.
+
+### Time-tracking custom fields (EP-43)
+
+[`ce.ts`](./ce.ts) declares `staff_time_entry`, `staff_time_project`, `staff_time_task`,
+`staff_time_report` and `staff_time_tag` next to `staff_team_member`, each with
+`showInSidebar: false` and no default fields.
+
+**What the declaration does.** All five are *system* entities, so
+`entities/lib/install-from-ce.ts` seeds only their `fields` and never writes a
+`custom_entities` row — `label`, `description` and `showInSidebar` are metadata for code,
+not for the installer. The one runtime behaviour it changes today is `labelField`, read by
+`attachments/lib/assignmentDetails.ts` to label an attached record. It also marks the
+entity `customFields: true` in the generated module facts.
+
+**What it does NOT do, and what each surface still needs:**
+
+| Surface | State |
+|---|---|
+| Defining a custom field on these entities | Already worked before EP-43. `entities/api/entities.ts` lists every generated entity id, so the Data designer always offered them. |
+| Storing a value through the CRUD routes | **Does not work.** All five `makeCrudRoute` resources are command-backed, and `factory.ts` honours `actions.create.customFields` / `update.customFields` only on its ORM write path (`factory.ts:2403`, `:2741`). A `cf_*` key posted to `/api/staff/timesheets/*` is dropped in silence. Closing it means threading `splitCustomFieldPayload` through each route's `mapInput` and calling `setCustomFieldsIfAny` in the command, the way `commands/team-members.ts` already does. |
+| Reading values back on a list | **Does not work.** None of the five declares `list.decorateCustomFields`, so no `customFields` / `customValues` reaches a list item. |
+| `CrudForm` rendering the inputs | Works for the project form only — it is the one real `CrudForm` and it passes `entityIds={[E.staff.staff_time_project]}`. Its `onSubmit` builds the body with `buildProjectPayload`, which copies named fields, so the rendered values are dropped before the request. `TimeEntryDialog`, `NewTaskDialog` and the report create page are hand-rolled hosts and render no custom fields at all. |
+| Filtering/sorting by a custom field | Not reachable: each list route validates its query with a closed zod schema and builds filters itself, so a `cf:` filter never survives parsing. |
+
+Treat EP-43 as the *declaration* half of custom-field support. Do not tell a customer the
+fields are usable end to end until the write path lands.
+
+### Cross-module links (EP-44 — BC surface #2, STABLE)
+
+[`data/extensions.ts`](./data/extensions.ts) declares four links over the foreign-key
+columns time tracking already carried:
+
+| Base | Extension | Join |
+|---|---|---|
+| `customers:customer_entity` | `staff:staff_time_entry` | `id` → `customer_id` |
+| `customers:customer_deal` | `staff:staff_time_entry` | `id` → `deal_id` |
+| `sales:sales_order` | `staff:staff_time_entry` | `id` → `order_id` |
+| `customers:customer_entity` | `staff:staff_time_project` | `id` → `customer_id` |
+
+`base` is the other module's entity, `extension` is the staff entity holding the FK —
+the query engine only ever looks a link up by `base`. **These are strings, never
+imports.** Staff is slated for extraction into a standalone package, so
+`data/extensions.ts` may not import a `customers` or `sales` symbol and
+`requires: ['planner', 'resources']` in [`index.ts`](./index.ts) must not grow;
+`__tests__/entityExtensions.test.ts` fails if either happens, and pins every table and
+column against the migration snapshots.
+
+**Declaration-only, exactly as in `apps/mercato/src/modules/example/data/extensions.ts`.**
+Nothing in the platform passes `includeExtensions` to a query, the basic engine's
+extension join adds no projection and exposes no filterable or sortable alias, and the
+hybrid engine DI registers ignores the flag outside its basic-engine fallback. What the
+declaration *is* today is the traversal contract `yarn generate` emits as
+`entityExtensions` in the module registry.
+
+The matching catalog entry is not in [`extension-points.ts`](./extension-points.ts) on
+purpose: `module-extension-facts.ts` already emits an `entity`-family fact host with the
+`entity-extension` capability for every entity a module owns, so a hand-written
+declaration would duplicate it and, having no source that references
+`extensionPoints.hosts.<key>`, would be emitted as an `unbound-declaration` diagnostic
+rather than a usable host.
+
+### Translatable fields (EP-45)
+
+[`translations.ts`](./translations.ts) adds `staff_time_project` (`name`, `description`),
+`staff_time_task_status` (`name`) and `staff_time_tag` (`label`). Values are **database
+column** names. Only columns that exist are listed — task statuses have no description and
+a tag's human-readable column is `label`.
+
+Registration is via the generator: `translations-fields.generated.ts` imports every
+module's `translations.ts` and calls `registerTranslatableFields`. The hard-coded list in
+`translations/di.ts` covers four core modules and deliberately does not include staff — a
+core module importing staff would violate MUST rule 1.
+
+One rendered change: `translations/widgets/injection-table.ts` derives
+`crud-form:<module>.<entity>:header` spots from the registry, so the project **edit** form
+now shows the translation-manager affordance. It is gated on `translations.view` and on a
+record id, so create forms and callers without the feature see nothing. No list or detail
+output changes until a tenant actually writes a translation — the overlay substitutes a
+value only when a row exists for the request locale.
 
 ## Internal-Only Surfaces (NOT public contract)
 

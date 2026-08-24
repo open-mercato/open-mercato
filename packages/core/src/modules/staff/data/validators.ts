@@ -2,6 +2,11 @@ import { z } from 'zod'
 import { PROJECT_COLOR_KEYS } from '../lib/timesheets-ui/colors'
 import { hasTimeEntrySource, timeEntrySourceIds } from '../lib/time-tracking/timeEntrySources'
 import { hasReportGrouping, reportGroupingIds } from '../lib/timesheets-reports/reportGroupings'
+import {
+  buildTimeTrackingSettingsSchema,
+  timeTrackingRoundingDirectionSchema,
+  timeTrackingRoundingUnitMinutesSchema,
+} from '../lib/time-tracking/settingKeys'
 
 const projectColorSchema = z
   .string()
@@ -522,13 +527,8 @@ const timeReportGroupingSchema = z
     })
   })
 const timeReportNonbillableModeSchema = z.enum(['separate', 'exclude'])
-const timeRoundingDirectionSchema = z.enum(['up', 'nearest'])
-const timeRoundingUnitMinutesSchema = z.union([
-  z.literal(0),
-  z.literal(5),
-  z.literal(10),
-  z.literal(15),
-])
+const timeRoundingDirectionSchema = timeTrackingRoundingDirectionSchema
+const timeRoundingUnitMinutesSchema = timeTrackingRoundingUnitMinutesSchema
 const positionSchema = z.number().int().min(0).max(1_000_000)
 
 export const staffTimeTaskStatusCreateSchema = z.object({
@@ -696,41 +696,17 @@ export const staffTimeProjectChangeCurrencySchema = z.object({
   acknowledged: z.literal(true),
 })
 
-export const staffTimeTrackingSettingsSchema = z.object({
-  rounding: z
-    .object({
-      unitMinutes: timeRoundingUnitMinutesSchema.optional().default(0),
-      direction: timeRoundingDirectionSchema.optional().default('up'),
-    })
-    .optional()
-    .default({ unitMinutes: 0, direction: 'up' }),
-  defaults: z
-    .object({
-      billable: z.boolean().optional().default(true),
-      chainStartFromPreviousEnd: z.boolean().optional().default(true),
-    })
-    .optional()
-    .default({ billable: true, chainStartFromPreviousEnd: true }),
-  targets: z
-    .object({
-      dailyHours: z.number().min(0).max(24).nullable().optional().default(8),
-    })
-    .optional()
-    .default({ dailyHours: 8 }),
-  warnings: z
-    .object({
-      overlap: z.boolean().optional().default(true),
-      runningTimer: z.boolean().optional().default(true),
-    })
-    .optional()
-    .default({ overlap: true, runningTimer: true }),
-  access: z
-    .object({
-      assignmentGraceDays: z.number().int().min(0).max(365).optional().default(14),
-    })
-    .optional()
-    .default({ assignmentGraceDays: 14 }),
-})
+/**
+ * EP-42 — built from the setting-key registry rather than a literal, so a module can
+ * contribute a key without patching this file. With no contribution the shape is the
+ * eight built-in keys in their five groups, exactly as it was.
+ *
+ * This constant is evaluated once at module load. A key registered later still
+ * validates on the wire because the settings route parses with
+ * `buildTimeTrackingSettingsSchema()` per request and publishes it through an
+ * OpenAPI getter.
+ */
+export const staffTimeTrackingSettingsSchema = buildTimeTrackingSettingsSchema()
 
 export type StaffTimeReportPeriodKind = z.infer<typeof timeReportPeriodKindSchema>
 export type StaffTimeReportGrouping = z.infer<typeof timeReportGroupingSchema>

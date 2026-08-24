@@ -49,6 +49,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { formatDuration } from '../../../../lib/time-tracking/duration'
 import type { RoundingUnitMinutes } from '../../../../lib/time-tracking/rounding'
 import type { TimeTrackingSettings } from '../../../../lib/time-tracking/settings'
+import { contributedTimeTrackingSettingKeys } from '../../../../lib/time-tracking/settingKeys'
 import {
   ROUNDING_UNIT_OPTIONS,
   buildRoundingExamples,
@@ -93,6 +94,7 @@ type RoundingImpactResponse = {
 }
 
 const TIME_TRACKING_SETTINGS_MODULE_ID = 'staff.time_tracking'
+const EMPTY_CONTRIBUTED_SETTINGS: Record<string, unknown> = {}
 
 export default function TimeTrackingSettingsPage() {
   const t = useT()
@@ -182,9 +184,27 @@ export default function TimeTrackingSettingsPage() {
 
   const fieldErrors = draft ? settingsDraftErrors(draft) : []
   const isDirty = draft && baseline ? isSettingsDraftDirty(draft, baseline) : false
+  /**
+   * EP-42/EP-26 — a contributed setting key is rendered by a widget on this spot, and
+   * the widget edits it through `setValue`: the value lands in the page draft, the
+   * page's own Save sends it with everything else, and the tenant-scoped PUT stores it.
+   * `values` is keyed by the key's `<group>.<key>` id and holds contributed keys only.
+   */
+  const setContributedSetting = React.useCallback((id: string, value: unknown) => {
+    setDraft((current) =>
+      current ? { ...current, contributed: { ...current.contributed, [id]: value } } : current,
+    )
+  }, [])
+  const contributedValues = draft?.contributed ?? EMPTY_CONTRIBUTED_SETTINGS
   const settingsInjectionContext = React.useMemo(
-    () => ({ moduleId: TIME_TRACKING_SETTINGS_MODULE_ID, canManage }),
-    [canManage],
+    () => ({
+      moduleId: TIME_TRACKING_SETTINGS_MODULE_ID,
+      canManage,
+      keys: contributedTimeTrackingSettingKeys(),
+      values: contributedValues,
+      setValue: setContributedSetting,
+    }),
+    [canManage, contributedValues, setContributedSetting],
   )
   const canSave = canManage && isDirty && fieldErrors.length === 0 && !isSaving
 

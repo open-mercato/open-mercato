@@ -199,6 +199,21 @@ export const extensionPoints = defineModuleExtensionPoints({
       'staff.time_tracking.report_approval_policy.v1',
       'staff.time_tracking.report_approval.acl_only',
     ),
+    /**
+     * EP-42. The one registry whose scope contract is `tenant` rather than
+     * `tenant+organization`: time-tracking settings are tenant-global by spec §10,
+     * stored through `ModuleConfigService` with `organization_id` null, and a
+     * contributed key inherits that scope rather than choosing its own.
+     */
+    settingKeyRegistry: injectionExtensionHost({
+      family: 'specialized-registry',
+      spotId: 'staff.time_tracking.setting_key',
+      supported: ['registry-contribution'],
+      contextContract: 'staff.time_tracking.setting_key.v1',
+      scopeContract: 'tenant',
+      runtimeContract: 'rounding.unitMinutes',
+      source: 'lib/time-tracking/settingKeys.ts',
+    }),
 
     timeEntryDialogComponent: componentExtensionHost({
       componentId: 'staff.time_entry_dialog',

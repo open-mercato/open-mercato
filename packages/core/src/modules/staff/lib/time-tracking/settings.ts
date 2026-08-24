@@ -1,13 +1,26 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { StaffTimeTrackingSettingsInput } from '../../data/validators'
 import {
-  DEFAULT_ROUNDING_SETTINGS,
   type RoundingDirection,
   type RoundingSettings,
   type RoundingUnitMinutes,
 } from './rounding'
+import {
+  DEFAULT_ASSIGNMENT_GRACE_DAYS,
+  MAX_ASSIGNMENT_GRACE_DAYS,
+  buildDefaultTimeTrackingSettings,
+  listTimeTrackingSettingKeys,
+  normalizeTimeTrackingSettingsRecord,
+  registerTimeTrackingSettingKey,
+  timeTrackingSettingKeyIds,
+  type TimeTrackingSettingKeyDefinition,
+  type TimeTrackingSettingKeyInput,
+  type TimeTrackingSettingsRecord,
+} from './settingKeys'
 
 export type { RoundingDirection, RoundingSettings, RoundingUnitMinutes }
+export type { TimeTrackingSettingKeyDefinition, TimeTrackingSettingKeyInput, TimeTrackingSettingsRecord }
+export { DEFAULT_ASSIGNMENT_GRACE_DAYS, MAX_ASSIGNMENT_GRACE_DAYS, registerTimeTrackingSettingKey }
 
 export const STAFF_TIME_TRACKING_MODULE_ID = 'staff.time_tracking'
 
@@ -21,14 +34,10 @@ export const TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY = 'warnings.runningTimer'
 export const TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY = 'access.assignmentGraceDays'
 
 /**
- * Days past `assigned_end_date` that project access survives (spec D-12). The
- * grace window exists so a consultant rolled off at the end of a month can still
- * log and correct that month's time; `0` ends access the day the assignment ends.
+ * The eight keys the module shipped. FROZEN — a stored config row is named after one
+ * of these, so none may be renamed or removed. The list is no longer the whole truth:
+ * `timeTrackingSettingKeyIds()` returns these plus every contributed key (EP-42).
  */
-export const DEFAULT_ASSIGNMENT_GRACE_DAYS = 14
-
-export const MAX_ASSIGNMENT_GRACE_DAYS = 365
-
 export const TIME_TRACKING_SETTING_KEYS = [
   TIME_TRACKING_ROUNDING_UNIT_MINUTES_KEY,
   TIME_TRACKING_ROUNDING_DIRECTION_KEY,
@@ -60,7 +69,7 @@ export type TimeTrackingAccess = {
   assignmentGraceDays: number
 }
 
-export type TimeTrackingSettings = {
+export type TimeTrackingBuiltInSettings = {
   rounding: RoundingSettings
   defaults: TimeTrackingEntryDefaults
   targets: TimeTrackingTargets
@@ -69,111 +78,52 @@ export type TimeTrackingSettings = {
 }
 
 /**
+ * The five built-in groups stay statically typed; a contributed group or key reaches
+ * a caller through the index signature and is read with `readTimeTrackingSettingValue`.
+ */
+export type TimeTrackingSettings = TimeTrackingBuiltInSettings & TimeTrackingSettingsRecord
+
+/**
  * Settings are global per tenant (spec §10 fixes them there — no per-project or
  * per-customer override), so the scope carries the tenant only and MUST be
- * derived from the authenticated context, never from request input.
+ * derived from the authenticated context, never from request input. A contributed
+ * key inherits exactly that scope.
  */
 export type TimeTrackingSettingsScope = {
   tenantId: string
 }
 
-export const DEFAULT_TIME_TRACKING_SETTINGS: TimeTrackingSettings = {
-  rounding: { ...DEFAULT_ROUNDING_SETTINGS },
-  defaults: { billable: true, chainStartFromPreviousEnd: true },
-  targets: { dailyHours: 8 },
-  warnings: { overlap: true, runningTimer: true },
-  access: { assignmentGraceDays: DEFAULT_ASSIGNMENT_GRACE_DAYS },
-}
-
-const ROUNDING_UNIT_VALUES: readonly number[] = [0, 5, 10, 15]
-const ROUNDING_DIRECTION_VALUES: readonly string[] = ['up', 'nearest']
-
-function toRoundingUnitMinutes(value: unknown, fallback: RoundingUnitMinutes): RoundingUnitMinutes {
-  return typeof value === 'number' && ROUNDING_UNIT_VALUES.includes(value)
-    ? (value as RoundingUnitMinutes)
-    : fallback
-}
-
-function toRoundingDirection(value: unknown, fallback: RoundingDirection): RoundingDirection {
-  return typeof value === 'string' && ROUNDING_DIRECTION_VALUES.includes(value)
-    ? (value as RoundingDirection)
-    : fallback
-}
-
-function toBoolean(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback
-}
-
-function toDailyHours(value: unknown, fallback: number | null): number | null {
-  if (value === null) return null
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
-  if (value < 0 || value > 24) return fallback
-  return value
-}
-
-function toAssignmentGraceDays(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isInteger(value)) return fallback
-  if (value < 0 || value > MAX_ASSIGNMENT_GRACE_DAYS) return fallback
-  return value
-}
-
-type PartialTimeTrackingSettings = {
-  rounding?: Partial<RoundingSettings> | null
-  defaults?: Partial<TimeTrackingEntryDefaults> | null
-  targets?: Partial<TimeTrackingTargets> | null
-  warnings?: Partial<TimeTrackingWarnings> | null
-  access?: Partial<TimeTrackingAccess> | null
-}
+export const DEFAULT_TIME_TRACKING_SETTINGS: TimeTrackingSettings =
+  buildDefaultTimeTrackingSettings() as TimeTrackingSettings
 
 /**
  * Coerce an arbitrary (possibly partial or malformed) settings shape into the
- * canonical one, filling every absent or invalid value from the defaults.
+ * canonical one, filling every absent or invalid value from the registered defaults.
  */
 export function normalizeTimeTrackingSettings(
-  input: PartialTimeTrackingSettings | StaffTimeTrackingSettingsInput | null | undefined,
+  input: Partial<TimeTrackingBuiltInSettings> | TimeTrackingSettingsRecord | StaffTimeTrackingSettingsInput | null | undefined,
 ): TimeTrackingSettings {
-  const source = (input ?? {}) as PartialTimeTrackingSettings
-  return {
-    rounding: {
-      unitMinutes: toRoundingUnitMinutes(
-        source.rounding?.unitMinutes,
-        DEFAULT_TIME_TRACKING_SETTINGS.rounding.unitMinutes,
-      ),
-      direction: toRoundingDirection(
-        source.rounding?.direction,
-        DEFAULT_TIME_TRACKING_SETTINGS.rounding.direction,
-      ),
-    },
-    defaults: {
-      billable: toBoolean(source.defaults?.billable, DEFAULT_TIME_TRACKING_SETTINGS.defaults.billable),
-      chainStartFromPreviousEnd: toBoolean(
-        source.defaults?.chainStartFromPreviousEnd,
-        DEFAULT_TIME_TRACKING_SETTINGS.defaults.chainStartFromPreviousEnd,
-      ),
-    },
-    targets: {
-      dailyHours: toDailyHours(source.targets?.dailyHours, DEFAULT_TIME_TRACKING_SETTINGS.targets.dailyHours),
-    },
-    warnings: {
-      overlap: toBoolean(source.warnings?.overlap, DEFAULT_TIME_TRACKING_SETTINGS.warnings.overlap),
-      runningTimer: toBoolean(
-        source.warnings?.runningTimer,
-        DEFAULT_TIME_TRACKING_SETTINGS.warnings.runningTimer,
-      ),
-    },
-    access: {
-      assignmentGraceDays: toAssignmentGraceDays(
-        source.access?.assignmentGraceDays,
-        DEFAULT_TIME_TRACKING_SETTINGS.access.assignmentGraceDays,
-      ),
-    },
-  }
+  return normalizeTimeTrackingSettingsRecord(input) as TimeTrackingSettings
 }
+
+/** Reads one registered key out of a normalized settings object by its `<group>.<key>` id. */
+export function readTimeTrackingSettingValue(
+  settings: TimeTrackingSettings,
+  id: string,
+): unknown {
+  const separator = id.indexOf('.')
+  if (separator <= 0) return undefined
+  const group = settings[id.slice(0, separator)]
+  if (!group || typeof group !== 'object') return undefined
+  return (group as Record<string, unknown>)[id.slice(separator + 1)]
+}
+
+export { listTimeTrackingSettingKeys, timeTrackingSettingKeyIds }
 
 /**
  * Resolve the tenant's time tracking settings. Absent keys (and keys holding a
- * value the schema no longer accepts) fall back to `DEFAULT_TIME_TRACKING_SETTINGS`,
- * so a tenant that never opened the settings screen still reads a complete record.
+ * value the schema no longer accepts) fall back to the registered default, so a
+ * tenant that never opened the settings screen still reads a complete record.
  */
 export async function readTimeTrackingSettings(
   configService: ModuleConfigService,
@@ -183,33 +133,15 @@ export async function readTimeTrackingSettings(
   // `getRecord` rather than `getValue` so an explicitly stored `null`
   // (`targets.dailyHours` = "no daily target") stays distinguishable from an
   // absent row, which must fall back to the default.
-  const readValue = async (name: TimeTrackingSettingKey): Promise<unknown> => {
-    const record = await configService.getRecord(STAFF_TIME_TRACKING_MODULE_ID, name, configScope)
-    return record ? record.value : undefined
+  const stored: TimeTrackingSettingsRecord = {}
+  for (const entry of listTimeTrackingSettingKeys()) {
+    const record = await configService.getRecord(STAFF_TIME_TRACKING_MODULE_ID, entry.id, configScope)
+    if (!record) continue
+    const group = stored[entry.group] ?? {}
+    group[entry.key] = record.value
+    stored[entry.group] = group
   }
-
-  const unitMinutes = await readValue(TIME_TRACKING_ROUNDING_UNIT_MINUTES_KEY)
-  const direction = await readValue(TIME_TRACKING_ROUNDING_DIRECTION_KEY)
-  const billable = await readValue(TIME_TRACKING_DEFAULTS_BILLABLE_KEY)
-  const chainStartFromPreviousEnd = await readValue(TIME_TRACKING_DEFAULTS_CHAIN_START_KEY)
-  const dailyHours = await readValue(TIME_TRACKING_TARGETS_DAILY_HOURS_KEY)
-  const overlap = await readValue(TIME_TRACKING_WARNINGS_OVERLAP_KEY)
-  const runningTimer = await readValue(TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY)
-  const assignmentGraceDays = await readValue(TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY)
-
-  return normalizeTimeTrackingSettings({
-    rounding: {
-      unitMinutes: unitMinutes as RoundingUnitMinutes,
-      direction: direction as RoundingDirection,
-    },
-    defaults: {
-      billable: billable as boolean,
-      chainStartFromPreviousEnd: chainStartFromPreviousEnd as boolean,
-    },
-    targets: { dailyHours: dailyHours as number | null },
-    warnings: { overlap: overlap as boolean, runningTimer: runningTimer as boolean },
-    access: { assignmentGraceDays: assignmentGraceDays as number },
-  })
+  return normalizeTimeTrackingSettings(stored)
 }
 
 /**
@@ -218,23 +150,18 @@ export async function readTimeTrackingSettings(
 export async function writeTimeTrackingSettings(
   configService: ModuleConfigService,
   scope: TimeTrackingSettingsScope,
-  input: PartialTimeTrackingSettings | StaffTimeTrackingSettingsInput,
+  input: Partial<TimeTrackingBuiltInSettings> | TimeTrackingSettingsRecord | StaffTimeTrackingSettingsInput,
 ): Promise<TimeTrackingSettings> {
   const settings = normalizeTimeTrackingSettings(input)
   const configScope = { tenantId: scope.tenantId }
-  const values: Array<[TimeTrackingSettingKey, unknown]> = [
-    [TIME_TRACKING_ROUNDING_UNIT_MINUTES_KEY, settings.rounding.unitMinutes],
-    [TIME_TRACKING_ROUNDING_DIRECTION_KEY, settings.rounding.direction],
-    [TIME_TRACKING_DEFAULTS_BILLABLE_KEY, settings.defaults.billable],
-    [TIME_TRACKING_DEFAULTS_CHAIN_START_KEY, settings.defaults.chainStartFromPreviousEnd],
-    [TIME_TRACKING_TARGETS_DAILY_HOURS_KEY, settings.targets.dailyHours],
-    [TIME_TRACKING_WARNINGS_OVERLAP_KEY, settings.warnings.overlap],
-    [TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY, settings.warnings.runningTimer],
-    [TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY, settings.access.assignmentGraceDays],
-  ]
 
-  for (const [name, value] of values) {
-    await configService.setValue(STAFF_TIME_TRACKING_MODULE_ID, name, value, configScope)
+  for (const entry of listTimeTrackingSettingKeys()) {
+    await configService.setValue(
+      STAFF_TIME_TRACKING_MODULE_ID,
+      entry.id,
+      readTimeTrackingSettingValue(settings, entry.id),
+      configScope,
+    )
   }
 
   return settings

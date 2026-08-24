@@ -75,6 +75,7 @@ const EXPECTED_REGISTRY_IDS = [
   'staff.time_tracking.report_export_format',
   'staff.time_tracking.report_grouping',
   'staff.time_tracking.rounding',
+  'staff.time_tracking.setting_key',
   'staff.time_tracking.time_entry_source',
 ]
 
@@ -119,7 +120,7 @@ describe('staff time-tracking extension host catalog', () => {
     expect(declared).toEqual([...EXPECTED_INJECTION_SPOT_IDS].sort())
   })
 
-  it('publishes exactly the ten domain strategy registries', () => {
+  it('publishes exactly the declared strategy registries', () => {
     expect(idsOfFamily('specialized-registry', 'spotId')).toEqual([...EXPECTED_REGISTRY_IDS].sort())
   })
 

@@ -100,13 +100,13 @@ whole `TimeEntryDialog` for its own — all without touching a line of core code
 | G-9 No component replacement handles | No `widgets/components.ts`; no TT component calls `registerComponent`. |
 | G-10 Only one CrudForm host, undeclared | Project create/edit pass `entityIds={[E.staff.staff_time_project]}`, so `crud-form:staff.staff_time_project:*` spots exist implicitly (**dot** form — `CrudForm.tsx:840` normalises the colon away; this row originally spelled it with a colon, corrected in P3) — but are not declared anywhere. `TimeEntryDialog`, `NewTaskDialog`, `TaskDrawer` and report creation are hand-rolled and expose nothing. |
 | G-11 Closed business rules | `lib/time-tracking/rounding.ts` (union `0\|5\|10\|15` × `up\|nearest`), `lib/time-tracking/cost.ts:applicableRate` (override → project rate, nothing else), `lib/timesheets-reports/reportExport.ts:21` (`'pdf'\|'csv'\|'xlsx'`), `lib/timesheets-reports/reportTotals.ts:34` (`'project_task'\|'project_person'\|'project_day'`), `data/entities.ts` `@Enum({ items: ['manual','timer','kiosk','mobile'] })`, `lib/time-tracking/overlap.ts`, `lib/time-tracking/projectCode.ts`, `lib/time-tracking-ui/timesheetTargets.ts`. All pure functions or DB enums with no registry, provider or DI seam. **Closed in P4** — every one of the eight is now a registry with the original implementation as its built-in default; see Group 6. |
-| G-12 TT entities absent from `ce.ts` | `ce.ts` declares only `staff_team_member` ⇒ no custom fields on time entries, projects, tasks, reports or tags. |
-| G-13 No `data/extensions.ts` | `customer_id`, `deal_id`, `order_id` on `StaffTimeEntry` are raw FK ids with no declared link. |
+| G-12 TT entities absent from `ce.ts` | `ce.ts` declares only `staff_team_member`. **Partly retracted in P5**: the second clause was wrong — custom fields were *definable* on all five all along, because `entities/api/entities.ts` lists every generated entity id in the Data designer. What is genuinely absent is the *value* path, and `ce.ts` is not what provides it. EP-43 closes the declaration; the write/read path is still open. |
+| G-13 No `data/extensions.ts` | `customer_id`, `deal_id`, `order_id` on `StaffTimeEntry` are raw FK ids with no declared link. **Closed in P5** (EP-44), with the caveat that a declared link is traversed by nothing today — see the EP entry. |
 | G-14 Search covers 1 of 5 TT entities | `search.ts:195` indexes only `staff:staff_time_project`. |
 | G-15 Enrichers not query-engine enabled | `data/enrichers.ts` has no `queryEngine: { enabled: true }`; enrichment is invisible to dashboards, exports and AI. |
 | G-16 No AI surface | No `ai-tools.ts` / `ai-agents.ts` in `staff` (`catalog`, `customers`, `eudr`, `warranty_claims` have them). |
 | G-17 No reactive notification handlers | No `notifications.handlers.ts`. |
-| G-18 Settings schema is closed | `TIME_TRACKING_SETTING_KEYS` is a frozen array; the settings route validates against a closed zod schema; the settings page renders a fixed form. |
+| G-18 Settings schema is closed | `TIME_TRACKING_SETTING_KEYS` is a frozen array; the settings route validates against a closed zod schema; the settings page renders a fixed form. **Closed in P5** (EP-42): all three read the key registry, and the settings page's `sections` spot can now read and write a contributed key through the draft. |
 | G-19 No portal surface | No portal page, no portal injection host, no `portalBroadcast: true` on any TT event. |
 | G-20 Events not webhook-exposed | No webhook registration for `staff.timesheets.*` (blocked by G-2 anyway). |
 
@@ -654,36 +654,133 @@ with the current behaviour registered as the built-in default (no behaviour chan
   routes. Every policy must agree; the first refusal becomes a 403. `onClosed` fires
   after the freeze has committed and a throwing hook is logged, never unwound.
 
-### Group 7 — Data model and settings (4)
+### Group 7 — Data model and settings (4) ✅
 
-#### EP-42 · `registry` · Settings key contribution
+**Implemented in P5.** One of the four (EP-42) is a working runtime feature; the other
+three are *declaration* surfaces, and the audit under-stated how much of what they were
+supposed to "unlock" is still missing. Each entry below says which it is.
+
+#### EP-42 · `registry` · Settings key contribution ✅
 - **Edit**: `lib/time-tracking/settings.ts` (`TIME_TRACKING_SETTING_KEYS`,
   `normalizeTimeTrackingSettings`), `api/timesheets/settings/route.ts`
 - **Add**: `registerTimeTrackingSettingKey({ key, schema, default, group, label })`;
   build the validating zod schema from the registry rather than a literal.
 - **Pairs with**: EP-26 for the UI section.
 - **Unlocks**: a module shipping its own time-tracking settings without patching core.
+- **Shipped** as `lib/time-tracking/settingKeys.ts`, an 11th registry on P4's
+  `createStrategyRegistry`, registry id `staff.time_tracking.setting_key`.
+  `registerTimeTrackingSettingKey({ group, key, schema, default, labelKey, priority? })`
+  — `group` + `key` because the config row name has always been the dotted
+  `<group>.<key>`, and `labelKey` rather than `label` for the same reason P4's registries
+  use one: the module holds no user-facing literals. The eight frozen keys are the
+  built-ins; `api/timesheets/settings/__tests__/route.test.ts` passes **unmodified**,
+  including its `setValueSpy` count of exactly 8.
+- **Schema**: `buildTimeTrackingSettingsSchema()` composes the shape per group; the route
+  builds it per request and publishes it through OpenAPI getters, so a late registration
+  still validates and still appears in the published schema (the EP-35 precedent).
+  `staffTimeTrackingSettingsSchema` stays exported as the load-time snapshot.
+- **Scope, made explicit**: one `ModuleConfigService` row per key under module id
+  `staff.time_tracking`, written with `{ tenantId }` and nothing else. A contributed value
+  is tenant-global with `organization_id` null; a contribution cannot opt into
+  per-organization storage. Pinned by a test.
+- **Rendering**: `staff.time_tracking.settings:sections` (EP-26) now carries
+  `{ moduleId, canManage, keys, values, setValue }`. `values` holds contributed keys only,
+  and `setValue(id, value)` writes into the page draft, which required threading a
+  `contributed` bag through `TimeTrackingSettingsDraft` / `toSettingsDraft` /
+  `toSettingsPayload` / `isSettingsDraftDirty` — without it the page's Save rebuilds the
+  body from named fields and would have dropped every contributed value, the same defect
+  `buildProjectPayload` has for custom fields (EP-43).
+- **Types**: `TimeTrackingSettings` is now
+  `TimeTrackingBuiltInSettings & Record<string, Record<string, unknown>>`, so the five
+  built-in groups stay statically typed and a contributed group is read with the new
+  `readTimeTrackingSettingValue(settings, '<group>.<key>')`.
 
-#### EP-43 · `entity` · Register TT entities in `ce.ts`
+#### EP-43 · `entity` · Register TT entities in `ce.ts` ⚠️ declaration only
 - **Edit**: `ce.ts`
 - **Add**: `CustomEntitySpec` entries for `staff_time_entry`, `staff_time_project`,
   `staff_time_task`, `staff_time_report`, `staff_time_tag`.
-- **Unlocks**: custom fields on every time-tracking record, automatically surfaced by
-  `CrudForm` (`entityIds`), the query engine, filters, search and exports.
+- ~~**Unlocks**: custom fields on every time-tracking record, automatically surfaced by
+  `CrudForm` (`entityIds`), the query engine, filters, search and exports.~~
+- **Shipped**, with `showInSidebar: false` and no default fields, and the "unlocks" line
+  above **corrected**. All five are *system* entity ids, which changes what a declaration
+  means:
+  - `entities/lib/install-from-ce.ts` sets `registerEntity = false` for a system id, so
+    the installer seeds only `fields` and never writes a `custom_entities` row —
+    `label`, `description` and `showInSidebar` are metadata for code, not the installer.
+  - **Defining** custom fields on these entities already worked: `entities/api/entities.ts`
+    lists every generated entity id, so the Data designer always offered them. EP-43 is not
+    what turns that on.
+  - The one runtime behaviour the declaration adds is `labelField`, read by
+    `attachments/lib/assignmentDetails.ts` to label an attached record. It also flips
+    `customFields: true` in the generated module facts.
+  - **Storing a value does not work.** All five `makeCrudRoute` resources are
+    command-backed, and the factory honours `actions.*.customFields` only on its ORM write
+    path (`factory.ts:2403`, `:2741`), so a `cf_*` key posted to `/api/staff/timesheets/*`
+    is dropped in silence. Reading does not work either — none declares
+    `list.decorateCustomFields`.
+  - The project form is the only real `CrudForm` and does pass
+    `entityIds={[E.staff.staff_time_project]}`, so it renders custom-field inputs — and
+    `buildProjectPayload` copies named fields, so it drops them before the request. That
+    defect pre-dates P5 and is unchanged by it.
+  - Closing the gap means threading `splitCustomFieldPayload` through each route's
+    `mapInput` and calling `setCustomFieldsIfAny` in the command (the
+    `commands/team-members.ts` idiom), plus `list.decorateCustomFields` on the five list
+    routes. That is a phase of its own; it was **not** done here.
+- **No migration.** Custom fields are EAV rows in the `entities` module's tables;
+  `yarn db:generate` reports `staff: no changes`.
 
-#### EP-44 · `entity` · Declare cross-module links
+#### EP-44 · `entity` · Declare cross-module links ⚠️ declaration only
 - **Add**: `packages/core/src/modules/staff/data/extensions.ts`
 - **Declare**: `staff_time_entry.customer_id → customers.customer`,
   `.deal_id → customers.deal`, `.order_id → sales.order`,
   `staff_time_project.customer_id → customers.customer`
 - **Unlocks**: `defineLink`-driven joins and reverse navigation from customer/deal/order
   screens, without any direct ORM relationship (AGENTS.md architecture rule).
+- **Shipped** as four `EntityExtension` literals — the house idiom every other
+  `data/extensions.ts` in the repo uses; `defineLink` is the same object with the fields
+  spread, and the literal form is what the existing files spell. `base` is the other
+  module's entity (`customers:customer_entity`, `customers:customer_deal`,
+  `sales:sales_order`) and `extension` is the staff entity holding the FK, because the
+  query engine only ever looks a link up by `base`.
+- **No hard dependency, by construction**: the file contains string ids and imports only
+  `EntityExtension` from `@open-mercato/shared`. `requires: ['planner', 'resources']` is
+  unchanged. `__tests__/entityExtensions.test.ts` fails if an import to customers or sales
+  appears or if `requires` grows — the extraction of staff into its own package stays
+  possible.
+- **Correction to the "unlocks" line**: nothing traverses these today. The query engine
+  joins an extension only when a caller passes `QueryOptions.includeExtensions`, which no
+  call site in the repo does; the join adds **no projection** and exposes no filterable or
+  sortable alias (`engine.ts:1060` — "no selection yet"); and the hybrid engine DI
+  registers ignores the flag outside its basic-engine fallback. This is the same
+  declaration-only status already documented on
+  `apps/mercato/src/modules/example/data/extensions.ts`.
+- **Not added to `extension-points.ts`**: `module-extension-facts.ts` already emits an
+  `entity`-family host with the `entity-extension` capability for every entity a module
+  owns, so a declaration here would duplicate it and would be emitted as an
+  `unbound-declaration` diagnostic (nothing could reference
+  `extensionPoints.hosts.<key>` from `data/extensions.ts` without inventing a fake use).
 
-#### EP-45 · `entity` · Translation fields
+#### EP-45 · `entity` · Translation fields ✅
 - **Edit**: `translations.ts`
 - **Add**: translatable `name` / `description` for `staff_time_project`,
   `staff_time_task_status`, `staff_time_tag`.
 - **Unlocks**: multi-language project and status names for international teams.
+- **Shipped** as `staff_time_project: ['name', 'description']`,
+  `staff_time_task_status: ['name']`, `staff_time_tag: ['label']` — column names, and only
+  columns that exist: task statuses have no description column and a tag's human-readable
+  column is `label`, so the spec's "name / description" reads as "the human-readable
+  columns of each".
+- **Registration path, corrected**: `translations/di.ts` hard-codes four core modules and
+  does **not** include staff, so that is not what registers these. The generator does:
+  `translations-fields.generated.ts` imports every module's `translations.ts` and calls
+  `registerTranslatableFields`. A core module importing staff would violate the module's
+  MUST rule 1, so the di.ts list is deliberately left alone.
+- **One rendered change today**: `translations/widgets/injection-table.ts` derives
+  `crud-form:<module>.<entity>:header` spots from that registry, so the project **edit**
+  form gains the translation-manager affordance. It is gated on `translations.view` and on
+  a record id, so create forms and callers without the feature see nothing. No list or
+  detail output changes until a tenant writes a translation — the overlay substitutes only
+  when a row exists for the request locale.
 
 ### Group 8 — Search, analytics, notifications (4)
 
@@ -741,7 +838,7 @@ with the current behaviour registered as the built-in default (no behaviour chan
 | **P2 — Backend seams** | EP-12, EP-13, EP-14, EP-15, EP-16, EP-05, EP-07, EP-09 | Interceptors, enrichers, sync subscribers, broadcasts, webhooks — all built on P1. |
 | **P3 — UI hosts** ✅ | EP-17…EP-31 | Mostly additive props and `InjectionSpot` renders; low risk, high visible value. **Shipped**, except the server-side "my work" section contract (EP-25), deferred to P4 with reasoning above. |
 | **P4 — Domain registries** ✅ | EP-32…EP-41 | Each ships with the current behaviour as the registered default. **Shipped.** One migration (`Migration20260824143357_staff.ts`) covers EP-37 **and** EP-36: the grouping check constraint was as much a blocker to a contributed grouping round-tripping as the source constraint was to a contributed source, so both were dropped together. |
-| **P5 — Data model & settings** | EP-42…EP-45 | `ce.ts`, `data/extensions.ts`, `translations.ts`, settings registry — needs `yarn db:generate` review for the custom-field indexes. |
+| **P5 — Data model & settings** ✅ | EP-42…EP-45 | `ce.ts`, `data/extensions.ts`, `translations.ts`, settings registry. **Shipped**, with the honest scope written into each EP: EP-42 is a working registry, EP-43 and EP-44 are declaration surfaces whose consumers do not exist yet. **No migration** — `yarn db:generate` reports `staff: no changes`, because custom fields are EAV rows in the `entities` module's tables, not columns on the staff ones. Follow-up worth its own phase: the custom-field write/read path for the five command-backed time-tracking CRUD routes. |
 | **P6 — Reach** | EP-46…EP-51 | Search, analytics, notifications, AI, portal, workers. |
 | **P0 — Runs alongside** | EP-01 | Grow `extension-points.ts` as each phase lands; it is the catalog of everything above. |
 
