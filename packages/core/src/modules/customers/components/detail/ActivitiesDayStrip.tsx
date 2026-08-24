@@ -232,12 +232,16 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
                 {formatDayLabel(day, t)}
               </span>
               <span className="text-xl font-semibold leading-7 text-foreground">{day.getDate()}</span>
-              <span className="text-[11px] leading-none text-muted-foreground">
-                {eventCount === 0
-                  ? t('customers.activities.calendar.none', 'None')
-                  : eventCount === 1
-                    ? t('customers.activities.calendar.countOne', '1 activity')
-                    : t('customers.activities.calendar.countMany', '{count} activities', { count: eventCount })}
+              <span className="whitespace-nowrap text-[11px] leading-none text-muted-foreground">
+                {/* Narrow cells fit only the bare count; the full label returns from sm up. */}
+                <span className="sm:hidden">{eventCount > 0 ? eventCount : '\u00A0'}</span>
+                <span className="hidden sm:inline">
+                  {eventCount === 0
+                    ? t('customers.activities.calendar.none', 'None')
+                    : eventCount === 1
+                      ? t('customers.activities.calendar.countOne', '1 activity')
+                      : t('customers.activities.calendar.countMany', '{count} activities', { count: eventCount })}
+                </span>
               </span>
               {/* Dot row mirrors the count (max three); always rendered so empty
                   days keep equal cell height. */}
