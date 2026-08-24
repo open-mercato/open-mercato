@@ -975,7 +975,6 @@
   "sales.documents.items.errorDeleteShipped": "이미 배송된 품목이 포함된 라인은 삭제할 수 없습니다.",
   "sales.documents.items.errorLoad": "품목을 불러오지 못했습니다.",
   "sales.documents.items.errorNameRequired": "사용자 지정 품목에는 이름이 필요합니다.",
-  "sales.documents.items.errorPriceShipped": "품목을 선적한 라인의 가격이나 단위를 변경할 수 없습니다.",
   "sales.documents.items.errorProductRequired": "계속하려면 상품을 선택하세요.",
   "sales.documents.items.errorQuantity": "수량은 0보다 커야 합니다.",
   "sales.documents.items.errorQuantityBelowShipped": "이미 배송된 {{shipped}} 이하로 수량을 줄일 수 없습니다.",

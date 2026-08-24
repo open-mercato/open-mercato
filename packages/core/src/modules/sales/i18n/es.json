@@ -975,7 +975,6 @@
   "sales.documents.items.errorDeleteShipped": "No puedes eliminar una línea que ya tiene envíos.",
   "sales.documents.items.errorLoad": "No se pudieron cargar los artículos.",
   "sales.documents.items.errorNameRequired": "El nombre es obligatorio para líneas personalizadas.",
-  "sales.documents.items.errorPriceShipped": "No puedes cambiar el precio ni la unidad de una línea que ya tiene envíos.",
   "sales.documents.items.errorProductRequired": "Selecciona un producto para continuar.",
   "sales.documents.items.errorQuantity": "La cantidad debe ser mayor que 0.",
   "sales.documents.items.errorQuantityBelowShipped": "No puedes reducir la cantidad por debajo de las {{shipped}} ya enviadas.",

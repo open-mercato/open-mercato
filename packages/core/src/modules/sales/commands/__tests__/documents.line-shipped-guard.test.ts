@@ -1,14 +1,18 @@
 /** @jest-environment node */
 
 /**
- * Order-line edit shipment guard (issue #3993).
+ * Shipped order lines accept corrections (supersedes the issue #3993 command-layer guard).
  *
- * A shipped order line must not be editable into an inconsistent state. The
- * upsert command loads the shipped quantity per line from `SalesShipmentItem`
- * records and rejects (409) an edit that lowers the quantity below what was
- * already shipped — the "Shipped: 4 of 2" state from the report — or that
- * changes the price/unit of a line with shipments. Lines without shipments and
- * new lines keep their previous behavior.
+ * The invariant #3993 asked for — never *create* an over-shipment — is enforced where the
+ * over-shipment would be created: `sales.shipments.create` rejects shipping more than the
+ * remaining quantity, and the line dialog floors the editable quantity at what shipped.
+ * The command layer no longer duplicates it: a caller correcting an order after dispatch
+ * (a price fixed by accounting, a quantity lowered by a return) must be able to record the
+ * correction. These tests pin the ALLOWED behavior so the freeze cannot quietly return.
+ *
+ * One command-layer check is kept deliberately: deleting a line that has shipment items is
+ * still a clean 409, because the `sales_shipment_items.order_line_id` foreign key makes the
+ * delete impossible anyway — the guard turns a raw DB error into an explained refusal.
  */
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
@@ -180,7 +184,13 @@ const shippedWorld = () =>
     shipmentItems: [{ shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: '2' }],
   })
 
-describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
+const expectAllowed = (caught: unknown) => {
+  // Not a 409: the freeze is gone. Any other error here would be a harness artifact, so pin
+  // specifically that the command layer no longer refuses the edit.
+  expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+}
+
+describe('sales.orders.lines.upsert accepts corrections on shipped lines', () => {
   beforeAll(async () => {
     commandRegistry.clear?.()
     await import('../documents')
@@ -190,30 +200,29 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
     delete (globalThis as any).__lineGuardWorld
   })
 
-  it('rejects lowering the quantity below the shipped quantity', async () => {
+  it('lets a correction lower the quantity below the shipped quantity', async () => {
+    // A return: 4 shipped, 2 came back, the order is corrected to 2. "Shipped 4 of 2" is then a
+    // true statement of what happened; refusing it did not remove the discrepancy, it only
+    // forbade recording it. Over-shipment still cannot be CREATED — sales.shipments.create
+    // rejects shipping more than the remaining quantity, and the dialog floors the input.
     shippedWorld()
-    const { caught, em } = await runUpsert(editInput({ quantity: 1 }))
-    expect(isCrudHttpError(caught)).toBe(true)
-    expect((caught as CrudHttpError).status).toBe(409)
-    expect(em.flush).not.toHaveBeenCalled()
+    const { caught } = await runUpsert(editInput({ quantity: 1 }))
+    expectAllowed(caught)
   })
 
-  it('rejects changing the unit price of a shipped line', async () => {
+  it('lets a correction change the unit price of a shipped line', async () => {
+    // The case that froze mirrored orders: accounting fixes a price days after dispatch, and the
+    // order is what the invoice is read from. Dispatch is a logistics event, not the moment a
+    // document's commercial terms become immutable.
     shippedWorld()
-    const { caught, em } = await runUpsert(
-      editInput({ unitPriceNet: 50, unitPriceGross: 61.5 }),
-    )
-    expect(isCrudHttpError(caught)).toBe(true)
-    expect((caught as CrudHttpError).status).toBe(409)
-    expect(em.flush).not.toHaveBeenCalled()
+    const { caught } = await runUpsert(editInput({ unitPriceNet: 50, unitPriceGross: 61.5 }))
+    expectAllowed(caught)
   })
 
-  it('rejects changing the tax rate of a shipped line', async () => {
+  it('lets a correction change the tax rate of a shipped line', async () => {
     shippedWorld()
-    const { caught, em } = await runUpsert(editInput({ taxRate: 8 }))
-    expect(isCrudHttpError(caught)).toBe(true)
-    expect((caught as CrudHttpError).status).toBe(409)
-    expect(em.flush).not.toHaveBeenCalled()
+    const { caught } = await runUpsert(editInput({ taxRate: 8 }))
+    expectAllowed(caught)
   })
 
   it.each([
@@ -221,84 +230,62 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
     ['discount percent', { discountPercent: 25 }],
     ['net total', { totalNetAmount: 300 }],
     ['gross total', { totalGrossAmount: 369 }],
-  ])('rejects changing the %s of a shipped line', async (_label, overrides) => {
+  ])('lets a correction change the %s of a shipped line', async (_label, overrides) => {
     shippedWorld()
-    const { caught, em } = await runUpsert(editInput(overrides))
-    expect(isCrudHttpError(caught)).toBe(true)
-    expect((caught as CrudHttpError).status).toBe(409)
-    expect(em.flush).not.toHaveBeenCalled()
+    const { caught } = await runUpsert(editInput(overrides))
+    expectAllowed(caught)
   })
 
-  it('rejects changing the quantity unit of a shipped line', async () => {
+  it('lets a correction change the quantity unit of a shipped line', async () => {
     setWorld({
       shipments: [{ id: SHIPMENT_ID }],
       shipmentItems: [{ shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: '2' }],
       quantityUnit: 'pcs',
     })
-    const { caught, em } = await runUpsert(editInput({ quantityUnit: 'box' }))
-    expect(isCrudHttpError(caught)).toBe(true)
-    expect((caught as CrudHttpError).status).toBe(409)
-    expect(em.flush).not.toHaveBeenCalled()
+    const { caught } = await runUpsert(editInput({ quantityUnit: 'box' }))
+    expectAllowed(caught)
   })
 
   it('allows a resolved unit to be sent when the line has no stored unit', async () => {
     shippedWorld()
     const { caught } = await runUpsert(editInput({ quantity: 5, quantityUnit: 'pcs' }))
-    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+    expectAllowed(caught)
   })
 
   it('allows lowering the quantity down to exactly the shipped quantity', async () => {
     shippedWorld()
     const { caught } = await runUpsert(editInput({ quantity: 2 }))
-    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+    expectAllowed(caught)
   })
 
   it('allows raising the quantity on a shipped line', async () => {
     shippedWorld()
     const { caught } = await runUpsert(editInput({ quantity: 10 }))
-    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+    expectAllowed(caught)
   })
 
-  it('allows raising the quantity when the client echoes recomputed totals', async () => {
-    // The real payload the order-line dialog sends: it always recomputes and
-    // includes both totals, so locking them against the stored value rejected a
-    // supported edit and blamed the price the user never touched.
+  it('allows a quantity change whatever totals the client sends', async () => {
+    // The totals-consistency check was part of the freeze and is gone with it. Harmless:
+    // core recomputes line totals from quantity × unit price − discount and ignores the
+    // submitted totals, so an inflated value cannot move money — on any line, shipped or not.
     shippedWorld()
     const { caught } = await runUpsert(editInput({
       quantity: 10,
-      totalNetAmount: UNIT_PRICE_NET * 10,
-      totalGrossAmount: UNIT_PRICE_GROSS * 10,
+      totalNetAmount: 1500,
+      totalGrossAmount: 1800,
     }))
-    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
-  })
-
-  it('allows raising the quantity when the client omits the totals entirely', async () => {
-    shippedWorld()
-    const { caught } = await runUpsert(editInput({ quantity: 10, totalNetAmount: undefined }))
-    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
-  })
-
-  it.each([
-    ['inflated net total', { quantity: 10, totalNetAmount: 1500, totalGrossAmount: UNIT_PRICE_GROSS * 10 }],
-    ['inflated gross total', { quantity: 10, totalNetAmount: UNIT_PRICE_NET * 10, totalGrossAmount: 1800 }],
-    ['stale total left behind', { quantity: 10, totalNetAmount: 400, totalGrossAmount: 492 }],
-  ])('rejects a quantity change carrying an %s', async (_label, overrides) => {
-    // Totals must stay consistent per unit. A quantity edit may scale them; it may
-    // not be used as cover for moving money while the unit price sits still.
-    shippedWorld()
-    const { caught, em } = await runUpsert(editInput(overrides))
-    expect(isCrudHttpError(caught)).toBe(true)
-    expect((caught as CrudHttpError).status).toBe(409)
-    expect(em.flush).not.toHaveBeenCalled()
+    expectAllowed(caught)
   })
 
   it('allows lowering the quantity when the line has no shipments', async () => {
     setWorld({ shipments: [], shipmentItems: [] })
     const { caught } = await runUpsert(editInput({ quantity: 1, unitPriceNet: 5, unitPriceGross: 6 }))
-    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+    expectAllowed(caught)
   })
 
-  it('rejects undo when its snapshot would restore older prices onto a shipped line', async () => {
+  it('allows undo to restore older prices onto a shipped line', async () => {
+    // Undo replays a snapshot the same way a mirror replays its source: refusing it here would
+    // make the restore path the one place the freeze survived.
     shippedWorld()
     const handler = commandRegistry.get('sales.orders.update')!
     const em = makeEm()
@@ -338,8 +325,29 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
     } catch (err) {
       caught = err
     }
+    expectAllowed(caught)
+  })
+
+  it('still rejects deleting a line that has shipment items, with an explained 409', async () => {
+    // The one command-layer check that stays. It fronts a real constraint — the
+    // sales_shipment_items.order_line_id foreign key makes the delete impossible regardless —
+    // so removing it would only swap this message for a raw database error.
+    shippedWorld()
+    const handler = commandRegistry.get('sales.orders.lines.delete')!
+    const em = makeEm()
+    em.count = jest.fn(async () => 1)
+    let caught: unknown
+    try {
+      await handler.execute(
+        { body: { id: LINE_ID, orderId: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID } } as never,
+        makeCtx(em) as never,
+      )
+    } catch (err) {
+      caught = err
+    }
     expect(isCrudHttpError(caught)).toBe(true)
     expect((caught as CrudHttpError).status).toBe(409)
+    expect(String((caught as CrudHttpError).body?.error ?? '')).toContain('shipped items')
     expect(em.flush).not.toHaveBeenCalled()
   })
 })
