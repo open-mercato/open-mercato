@@ -208,12 +208,13 @@ export function ParticipantsField({
         {sectionLabel}
       </label>
       <div className="mt-2 flex flex-wrap content-center items-center gap-2">
+        {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, avatar + label + × */}
         {participants.map((p, index) => (
-          <div key={p.userId ?? p.email ?? index} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5">
-            <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-xs font-bold text-white', p.color ?? 'bg-primary')}>
+          <div key={p.userId ?? p.email ?? index} className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-background pl-1 pr-1.5">
+            <span className={cn('inline-flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-white', p.color ?? 'bg-primary')}>
               {p.name.charAt(0).toUpperCase()}
             </span>
-            <span className="text-xs text-foreground">{p.name}</span>
+            <span className="text-xs font-medium text-foreground">{p.name}</span>
             <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(index)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
               <X className="size-3" />
             </IconButton>

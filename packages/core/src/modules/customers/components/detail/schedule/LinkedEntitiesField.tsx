@@ -257,18 +257,14 @@ export function LinkedEntitiesField({
         {sectionLabel}
       </label>
       <div className="mt-2.5 flex flex-wrap content-center items-center gap-2">
+        {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, icon + label + × */}
         {linkedEntities.map((entity) => (
           <div
             key={entity.id}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs',
-              entity.type === 'deal'
-                ? 'border-status-success-border bg-status-success-bg font-semibold text-foreground'
-                : 'border-border bg-muted text-foreground',
-            )}
+            className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-background px-1.5 text-xs font-medium text-foreground"
           >
-            {entity.type === 'company' ? <Building2 className="size-3" /> : entity.type === 'deal' ? <Briefcase className="size-3" /> : <FileText className="size-3" />}
-            {entity.label}
+            {entity.type === 'company' ? <Building2 className="size-3 text-muted-foreground" /> : entity.type === 'deal' ? <Briefcase className="size-3 text-muted-foreground" /> : <FileText className="size-3 text-muted-foreground" />}
+            <span className="max-w-48 truncate">{entity.label}</span>
             <IconButton type="button" variant="ghost" size="sm" onClick={() => setLinkedEntities((prev) => prev.filter((e) => e.id !== entity.id))} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeLink', 'Remove link')}>
               <X className="size-2.5" />
             </IconButton>
