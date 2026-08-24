@@ -7,7 +7,7 @@ import {
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 /**
- * TC-CRM-087: Delete affordance on the production activity card (PR #4273 QA follow-up).
+ * TC-CRM-4273: Delete affordance on the production activity card (PR #4273 QA follow-up).
  *
  * The first pass of #4273 wired deletion into `ActivitiesSection` -> `ActivityTimeline`,
  * but the company detail route renders `ActivityLogTab` -> `ActivityHistorySection` ->
@@ -21,7 +21,7 @@ import {
  *   4. The edit prefill shows the saved `scheduledAt`, not the older `occurredAt`.
  *   5. The Activity log has no horizontal document overflow at a phone viewport.
  */
-test.describe('TC-CRM-087: activity delete + prefill on the production activity card (#4273)', () => {
+test.describe('TC-CRM-4273: activity delete + prefill on the production activity card (#4273)', () => {
   test('delete affordance reaches the real timeline and removes the interaction', async ({ page, request }) => {
     test.slow()
 
@@ -29,11 +29,11 @@ test.describe('TC-CRM-087: activity delete + prefill on the production activity 
     let companyId: string | null = null
     let interactionId: string | null = null
     const stamp = Date.now()
-    const meetingTitle = `QA TC-CRM-087 meeting ${stamp}`
+    const meetingTitle = `QA TC-CRM-4273 meeting ${stamp}`
 
     try {
       token = await getAuthToken(request, 'admin')
-      companyId = await createCompanyFixture(request, token, `QA TC-CRM-087 Co ${stamp}`)
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-4273 Co ${stamp}`)
 
       // A completed activity whose scheduledAt (14:30) differs from its occurredAt (09:00)
       // on the same recent day, so the prefill assertion is unambiguous.
@@ -151,14 +151,14 @@ test.describe('TC-CRM-087: activity delete + prefill on the production activity 
 
     try {
       token = await getAuthToken(request, 'admin')
-      companyId = await createCompanyFixture(request, token, `QA TC-CRM-087 Mobile Co ${stamp}`)
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-4273 Mobile Co ${stamp}`)
 
       const createRes = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
         data: {
           entityId: companyId,
           interactionType: 'call',
-          title: `QA TC-CRM-087 mobile call ${stamp}`,
+          title: `QA TC-CRM-4273 mobile call ${stamp}`,
           status: 'done',
           occurredAt: new Date().toISOString(),
         },
