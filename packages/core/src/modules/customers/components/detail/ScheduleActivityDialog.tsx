@@ -460,7 +460,7 @@ export function ScheduleActivityDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
       <DialogContent
-        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[640px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
+        className="flex max-h-[90dvh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[640px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
         onKeyDown={handleKeyDown}
         aria-describedby={undefined}
       >
