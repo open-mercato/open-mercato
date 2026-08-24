@@ -6,6 +6,8 @@ If you discover a security vulnerability in Open Mercato, **please report it pri
 
 **Email:** [info@openmercato.com](mailto:info@openmercato.com)
 
+Automated security contact discovery is available at `/.well-known/security.txt` in the reference application and official documentation site.
+
 ### What to Include
 
 - Description of the vulnerability
