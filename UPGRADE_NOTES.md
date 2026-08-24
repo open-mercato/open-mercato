@@ -63,7 +63,10 @@ The new `phone_calls` module encrypts two entities at rest through the standard 
 
 **This heals automatically on `yarn db:migrate`.** A forward-only, idempotent data migration (`entities` module, `Migration20260822120000`) inserts both maps for every `(tenant, organization)` scope that already has active encryption maps, mirroring what `seed-encryption` does and correctly skipping tenants that run with encryption disabled (they have no maps at all). New tenants continue to get both maps from `seed-encryption` at creation. **No operator action is required** for the standard migrate-then-deploy flow, and there is no plaintext window because the maps exist before the new code serves traffic. This mirrors the `devices:user_device` backfill shipped in `Migration20260722120000`.
 
-If you skip migrations, re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant instead; it idempotently upserts every module's default encryption maps, including both phone_calls ones.
+Two additional heal paths are available if you need them:
+
+- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.7.1`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
+- **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including both phone_calls ones.
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 

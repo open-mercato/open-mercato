@@ -33,6 +33,10 @@
   "phone_calls.calls.status.new": "Nowe",
   "phone_calls.calls.status.ringing": "Dzwoni",
   "phone_calls.calls.status.unknown": "Nieznany",
+  "phone_calls.config.upgradeActions.encryptionMaps.cta": "Szyfruj dane połączeń telefonicznych",
+  "phone_calls.config.upgradeActions.encryptionMaps.loading": "Tworzenie map szyfrowania połączeń telefonicznych…",
+  "phone_calls.config.upgradeActions.encryptionMaps.message": "Wersja {{version}} przechowuje połączenia telefoniczne i szyfruje dane dzwoniących w spoczynku. Najemca, który zaktualizował się z wyłączonym szyfrowaniem, nie ma mapy szyfrowania dla dwóch encji połączeń, więc połączenia pobrane po włączeniu szyfrowania byłyby przechowywane bez szyfrowania. Uruchom to, aby utworzyć obie mapy.",
+  "phone_calls.config.upgradeActions.encryptionMaps.success": "Utworzono mapy szyfrowania połączeń telefonicznych.",
   "phone_calls.nav.calls": "Połączenia telefoniczne",
   "phone_calls.nav.group": "Komunikacja"
 }

@@ -33,6 +33,10 @@
   "phone_calls.calls.status.new": "Nueva",
   "phone_calls.calls.status.ringing": "Sonando",
   "phone_calls.calls.status.unknown": "Desconocido",
+  "phone_calls.config.upgradeActions.encryptionMaps.cta": "Cifrar datos de llamadas",
+  "phone_calls.config.upgradeActions.encryptionMaps.loading": "Creando los mapas de cifrado de llamadas…",
+  "phone_calls.config.upgradeActions.encryptionMaps.message": "La versión {{version}} almacena llamadas telefónicas y cifra los datos de quien llama en reposo. Un inquilino que actualizó con el cifrado desactivado no tiene mapa de cifrado para las dos entidades de llamada, por lo que las llamadas registradas tras activar el cifrado se guardarían sin cifrar. Ejecuta esto para crear ambos mapas.",
+  "phone_calls.config.upgradeActions.encryptionMaps.success": "Mapas de cifrado de llamadas creados.",
   "phone_calls.nav.calls": "Llamadas",
   "phone_calls.nav.group": "Comunicación"
 }

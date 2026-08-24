@@ -33,6 +33,10 @@
   "phone_calls.calls.status.new": "Neu",
   "phone_calls.calls.status.ringing": "Klingelt",
   "phone_calls.calls.status.unknown": "Unbekannt",
+  "phone_calls.config.upgradeActions.encryptionMaps.cta": "Anrufdaten verschlüsseln",
+  "phone_calls.config.upgradeActions.encryptionMaps.loading": "Verschlüsselungszuordnungen für Anrufe werden angelegt…",
+  "phone_calls.config.upgradeActions.encryptionMaps.message": "Version {{version}} speichert Telefonanrufe und verschlüsselt deren Anruferdaten im Ruhezustand. Ein Mandant, der mit deaktivierter Verschlüsselung aktualisiert hat, besitzt keine Verschlüsselungszuordnung für die beiden Anruf-Entitäten, sodass nach dem Aktivieren der Verschlüsselung erfasste Anrufe unverschlüsselt gespeichert würden. Führen Sie dies aus, um beide Zuordnungen anzulegen.",
+  "phone_calls.config.upgradeActions.encryptionMaps.success": "Verschlüsselungszuordnungen für Anrufe angelegt.",
   "phone_calls.nav.calls": "Anrufe",
   "phone_calls.nav.group": "Kommunikation"
 }
