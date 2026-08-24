@@ -20,6 +20,7 @@ import {
 } from '../../../../guards'
 import { emitStaffEvent } from '../../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -52,6 +53,14 @@ export async function POST(req: Request) {
     if (!tenantId || !organizationId) {
       throw new CrudHttpError(400, { error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.') })
     }
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
 
     const em = (container.resolve('em') as EntityManager).fork()
     const scopeCtx = { tenantId, organizationId }
@@ -198,7 +207,7 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json({ ok: true, durationMinutes }, { status: 200 })
+    return session.respond(200, { ok: true, durationMinutes })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

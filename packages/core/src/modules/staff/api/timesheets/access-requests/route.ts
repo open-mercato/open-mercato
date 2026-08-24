@@ -11,7 +11,9 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTeamMember, StaffTimeProject } from '../../../data/entities'
 import { emitStaffEvent } from '../../../events'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
+import { runTimesheetInterceptors } from '../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/access-requests' })
 
@@ -178,9 +180,24 @@ async function resolveRequesterName(context: AccessRequestContext): Promise<stri
 async function POST(req: Request) {
   try {
     const context = await resolveAccessRequestContext(req)
-    const body = await req.json().catch(() => ({}))
-    const parsed = accessRequestSchema.parse(body ?? {})
     const grantedFeatures = await resolveGrantedFeatures(context)
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: {
+        container: context.container,
+        userId: context.requesterUserId,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userFeatures: grantedFeatures,
+      },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = accessRequestSchema.parse(session.body)
 
     const guardResult = await runRouteMutationGuards({
       container: context.container,
@@ -217,7 +234,7 @@ async function POST(req: Request) {
       const pending = await cache.get(dedupeKey).catch(() => null)
       if (pending != null) {
         await guardResult.runAfterSuccess()
-        return NextResponse.json({ ok: true, deduplicated: true })
+        return session.respond(200, { ok: true, deduplicated: true })
       }
     }
 
@@ -242,7 +259,7 @@ async function POST(req: Request) {
 
     await guardResult.runAfterSuccess()
 
-    return NextResponse.json({ ok: true, deduplicated: false })
+    return session.respond(200, { ok: true, deduplicated: false })
   } catch (err) {
     return errorResponse(err, 'staff.timesheets.access-requests.POST failed')
   }

@@ -274,6 +274,7 @@ const crud = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   events: staffTimeReportCrudEvents,
+  enrichers: { entityId: 'staff:staff_time_report' },
   indexer: { entityType: 'staff:staff_time_report' },
   list: {
     schema: listSchema,

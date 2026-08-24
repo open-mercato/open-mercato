@@ -36,7 +36,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { staffTimeReportPreviewSchema } from '../../../../data/validators'
+import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 import { resolveProjectAccess } from '../../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
 import { loadReportData } from '../../../../lib/timesheets-reports/loadReportData'
@@ -185,8 +187,16 @@ export async function POST(req: Request) {
       organizationId,
     })
 
-    const body = await req.json().catch(() => ({}))
-    const parsed = staffTimeReportPreviewSchema.parse(body)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId, userFeatures: grantedFeatures },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = staffTimeReportPreviewSchema.parse(session.body)
 
     const em = (container.resolve('em') as EntityManager).fork()
     const access = await resolveProjectAccess({
@@ -280,7 +290,7 @@ export async function POST(req: Request) {
       ? await readTimeTrackingSettings(configService, { tenantId })
       : null
 
-    return NextResponse.json({
+    return session.respond(200, {
       currencyCode: currency.currencyCode,
       grouping: parsed.grouping,
       nonbillableMode: parsed.nonbillableMode,

@@ -21,6 +21,10 @@ import {
   resolveProjectAccess,
 } from '../../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/overlaps' })
 
@@ -92,7 +96,7 @@ type EntryRow = Pick<
   | 'timeProjectId'
 > & { date: unknown }
 
-const emptyResult = () => NextResponse.json({ items: [], total: 0 }, { status: 200 })
+const EMPTY_OVERLAP_RESULT = { items: [], total: 0 }
 
 function pad(value: number): string {
   return String(value).padStart(2, '0')
@@ -154,10 +158,10 @@ function toRowSpan(row: EntryRow): OverlapSpan | null {
   }
 }
 
-function readQuery(url: URL): z.infer<typeof querySchema> {
+function readQuery(params: URLSearchParams): z.infer<typeof querySchema> {
   const raw: Record<string, string> = {}
   for (const key of ['date', 'startedAt', 'endedAt', 'durationMinutes', 'excludeId', 'staffMemberId']) {
-    const value = url.searchParams.get(key)
+    const value = params.get(key)
     if (value !== null && value.trim().length > 0) raw[key] = value.trim()
   }
   return querySchema.parse(raw)
@@ -264,7 +268,16 @@ export async function GET(req: Request) {
       })
     }
 
-    const query = readQuery(new URL(req.url))
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const query = readQuery(session.searchParams)
     const candidate: OverlapSpan = {
       date: query.date,
       start: toClock(query.startedAt),
@@ -277,7 +290,7 @@ export async function GET(req: Request) {
       durationMinutes: candidate.durationMinutes,
     })
     if (!derived.start || derived.durationMinutes === null || derived.durationMinutes <= 0) {
-      return emptyResult()
+      return session.respond(200, EMPTY_OVERLAP_RESULT)
     }
 
     const scope = { tenantId, organizationId }
@@ -301,7 +314,7 @@ export async function GET(req: Request) {
 
     const staffMemberId =
       canManageAll && query.staffMemberId ? query.staffMemberId : access.staffMemberId
-    if (!staffMemberId) return emptyResult()
+    if (!staffMemberId) return session.respond(200, EMPTY_OVERLAP_RESULT)
     const isSelfScope = staffMemberId === access.staffMemberId
 
     const where = {
@@ -334,7 +347,7 @@ export async function GET(req: Request) {
       spans,
       query.excludeId ? { excludeId: query.excludeId } : undefined,
     )
-    if (!overlaps.length) return emptyResult()
+    if (!overlaps.length) return session.respond(200, EMPTY_OVERLAP_RESULT)
 
     const taskIds = new Set<string>()
     const projectIds = new Set<string>()
@@ -371,7 +384,7 @@ export async function GET(req: Request) {
       })
     }
 
-    return NextResponse.json({ items, total: items.length }, { status: 200 })
+    return session.respond(200, { items, total: items.length })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

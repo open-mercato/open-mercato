@@ -38,6 +38,7 @@ import {
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
+import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -96,8 +97,16 @@ export async function POST(req: Request) {
       throw new CrudHttpError(400, { error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.') })
     }
 
-    const body = await readJsonSafe(req, {})
-    const parsed = staffTimeEntryBulkSaveSchema.safeParse(body)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = staffTimeEntryBulkSaveSchema.safeParse(session.body)
     if (!parsed.success) {
       const errors = parsed.error.issues.map((issue) => ({
         path: issue.path.join('.'),
@@ -526,7 +535,7 @@ export async function POST(req: Request) {
       logger.error('staff.timesheets emit time_entry.bulk_updated failed', { err })
     })
 
-    return NextResponse.json({ ok: true, ...counts }, { status: 200 })
+    return session.respond(200, { ok: true, ...counts })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

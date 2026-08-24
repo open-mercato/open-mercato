@@ -68,6 +68,7 @@ import { staffTimeEntryCommandIds, TIME_ENTRY_LOCKED_CODE } from '../../../../co
 import { resolveProjectAccess, type ProjectAccess } from '../../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
+import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/copy-day' })
 
@@ -269,7 +270,16 @@ export async function POST(req: Request) {
       ? authorizeFeatures([MANAGE_ALL_FEATURE], { grantedFeatures, scopeAllowed: true })
       : false
 
-    const parsed = copyDayRequestSchema.parse(await readJsonSafe(req, {}))
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: actorId, tenantId, organizationId, userFeatures: grantedFeatures },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = copyDayRequestSchema.parse(session.body)
     const fromDay = dayKey(parsed.fromDate)
     const toDay = dayKey(parsed.toDate)
     if (fromDay === toDay) {
@@ -314,18 +324,15 @@ export async function POST(req: Request) {
     ).filter((entry) => isTimeEntryVisible(entry, access))
 
     if (sources.length === 0) {
-      return NextResponse.json(
-        {
-          ok: true,
-          fromDate: fromDay,
-          toDate: toDay,
-          staffMemberId,
-          copied: 0,
-          created: [],
-          skipped: [],
-        },
-        { status: 200 },
-      )
+      return session.respond(200, {
+        ok: true,
+        fromDate: fromDay,
+        toDate: toDay,
+        staffMemberId,
+        copied: 0,
+        created: [],
+        skipped: [],
+      })
     }
 
     if (!parsed.allowDuplicates) {
@@ -475,18 +482,15 @@ export async function POST(req: Request) {
       ]
     })
 
-    return NextResponse.json(
-      {
-        ok: true,
-        fromDate: fromDay,
-        toDate: toDay,
-        staffMemberId,
-        copied: created.length,
-        created,
-        skipped,
-      },
-      { status: 200 },
-    )
+    return session.respond(200, {
+      ok: true,
+      fromDate: fromDay,
+      toDate: toDay,
+      staffMemberId,
+      copied: created.length,
+      created,
+      skipped,
+    })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

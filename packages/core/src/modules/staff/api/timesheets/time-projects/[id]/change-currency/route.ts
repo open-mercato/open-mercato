@@ -14,7 +14,9 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffTimeProjectChangeCurrencySchema } from '../../../../../data/validators'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import {
   staffTimeProjectChangeCurrencyCommandId,
   type StaffTimeProjectChangeCurrencyCommandInput,
@@ -111,8 +113,16 @@ export async function POST(req: Request) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
 
-    const body = await req.json().catch(() => ({}))
-    const parsed = staffTimeProjectChangeCurrencySchema.parse(body)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: actorId, tenantId, organizationId, userFeatures: grantedFeatures },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = staffTimeProjectChangeCurrencySchema.parse(session.body)
 
     const guardResult = await runRouteMutationGuards({
       container,
@@ -167,15 +177,12 @@ export async function POST(req: Request) {
       logger.error('staff.timesheets emit time_project.currency_changed failed', { err })
     })
 
-    const response = NextResponse.json(
-      {
-        id: result?.timeProjectId ?? timeProjectId,
-        currencyCode: result?.currencyCode ?? effective.currencyCode,
-        previousCurrencyCode: result?.previousCurrencyCode ?? null,
-        converted: false,
-      },
-      { status: 200 },
-    )
+    const response = await session.respond(200, {
+      id: result?.timeProjectId ?? timeProjectId,
+      currencyCode: result?.currencyCode ?? effective.currencyCode,
+      previousCurrencyCode: result?.previousCurrencyCode ?? null,
+      converted: false,
+    })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
         'x-om-operation',

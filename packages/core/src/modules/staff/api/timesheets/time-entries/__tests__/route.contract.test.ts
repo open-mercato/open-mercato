@@ -16,7 +16,11 @@ jest.mock('../../../../lib/time-tracking/access', () => ({
   resolveProjectAccess: jest.fn(),
 }))
 
+import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
+import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
+import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 import { buildScopedTimeEntryListFilters, decorateTimeEntryList, RATES_FEATURE } from '../route'
+import { enrichers } from '../../../../data/enrichers'
 import { resolveProjectAccess } from '../../../../lib/time-tracking/access'
 import { StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } from '../../../../data/entities'
 
@@ -333,5 +337,110 @@ describe('decorateTimeEntryList — response fields', () => {
   it('is a no-op on an empty page', async () => {
     const payload = { items: [] }
     await expect(decorateTimeEntryList(payload, decorateCtx(true))).resolves.toBeUndefined()
+  })
+})
+
+// EP-14 — the decoration above is no longer a route-private `hooks.afterList`; it is
+// the declared `staff.timesheets-time-entries` response enricher. Two things must
+// hold after that move, and both fail silently: the rows the endpoint returns must
+// look exactly as they did behind the hook, and a third-party enricher registered
+// for the same entity must now compose with it instead of being shadowed by it.
+describe('the time-entry enricher is the list host', () => {
+  const THIRD_PARTY_FIELD = '_jira'
+
+  function enricherContext(canSeeRates: boolean, world: DecorateWorld = {}): EnricherContext {
+    const ctx = decorateCtx(canSeeRates, world) as unknown as {
+      container: { resolve: (name: string) => unknown }
+    }
+    return {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      em: ctx.container.resolve('em'),
+      container: ctx.container,
+    }
+  }
+
+  const thirdPartyEnricher: ResponseEnricher<Row & { id: string }, Record<string, unknown>> = {
+    id: 'jira.time-entry-issue',
+    targetEntity: 'staff:staff_time_entry',
+    priority: 1,
+    async enrichOne(record) {
+      return { ...record, [THIRD_PARTY_FIELD]: { issueKey: `OM-${record.id.slice(0, 4)}` } }
+    },
+    async enrichMany(records) {
+      return Promise.all(records.map((record) => this.enrichOne!(record, {} as EnricherContext)))
+    },
+  }
+
+  afterEach(() => {
+    registerResponseEnrichers([{ moduleId: 'staff', enrichers }])
+  })
+
+  it('produces the same row the route-private hook produced', async () => {
+    registerResponseEnrichers([{ moduleId: 'staff', enrichers }])
+    const world: DecorateWorld = {
+      assignments: [{ timeEntryId: ENTRY_ID, tagId: TAG_ID }],
+      tags: [{ id: TAG_ID, slug: 'dev', label: 'rozwój', color: '#123456' }],
+      projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
+    }
+
+    const viaHook = [entryItem()]
+    await decorateTimeEntryList({ items: viaHook }, decorateCtx(true, world))
+
+    const viaEnricher = await applyResponseEnrichers(
+      [entryItem()],
+      'staff:staff_time_entry',
+      enricherContext(true, world),
+    )
+
+    expect(viaEnricher.items[0]).toEqual(viaHook[0])
+    expect(viaEnricher._meta.enrichedBy).toContain('staff.timesheets-time-entries')
+  })
+
+  it('lets a third-party enricher add its own fields beside the decoration', async () => {
+    registerResponseEnrichers([
+      { moduleId: 'staff', enrichers },
+      { moduleId: 'jira', enrichers: [thirdPartyEnricher as ResponseEnricher] },
+    ])
+
+    const result = await applyResponseEnrichers(
+      [entryItem()],
+      'staff:staff_time_entry',
+      enricherContext(true, {
+        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
+      }),
+    )
+
+    expect(result.items[0]).toMatchObject({
+      description: 'Cart migration',
+      roundedMinutes: 75,
+      cost: 400,
+      [THIRD_PARTY_FIELD]: { issueKey: 'OM-7777' },
+    })
+    expect(result._meta.enrichedBy).toEqual(
+      expect.arrayContaining(['staff.timesheets-time-entries', 'jira.time-entry-issue']),
+    )
+  })
+
+  it('keeps every money key out of the enriched row without `staff.timesheets.rates.view`', async () => {
+    registerResponseEnrichers([
+      { moduleId: 'staff', enrichers },
+      { moduleId: 'jira', enrichers: [thirdPartyEnricher as ResponseEnricher] },
+    ])
+
+    const result = await applyResponseEnrichers(
+      [entryItem({ rate_override_amount: '260' })],
+      'staff:staff_time_entry',
+      enricherContext(false, {
+        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
+      }),
+    )
+
+    expect(result.items[0]).not.toHaveProperty('cost')
+    expect(result.items[0]).not.toHaveProperty('currencyCode')
+    expect(result.items[0]).not.toHaveProperty('rate_override_amount')
+    expect(result.items[0]).not.toHaveProperty('rate_currency_code')
+    expect(result.items[0]).toHaveProperty(THIRD_PARTY_FIELD)
   })
 })

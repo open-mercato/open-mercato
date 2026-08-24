@@ -1064,13 +1064,23 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
     })
 
     // A failed broadcast must never fail a committed close.
+    //
+    // The payload is spelled out rather than spreading `result` because this event is
+    // `clientBroadcast: true`: the DOM Event Bridge delivers it to every user of the
+    // organization with no feature check, and `result.totalAmount` is money, which is
+    // gated on `staff.timesheets.rates.view`. The minute totals and the locked-entry
+    // count are not money and are what a live report screen needs; the amount is read
+    // back from the report itself by a caller entitled to it.
     void emitStaffEvent('staff.timesheets.time_report.closed', {
       id: report.id,
       tenantId: report.tenantId,
       organizationId: report.organizationId,
       reference: report.reference,
       customerId: report.customerId,
-      ...result,
+      reportId: result.reportId,
+      lockedEntryCount: result.lockedEntryCount,
+      totalBillableMinutes: result.totalBillableMinutes,
+      totalNonbillableMinutes: result.totalNonbillableMinutes,
     }).catch((err) => {
       logger.error('staff.timesheets emit time_report.closed failed', { err })
     })

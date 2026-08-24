@@ -52,6 +52,10 @@ import {
 } from '../../../lib/timesheets-projects/dateBuckets'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { buildMyWorkKpis, pickRecentTaskIds, toMinutes } from './myWorkAggregate'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/my-work' })
 
@@ -159,6 +163,15 @@ export async function GET(req: Request) {
       })
     }
 
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
     const em = container.resolve('em') as EntityManager
     const now = new Date()
     const todayDate = toDateOnlyString(now)
@@ -198,10 +211,14 @@ export async function GET(req: Request) {
     if (!staffMember) {
       // No staff profile yet: the shape is the same, so screen 1 renders its
       // "set up your profile" branch instead of failing.
-      return NextResponse.json(
-        { staffMember: null, today: todayDate, kpis: emptyKpis, entries: [], projects: [], recentTasks: [] },
-        { status: 200 },
-      )
+      return session.respond(200, {
+        staffMember: null,
+        today: todayDate,
+        kpis: emptyKpis,
+        entries: [],
+        projects: [],
+        recentTasks: [],
+      })
     }
 
     const rbac = container.resolve('rbacService') as RbacServiceLike
@@ -425,7 +442,7 @@ export async function GET(req: Request) {
         .filter((task): task is NonNullable<typeof task> => task !== null),
     }
 
-    return NextResponse.json(payload, { status: 200 })
+    return session.respond(200, payload)
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

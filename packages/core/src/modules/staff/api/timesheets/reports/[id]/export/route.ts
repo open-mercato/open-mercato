@@ -34,6 +34,10 @@ import {
 } from '../../../../../lib/timesheets-reports/reportExport'
 import type { ReportGrouping } from '../../../../../lib/timesheets-reports/reportTotals'
 import { resolveReportRequestContext, reportSheetLabels, type Translate } from '../../shared'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/export' })
 
@@ -42,20 +46,14 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.reports.view'] },
 }
 
-function readQuery(url: string | undefined): { format: string | null; grouping: ReportGrouping | undefined } {
-  if (!url) return { format: null, grouping: undefined }
-  try {
-    const params = new URL(url).searchParams
-    const grouping = params.get('grouping')
-    return {
-      format: params.get('format'),
-      grouping:
-        grouping === 'project_task' || grouping === 'project_person' || grouping === 'project_day'
-          ? grouping
-          : undefined,
-    }
-  } catch {
-    return { format: null, grouping: undefined }
+function readQuery(params: URLSearchParams): { format: string | null; grouping: ReportGrouping | undefined } {
+  const grouping = params.get('grouping')
+  return {
+    format: params.get('format'),
+    grouping:
+      grouping === 'project_task' || grouping === 'project_person' || grouping === 'project_day'
+        ? grouping
+        : undefined,
   }
 }
 
@@ -116,9 +114,19 @@ export async function GET(req: Request) {
     // the previous `grantedFeatures === null || authorize(...)` opened the money
     // fields whenever the grant read failed, and this route requires only
     // `reports.view`, so nothing else stood in the way.
-    const { container, auth, tenantId, organizationId, reportId, translate, canSeeMoney } = context
+    const { container, auth, tenantId, organizationId, reportId, translate, canSeeMoney, grantedFeatures } =
+      context
 
-    const { format: rawFormat, grouping } = readQuery(req.url)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId, organizationId, userFeatures: grantedFeatures },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const { format: rawFormat, grouping } = readQuery(session.searchParams)
     const format = normalizeReportExportFormat(rawFormat)
     if (!format) {
       throw new CrudHttpError(400, {
@@ -220,11 +228,34 @@ export async function GET(req: Request) {
       logger.error('staff.timesheets emit time_report.exported failed', { err })
     })
 
+    // The after-pass cannot rewrite an export's bytes, so what it shapes is the
+    // file's descriptor: an interceptor may rename the download or restate its
+    // media type, and a failing one replaces the file with its own error.
+    const intercepted = await session.respondWithDescriptor({
+      reportId: report.id,
+      reference: report.reference,
+      format,
+      grouping: sheet.grouping,
+      rowCount: rows.length,
+      filename: file.filename,
+      contentType: file.contentType,
+    })
+    if (!intercepted.ok) return intercepted.response
+
+    const filename =
+      typeof intercepted.descriptor.filename === 'string' && intercepted.descriptor.filename.trim().length > 0
+        ? intercepted.descriptor.filename.trim()
+        : file.filename
+    const contentType =
+      typeof intercepted.descriptor.contentType === 'string' && intercepted.descriptor.contentType.trim().length > 0
+        ? intercepted.descriptor.contentType.trim()
+        : file.contentType
+
     return new NextResponse(new Uint8Array(file.body), {
       status: 200,
       headers: {
-        'content-type': file.contentType,
-        'content-disposition': `attachment; filename="${file.filename}"`,
+        'content-type': contentType,
+        'content-disposition': `attachment; filename="${filename}"`,
         'cache-control': 'no-store',
       },
     })

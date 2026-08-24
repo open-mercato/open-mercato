@@ -50,6 +50,7 @@ import { staffTimeEntryCommandIds } from '../../../../../commands/timesheets-ent
 import { resolveProjectAccess, type ProjectAccess } from '../../../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../../../lib/time-tracking/settings'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/duplicate' })
 
@@ -199,7 +200,16 @@ export async function POST(req: Request) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
 
-    const parsed = duplicateRequestSchema.parse(await readJsonSafe(req, {}))
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: actorId, tenantId, organizationId, userFeatures: grantedFeatures },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = duplicateRequestSchema.parse(session.body)
 
     // The source is resolved here, before the command, purely so an entry the
     // caller cannot see answers 404 instead of the command's 403 — which would
@@ -269,7 +279,7 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json({ id: result?.timeEntryId ?? null, sourceId: timeEntryId }, { status: 201 })
+    return session.respond(201, { id: result?.timeEntryId ?? null, sourceId: timeEntryId })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

@@ -32,14 +32,14 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { sanitizeSearchTerm } from '../../helpers'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } from '../../../data/entities'
+import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject } from '../../../data/entities'
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
 import { buildTimeEntryListFilters, isParseableDateFilter } from '../../../lib/timesheets/timeEntryListFilters'
 import { staffTimeEntryCommandIds, staffTimeEntryCrudEvents } from '../../../lib/crud'
 import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
-import { entryAmount } from '../../../lib/time-tracking/cost'
+import { decorateTimeEntryRows } from '../../../lib/timesheets/timeEntryDecoration'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries' })
@@ -349,37 +349,7 @@ export const timeEntryListFields = [
   F.updated_at,
 ] as const
 
-type ListItem = Record<string, unknown>
-
-export type TimeEntryTagSummary = {
-  id: string
-  slug: string
-  label: string
-  color: string | null
-}
-
-function readValue(item: ListItem, snakeKey: string, camelKey: string): unknown {
-  const snake = item[snakeKey]
-  if (snake !== undefined) return snake
-  return item[camelKey]
-}
-
-function toNullableString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null
-}
-
-function toNullableNumber(value: unknown): number | null {
-  if (value === null || value === undefined) return null
-  const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function toBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value
-  if (value === 'true' || value === 1) return true
-  if (value === 'false' || value === 0) return false
-  return fallback
-}
+export type { TimeEntryTagSummary } from '../../../lib/timesheets/timeEntryDecoration'
 
 async function callerHasRatesView(ctx: CrudCtx): Promise<boolean> {
   const userId = ctx.auth?.sub
@@ -395,138 +365,24 @@ async function callerHasRatesView(ctx: CrudCtx): Promise<boolean> {
   }
 }
 
-async function loadEntryTags(
-  em: EntityManager,
-  entryIds: string[],
-  tenantId: string,
-  organizationId: string,
-): Promise<Map<string, TimeEntryTagSummary[]>> {
-  const byEntryId = new Map<string, TimeEntryTagSummary[]>()
-  if (entryIds.length === 0) return byEntryId
-  const assignments = await em.find(StaffTimeEntryTag, {
-    timeEntryId: { $in: entryIds },
-    tenantId,
-    organizationId,
-  })
-  if (assignments.length === 0) return byEntryId
-  const tags = await em.find(StaffTimeTag, {
-    id: { $in: Array.from(new Set(assignments.map((row) => row.tagId))) },
-    tenantId,
-    organizationId,
-    deletedAt: null,
-  })
-  const tagById = new Map(tags.map((tag) => [tag.id, tag]))
-  for (const assignment of assignments) {
-    const tag = tagById.get(assignment.tagId)
-    if (!tag) continue
-    const list = byEntryId.get(assignment.timeEntryId) ?? []
-    list.push({ id: tag.id, slug: tag.slug, label: tag.label, color: tag.color ?? null })
-    byEntryId.set(assignment.timeEntryId, list)
-  }
-  return byEntryId
-}
-
-type ProjectMoney = { hourlyRate: number | null; currencyCode: string | null }
-
-async function loadProjectMoney(
-  em: EntityManager,
-  projectIds: string[],
-  tenantId: string,
-  organizationId: string,
-): Promise<Map<string, ProjectMoney>> {
-  const byId = new Map<string, ProjectMoney>()
-  if (projectIds.length === 0) return byId
-  const projects = await em.find(StaffTimeProject, {
-    id: { $in: projectIds },
-    tenantId,
-    organizationId,
-    deletedAt: null,
-  })
-  for (const project of projects) {
-    byId.set(project.id, {
-      hourlyRate: toNullableNumber(project.hourlyRate),
-      currencyCode: toNullableString(project.currencyCode),
-    })
-  }
-  return byId
-}
-
 /**
- * Adds the consulting-suite response fields to every listed entry. Money keys are
- * added only for a caller holding `staff.timesheets.rates.view`; for everyone else
- * the stored rate override is stripped, so the absence is in the payload rather
- * than only in the UI.
+ * @deprecated The decoration is now the declared `staff.timesheets-time-entries`
+ * response enricher (`data/enrichers.ts`), so third-party enrichers for
+ * `staff:staff_time_entry` compose with it instead of running blind behind a
+ * route-private hook. Kept as a thin, in-place wrapper because it is an exported
+ * symbol of this route module; new callers should register an enricher.
  */
 export async function decorateTimeEntryList(payload: unknown, ctx: CrudCtx): Promise<void> {
   const items = (payload as { items?: unknown })?.items
   if (!Array.isArray(items) || items.length === 0) return
-  const rows = items as ListItem[]
-
   const { tenantId, organizationId } = resolveCtxScope(ctx)
-  const canSeeRates = await callerHasRatesView(ctx)
-
-  let tagsByEntryId = new Map<string, TimeEntryTagSummary[]>()
-  let moneyByProjectId = new Map<string, ProjectMoney>()
-  if (tenantId && organizationId) {
-    try {
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const entryIds = rows
-        .map((row) => readValue(row, F.id, 'id'))
-        .filter((value): value is string => typeof value === 'string')
-      tagsByEntryId = await loadEntryTags(em, entryIds, tenantId, organizationId)
-      if (canSeeRates) {
-        const projectIds = Array.from(
-          new Set(
-            rows
-              .map((row) => readValue(row, F.time_project_id, 'timeProjectId'))
-              .filter((value): value is string => typeof value === 'string'),
-          ),
-        )
-        moneyByProjectId = await loadProjectMoney(em, projectIds, tenantId, organizationId)
-      }
-    } catch (err) {
-      // A decoration failure must not fail the list; the entry rows themselves are
-      // already correct and scoped.
-      logger.error('staff.timesheets.time-entries response decoration failed', { err })
-    }
-  }
-
-  for (const row of rows) {
-    const entryId = readValue(row, F.id, 'id')
-    const lockedReportId = toNullableString(readValue(row, F.locked_report_id, 'lockedReportId'))
-    const roundedMinutes = toNullableNumber(readValue(row, F.rounded_minutes, 'roundedMinutes'))
-    const isBillable = toBoolean(readValue(row, F.is_billable, 'isBillable'), true)
-
-    // The published alias: same value, second name, both keys returned.
-    row.description = toNullableString(readValue(row, F.notes, 'notes'))
-    row.roundedMinutes = roundedMinutes
-    row.isLocked = lockedReportId !== null
-    row.lockedReportId = lockedReportId
-    row.tags = typeof entryId === 'string' ? tagsByEntryId.get(entryId) ?? [] : []
-
-    if (!canSeeRates) {
-      delete row[F.rate_override_amount]
-      delete row.rateOverrideAmount
-      delete row[F.rate_currency_code]
-      delete row.rateCurrencyCode
-      continue
-    }
-
-    const projectId = readValue(row, F.time_project_id, 'timeProjectId')
-    const money = typeof projectId === 'string' ? moneyByProjectId.get(projectId) : undefined
-    row.currencyCode =
-      toNullableString(readValue(row, F.rate_currency_code, 'rateCurrencyCode')) ?? money?.currencyCode ?? null
-    // A non-billable entry has no price at all — `null`, never `0`, which would
-    // read as free work rather than work that is out of scope.
-    row.cost = entryAmount(
-      {
-        isBillable,
-        roundedMinutes: roundedMinutes ?? 0,
-        rateOverrideAmount: toNullableNumber(readValue(row, F.rate_override_amount, 'rateOverrideAmount')),
-      },
-      { hourlyRate: money?.hourlyRate ?? null },
-    )
-  }
+  await decorateTimeEntryRows(items as Record<string, unknown>[], {
+    em: ctx.container.resolve('em') as EntityManager,
+    tenantId,
+    organizationId,
+    canSeeRates: await callerHasRatesView(ctx),
+    onError: (err) => logger.error('staff.timesheets.time-entries response decoration failed', { err }),
+  })
 }
 
 const crud = makeCrudRoute({
@@ -539,6 +395,7 @@ const crud = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   events: staffTimeEntryCrudEvents,
+  enrichers: { entityId: 'staff:staff_time_entry' },
   indexer: { entityType: 'staff:staff_time_entry' },
   list: {
     schema: listSchema,
@@ -552,9 +409,6 @@ const crud = makeCrudRoute({
       roundedMinutes: F.rounded_minutes,
     },
     buildFilters: buildScopedTimeEntryListFilters,
-  },
-  hooks: {
-    afterList: decorateTimeEntryList,
   },
   actions: {
     create: {

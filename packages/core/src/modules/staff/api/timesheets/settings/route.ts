@@ -12,7 +12,12 @@ import { emitStaffEvent } from '../../../events'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { staffTimeTrackingSettingsSchema } from '../../../data/validators'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../_shared/withTimesheetInterceptors'
 import {
   readTimeTrackingSettings,
   writeTimeTrackingSettings,
@@ -114,10 +119,24 @@ async function resolveGrantedFeatures(context: SettingsContext): Promise<string[
 async function GET(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: {
+        container: context.container,
+        userId: context.actorId,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        tenantGlobal: true,
+      },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+
     const settings = await readTimeTrackingSettings(resolveConfigService(context), {
       tenantId: context.tenantId,
     })
-    return NextResponse.json(settings)
+    return interceptors.session.respond(200, settings)
   } catch (err) {
     return errorResponse(err, 'staff.timesheets.settings.GET failed')
   }
@@ -135,8 +154,23 @@ async function PUT(req: Request) {
       throw forbidden(context.translate('staff.errors.forbidden', 'Forbidden'))
     }
 
-    const body = await req.json().catch(() => ({}))
-    const parsed = staffTimeTrackingSettingsSchema.parse(body)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'PUT',
+      scope: {
+        container: context.container,
+        userId: context.actorId,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userFeatures: grantedFeatures,
+        tenantGlobal: true,
+      },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = staffTimeTrackingSettingsSchema.parse(session.body)
 
     const guardResult = await runRouteMutationGuards({
       container: context.container,
@@ -176,7 +210,7 @@ async function PUT(req: Request) {
       logger.error('staff.timesheets emit time_tracking.settings_updated failed', { err })
     })
 
-    return NextResponse.json(settings)
+    return session.respond(200, settings)
   } catch (err) {
     return errorResponse(err, 'staff.timesheets.settings.PUT failed')
   }

@@ -31,7 +31,9 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ProgressService } from '../../../../../progress/lib/progressService'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
+import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 import {
   STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
   STAFF_TIME_REAPPLY_ROUNDING_QUEUE,
@@ -101,6 +103,22 @@ export async function POST(req: Request) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
 
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: {
+        container,
+        userId: actorId,
+        tenantId,
+        organizationId,
+        userFeatures: grantedFeatures,
+        tenantGlobal: true,
+      },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
     const guardResult = await runRouteMutationGuards({
       container,
       req,
@@ -134,10 +152,7 @@ export async function POST(req: Request) {
       // Nothing to restate: no job, no progress bar, no queue traffic. The caller
       // gets an honest zero rather than a job that completes instantly.
       await guardResult.runAfterSuccess()
-      return NextResponse.json(
-        responseSchema.parse({ ok: true, progressJobId: null, candidateCount: 0 }),
-        { status: 200 },
-      )
+      return session.respond(200, responseSchema.parse({ ok: true, progressJobId: null, candidateCount: 0 }))
     }
 
     const progressService = container.resolve('progressService') as ProgressService
@@ -170,10 +185,7 @@ export async function POST(req: Request) {
       logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
     })
 
-    return NextResponse.json(
-      responseSchema.parse({ ok: true, progressJobId: progressJob.id, candidateCount }),
-      { status: 202 },
-    )
+    return session.respond(202, responseSchema.parse({ ok: true, progressJobId: progressJob.id, candidateCount }))
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

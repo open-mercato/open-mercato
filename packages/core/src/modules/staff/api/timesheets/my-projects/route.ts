@@ -10,6 +10,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeProjectMember, StaffTeamMember } from '../../../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
@@ -37,6 +41,15 @@ export async function GET(req: Request) {
     if (!tenantId || !organizationId) {
       throw new CrudHttpError(400, { error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.') })
     }
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
 
     const em = (container.resolve('em') as EntityManager).fork()
     const scopeCtx = { tenantId, organizationId }
@@ -71,7 +84,7 @@ export async function GET(req: Request) {
       show_in_grid: assignment.showInGrid ?? false,
     }))
 
-    return NextResponse.json({ items, total: items.length }, { status: 200 })
+    return session.respond(200, { items, total: items.length })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

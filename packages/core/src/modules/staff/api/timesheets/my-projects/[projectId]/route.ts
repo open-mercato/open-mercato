@@ -18,6 +18,7 @@ import {
   runStaffMutationGuards,
 } from '../../../guards'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
@@ -70,8 +71,16 @@ export async function PATCH(req: Request) {
       })
     }
 
-    const rawBody = await readJsonSafe(req, {})
-    const parsed = staffMyProjectVisibilityUpdateSchema.safeParse(rawBody)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'PATCH',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = staffMyProjectVisibilityUpdateSchema.safeParse(session.body)
     if (!parsed.success) {
       throw new CrudHttpError(400, {
         error: translate('staff.timesheets.errors.invalidBody', 'Invalid request body.'),
@@ -153,7 +162,7 @@ export async function PATCH(req: Request) {
       })
     }
 
-    return NextResponse.json({ ok: true, showInGrid: membership.showInGrid }, { status: 200 })
+    return session.respond(200, { ok: true, showInGrid: membership.showInGrid })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

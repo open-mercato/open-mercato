@@ -39,7 +39,9 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeTask } from '../../../../../data/entities'
 import { staffTimeTaskStatusChangeSchema } from '../../../../../data/validators'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import {
   staffTimeTaskCommandIds,
   type StaffTimeTaskStatusChangeCommandInput,
@@ -141,8 +143,16 @@ export async function PATCH(req: Request, context?: RouteContext): Promise<Respo
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
 
-    const body = await req.json().catch(() => ({}))
-    const parsed = staffTimeTaskStatusChangeSchema.parse(body)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'PATCH',
+      scope: { container, userId: actorId, tenantId, organizationId, userFeatures: grantedFeatures },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = staffTimeTaskStatusChangeSchema.parse(session.body)
 
     const routeCtx: CommandRuntimeContext = {
       container,
@@ -197,18 +207,15 @@ export async function PATCH(req: Request, context?: RouteContext): Promise<Respo
 
     await guardResult.runAfterSuccess()
 
-    const response = NextResponse.json(
-      {
-        id: result?.taskId ?? taskId,
-        timeProjectId: result?.timeProjectId ?? task.timeProjectId,
-        previousTaskStatusId: result?.previousTaskStatusId ?? null,
-        taskStatusId: result?.taskStatusId ?? effective.taskStatusId,
-        position: result?.position ?? null,
-        closedAt: result?.closedAt ?? null,
-        updatedAt: result?.updatedAt ?? null,
-      },
-      { status: 200 },
-    )
+    const response = await session.respond(200, {
+      id: result?.taskId ?? taskId,
+      timeProjectId: result?.timeProjectId ?? task.timeProjectId,
+      previousTaskStatusId: result?.previousTaskStatusId ?? null,
+      taskStatusId: result?.taskStatusId ?? effective.taskStatusId,
+      position: result?.position ?? null,
+      closedAt: result?.closedAt ?? null,
+      updatedAt: result?.updatedAt ?? null,
+    })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
         'x-om-operation',

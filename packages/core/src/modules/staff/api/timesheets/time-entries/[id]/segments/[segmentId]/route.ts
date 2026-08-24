@@ -13,6 +13,7 @@ import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/en
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
 import { emitStaffEvent } from '../../../../../../events'
+import { runTimesheetInterceptors } from '../../../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
@@ -57,17 +58,26 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
 
-  const parsed = staffTimeEntrySegmentUpdateSchema.safeParse({ ...rawBody, id: ids.segmentId })
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
-  }
-
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const tenantId = scope?.tenantId ?? auth.tenantId ?? null
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   if (!tenantId || !organizationId) {
     return NextResponse.json({ error: 'Missing tenant or organization scope.' }, { status: 400 })
+  }
+
+  const interceptors = await runTimesheetInterceptors({
+    request: req,
+    method: 'PATCH',
+    scope: { container, userId: auth.sub, tenantId, organizationId },
+    body: rawBody,
+  })
+  if (!interceptors.ok) return interceptors.response
+  const { session } = interceptors
+
+  const parsed = staffTimeEntrySegmentUpdateSchema.safeParse({ ...session.body, id: ids.segmentId })
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
   }
 
   const em = (container.resolve('em') as EntityManager).fork()
@@ -188,7 +198,7 @@ export async function PATCH(req: Request) {
     logger.error('staff.timesheets emit time_entry_segment.updated failed', { err })
   })
 
-  return NextResponse.json({
+  return session.respond(200, {
     ok: true,
     item: {
       id: updatedSegment.id,

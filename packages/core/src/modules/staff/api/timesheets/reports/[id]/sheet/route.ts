@@ -30,6 +30,10 @@ import { buildReportSheet } from '../../../../../lib/timesheets-reports/buildRep
 import { buildReportRows } from '../../../../../lib/timesheets-reports/reportRows'
 import type { ReportGrouping } from '../../../../../lib/timesheets-reports/reportTotals'
 import { resolveReportRequestContext, reportSheetLabels, MAX_SHEET_ROWS } from '../../shared'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/sheet' })
 
@@ -38,14 +42,9 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.reports.view'] },
 }
 
-function readGrouping(url: string | undefined): ReportGrouping | undefined {
-  if (!url) return undefined
-  try {
-    const value = new URL(url).searchParams.get('grouping')
-    if (value === 'project_task' || value === 'project_person' || value === 'project_day') return value
-  } catch {
-    return undefined
-  }
+function readGrouping(params: URLSearchParams): ReportGrouping | undefined {
+  const value = params.get('grouping')
+  if (value === 'project_task' || value === 'project_person' || value === 'project_day') return value
   return undefined
 }
 
@@ -54,7 +53,17 @@ export async function GET(req: Request) {
     const context = await resolveReportRequestContext(req, { segment: 'sheet' })
     // See the note in the export route: this decision is made once, fail-closed,
     // in `buildReportRequestContext`.
-    const { container, tenantId, organizationId, reportId, translate, canSeeMoney } = context
+    const { container, auth, tenantId, organizationId, reportId, translate, canSeeMoney, grantedFeatures } =
+      context
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId, organizationId, userFeatures: grantedFeatures },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
 
     const em = (container.resolve('em') as EntityManager).fork()
     const report = await em.findOne(StaffTimeReport, {
@@ -77,7 +86,7 @@ export async function GET(req: Request) {
       report,
       timeProjectIds,
       labels,
-      grouping: readGrouping(req.url),
+      grouping: readGrouping(session.searchParams),
     })
 
     const rows = buildReportRows({
@@ -93,7 +102,7 @@ export async function GET(req: Request) {
       { orderBy: { createdAt: 'desc' } },
     )
 
-    return NextResponse.json({
+    return session.respond(200, {
       report: {
         id: report.id,
         reference: report.reference,

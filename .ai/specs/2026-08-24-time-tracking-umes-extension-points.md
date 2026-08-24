@@ -183,6 +183,12 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `time_project.budget_threshold_reached`
 - **Unlocks**: `useAppEvent` / `useOperationProgress` consumers — live team timer walls,
   auto-refreshing timesheets, third-party toasts.
+- **Payload narrowing (done in P2)**: the DOM Event Bridge filters only by tenant +
+  organization and applies **no feature check**, so a broadcast payload must not carry
+  money. `time_report.closed` now spells its payload out instead of spreading the close
+  result, dropping `totalAmount`; `time_project.budget_threshold_reached` carries
+  `budgetValue`/`usedValue` only for an `hours` budget. The other six payloads were
+  audited and carry no rate, cost or amount.
 
 #### EP-06 · `event` · `portalBroadcast: true` for the client-facing subset
 - **Edit**: `events.ts` — `time_report.closed`, `time_report.exported`
@@ -208,6 +214,15 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
 - **Add**: webhook event registration for the `staff.timesheets.*` family
   (see `packages/webhooks/AGENTS.md`), with payload schemas.
 - **Unlocks**: outbound Standard-Webhooks delivery to external billing/PM systems.
+- **Corrected during P2**: there is no per-event webhook registration to add.
+  `packages/webhooks/subscribers/outbound-dispatch.ts` subscribes with `event: '*'` and
+  matches each emitted id against a webhook's subscribed patterns, so **declaring the
+  event in `events.ts` IS its registration** (`packages/webhooks/AGENTS.md` → "When You
+  Need Outbound Webhooks", step 1) — it already appears in `GET /api/webhooks/events`.
+  Delivery needs `tenantId` in the payload; the dispatcher drops anything without one.
+  The package has no payload-schema registry, so P2 published the contract as
+  `staff/events.payloads.ts` (zod, one schema per declared id) and pinned coverage plus
+  the tenant-scope requirement in `__tests__/timeTrackingEventPayloads.test.ts`.
 
 ### Group 3 — Guards and interceptors on custom routes (4)
 
@@ -234,12 +249,22 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `time-entries/overlaps`).
 - **Unlocks**: body/query rewriting, extra scoping and short-circuit denials on routes
   that today accept no interception at all.
+- **Implemented in P2** as `api/timesheets/_shared/withTimesheetInterceptors.ts`, wired
+  into 25 routes. `targetRoute` is the pathname without `/api/`; a route with a dynamic
+  segment carries the concrete id, so those are targeted with the registry's prefix
+  wildcard (`staff/timesheets/time-entries/*`). The helper short-circuits when no
+  interceptor targets the route, so an unextended request pays neither the RBAC grant
+  read nor the context assembly.
 
 #### EP-13 · `interceptor` · Run `after` interceptors on custom TT routes
 - **Use**: `runCustomRouteAfterInterceptors` from
   `@open-mercato/shared/lib/crud/custom-route-interceptor`
 - **Wire into**: the same routes as EP-12, plus `reports/[id]/export`.
 - **Unlocks**: response shaping for aggregates and exports.
+- **Implemented in P2** through the same helper: `session.respond(status, body)` on every
+  JSON route. `reports/[id]/export` answers with bytes, which an after-interceptor cannot
+  rewrite, so it shapes a **descriptor** — `filename` and `contentType` are read back and
+  applied to the download headers.
 
 ### Group 4 — Enrichers (3)
 
@@ -248,17 +273,41 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
 - **Change**: move the `hooks.afterList: decorateTimeEntryList` logic behind a declared
   enricher for `staff:staff_time_entry`, so third-party enrichers compose with it
   instead of being invisible behind a route-private hook.
+- **Implemented in P2**: the decoration moved to `lib/timesheets/timeEntryDecoration.ts`
+  and is now the `staff.timesheets-time-entries` enricher. `decorateTimeEntryList` stays
+  exported from the route as a deprecated wrapper (it is a public symbol of that module).
+  Two knock-on effects, both improvements: the CRUD list cache now stores the
+  pre-enrichment rows instead of one caller's decorated copy, and the list response gains
+  the standard additive `_meta.enrichedBy` every other enriched list already carries.
 
 #### EP-15 · `enricher` · Task and report enricher hosts
 - **Edit**: `data/enrichers.ts`
 - **Add**: enrichers for `staff:staff_time_task` (beyond the current rollups) and
   `staff:staff_time_report` (totals, freeze state, export history).
+- **Implemented in P2** as `staff.timesheets-tasks-context` (`_staff`: project
+  name/code/colour, status name and done flag, assignee name, plus the project rate behind
+  `staff.timesheets.rates.view`) and `staff.timesheets-reports` (`_staff`: freeze state,
+  frozen entry count, export count / last export date and format, minute totals, plus
+  `totalAmount` behind the same feature). The reports CRUD route had no `enrichers`
+  config at all and now declares one.
 
 #### EP-16 · `enricher` · Enable query-engine enrichment
 - **Edit**: `data/enrichers.ts`
 - **Change**: add `queryEngine: { enabled: true }` to the project/task/entry/report
   enrichers so enriched fields reach dashboards, exports, the query engine and AI tools.
 - **Read first**: `apps/docs/docs/framework/extensibility/query-engine-extensibility.mdx`.
+- **Corrected during P2**: the flag alone is inert for these enrichers. The CRUD factory
+  looks an enricher up by the `enrichers.entityId` its route declares — the **colon**
+  form, `staff:staff_time_entry` — while the query pipeline looks it up by
+  `entityIdToEventEntity(entity)`, the **dot** form (`query-extension-runner.ts:41`). So
+  P2 publishes each of the six staff enrichers twice: the colon-form entry for the API
+  surface and a `<id>.query-engine` alias on the dot form carrying the opt-in. The two
+  lookups never both match, so nothing runs twice. Every one is batched (`enrichMany`
+  with `$in`), so none introduces an N+1; the query-engine pipeline only runs at all when
+  a caller passes `QueryOptions.extensions`, so the cost is opt-in per call site.
+  Residual caveat: a query-engine caller that supplies no DI `container` cannot answer the
+  `rates.view` / `projects.manage` checks, so the money and member fields fail **closed**
+  there and the enrichment is a subset of what the REST response carries.
 
 ### Group 5 — UI extension (15)
 

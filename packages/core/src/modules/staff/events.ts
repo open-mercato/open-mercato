@@ -27,11 +27,11 @@ const events = [
   { id: 'staff.job_history.deleted', label: 'Job History Deleted', entity: 'job_history', category: 'crud' },
 
   // Timesheets (Phase 1)
-  { id: 'staff.timesheets.time_entry.created', label: 'Time Entry Created', entity: 'time_entry', category: 'crud' },
-  { id: 'staff.timesheets.time_entry.updated', label: 'Time Entry Updated', entity: 'time_entry', category: 'crud' },
-  { id: 'staff.timesheets.time_entry.deleted', label: 'Time Entry Deleted', entity: 'time_entry', category: 'crud' },
-  { id: 'staff.timesheets.time_entry.timer_started', label: 'Timer Started', entity: 'time_entry', category: 'lifecycle' },
-  { id: 'staff.timesheets.time_entry.timer_stopped', label: 'Timer Stopped', entity: 'time_entry', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_entry.created', label: 'Time Entry Created', entity: 'time_entry', category: 'crud', clientBroadcast: true },
+  { id: 'staff.timesheets.time_entry.updated', label: 'Time Entry Updated', entity: 'time_entry', category: 'crud', clientBroadcast: true },
+  { id: 'staff.timesheets.time_entry.deleted', label: 'Time Entry Deleted', entity: 'time_entry', category: 'crud', clientBroadcast: true },
+  { id: 'staff.timesheets.time_entry.timer_started', label: 'Timer Started', entity: 'time_entry', category: 'lifecycle', clientBroadcast: true },
+  { id: 'staff.timesheets.time_entry.timer_stopped', label: 'Timer Stopped', entity: 'time_entry', category: 'lifecycle', clientBroadcast: true },
   { id: 'staff.timesheets.time_project.created', label: 'Time Project Created', entity: 'time_project', category: 'crud' },
   { id: 'staff.timesheets.time_project.updated', label: 'Time Project Updated', entity: 'time_project', category: 'crud' },
   { id: 'staff.timesheets.time_project.deleted', label: 'Time Project Deleted', entity: 'time_project', category: 'crud' },
@@ -50,10 +50,18 @@ const events = [
   { id: 'staff.timesheets.time_report.created', label: 'Time Report Created', entity: 'time_report', category: 'crud' },
   { id: 'staff.timesheets.time_report.updated', label: 'Time Report Updated', entity: 'time_report', category: 'crud' },
   { id: 'staff.timesheets.time_report.deleted', label: 'Time Report Deleted', entity: 'time_report', category: 'crud' },
-  { id: 'staff.timesheets.time_report.closed', label: 'Time Report Closed', entity: 'time_report', category: 'lifecycle' },
-  { id: 'staff.timesheets.time_report.unlocked', label: 'Time Report Unlocked', entity: 'time_report', category: 'lifecycle' },
-  { id: 'staff.timesheets.time_project.budget_threshold_reached', label: 'Time Project Budget Threshold Reached', entity: 'time_project', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_report.closed', label: 'Time Report Closed', entity: 'time_report', category: 'lifecycle', clientBroadcast: true },
+  { id: 'staff.timesheets.time_report.unlocked', label: 'Time Report Unlocked', entity: 'time_report', category: 'lifecycle', clientBroadcast: true },
+  { id: 'staff.timesheets.time_project.budget_threshold_reached', label: 'Time Project Budget Threshold Reached', entity: 'time_project', category: 'lifecycle', clientBroadcast: true },
   { id: 'staff.timesheets.project_access.requested', label: 'Time Project Access Requested', entity: 'time_project', category: 'lifecycle' },
+
+  // `clientBroadcast: true` above puts the event on the DOM Event Bridge, whose only
+  // audience filter is tenant + organization (`events/api/stream/route.ts`): every
+  // signed-in user of the organization receives the payload, with no feature check.
+  // So a broadcast payload MUST NOT carry a rate, a cost or an amount — money is
+  // gated on `staff.timesheets.rates.view` (staff/AGENTS.md), a gate SSE cannot
+  // apply. `time_report.closed` and `time_project.budget_threshold_reached` emit
+  // their money fields conditionally for exactly this reason; see their emitters.
 
   // Time tracking (Phase 3) — transitions owned by the hand-rolled routes that sit
   // beside the CRUD factory resources. Declared here so a third-party module can

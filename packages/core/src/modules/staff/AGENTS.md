@@ -117,6 +117,68 @@ derived tag instead — for example `staff.timesheets.time.entry` for
 `/api/staff/timesheets/time-entries`. `packages/core/src/modules/staff/__tests__/time-tracking-write-path-contracts.test.ts`
 fails if a route re-types a literal or an entry above stops being used.
 
+### Time-tracking API interceptors (BC surface #7 — STABLE)
+
+Every hand-rolled `/api/staff/timesheets/*` route runs the same `before` and `after`
+API interceptor passes the CRUD factory runs, through
+[`api/timesheets/_shared/withTimesheetInterceptors.ts`](./api/timesheets/_shared/withTimesheetInterceptors.ts).
+
+- `targetRoute` is the pathname **without** the `/api/` prefix — `staff/timesheets/time-entries/bulk`,
+  `staff/timesheets/my-work` — matching `normalizeInterceptorRoutePath` in the factory.
+- A route with a dynamic segment carries the **concrete id** in that path, so target it
+  with the registry's prefix wildcard: `staff/timesheets/time-entries/*`, never a literal
+  containing `[id]`.
+- The before pass can rewrite the body (mutations) or the query (read aggregates) and can
+  deny with its own status; the after pass shapes the JSON body. `reports/[id]/export`
+  answers with bytes, so its after pass shapes a **descriptor** instead —
+  `filename` and `contentType` are read back and applied to the download headers.
+- The interceptor context always carries `tenantId` + `organizationId` and fails closed
+  with `400` when either is missing. `/settings` and `/settings/reapply-rounding` are
+  tenant-global and opt in with `tenantGlobal: true`.
+
+`__tests__/time-tracking-write-path-contracts.test.ts` fails if one of the routes drops
+the wiring.
+
+### Time-tracking response enricher hosts (BC surface #2 — STABLE)
+
+Declared in [`data/enrichers.ts`](./data/enrichers.ts). Register your own enricher against
+the same `targetEntity` and it composes with these rather than replacing them.
+
+| `targetEntity` | Enricher id | Adds |
+|-----|-----|-----|
+| `staff:staff_time_project` | `staff.timesheets-projects-portfolio` | `_staff`: hours trend, financials, member preview, customer name |
+| `staff:staff_time_task` | `staff.timesheets-tasks-rollup` | `ownMinutes`, `loggedMinutes`, `childCount`, `doneChildCount` (top level, by spec) |
+| `staff:staff_time_task` | `staff.timesheets-tasks-tags` | `tagIds`, `tags` |
+| `staff:staff_time_task` | `staff.timesheets-tasks-context` | `_staff`: project name/code/colour, status, assignee |
+| `staff:staff_time_entry` | `staff.timesheets-time-entries` | `description` alias, `roundedMinutes`, `isLocked`, `lockedReportId`, `tags`, plus `cost`/`currencyCode` |
+| `staff:staff_time_report` | `staff.timesheets-reports` | `_staff`: freeze state, frozen entry count, export history, totals |
+
+Money (`hourlyRate`, `cost`, `currencyCode`, `totalAmount`) is **added** for a holder of
+`staff.timesheets.rates.view` and absent for everyone else — never blanked.
+
+Each of the six is also published under a `<id>.query-engine` alias whose `targetEntity`
+is the **dot** form (`staff.staff_time_entry`) with `queryEngine: { enabled: true }`. The
+CRUD factory looks an enricher up by the colon form a route declares; the query engine
+looks it up by `entityIdToEventEntity(entity)`, which is the dot form — so an enricher
+published only under the colon form never runs in a query pipeline. The two lookups never
+both match, so nothing runs twice.
+
+### Time-tracking events: browser and webhooks (BC surface #5 — FROZEN ids)
+
+- **Browser.** `clientBroadcast: true` is set on `time_entry.{created,updated,deleted,timer_started,timer_stopped}`,
+  `time_report.{closed,unlocked}`, `time_project.budget_threshold_reached` and
+  `time_task.status_changed`. The DOM Event Bridge filters only by tenant + organization —
+  **no feature check** — so a broadcast payload MUST NOT carry a rate, a cost or an amount.
+  `time_report.closed` therefore carries minute totals but no `totalAmount`, and
+  `time_project.budget_threshold_reached` carries `budgetValue`/`usedValue` only for an
+  `hours` budget.
+- **Webhooks.** There is no per-event registration: `packages/webhooks` subscribes with
+  `event: '*'` and matches each id against a webhook's subscribed patterns, so declaring
+  the event in `events.ts` IS its registration. Delivery needs `tenantId` in the payload —
+  the dispatcher drops anything without one. The payload contract every subscriber codes
+  against is [`events.payloads.ts`](./events.payloads.ts); `__tests__/timeTrackingEventPayloads.test.ts`
+  fails if a declared `staff.timesheets.*` id has no schema or a schema without `tenantId`.
+
 ## Internal-Only Surfaces (NOT public contract)
 
 These are subject to change without deprecation; do not import them from non-staff code:

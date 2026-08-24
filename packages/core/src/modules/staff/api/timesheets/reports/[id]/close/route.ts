@@ -24,6 +24,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import {
   staffTimeReportCommandIds,
   type StaffTimeReportCloseResult,
@@ -51,6 +52,14 @@ export async function POST(req: Request) {
     if (!(await resolveFeatureAccess(container, auth.sub ?? null, [LOCK_FEATURE], { tenantId, organizationId })).allowed) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId, userFeatures: grantedFeatures },
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
 
     const guardResult = await runRouteMutationGuards({
       container,
@@ -87,17 +96,14 @@ export async function POST(req: Request) {
 
     await guardResult.runAfterSuccess()
 
-    const response = NextResponse.json(
-      {
-        id: result?.reportId ?? reportId,
-        status: 'closed',
-        lockedEntryCount: result?.lockedEntryCount ?? 0,
-        totalAmount: result?.totalAmount ?? 0,
-        totalBillableMinutes: result?.totalBillableMinutes ?? 0,
-        totalNonbillableMinutes: result?.totalNonbillableMinutes ?? 0,
-      },
-      { status: 200 },
-    )
+    const response = await session.respond(200, {
+      id: result?.reportId ?? reportId,
+      status: 'closed',
+      lockedEntryCount: result?.lockedEntryCount ?? 0,
+      totalAmount: result?.totalAmount ?? 0,
+      totalBillableMinutes: result?.totalBillableMinutes ?? 0,
+      totalNonbillableMinutes: result?.totalNonbillableMinutes ?? 0,
+    })
     if (logEntry?.id && logEntry?.commandId) {
       response.headers.set(
         'x-om-operation',

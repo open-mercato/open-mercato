@@ -139,6 +139,14 @@ export default async function handle(payload: TimeEntryWritePayload, ctx: Resolv
     // the budget was switched off. Nothing to announce; the reset is the point.
     if (thresholdPercent === null) return
 
+    // This event is `clientBroadcast: true`, and the DOM Event Bridge filters only by
+    // tenant and organization — every signed-in user of the organization receives the
+    // payload, whether or not they hold `staff.timesheets.rates.view`. An `amount`
+    // budget states money (`budgetValue` is the contract value, `usedValue` the cost
+    // burned against it), so those two are carried only for an `hours` budget, exactly
+    // as `/my-work` withholds an amount budget from a caller who may not see money.
+    // The percentages are not money and are what a live budget badge actually renders.
+    const budgetIsMoney = evaluation.kind === 'amount'
     await emitStaffEvent(
       'staff.timesheets.time_project.budget_threshold_reached',
       {
@@ -149,8 +157,7 @@ export default async function handle(payload: TimeEntryWritePayload, ctx: Resolv
         thresholdPercent,
         percent: evaluation.percent,
         budgetKind: evaluation.kind,
-        budgetValue: evaluation.budgetValue,
-        usedValue: evaluation.usedValue,
+        ...(budgetIsMoney ? {} : { budgetValue: evaluation.budgetValue, usedValue: evaluation.usedValue }),
       },
       { persistent: true },
     )

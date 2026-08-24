@@ -22,6 +22,7 @@ import {
 } from '../../../../guards'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../../../events'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
@@ -78,10 +79,18 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
     }
 
-    const body = await readJsonSafe(req, {})
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
     const input = parseScopedCommandInput(
       staffTimeEntrySegmentCreateSchema,
-      { ...body, timeEntryId: entryId },
+      { ...session.body, timeEntryId: entryId },
       {
         container,
         auth,
@@ -167,17 +176,14 @@ export async function POST(req: Request) {
       logger.error('staff.timesheets emit time_entry_segment.created failed', { err })
     })
 
-    return NextResponse.json(
-      {
-        id: segment.id,
-        timeEntryId: segment.timeEntryId,
-        startedAt: segment.startedAt,
-        endedAt: segment.endedAt ?? null,
-        segmentType: segment.segmentType,
-        createdAt: segment.createdAt,
-      },
-      { status: 201 },
-    )
+    return session.respond(201, {
+      id: segment.id,
+      timeEntryId: segment.timeEntryId,
+      startedAt: segment.startedAt,
+      endedAt: segment.endedAt ?? null,
+      segmentType: segment.segmentType,
+      createdAt: segment.createdAt,
+    })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

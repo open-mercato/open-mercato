@@ -25,7 +25,9 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffTimeReportUnlockSchema } from '../../../../../data/validators'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import {
   staffTimeReportCommandIds,
   type StaffTimeReportUnlockResult,
@@ -56,8 +58,16 @@ export async function POST(req: Request) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
 
-    const body = await req.json().catch(() => ({}))
-    const parsed = bodySchema.parse(body)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId, userFeatures: grantedFeatures },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const parsed = bodySchema.parse(session.body)
 
     const guardResult = await runRouteMutationGuards({
       container,
@@ -101,14 +111,11 @@ export async function POST(req: Request) {
 
     await guardResult.runAfterSuccess()
 
-    const response = NextResponse.json(
-      {
-        id: result?.reportId ?? reportId,
-        status: 'draft',
-        unlockedEntryCount: result?.unlockedEntryCount ?? 0,
-      },
-      { status: 200 },
-    )
+    const response = await session.respond(200, {
+      id: result?.reportId ?? reportId,
+      status: 'draft',
+      unlockedEntryCount: result?.unlockedEntryCount ?? 0,
+    })
     if (logEntry?.id && logEntry?.commandId) {
       response.headers.set(
         'x-om-operation',

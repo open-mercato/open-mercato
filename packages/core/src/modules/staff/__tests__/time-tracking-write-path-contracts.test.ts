@@ -143,3 +143,60 @@ describe('STAFF_TIME_TRACKING_RESOURCE_KINDS is the single source for the custom
     expect(STAFF_TIME_TRACKING_RESOURCE_KINDS.timeReport).toBe(STAFF_TIME_REPORT_RESOURCE_KIND)
   })
 })
+
+/**
+ * EP-12 / EP-13 — every hand-rolled time-tracking route runs the shared interceptor
+ * passes. Listed explicitly rather than derived from the directory tree: a NEW route
+ * that forgets the wiring should be added here deliberately, and the last assertion
+ * catches the file that was added without either.
+ */
+describe('the custom time-tracking routes run API interceptors', () => {
+  const INTERCEPTED_ROUTES = [
+    ['access-requests'],
+    ['my-projects'],
+    ['my-projects', '[projectId]'],
+    ['my-work'],
+    ['projects', 'kpis'],
+    ['reports', '[id]', 'close'],
+    ['reports', '[id]', 'export'],
+    ['reports', '[id]', 'sheet'],
+    ['reports', '[id]', 'unlock'],
+    ['reports', 'preview'],
+    ['settings'],
+    ['settings', 'reapply-rounding'],
+    ['tags', 'entry-assignments'],
+    ['tags', 'task-assignments'],
+    ['tasks', '[id]', 'status'],
+    ['time-entries', '[id]', 'duplicate'],
+    ['time-entries', '[id]', 'segments'],
+    ['time-entries', '[id]', 'segments', '[segmentId]'],
+    ['time-entries', '[id]', 'timer-start'],
+    ['time-entries', '[id]', 'timer-stop'],
+    ['time-entries', 'bulk'],
+    ['time-entries', 'copy-day'],
+    ['time-entries', 'overlaps'],
+    ['time-entries', 'start-timer'],
+    ['time-projects', '[id]', 'change-currency'],
+  ] as const
+
+  it.each(INTERCEPTED_ROUTES.map((segments) => [segments.join('/'), segments] as const))(
+    '%s runs the before pass',
+    (_name, segments) => {
+      const source = readRoute(...segments, 'route.ts')
+      expect(source).toContain('runTimesheetInterceptors({')
+      expect(source).toMatch(/_shared\/withTimesheetInterceptors'/)
+    },
+  )
+
+  it.each(
+    INTERCEPTED_ROUTES.filter((segments) => segments.join('/') !== 'reports/[id]/export').map(
+      (segments) => [segments.join('/'), segments] as const,
+    ),
+  )('%s answers through the after pass', (_name, segments) => {
+    expect(readRoute(...segments, 'route.ts')).toContain('session.respond(')
+  })
+
+  it('shapes the export through a descriptor, since after-interceptors cannot rewrite bytes', () => {
+    expect(readRoute('reports', '[id]', 'export', 'route.ts')).toContain('session.respondWithDescriptor(')
+  })
+})

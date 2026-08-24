@@ -22,6 +22,8 @@ import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 import {
   staffTimeTaskTagAssignmentSchema,
   type StaffTimeTaskTagAssignmentInput,
@@ -112,9 +114,23 @@ async function handle(
   operation: 'create' | 'delete',
 ): Promise<Response> {
   const { ctx, translate } = await buildContext(req)
-  const body = await req.json().catch(() => ({}))
-  const input = parseScopedCommandInput(staffTimeTaskTagAssignmentSchema, body, ctx, translate)
   const scope = requireAssignmentScope(ctx, translate)
+
+  const interceptors = await runTimesheetInterceptors({
+    request: req,
+    method: operation === 'create' ? 'POST' : 'DELETE',
+    scope: {
+      container: ctx.container,
+      userId: scope.userId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    body: await readJsonSafe<Record<string, unknown>>(req, {}),
+  })
+  if (!interceptors.ok) return interceptors.response
+  const { session } = interceptors
+
+  const input = parseScopedCommandInput(staffTimeTaskTagAssignmentSchema, session.body, ctx, translate)
 
   const access = await loadTagProjectAccess(ctx.container, scope)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -187,7 +203,7 @@ async function handle(
           notAssignedTagIds: unassignment?.notAssignedTagIds ?? [],
         }
 
-  const response = NextResponse.json(payload)
+  const response = await session.respond(200, payload)
   if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
     response.headers.set(
       'x-om-operation',
