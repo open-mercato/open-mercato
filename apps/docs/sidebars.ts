@@ -126,11 +126,12 @@ const sidebars: SidebarsConfig = {
             "user-guide/webhooks",
             {
               type: "category",
-              label: "Email (Communication Channels)",
+              label: "Communication Channels",
               link: { type: "doc", id: "user-guide/communication-channels" },
               items: [
                 "user-guide/communication-channels-gmail",
                 "user-guide/communication-channels-imap",
+                "user-guide/communication-channels-discord",
                 "user-guide/customers-email",
               ],
             },
@@ -401,6 +402,8 @@ const sidebars: SidebarsConfig = {
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
             "framework/modules/building-gateway-provider",
+            "framework/modules/communication-channels",
+            "framework/modules/building-communication-channel-provider",
           ],
         },
         {
