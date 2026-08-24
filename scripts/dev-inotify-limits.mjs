@@ -24,6 +24,12 @@ export const VSCODE_WATCHER_EXCLUDES = {
   'apps/mercato/.mercato/**': true,
 }
 
+export function resolveRequestedDevBundler(environment = process.env) {
+  const raw = String(environment.OM_DEV_BUNDLER ?? '').trim().toLowerCase()
+  if (raw === 'webpack' || raw === 'turbopack') return raw
+  return 'auto'
+}
+
 function parseInteger(value) {
   const parsed = Number.parseInt(String(value ?? '').trim(), 10)
   return Number.isInteger(parsed) ? parsed : null

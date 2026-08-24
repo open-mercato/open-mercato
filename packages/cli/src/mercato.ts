@@ -44,6 +44,7 @@ import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-g
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
+import { buildNextDevArgs } from './lib/next-dev-bundler'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -2118,7 +2119,8 @@ export async function run(argv = process.argv) {
                   ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
                   : 'Starting Next.js dev server',
               )
-              const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+              const nextDevCommand = buildNextDevArgs(nextBin, runtimeEnv)
+              const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
                 env: runtimeEnv,
                 cwd: appDir,
