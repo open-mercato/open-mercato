@@ -231,7 +231,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
               <span className="text-xs font-medium leading-none tracking-wide text-muted-foreground">
                 {formatDayLabel(day, t)}
               </span>
-              <span className="text-xl font-semibold leading-7">{day.getDate()}</span>
+              <span className="text-xl font-semibold leading-7 text-foreground">{day.getDate()}</span>
               <span className="text-[11px] leading-none text-muted-foreground">
                 {eventCount === 0
                   ? t('customers.activities.calendar.none', 'None')
