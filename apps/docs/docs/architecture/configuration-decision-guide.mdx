@@ -131,7 +131,7 @@ Follow the standard entity workflow: update `data/entities.ts`, run `yarn db:gen
 
 ### `ff_om_hide_contact` — hide the demo contact widget {#ff-om-hide-contact}
 
-Demo deployments (`DEMO_MODE`, which is on unless you set it) render a contact/feedback surface in the backend: a floating call-to-action button, plus a popup that appears after 30 seconds of inactivity. When you are recording a walkthrough or screenshotting the admin, that surface gets in the way — but turning `DEMO_MODE` off is a blunt instrument: it also unlocks attachment partition settings, changes how `mercato init` treats the demo superadmin, and (for the literal value `false`) drops the demo notice bar.
+Demo deployments (`DEMO_MODE`, which is on unless you set it to a false value — `0`, `false`, `no`, `n`, `off`, `disable`, `disabled`) render a contact/feedback surface in the backend: a floating call-to-action button, plus a popup that appears after 30 seconds of inactivity. When you are recording a walkthrough or screenshotting the admin, that surface gets in the way — but turning `DEMO_MODE` off is a blunt instrument: it also unlocks attachment partition settings, changes how `mercato init` treats the demo superadmin, and (for the literal value `false`) drops the demo notice bar.
 
 Set the `ff_om_hide_contact` key in the browser's `localStorage` to hide just the contact widget:
 
@@ -159,7 +159,7 @@ The semantics are deliberately presence-based, so that typing the key with no va
 
 Values are trimmed and lower-cased before matching, so `" OFF "` counts as a false value. The explicit false values exist so the flag can be switched off while the key stays in place. The flag is read per browser and per origin — it is not synced, not tenant-scoped, and has no server-side equivalent. If `localStorage` is unavailable (private-mode restrictions, a blocked origin), the widget stays visible rather than failing closed.
 
-If you are trying to confirm the flag worked, note that the inactivity popup has its own suppression conditions independent of it — it shows at most once per day per browser (`om_feedback_shown`), never while the AI dock or another modal is open, and not at all when `om_feedback_suppress` is set. The floating button is the reliable thing to check.
+If you are trying to confirm the flag worked, note that the inactivity popup has its own suppression conditions independent of it — it shows at most once per day per browser (`om_feedback_shown`), never while the AI dock or another modal is open, and not at all while `om_feedback_suppress` holds the value `1`. Both of those are **cookies**, not `localStorage` keys — devtools lists them under Application → Cookies, not beside `ff_om_hide_contact`. The floating button is the reliable thing to check.
 
 The key name and the parsing live in `apps/mercato/src/components/demoFeedbackFlag.ts`, mirrored into the scaffold at `packages/create-app/template/src/components/demoFeedbackFlag.ts`.
 
