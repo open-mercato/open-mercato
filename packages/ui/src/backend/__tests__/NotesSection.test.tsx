@@ -7,6 +7,33 @@ import { NotesSection, type NotesDataAdapter } from '../detail/NotesSection'
 import { dismissRecordConflict, getRecordConflictForTest } from '../conflicts'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
+const createDataAdapter = (): NotesDataAdapter => ({
+  list: jest.fn(async () => [
+    {
+      id: 'note-1',
+      body: 'Existing note',
+      createdAt: '2026-04-10T08:00:00.000Z',
+      authorName: 'Ada Lovelace',
+    },
+  ]),
+  create: jest.fn(async () => ({ id: 'note-2' })),
+  update: jest.fn(async () => undefined),
+  delete: jest.fn(async () => undefined),
+})
+
+const baseProps = (dataAdapter: NotesDataAdapter) => ({
+  entityId: 'person-1',
+  emptyLabel: '—',
+  viewerUserId: 'user-1',
+  viewerName: 'Ada Lovelace',
+  addActionLabel: 'Add note',
+  emptyState: {
+    title: 'No notes yet',
+    actionLabel: 'Add note',
+  },
+  dataAdapter,
+})
+
 describe('NotesSection', () => {
   beforeEach(() => {
     dismissRecordConflict()
@@ -169,6 +196,68 @@ describe('NotesSection', () => {
     await waitFor(() => {
       expect(container.querySelector('textarea')).not.toBeNull()
     })
+  })
+
+  it('renders the markdown toggle and appearance controls by default', async () => {
+    const { container } = renderWithProviders(<NotesSection {...baseProps(createDataAdapter())} />)
+
+    await screen.findByText('Existing note')
+    expect(container.querySelectorAll('svg.lucide-palette').length).toBe(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
+
+    await waitFor(() => {
+      expect(container.querySelector('button[aria-pressed]')).not.toBeNull()
+    })
+    expect(screen.getByRole('button', { name: 'Customize appearance' })).toBeTruthy()
+    expect(screen.queryByTestId('markdown-field')).toBeNull()
+  })
+
+  it('keeps the rich editor active and hides the toggle when forceMarkdown is set', async () => {
+    const { container } = renderWithProviders(
+      <NotesSection {...baseProps(createDataAdapter())} forceMarkdown />,
+    )
+
+    await screen.findByText('Existing note')
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-field')).toBeTruthy()
+    })
+    expect(container.querySelector('button[aria-pressed]')).toBeNull()
+  })
+
+  it('hides the toggle but honors the seeded preference when hideMarkdownToggle is set', async () => {
+    const { container } = renderWithProviders(
+      <NotesSection
+        {...baseProps(createDataAdapter())}
+        hideMarkdownToggle
+        readMarkdownPreference={() => true}
+      />,
+    )
+
+    await screen.findByText('Existing note')
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-field')).toBeTruthy()
+    })
+    expect(container.querySelector('button[aria-pressed]')).toBeNull()
+  })
+
+  it('removes every appearance affordance when disableAppearance is set', async () => {
+    const { container } = renderWithProviders(
+      <NotesSection {...baseProps(createDataAdapter())} disableAppearance />,
+    )
+
+    await screen.findByText('Existing note')
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
+
+    await waitFor(() => {
+      expect(container.querySelector('button[aria-pressed]')).not.toBeNull()
+    })
+    expect(screen.queryByRole('button', { name: 'Customize appearance' })).toBeNull()
+    expect(container.querySelectorAll('svg.lucide-palette').length).toBe(0)
   })
 
   it('surfaces the unified conflict bar when a write fails with a 409', async () => {

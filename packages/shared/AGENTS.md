@@ -123,7 +123,10 @@ index stores hashes of the plaintext, so it keeps matching. Issue #2990.
   predicate in that case.
 - `matched: true` with `ids: []` is a real empty result.
 - Queries that go through the query engine get this routing automatically; raw
-  `em.find` / Kysely list routes must wire it themselves. When the fallback would run
+  `em.find` / Kysely list routes must wire it themselves. One carve-out: with
+  `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` (default false), a base-column
+  `like`/`ilike` on a **plaintext** column runs as exact SQL ILIKE instead of the token
+  rewrite — encrypted columns keep the token path either way. When the fallback would run
   `ILIKE` against an encrypted column, both query engines now log a warning
   (`lib/query/ciphertext-search-warning`) instead of degrading silently.
 - The `…WithDecryption` helpers log the same warning outside production when the `where`
