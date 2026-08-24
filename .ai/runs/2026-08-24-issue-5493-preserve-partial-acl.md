@@ -35,7 +35,7 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 
 - A `400` response is the most reversible behavior for an organization-scoped, zero-feature, non-super-admin result because it writes nothing and asks the operator to select an explicit feature override.
 - The existing ACL editor warning remains accurate once the API rejects the state it warns about; an empty organization array is still surfaced by the API response even though the banner currently appears only for a non-empty restriction.
-- The suggested integration case is valuable follow-up coverage but is not required to resolve the review because focused route tests pin the command boundary and CI already exercises the existing auth integration suite.
+- The existing user ACL integration case can cover the partial-update path without new fixtures by applying an organization-only PUT after the initial feature grant.
 
 ## Risks
 

@@ -77,7 +77,30 @@ test.describe('TC-AUTH-043: user ACL override grants a feature (#2464)', () => {
       expect(aclBody?.hasCustomAcl, 'user should now have a custom ACL').toBe(true);
       expect(aclBody?.features ?? [], 'granted feature should be listed').toContain(GRANTED_FEATURE);
 
-      // The grant takes effect immediately (PUT invalidates the rbac cache for the user).
+      const scopePutRes = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
+        token: superadminToken,
+        data: { userId, organizations: [organizationId] },
+      });
+      expect(scopePutRes.status(), 'partial organization PUT should return 200').toBe(200);
+      const scopePutBody = await readJsonSafe<{ ok?: boolean }>(scopePutRes);
+      expect(scopePutBody?.ok, 'partial organization PUT should report ok=true').toBe(true);
+
+      const scopedAclRes = await apiRequest(
+        request,
+        'GET',
+        `/api/auth/users/acl?userId=${encodeURIComponent(userId)}`,
+        { token: superadminToken },
+      );
+      expect(scopedAclRes.status(), 'GET scoped user ACL should return 200').toBe(200);
+      const scopedAclBody = await readJsonSafe<{ features?: string[]; organizations?: string[] | null }>(
+        scopedAclRes,
+      );
+      expect(scopedAclBody?.features ?? [], 'partial organization PUT should preserve features').toContain(
+        GRANTED_FEATURE,
+      );
+      expect(scopedAclBody?.organizations, 'organization restriction should be persisted').toEqual([organizationId]);
+
+      // The grant remains effective after both PUTs invalidate the rbac cache for the user.
       const checkAfter = await readJsonSafe<{ ok?: boolean; granted?: string[] }>(
         await apiRequest(request, 'POST', '/api/auth/feature-check', {
           token: userToken,
