@@ -74,7 +74,7 @@ The command rejects payload scope that differs from the schedule context. `dryRu
 
 ### Administration UI
 
-The Enterprise settings page `/backend/security/privacy` requires `data_erasure.manage` and exposes the existing scoped APIs without adding a second execution path. Administrators can create and edit retention policies, preview or apply a policy, create and release legal holds, resolve an email to opaque subject references, run supported subject actions, and review the latest operation reports. Policy edits and hold releases send optimistic-lock versions, and every non-form mutation uses the shared mutation guard path.
+The Enterprise settings page `/backend/security/privacy` requires `data_erasure.manage` and exposes the existing scoped APIs without adding a second execution path. Administrators can create and edit retention policies, preview or apply a policy, create and release legal holds, resolve an email or phone number to opaque subject references, run supported subject actions, and review the latest operation reports. Policy edits and hold releases send optimistic-lock versions, and every non-form mutation uses the shared mutation guard path.
 
 ## Data Models
 
@@ -119,6 +119,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 6. Register a scheduler-safe recurring retention command with strict tenant and organization scope checks.
 7. Add a bounded, dry-run-first restore reapplication command with target-database verification and explicit apply confirmation.
 8. Add a guarded Enterprise administration page for policies, legal holds, subject requests, and operation history.
+9. Extend privacy subject identifiers additively with phone-number lookup for customer people through the encrypted-field search-token index.
 
 ## Integration Coverage
 
@@ -139,6 +140,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 - a scheduled retention run requires `data_erasure.manage`, inherits the schedule tenant and organization, defaults to dry-run, and rejects a mismatched payload scope.
 - restore reapplication refuses a database other than the configured restore target, preserves entry scope, rechecks legal holds, stays bounded, and does not duplicate manifest entries.
 - the privacy administration route requires `data_erasure.manage`, renders all four workflow areas, and sends every mutation through the guarded API path. This path is covered by a Playwright integration scenario that runs in CI with the Enterprise test environment.
+- phone resolution searches only scoped customer-person phone tokens, returns opaque subject references, and does not persist the submitted phone number.
 
 ## Migration and Backward Compatibility
 
@@ -177,3 +179,4 @@ This specification implements and broadens `.ai/specs/enterprise/2026-07-08-gdpr
 - 2026-08-24: Added scope-bound recurring retention through the existing Scheduler, with per-run RBAC and dry-run by default.
 - 2026-08-24: Added controlled post-restore erasure reapplication with database-target verification, bounded batches, current legal-hold checks, and explicit apply confirmation.
 - 2026-08-24: Added the Enterprise privacy administration page for retention policies, legal holds, data-subject actions, and operation history.
+- 2026-08-24: Added phone-number subject resolution for customer people through tenant- and organization-scoped encrypted search tokens.

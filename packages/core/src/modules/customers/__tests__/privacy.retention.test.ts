@@ -102,4 +102,27 @@ describe('CustomerPeoplePrivacyHandler retention', () => {
       scope,
     }))
   })
+
+  it('resolves customer people by scoped primary-phone search tokens', async () => {
+    const getKysely = jest.fn(() => ({ selectFrom: jest.fn() }))
+    mockFindEntityIdsBySearchTokens.mockResolvedValueOnce({ matched: true, ids: ['person-2'] })
+    mockFindWithDecryption.mockResolvedValueOnce([{ id: 'person-2' } as CustomerEntity])
+    const handler = new CustomerPeoplePrivacyHandler(
+      { getKysely } as unknown as EntityManager,
+      { execute: jest.fn() } as unknown as CommandBus,
+    )
+
+    const result = await handler.resolveSubjects({
+      scope,
+      identifier: { kind: 'phone', value: '+48 500 600 700' },
+      actorId: 'actor-user',
+    })
+
+    expect(result.subjects).toEqual([{ kind: 'customers:person', id: 'person-2' }])
+    expect(mockFindEntityIdsBySearchTokens).toHaveBeenCalledWith(expect.objectContaining({
+      query: '+48 500 600 700',
+      fields: ['primary_phone'],
+      scope,
+    }))
+  })
 })

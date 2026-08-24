@@ -44,10 +44,16 @@ export const subjectRequestSchema = z.object({
 })
 
 export const subjectResolutionSchema = z.object({
-  identifier: z.object({
-    kind: z.literal('email'),
-    value: z.string().trim().email().max(320),
-  }),
+  identifier: z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('email'),
+      value: z.string().trim().email().max(320),
+    }),
+    z.object({
+      kind: z.literal('phone'),
+      value: z.string().trim().min(3).max(80),
+    }),
+  ]),
   dataClassIds: z.array(dataClassIdSchema).max(100).optional(),
 })
 
