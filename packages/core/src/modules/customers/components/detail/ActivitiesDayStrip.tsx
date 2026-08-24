@@ -221,24 +221,30 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
               key={iso}
               value={iso}
               aria-label={`${formatDayLabel(day, t)} ${day.getDate()}`}
-              className="h-auto min-w-0 flex-1 flex-col gap-1 px-1 py-2.5"
+              className={cn(
+                'h-auto min-w-0 flex-1 flex-col gap-1 px-1 py-2.5',
+                // Today reads as a violet-tinted tile (unless it is the selected
+                // white one), replacing the old dot beside the number.
+                isToday && 'data-[state=unchecked]:bg-accent-indigo/10',
+              )}
             >
               <span className="text-xs font-medium leading-none tracking-wide text-muted-foreground">
                 {formatDayLabel(day, t)}
               </span>
-              <span className="flex items-center gap-1 text-xl font-semibold leading-7">
-                {day.getDate()}
-                {isToday ? <span aria-hidden className="inline-block size-1.5 rounded-full bg-status-info-icon" /> : null}
+              <span className="text-xl font-semibold leading-7">{day.getDate()}</span>
+              <span className="text-[11px] leading-none text-muted-foreground">
+                {eventCount === 0
+                  ? t('customers.activities.calendar.none', 'None')
+                  : eventCount === 1
+                    ? t('customers.activities.calendar.countOne', '1 activity')
+                    : t('customers.activities.calendar.countMany', '{count} activities', { count: eventCount })}
               </span>
-              {/* Activity indicator: up to three dots plus the count. The row is
-                  always rendered so cell heights stay equal on empty days. */}
-              <span className="flex h-3 items-center gap-1" aria-hidden>
+              {/* Dot row mirrors the count (max three); always rendered so empty
+                  days keep equal cell height. */}
+              <span className="flex h-2 items-center gap-1" aria-hidden>
                 {Array.from({ length: Math.min(eventCount, 3) }, (_, dotIndex) => (
                   <span key={dotIndex} className="size-1 rounded-full bg-accent-indigo" />
                 ))}
-                {eventCount > 0 ? (
-                  <span className="text-[10px] font-medium leading-none text-muted-foreground">{eventCount}</span>
-                ) : null}
               </span>
             </SegmentedControlItem>
           )
