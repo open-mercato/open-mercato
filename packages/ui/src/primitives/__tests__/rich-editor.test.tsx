@@ -347,6 +347,49 @@ describe('RichEditor — custom variant + compound API', () => {
   })
 })
 
+// jsdom has no layout engine, so the page-overflow bug this guards against
+// (the hidden measurement row is wider than its column and grows the document)
+// cannot be reproduced by measuring here. What these tests pin instead is the
+// containment structure the fix relies on: the measurement row sits inside its
+// own clipping layer, and the visible toolbar sits outside it so the clip never
+// swallows the toolbar's own drop shadow.
+describe('RichEditor — auto toolbar measurement row containment', () => {
+  const renderAutoToolbar = () => {
+    const { container } = render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
+    const clip = container.querySelector('[data-slot="rich-editor-toolbar-measure-clip"]')!
+    const toolbar = container.querySelector('[data-slot="rich-editor-toolbar"]')!
+    return { clip, toolbar }
+  }
+
+  it('clips the hidden measurement row in its own layer so it cannot widen the page', () => {
+    const { clip } = renderAutoToolbar()
+    expect(clip).not.toBeNull()
+    expect(clip.getAttribute('aria-hidden')).toBe('true')
+    expect(clip.className).toContain('absolute')
+    expect(clip.className).toContain('inset-0')
+    expect(clip.className).toContain('overflow-hidden')
+
+    const measureRow = clip.firstElementChild!
+    expect(measureRow.className).toContain('invisible')
+    expect(measureRow.className).toContain('absolute')
+    expect(measureRow.className).toContain('flex-nowrap')
+    expect(measureRow.childElementCount).toBeGreaterThan(0)
+  })
+
+  it('keeps the visible toolbar outside the clipping layer so shadow-xs still paints', () => {
+    const { clip, toolbar } = renderAutoToolbar()
+    expect(clip.contains(toolbar)).toBe(false)
+    expect(toolbar.className).toContain('shadow-xs')
+  })
+
+  it('leaves the toolbar wrapper unclipped', () => {
+    const { toolbar } = renderAutoToolbar()
+    const wrapper = toolbar.parentElement!
+    expect(wrapper.className).toContain('relative')
+    expect(wrapper.className).not.toContain('overflow-hidden')
+  })
+})
+
 describe('RichEditorDropdownButton + RichEditorTextDropdown', () => {
   it("RichEditorDropdownButton renders inside <RichEditor variant='custom'>", () => {
     render(
