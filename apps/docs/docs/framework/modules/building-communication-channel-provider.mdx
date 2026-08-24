@@ -315,6 +315,19 @@ export const discordCapabilities: ChannelCapabilities = {
 }
 ```
 
+:::warning A `true` flag is not the same as a reachable feature
+The registry proves the *method exists*. It cannot prove anything *calls* it. Discord's
+`conversationHistory: true` is honest by that test — `fetchHistory` is implemented — but the flag's
+only consumer is the polling worker, which `realtimePush: true` tells to skip this channel, so no
+Discord channel ever pages its history. `editMessage` / `deleteMessage` are further along the same
+spectrum: implemented, declared, and called by no hub surface for any provider today.
+
+Before you declare a capability, follow it forward: which code path invokes the method, and is that
+path enabled for a channel with the rest of your flags? Note the answer in the comment beside the
+flag. A capability that is true, implemented, and unreachable is not a lie, but a user told the
+feature works will experience it as one.
+:::
+
 Two flags decide more than they look like they do:
 
 **`recipientFormat`** tells the hub how to validate an outbound recipient. It defaults to `'email'`,

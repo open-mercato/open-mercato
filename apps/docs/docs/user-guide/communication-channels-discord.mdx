@@ -22,16 +22,18 @@ There are three moving parts, and the third one is easy to forget:
    start it.** Outbound works without it.
 
 :::info What this release does and does not do
-Outbound messages, inbound messages, reactions, message edit/delete and channel history all work.
-Attachments, threaded replies, embeds, and interactive buttons **do not** — see
-[What this release does not do](#what-this-release-does-not-do) before you promise any of them to
-your users.
+Outbound messages, inbound messages and reactions in both directions work. Attachments, threaded
+replies, embeds, interactive buttons, editing or deleting a sent message, and pulling older history
+**do not** — see [What this release does not do](#what-this-release-does-not-do) before you promise
+any of them to your users.
 :::
 
 ## Prerequisites
 
 - A Discord account with permission to add a bot to the target **server** (guild).
-- Admin access to Open Mercato → **Integrations**.
+- An Open Mercato account with the `communication_channels.connect_user_channel` permission — the
+  channel is connected from a user's own profile page, not from the admin area. **Integrations →
+  Discord** is where you check its health afterwards.
 - A Redis-backed queue: the deployment must run with `QUEUE_STRATEGY=async`. Inbound Discord
   delivery refuses to start without it (see [Run the Gateway worker](#part-4--run-the-gateway-worker)).
 - For slash commands only: a public HTTPS URL for your Open Mercato instance. Plain messaging does
@@ -107,7 +109,7 @@ Pick the **minimum** permissions the features you actually use need:
 | Send Messages | `0x800` | Outbound |
 | Read Message History | `0x10000` | Channel history / backfill on the message list |
 | Add Reactions | `0x40` | Reacting from the Open Mercato inbox |
-| Manage Messages | `0x2000` | Editing or deleting a sent message |
+| Manage Messages | `0x2000` | Editing or deleting a sent message — adapter-only today, see [the ceiling](#what-this-release-does-not-do). Skip it unless you want the grant in place ahead of time. |
 
 The `permissions` value is the OR of the bits you picked. View Channels + Send Messages + Read
 Message History + Add Reactions is `68672`; add Manage Messages for `76864`.
@@ -296,9 +298,17 @@ declared but not implemented is work silently dropped. Everything below is there
 | AI auto-reply | ❌ | The subscriber ships **dormant**. Nothing in the product turns it on, there is no configuration surface for it, and the agent identity it needs does not exist yet. → [#4778](https://github.com/open-mercato/open-mercato/issues/4778) |
 | Typing indicators, presence, stickers, read receipts | ❌ | Not implemented. |
 
-What **is** supported: outbound messages (Markdown, up to 2000 characters — Discord's own limit),
-real-time inbound messages, reactions in both directions, editing and deleting a sent message, and
-paging channel history.
+Three more are implemented in the adapter but have **no way to be triggered**, so treat them as not
+shipped until a surface calls them:
+
+| Capability | State | Why |
+|---|---|---|
+| Edit a sent message | ⚠️ adapter-only | The adapter implements it, but no Open Mercato surface calls `editMessage` — for any provider, not just Discord. |
+| Delete a sent message | ⚠️ adapter-only | Same: implemented, never called. |
+| Pull older channel history | ⚠️ adapter-only | The adapter can page a Discord channel's history, but its only caller is the polling worker, which deliberately skips Discord because inbound is real-time. **Refresh** on the channel row answers "channel is push-driven — polling does not apply", and **Import history** is unavailable because the adapter does not implement the backfill entry point. New messages arrive live; older ones are not pulled in. |
+
+What **is** supported end to end: outbound messages (Markdown, up to 2000 characters — Discord's own
+limit), real-time inbound messages, and reactions in both directions.
 
 Two more things worth setting expectations on:
 
