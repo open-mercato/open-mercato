@@ -7,7 +7,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const selectTriggerVariants = cva(
-  'inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background shadow-xs transition-colors outline-none placeholder:text-muted-foreground hover:bg-muted/40 focus:outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:[&_svg]:opacity-60 aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive data-[placeholder]:text-muted-foreground [&>span]:line-clamp-1 [&_svg]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg]:shrink-0',
+  'inline-flex w-full items-center justify-start gap-2 rounded-md border border-input bg-background shadow-xs transition-colors outline-none placeholder:text-muted-foreground hover:bg-muted/40 focus:outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:[&_svg]:opacity-60 aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive data-[placeholder]:text-muted-foreground [&>span]:line-clamp-1 [&_svg]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       size: {
@@ -38,7 +38,11 @@ const SelectTrigger = React.forwardRef<
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="text-muted-foreground" aria-hidden="true" />
+      {/* ml-auto keeps the chevron pinned right under justify-start, so a
+          SelectTriggerLeading icon sits adjacent to the value instead of the
+          value floating centered between icon and chevron (Figma Select [1.1]
+          Country/Avatar/Provider variants show icon + text side by side). */}
+      <ChevronDown className="ml-auto text-muted-foreground" aria-hidden="true" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ))
