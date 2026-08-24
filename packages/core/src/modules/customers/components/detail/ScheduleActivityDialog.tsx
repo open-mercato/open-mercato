@@ -470,18 +470,19 @@ export function ScheduleActivityDialog({
           <DialogTitle>{isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}</DialogTitle>
         </VisuallyHidden>
 
-        {/* Header */}
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-background px-6 py-5">
-          <h2 className="text-lg font-semibold leading-tight tracking-tight text-foreground">
+        {/* Header — DS Modal Header [1.1], small (title-only) variant: 20px inset,
+            plain ghost close, hairline divider (Figma 466:4630). */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-5 py-3.5">
+          <h2 className="text-sm font-medium text-foreground">
             {isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}
           </h2>
-          <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background" aria-label={t('customers.schedule.cancel', 'Cancel')}>
-            <X className="size-4 text-muted-foreground" />
+          <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="shrink-0 text-muted-foreground" aria-label={t('customers.schedule.cancel', 'Cancel')}>
+            <X className="size-4" />
           </IconButton>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-4 bg-background p-6">
+        <div className="flex flex-col gap-4 bg-background p-5">
 
         {/* Conflict warning */}
         {state.conflict && (
@@ -697,12 +698,14 @@ export function ScheduleActivityDialog({
         </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-border bg-muted/50 px-6 py-4">
-          <Button type="button" variant="outline" onClick={() => { void guardedClose() }} className="rounded-md border border-input bg-background px-5 py-3 text-sm font-semibold text-foreground">
+        {/* Footer — DS Modal Footer [1.1]: hairline divider, flat surface, 20px
+            inset, right-aligned Cancel (outline) + primary pair of stock DS
+            Buttons (Figma 466:4630). */}
+        <div className="flex shrink-0 items-center justify-end gap-2.5 border-t border-border bg-background px-5 py-4">
+          <Button type="button" variant="outline" onClick={() => { void guardedClose() }}>
             {t('customers.schedule.cancel', 'Cancel')}
           </Button>
-          <Button type="button" onClick={handleSave} disabled={isSubmitDisabled} className="flex items-center gap-2 rounded-md bg-foreground px-5 py-3 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50">
+          <Button type="button" onClick={handleSave} disabled={isSubmitDisabled}>
             <SaveIcon className="size-3.5" />
             {state.saving
               ? t('customers.schedule.saving', 'Saving...')

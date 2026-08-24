@@ -243,7 +243,7 @@ export function DateTimeFields({
                 aria-pressed={recurrenceDays[i]}
                 onClick={() => toggleRecurrenceDay(i)}
                 className={cn(
-                  'h-auto flex size-8 items-center justify-center rounded-full text-xs font-medium transition-colors p-0',
+                  'h-auto flex size-8 items-center justify-center rounded-md text-xs font-medium transition-colors p-0',
                   recurrenceDays[i] ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-muted-foreground hover:bg-brand-violet/20 dark:hover:bg-brand-violet/20',
                 )}
               >

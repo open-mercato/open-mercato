@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Users, X, Clock, CheckCircle2, XCircle } from 'lucide-react'
+import { Check, CheckCircle2, Clock, Users, X, XCircle } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
@@ -87,8 +87,8 @@ function ParticipantSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-1.5 rounded-full border border-status-success-border bg-status-success-bg px-2.5 py-1.5 text-xs font-semibold text-foreground">
-          <Users className="size-3" />
+        <Button type="button" variant="outline" size="sm">
+          <Users className="size-3.5" />
           {t('customers.schedule.addParticipant', 'Add participant')}
         </Button>
       </PopoverTrigger>
@@ -144,7 +144,10 @@ function ParticipantSearchPopover({
                 }}
                 className={cn(
                   'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                  alreadyAdded ? 'opacity-40 cursor-default' : 'hover:bg-accent cursor-pointer',
+                  // Fight the Button primitive's disabled:opacity-50 — stacked with a
+                  // local opacity the row faded to ~20% and read as empty space. An
+                  // added member stays legible: muted text + explicit check.
+                  alreadyAdded ? 'cursor-default text-muted-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
                 )}
               >
                 <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-xs font-bold shrink-0">
@@ -152,6 +155,7 @@ function ParticipantSearchPopover({
                 </span>
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
                 {r.email && <span className="text-xs text-muted-foreground truncate">{r.email}</span>}
+                {alreadyAdded ? <Check className="size-3.5 shrink-0 text-status-success-icon" aria-hidden /> : null}
               </Button>
             )
           })}
@@ -258,7 +262,7 @@ export function ParticipantsField({
           <div className="mt-2 flex items-center gap-3 text-xs">
             <span className="text-muted-foreground">{t('customers.schedule.rsvp.label', 'Responses:')}</span>
             {accepted > 0 && <span className="flex items-center gap-1 font-medium text-status-success-text"><CheckCircle2 className="size-3.5" /> {accepted} {t('customers.schedule.rsvp.accepted', 'tak')}</span>}
-            {pending > 0 && <span className="flex items-center gap-1 font-medium text-status-warning-text"><Clock className="size-3.5" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
+            {pending > 0 && <span className="flex items-center gap-1 font-medium text-muted-foreground"><Clock className="size-3.5" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
             {declined > 0 && <span className="flex items-center gap-1 font-medium text-status-error-text"><XCircle className="size-3.5" /> {declined} {t('customers.schedule.rsvp.declined', 'nie')}</span>}
           </div>
         )

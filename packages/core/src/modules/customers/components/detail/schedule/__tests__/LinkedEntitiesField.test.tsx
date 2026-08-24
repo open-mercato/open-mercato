@@ -43,7 +43,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
     fireEvent.click(screen.getByRole('button', { name: 'Offer' }))
 
     await waitFor(() => {
@@ -84,7 +84,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
 
     await waitFor(() => {
       expect(screen.getByText('Company 1')).toBeInTheDocument()
@@ -118,7 +118,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
 
     await waitFor(() => {
       expect(screen.getByText('Company 1')).toBeInTheDocument()
@@ -161,7 +161,7 @@ describe('LinkedEntitiesField', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }))
 
     await waitFor(() => {
       expect(screen.getByText('Company 1')).toBeInTheDocument()

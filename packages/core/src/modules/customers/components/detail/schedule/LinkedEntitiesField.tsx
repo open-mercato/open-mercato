@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Building2, Briefcase, FileText, Search, X } from 'lucide-react'
+import { Building2, Briefcase, Check, FileText, Plus, Search, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
@@ -134,8 +134,8 @@ function EntityLinkSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground">
-          <span className="text-sm">+</span>
+        <Button type="button" variant="outline" size="sm" className="text-muted-foreground">
+          <Plus className="size-3.5" />
           {t('customers.schedule.addLink', 'Add link')}
         </Button>
       </PopoverTrigger>
@@ -207,11 +207,12 @@ function EntityLinkSearchPopover({
                 }}
                 className={cn(
                   'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                  alreadyLinked ? 'opacity-40 cursor-default' : 'hover:bg-accent cursor-pointer',
+                  alreadyLinked ? 'cursor-default text-muted-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
                 )}
               >
                 {linkType === 'company' ? <Building2 className="size-3.5 text-muted-foreground shrink-0" /> : linkType === 'deal' ? <Briefcase className="size-3.5 text-muted-foreground shrink-0" /> : <FileText className="size-3.5 text-muted-foreground shrink-0" />}
                 <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                {alreadyLinked ? <Check className="size-3.5 shrink-0 text-status-success-icon" aria-hidden /> : null}
               </Button>
             )
           })}
