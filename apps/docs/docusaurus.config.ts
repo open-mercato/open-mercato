@@ -32,6 +32,7 @@ const config: Config = {
         docsRouteBasePath: '/',
       },
     ],
+    require.resolve('./plugins/raw-mdx-plugin'),
     function disableModuleConcatenationPlugin() {
       return {
         name: 'disable-module-concatenation',
