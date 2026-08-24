@@ -45,10 +45,13 @@ export function useDropdownDismiss(open: boolean, onClose: () => void): React.Re
   return rootRef
 }
 
-export function Field({ label, children, error, className }: { label: string; children: React.ReactNode; error?: string | null; className?: string }) {
+export function Field({ label, children, error, className, required }: { label: string; children: React.ReactNode; error?: string | null; className?: string; required?: boolean }) {
   return (
     <div className={cn('flex w-full flex-col gap-1.5', className)}>
-      <span className={LABEL_CLASS}>{label}</span>
+      <span className={LABEL_CLASS}>
+        {label}
+        {required ? <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span> : null}
+      </span>
       {children}
       {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
     </div>

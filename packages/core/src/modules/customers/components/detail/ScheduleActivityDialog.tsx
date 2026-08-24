@@ -519,8 +519,9 @@ export function ScheduleActivityDialog({
           </Alert>
         )}
 
-        {/* Type tabs — large rectangular tiles per Figma */}
-        <div className="grid grid-cols-4 gap-2">
+        {/* Type tabs — one compact row; the previous 80px tiles wrapped to a
+            second row with a lone fifth tile and ate a third of the dialog. */}
+        <div className="grid grid-cols-5 gap-1.5">
           {TYPE_TABS.map(({ type, icon: Icon, labelKey, fallback }) => {
             const isActive = state.activityType === type
             return (
@@ -530,14 +531,14 @@ export function ScheduleActivityDialog({
                 onClick={() => state.setActivityType(type)}
                 aria-pressed={isActive}
                 className={cn(
-                  'flex h-[80px] flex-col items-center justify-center gap-2 rounded-md border text-[14px] font-semibold transition-colors',
+                  'flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md border px-1.5 text-xs font-semibold transition-colors',
                   isActive
                     ? 'border-transparent bg-foreground text-background'
                     : 'border-border bg-card text-muted-foreground hover:border-foreground/40 hover:text-foreground',
                 )}
               >
-                <Icon className="size-[18px]" />
-                {t(labelKey, fallback)}
+                <Icon className="size-3.5 shrink-0" />
+                <span className="truncate">{t(labelKey, fallback)}</span>
               </button>
             )
           })}
@@ -547,10 +548,12 @@ export function ScheduleActivityDialog({
         <div className="flex flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
+            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
           </label>
           <input
             type="text"
             value={state.title}
+            aria-required="true"
             onChange={(e) => state.setTitle(e.target.value)}
             placeholder={
               state.activityType === 'email'
