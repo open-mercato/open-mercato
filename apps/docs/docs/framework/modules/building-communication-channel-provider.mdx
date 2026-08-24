@@ -388,9 +388,9 @@ try {
 `gmail-thread:<id>`) so everything in one remote conversation threads into one hub conversation.
 
 :::tip Resolve the destination in one place, and prefer the conversation
-An outbound message can name its destination three ways. Discord resolves them in a fixed order —
-provider metadata, then the conversation's own id, then the recipient from `metadata.to`, then the
-configured default. The conversation deliberately outranks the recipient so a stray `to` can never
+An outbound message can name its destination in more than one place. Discord resolves them in a
+fixed order — provider metadata, then the conversation's own id, then the recipient from
+`metadata.to`, then the configured default. The conversation deliberately outranks the recipient so a stray `to` can never
 redirect a reply out of its own thread; the recipient only decides when there is no conversation to
 belong to, which is exactly the test-send case. Validating a recipient and then quietly ignoring it
 is worse than rejecting it.
@@ -436,9 +436,12 @@ The verification helper itself is fail-closed too: it returns `false` on a missi
 malformed key or any error, and never `true` on doubt.
 
 Signature verification alone is not freshness. A captured request stays cryptographically valid
-forever, so a provider whose signature covers a timestamp needs an explicit replay window — Discord
-rejects anything outside ±300 seconds, **before** the signature fan-out, so a replay costs no crypto
-work.
+forever, so a provider whose signature covers a timestamp needs an explicit replay window on top.
+Note that the snippet above does **not** have one: the adapter's `verifyWebhook` proves the
+signature and nothing more. Discord's replay guard (±300 seconds, checked **before** the signature
+fan-out so a replay costs no crypto work) lives on the dedicated route below, which is where real
+interactions are actually served. Put the guard on whichever surface the provider genuinely receives
+traffic on, and do not assume a signature check implies one.
 
 #### When you need your own signed route
 
