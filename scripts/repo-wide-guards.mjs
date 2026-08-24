@@ -81,6 +81,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every packages/*/src/modules tree — optimistic-lock command coverage',
       },
       {
+        path: 'src/__tests__/notification-channel-eligibility.test.ts',
+        scans: 'built-in notification catalogues across packages and app templates — explicit delivery-channel eligibility (#5495)',
+      },
+      {
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
         scans: 'packages/ and apps/ — CRUD indexer configuration',
       },
