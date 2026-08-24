@@ -41,7 +41,7 @@ registerPrivacyDataClass({
   description: 'Customer person profiles and directly attached personal records.',
   handlerService: 'customerPeoplePrivacyHandler',
   subjectKinds: ['customers:person'],
-  subjectIdentifierKinds: ['email', 'phone'],
+  subjectIdentifierKinds: ['email', 'phone', 'name'],
   retention: { actions: ['delete', 'anonymize'], defaultDays: 365 },
   subjectActions: ['discover', 'export', 'erase', 'anonymize'],
   environmentSanitization: { categories: ['personal_data'] },
@@ -101,7 +101,7 @@ export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
       db: this.em.getKysely<SearchTokenDatabase>(),
       entityType: 'customers:customer_entity',
       query: input.identifier.value,
-      fields: [input.identifier.kind === 'email' ? 'primary_email' : 'primary_phone'],
+      fields: [resolveCustomerIdentifierField(input.identifier.kind)],
       scope: input.scope,
       config: { ...searchConfig, enabled: true },
     })
@@ -455,6 +455,12 @@ export class CustomerPeoplePrivacyHandler implements PrivacyDataClassHandler {
       organizationId: input.scope.organizationId,
     }
   }
+}
+
+function resolveCustomerIdentifierField(kind: PrivacySubjectResolutionInput['identifier']['kind']): string {
+  if (kind === 'email') return 'primary_email'
+  if (kind === 'phone') return 'primary_phone'
+  return 'display_name'
 }
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000

@@ -59,7 +59,7 @@ type HoldDraft = {
   expiresAt: string
 }
 
-type SubjectIdentifierKind = 'email' | 'phone'
+type SubjectIdentifierKind = 'email' | 'phone' | 'name'
 
 const EMPTY_POLICY: PolicyDraft = {
   dataClassId: '',
@@ -804,6 +804,7 @@ export default function PrivacyManagementPage() {
                     <SelectContent>
                       <SelectItem value="email">{t('data_erasure.subject.identifier.email')}</SelectItem>
                       <SelectItem value="phone">{t('data_erasure.subject.identifier.phone')}</SelectItem>
+                      <SelectItem value="name">{t('data_erasure.subject.identifier.name')}</SelectItem>
                     </SelectContent>
                   </Select>
                   {subjectIdentifierKind === 'email' ? (
@@ -812,12 +813,18 @@ export default function PrivacyManagementPage() {
                       onChange={(event) => setSubjectIdentifierValue(event.target.value)}
                       placeholder={t('data_erasure.subject.emailPlaceholder')}
                     />
-                  ) : (
+                  ) : subjectIdentifierKind === 'phone' ? (
                     <Input
                       type="tel"
                       value={subjectIdentifierValue}
                       onChange={(event) => setSubjectIdentifierValue(event.target.value)}
                       placeholder={t('data_erasure.subject.phonePlaceholder')}
+                    />
+                  ) : (
+                    <Input
+                      value={subjectIdentifierValue}
+                      onChange={(event) => setSubjectIdentifierValue(event.target.value)}
+                      placeholder={t('data_erasure.subject.namePlaceholder')}
                     />
                   )}
                   <Button type="submit" disabled={saving}>{t('data_erasure.subject.resolve')}</Button>

@@ -10,7 +10,7 @@ export type PrivacySubjectReference = {
   id: string
 }
 
-export type PrivacySubjectIdentifierKind = 'email' | 'phone'
+export type PrivacySubjectIdentifierKind = 'email' | 'phone' | 'name'
 
 export type PrivacySubjectIdentifier = {
   kind: PrivacySubjectIdentifierKind
