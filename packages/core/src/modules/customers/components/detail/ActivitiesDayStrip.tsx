@@ -261,41 +261,14 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   const handleNext = React.useCallback(() => {
     setAnchor((current) => addDays(current, VISIBLE_DAYS))
   }, [])
-  const handleHeaderPrev = React.useCallback(() => {
-    setAnchor((current) => {
-      const next = new Date(current)
-      next.setMonth(current.getMonth() - 1)
-      return startOfDay(next)
-    })
-  }, [])
-  const handleHeaderNext = React.useCallback(() => {
-    setAnchor((current) => {
-      const next = new Date(current)
-      next.setMonth(current.getMonth() + 1)
-      return startOfDay(next)
-    })
-  }, [])
 
   return (
     <div className="flex flex-col gap-2.5 rounded-md px-3.5 py-3 w-full">
-      <div className="flex items-center justify-center gap-1.5 rounded-md bg-muted px-1.5 py-1.5">
-        <button
-          type="button"
-          onClick={handleHeaderPrev}
-          aria-label={t('customers.activities.calendar.prevMonth', 'Previous month')}
-          className="flex size-6 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronLeft className="size-4 text-foreground" />
-        </button>
-        <span className="flex-1 text-center text-sm font-medium leading-5 text-foreground">{headerLabel}</span>
-        <button
-          type="button"
-          onClick={handleHeaderNext}
-          aria-label={t('customers.activities.calendar.nextMonth', 'Next month')}
-          className="flex size-6 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronRight className="size-4 text-foreground" />
-        </button>
+      {/* Plain caption: the day-window chevrons below are the single navigation
+          affordance; a second arrow pair up here duplicated them and jumped by
+          whole months, which read as broken. */}
+      <div className="flex items-center justify-center rounded-md bg-muted px-1.5 py-1.5">
+        <span className="text-center text-sm font-medium leading-5 text-foreground">{headerLabel}</span>
       </div>
       <div className="flex w-full items-center gap-2">
         <button

@@ -115,7 +115,7 @@ export function RelatedToField({
           onClick={() => setOpen((previous) => !previous)}
           className="h-full min-w-0 flex-1 justify-between rounded-none bg-transparent p-0 text-left shadow-none hover:bg-transparent dark:hover:bg-transparent"
         >
-          <span className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
             {value ? (
               <PersonChip
                 compact
@@ -126,16 +126,16 @@ export function RelatedToField({
                 {t('customers.calendar.editor.relatedToPlaceholder', 'Search people or companies…')}
               </span>
             )}
-          </span>
-          <span className="flex shrink-0 items-center">
             {deal ? (
-              <UppercaseBadge className="h-7 bg-status-info-bg text-status-info-text">
-                {t('customers.calendar.editor.dealBadge', '{name} · Deal', { name: deal.label })}
-              </UppercaseBadge>
+              <span className="flex min-w-0 items-center gap-1.5" title={deal.label}>
+                <span className="min-w-0 truncate text-xs text-foreground">{deal.label}</span>
+                <UppercaseBadge className="bg-status-info-bg text-status-info-text">
+                  {t('customers.calendar.editor.dealBadgeSuffix', 'Deal')}
+                </UppercaseBadge>
+              </span>
             ) : null}
-            <span aria-hidden className="h-px w-2" />
-            <ChevronDown aria-hidden className="size-4 opacity-60" />
           </span>
+          <ChevronDown aria-hidden className="ml-2 size-4 shrink-0 opacity-60" />
         </Button>
         {value ? (
           <IconButton
