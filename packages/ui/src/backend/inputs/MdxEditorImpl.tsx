@@ -14,7 +14,6 @@ import {
   imagePlugin,
   tablePlugin,
   markdownShortcutPlugin,
-  diffSourcePlugin,
   toolbarPlugin,
   UndoRedo,
   BoldItalicUnderlineToggles,
@@ -27,7 +26,6 @@ import {
   InsertTable,
   InsertThematicBreak,
   Separator,
-  DiffSourceToggleWrapper,
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -84,10 +82,14 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
           imagePlugin(),
           tablePlugin(),
           markdownShortcutPlugin(),
-          diffSourcePlugin({ viewMode: 'rich-text' }),
           toolbarPlugin({
+            // No DiffSourceToggleWrapper: the rich/diff/source view toggles are a
+            // developer affordance (hosts that need raw Markdown already switch to
+            // a plain textarea via SwitchableMarkdownInput), and their three
+            // buttons were what pushed the toolbar onto a second row in
+            // dialog-width hosts.
             toolbarContents: () => (
-              <DiffSourceToggleWrapper>
+              <>
                 <UndoRedo />
                 <Separator />
                 <BoldItalicUnderlineToggles />
@@ -105,7 +107,7 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
                 <InsertImage />
                 <Separator />
                 <InsertTable />
-              </DiffSourceToggleWrapper>
+              </>
             ),
           }),
         ]}
