@@ -135,6 +135,12 @@ async function resolveSystemEmailChannel(
   // An operator who pinned SYSTEM_EMAIL_CHANNEL_ID asked for exactly one channel. Honour that
   // literally and never widen the search or fall back to env — a silent substitution would send
   // through a provider the operator deliberately did not choose.
+  //
+  // The pin narrows the search; it does not lift the organization boundary. A pinned id is accepted
+  // only when the row is the caller's own organization or the tenant-wide (`organization_id IS NULL`)
+  // one the setting is documented to name. Matching on the id alone would let a pin aimed at one
+  // organization's channel send every other organization's mail through credentials that
+  // organization owns — the same borrowing `findTenantSystemEmailChannel` refuses.
   const channel = explicitChannelId
     ? await findOneWithDecryption(
         em,
@@ -145,6 +151,7 @@ async function resolveSystemEmailChannel(
           tenantId: payload.tenantId,
           userId: null,
           deletedAt: null,
+          $or: [{ organizationId: payload.organizationId ?? null }, { organizationId: null }],
         },
         undefined,
         dscope,
@@ -160,7 +167,7 @@ async function resolveSystemEmailChannel(
 
   if (explicitChannelId) {
     throw new Error(
-      `SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED: SYSTEM_EMAIL_CHANNEL_ID '${explicitChannelId}' matches no active channel`,
+      `SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED: SYSTEM_EMAIL_CHANNEL_ID '${explicitChannelId}' matches no active channel this organization may use`,
     )
   }
 

@@ -387,6 +387,114 @@ describe('sendSystemEmail', () => {
     })).rejects.toThrow('SYSTEM_EMAIL_CREDENTIALS_NOT_CONFIGURED')
   })
 
+  describe('SYSTEM_EMAIL_CHANNEL_ID pin', () => {
+    it('keeps the organization boundary the unpinned lookup enforces', async () => {
+      process.env.SYSTEM_EMAIL_CHANNEL_ID = 'pinned-channel'
+      const findOne = jest.fn().mockResolvedValue(null)
+      const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
+      const container = buildContainer({ fork: { findOne }, sendMessage, credentials: null })
+
+      await expect(sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })).rejects.toThrow('SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED')
+
+      // The pin narrows the search to one id; it must not widen the scope. A row belonging to a
+      // sibling organization can never match, so a pin aimed at one organization cannot make every
+      // other organization send through the credentials that organization owns.
+      expect(findOne).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: 'pinned-channel',
+          tenantId: 'tenant-1',
+          $or: [{ organizationId: 'org-1' }, { organizationId: null }],
+        }),
+        undefined,
+      )
+      expect(sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('sends through a pinned tenant-wide channel and never falls back to the environment', async () => {
+      process.env.SYSTEM_EMAIL_CHANNEL_ID = 'pinned-channel'
+      const findOne = jest.fn().mockResolvedValue({
+        providerKey: 'test-email',
+        channelType: 'email',
+        organizationId: null,
+        isActive: true,
+        status: 'connected',
+      })
+      const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
+      const container = buildContainer({
+        fork: { findOne },
+        sendMessage,
+        credentials: { token: 'tenant-token', fromAddress: 'tenant@example.com' },
+      })
+
+      await sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+
+      expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        credentials: { token: 'tenant-token', fromAddress: 'tenant@example.com' },
+      }))
+    })
+
+    it('fails closed rather than borrowing environment credentials for a pinned channel', async () => {
+      process.env.SYSTEM_EMAIL_CHANNEL_ID = 'pinned-channel'
+      const findOne = jest.fn().mockResolvedValue({
+        providerKey: 'test-email',
+        channelType: 'email',
+        organizationId: 'org-1',
+        isActive: true,
+        status: 'connected',
+      })
+      const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
+      const container = buildContainer({ fork: { findOne }, sendMessage, credentials: null })
+
+      await expect(sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })).rejects.toThrow('SYSTEM_EMAIL_CREDENTIALS_NOT_CONFIGURED')
+      expect(sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('refuses a pinned channel that is no longer connected', async () => {
+      process.env.SYSTEM_EMAIL_CHANNEL_ID = 'pinned-channel'
+      const findOne = jest.fn().mockResolvedValue({
+        providerKey: 'test-email',
+        channelType: 'email',
+        organizationId: 'org-1',
+        isActive: true,
+        status: 'disconnected',
+      })
+      const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
+      const container = buildContainer({ fork: { findOne }, sendMessage, credentials: { token: 'tenant-token' } })
+
+      await expect(sendSystemEmail(container as never, {
+        to: 'user@example.com',
+        subject: 'Hello',
+        from: 'from@example.com',
+        text: 'Hello',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })).rejects.toThrow('SYSTEM_EMAIL_CHANNEL_UNAVAILABLE')
+      expect(sendMessage).not.toHaveBeenCalled()
+    })
+  })
+
   it('reports unknown and disabled providers as unconfigured', () => {
     process.env.SYSTEM_EMAIL_PROVIDER = 'unknown-email-provider'
     expect(isSystemEmailTransportConfigured()).toBe(false)

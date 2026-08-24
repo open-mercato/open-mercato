@@ -49,7 +49,17 @@ Credential resolution for a tenant-scoped send runs in this order:
 The middle row is deliberate: a tenant that configured its own provider must never silently
 send through the instance-wide account. Note also that a channel belonging to a *different
 organization* is never borrowed — organization is a scoping boundary, so that case reaches
-the environment fallback instead.
+the environment fallback instead. `SYSTEM_EMAIL_CHANNEL_ID` narrows the lookup to one channel
+without lifting that boundary: the pinned row must be the sending organization's own or the
+tenant-wide (`organization_id IS NULL`) one, and a pin never falls back to the environment.
+
+**How far "the tenant's own credentials" goes depends on the provider.** For Resend the stored
+credentials include the API key, so each tenant genuinely sends through its own Resend account.
+For Amazon SES the stored credentials are the region, the sender identity and an optional
+configuration set — the AWS identity itself comes from the instance's default AWS credential
+chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` or the container's IAM role), so every SES
+tenant sends through one AWS account and the fail-closed rule above protects the sender identity
+rather than the account. Choose Resend when tenants must bring their own provider account.
 
 **Recommended (not required):** move existing tenants onto the Hub so email is managed per
 tenant and visible in the admin UI. The seed hook is idempotent and safe to re-run — it

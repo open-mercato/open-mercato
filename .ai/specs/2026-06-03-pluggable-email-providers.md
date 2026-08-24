@@ -71,7 +71,7 @@ Environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `SYSTEM_EMAIL_PROVIDER` | Optional default system email provider. Defaults to `resend`; supports registered provider keys such as `resend` and `ses`. |
-| `SYSTEM_EMAIL_CHANNEL_ID` | Optional explicit tenant-wide communication channel id. |
+| `SYSTEM_EMAIL_CHANNEL_ID` | Optional explicit tenant-wide communication channel id. Resolved within the organization boundary: the pinned row must belong to the sending organization or carry `organization_id IS NULL`, and a pin never falls back to env credentials. |
 | `RESEND_API_KEY` | Resend API key used by `channel_resend` env preconfiguration and pre-tenant fallback. |
 | `AWS_SES_REGION` | SES region used by `channel_ses`; falls back to `AWS_REGION`. |
 | `AWS_REGION` | AWS SDK region fallback. |
