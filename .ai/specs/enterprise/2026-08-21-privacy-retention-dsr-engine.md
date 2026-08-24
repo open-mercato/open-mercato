@@ -44,7 +44,7 @@ Separate cleanup commands cannot provide a consistent report or enforce legal ho
 
 Owning modules register handlers:
 
-- `audit_logs.access_logs`: retention with delete action, default 90 days;
+- `audit_logs.access_logs`: retention with delete action, default 90 days, plus subject discovery and export for an `auth:user` actor; audit records are not erased or anonymized through DSR because their evidentiary integrity is retained under the configured log-retention policy;
 - `auth.users`: discover, export, erase, and anonymize `auth:user`; retention targets only human users whose creation, last update, and last login are all older than the configured cutoff;
 - `customers.people`: discover, export, erase, and anonymize `customers:person`; retention targets only inactive people whose last update is older than the configured cutoff.
 
@@ -120,6 +120,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 7. Add a bounded, dry-run-first restore reapplication command with target-database verification and explicit apply confirmation.
 8. Add a guarded Enterprise administration page for policies, legal holds, subject requests, and operation history.
 9. Extend privacy subject identifiers additively with phone-number lookup for customer people through the encrypted-field search-token index.
+10. Include access logs in user discovery and export while keeping their removal controlled by the audit retention policy.
 
 ## Integration Coverage
 
@@ -141,6 +142,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 - restore reapplication refuses a database other than the configured restore target, preserves entry scope, rechecks legal holds, stays bounded, and does not duplicate manifest entries.
 - the privacy administration route requires `data_erasure.manage`, renders all four workflow areas, and sends every mutation through the guarded API path. This path is covered by a Playwright integration scenario that runs in CI with the Enterprise test environment.
 - phone resolution searches only scoped customer-person phone tokens, returns opaque subject references, and does not persist the submitted phone number.
+- a resolved `auth:user` reference is propagated to compatible registered data classes, access-log discovery and export remain tenant- and organization-scoped, and no subject mutation is exposed for audit evidence.
 
 ## Migration and Backward Compatibility
 
@@ -180,3 +182,4 @@ This specification implements and broadens `.ai/specs/enterprise/2026-07-08-gdpr
 - 2026-08-24: Added controlled post-restore erasure reapplication with database-target verification, bounded batches, current legal-hold checks, and explicit apply confirmation.
 - 2026-08-24: Added the Enterprise privacy administration page for retention policies, legal holds, data-subject actions, and operation history.
 - 2026-08-24: Added phone-number subject resolution for customer people through tenant- and organization-scoped encrypted search tokens.
+- 2026-08-24: Added actor-scoped access-log discovery and export to user DSR, without adding per-subject audit-log deletion.

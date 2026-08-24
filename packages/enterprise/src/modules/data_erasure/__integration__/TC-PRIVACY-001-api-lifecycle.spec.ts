@@ -7,7 +7,7 @@ import {
   deleteRoleIfExists,
   deleteUserIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenContext, getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
@@ -284,6 +284,41 @@ test.describe('TC-PRIVACY-001: privacy API lifecycle', () => {
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
+  })
+
+  test('exports actor access logs but does not allow per-subject audit-log erasure', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { userId } = getTokenScope(token)
+    const exportResponse = await apiRequest(request, 'POST', '/api/data_erasure/subjects', {
+      token,
+      data: {
+        action: 'export',
+        subject: { kind: 'auth:user', id: userId },
+        dataClassIds: ['audit_logs.access_logs'],
+        dryRun: true,
+      },
+    })
+    expect(exportResponse.ok()).toBeTruthy()
+    const exported = await exportResponse.json() as {
+      operation: { status: string }
+      exports: Record<string, { recordCount: number; data: unknown }>
+    }
+    expect(exported.operation.status).toBe('completed')
+    expect(exported.exports['audit_logs.access_logs']).toEqual(expect.objectContaining({
+      recordCount: expect.any(Number),
+      data: expect.any(Array),
+    }))
+
+    const eraseResponse = await apiRequest(request, 'POST', '/api/data_erasure/subjects', {
+      token,
+      data: {
+        action: 'erase',
+        subject: { kind: 'auth:user', id: userId },
+        dataClassIds: ['audit_logs.access_logs'],
+        dryRun: false,
+      },
+    })
+    expect(eraseResponse.status()).toBe(400)
   })
 })
 
