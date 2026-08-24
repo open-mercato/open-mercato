@@ -48,6 +48,8 @@
   "scheduler.error.unauthorized": "Brak autoryzacji",
   "scheduler.error.update_failed": "Nie udało się zaktualizować harmonogramu",
   "scheduler.errors.id_required": "Identyfikator harmonogramu jest wymagany.",
+  "scheduler.errors.module_target_immutable": "Harmonogramy utworzone przez moduły są właścicielami swojego celu; tutaj można zmieniać wyłącznie pola operacyjne.",
+  "scheduler.errors.queue_not_approved": "Kolejka docelowa nie jest zatwierdzonym celem harmonogramu. Można wybrać tylko workery, które się zadeklarowały.",
   "scheduler.execution.actions": "Akcje",
   "scheduler.execution.completed_message": "To wykonanie zakończyło się pomyślnie bez błędów.",
   "scheduler.execution.details_title": "Szczegóły wykonania",

@@ -246,6 +246,8 @@ type SerializableWorkerMetadata = {
   id?: string
   queue?: string
   concurrency?: number
+  schedulerSafe?: boolean
+  schedulerRequiredFeatures?: string[]
   lockDuration?: number
   maxStalledCount?: number
   /**
@@ -1913,6 +1915,13 @@ function normalizeWorkerMetadata(raw: unknown): SerializableWorkerMetadata | nul
   if (typeof source.lockDuration === 'number') normalized.lockDuration = source.lockDuration
   if (typeof source.maxStalledCount === 'number') normalized.maxStalledCount = source.maxStalledCount
   if (typeof source.onJobAbandoned === 'function') normalized.hasJobAbandonedHook = true
+  if (source.schedulerSafe === true) normalized.schedulerSafe = true
+  if (Array.isArray(source.schedulerRequiredFeatures)) {
+    const features = source.schedulerRequiredFeatures.filter(
+      (feature): feature is string => typeof feature === 'string' && feature.length > 0,
+    )
+    if (features.length > 0) normalized.schedulerRequiredFeatures = features
+  }
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -3206,6 +3215,10 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
         { name: 'id', value: workerId },
         { name: 'queue', value: metadata.queue },
         { name: 'concurrency', value: metadata.concurrency ?? 1 },
+        ...(metadata.schedulerSafe === true ? [{ name: 'schedulerSafe', value: true }] : []),
+        ...(metadata.schedulerRequiredFeatures
+          ? [{ name: 'schedulerRequiredFeatures', value: arrayLiteral(metadata.schedulerRequiredFeatures, writeValue) }]
+          : []),
         ...(metadata.lockDuration === undefined ? [] : [{ name: 'lockDuration', value: metadata.lockDuration }]),
         ...(metadata.maxStalledCount === undefined ? [] : [{ name: 'maxStalledCount', value: metadata.maxStalledCount }]),
         ...(metadata.hasJobAbandonedHook
