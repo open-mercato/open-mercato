@@ -65,6 +65,8 @@ export function createSalesOrderLineDraft(
       currencyCode: typeof payload.currencyCode === 'string' ? payload.currencyCode : null,
       unitPriceNet,
       unitPriceGross,
+      discountAmount: normalizeNumber(payload.discountAmount, 0) * quantity,
+      discountPercent: normalizeNumber(payload.discountPercent, 0),
       taxRate,
       totalNet,
       totalGross,
@@ -159,7 +161,7 @@ export function SalesOrderDraftLines({
           {t('sales.documents.items.add', 'Add item')}
         </Button>
       </div>
-      {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+      {error ? <p className="text-sm text-status-error-text" role="alert">{error}</p> : null}
       <DataTable
         columns={columns}
         data={lines}

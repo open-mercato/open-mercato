@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { isMfaPendingJwtPayload, signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { refreshSessionRequestSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
@@ -23,6 +23,23 @@ function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
   return m ? decodeURIComponent(m[1]) : null
+}
+
+// Both handlers are `requireAuth: false`, so the dispatcher's MFA-pending gate never inspects
+// this route's caller. Minting a full staff JWT for a browser that is still holding a provisional
+// `mfa_pending` token would hand it the access the outstanding second factor is meant to withhold,
+// so the pending credential is checked here directly. `refreshFromSessionToken` itself has no MFA
+// awareness — it validates only the token hash and expiry.
+function carriesMfaPendingToken(req: Request): boolean {
+  const authHeader = (req.headers.get('authorization') || '').trim()
+  const bearer = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : null
+  const token = bearer || parseCookie(req, 'auth_token')
+  if (!token) return false
+  try {
+    return isMfaPendingJwtPayload(verifyJwt(token))
+  } catch {
+    return false
+  }
 }
 
 type RefreshedSession = NonNullable<Awaited<ReturnType<AuthService['refreshFromSessionToken']>>>
@@ -64,6 +81,11 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const baseUrl = resolveTrustedRedirectBase(req) ?? url.origin
   const redirectTo = sanitizeRedirectPath(url.searchParams.get('redirect'), baseUrl, '/')
+  if (carriesMfaPendingToken(req)) {
+    return clearStaffAuthCookies(
+      buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
+    )
+  }
   const token = parseCookie(req, 'session_token')
   if (!token) {
     return clearStaffAuthCookies(
@@ -105,6 +127,15 @@ export async function POST(req: Request) {
     compoundIdentifier: token ?? undefined,
   })
   if (rateLimitError) return rateLimitError
+
+  if (carriesMfaPendingToken(req)) {
+    return clearStaffAuthCookies(
+      NextResponse.json({
+        ok: false,
+        error: translate('auth.session.refresh.errors.invalidToken', 'Invalid or expired refresh token'),
+      }, { status: 401 })
+    )
+  }
 
   if (!token) {
     return clearStaffAuthCookies(

@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { expect, test } from '@playwright/test'
-import type { Client } from 'pg'
-import { withClient } from '@open-mercato/core/modules/core/__integration__/helpers/dbFixtures'
+import { withClient, type IntegrationDbClient } from '@open-mercato/core/modules/core/__integration__/helpers/dbFixtures'
 import {
   PAYMENT_SESSION_REPLAY_WINDOW_MS,
   pruneCompletedPaymentSessionInitializations,
@@ -19,7 +18,7 @@ type ClaimFixture = {
   claimedAt?: Date | null
 }
 
-function makeEntityManager(client: Client): EntityManager {
+function makeEntityManager(client: IntegrationDbClient): EntityManager {
   return {
     getConnection: () => ({
       execute: async (sql: string, params: unknown[]) => {
@@ -32,7 +31,7 @@ function makeEntityManager(client: Client): EntityManager {
   } as unknown as EntityManager
 }
 
-async function insertClaim(client: Client, fixture: ClaimFixture): Promise<void> {
+async function insertClaim(client: IntegrationDbClient, fixture: ClaimFixture): Promise<void> {
   await client.query(
     `insert into gateway_session_initializations
       (id, operation_key, provider_key, claim_token, claimed_at, gateway_transaction_id,

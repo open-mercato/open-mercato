@@ -11,6 +11,12 @@ import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-comm
 import { buildScheduledCommandContext } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  canDispatchScheduleQueueTarget,
+  getSchedulerQueueRequiredFeatures,
+  sanitizeSchedulerTargetPayload,
+  validateSchedulerTargetPayload,
+} from '../lib/safeQueueTargets'
 
 const logger = createLogger('scheduler').child({ component: 'local' })
 
@@ -261,18 +267,45 @@ export class LocalSchedulerService {
       throw new Error('Target queue is required for queue target type')
     }
 
+    // Dispatch-time reauthorization (#5213): provenance is verified against the
+    // live registry (module rows must own their queue), API rows must target
+    // opted-in queues.
+    if (!canDispatchScheduleQueueTarget(schedule)) {
+      throw new Error(`Queue is not an approved scheduler target: ${schedule.targetQueue}`)
+    }
+
+    const payloadIssue = validateSchedulerTargetPayload(schedule.targetQueue, schedule.targetPayload)
+    if (payloadIssue) {
+      throw new Error(`Invalid payload for scheduler queue ${schedule.targetQueue}: ${payloadIssue}`)
+    }
+
+    if (schedule.scopeType !== 'system') {
+      for (const feature of getSchedulerQueueRequiredFeatures(schedule.targetQueue)) {
+        const hasFeature = await this.checkFeature({ ...schedule, requireFeature: feature } as ScheduledJob)
+        if (!hasFeature) {
+          throw new Error(`Tenant lacks feature required by scheduler queue ${schedule.targetQueue}: ${feature}`)
+        }
+      }
+    }
+
     const queue = this.queueFactory(schedule.targetQueue)
 
     // Deliver the same flat contract as the asynchronous execute-schedule
     // worker: targetPayload fields on the root, scheduler-owned scope and
     // idempotency fields applied last. Local mode runs each firing exactly
     // once, so the firing timestamp is a valid logical execution key.
-    await queue.enqueue(buildQueueTargetPayload({
-      targetPayload: schedule.targetPayload,
-      tenantId: schedule.tenantId,
-      organizationId: schedule.organizationId,
-      idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
-    }))
+    // Author-supplied scope/envelope keys never survive dispatch (#5213).
+    const sanitizedPayload = sanitizeSchedulerTargetPayload(schedule.targetPayload, schedule)
+
+    await queue.enqueue({
+      ...buildQueueTargetPayload({
+        targetPayload: sanitizedPayload,
+        tenantId: schedule.tenantId,
+        organizationId: schedule.organizationId,
+        idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
+      }),
+      _jobOrigin: 'scheduler' as const,
+    })
 
     logger.info('Enqueued job to target queue', { scheduleId: schedule.id, targetQueue: schedule.targetQueue })
   }

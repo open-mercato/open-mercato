@@ -36,6 +36,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null, t: (key: string, params?: Record<string, string | number>) => string) {
@@ -54,6 +55,7 @@ export default function ApiKeysListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -87,6 +89,7 @@ export default function ApiKeysListPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -198,7 +201,7 @@ export default function ApiKeysListPage() {
               createLabel={t('api_keys.list.actions.create')}
             />
           )}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

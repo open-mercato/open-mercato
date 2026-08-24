@@ -43,6 +43,7 @@
   "demo.userTask.description": "이 워크플로우는 사용자 입력을 기다리며 일시 중지되었습니다. 계속하려면 아래 작업을 완료해 주세요.",
   "demo.userTask.dueLabel": "기한",
   "demo.userTask.title": "사용자 작업 필요",
+  "notifications.categories.workflows": "워크플로",
   "orderApproval.approveButton": "승인",
   "orderApproval.approvedStatus": "승인됨",
   "orderApproval.commentsLabel": "코멘트",

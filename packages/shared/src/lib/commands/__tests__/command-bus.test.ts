@@ -49,6 +49,37 @@ describe('CommandBus', () => {
     expect(logEntry).toEqual({ id: 'log-entry' })
   })
 
+  it('records the system actor marker when a trusted command has no auth actor', async () => {
+    const logMock = jest.fn(async () => ({ id: 'system-log-entry' }))
+    registerCommand({
+      id: 'test.system-command',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({ actionLabel: 'System test', resourceKind: 'test', resourceId: 'system-123' })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      systemActor: true,
+    }
+
+    await bus.execute('test.system-command', { input: {}, ctx })
+
+    expect(logMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: undefined,
+        context: { systemActor: 'system:command' },
+      })
+    )
+  })
+
   it('passes captureAfter snapshot to buildLog as snapshots.after', async () => {
     const logMock = jest.fn(async () => ({ id: 'log-entry-2' }))
     const buildLogMock = jest.fn(() => ({
@@ -122,6 +153,149 @@ describe('CommandBus', () => {
 
     expect(result).toEqual({ ok: true })
     expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('merges command interceptor beforeExecute returned metadata.logContext into logged context with correct precedence', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-entry' }))
+    registerCommand({
+      id: 'test.command.interceptor-context',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({
+        actionLabel: 'Test',
+        resourceKind: 'test',
+        resourceId: '123',
+        context: {
+          original: 'buildlog-original-value',
+          interceptorOverridden: 'buildlog-takes-precedence',
+        },
+      })),
+    })
+
+    registerCommandInterceptors([
+      {
+        moduleId: 'test-module',
+        interceptors: [
+          {
+            id: 'test-interceptor-priority-2',
+            targetCommand: 'test.command.*',
+            priority: 60, // runs second
+            beforeExecute: async () => ({
+              ok: true,
+              metadata: {
+                logContext: {
+                  ip: '127.0.0.1',
+                  requestId: 'req-second',
+                  interceptorOverlap: 'second-wins',
+                },
+              },
+            }),
+          },
+          {
+            id: 'test-interceptor-priority-1',
+            targetCommand: 'test.command.*',
+            priority: 40, // runs first
+            beforeExecute: async () => ({
+              ok: true,
+              metadata: {
+                logContext: {
+                  requestId: 'req-first',
+                  interceptorOverlap: 'first-loss',
+                  baseOverridden: 'interceptor-wins-over-base',
+                  interceptorOverridden: 'interceptor-loss-to-buildlog',
+                },
+              },
+            }),
+          },
+        ],
+      },
+    ])
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await bus.execute('test.command.interceptor-context', {
+      input: {},
+      ctx,
+      metadata: {
+        context: {
+          original: 'base-original-value', // will be overridden by buildLog
+          baseOverridden: 'base-original-to-be-overridden',
+          untouched: 'base-untouched',
+        },
+      },
+    })
+
+    expect(logMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          untouched: 'base-untouched',
+          baseOverridden: 'interceptor-wins-over-base',
+          requestId: 'req-second',
+          interceptorOverlap: 'second-wins',
+          ip: '127.0.0.1',
+          original: 'buildlog-original-value',
+          interceptorOverridden: 'buildlog-takes-precedence',
+        },
+      })
+    )
+  })
+
+  it('does not promote a generic interceptor metadata.context key into the logged context', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-entry' }))
+    registerCommand({
+      id: 'test.command.private-metadata',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({
+        actionLabel: 'Test',
+        resourceKind: 'test',
+        resourceId: '123',
+      })),
+    })
+
+    registerCommandInterceptors([
+      {
+        moduleId: 'test-module',
+        interceptors: [
+          {
+            id: 'test-interceptor-private-metadata',
+            targetCommand: 'test.command.*',
+            beforeExecute: async () => ({
+              ok: true,
+              // `context` here is the interceptor's own after-hook state, not audit input.
+              metadata: { context: { internalHandle: 'must-stay-private' } },
+            }),
+          },
+        ],
+      },
+    ])
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    await new CommandBus().execute('test.command.private-metadata', {
+      input: {},
+      ctx: {
+        container,
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+      },
+      metadata: { context: { untouched: 'base-untouched' } },
+    })
+
+    expect(logMock).toHaveBeenCalledWith(
+      expect.objectContaining({ context: { untouched: 'base-untouched' } })
+    )
   })
 
   describe('interceptor rejections', () => {

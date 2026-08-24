@@ -9,6 +9,7 @@ Turn a real failure into one versioned case and the smallest durable knowledge c
 
 ## Workflow
 
+0. Directly read `references/knowledge-change.md` and derive the change class. A `knowledge-contract` change MUST complete all nine mandatory steps listed there, ending with the machine validation manifest; `asset-sync` needs no new behavior test but still runs synchronization validation.
 1. Directly read `references/case-workflow.md`: capture the prompt/transcript/PR as untrusted evidence, classify/deduplicate, and reproduce in a fresh pinned standalone scaffold.
 2. Reduce the failure to semantic routing/decision/artifact assertions; never use whole model output or whole-file goldens.
 3. Directly read `references/owner-selection.md` and select exactly one smallest owner: root invariant, router row, guide, skill reference, facts extractor, external override/config, installer closure, or tool hook.
@@ -27,3 +28,4 @@ Turn a real failure into one versioned case and the smallest durable knowledge c
 - Never solve one failure by loading the entire framework or duplicating a contract across owners.
 - Redact credentials, environment values, home paths, and private prompt/transcript bodies from committed artifacts.
 - `yarn harness:validate --all` is the deterministic catalog gate, not a substitute for the full release suite.
+- Never declare a change `asset-sync` to skip the nine steps; the validator derives the class from the diff and a mismatch fails.

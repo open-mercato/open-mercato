@@ -86,3 +86,155 @@ describe('LookupSelect onReady stability', () => {
     expect(input.value).toBe('Mercato Fashion Online')
   })
 })
+
+describe('LookupSelect keyboard accessibility', () => {
+  const ITEMS = [
+    { id: 'plot-1', title: 'Fazenda Norte' },
+    { id: 'plot-2', title: 'Fazenda Sul' },
+  ]
+
+  function renderWithResults(onChange: (next: string | null) => void) {
+    const utils = render(
+      <LookupSelect
+        value={null}
+        onChange={onChange}
+        fetchItems={async () => ITEMS}
+        minQuery={2}
+      />,
+    )
+    return utils
+  }
+
+  it('exposes combobox/listbox/option semantics once results render', async () => {
+    const { container } = renderWithResults(() => {})
+    const input = getInput(container)
+    expect(input).toHaveAttribute('role', 'combobox')
+    expect(input).toHaveAttribute('aria-autocomplete', 'list')
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(2)
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('selects the highlighted result with ArrowDown + Enter', async () => {
+    const onChange = jest.fn()
+    const { container } = renderWithResults(onChange)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input).toHaveAttribute('aria-activedescendant')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith('plot-1')
+  })
+
+  it('moves the highlight with repeated arrows and wraps', async () => {
+    const onChange = jest.fn()
+    const { container } = renderWithResults(onChange)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith('plot-2')
+  })
+
+  it('clears the query with Escape instead of leaking it to the dialog', async () => {
+    const escapeSpy = jest.fn()
+    const { container } = render(
+      <div onKeyDown={escapeSpy}>
+        <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={2} />
+      </div>,
+    )
+    const input = getInput(container)
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+
+    escapeSpy.mockClear()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.value).toBe('')
+    expect(escapeSpy).not.toHaveBeenCalled()
+  })
+})
+
+// `disabled` used to gate only the search box, so a caller that locked the
+// control still shipped a live option list: the selected card kept its click and
+// Enter/Space handlers, "Clear selection" stayed reachable, and the action slot
+// could still create a new record. Issue #5248 depended on `disabled` meaning
+// "no interaction at all", so every one of those paths is pinned here.
+describe('LookupSelect disabled', () => {
+  const SELECTED = [{ id: 'product-1', title: 'Product One' }]
+
+  function renderDisabled(onChange: (next: string | null) => void) {
+    return render(
+      <LookupSelect
+        value="product-1"
+        onChange={onChange}
+        options={SELECTED}
+        disabled
+        actionSlot={
+          <button type="button" data-testid="quick-create">
+            Create
+          </button>
+        }
+        clearLabel="Clear selection"
+      />,
+    )
+  }
+
+  it('still shows the current selection so the value stays readable', () => {
+    renderDisabled(() => {})
+    expect(screen.getByRole('option')).toHaveTextContent('Product One')
+  })
+
+  it('ignores clicks on the option row', () => {
+    const onChange = jest.fn()
+    renderDisabled(onChange)
+
+    fireEvent.click(screen.getByRole('option'))
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('ignores Enter and Space on the option row and keeps it out of the tab order', () => {
+    const onChange = jest.fn()
+    renderDisabled(onChange)
+    const option = screen.getByRole('option')
+
+    fireEvent.keyDown(option, { key: 'Enter' })
+    fireEvent.keyDown(option, { key: ' ' })
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(option).toHaveAttribute('tabindex', '-1')
+    expect(option).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('hides the clear-selection button so the value cannot be nulled', () => {
+    renderDisabled(() => {})
+    expect(screen.queryByRole('button', { name: /clear selection/i })).toBeNull()
+  })
+
+  it('hides the action slot so no new record can be created into a locked field', () => {
+    renderDisabled(() => {})
+    expect(screen.queryByTestId('quick-create')).toBeNull()
+  })
+
+  it('keeps the search box disabled and its keyboard path inert', () => {
+    const onChange = jest.fn()
+    const { container } = renderDisabled(onChange)
+    const input = getInput(container)
+
+    expect(input.disabled).toBe(true)
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+})

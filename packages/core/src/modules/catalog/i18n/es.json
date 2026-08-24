@@ -90,6 +90,7 @@
   "catalog.merchandising_assistant.agents.merchandising.label": "Asistente de Merchandising",
   "catalog.merchandising_assistant.context.filteredByCategory": "Filtered by category",
   "catalog.merchandising_assistant.context.matchingProducts": "{count} productos en la vista",
+  "catalog.merchandising_assistant.context.matchingProductsCapped": "{count}+ productos en la vista",
   "catalog.merchandising_assistant.context.selectedProducts": "{count} productos seleccionados",
   "catalog.merchandising_assistant.context.tags": "{count} tags",
   "catalog.merchandising_assistant.dock.subtitle": "Catalog",
@@ -719,5 +720,6 @@
   "customers~catalog.errors.id_required": "El identificador del registro es obligatorio.",
   "customers~catalog.errors.organization_required": "El contexto de organización es obligatorio.",
   "customers~catalog.errors.tenant_required": "El contexto de tenant es obligatorio.",
-  "customers~catalog.nav.group": "Catálogo"
+  "customers~catalog.nav.group": "Catálogo",
+  "notifications.categories.catalog": "Catálogo"
 }

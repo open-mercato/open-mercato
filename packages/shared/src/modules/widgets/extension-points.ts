@@ -1,48 +1,56 @@
-export type ExtensionHostFamily =
-  | 'generic'
-  | 'menu'
-  | 'data-table'
-  | 'crud-form'
-  | 'detail'
-  | 'portal-page'
-  | 'component-handle'
-  | 'entity'
-  | 'api-route'
-  | 'command'
-  | 'event'
-  | 'query-lifecycle'
-  | 'dashboard'
-  | 'notification'
-  | 'integration'
-  | 'specialized-registry'
-  | 'module-override'
+export const EXTENSION_HOST_FAMILIES = [
+  'generic',
+  'menu',
+  'data-table',
+  'crud-form',
+  'detail',
+  'portal-page',
+  'component-handle',
+  'entity',
+  'api-route',
+  'command',
+  'event',
+  'query-lifecycle',
+  'dashboard',
+  'notification',
+  'integration',
+  'specialized-registry',
+  'module-override',
+] as const
 
-export type ExtensionHostCapability =
-  | 'render-widget'
-  | 'headless-widget'
-  | 'menu-item'
-  | 'column-widget'
-  | 'row-action'
-  | 'bulk-action'
-  | 'filter-widget'
-  | 'toolbar-widget'
-  | 'field-widget'
-  | 'lifecycle-handler'
-  | 'component-replacement'
-  | 'response-enricher'
-  | 'query-enricher'
-  | 'api-interceptor'
-  | 'command-interceptor'
-  | 'mutation-guard'
-  | 'entity-extension'
-  | 'async-subscriber'
-  | 'sync-subscriber'
-  | 'browser-client'
-  | 'browser-portal'
-  | 'registry-contribution'
-  | 'module-override'
+export type ExtensionHostFamily = (typeof EXTENSION_HOST_FAMILIES)[number]
 
-export type ExtensionHostActivation = 'always' | 'host-opt-in' | 'caller-opt-in' | 'feature-gated'
+export const EXTENSION_HOST_CAPABILITIES = [
+  'render-widget',
+  'headless-widget',
+  'menu-item',
+  'column-widget',
+  'row-action',
+  'bulk-action',
+  'filter-widget',
+  'toolbar-widget',
+  'field-widget',
+  'lifecycle-handler',
+  'component-replacement',
+  'response-enricher',
+  'query-enricher',
+  'api-interceptor',
+  'command-interceptor',
+  'mutation-guard',
+  'entity-extension',
+  'async-subscriber',
+  'sync-subscriber',
+  'browser-client',
+  'browser-portal',
+  'registry-contribution',
+  'module-override',
+] as const
+
+export type ExtensionHostCapability = (typeof EXTENSION_HOST_CAPABILITIES)[number]
+
+export const EXTENSION_HOST_ACTIVATIONS = ['always', 'host-opt-in', 'caller-opt-in', 'feature-gated'] as const
+
+export type ExtensionHostActivation = (typeof EXTENSION_HOST_ACTIVATIONS)[number]
 
 export type ExtensionPointPatternParameter = {
   source: string
@@ -180,6 +188,8 @@ export const DATA_TABLE_EXTENSION_SURFACES = [
   { key: 'emptyState', suffix: 'empty-state', capabilities: ['render-widget'], bound: false },
 ] as const satisfies readonly BoundExtensionSurface[]
 
+export const DATA_TABLE_EXTENSION_SURFACE_KEYS = DATA_TABLE_EXTENSION_SURFACES.map((surface) => surface.key)
+
 export const CRUD_FORM_EXTENSION_SURFACES = [
   { key: 'base', suffix: null, capabilities: ['render-widget', 'lifecycle-handler'], bound: true },
   { key: 'header', suffix: 'header', capabilities: ['render-widget'], bound: true },
@@ -193,6 +203,8 @@ export const CRUD_FORM_EXTENSION_SURFACES = [
   { key: 'fieldBefore', suffix: 'field:{fieldId}:before', capabilities: ['render-widget'], bound: false },
   { key: 'fieldAfter', suffix: 'field:{fieldId}:after', capabilities: ['render-widget'], bound: false },
 ] as const satisfies readonly BoundExtensionSurface[]
+
+export const CRUD_FORM_EXTENSION_SURFACE_KEYS = CRUD_FORM_EXTENSION_SURFACES.map((surface) => surface.key)
 
 export const CRUD_FORM_LIFECYCLE_PHASES = [
   'transformValidation',
@@ -251,29 +263,53 @@ export type ModuleFactRef = {
   factKey: string
 }
 
-export type ModuleExtensionContributionKind = ModuleExtensionContributionFact['kind']
+export const MODULE_EXTENSION_CONTRIBUTION_KINDS = [
+  'widget',
+  'data-table',
+  'crud-form',
+  'component-override',
+  'response-enricher',
+  'api-interceptor',
+  'command-interceptor',
+  'mutation-guard',
+  'entity-extension',
+  'subscriber',
+  'browser-reaction',
+  'specialized-registry',
+  'module-override',
+] as const
 
-export type ModuleExtensionActivationKind =
-  | 'crud-response-enricher'
-  | 'query-enricher'
-  | 'mutation-guard'
-  | 'api-interceptor-bridge'
-  | 'command-interceptor-bridge'
-  | 'widget-injection-consumer'
-  | 'component-extension-consumer'
-  | 'dashboard-host-consumer'
+export type ModuleExtensionContributionKind = (typeof MODULE_EXTENSION_CONTRIBUTION_KINDS)[number]
+
+export const MODULE_EXTENSION_ACTIVATION_KINDS = [
+  'crud-response-enricher',
+  'query-enricher',
+  'mutation-guard',
+  'api-interceptor-bridge',
+  'command-interceptor-bridge',
+  'widget-injection-consumer',
+  'component-extension-consumer',
+  'dashboard-host-consumer',
+] as const
+
+export type ModuleExtensionActivationKind = (typeof MODULE_EXTENSION_ACTIVATION_KINDS)[number]
+
+export const MODULE_EXTENSION_TARGET_KINDS = [
+  'module',
+  'entity',
+  'api-route',
+  'command',
+  'widget-spot',
+  'component',
+  'event',
+  'notification',
+  'wildcard',
+] as const
+
+export type ModuleExtensionTargetKind = (typeof MODULE_EXTENSION_TARGET_KINDS)[number]
 
 export type ModuleExtensionTargetRef = {
-  kind:
-    | 'module'
-    | 'entity'
-    | 'api-route'
-    | 'command'
-    | 'widget-spot'
-    | 'component'
-    | 'event'
-    | 'notification'
-    | 'wildcard'
+  kind: ModuleExtensionTargetKind
   id: string
   moduleId?: string
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -294,12 +330,15 @@ export type ModuleExtensionActivation = {
   bridge?: ModuleFactRef
 }
 
-export type ModuleExtensionResolution =
-  | 'bound'
-  | 'capability-only'
-  | 'optional-target-missing'
-  | 'wildcard'
-  | 'unresolved'
+export const MODULE_EXTENSION_RESOLUTIONS = [
+  'bound',
+  'capability-only',
+  'optional-target-missing',
+  'wildcard',
+  'unresolved',
+] as const
+
+export type ModuleExtensionResolution = (typeof MODULE_EXTENSION_RESOLUTIONS)[number]
 
 export type ModuleIncomingExtensionRef = {
   contributionId: string
@@ -335,10 +374,14 @@ export type ModuleExtensionSurfaceFacts = {
   unresolved: ModuleExtensionUnresolvedFact[]
 } & ModuleExtensionSurfaceFactsAdditions
 
+export const MODULE_EXTENSION_HOST_RESOLUTIONS = ['exact', 'pattern', 'framework', 'fact-ref'] as const
+
+export type ModuleExtensionHostResolution = (typeof MODULE_EXTENSION_HOST_RESOLUTIONS)[number]
+
 export type ModuleExtensionHostFact = {
   key: string
   id: string
-  resolution: 'exact' | 'pattern' | 'framework' | 'fact-ref'
+  resolution: ModuleExtensionHostResolution
   family: ExtensionHostFamily
   ownerModule: string
   capabilities: ExtensionHostCapability[]
@@ -360,9 +403,20 @@ export type ModuleExtensionHostFact = {
   fallbacks?: string[]
 }
 
+export const MODULE_EXTENSION_TARGET_RESOLUTIONS = [
+  'exact',
+  'pattern',
+  'framework',
+  'fact-ref',
+  'optional-external',
+  'unresolved',
+] as const
+
+export type ModuleExtensionTargetResolution = (typeof MODULE_EXTENSION_TARGET_RESOLUTIONS)[number]
+
 export type ModuleExtensionTargetFact = {
   id: string
-  resolution: 'exact' | 'pattern' | 'framework' | 'fact-ref' | 'optional-external' | 'unresolved'
+  resolution: ModuleExtensionTargetResolution
   factRef?: { factSection: string; factKey: string }
   optionalOwnerPackage?: string
 }
@@ -380,6 +434,24 @@ export type ModuleExtensionContributionBase = {
   override?: { domain: string; key: string; mode: 'disable-replace' | 'replace' | 'additive' }
   source: { path: string; symbol?: string }
 }
+
+export const MODULE_SPECIALIZED_REGISTRIES = [
+  'notification',
+  'integration',
+  'search',
+  'vector',
+  'ai',
+  'payment',
+  'shipping',
+  'currency',
+  'workflow',
+] as const
+
+export type ModuleSpecializedRegistry = (typeof MODULE_SPECIALIZED_REGISTRIES)[number]
+
+export const COMPONENT_OVERRIDE_MODES = ['replace', 'wrapper', 'props'] as const
+
+export type ModuleComponentOverrideMode = (typeof COMPONENT_OVERRIDE_MODES)[number]
 
 export type ModuleExtensionContributionFact = ModuleExtensionContributionBase & (
   | {
@@ -414,7 +486,7 @@ export type ModuleExtensionContributionFact = ModuleExtensionContributionBase & 
     }
   | {
       kind: 'component-override'
-      details: { handle: string; mode: 'replace' | 'wrapper' | 'props'; propsContract: string }
+      details: { handle: string; mode: ModuleComponentOverrideMode; propsContract: string }
     }
   | {
       kind: 'response-enricher'
@@ -498,7 +570,7 @@ export type ModuleExtensionContributionFact = ModuleExtensionContributionBase & 
   | {
       kind: 'specialized-registry'
       details: {
-        registry: 'notification' | 'integration' | 'search' | 'vector' | 'ai' | 'payment' | 'shipping' | 'currency' | 'workflow'
+        registry: ModuleSpecializedRegistry
         registryId: string
         specialistRoute: string
       }
@@ -513,12 +585,17 @@ export type ModuleExtensionContributionFact = ModuleExtensionContributionBase & 
     }
 )
 
+export const MODULE_EXTENSION_UNRESOLVED_REASONS = [
+  'unclassified-binding',
+  'unbound-declaration',
+  'dynamic-without-pattern',
+  'unresolved-first-party-target',
+] as const
+
+export type ModuleExtensionUnresolvedReason = (typeof MODULE_EXTENSION_UNRESOLVED_REASONS)[number]
+
 export type ModuleExtensionUnresolvedFact = {
   key: string
   source: { path: string; symbol?: string }
-  reason:
-    | 'unclassified-binding'
-    | 'unbound-declaration'
-    | 'dynamic-without-pattern'
-    | 'unresolved-first-party-target'
+  reason: ModuleExtensionUnresolvedReason
 }

@@ -49,6 +49,11 @@
       "cache": false,
       "outputs": []
     },
+    "create-mercato-app#test": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": []
+    },
     "lint": {
       "outputs": []
     },
