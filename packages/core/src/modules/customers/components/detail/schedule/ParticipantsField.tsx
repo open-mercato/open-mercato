@@ -173,7 +173,7 @@ interface ParticipantsFieldProps {
   activityType: ActivityType
   participants: Participant[]
   setParticipants: React.Dispatch<React.SetStateAction<Participant[]>>
-  removeParticipant: (userId: string) => void
+  removeParticipant: (index: number) => void
   guestPermissions: { canInviteOthers: boolean; canModify: boolean; canSeeList: boolean }
   setGuestPermissions: React.Dispatch<React.SetStateAction<{ canInviteOthers: boolean; canModify: boolean; canSeeList: boolean }>>
 }
@@ -205,19 +205,19 @@ export function ParticipantsField({
         {sectionLabel}
       </label>
       <div className="mt-2.5 flex flex-wrap content-center items-center gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
-        {participants.map((p) => (
-          <div key={p.userId} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5">
+        {participants.map((p, index) => (
+          <div key={p.userId ?? p.email ?? index} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5">
             <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-xs font-bold text-white', p.color ?? 'bg-primary')}>
               {p.name.charAt(0).toUpperCase()}
             </span>
             <span className="text-xs text-foreground">{p.name}</span>
-            <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(p.userId)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
+            <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(index)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
               <X className="size-3" />
             </IconButton>
           </div>
         ))}
         <ParticipantSearchPopover
-          existingIds={new Set(participants.map((p) => p.userId))}
+          existingIds={new Set(participants.map((p) => p.userId).filter((userId): userId is string => Boolean(userId)))}
           onAdd={(p) => setParticipants((prev) => [...prev, { ...p, status: 'pending' as RsvpStatus }])}
           onAddMany={(nextParticipants) => {
             setParticipants((prev) => [

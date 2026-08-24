@@ -46,3 +46,45 @@ export function isClosedDealStatus(value: string | null | undefined): boolean {
 export function isOpenDealStatus(value: string | null | undefined): boolean {
   return !isClosedDealStatus(value)
 }
+
+export function canonicalDealStatus(value: string): string {
+  const lower = value.toLowerCase()
+  if (lower === 'won') return DEAL_STATUS_WIN
+  if (lower === 'lost') return DEAL_STATUS_LOSE
+  // Canonical spellings normalize to lower-case too, so an upper-case selection still
+  // matches the lower-case persisted values and dictionary options.
+  if (lower === 'win' || lower === 'loose' || lower === 'open' || lower === 'closed') return lower
+  return value
+}
+
+/**
+ * Expand operator-selected status filter values into the canonical vocabulary so a
+ * single selection matches every spelling the supported writers persist (#5107).
+ *
+ * Alias groups (`win`/`won`, `loose`/`lost`, `closed`) are matched case-insensitively,
+ * expanded to their canonical spellings, and also keep the caller's original token so
+ * the result is always a strict superset of a verbatim match. Unknown values emit both
+ * the trimmed original and its lower-case form — mixed-case tenant dictionary statuses
+ * match exactly while `?status=Open` still hits lower-case stored rows.
+ */
+export function expandDealStatusAliases(values: string[]): string[] {
+  const out = new Set<string>()
+  for (const value of values) {
+    const trimmed = value.trim()
+    const lower = trimmed.toLowerCase()
+    if (lower === 'win' || lower === 'won') {
+      WON_DEAL_STATUS_LIST.forEach((entry) => out.add(entry))
+      out.add(trimmed)
+    } else if (lower === 'loose' || lower === 'lost') {
+      LOST_DEAL_STATUS_LIST.forEach((entry) => out.add(entry))
+      out.add(trimmed)
+    } else if (lower === 'closed') {
+      CLOSED_DEAL_STATUS_LIST.forEach((entry) => out.add(entry))
+      out.add(trimmed)
+    } else {
+      out.add(trimmed)
+      out.add(lower)
+    }
+  }
+  return Array.from(out)
+}
