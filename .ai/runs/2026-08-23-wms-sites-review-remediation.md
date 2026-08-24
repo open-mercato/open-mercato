@@ -152,6 +152,23 @@ is additive and, being unreleased, requires no deprecation bridge.
 - [x] 5.6 Correct the stale compliance-matrix row — 306cac9c3
 - [x] 5.7 Add the changelog entry, review record, and brief update — 306cac9c3
 
+### Resume notes — 2026-08-24
+
+- Ran in the primary worktree again, for the same reason as the previous resume: the PR head branch
+  is checked out there with a clean tree, so `git worktree add` on the same branch would have had to
+  detach and push from a second checkout, leaving the primary one silently behind.
+- `om-auto-review-pr` again could not run — GitHub rejects a review from a PR's own author, and this
+  account has neither label-write nor `RequestReviewsByLogin` permission upstream. The `om-code-review`
+  checks (breaking change, security, API contract, scope) were applied to the diff by hand and reported
+  as a manual pass in the summary comment, explicitly not as a review verdict. A maintainer re-review
+  is still required.
+- The configured validation gate is runtime-only and this change compiles nothing, so it was replaced
+  by `git diff --check`, relative-link resolution, a superseded-wording sweep, and the two pre-commit
+  hook steps run by hand (`i18n-check-sync --fix`, `template:sync:fix` — both already in sync).
+- Labels could not be normalized. `changes-requested` is now stale and `review` is the correct state;
+  both were requested from a maintainer in the summary comment.
+- No `in-progress` lock was taken or released, for the same reason as the previous resume.
+
 ### Resume notes — 2026-08-23
 
 - Ran in the primary worktree rather than an isolated one, deliberately: the remediation was already
