@@ -52,8 +52,8 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 
 ### Phase 2: Address requested changes
 
-- [ ] 2.1 Reject organization-scoped zero-feature overrides and document partial-update semantics
-- [ ] 2.2 Cover `isSuperAdmin` preservation, explicit revocation, and all-dimension clearing
+- [x] 2.1 Reject organization-scoped zero-feature overrides and document partial-update semantics — 9849d268d
+- [x] 2.2 Cover `isSuperAdmin` preservation, explicit revocation, and all-dimension clearing — 9849d268d
 
 ### Phase 3: Verify and publish the revision
 
