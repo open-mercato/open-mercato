@@ -56,6 +56,14 @@ Ship the verified dashboard comparison-label corrections while keeping issue #54
 - `yarn typecheck` — passed across all configured package tasks.
 - `yarn test` — passed across all 33 workspace tasks. Two earlier attempts encountered unrelated Jest worker `SIGSEGV`s under concurrent machine load; both affected suites passed serially, and the final exact full command passed.
 - `yarn build:app` — passed; existing Turbopack dynamic-filesystem warnings remained non-blocking.
+- `yarn template:sync` — passed; the create-app template and package dependencies remain synchronized.
+
+## Review Record
+
+- The authoritative `om-code-review` pass found no actionable blocker, major, minor, or nit findings and returned an approve verdict.
+- Full review report: https://github.com/open-mercato/open-mercato/pull/5539#pullrequestreview-5003870241
+- GitHub does not permit the PR author to submit a formal approving review, so the clean report was submitted as a comment review and the independent maintainer re-review remains required.
+- The previous requested change is resolved: the PR references rather than closes #5497, and the issue contains a dashboard-only scope note listing all eleven corrected values.
 
 ## Progress
 
