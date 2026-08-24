@@ -32,13 +32,15 @@ export interface MatchedPerson {
 }
 
 /**
- * Max person rows scanned by the in-memory fallback match. `primary_email` is
- * GDPR-encrypted with a random IV (see `customers/encryption.ts`), so it cannot
- * be filtered by value in SQL when tenant data encryption is on — recent rows are
- * decrypted and compared in memory instead. Bounded to keep the inbound path cheap;
- * a `primary_email` blind-index (hash) column is the follow-up if tenants outgrow it.
+ * Max rows scanned by in-memory fallback matches over encrypted contact
+ * columns (`primary_email` here, `primary_phone` in the check-phone route).
+ * These columns are GDPR-encrypted with a random IV (see
+ * `customers/encryption.ts`), so they cannot be filtered by value in SQL when
+ * tenant data encryption is on — fallbacks decrypt recent rows and compare in
+ * memory instead. Bounded to keep interactive lookups cheap; a blind-index
+ * (hash) column per field is the follow-up if tenants outgrow it (#5515).
  */
-const MATCH_CANDIDATE_LIMIT = 500
+export const MATCH_CANDIDATE_LIMIT = 500
 
 /**
  * Batch lookup of CustomerEntity rows (kind='person') whose `primaryEmail`

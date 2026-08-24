@@ -961,8 +961,121 @@ describe('HybridQueryEngine', () => {
       const [phase1Chain] = db._chains
         .filter((chain: ChainLog) => chain.table === 'customer_entities')
         .slice(-2)
-      expect(phase1Chain.limit).toBe(3)
+      // cap + 1 probe: truncation is detected from the candidate scan itself,
+      // not by comparing against a (possibly capped) total.
+      expect(phase1Chain.limit).toBe(4)
       expect(phase1Chain.orderBys).toEqual([['b.id', 'asc']])
+    })
+  })
+
+  // #4552 Phase 2: the count query is rebuilt (scope + filters only) and bounded
+  // by a LIMIT cap+1 probe on a row-producing inner query. No GROUP BY or
+  // DISTINCT may sit between the probe LIMIT and the base table, and the index
+  // joins the display query carries must not reach the count shape.
+  describe('OM_LIST_COUNT_CAP — rebuilt count shape', () => {
+    const originalCap = process.env.OM_LIST_COUNT_CAP
+    afterEach(() => {
+      if (originalCap === undefined) delete process.env.OM_LIST_COUNT_CAP
+      else process.env.OM_LIST_COUNT_CAP = originalCap
+    })
+
+    function buildFixture(baseCount: number) {
+      const db = createFakeKysely({
+        baseTable: 'todos',
+        hasIndexAny: true,
+        baseCount,
+        indexCount: baseCount,
+        rows: { todos: [{ id: '1', tenant_id: 't1', organization_id: 'org1' }] },
+      })
+      const em = buildEm(db)
+      const fallback = { query: jest.fn() }
+      const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }))
+      return { db, engine }
+    }
+
+    test('optimized path: probe LIMIT cap+1, no GROUP BY, no index joins on the count chain', async () => {
+      process.env.OM_LIST_COUNT_CAP = '100'
+      const { db, engine } = buildFixture(5)
+      await engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id'],
+        page: { page: 1, pageSize: 20 },
+      })
+      const countChain = db._chains.find((chain: ChainLog) => chain.table === 'todos' && chain.limit === 101)
+      expect(countChain).toBeTruthy()
+      expect(countChain.groupBys).toEqual([])
+      expect(countChain.joins).toEqual([])
+    })
+
+    test('cf-filtered path: count chain carries no entity_indexes join and no count(distinct)', async () => {
+      process.env.OM_LIST_COUNT_CAP = '100'
+      const { db, engine } = buildFixture(5)
+      await engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id'],
+        filters: { cf_priority: { $eq: 'high' } },
+        page: { page: 1, pageSize: 20 },
+      })
+      const countChain = db._chains.find((chain: ChainLog) => chain.table === 'todos' && chain.limit === 101)
+      expect(countChain).toBeTruthy()
+      expect(countChain.groupBys).toEqual([])
+      // The display query joins entity_indexes; the count confines the same
+      // rowset inside a correlated EXISTS instead of joining it.
+      expect(countChain.joins).toEqual([])
+      // The cf predicate reached the count as a WHERE (the EXISTS expression).
+      expect(countChain.wheres.length).toBeGreaterThan(0)
+    })
+
+    test('cap disabled: count(*) directly on the count shape, no probe subquery, no GROUP BY', async () => {
+      process.env.OM_LIST_COUNT_CAP = '0'
+      const { db, engine } = buildFixture(5)
+      const result = await engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id'],
+        page: { page: 1, pageSize: 20 },
+      })
+      expect(result.total).toBe(5)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+      const countChain = db._chains.find((chain: ChainLog) =>
+        chain.table === 'todos' &&
+        chain.selects.some((s: any) => { try { return String(s?.alias ?? s) === 'count' } catch { return false } }))
+      expect(countChain).toBeTruthy()
+      expect(countChain.groupBys).toEqual([])
+      expect(countChain.limit).toBeNull()
+    })
+
+    test('capped total reports cap with meta.listCountCapWarning on the doc-storage path', async () => {
+      process.env.OM_LIST_COUNT_CAP = '2'
+      const db = createFakeKysely({
+        baseTable: 'custom_entities_storage',
+        hasIndexAny: false,
+        baseCount: 9,
+        indexCount: 0,
+        rows: {
+          custom_entities: [{ id: 'reg1' }],
+          custom_entities_storage: [
+            { entity_id: 'a', doc: {} },
+            { entity_id: 'b', doc: {} },
+            { entity_id: 'c', doc: {} },
+          ],
+        },
+      })
+      const em = buildEm(db)
+      const fallback = { query: jest.fn() }
+      const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }))
+      const result = await engine.query('custom:thing', {
+        tenantId: 't1',
+        page: { page: 1, pageSize: 20 },
+      })
+      // The fake returns baseCount (9) for any count select; the probe caps it.
+      expect(result.total).toBe(2)
+      expect(result.meta?.listCountCapWarning).toEqual({ entity: 'custom:thing', cap: 2 })
+      const probeChain = db._chains.find((chain: ChainLog) => chain.table === 'custom_entities_storage' && chain.limit === 3)
+      expect(probeChain).toBeTruthy()
+      expect(probeChain.groupBys).toEqual([])
     })
   })
 
