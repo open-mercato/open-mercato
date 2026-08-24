@@ -32,11 +32,33 @@ checkout, Messages) no longer talks to a provider SDK directly. It resolves a
 providers ship as pluggable packages (`@open-mercato/channel-resend`,
 `@open-mercato/channel-ses`).
 
-**No action is required for an existing instance.** If your tenants predate this change and
-you configure email the way `.env.example` documents — `RESEND_API_KEY` plus one of
+**No configuration change is required.** If your tenants predate this change and you configure
+email the way `.env.example` documents — `RESEND_API_KEY` plus one of
 `NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL` — email keeps sending. A tenant with
 no email channel of its own falls back to those instance-wide environment credentials, and
 logs a warning each time it does so.
+
+**But a standalone app MUST enable the provider module, or all outbound email stops.** The
+provider is no longer compiled into `@open-mercato/shared`; the adapter is contributed by the
+`channel_resend` / `channel_ses` module, and `src/modules.ts` is your app's file, so upgrading
+the packages does not add it. An app scaffolded before 0.7.1 keeps sending nothing and throws
+`No ChannelAdapter registered for providerKey 'resend'` on the first send — a password reset or
+invitation — with no failure at boot to warn you. Add the dependency and the entry:
+
+```jsonc
+// package.json — match your other @open-mercato/* versions
+"@open-mercato/channel-resend": "0.7.1",
+// and "@open-mercato/channel-ses": "0.7.1" if you set SYSTEM_EMAIL_PROVIDER=ses
+```
+
+```ts
+// src/modules.ts — alongside the other channel_* entries
+{ id: 'channel_resend', from: '@open-mercato/channel-resend' },
+{ id: 'channel_ses', from: '@open-mercato/channel-ses' },
+```
+
+Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
+The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
 
 Credential resolution for a tenant-scoped send runs in this order:
 
