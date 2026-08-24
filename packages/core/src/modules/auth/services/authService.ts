@@ -144,6 +144,16 @@ export class AuthService {
     return { user, token: rawToken }
   }
 
+  async isPasswordResetTokenValid(token: string): Promise<boolean> {
+    const now = new Date()
+    const hashedToken = hashAuthToken(token)
+    const row = await this.em.findOne(PasswordReset, { token: hashedToken })
+    if (!row) return false
+    if (row.usedAt && row.usedAt <= now) return false
+    if (row.expiresAt <= now) return false
+    return true
+  }
+
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
