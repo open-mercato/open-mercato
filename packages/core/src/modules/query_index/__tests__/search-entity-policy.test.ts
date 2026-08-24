@@ -1,7 +1,6 @@
 import {
   CUSTOMERS_BASE_ENTITY_TYPE,
   indexesCustomerBaseEntity,
-  isEntityTypeExcludedFromSearchTokens,
   listSearchTokenExcludedEntityTypes,
 } from '../lib/search-entity-policy'
 import { buildSearchTokenRows } from '../lib/search-tokens'
@@ -19,22 +18,20 @@ describe('OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY', () => {
   it('keeps base customer entities out of token search results by default', () => {
     delete process.env.OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY
     expect(indexesCustomerBaseEntity()).toBe(false)
-    expect(isEntityTypeExcludedFromSearchTokens(CUSTOMERS_BASE_ENTITY_TYPE)).toBe(true)
     expect(listSearchTokenExcludedEntityTypes()).toEqual([CUSTOMERS_BASE_ENTITY_TYPE])
   })
 
   it('returns base customer entities when the flag is on', () => {
     process.env.OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY = 'true'
     expect(indexesCustomerBaseEntity()).toBe(true)
-    expect(isEntityTypeExcludedFromSearchTokens(CUSTOMERS_BASE_ENTITY_TYPE)).toBe(false)
     expect(listSearchTokenExcludedEntityTypes()).toEqual([])
   })
 
   it('never excludes any other entity type, whatever the flag says', () => {
     delete process.env.OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY
-    expect(isEntityTypeExcludedFromSearchTokens(PERSON_PROFILE)).toBe(false)
+    expect(listSearchTokenExcludedEntityTypes()).not.toContain(PERSON_PROFILE)
     process.env.OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY = 'false'
-    expect(isEntityTypeExcludedFromSearchTokens(PERSON_PROFILE)).toBe(false)
+    expect(listSearchTokenExcludedEntityTypes()).not.toContain(PERSON_PROFILE)
   })
 })
 

@@ -125,6 +125,13 @@ Manual QA should search for a known person and company through Cmd+K and confirm
 - Mitigation: the behavior is a single env flip away (`OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY=true`), needs no reindex, and the affected results were already invisible to every non-superadmin because `resolveReadableEntityTypes` excludes entity types no module registers for search. The exposure is therefore limited to superadmin-context callers.
 - Residual risk: low.
 
+### Narrowed recall for words that only exist on the base customer record
+
+- Severity: low. Failure scenario: a superadmin searches the palette for a customer by a word that appears only on the canonical `customers:customer_entity` row — a `description` phrase, or a `display_name` not derivable from the name fields — and gets no result where the pre-upgrade build returned one. This is the shape a QA reviewer or a support ticket will actually describe, and it is distinct from the API-consumer risk above.
+- Affected area: token search only, superadmin-context callers only. `customer_person_profile` carries `first_name` / `last_name` / `preferred_name` / `job_title` / `department` and hashes `primary_email`; it has no `display_name` and no `description` column, so those words are only tokenized under the base entity type the default now filters out. `customer_company_profile` is equivalent.
+- Mitigation: accepted deliberately. The result the caller loses was a navigation-less row they could not open — the defect in #5046 — so the pre-upgrade behavior was a dead-end hit rather than a useful one. `OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY=true` restores it without a reindex, and the People and Companies list search boxes still resolve these exact fields through `search_tokens`, so the record remains findable by `description` and `display_name` on the pages built for that.
+- Residual risk: low.
+
 ### Breaking People/Companies list search by removing the token rows
 
 - Severity: high. Failure scenario: the exclusion is pushed down into `buildSearchTokenRows`, `search_tokens` loses its `customers:customer_entity` rows, and the People and Companies list search boxes — which resolve ids through those exact rows over `display_name`, `primary_email`, `description` and friends — start returning an empty page for every query, indistinguishable from a genuine no-match.
@@ -141,6 +148,11 @@ Manual QA should search for a known person and company through Cmd+K and confirm
 - Manual UI QA remains required because the visible global-search result list changes.
 
 ## Changelog
+
+### 2026-08-24
+
+- Documented the narrowed-recall risk: with the default flag, words that only exist on the base customer row (`description`, a non-derivable `display_name`) no longer match in token search, and the profile entities carry no equivalent column.
+- Corrected the read-path test docblock, which described a writer-side guard the design deliberately omits, and dropped `isEntityTypeExcludedFromSearchTokens` — the single-type helper had no production caller and read as residue from a write-side attempt.
 
 ### 2026-08-22
 

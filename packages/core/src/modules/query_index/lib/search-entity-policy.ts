@@ -44,9 +44,3 @@ export function indexesCustomerBaseEntity(): boolean {
 export function listSearchTokenExcludedEntityTypes(): string[] {
   return indexesCustomerBaseEntity() ? [] : [CUSTOMERS_BASE_ENTITY_TYPE]
 }
-
-/** Single-type form of {@link listSearchTokenExcludedEntityTypes}. */
-export function isEntityTypeExcludedFromSearchTokens(entityType: string): boolean {
-  if (entityType !== CUSTOMERS_BASE_ENTITY_TYPE) return false
-  return !indexesCustomerBaseEntity()
-}

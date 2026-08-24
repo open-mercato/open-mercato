@@ -3,10 +3,13 @@ import { TokenSearchStrategy } from '../strategies/token.strategy'
 /**
  * Coverage for `OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY` on the read path (#5046).
  *
- * The writer already refuses to tokenize an excluded entity, but rows written before the flag was
- * set survive until that record is next indexed. Without a read-side filter a deployment that
- * flips the flag keeps serving the duplicate base-customer hits until a full reindex, so these
- * tests pin the SQL predicate rather than the writer's behavior.
+ * The exclusion is read-side by design and the writer deliberately ignores the flag:
+ * `search_tokens` doubles as the encrypted-column lookup index, so the People and Companies list
+ * search resolves ids through the very `customers:customer_entity` rows this flag hides from
+ * search results. Dropping them write-side would turn that list search into a silent empty page.
+ * These tests therefore pin the SQL predicate the strategy issues, never the writer's behavior —
+ * `packages/core/src/modules/query_index/__tests__/search-entity-policy.test.ts` is the other half
+ * of the pair and asserts the writer emits byte-identical rows in both flag states.
  */
 
 const CUSTOMER_ENTITY = 'customers:customer_entity'
