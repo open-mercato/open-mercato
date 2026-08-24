@@ -145,6 +145,10 @@ export async function fillCombobox(
     }
     const resolvedValue = await input.inputValue()
     if (resolvedValue.trim().toLowerCase() !== value.trim().toLowerCase()) {
+      // `Enter` closed the list without committing a value, so the options are gone.
+      // `ArrowDown` on a closed combobox reopens it, which is what makes the wait below
+      // resolvable instead of a guaranteed timeout.
+      await input.press('ArrowDown')
       const fallbackSuggestion = page.getByRole('option', { name: suggestionPattern }).first()
       await expect(fallbackSuggestion).toBeVisible({ timeout: 10_000 })
       await fallbackSuggestion.click()
