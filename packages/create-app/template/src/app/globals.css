@@ -16,6 +16,16 @@ TODO: Fix that latter to have reference by the package names
 
 @custom-variant dark (&:is(.dark *));
 
+/* Never let the document grow a horizontal scroll: any stray overflow inflates
+   iOS Safari's layout viewport past the device width, which then renders
+   fixed-position surfaces (dialogs, the bottom sheet) wider than the screen
+   and clipped at an edge. `clip` avoids creating a scroll container, so
+   position: fixed/sticky descendants keep working. */
+html,
+body {
+  overflow-x: clip;
+}
+
 @utility z-popover {
   z-index: var(--z-index-popover);
 }
