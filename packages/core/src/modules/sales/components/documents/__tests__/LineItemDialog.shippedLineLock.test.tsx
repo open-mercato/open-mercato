@@ -199,16 +199,21 @@ const organizationScope = { organizationId: 'org-1', tenantId: 'tenant-1' }
 // component fall back to the runner's default (#5105). Without `useLocale` the partial mock returns
 // `undefined` for the hook and the dialog throws on render; without pinning it here *and* in the
 // expectations below, the assertions would compare a pinned render against a runner-dependent
-// expectation and fail outside en-US.
+// expectation and fail outside the runner's locale.
+//
+// The pin is deliberately a locale CI does *not* default to: CI resolves `C.UTF-8` to an en-US ICU
+// default, so an `en-US` pin makes both sides of the comparison identical whether or not the dialog
+// threads the locale at all, and a revert of that threading stays green. `pl-PL` formats money
+// differently enough (`110,70 USD` vs `$110.70`) that dropping the locale argument fails loudly.
 //
 // The factory repeats the literal rather than reading `TEST_LOCALE`: `jest.mock` is hoisted above
 // these declarations and rejects out-of-scope references that are not `mock`-prefixed, so the two
 // must be kept in sync by hand.
-const TEST_LOCALE = 'en-US'
+const TEST_LOCALE = 'pl-PL'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => translate,
-  useLocale: () => 'en-US',
+  useLocale: () => 'pl-PL',
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
