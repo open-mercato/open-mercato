@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Users, Phone, Check, Mail, Calendar, X, StickyNote } from 'lucide-react'
+import { Users, Phone, Check, Mail, Calendar, X, StickyNote, ChevronDown, ChevronUp, ChevronsUp, Equal } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
@@ -15,6 +15,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { PhoneNumberField, SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
@@ -70,11 +71,12 @@ const CALL_DIRECTIONS: Array<{ key: 'outbound' | 'inbound'; labelKey: string; la
 ]
 
 
-const TASK_PRIORITIES: Array<{ key: string; labelKey: string; labelFallback: string; dot: string }> = [
-  { key: 'low', labelKey: 'customers.schedule.task.priority.low', labelFallback: 'Low', dot: 'bg-muted-foreground' },
-  { key: 'medium', labelKey: 'customers.schedule.task.priority.medium', labelFallback: 'Medium', dot: 'bg-status-info-icon' },
-  { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', dot: 'bg-status-warning-icon' },
-  { key: 'urgent', labelKey: 'customers.schedule.task.priority.urgent', labelFallback: 'Urgent', dot: 'bg-status-error-icon' },
+// Jira-style priority glyphs: arrows signal direction, color signals severity.
+const TASK_PRIORITIES: Array<{ key: string; labelKey: string; labelFallback: string; icon: React.ComponentType<{ className?: string }>; iconClass: string }> = [
+  { key: 'low', labelKey: 'customers.schedule.task.priority.low', labelFallback: 'Low', icon: ChevronDown, iconClass: 'text-muted-foreground' },
+  { key: 'medium', labelKey: 'customers.schedule.task.priority.medium', labelFallback: 'Medium', icon: Equal, iconClass: 'text-status-info-icon' },
+  { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', icon: ChevronUp, iconClass: 'text-status-warning-icon' },
+  { key: 'urgent', labelKey: 'customers.schedule.task.priority.urgent', labelFallback: 'Urgent', icon: ChevronsUp, iconClass: 'text-status-error-icon' },
 ]
 
 interface ScheduleActivityDialogProps {
@@ -491,30 +493,21 @@ export function ScheduleActivityDialog({
           </Alert>
         )}
 
-        {/* Type tabs — one compact row; the previous 80px tiles wrapped to a
-            second row with a lone fifth tile and ate a third of the dialog. */}
-        <div className="grid grid-cols-5 gap-1.5">
-          {TYPE_TABS.map(({ type, icon: Icon, labelKey, fallback }) => {
-            const isActive = state.activityType === type
-            return (
-              <button
-                key={type}
-                type="button"
-                onClick={() => state.setActivityType(type)}
-                aria-pressed={isActive}
-                className={cn(
-                  'flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md border px-1.5 text-xs font-semibold transition-colors',
-                  isActive
-                    ? 'border-transparent bg-foreground text-background'
-                    : 'border-border bg-card text-muted-foreground hover:border-foreground/40 hover:text-foreground',
-                )}
-              >
-                <Icon className="size-3.5 shrink-0" />
-                <span className="truncate">{t(labelKey, fallback)}</span>
-              </button>
-            )
-          })}
-        </div>
+        {/* Type switcher — DS SegmentedControl (one compact track instead of the
+            original two rows of 80px tiles). */}
+        <SegmentedControl
+          value={state.activityType}
+          onValueChange={(next) => state.setActivityType(next as ActivityType)}
+          aria-label={t('customers.schedule.typeSwitcher', 'Activity type')}
+          className="w-full"
+        >
+          {TYPE_TABS.map(({ type, icon: Icon, labelKey, fallback }) => (
+            <SegmentedControlItem key={type} value={type} className="min-w-0 flex-1 gap-1.5">
+              <Icon className="size-3.5 shrink-0" />
+              <span className="truncate">{t(labelKey, fallback)}</span>
+            </SegmentedControlItem>
+          ))}
+        </SegmentedControl>
 
         {/* Title */}
         <div className="flex flex-col gap-1.5">
@@ -604,6 +597,7 @@ export function ScheduleActivityDialog({
             <div className="mt-2 flex flex-wrap gap-2">
               {TASK_PRIORITIES.map((opt) => {
                 const isActive = taskPriority === opt.key
+                const PriorityIcon = opt.icon
                 return (
                   <button
                     key={opt.key}
@@ -612,12 +606,14 @@ export function ScheduleActivityDialog({
                     onClick={() => setTaskPriority(opt.key)}
                     className={cn(
                       'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
+                      // Selection reads as emphasis, not inversion: the colored glyph
+                      // stays visible, so a filled-black active state is unnecessary.
                       isActive
-                        ? 'border-transparent bg-foreground text-background'
+                        ? 'border-foreground bg-background font-semibold text-foreground'
                         : 'border-border bg-card text-muted-foreground hover:border-foreground/40',
                     )}
                   >
-                    <span className={cn('inline-block size-1.5 rounded-full', opt.dot)} aria-hidden />
+                    <PriorityIcon className={cn('size-3.5', opt.iconClass)} aria-hidden />
                     {t(opt.labelKey, opt.labelFallback)}
                   </button>
                 )
