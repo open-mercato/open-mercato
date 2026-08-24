@@ -54,9 +54,9 @@ Everything the review and the author already agreed to defer. None of these is t
 
 ### Phase 2: P0 — stop the unauthenticated interactions endpoint from resolving every tenant's credentials
 
-- [ ] 2.1 Hoist the request-only guards (freshness + signature-header shape) ahead of the candidate load so an unsigned or stale POST touches the database zero times, and correct the "constant cost" comment in `lib/interactions-handler.ts`
-- [ ] 2.2 Narrow the candidate set by the body's `application_id` against the stored `applicationId` before the Ed25519 fan-out, as a narrowing only
-- [ ] 2.3 Tests: zero candidate-loader / credential-resolve calls on an unsigned or stale request (assert on call counts), and a forged `application_id` still fails verification
+- [x] 2.1 Hoist the request-only guards (freshness + signature-header shape) ahead of the candidate load so an unsigned or stale POST touches the database zero times, and correct the "constant cost" comment in `lib/interactions-handler.ts` — 00449e6aa
+- [x] 2.2 Narrow the candidate set by the body's `application_id` against the stored `applicationId` before the Ed25519 fan-out, as a narrowing only — 00449e6aa
+- [x] 2.3 Tests: zero candidate-loader / credential-resolve calls on an unsigned or stale request (assert on call counts), and a forged `application_id` still fails verification — 00449e6aa
 
 ### Phase 3: P1 — the four Medium findings
 
