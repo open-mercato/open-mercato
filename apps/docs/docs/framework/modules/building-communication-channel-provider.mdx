@@ -198,8 +198,9 @@ snowflake before the adapter is consulted. The in-process facade does not apply 
 it is still built around an email-shaped message (subject, `externalEmail`). For a non-email
 provider, the compose path above is the supported route, and
 `POST /api/communication_channels/channels/{id}/test-send` is the only endpoint that validates the
-recipient against the provider's own `recipientFormat`. Widening the outbound routes is tracked
-hub-side; do not work around it by calling a provider's REST client directly.
+recipient against the provider's own `recipientFormat`. Widening the remaining outbound routes is
+tracked in [#4976](https://github.com/open-mercato/open-mercato/issues/4976); do not work around it
+by calling a provider's REST client directly.
 :::
 
 ### The security context your code runs in
