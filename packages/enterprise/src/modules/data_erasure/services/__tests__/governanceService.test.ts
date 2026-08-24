@@ -87,6 +87,36 @@ describe('PrivacyGovernanceService', () => {
     expect(result.operation.reportJson).toEqual(expect.objectContaining({ identifierKind: 'email' }))
   })
 
+  it('propagates a resolved subject to compatible data classes without their own identifier lookup', async () => {
+    registerPrivacyDataClass({
+      id: 'test.access_logs',
+      module: 'test',
+      title: 'Test access logs',
+      handlerService: 'testPeoplePrivacyHandler',
+      subjectKinds: ['test:person'],
+      subjectActions: ['discover', 'export'],
+    })
+    const { service } = createService({
+      handler: {
+        resolveSubjects: async () => ({
+          subjects: [{ kind: 'test:person', id: 'person-1' }],
+        }),
+      },
+    })
+
+    const result = await service.resolveSubjects(scope, 'actor-1', {
+      identifier: { kind: 'email', value: 'private@example.com' },
+    })
+
+    expect(result.subjects).toEqual({
+      'test.people': [{ kind: 'test:person', id: 'person-1' }],
+      'test.access_logs': [{ kind: 'test:person', id: 'person-1' }],
+    })
+    expect(result.operation.reportJson).toEqual(expect.objectContaining({
+      totals: expect.objectContaining({ classes: 2, subjects: 2 }),
+    }))
+  })
+
   it('passes actor and command context into bounded retention', async () => {
     registerPrivacyDataClass({
       id: 'test.retained_people',

@@ -245,6 +245,28 @@ export class PrivacyGovernanceService {
       }
     }
 
+    const resolvedSubjects = Array.from(new Map(
+      Object.values(subjects)
+        .flat()
+        .map((subject) => [`${subject.kind}:${subject.id}`, subject]),
+    ).values())
+    const resolvedClassIds = new Set(Object.keys(subjects))
+    for (const definition of listPrivacyDataClasses()) {
+      if (resolvedClassIds.has(definition.id)) continue
+      if (requested && !requested.has(definition.id)) continue
+      if (definition.subjectActions.length === 0) continue
+      const acceptedKinds = new Set(definition.subjectKinds)
+      const propagated = resolvedSubjects.filter((subject) => acceptedKinds.has(subject.kind))
+      if (propagated.length === 0) continue
+      subjects[definition.id] = propagated
+      results.push({
+        dataClassId: definition.id,
+        status: 'completed',
+        subjectCount: propagated.length,
+        errorCode: null,
+      })
+    }
+
     const failed = results.filter((result) => result.status === 'failed').length
     const status: PrivacyOperationStatus = failed === 0
       ? 'completed'
