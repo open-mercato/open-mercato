@@ -224,7 +224,7 @@ function EntityLinkSearchPopover({
                 }}
                 className={cn(
                   'h-9 flex w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
-                  alreadyLinked ? 'cursor-default text-muted-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
+                  alreadyLinked ? 'cursor-default disabled:bg-transparent disabled:text-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
                 )}
               >
                 {linkType === 'company' ? <Building2 className="size-3.5 text-muted-foreground shrink-0" /> : linkType === 'deal' ? <Briefcase className="size-3.5 text-muted-foreground shrink-0" /> : <FileText className="size-3.5 text-muted-foreground shrink-0" />}

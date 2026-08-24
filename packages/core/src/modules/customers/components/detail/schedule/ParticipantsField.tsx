@@ -167,7 +167,7 @@ function ParticipantSearchPopover({
                   // Fight the Button primitive's disabled:opacity-50 — stacked with a
                   // local opacity the row faded to ~20% and read as empty space. An
                   // added member stays legible: muted text + explicit check.
-                  alreadyAdded ? 'cursor-default text-muted-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
+                  alreadyAdded ? 'cursor-default disabled:bg-transparent disabled:text-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
                 )}
               >
                 <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-xs font-bold shrink-0">
