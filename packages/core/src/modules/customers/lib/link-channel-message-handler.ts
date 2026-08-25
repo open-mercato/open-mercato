@@ -96,6 +96,11 @@ export default async function handler(
   //
   // We look up the channel only when channelId is provided in the event payload.
   let channelUserId: string | null = null
+  // Denormalized onto each interaction so a read path can ask "is this row's
+  // channel shared?" without a three-join hop. NULL when the event carried no
+  // channelId — every predicate treats that as not shared (fail closed).
+  const resolvedChannelId: string | null =
+    typeof payload.channelId === 'string' && payload.channelId ? payload.channelId : null
   if (typeof payload.channelId === 'string' && payload.channelId) {
     const channel = (await findOneWithDecryption(
       em,
@@ -172,7 +177,7 @@ export default async function handler(
   // Early exit: no addresses AND no hint → nothing to link.
   if (normalized.length === 0 && !crmPersonId) {
     // Before giving up, try threading-inheritance (TC-CRM-EMAIL-005).
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, resolvedChannelId, metaJson, payloadJson)
     return
   }
 
@@ -183,7 +188,7 @@ export default async function handler(
 
   if (personIdSet.size === 0) {
     // Try threading-inheritance before giving up.
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, resolvedChannelId, metaJson, payloadJson)
     return
   }
 
@@ -230,6 +235,7 @@ export default async function handler(
       occurredAt,
       visibility,
       channelProviderKey: providerKey,
+      channelId: resolvedChannelId,
     },
   )
 }
@@ -255,6 +261,7 @@ async function handleThreadingInheritance(
   tenantId: string,
   organizationId: string | null,
   channelUserId: string | null,
+  channelId: string | null,
   metaJson: Record<string, unknown> | null,
   payloadJson: Record<string, unknown> | null,
 ): Promise<void> {
@@ -343,6 +350,7 @@ async function handleThreadingInheritance(
         // `crmVisibility` override.
         visibility: resolveVisibility(null, channelUserId, null),
         channelProviderKey: providerKey,
+        channelId,
       })
       return
     }
@@ -445,6 +453,7 @@ async function handleThreadingInheritance(
       occurredAt,
       visibility,
       channelProviderKey: providerKey,
+      channelId,
     },
   )
 }
@@ -462,6 +471,12 @@ interface InteractionData {
   occurredAt: Date
   visibility: 'private' | 'shared'
   channelProviderKey: string | null
+  /**
+   * Denormalized channel id, so a read path can ask "is this row's channel
+   * shared?" without a three-join hop. NULL when the event carried no channelId
+   * (the predicate then treats the row as not shared — fail closed).
+   */
+  channelId: string | null
 }
 
 async function persistInteractions(
@@ -495,6 +510,7 @@ async function persistInteractions(
       externalMessageId: data.linkId,
       visibility: data.visibility,
       channelProviderKey: data.channelProviderKey,
+      channelId: data.channelId,
     } as any)
     try {
       await rowEm.flush()

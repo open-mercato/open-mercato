@@ -565,8 +565,13 @@ export class CustomerActivity {
   expression:
     `create index "customer_interactions_email_visibility_idx" on "customer_interactions" ("entity_id", "interaction_type", "visibility", "author_user_id") where "interaction_type" = 'email' and "deleted_at" is null`,
 })
+@Index({
+  name: 'customer_interactions_email_channel_idx',
+  expression:
+    `create index "customer_interactions_email_channel_idx" on "customer_interactions" ("channel_id", "entity_id") where "interaction_type" = 'email' and "channel_id" is not null and "deleted_at" is null`,
+})
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey' | 'channelId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -603,6 +608,28 @@ export class CustomerInteraction {
    */
   @Property({ name: 'channel_provider_key', type: 'text', nullable: true })
   channelProviderKey?: string | null
+
+  /**
+   * Denormalized `CommunicationChannel.id` this email arrived through.
+   *
+   * Required to answer "is this row's originating channel shared?" without a
+   * three-join hop (`external_message_id` → `message_channel_links` →
+   * `external_conversations` → `communication_channels`); `message_channel_links`
+   * carries no channel id, so there is no shorter path.
+   *
+   * Deliberately NOT resolved from `author_user_id`: an owner with one shared and
+   * one private mailbox has the same author on both, so an author-keyed rule would
+   * expose the private mailbox too.
+   *
+   * NULL means "unknown channel", which every predicate treats as NOT shared —
+   * fail closed. Backfilled once for pre-existing rows; rows whose chain cannot be
+   * resolved stay NULL.
+   *
+   * The cross-module link is declared in `data/extensions.ts` rather than as a raw
+   * FK (root AGENTS.md: no direct ORM relationships between modules).
+   */
+  @Property({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId?: string | null
 
   @Property({ name: 'status', type: 'text', default: 'planned' })
   status: string = 'planned'

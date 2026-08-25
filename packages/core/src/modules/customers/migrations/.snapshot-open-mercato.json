@@ -3943,6 +3943,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "channel_provider_key": {
           "name": "channel_provider_key",
           "type": "text",
@@ -4495,6 +4512,15 @@
           "primary": false,
           "unique": false,
           "expression": "create index \"customer_interactions_email_visibility_idx\" on \"customer_interactions\" (\"entity_id\", \"interaction_type\", \"visibility\", \"author_user_id\") where \"interaction_type\" = 'email' and \"deleted_at\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "customer_interactions_email_channel_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"customer_interactions_email_channel_idx\" on \"customer_interactions\" (\"channel_id\", \"entity_id\") where \"interaction_type\" = 'email' and \"channel_id\" is not null and \"deleted_at\" is null"
         }
       ],
       "checks": [],
