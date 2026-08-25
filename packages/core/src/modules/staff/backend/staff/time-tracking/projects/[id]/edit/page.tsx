@@ -20,6 +20,7 @@ import {
   createProjectFormFields,
   createProjectFormGroups,
   createProjectFormSchema,
+  pickCustomFieldValues,
   type ProjectFormValues,
 } from '../../projectFormConfig'
 
@@ -93,6 +94,9 @@ function toValues(record: ProjectRecord): ProjectFormValues {
     startDate: readString(record, 'startDate', 'start_date'),
     costCenter: readString(record, 'costCenter', 'cost_center'),
     status: readString(record, 'status') ?? 'active',
+    // `decorateCustomFields` on the list route returns the saved values as
+    // `cf_<key>`, which is exactly what `CrudForm` looks an initial value up by.
+    ...pickCustomFieldValues(record as Record<string, unknown>),
   }
 }
 

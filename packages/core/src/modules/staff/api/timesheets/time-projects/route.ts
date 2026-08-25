@@ -21,6 +21,7 @@ import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { buildSqlInClause } from '../../../lib/time-tracking/sqlInClause'
 import { sanitizeSearchTerm, parseBooleanFlag } from '../../helpers'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
+import { E } from '#generated/entities.ids.generated'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-projects' })
 
@@ -356,6 +357,7 @@ const crud = makeCrudRoute({
     schema: listSchema,
     entityId: 'staff:staff_time_project',
     fields: [...timeProjectListFields],
+    decorateCustomFields: { entityIds: [E.staff.staff_time_project] },
     sortFieldMap: {
       name: F.name,
       code: F.code,

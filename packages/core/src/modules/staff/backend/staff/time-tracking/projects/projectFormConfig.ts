@@ -43,6 +43,23 @@ export type ProjectFormValues = {
   startDate?: string | null
   costCenter?: string | null
   status?: string
+  /**
+   * Custom-field values rendered by `CrudForm` from `entityIds`. They are keyed
+   * `cf_<key>` / `cf:<key>` and are opaque here: this form neither declares nor
+   * validates them, it only has to stop dropping them on the way to the command.
+   */
+  [customFieldKey: `cf_${string}`]: unknown
+  [prefixedCustomFieldKey: `cf:${string}`]: unknown
+}
+
+const CUSTOM_FIELD_KEY_PATTERN = /^cf[_:]/
+
+export function pickCustomFieldValues(values: Record<string, unknown>): Record<string, unknown> {
+  const picked: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (CUSTOM_FIELD_KEY_PATTERN.test(key)) picked[key] = value
+  }
+  return picked
 }
 
 const decimalPattern = /^\d+([.,]\d{1,4})?$/
@@ -441,5 +458,9 @@ export function buildProjectPayload(values: ProjectFormValues): Record<string, u
     payload.id = values.id
   }
   if (values.status) payload.status = values.status
+  // The form renders custom-field inputs whenever `entityIds` is passed, but this
+  // builder rebuilds the body from named fields — so every `cf_*` value has to be
+  // carried across explicitly or the save silently discards what the user typed.
+  Object.assign(payload, pickCustomFieldValues(values as Record<string, unknown>))
   return payload
 }

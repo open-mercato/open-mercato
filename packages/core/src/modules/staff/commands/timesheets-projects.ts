@@ -6,7 +6,9 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { extractCustomFieldValuesFromPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import { E } from '#generated/entities.ids.generated'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -345,6 +347,17 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
       throw err
     }
 
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.staff.staff_time_project,
+      recordId: project.id,
+      tenantId: project.tenantId,
+      organizationId: project.organizationId,
+      values: extractCustomFieldValuesFromPayload(
+        (rawInput && typeof rawInput === 'object' ? rawInput : {}) as Record<string, unknown>,
+      ),
+    })
+
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
       action: 'created',
@@ -500,6 +513,17 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
       }
       throw err
     }
+
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.staff.staff_time_project,
+      recordId: project.id,
+      tenantId: project.tenantId,
+      organizationId: project.organizationId,
+      values: extractCustomFieldValuesFromPayload(
+        (rawInput && typeof rawInput === 'object' ? rawInput : {}) as Record<string, unknown>,
+      ),
+    })
 
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
