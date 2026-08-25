@@ -13,7 +13,6 @@ Several major platform capabilities arrive around those themes. Inbound webhooks
 The release closes with a hard **security pass on authentication and scope**. Passkey MFA now requires a genuine WebAuthn assertion — the credential-id-and-challenge shortcut that let a caller pass the second factor with no private key and no signature is gone, and `POST /api/security/mfa/verify` answers `401` for it. A real `JWT_SECRET` is required and the legacy token grace period is time-bounded; dashboard widget tenant/organization overrides, user destination scope, user-consent reads and hybrid search results are all authorized against the caller's real scope; public pay endpoints fail closed under rate limiting; and anonymous API-docs exports no longer disclose ACL feature names. Read [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) before upgrading — the passkey and `JWT_SECRET` changes are deliberate breaks, and the passkey entry carries operator actions for credentials enrolled through the still-open shortcut. Enjoy!
 
 ## ✨ Features
-- ✨ Hide the contact/feedback widget behind an ff_om_hide_contact flag. (#5486) *(@patzick)*
 - ✨ Warranty & RMA claims desk module — type-adaptive intake, line-level dispositions and supplier recovery. (#4092) *(@haxiorz)*
 - ✨ Devices registry and end-to-end mobile push notifications — FCM, APNs and Expo via communication_channels (supersedes #4326). (#5366) *(@Frshy, via @patzick)*
 - ✨ Add root/links span options and trace data-sync batches (supersedes #5196). (#5375) *(@jtomaszewski, via @patzick)*
@@ -64,6 +63,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - ✨ Enable community PR label commands. (#4726) *(@MStaniaszek1998)*
 - ✨ Make the standalone harness pass on Claude sonnet. (#4529) *(@pkarw)*
 - ✨ Cache organization switcher responses (#2907). (#4538) *(@hubert-madej-softiq)*
+- ✨ Hide the contact/feedback widget behind an ff_om_hide_contact flag. (#5486) *(@patzick)*
 
 ## 🔒 Security
 - 🔒 Require a genuine WebAuthn assertion for passkey MFA verification (#3852). (#5306) *(@pkarw)*
@@ -91,16 +91,6 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - 🔒 Enforce cumulative capture ceiling (#4487). (#4508) *(@wojciechszyjka)*
 
 ## 🐛 Fixes
-- 🔐 Preserve partial user ACL updates (fixes #5493). (#5623) *(@patzick)*
-- 💰 Serve persisted order totals on single-row GET (#5438). (#5622) *(@Duang777, via @patzick)*
-- 📦 Bump apps/* with the monorepo version on release. (#5530) *(@patzick)*
-- 🔐 Surface login failures instead of an empty 500. (#5529) *(@patzick)*
-- 🐛 Fix the EUDR nav label, module breadcrumb and false unsaved-changes prompt. (#5489) *(@patzick)*
-- 🐛 Clear the 0.7.0 pre-release UX and i18n nits across UI, sales, business rules and record locks (fixes #5456). (#5481) *(@patzick)*
-- 🐛 Stop offering Delete on archived EUDR statements and surface the reason (#5461). (#5480) *(@patzick)*
-- 🐛 Resolve the portal address server-side to stop hydration flicker (fixes #5457). (#5479) *(@patzick)*
-- 🐛 Align the WMS KPI cards, role dialog footer and EUDR area field. (#5432) *(@patzick)*
-- 🐳 Sync role ACLs on redeploy so newly enabled modules stay reachable. (#5431) *(@patzick)*
 - 🐛 Emit the declared logout and password lifecycle events. (#5352) *(@Frshy)*
 - 🐛 Make I18nProvider children optional so it typechecks via React.createElement (#5155). (#5219) *(@adeptofvoltron)*
 - 🔐 Resolve query-index CRUD bridge scope through the metadata-aware resolver. (#5332) *(@MStaniaszek1998)*
@@ -286,6 +276,16 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - 🐛 Make the usage scanner see multiline t() calls (#4666). (#4684) *(@wojciechszyjka)*
 - 🔐 Fail closed on unresolved tenant scope in read routes. (#4590) *(@tomaszscigalacshark)*
 - 🐛 Preapprove @open-mercato past yarn's minimum release age gate. (#4644) *(@patzick)*
+- 🐳 Sync role ACLs on redeploy so newly enabled modules stay reachable. (#5431) *(@patzick)*
+- 🐛 Align the WMS KPI cards, role dialog footer and EUDR area field. (#5432) *(@patzick)*
+- 🐛 Resolve the portal address server-side to stop hydration flicker (fixes #5457). (#5479) *(@patzick)*
+- 🐛 Stop offering Delete on archived EUDR statements and surface the reason (#5461). (#5480) *(@patzick)*
+- 🐛 Clear the 0.7.0 pre-release UX and i18n nits across UI, sales, business rules and record locks (fixes #5456). (#5481) *(@patzick)*
+- 🐛 Fix the EUDR nav label, module breadcrumb and false unsaved-changes prompt. (#5489) *(@patzick)*
+- 🔐 Surface login failures instead of an empty 500. (#5529) *(@patzick)*
+- 📦 Bump apps/* with the monorepo version on release. (#5530) *(@patzick)*
+- 💰 Serve persisted order totals on single-row GET (#5438). (#5622) *(@Duang777, via @patzick)*
+- 🔐 Preserve partial user ACL updates (fixes #5493). (#5623) *(@patzick)*
 
 ## 🛠️ Improvements
 - 🛠️ Publish dist/agentic through a staged swap (#5104). (#5328) *(@adeptofvoltron)*
@@ -325,7 +325,6 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - 🧪 Mock i18n in the app-level storage_s3 route suite (#4926). (#4931) *(@wojciechszyjka)*
 
 ## 📝 Specs & Documentation
-- 📝 Document ff_om_hide_contact and mirror its tests to the template (fixes #5488). (#5565) *(@adeptofvoltron)*
 - 📝 Make the changelog skill credit the author, not the merger. (#4969) *(@patzick)*
 - 📝 Revise the document generators spec from #5170. (#5323) *(@adeptofvoltron)*
 - 📝 Specify an SMTP transport for transactional email. (#5303) *(@bartek5412)*
@@ -362,6 +361,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - 📝 Add configuration decision guide (supersedes #4549). (#4741) *(@jtomaszewski, via @pkarw)*
 - 📝 Standalone harness canonical UI and i18n acceptance. (#4743) *(@pkarw)*
 - 📝 AST-first code generation for the remaining string emitters (#1637). (#4636) *(@wojciechszyjka)*
+- 📝 Document ff_om_hide_contact and mirror its tests to the template (fixes #5488). (#5565) *(@adeptofvoltron)*
 
 ## 👥 Contributors
 
