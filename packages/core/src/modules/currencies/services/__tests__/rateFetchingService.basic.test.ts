@@ -1,5 +1,6 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals'
 import { RateFetchingService } from '../rateFetchingService'
+import { NBPProvider } from '../providers/nbp'
 import {
   createMockEntityManager,
   createMockProvider,
@@ -9,6 +10,23 @@ import {
   TEST_SCOPE,
   TEST_DATE,
 } from './rateFetchingService.setup'
+
+/** Minimal NBP table C payload: one EUR row, which the provider expands into PLN→EUR and EUR→PLN. */
+function nbpTableCResponse() {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => [
+      {
+        table: 'C',
+        no: '010/C/NBP/2024',
+        tradingDate: '2024-01-12',
+        effectiveDate: '2024-01-15',
+        rates: [{ currency: 'euro', code: 'EUR', bid: 4.3, ask: 4.5 }],
+      },
+    ],
+  }
+}
 
 describe('RateFetchingService - Basic Functionality', () => {
   let service: RateFetchingService
@@ -255,13 +273,45 @@ describe('RateFetchingService - Basic Functionality', () => {
       // Execute
       const result = await service.fetchRatesForDate(TEST_DATE, TEST_SCOPE)
 
-      // Assert
+      // Assert - matched exactly: `objectContaining({ size: 2 })` would also pass for a set
+      // that dropped PLN, which is the membership this test exists to pin.
       expect(provider.fetchRates).toHaveBeenCalledWith(
         TEST_DATE,
         TEST_SCOPE,
-        expect.objectContaining({ size: 2 })
+        new Set(['PLN', 'EUR'])
       )
       expect(result.totalFetched).toBe(1)
+    })
+
+    it('lets a provider gated on an inactive base currency issue its request', async () => {
+      // Drives the real NBPProvider rather than a mock, so its PLN gate is the thing under
+      // test: with PLN inactive the provider must still see PLN in the set and go to the
+      // network. Before the fix the set arrived without PLN and the provider was silenced
+      // whole — no request, no rates for any pair, not just PLN's.
+      const currencies = [
+        createTestCurrency({ code: 'PLN', isActive: false }),
+        createTestCurrency({ code: 'EUR', isActive: true }),
+      ]
+
+      const { em } = createMockEntityManager({ currencies })
+      service = new RateFetchingService(em)
+      service.registerProvider(new NBPProvider())
+
+      const fetchMock = jest.fn(async () => nbpTableCResponse())
+      const originalFetch = global.fetch
+      global.fetch = fetchMock as unknown as typeof fetch
+
+      try {
+        // Execute
+        const result = await service.fetchRatesForDate(TEST_DATE, TEST_SCOPE)
+
+        // Assert - the provider ran, and both legs of the PLN/EUR pair were stored
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(result.byProvider['NBP']).toEqual({ count: 2 })
+        expect(result.totalFetched).toBe(2)
+      } finally {
+        global.fetch = originalFetch
+      }
     })
 
     it('filters out rates involving soft-deleted currencies', async () => {
