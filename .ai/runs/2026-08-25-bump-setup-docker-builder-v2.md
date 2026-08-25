@@ -52,6 +52,10 @@ configured base branch `develop` instead of `main`, then close the original PR
   `validation.commands` gate (build/typecheck/test/build:app) cannot exercise it; the real proof is
   the `docker-build` job running on this PR. `qa-deploy.yml` is `workflow_dispatch`-only and is not
   exercised by PR CI — its bump carries the same review reasoning as the `ci.yml` one.
+- **`docker-build` is skipped on this PR.** `prepare` → `integration-scope` sets
+  `skip_integration=true` when a PR changes no `src/modules/` path, and `docker-build` is gated on
+  that flag. So the v2 action first executes on the `push` event after this merges (where
+  `skip=false`), not on the PR itself. Same was true of #5560.
 
 ## Progress
 
@@ -66,4 +70,4 @@ PR: #5589
 
 - [x] 2.1 Verify no v1 reference remains and the workflow YAML parses — a3a52e3f9
 - [x] 2.2 Open the replacement PR against `develop` and apply labels — #5589
-- [ ] 2.3 Close #5560 with a pointer to the replacement
+- [x] 2.3 Close #5560 with a pointer to the replacement
