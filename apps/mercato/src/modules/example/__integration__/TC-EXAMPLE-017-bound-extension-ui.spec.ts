@@ -192,6 +192,32 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
     const logs = collectExampleLifecycleLogs(page)
     let todoId: string | null = null
 
+    // Interception is installed BEFORE anything this test asserts on, and is never torn
+    // down while the page is live. Toggling Playwright's request interception restarts the
+    // browser's Fetch domain, and a request issued inside that window is stranded — it is
+    // never resumed and no response ever arrives. `CrudForm` fires its post-save
+    // `router.push()` microseconds after the create response, so unrouting right after the
+    // create (as this test used to) leaves the redirect's RSC fetch hanging and the URL
+    // stuck on `/backend/todos/create`. Playwright removes the route at page close, where
+    // nothing in flight is asserted on.
+    let markCreateRequestIntercepted: () => void = () => {}
+    let releaseCreateRequest: () => void = () => {}
+    const createRequestIntercepted = new Promise<void>((resolve) => {
+      markCreateRequestIntercepted = resolve
+    })
+    const createRequestRelease = new Promise<void>((resolve) => {
+      releaseCreateRequest = resolve
+    })
+    await page.route('**/api/example/todos', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue()
+        return
+      }
+      markCreateRequestIntercepted()
+      await createRequestRelease
+      await route.continue()
+    })
+
     try {
       await login(page, 'admin')
       await page.goto('/backend/todos/create', { waitUntil: 'domcontentloaded' })
@@ -214,24 +240,6 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       const rawTitle = `[transform] TC-EXAMPLE-017 ${suffix}`
       const expectedTitle = `TC-EXAMPLE-017 ${suffix} (transformed)`
       await titleInput.fill(rawTitle)
-      let markCreateRequestIntercepted: () => void = () => {}
-      let releaseCreateRequest: () => void = () => {}
-      const createRequestIntercepted = new Promise<void>((resolve) => {
-        markCreateRequestIntercepted = resolve
-      })
-      const createRequestRelease = new Promise<void>((resolve) => {
-        releaseCreateRequest = resolve
-      })
-      const createRoute = '**/api/example/todos'
-      await page.route(createRoute, async (route) => {
-        if (route.request().method() !== 'POST') {
-          await route.continue()
-          return
-        }
-        markCreateRequestIntercepted()
-        await createRequestRelease
-        await route.continue()
-      })
       const createRequestPromise = page.waitForRequest(
         (candidate) => candidate.url().includes(TODOS_API) && candidate.method() === 'POST',
       )
@@ -264,7 +272,6 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       } finally {
         releaseCreateRequest()
         await submitPromise.catch(() => undefined)
-        await page.unroute(createRoute)
       }
       expect(createResponse.ok(), `create failed: ${createResponse.status()}`).toBeTruthy()
       todoId = ((await createResponse.json()) as { id?: string }).id ?? null
