@@ -1,5 +1,9 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T14:05:00Z — operator decision: drop products memoization goal, correct the spec
+
+Final decision on the reference-data caching question (after two prior attempts at a narrower fix both turned out non-viable): drop the memoization goal for products entirely (option 2), and correct `.ai/specs/2026-08-25-catalog-bulk-create.md`'s Architecture/Risks sections to state the `fork()`-clears-identity-map finding as a permanent constraint rather than a risk to verify (option 3). Option 1 (editing `execute()`'s call sites in `commands/products.ts`) is rejected — no further edits to `commands/categories.ts`/`commands/products.ts` of any kind. Full concrete scope for Phase 2 and the spec correction recorded in `HANDOFF.md`. All three decision points on this topic are now closed; next resume proceeds Step 1.3 → Phase 2 (pre-validation only, corrected Step 2.3 test) → spec correction commit → Phase 3, with no further check-ins expected on this specific question.
+
 ## 2026-08-25T13:45:00Z — resume paused: the approved export-only plan turns out to be a no-op
 
 Before implementing the approved memoization wrapper, traced how `createProductCommand.execute` actually calls `resolveScopedTaxRate`/`resolveProductUnitDefaults` (`commands/products.ts:1388/1415/1774/1811`) — they're called by direct, module-local function reference. `export`ing them (as approved) lets the worker `import` and wrap *its own copy*, but `execute()`'s own call sites still invoke the original unwrapped functions, so the worker's memoization cache is never consulted by the command and the DB round trips per row are unchanged. No production code was written against the approved plan once this was confirmed — writing the wrapper as approved would have been dead code that Step 2.3's own hit-rate assertion would have caught (~0% hit rate, same as if nothing were built), just later and more expensively.
