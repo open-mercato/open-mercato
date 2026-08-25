@@ -175,7 +175,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   }, [onSelectDate])
 
   return (
-    <div className="flex w-full flex-col gap-3">
+    <div className="flex w-full flex-col gap-4">
       {/* Single header row: card title on the left, week controls + card
           actions on the right — the separate title and nav rows left a band
           of dead space across the top of the card. */}
@@ -232,7 +232,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
               value={iso}
               aria-label={`${formatDayLabel(day, t)} ${day.getDate()}`}
               className={cn(
-                'h-auto min-w-0 flex-1 flex-col gap-1 px-1 py-2.5',
+                'h-auto min-w-0 flex-1 flex-col gap-1.5 px-1 py-3',
                 // Today reads as a violet-tinted tile (unless it is the selected
                 // white one), replacing the old dot beside the number.
                 isToday && 'data-[state=unchecked]:bg-accent-indigo/10',

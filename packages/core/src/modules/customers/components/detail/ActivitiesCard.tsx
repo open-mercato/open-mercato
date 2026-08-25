@@ -192,7 +192,7 @@ export function ActivitiesCard({
   }, [effectiveEvents])
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card pt-4 pb-4 px-4">
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-5">
       <ActivitiesDayStrip
         entityId={entityId}
         selectedDate={selectedDate}
@@ -259,7 +259,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
   const overdue = validDate && date.getTime() < Date.now() && isOpenInteractionStatus(activity.status)
   const typeLabel = labelForType(activity.interactionType, t)
   const subtitleSuffix = activity.dealTitle ?? entityCompanyName ?? null
-  const subtitle = subtitleSuffix ? `${typeLabel} · ${subtitleSuffix}` : typeLabel
+  const subtitle = subtitleSuffix ? `${typeLabel}, ${subtitleSuffix}` : typeLabel
   const interactive = !!onClick
 
   return (
@@ -269,7 +269,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         onClick={interactive ? () => onClick?.(activity) : undefined}
         disabled={!interactive}
         className={cn(
-          'flex w-full items-start gap-[9px] pt-[8px] text-left transition-colors',
+          'flex w-full items-start gap-3 py-2.5 text-left transition-colors',
           interactive ? 'cursor-pointer rounded-md hover:bg-accent/30 px-1' : 'px-1',
         )}
       >
