@@ -1,5 +1,11 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T16:00:00Z — spec correction landed; all implementation/docs work done
+
+- `.ai/specs/2026-08-25-catalog-bulk-create.md` corrected across TLDR, Resolved Assumptions, Proposed Solution, Architecture, Data Model, UI/UX, Edge Cases, Risks, Phasing, and Implementation Plan to describe what actually ships instead of the original (non-viable) identity-map pre-warm design. Commit `01b11ac39`.
+- Also fixed products' bulk-create item cap: implementation had drifted to `.max(10000)` (copy-paste from categories); spec's own Resolved Assumption #9 and API Contracts always said 2000 for products. Fixed in the same commit; re-ran the affected unit tests, all pass.
+- All Tasks-table rows are now `done`. Next: Step 7 (final gate), Step 8 (review pass), Steps 9–10 (summary/labels/finalize).
+
 ## 2026-08-25T15:35:00Z — Phase 3 complete (3.1 verified no-op, 3.2 docs landed)
 
 - Step 3.1: verified the plan's assumption (a `jobType` → i18n-label registry in `ProgressTopBar` needing new entries) doesn't match the actual architecture — `ProgressTopBar` renders `job.name`/`job.description` directly with no per-`jobType` branching anywhere in the progress module or UI package, and `jobType` is a free-form string, not an enum. Nothing to change; documented in HANDOFF.md.
