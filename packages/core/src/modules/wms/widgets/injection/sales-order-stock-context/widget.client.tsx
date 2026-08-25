@@ -42,6 +42,16 @@ type SalesOrderWmsPayload = {
   reservationSummary?: {
     status?: ReservationStatus
     reservationIds?: string[]
+    reservations?: Array<{
+      id?: string
+      reservationLabel?: string
+      catalogVariantId?: string
+      warehouseId?: string | null
+      warehouseName?: string | null
+      quantity?: string
+      variantName?: string | null
+      variantSku?: string | null
+    }>
   }
 }
 
@@ -106,6 +116,51 @@ export default function SalesOrderStockContextWidget(
     () => (Array.isArray(wms?.stockSummary) ? wms.stockSummary : []),
     [wms?.stockSummary],
   )
+
+  const activeReservations = React.useMemo(() => {
+    const enriched = Array.isArray(wms?.reservationSummary?.reservations)
+      ? (wms.reservationSummary?.reservations ?? [])
+      : []
+    const fromEnriched = enriched
+      .map((item) => {
+        const id = typeof item?.id === 'string' ? item.id : null
+        if (!id) return null
+        const reservationLabel =
+          typeof item.reservationLabel === 'string' && item.reservationLabel.trim().length > 0
+            ? item.reservationLabel.trim()
+            : id
+        return {
+          id,
+          reservationLabel,
+          warehouse_name: item.warehouseName ?? null,
+          variant_name: item.variantName ?? null,
+          variant_sku: item.variantSku ?? null,
+          quantity: item.quantity ?? null,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+    if (fromEnriched.length > 0) return fromEnriched
+
+    const ids = Array.isArray(wms?.reservationSummary?.reservationIds)
+      ? (wms.reservationSummary?.reservationIds ?? [])
+      : []
+    return ids
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      .map((id) => ({
+        id,
+        reservationLabel: id,
+        warehouse_name: null,
+        variant_name: null,
+        variant_sku: null,
+        quantity: null,
+      }))
+  }, [wms?.reservationSummary?.reservationIds, wms?.reservationSummary?.reservations])
+
+  const releaseReservation = React.useMemo(() => {
+    if (!releaseReservationId) return null
+    const match = activeReservations.find((item) => item.id === releaseReservationId)
+    return match ?? { id: releaseReservationId }
+  }, [activeReservations, releaseReservationId])
 
   React.useEffect(() => {
     const variantIds = stockSummary
@@ -249,13 +304,6 @@ export default function SalesOrderStockContextWidget(
   if (!wms) return null
 
   const reservationStatus = wms.reservationSummary?.status ?? 'unreserved'
-  const reservationIds = Array.isArray(wms.reservationSummary?.reservationIds)
-    ? (wms.reservationSummary?.reservationIds ?? [])
-    : []
-
-  const releaseReservation = releaseReservationId
-    ? { id: releaseReservationId }
-    : null
 
   return (
     <div className="rounded-lg border bg-card px-4 py-3 space-y-4">
@@ -338,7 +386,7 @@ export default function SalesOrderStockContextWidget(
               'Reservation records',
             )}
           </dt>
-          <dd className="font-medium">{reservationIds.length}</dd>
+          <dd className="font-medium">{activeReservations.length}</dd>
         </div>
       </dl>
 
@@ -392,7 +440,7 @@ export default function SalesOrderStockContextWidget(
         </p>
       )}
 
-      {access.canRelease && reservationIds.length > 0 ? (
+      {access.canRelease && activeReservations.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {t(
@@ -401,18 +449,20 @@ export default function SalesOrderStockContextWidget(
             )}
           </p>
           <div className="space-y-1">
-            {reservationIds.map((rid) => (
+            {activeReservations.map((reservation) => (
               <div
-                key={rid}
+                key={reservation.id}
                 className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-background px-3 py-1.5"
               >
-                <span className="font-mono text-xs text-muted-foreground truncate">{rid}</span>
+                <span className="text-xs text-foreground truncate" title={reservation.reservationLabel}>
+                  {reservation.reservationLabel}
+                </span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   className="h-6 shrink-0 px-2 text-xs text-status-error-fg hover:text-status-error-fg"
-                  onClick={() => setReleaseReservationId(rid)}
+                  onClick={() => setReleaseReservationId(reservation.id)}
                 >
                   <ShieldOff className="size-3 mr-1" />
                   {t('wms.widgets.sales.stockContext.releaseBtn', 'Release')}

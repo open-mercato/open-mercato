@@ -129,6 +129,12 @@ describe('wms sales order enrichers', () => {
           },
         ]
       }
+      if (entityId === E.catalog.catalog_product_variant) {
+        return [
+          { id: 'variant-1', name: 'Red - L', sku: 'RED-L' },
+          { id: 'variant-2', name: 'Blue - S', sku: 'BLUE-S' },
+        ]
+      }
       return []
     })
 
@@ -214,6 +220,28 @@ describe('wms sales order enrichers', () => {
           reservationSummary: {
             status: 'partially_reserved',
             reservationIds: ['reservation-1', 'reservation-2'],
+            reservations: [
+              {
+                id: 'reservation-1',
+                reservationLabel: 'Red - L (RED-L) · Main DC · 2',
+                catalogVariantId: 'variant-1',
+                warehouseId: 'warehouse-1',
+                warehouseName: 'Main DC',
+                quantity: '2',
+                variantName: 'Red - L',
+                variantSku: 'RED-L',
+              },
+              {
+                id: 'reservation-2',
+                reservationLabel: 'Blue - S (BLUE-S) · Main DC · 1',
+                catalogVariantId: 'variant-2',
+                warehouseId: 'warehouse-1',
+                warehouseName: 'Main DC',
+                quantity: '1',
+                variantName: 'Blue - S',
+                variantSku: 'BLUE-S',
+              },
+            ],
           },
           inboundSummary: {
             openAsnCount: 0,
@@ -300,6 +328,18 @@ describe('wms sales order enrichers', () => {
         reservationSummary: {
           status: 'fully_reserved',
           reservationIds: ['reservation-1'],
+          reservations: [
+            {
+              id: 'reservation-1',
+              reservationLabel: 'West DC · 2',
+              catalogVariantId: 'variant-1',
+              warehouseId: 'warehouse-reserved',
+              warehouseName: 'West DC',
+              quantity: '2',
+              variantName: null,
+              variantSku: null,
+            },
+          ],
         },
         inboundSummary: {
           openAsnCount: 0,
@@ -391,6 +431,7 @@ describe('wms sales order enrichers', () => {
           reservationSummary: {
             status: 'unreserved',
             reservationIds: [],
+            reservations: [],
           },
           inboundSummary: {
             openAsnCount: 0,
@@ -495,6 +536,16 @@ describe('wms sales order enrichers', () => {
     ])
     expect(result[0]?._wms?.reservationSummary).toMatchObject({
       reservationIds: ['res-1'],
+      reservations: [
+        expect.objectContaining({
+          id: 'res-1',
+          reservationLabel: 'Main · 1',
+          catalogVariantId: 'variant-1',
+          warehouseId: 'wh-1',
+          warehouseName: 'Main',
+          quantity: '1',
+        }),
+      ],
     })
     expect(result[0]?._wms?.inboundSummary).toEqual({
       openAsnCount: 0,

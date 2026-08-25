@@ -583,16 +583,19 @@ export default function WmsOperationalDashboardPage() {
         id: 'details',
         header: t('wms.backend.dashboard.activity.columns.details', 'Details'),
         cell: ({ row }) => {
+          const title = formatActivityTitle(row.original, t)
           const subtitle = formatActivitySubtitle(row.original, t)
+          const fullDetails = subtitle ? `${title} · ${subtitle}` : title
           return (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{formatActivityTitle(row.original, t)}</p>
+            <div className="min-w-0 max-w-xs" title={fullDetails}>
+              <p className="truncate text-sm font-medium">{title}</p>
               {subtitle ? (
-                <p className="truncate text-sm text-muted-foreground">{subtitle}</p>
+                <p className="line-clamp-2 text-sm text-muted-foreground">{subtitle}</p>
               ) : null}
             </div>
           )
         },
+        meta: { maxWidth: '20rem', truncate: false },
       },
       {
         id: 'location',
