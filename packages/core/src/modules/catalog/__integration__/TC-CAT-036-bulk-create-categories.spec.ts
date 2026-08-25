@@ -150,7 +150,39 @@ test.describe('TC-CAT-036: Bulk create categories', () => {
     }
   })
 
-  test('rejects invalid payloads with 400', async ({ request }) => {
+  test('honors a cancellation requested before the worker picks the batch up', async ({ request }) => {
+    test.slow()
+
+    const token = await getAuthToken(request)
+    const stamp = Date.now()
+    const name = `TC-CAT-036 Cancelled ${stamp}`
+
+    const enqueueResponse = await apiRequest(request, 'POST', '/api/catalog/categories/bulk-create', {
+      token,
+      data: { items: [{ name }] },
+    })
+    expect(enqueueResponse.status()).toBe(202)
+    const { progressJobId } = (await enqueueResponse.json()) as { progressJobId: string }
+
+    const cancelResponse = await apiRequest(request, 'DELETE', `/api/progress/jobs/${progressJobId}`, { token })
+    expect(cancelResponse.status(), 'A cancellable bulk-create job must accept a cancel request').toBe(200)
+
+    const finalJob = await waitForProgressJob(request, token, progressJobId)
+    expect(finalJob.status, `progress job final status: ${JSON.stringify(finalJob)}`).toBe('cancelled')
+
+    // The worker observed the cancel on its first checkpoint-boundary poll, before executing
+    // any row, so nothing was created and the job is not silently left `running`.
+    const listResponse = await apiRequest(
+      request,
+      'GET',
+      `/api/catalog/categories?search=${encodeURIComponent(name)}&status=all`,
+      { token },
+    )
+    const listBody = (await listResponse.json()) as { items?: Array<Record<string, unknown>> }
+    expect(listBody.items ?? [], 'A cancelled batch must not create any category').toHaveLength(0)
+  })
+
+  test('rejects invalid payloads with 400 and reports the failing row path', async ({ request }) => {
     const token = await getAuthToken(request)
 
     const emptyResponse = await apiRequest(request, 'POST', '/api/catalog/categories/bulk-create', {
@@ -161,8 +193,13 @@ test.describe('TC-CAT-036: Bulk create categories', () => {
 
     const missingNameResponse = await apiRequest(request, 'POST', '/api/catalog/categories/bulk-create', {
       token,
-      data: { items: [{ slug: 'no-name-row' }] },
+      data: { items: [{ name: 'ok' }, { slug: 'no-name-row' }] },
     })
     expect(missingNameResponse.status(), 'A row missing the required name field must be rejected').toBe(400)
+
+    // A bare "Invalid payload" is unusable for a multi-thousand-row batch, so the route reports
+    // the offending paths.
+    const body = (await missingNameResponse.json()) as { errors?: Array<{ path: string; message: string }> }
+    expect(body.errors?.some((issue) => issue.path === 'items.1.name'), `errors: ${JSON.stringify(body.errors)}`).toBe(true)
   })
 })
