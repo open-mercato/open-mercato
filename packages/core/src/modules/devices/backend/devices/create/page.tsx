@@ -6,6 +6,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { loadDeviceUserOptions } from '../userOptions'
 
 type FormValues = {
   userId: string
@@ -27,7 +28,19 @@ export default function DeviceAdminCreatePage() {
   const t = useT()
 
   const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'userId', label: t('devices.form.userId'), type: 'text', required: true, description: t('devices.form.userIdHint') },
+    {
+      id: 'userId',
+      label: t('devices.form.userId'),
+      type: 'combobox',
+      required: true,
+      description: t('devices.form.userIdHint'),
+      placeholder: t('devices.form.userIdPlaceholder'),
+      loadOptions: loadDeviceUserOptions,
+      // Custom values stay allowed on purpose: `devices.admin` does not imply `auth.users.list`, so
+      // for an admin without it the loader returns nothing and a locked combobox would make this
+      // form unusable. The server rejects an unknown target with `devices.errors.user_not_found`.
+      allowCustomValues: true,
+    },
     { id: 'deviceId', label: t('devices.form.deviceId'), type: 'text', required: true },
     {
       id: 'platform',
