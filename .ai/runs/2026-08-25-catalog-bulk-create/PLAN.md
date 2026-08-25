@@ -2,6 +2,23 @@
 
 Source doc: `.ai/specs/2026-08-25-catalog-bulk-create.md`
 
+## Tasks
+
+> Authoritative status table. `Status` is one of `todo` or `done`. On landing a Step, flip `Status` to `done` and fill the `Commit` column with the short SHA. The first row whose `Status` is not `done` is the resume point for `om-auto-continue-pr-loop`. Step ids and `Exec` cells are immutable once the plan is committed.
+
+| Phase | Step | Title | Exec | Status | Commit |
+|-------|------|-------|------|--------|--------|
+| 1 | 1.1 | Route + validators (categories bulk-create) | inline | todo | — |
+| 1 | 1.2 | Worker + lib (categories bulk-create) | inline | todo | — |
+| 1 | 1.3 | Verify events/index fire per row unchanged | inline | todo | — |
+| 1 | 1.4 | Checkpoint + idempotent resume | inline | todo | — |
+| 2 | 2.1 | Worker + pre-warm (products bulk-create) | inline | todo | — |
+| 2 | 2.2 | Route + validators (products bulk-create) | inline | todo | — |
+| 2 | 2.3 | Identity-map hit-rate verification | inline | todo | — |
+| 2 | 2.4 | Per-row failure + checkpoint/resume parity | inline | todo | — |
+| 3 | 3.1 | i18n + job-detail surfacing | inline | todo | — |
+| 3 | 3.2 | Docs | inline | todo | — |
+
 ## Goal
 
 Add `POST /api/catalog/products/bulk-create` and `POST /api/catalog/categories/bulk-create`, modeled on the existing `bulk-delete` route's `ProgressJob` + `@open-mercato/queue` scaffolding, but resolving shared reference-data lookups (tax rate, option-schema template, unit defaults) once per batch via a shared/forked `EntityManager`'s identity map — while still calling the unchanged `catalog.products.create` / `catalog.categories.create` commands per row (no command-layer bypass, no new bulk-only entity-creation logic, no new event IDs, no new ACL feature IDs).
@@ -22,6 +39,7 @@ Add `POST /api/catalog/products/bulk-create` and `POST /api/catalog/categories/b
 
 - Identity-map hit-rate for reference-data lookups depends on whether the create commands' internal lookups (`resolveScopedTaxRate`, `resolveProductUnitDefaults`, option-schema template fetch) go through `em.findOne`/`em.find` (identity-map-eligible) rather than a raw query-builder path. Verified in Phase 2 via a query-count assertion; if bypassed, add a minimal targeted memoization wrapper around just that lookup (spec Architecture section).
 - Checkpoint-lag replay window (up to 19 rows) requires natural-key-conflict detection to avoid mis-reporting already-created rows as failures on worker retry.
+- `createCategoryCommand`/`createProductCommand` resolve `em` from `ctx.container.resolve('em')` and fork it internally — the shared-identity-map design therefore depends on all rows in a batch sharing one `container` whose `em` registration is the pre-warmed root/chunk `EntityManager`, not on passing an `em` through `ctx` directly (verified while implementing Step 1.2).
 
 ## Implementation Plan
 
@@ -46,7 +64,7 @@ Add `POST /api/catalog/products/bulk-create` and `POST /api/catalog/categories/b
 
 ## Progress
 
-> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+> Legacy checkbox section, superseded by the `## Tasks` table above as the authoritative status source. Kept for narrative context only — do not edit checkboxes here; flip the Tasks table instead.
 
 ### Phase 1: Categories bulk-create
 
