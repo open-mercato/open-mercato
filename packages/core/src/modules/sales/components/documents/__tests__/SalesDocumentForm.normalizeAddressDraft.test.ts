@@ -1,0 +1,68 @@
+import { normalizeAddressDraft } from '../SalesDocumentForm'
+
+// The bug this file exists for: the create page builds its address snapshot from an explicit assign
+// list, and that list stopped at `country` while the editor had learned to write three more keys.
+// Nothing failed — a create simply produced a snapshot without them, and the values were gone. There
+// is no merge-back on this path to soften it, because the document does not exist yet.
+//
+// The update path has its own copy of this list in `AddressesSection`, covered by its own suite. The
+// two are deliberately separate until the spec's deferred merge, which is exactly why each needs
+// pinning: they drift silently.
+const draft = {
+  name: 'Fixture GmbH',
+  purpose: '',
+  companyName: '',
+  addressLine1: 'Teststraße 5',
+  addressLine2: '',
+  buildingNumber: '',
+  flatNumber: '',
+  city: 'Berlin',
+  region: '',
+  postalCode: '10115',
+  country: 'DE',
+  isPrimary: false,
+}
+
+describe('SalesDocumentForm — the create page keeps every key the editor writes', () => {
+  it('carries the tax id, its scheme and the phone into the snapshot', () => {
+    const normalized = normalizeAddressDraft({
+      ...draft,
+      taxId: 'DE811907980',
+      taxIdType: 'eu_vat',
+      phone: '+49 30 123456',
+    })
+
+    expect(normalized).toMatchObject({
+      taxId: 'DE811907980',
+      taxIdType: 'eu_vat',
+      phone: '+49 30 123456',
+    })
+  })
+
+  it('still carries the postal fields beside them', () => {
+    const normalized = normalizeAddressDraft({ ...draft, taxId: 'DE811907980' })
+
+    expect(normalized).toMatchObject({ addressLine1: 'Teststraße 5', city: 'Berlin', country: 'DE' })
+  })
+
+  it('omits a field left blank rather than writing an empty string', () => {
+    // The three keys are optional on the draft and empty on most addresses. A blank one must not
+    // reach the snapshot: an empty `taxIdType` beside a filled `taxId` would name the number nothing.
+    const normalized = normalizeAddressDraft({ ...draft, taxId: '', taxIdType: '', phone: '   ' })
+
+    expect(normalized).not.toHaveProperty('taxId')
+    expect(normalized).not.toHaveProperty('taxIdType')
+    expect(normalized).not.toHaveProperty('phone')
+  })
+
+  it('trims what it does carry, so a stray space does not become part of an identifier', () => {
+    const normalized = normalizeAddressDraft({ ...draft, taxId: '  DE811907980  ' })
+
+    expect(normalized).toMatchObject({ taxId: 'DE811907980' })
+  })
+
+  it('returns null for no draft at all, so the caller sends no snapshot', () => {
+    expect(normalizeAddressDraft(null)).toBeNull()
+    expect(normalizeAddressDraft(undefined)).toBeNull()
+  })
+})

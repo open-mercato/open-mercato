@@ -435,7 +435,15 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
   return parsed
 }
 
-function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
+/**
+ * Build the create page's address snapshot from the editor's draft.
+ *
+ * Exported for its test and for nothing else. It is the assign list below that makes this worth
+ * pinning: there is no prior snapshot to merge against on a create, so a key the editor writes and
+ * this list omits is simply absent from the payload — the value is gone, with no error anywhere. The
+ * list has drifted from the editor once already.
+ */
+export function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
   if (!draft) return null
   const normalized: Record<string, unknown> = {}
   const assign = (key: keyof AddressDraft, target: string) => {
