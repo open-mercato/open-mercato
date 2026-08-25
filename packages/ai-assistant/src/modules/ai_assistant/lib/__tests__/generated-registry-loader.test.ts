@@ -37,23 +37,15 @@ function safeJsLiteral(value: string): string {
 }
 
 describe('Next.js bundle boundary', () => {
-  it('loads the app compiler without pulling in the standalone dynamic importer', () => {
+  it('keeps the standalone dynamic loader out of the Next.js bundle', () => {
     const loaderSource = fs.readFileSync(
       path.join(__dirname, '..', 'generated-registry-loader.ts'),
       'utf8',
     )
-    const compilerSource = fs.readFileSync(
-      path.resolve(__dirname, '../../../../../../shared/src/lib/bootstrap/appSourceCompiler.ts'),
-      'utf8',
-    )
 
-    expect(loaderSource).toContain(
-      "await import('@open-mercato/shared/lib/bootstrap/appSourceCompiler')",
-    )
-    expect(loaderSource).not.toContain(
-      "await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')",
-    )
-    expect(compilerSource).not.toMatch(/\bimport\s*\(\s*[A-Za-z_$][\w$]*\s*\)/)
+    expect(loaderSource).toContain("'@open-mercato/shared/lib/bootstrap/dynamicLoader'")
+    expect(loaderSource).toContain('/* webpackIgnore: true */')
+    expect(loaderSource).toContain('/* turbopackIgnore: true */')
   })
 })
 

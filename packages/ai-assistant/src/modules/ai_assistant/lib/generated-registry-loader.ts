@@ -169,7 +169,11 @@ async function compileAppLocalModuleEntries(
   if (specifiers.length === 0) return artifacts
 
   const generatedDir = path.join(appRoot, '.mercato', 'generated')
-  const { compileAppSourceFile } = await import('@open-mercato/shared/lib/bootstrap/appSourceCompiler')
+  const { compileAppSourceFile } = await import(
+    /* webpackIgnore: true */
+    /* turbopackIgnore: true */
+    '@open-mercato/shared/lib/bootstrap/dynamicLoader'
+  )
 
   for (const specifier of specifiers) {
     const target = path.resolve(generatedDir, specifier)
