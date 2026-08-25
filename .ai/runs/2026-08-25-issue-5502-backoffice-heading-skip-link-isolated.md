@@ -63,7 +63,7 @@ Complete issue #5502 with backward-compatible, explicit heading semantics, a key
 
 ### Phase 4: Add regression coverage
 
-- [ ] 4.1 Update broken integration assertions and add composed heading/skip-link coverage
+- [x] 4.1 Update broken integration assertions and add composed heading/skip-link coverage — 4b794f86
 
 ### Phase 5: Verify and publish
 
