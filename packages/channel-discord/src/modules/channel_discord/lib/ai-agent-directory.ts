@@ -73,18 +73,13 @@ export async function listDiscordEligibleAgents(): Promise<DiscordAgentDirectory
   return { available: true, agents }
 }
 
-/** Whether `agentId` is one the subscriber could actually invoke. */
-export async function isDiscordEligibleAgentId(agentId: string): Promise<boolean> {
-  return (await findDiscordEligibleAgent(agentId)) !== null
-}
-
 /**
  * The eligible agent `agentId` names, or `null` when the AI peer is absent or the
  * agent is not one auto-reply may be pointed at.
  *
- * Prefer this over {@link isDiscordEligibleAgentId} when the caller also needs the
- * agent's `requiredFeatures` — it answers both questions from a single registry
- * load instead of two.
+ * This replaced a boolean `isDiscordEligibleAgentId`: every caller that wanted the
+ * answer also wanted the agent's `requiredFeatures` for the authorization check
+ * below, and asking twice meant loading the agent registry twice.
  */
 export async function findDiscordEligibleAgent(agentId: string): Promise<DiscordEligibleAgent | null> {
   const directory = await listDiscordEligibleAgents()
