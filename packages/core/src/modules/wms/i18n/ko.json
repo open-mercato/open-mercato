@@ -244,6 +244,7 @@
   "wms.backend.dashboard.activity.columns.time": "시간",
   "wms.backend.dashboard.activity.empty": "최근 동향은 아직 없습니다.",
   "wms.backend.dashboard.activity.open": "오픈 무브먼트",
+  "wms.backend.dashboard.activity.reasons.asnReceive": "수령 (ASN에서)",
   "wms.backend.dashboard.activity.reasons.cycleCount": "사이클 수",
   "wms.backend.dashboard.activity.title": "최근 활동",
   "wms.backend.dashboard.activity.titles.adjusted": "조정된 {quantity}× {sku}",

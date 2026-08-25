@@ -1696,9 +1696,11 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
           }),
           performedBy: input.performedBy,
           receivedAt: input.receivedAt,
+          reasonCode: 'asn_receive',
           metadata: {
             ...(input.metadata ?? {}),
             asnId: asn.id,
+            asnReferenceNumber: asn.referenceNumber ?? null,
             receivingLineId: line.id,
             putawayKey,
             source: 'asn_receive',

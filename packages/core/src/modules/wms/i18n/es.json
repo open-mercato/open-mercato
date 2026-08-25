@@ -244,6 +244,7 @@
   "wms.backend.dashboard.activity.columns.time": "Hora",
   "wms.backend.dashboard.activity.empty": "Aún no hay movimientos recientes.",
   "wms.backend.dashboard.activity.open": "Abrir movimiento",
+  "wms.backend.dashboard.activity.reasons.asnReceive": "Recibir (desde ASN)",
   "wms.backend.dashboard.activity.reasons.cycleCount": "Conteo cíclico",
   "wms.backend.dashboard.activity.title": "Actividad reciente",
   "wms.backend.dashboard.activity.titles.adjusted": "Ajustado {quantity}× {sku}",

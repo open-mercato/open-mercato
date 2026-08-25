@@ -244,6 +244,7 @@
   "wms.backend.dashboard.activity.columns.time": "Czas",
   "wms.backend.dashboard.activity.empty": "Brak ostatnich ruchów magazynowych.",
   "wms.backend.dashboard.activity.open": "Otwórz ruch",
+  "wms.backend.dashboard.activity.reasons.asnReceive": "Przyjęcie (z ASN)",
   "wms.backend.dashboard.activity.reasons.cycleCount": "Inwentaryzacja",
   "wms.backend.dashboard.activity.title": "Ostatnia aktywność",
   "wms.backend.dashboard.activity.titles.adjusted": "Skorygowano {quantity}× {sku}",

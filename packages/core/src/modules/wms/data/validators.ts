@@ -228,6 +228,7 @@ export const inventoryReceiveSchema = scopedSchema.extend({
   receivedAt: z.coerce.date().optional(),
   performedAt: z.coerce.date().optional(),
   reason: z.string().trim().max(500).optional(),
+  reasonCode: z.string().trim().max(80).optional(),
   metadata: metadataSchema,
 })
 
@@ -704,7 +705,10 @@ export const operationalDashboardResponseSchema = z.object({
       variantId: z.string().uuid(),
       referenceType: z.string().nullable(),
       referenceId: z.string().nullable(),
+      referenceLabel: z.string().nullable().optional(),
       reason: z.string().nullable(),
+      reasonCode: z.string().nullable().optional(),
+      source: z.string().nullable().optional(),
       locationLabel: z.string(),
       performedAt: z.string(),
     }),

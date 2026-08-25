@@ -39,7 +39,7 @@ import type {
   OperationalDashboardPayload,
 } from '../../lib/loadOperationalDashboard'
 import {
-  inventoryMovementReasonLabel,
+  formatInventoryMovementActivitySubtitle,
   type InventoryDisplayTranslator,
 } from '../../lib/inventoryDisplayUi'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
@@ -138,17 +138,18 @@ function formatActivitySubtitle(
   row: OperationalDashboardActivityRow,
   t: InventoryDisplayTranslator,
 ): string | null {
-  const reasonLabel = inventoryMovementReasonLabel(
+  return formatInventoryMovementActivitySubtitle(
     {
       reasonCode: row.reasonCode,
       reason: row.reason,
       movementType: row.movementType,
+      referenceType: row.referenceType,
+      referenceId: row.referenceId,
+      referenceLabel: row.referenceLabel,
+      source: row.source,
     },
     t,
   )
-  if (reasonLabel) return reasonLabel
-  if (row.referenceType && row.referenceId) return `${row.referenceType} · ${row.referenceId}`
-  return null
 }
 
 function createDateTimeFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {

@@ -1495,6 +1495,7 @@ export async function applyInventoryReceiveInTransaction(
     performedAt,
     receivedAt,
     reason: input.reason,
+    reasonCode: input.reasonCode ?? null,
     metadata: input.metadata ?? null,
   }
   const idempotencyKey = buildMovementIdempotencyKey({
