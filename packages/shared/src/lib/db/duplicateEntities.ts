@@ -24,7 +24,10 @@ function readString(value: unknown): string | undefined {
  * `enhanceEntities()` in the generated entity registry stamps `<moduleId>.<ExportName>`
  * onto every entity export. MikroORM ignores that stamp, but it is the only place the
  * contributing module id survives to runtime. Module ids may contain dots; the export
- * name never does, so split on the last one.
+ * name never does, so split on the last one. A class that declares its own `entityName`
+ * keeps it — `enhanceEntities()` never overwrites one — so a declared value containing a
+ * dot yields a bogus module id here; cosmetic in the warning text, and a dot-free value
+ * degrades to `undefined`.
  */
 function readModuleIdFromStamp(stamp: unknown): string | undefined {
   const value = readString(stamp)

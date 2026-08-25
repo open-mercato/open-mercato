@@ -102,7 +102,7 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     imports.push({ name: importName, moduleSpecifier: relImport })
     entitySources.push({ importName, moduleId: modId })
 
-    const entityFilePath = resolveEntitySourceFile(resolver, entry, found)
+    const entityFilePath = resolveEntitySourceFile(resolver, entry, found, fromApp)
     for (const className of parseEntityClassNames(entityFilePath)) {
       classNameEntries.push({ className, moduleId: modId, sourcePath: entityFilePath })
     }
@@ -249,16 +249,18 @@ function warnOnDuplicateEntityClassNames(entries: readonly EntityClassNameEntry[
  * published packages ship `src/modules` alongside it — so prefer the shipped source, the
  * way `eject` already does, and leave the runtime import pointing at `dist`. A package
  * that ships compiled output only falls back to the resolved base, which the parser also
- * understands.
+ * understands. An app override wins over the package tree entirely: the registry imports
+ * the app file, so that is the file whose class names are registered.
  */
 function resolveEntitySourceFile(
   resolver: PackageResolver,
   entry: ModuleEntry,
   found: { base: string; file: string },
+  fromApp: boolean,
 ): string {
   const resolved = path.join(found.base, found.file)
   const from = entry.from
-  if (!from || from === '@app') return resolved
+  if (fromApp || !from || from === '@app') return resolved
   const sourceBase = path.join(resolver.getPackageRoot(from), 'src', 'modules', entry.id, path.basename(found.base))
   if (path.resolve(sourceBase) === path.resolve(found.base)) return resolved
   const sourceFile = resolveConventionFile(sourceBase, stripModuleCodeExtension(found.file))

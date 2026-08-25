@@ -185,6 +185,33 @@ describe('generateModuleEntities duplicate entity class names', () => {
     expect(warnSpy).not.toHaveBeenCalled()
   })
 
+  it('reads the app override, not the package file, when an app supplies a package module\'s entities', async () => {
+    // The registry imports the app override for such a module, so the check must read the
+    // same file — parsing the package tree would report names that are never registered.
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'billing', 'data', 'entities.ts'),
+      entitySource('PackageInvoice', 'billing_invoices'),
+    )
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'billing', 'data', 'entities.ts'),
+      entitySource('Invoice', 'billing_invoices'),
+    )
+    const modules: ModuleEntry[] = [
+      { id: 'billing', from: '@open-mercato/core' },
+      moduleWithEntities('subscriptions', entitySource('Invoice', 'subscription_invoices')),
+    ]
+
+    const result = await generateModuleEntities({ resolver: createMockResolver(tmpDir, modules), quiet: true })
+
+    expect(result.errors).toEqual([])
+    expect(readGenerated(tmpDir)).toContain('from "@/modules/billing/data/entities"')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const message = warnSpy.mock.calls[0][0] as string
+    expect(message).toContain('Invoice')
+    expect(message).toContain(path.join('app', 'src', 'modules', 'billing', 'data', 'entities.ts'))
+    expect(message).not.toContain('PackageInvoice')
+  })
+
   it('stays silent when only one of the colliding classes is an entity', async () => {
     const modules = [
       moduleWithEntities('billing', entitySource('Invoice', 'billing_invoices')),
