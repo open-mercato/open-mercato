@@ -1,5 +1,11 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T13:45:00Z — resume paused: the approved export-only plan turns out to be a no-op
+
+Before implementing the approved memoization wrapper, traced how `createProductCommand.execute` actually calls `resolveScopedTaxRate`/`resolveProductUnitDefaults` (`commands/products.ts:1388/1415/1774/1811`) — they're called by direct, module-local function reference. `export`ing them (as approved) lets the worker `import` and wrap *its own copy*, but `execute()`'s own call sites still invoke the original unwrapped functions, so the worker's memoization cache is never consulted by the command and the DB round trips per row are unchanged. No production code was written against the approved plan once this was confirmed — writing the wrapper as approved would have been dead code that Step 2.3's own hit-rate assertion would have caught (~0% hit rate, same as if nothing were built), just later and more expensively.
+
+Full corrected analysis and three regrounded options (genuinely edit the command's call sites with fresh sign-off / drop the memoization goal and keep pre-validation only / escalate as a spec-level finding) written to `HANDOFF.md`. Recommending option 2 (drop the goal) as the low-risk default, but leaving the call to the operator since the prior export-only recommendation itself turned out to be wrong. Status remains `in-progress`, PR stays draft. Step 1.3 remains the one pending item independent of this question.
+
 ## 2026-08-25T13:20:00Z — operator decision: approve export-only edit
 
 The operator approved option 1 from the 2026-08-25T13:00:00Z decision point: add `export` to `resolveScopedTaxRate` and `resolveProductUnitDefaults` in `commands/products.ts` (purely additive visibility, no behavior/contract change), then build the batch-scoped memoization wrapper around them plus `requireOptionSchemaTemplate` in `lib/bulkCreateProducts.ts`. Both Phase-2-blocking decision points are now resolved. Next resume: land Step 1.3 (still pending), then proceed through Step 2.1 onward.
