@@ -1,5 +1,11 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T12:30:00Z — operator decision: Phase 2 reference-data caching
+
+The operator was presented all three options from the 2026-08-25T10:40:00Z architecture finding (memoization wrapper / `em.fork({clear:false})` command change / drop the optimization) and chose the **targeted memoization wrapper** (path 1). The `em.fork()` command change is explicitly rejected — `commands/categories.ts`/`commands/products.ts` stay untouched, Resolved Assumption #3 holds.
+
+Next resume (starting Step 2.1) must first confirm `resolveScopedTaxRate`, `resolveProductUnitDefaults`, and the option-schema-template fetch are separately-callable helpers before wrapping them in a batch-scoped memoization cache. If they are inlined in the command with no extractable seam, stop and re-surface to the operator — do not fall back to the rejected command-change path or silently drop the optimization.
+
 ## 2026-08-25T12:00:00Z — resume ends, still in-progress
 
 - Status: `in-progress`, PR stays draft. Steps 1.1, 1.2, 1.4 landed (commits `86d8beeee`..`b4c787c8e`); Step 1.3 (integration test, no new code) is the next `todo` row.

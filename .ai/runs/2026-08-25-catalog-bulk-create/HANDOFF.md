@@ -26,6 +26,8 @@ This is a harder blocker than the risk the spec's Architecture section anticipat
 
 Recommend surfacing this to the operator before Step 2.1 rather than picking a path autonomously, since it changes what Phase 2 can credibly claim to deliver.
 
+**Operator decision (2026-08-25):** go with path 1, the targeted memoization wrapper. Do not touch `commands/categories.ts`/`commands/products.ts`'s `.fork()` call (path 2 rejected — stays out of scope, Resolved Assumption #3 holds). Before starting Step 2.1, confirm whether `resolveScopedTaxRate`, `resolveProductUnitDefaults`, and the option-schema-template fetch are separately-callable helper functions the worker/lib can wrap with a batch-scoped memoization cache without editing the command's own `execute()`. If they turn out to be inlined in the command body with no extractable seam, stop and re-surface to the operator rather than falling back to path 2 or 3 unilaterally — this is a second decision point, not an implicit escalation.
+
 ## Reference implementation
 
 `packages/core/src/modules/catalog/api/bulk-delete/route.ts`, `workers/catalog-product-bulk-delete.ts`, `lib/bulkDelete.ts`, `lib/__tests__/bulkDelete.test.ts` — still the right scaffolding pattern to mirror for Phase 2 (route → `ProgressJob` → `@open-mercato/queue` → worker → lib), modulo the identity-map finding above.
@@ -37,4 +39,4 @@ Recommend surfacing this to the operator before Step 2.1 rather than picking a p
 
 ## Blockers
 
-None hard-blocking Step 1.3, but the Phase 2 architecture question above should be surfaced to the operator before starting Step 2.1.
+None. The Phase 2 architecture question above was resolved by the operator on 2026-08-25 (memoization wrapper, path 1) — see the decision note above. Confirming the lookup helpers are separately wrappable is still the first sub-step of 2.1, not a re-open of the decision.
