@@ -1,5 +1,9 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T13:00:00Z — resume paused: second decision point before Step 2.1
+
+Started Step 2.1 per the operator's memoization-wrapper decision. Confirmed `resolveScopedTaxRate`/`resolveProductUnitDefaults` in `commands/products.ts` are separate, wrappable functions (not inlined) — but they are not `export`ed, so wrapping them requires adding `export` to `commands/products.ts` itself. That's a smaller edit than the rejected `.fork({clear:false})` change (no behavior/contract change, purely additive visibility), but it wasn't explicitly covered by the prior decision, which only cleared wrapping "without editing the command's own `execute()`". Stopped and documented full detail + two options in `HANDOFF.md` rather than deciding unilaterally. No code changed this pass; worktree still at commit `0e30d0e62`. Status remains `in-progress`, PR stays draft.
+
 ## 2026-08-25T12:30:00Z — operator decision: Phase 2 reference-data caching
 
 The operator was presented all three options from the 2026-08-25T10:40:00Z architecture finding (memoization wrapper / `em.fork({clear:false})` command change / drop the optimization) and chose the **targeted memoization wrapper** (path 1). The `em.fork()` command change is explicitly rejected — `commands/categories.ts`/`commands/products.ts` stay untouched, Resolved Assumption #3 holds.
