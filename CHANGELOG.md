@@ -63,6 +63,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - ✨ Enable community PR label commands. (#4726) *(@MStaniaszek1998)*
 - ✨ Make the standalone harness pass on Claude sonnet. (#4529) *(@pkarw)*
 - ✨ Cache organization switcher responses (#2907). (#4538) *(@hubert-madej-softiq)*
+- ✨ Hide the contact/feedback widget behind an ff_om_hide_contact flag. (#5486) *(@patzick)*
 
 ## 🔒 Security
 - 🔒 Require a genuine WebAuthn assertion for passkey MFA verification (#3852). (#5306) *(@pkarw)*
@@ -275,6 +276,16 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - 🐛 Make the usage scanner see multiline t() calls (#4666). (#4684) *(@wojciechszyjka)*
 - 🔐 Fail closed on unresolved tenant scope in read routes. (#4590) *(@tomaszscigalacshark)*
 - 🐛 Preapprove @open-mercato past yarn's minimum release age gate. (#4644) *(@patzick)*
+- 🐳 Sync role ACLs on redeploy so newly enabled modules stay reachable. (#5431) *(@patzick)*
+- 🐛 Align the WMS KPI cards, role dialog footer and EUDR area field. (#5432) *(@patzick)*
+- 🐛 Resolve the portal address server-side to stop hydration flicker (fixes #5457). (#5479) *(@patzick)*
+- 🐛 Stop offering Delete on archived EUDR statements and surface the reason (#5461). (#5480) *(@patzick)*
+- 🐛 Clear the 0.7.0 pre-release UX and i18n nits across UI, sales, business rules and record locks (fixes #5456). (#5481) *(@patzick)*
+- 🐛 Fix the EUDR nav label, module breadcrumb and false unsaved-changes prompt. (#5489) *(@patzick)*
+- 🔐 Surface login failures instead of an empty 500. (#5529) *(@patzick)*
+- 📦 Bump apps/* with the monorepo version on release. (#5530) *(@patzick)*
+- 💰 Serve persisted order totals on single-row GET (#5438). (#5622) *(@Duang777, via @patzick)*
+- 🔐 Preserve partial user ACL updates (fixes #5493). (#5623) *(@patzick)*
 
 ## 🛠️ Improvements
 - 🛠️ Publish dist/agentic through a staged swap (#5104). (#5328) *(@adeptofvoltron)*
@@ -350,6 +361,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - 📝 Add configuration decision guide (supersedes #4549). (#4741) *(@jtomaszewski, via @pkarw)*
 - 📝 Standalone harness canonical UI and i18n acceptance. (#4743) *(@pkarw)*
 - 📝 AST-first code generation for the remaining string emitters (#1637). (#4636) *(@wojciechszyjka)*
+- 📝 Document ff_om_hide_contact and mirror its tests to the template (fixes #5488). (#5565) *(@adeptofvoltron)*
 
 ## 👥 Contributors
 
@@ -394,6 +406,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - @PatrickMade
 - @bartek5412
 - @KamilGrocholski
+- @Duang777
 
 ---
 
