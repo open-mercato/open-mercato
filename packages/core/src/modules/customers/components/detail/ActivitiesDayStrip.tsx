@@ -235,7 +235,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
                 'h-auto min-w-0 flex-1 flex-col gap-1.5 px-1 py-3',
                 // Today reads as a violet-tinted tile (unless it is the selected
                 // white one), replacing the old dot beside the number.
-                isToday && 'data-[state=unchecked]:bg-brand-violet/10',
+                isToday && 'data-[state=unchecked]:bg-accent-indigo/10',
               )}
             >
               <span className="text-xs font-medium leading-none tracking-wide text-muted-foreground">
@@ -257,7 +257,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
                   days keep equal cell height. */}
               <span className="flex h-2 items-center gap-1" aria-hidden>
                 {Array.from({ length: Math.min(eventCount, 3) }, (_, dotIndex) => (
-                  <span key={dotIndex} className="size-1 rounded-full bg-brand-violet" />
+                  <span key={dotIndex} className="size-1 rounded-full bg-accent-indigo" />
                 ))}
               </span>
             </SegmentedControlItem>

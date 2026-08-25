@@ -283,8 +283,8 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
             {validDate ? formatRelativeDay(date, t) : ''}
           </span>
         </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-violet/15">
-          <Icon className="size-4 text-brand-violet" />
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-indigo/15">
+          <Icon className="size-4 text-accent-indigo" />
         </div>
         <div className="min-w-0 flex flex-1 flex-col gap-[4px]">
           <span className="text-sm leading-5 tracking-[-0.084px] text-foreground">

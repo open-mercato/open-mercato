@@ -228,7 +228,7 @@ export function DateTimeFields({
 
       {/* Recurrence config */}
       {showRecurrence && recurrenceEnabled && (
-        <div className="rounded-lg border border-brand-violet/30 bg-brand-violet/10 p-4 space-y-3">
+        <div className="rounded-lg border border-accent-indigo/30 bg-accent-indigo/10 p-4 space-y-3">
           <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Repeat className="size-3.5" />
             {t('customers.schedule.recurrence.title', 'Recurrence')}
@@ -244,7 +244,7 @@ export function DateTimeFields({
                 onClick={() => toggleRecurrenceDay(i)}
                 className={cn(
                   'h-auto flex size-8 items-center justify-center rounded-md text-xs font-medium transition-colors p-0',
-                  recurrenceDays[i] ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-muted-foreground hover:bg-brand-violet/20 dark:hover:bg-brand-violet/20',
+                  recurrenceDays[i] ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-muted-foreground hover:bg-accent-indigo/15 dark:hover:bg-accent-indigo/15',
                 )}
               >
                 {t(key, fallback).slice(0, 2)}
@@ -269,7 +269,7 @@ export function DateTimeFields({
                   'h-8 rounded-md px-2.5 text-xs font-medium',
                   recurrenceEndType === type
                     ? 'bg-primary text-primary-foreground'
-                    : 'border border-border bg-background text-muted-foreground hover:bg-brand-violet/20 dark:hover:bg-brand-violet/20',
+                    : 'border border-border bg-background text-muted-foreground hover:bg-accent-indigo/15 dark:hover:bg-accent-indigo/15',
                 )}
               >
                 {label}
