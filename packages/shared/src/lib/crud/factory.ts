@@ -596,6 +596,18 @@ function attachOperationHeader(res: Response, logEntry: any) {
   return res
 }
 
+// An inbound `x-request-id` is caller-controlled, so it is only reused when it still
+// looks like an id. `Headers.get()` yields '' for an empty or whitespace-only header —
+// which `??` would not replace — and an unbounded value carrying spaces or `=` would
+// forge fields in the unquoted `key=value` log line this id exists to be read from.
+const INBOUND_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+
+function resolveRequestId(request?: Request): string {
+  const inbound = request?.headers.get('x-request-id')?.trim()
+  if (inbound && INBOUND_REQUEST_ID_PATTERN.test(inbound)) return inbound
+  return randomUUID()
+}
+
 function handleError(err: unknown, request?: Request): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
@@ -627,7 +639,7 @@ function handleError(err: unknown, request?: Request): Response {
   const message = err instanceof Error ? err.message : undefined
   const stack = err instanceof Error ? err.stack : undefined
   const errorName = err instanceof Error ? err.name : undefined
-  const requestId = request?.headers.get('x-request-id') ?? randomUUID()
+  const requestId = resolveRequestId(request)
   logger.error('Unexpected CRUD error', { message, stack, err, requestId })
   getTelemetryRuntime()?.reportError(err, {
     module: 'crud',
@@ -638,7 +650,7 @@ function handleError(err: unknown, request?: Request): Response {
     message: 'Something went wrong. Please try again later.',
     requestId,
   }
-  return json(body, { status: 500 })
+  return json(body, { status: 500, headers: { 'x-request-id': requestId } })
 }
 
 const LIFECYCLE_ACTION_MAP: Record<string, { before: string; after: string }> = {
