@@ -1,5 +1,12 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T12:00:00Z — resume ends, still in-progress
+
+- Status: `in-progress`, PR stays draft. Steps 1.1, 1.2, 1.4 landed (commits `86d8beeee`..`b4c787c8e`); Step 1.3 (integration test, no new code) is the next `todo` row.
+- Checkpoint 1 verification and the comprehensive resume summary were posted to PR #5610.
+- Architecture finding surfaced to the operator (not resolved unilaterally): the spec's shared-EntityManager identity-map pre-warm does not reduce the create commands' own internal lookups given MikroORM's `fork()` clearing the identity map by default; Phase 2 needs a decision (memoization wrapper vs. a minimal, explicitly-approved command change) before Step 2.1 can credibly deliver the products-side DB-lookup reduction the spec leads with.
+- Re-entry: `/om-auto-continue-pr-loop 5610`, starting at Step 1.3.
+
 ## 2026-08-25T10:35:00Z — om-auto-continue-pr-loop resume
 
 - Resumed by: @adeptofvoltron
