@@ -135,6 +135,10 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'channel_apns', from: '@open-mercato/channel-apns' },
   { id: 'channel_expo', from: '@open-mercato/channel-expo' },
   { id: 'channel_fcm', from: '@open-mercato/channel-fcm' },
+  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'eudr', from: '@open-mercato/core' },

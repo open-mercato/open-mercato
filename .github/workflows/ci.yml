@@ -1085,7 +1085,11 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          # One builder serves all three Dockerfile builds in this job, so they share one
+          # layer cache — same as v1, where the key defaulted to the repository name.
+          cache-key: ci-docker-build
 
       - name: Build docs Dockerfile
         uses: useblacksmith/build-push-action@v2

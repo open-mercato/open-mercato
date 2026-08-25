@@ -178,6 +178,12 @@ export default function MyTimesheetsPage() {
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
+  const gridInstanceId = React.useId()
+  const durationHintId = `${gridInstanceId}-duration-hint`
+  const buildDurationErrorId = React.useCallback(
+    (projectId: string, dateKey: string): string => `${gridInstanceId}-duration-error-${projectId}-${dateKey}`,
+    [gridInstanceId],
+  )
   const durationFormatHint = t(
     'staff.timesheets.my.duration.hint',
     'Enter hours (8 or 1.5), h:mm (1:30) or minutes (90m). Max 24h per day.',
@@ -919,6 +925,7 @@ export default function MyTimesheetsPage() {
                       const isDirty = dirty[project.id]?.[dateKey] !== undefined
                       const cellError = cellErrors[project.id]?.[dateKey]
                       const cellErrorMessage = cellError ? describeDurationError(cellError) : undefined
+                      const cellErrorId = cellErrorMessage ? buildDurationErrorId(project.id, dateKey) : undefined
                       return (
                         <td key={dateKey} className={`px-0.5 py-0.5 ${weekend ? 'bg-muted/40' : ''}`}>
                           {weekend ? (
@@ -943,9 +950,13 @@ export default function MyTimesheetsPage() {
                               placeholder={t('staff.timesheets.my.durationPlaceholder', '0')}
                               aria-invalid={cellError !== undefined}
                               aria-label={describeDurationCell(project.name, date)}
+                              aria-describedby={[durationHintId, cellErrorId].filter(Boolean).join(' ')}
                               title={cellErrorMessage ?? durationFormatHint}
                             />
                           )}
+                          {cellErrorMessage ? (
+                            <span id={cellErrorId} role="alert" className="sr-only">{cellErrorMessage}</span>
+                          ) : null}
                         </td>
                       )
                     })}
@@ -984,7 +995,7 @@ export default function MyTimesheetsPage() {
                 </tr>
               </tfoot>
             </table>
-            <p className="px-3 py-2 text-xs text-muted-foreground">{durationFormatHint}</p>
+            <p id={durationHintId} className="px-3 py-2 text-xs text-muted-foreground">{durationFormatHint}</p>
           </div>
         )}
         </div>
