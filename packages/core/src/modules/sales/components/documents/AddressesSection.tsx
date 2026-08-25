@@ -8,7 +8,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import { AccessDeniedMessage, ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -53,11 +53,12 @@ export type SalesDocumentAddressesSectionProps = {
   billingAddressSnapshot?: Record<string, unknown> | null
   lockedReason?: string | null
   /**
-   * Caption for the disabled action beside `lockedReason`. Defaults to the editable-status
-   * message, which is only correct when the lock IS about status — pass `null` for any other
-   * kind of lock so the banner does not contradict itself.
+   * Why the section is locked. `status` (default) keeps the editable-status treatment: an error
+   * banner with the status message repeated as a disabled caption. `permission` renders an access
+   * denial instead, with no caption — a status-worded caption beside a permission-worded banner
+   * contradicts itself.
    */
-  lockedActionLabel?: string | null
+  lockedKind?: 'status' | 'permission'
   onUpdated?: (patch: {
     shippingAddressId?: string | null
     billingAddressId?: string | null
@@ -215,7 +216,7 @@ export function SalesDocumentAddressesSection({
   shippingAddressSnapshot,
   billingAddressSnapshot,
   lockedReason,
-  lockedActionLabel,
+  lockedKind = 'status',
   onUpdated,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
@@ -262,10 +263,7 @@ export function SalesDocumentAddressesSection({
   const [additionalSaving, setAdditionalSaving] = React.useState(false)
   const [deletingAddressIds, setDeletingAddressIds] = React.useState<Set<string>>(new Set())
   const locked = Boolean(lockedReason)
-  const resolvedLockedActionLabel =
-    lockedActionLabel === undefined
-      ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
-      : lockedActionLabel
+
   const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
   const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [editingSaving, setEditingSaving] = React.useState(false)
@@ -1050,17 +1048,19 @@ export function SalesDocumentAddressesSection({
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
         {lockedReason ? (
-          <ErrorMessage
-            label={lockedReason}
-            className="md:col-span-2"
-            action={
-              resolvedLockedActionLabel ? (
+          lockedKind === 'permission' ? (
+            <AccessDeniedMessage label={lockedReason} className="md:col-span-2" />
+          ) : (
+            <ErrorMessage
+              label={lockedReason}
+              className="md:col-span-2"
+              action={
                 <Button size="sm" variant="outline" disabled>
-                  {resolvedLockedActionLabel}
+                  {t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')}
                 </Button>
-              ) : undefined
-            }
-          />
+              }
+            />
+          )
         ) : null}
 
         {addressesError ? (

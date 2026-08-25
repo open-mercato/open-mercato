@@ -8,6 +8,7 @@ import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui')
@@ -426,7 +427,10 @@ function TagsSectionImpl({
         >
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/tags:opacity-100 group-focus-within/tags:opacity-100"
+            className={cn(
+              'pointer-events-none absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity duration-150',
+              disableInteraction ? 'hidden' : 'group-hover/tags:opacity-100 group-focus-within/tags:opacity-100',
+            )}
           >
             <Pencil className="h-4 w-4" />
           </span>

@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   createSalesOrderFixture,
+  createSalesQuoteFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
 
@@ -59,11 +60,20 @@ async function loginWithCredentials(page: Page, email: string, password: string)
   await expect(page).toHaveURL(/\/backend(?:\/.*)?$/)
 }
 
-async function openOrder(page: Page, orderId: string): Promise<void> {
-  await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId)}`, { waitUntil: 'commit' })
-  // The permission answer arrives asynchronously and the page starts locked, so wait for a
-  // read-only element that is present either way before asserting on the affordances.
-  await expect(page.getByRole('button', { name: 'Addresses' })).toBeVisible({ timeout: 30_000 })
+async function openDocument(page: Page, path: string): Promise<void> {
+  // Every affordance here starts locked and only opens once the feature check answers, so an
+  // assertion made before that resolves would pass for any user, including one whose request
+  // never completed. Await the response itself rather than a rendered proxy for it.
+  const answered = page.waitForResponse(
+    (res) => res.url().includes('/api/auth/feature-check'),
+    { timeout: 30_000 },
+  )
+  await page.goto(path, { waitUntil: 'commit' })
+  await answered
+  // The permission banner lives inside the addresses section, which is only mounted while that
+  // tab is active; `items` is the default.
+  await page.getByRole('button', { name: 'Addresses' }).click()
+  await expect(page.getByRole('button', { name: 'Shipping address' }).or(page.getByText('Shipping address'))).toBeVisible({ timeout: 30_000 })
 }
 
 test.describe('TC-SALES-042 — order detail hides edits the viewer may not make', () => {
@@ -75,10 +85,14 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
   let viewerRoleId: string | null = null
   let managerUserId: string | null = null
   let viewerUserId: string | null = null
+  let quoteManagerRoleId: string | null = null
+  let quoteManagerUserId: string | null = null
+  let quoteId: string | null = null
 
   const stamp = Date.now()
   const managerEmail = `tc-sales-042-manager-${stamp}@example.com`
   const viewerEmail = `tc-sales-042-viewer-${stamp}@example.com`
+  const quoteManagerEmail = `tc-sales-042-quotes-${stamp}@example.com`
   const password = 'TcSales042!pass'
 
   test.beforeAll(async ({ playwright }) => {
@@ -107,9 +121,22 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     viewerUserId = await createUserFixture(request, token, {
       email: viewerEmail, password, organizationId, roles: [viewerRoleId], name: 'TC-SALES-042 viewer',
     })
+
+    quoteId = await createSalesQuoteFixture(request, token)
+    quoteManagerRoleId = await createRoleFixture(request, token, { name: `tc-sales-042-quotes-${stamp}` })
+    await setRoleAclFeatures(request, token, {
+      roleId: quoteManagerRoleId,
+      features: ['sales.orders.view', 'sales.quotes.view', 'sales.quotes.manage'],
+    })
+    quoteManagerUserId = await createUserFixture(request, token, {
+      email: quoteManagerEmail, password, organizationId, roles: [quoteManagerRoleId], name: 'TC-SALES-042 quotes manager',
+    })
   })
 
   test.afterAll(async () => {
+    await deleteUserIfExists(request, token, quoteManagerUserId)
+    await deleteRoleIfExists(request, token, quoteManagerRoleId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
     await deleteUserIfExists(request, token, viewerUserId)
     await deleteUserIfExists(request, token, managerUserId)
     await deleteRoleIfExists(request, token, viewerRoleId)
@@ -120,22 +147,50 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
 
   test('a user holding sales.orders.manage is offered the edits', async ({ page }) => {
     await loginWithCredentials(page, managerEmail, password)
-    await openOrder(page, orderId!)
+    await openDocument(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
 
-    // Control for the assertions below: these exist and are reachable when the feature is held.
+    // Control for the assertions below: these exist and are reachable when the feature is held,
+    // so their absence in the viewer case is a decision rather than a rendering failure.
     await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
-    await expect(page.getByText('You do not have permission to edit this document.')).toHaveCount(0)
+    await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
   })
 
   test('a user without sales.orders.manage is offered none of them', async ({ page }) => {
     await loginWithCredentials(page, viewerEmail, password)
-    await openOrder(page, orderId!)
+    await openDocument(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
 
     // Absent, not disabled: FormHeader renders the button as `{onDelete ? … }`.
     await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
 
-    // The lock reports a permission denial rather than the editable-status policy.
-    await expect(page.getByText('You do not have permission to edit this document.').first()).toBeVisible()
+    // The denial is worded for what is actually locked, and is not the status policy's message.
+    await expect(page.getByText("You do not have permission to change this document's addresses.")).toBeVisible()
     await expect(page.getByText('Addresses cannot be changed for the current status.')).toHaveCount(0)
+
+    // The two affordances that used to render and merely fail on click.
+    await expect(page.getByRole('button', { name: /Edit customer|Change customer/ })).toHaveCount(0)
+    const tags = page.getByText('Tags').locator('xpath=following::*[@role="button"][1]')
+    await expect(tags).toHaveCount(0)
+  })
+
+  test('a quotes manager is not locked out of a quote by the orders feature', async ({ page }) => {
+    // `canManage` branches on the document kind; requesting both features in one call exists
+    // precisely so the quote answer is right, and nothing else exercises that branch.
+    await loginWithCredentials(page, quoteManagerEmail, password)
+    await openDocument(page, `/backend/sales/quotes/${encodeURIComponent(quoteId!)}`)
+
+    await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
+    await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
+  })
+
+  test('an unanswered permission check locks the affordances without asserting a reason', async ({ page }) => {
+    // Failing closed on the affordances is right; telling a user they lack a permission we never
+    // managed to check is not.
+    await loginWithCredentials(page, managerEmail, password)
+    await page.route('**/api/auth/feature-check', (route) => route.abort())
+    await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId!)}`, { waitUntil: 'commit' })
+    await page.getByRole('button', { name: 'Addresses' }).click()
+
+    await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
+    await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
   })
 })

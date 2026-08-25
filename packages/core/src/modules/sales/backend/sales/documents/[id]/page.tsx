@@ -764,8 +764,8 @@ function CustomerInlineEditor({
       email={customerEmail ?? undefined}
       kind={customerSnapshot?.customer?.kind === 'person' ? 'person' : 'company'}
       className="h-full"
-      onEditSnapshot={handleSnapshotActivate}
-      onSelectCustomer={handleSelectActivate}
+      onEditSnapshot={guardMessage ? undefined : handleSnapshotActivate}
+      onSelectCustomer={guardMessage ? undefined : handleSelectActivate}
     />
   )
 }
@@ -1928,8 +1928,8 @@ export default function SalesDocumentDetailPage({
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
-  const [canManageOrders, setCanManageOrders] = React.useState(false)
-  const [canManageQuotes, setCanManageQuotes] = React.useState(false)
+  const [canManageOrders, setCanManageOrders] = React.useState<boolean | null>(null)
+  const [canManageQuotes, setCanManageQuotes] = React.useState<boolean | null>(null)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2041,23 +2041,15 @@ export default function SalesDocumentDetailPage({
         const granted = Array.isArray(call.result?.granted)
           ? call.result?.granted.map((item) => String(item))
           : []
-        const hasFeature = (wanted: string) => granted.some((feature) => {
-          if (feature === '*') return true
-          if (feature === wanted) return true
-          if (feature.endsWith('.*')) {
-            const prefix = feature.slice(0, -2)
-            return wanted === prefix || wanted.startsWith(`${prefix}.`)
-          }
-          return false
-        })
-        setCanEditNumber(Boolean(call.ok && hasFeature('sales.documents.number.edit')))
-        setCanManageOrders(Boolean(call.ok && hasFeature('sales.orders.manage')))
-        setCanManageQuotes(Boolean(call.ok && hasFeature('sales.quotes.manage')))
+        const hasFeature = (wanted: string) => granted.includes(wanted)
+        setCanEditNumber(hasFeature('sales.documents.number.edit'))
+        setCanManageOrders(hasFeature('sales.orders.manage'))
+        setCanManageQuotes(hasFeature('sales.quotes.manage'))
       } catch {
         if (active) {
           setCanEditNumber(false)
-          setCanManageOrders(false)
-          setCanManageQuotes(false)
+          setCanManageOrders(null)
+          setCanManageQuotes(null)
         }
       }
     }
@@ -2066,10 +2058,9 @@ export default function SalesDocumentDetailPage({
       active = false
     }
   }, [scopeVersion])
-  // Derived at render, not fetched per kind: `kind` starts at `initialKind ?? 'quote'` and can
-  // still flip once the document loads, and a second request would leave a window in which the
-  // answer describes the wrong document kind.
   const canManage = kind === 'order' ? canManageOrders : canManageQuotes
+  const managePermitted = canManage === true
+  const manageDenied = canManage === false
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -2955,23 +2946,21 @@ export default function SalesDocumentDetailPage({
     if (!status) return false
     return list.includes(status)
   }
-  const noPermissionMessage = t('sales.documents.detail.noEditPermission', 'You do not have permission to edit this document.')
   const customerGuardBlocked =
-    !canManage || (kind === 'order' && !guardAllows(editingGuards?.customer ?? null, record?.status ?? null))
+    kind === 'order' && !guardAllows(editingGuards?.customer ?? null, record?.status ?? null)
   const addressGuardBlocked =
-    !canManage || (kind === 'order' && !guardAllows(editingGuards?.addresses ?? null, record?.status ?? null))
-  const customerGuardMessage = !canManage
-    ? noPermissionMessage
+    kind === 'order' && !guardAllows(editingGuards?.addresses ?? null, record?.status ?? null)
+  const customerGuardMessage = manageDenied
+    ? t('sales.documents.detail.noEditPermission.customer', "You do not have permission to change this document's customer.")
     : customerGuardBlocked
     ? t('sales.documents.detail.customerBlocked', 'Customer cannot be changed for the current status.')
     : null
-  const addressGuardMessage = !canManage
-    ? noPermissionMessage
+  const addressGuardMessage = manageDenied
+    ? t('sales.documents.detail.noEditPermission.addresses', "You do not have permission to change this document's addresses.")
     : addressGuardBlocked
     ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
     : null
-  // A permission lock is not a status lock: suppress the status-worded action beside the banner.
-  const addressGuardActionLabel = !canManage ? null : undefined
+  const addressLockKind: 'status' | 'permission' = manageDenied ? 'permission' : 'status'
   React.useEffect(() => {
     const id = record?.customerEntityId ?? null
     if (!id) return
@@ -4257,7 +4246,7 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
-              lockedActionLabel={addressGuardActionLabel}
+          lockedKind={addressLockKind}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
         />
       )
@@ -4702,7 +4691,7 @@ export default function SalesDocumentDetailPage({
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
             { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
-          onDelete={canManage ? () => void handleDelete() : undefined}
+          onDelete={managePermitted ? () => void handleDelete() : undefined}
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
         />
@@ -4945,7 +4934,7 @@ export default function SalesDocumentDetailPage({
             tags={tags}
             onChange={setTags}
             isSubmitting={false}
-            canEdit={canManage}
+            canEdit={managePermitted}
             loadOptions={loadTagOptions}
             createTag={createTag}
             onSave={({ next }) => handleTagsSave({ next })}
