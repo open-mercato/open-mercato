@@ -269,9 +269,9 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         onClick={interactive ? () => onClick?.(activity) : undefined}
         disabled={!interactive}
         className={cn(
-          // px with a matching negative margin: content stays aligned with the
-          // card while the hover surface bleeds past it on both sides.
-          '-mx-3 flex w-[calc(100%+1.5rem)] items-start gap-3 rounded-md px-3 py-3 text-left transition-colors',
+          // The row surface spans exactly the card content width so its edges
+          // line up with the week strip; padding indents the content inside.
+          'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors',
           interactive && 'cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
         )}
       >
