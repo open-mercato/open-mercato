@@ -76,12 +76,14 @@ Deviation from the full gate is recorded in the PR summary comment.
 
 ## Progress
 
+PR: #5588
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Port the bump to `develop`
 
-- [ ] 1.1 Apply the `download-artifact@v6` → `@v8` change to `.github/workflows/mutation-tests.yml`
-- [ ] 1.2 Verify the workflow file still parses as valid YAML and no other v6 reference remains
+- [x] 1.1 Apply the `download-artifact@v6` → `@v8` change to `.github/workflows/mutation-tests.yml` — 993574f58
+- [x] 1.2 Verify the workflow file still parses as valid YAML and no other v6 reference remains — 993574f58
 
 ### Phase 2: Retire the original PR
 
