@@ -693,6 +693,7 @@
   "sales.documents.detail.items.variant": "Variante",
   "sales.documents.detail.items.variantSearch": "Buscar variante",
   "sales.documents.detail.loading": "Cargando documento…",
+  "sales.documents.detail.noEditPermission": "No tienes permiso para editar este documento.",
   "sales.documents.detail.notFound": "Documento no encontrado.",
   "sales.documents.detail.number": "Número de documento",
   "sales.documents.detail.numberEditForbidden": "El número de documento no se puede editar.",

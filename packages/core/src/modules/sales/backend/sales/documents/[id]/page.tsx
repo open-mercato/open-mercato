@@ -1928,6 +1928,7 @@ export default function SalesDocumentDetailPage({
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
+  const [canManage, setCanManage] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2021,6 +2022,7 @@ export default function SalesDocumentDetailPage({
     [t]
   )
 
+  const manageFeature = kind === 'order' ? 'sales.orders.manage' : 'sales.quotes.manage'
   React.useEffect(() => {
     let active = true
     async function loadNumberPermission() {
@@ -2030,32 +2032,36 @@ export default function SalesDocumentDetailPage({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ features: ['sales.documents.number.edit'] }),
+            body: JSON.stringify({ features: ['sales.documents.number.edit', manageFeature] }),
           }
         )
         if (!active) return
         const granted = Array.isArray(call.result?.granted)
           ? call.result?.granted.map((item) => String(item))
           : []
-        const has = granted.some((feature) => {
+        const hasFeature = (wanted: string) => granted.some((feature) => {
           if (feature === '*') return true
-          if (feature === 'sales.documents.number.edit') return true
+          if (feature === wanted) return true
           if (feature.endsWith('.*')) {
             const prefix = feature.slice(0, -2)
-            return 'sales.documents.number.edit' === prefix || 'sales.documents.number.edit'.startsWith(`${prefix}.`)
+            return wanted === prefix || wanted.startsWith(`${prefix}.`)
           }
           return false
         })
-        setCanEditNumber(Boolean(call.ok && has))
+        setCanEditNumber(Boolean(call.ok && hasFeature('sales.documents.number.edit')))
+        setCanManage(Boolean(call.ok && hasFeature(manageFeature)))
       } catch {
-        if (active) setCanEditNumber(false)
+        if (active) {
+          setCanEditNumber(false)
+          setCanManage(false)
+        }
       }
     }
     loadNumberPermission().catch(() => {})
     return () => {
       active = false
     }
-  }, [scopeVersion])
+  }, [scopeVersion, manageFeature])
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -2941,14 +2947,19 @@ export default function SalesDocumentDetailPage({
     if (!status) return false
     return list.includes(status)
   }
+  const noPermissionMessage = t('sales.documents.detail.noEditPermission', 'You do not have permission to edit this document.')
   const customerGuardBlocked =
-    kind === 'order' && !guardAllows(editingGuards?.customer ?? null, record?.status ?? null)
+    !canManage || (kind === 'order' && !guardAllows(editingGuards?.customer ?? null, record?.status ?? null))
   const addressGuardBlocked =
-    kind === 'order' && !guardAllows(editingGuards?.addresses ?? null, record?.status ?? null)
-  const customerGuardMessage = customerGuardBlocked
+    !canManage || (kind === 'order' && !guardAllows(editingGuards?.addresses ?? null, record?.status ?? null))
+  const customerGuardMessage = !canManage
+    ? noPermissionMessage
+    : customerGuardBlocked
     ? t('sales.documents.detail.customerBlocked', 'Customer cannot be changed for the current status.')
     : null
-  const addressGuardMessage = addressGuardBlocked
+  const addressGuardMessage = !canManage
+    ? noPermissionMessage
+    : addressGuardBlocked
     ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
     : null
   React.useEffect(() => {
@@ -4680,7 +4691,7 @@ export default function SalesDocumentDetailPage({
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
             { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
-          onDelete={() => void handleDelete()}
+          onDelete={canManage ? () => void handleDelete() : undefined}
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
         />
@@ -4923,7 +4934,7 @@ export default function SalesDocumentDetailPage({
             tags={tags}
             onChange={setTags}
             isSubmitting={false}
-            canEdit
+            canEdit={canManage}
             loadOptions={loadTagOptions}
             createTag={createTag}
             onSave={({ next }) => handleTagsSave({ next })}
