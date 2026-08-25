@@ -33,7 +33,7 @@ import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   type CustomerDictionaryKind,
@@ -125,6 +125,7 @@ type DealsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type FilterOption = { value: string; label: string }
@@ -193,6 +194,7 @@ function formatGroupedAmount(amount: number | null | undefined): string | null {
 
 export default function CustomersDealsPage() {
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
@@ -209,6 +211,7 @@ export default function CustomersDealsPage() {
   const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -396,6 +399,7 @@ export default function CustomersDealsPage() {
         setRows(mapped)
         setTotal(typeof payload.total === 'number' ? payload.total : mapped.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -411,10 +415,12 @@ export default function CustomersDealsPage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   React.useEffect(() => {
-    if (totalPages > 0 && page > totalPages) {
+    // A capped totalPages is a floor — pages past it hold reachable rows, so
+    // clamping would bounce a deep-linked user off data that exists.
+    if (!totalIsCapped && totalPages > 0 && page > totalPages) {
       setPage(totalPages)
     }
-  }, [page, totalPages])
+  }, [page, totalPages, totalIsCapped])
 
   const queryRef = React.useRef(searchParams?.toString() ?? '')
   React.useEffect(() => {
@@ -858,7 +864,7 @@ export default function CustomersDealsPage() {
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
             )
           } else {
-            const relative = formatRelativeTime(expectedCloseAt, { translate: t })
+            const relative = formatRelativeTime(expectedCloseAt, { locale, translate: t })
             if (relative) {
               subtitle = <span className="text-xs text-muted-foreground">{relative}</span>
             }
@@ -984,7 +990,7 @@ export default function CustomersDealsPage() {
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, locale, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
@@ -1135,6 +1141,7 @@ export default function CustomersDealsPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: (nextPage) => setPage(nextPage),
             pageSizeOptions: [10, 25, 50, 100],
             onPageSizeChange: handlePageSizeChange,

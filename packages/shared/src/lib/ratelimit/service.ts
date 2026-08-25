@@ -1,6 +1,9 @@
 import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
+import { createLogger } from '../logger'
 import { parseRedisUrl } from '../redis/connection'
 import type { RateLimitConfig, RateLimitResult, RateLimitGlobalConfig } from './types'
+
+const logger = createLogger('ratelimit')
 
 /** Narrow interface for the ioredis client — only the methods we actually use. */
 interface RedisClient {
@@ -44,7 +47,12 @@ export class RateLimiterService {
       if (error instanceof RateLimiterRes) {
         return this.toResult(error, false)
       }
-      return this.disabledResult(config)
+      logger.error('Rate limiter unavailable, request was not counted', {
+        err: error,
+        keyPrefix: config.keyPrefix,
+        strategy: this.globalConfig.strategy,
+      })
+      return this.degradedResult(config)
     }
   }
 
@@ -95,6 +103,10 @@ export class RateLimiterService {
 
   private disabledResult(config: RateLimitConfig): RateLimitResult {
     return { allowed: true, remainingPoints: config.points, msBeforeNext: 0, consumedPoints: 0 }
+  }
+
+  private degradedResult(config: RateLimitConfig): RateLimitResult {
+    return { ...this.disabledResult(config), degraded: true }
   }
 
   private getOrCreateLimiter(config: RateLimitConfig): RateLimiterMemory | RateLimiterRedis {

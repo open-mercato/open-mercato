@@ -165,7 +165,7 @@ if (sources.length > 0) {
     coreVersion = null
   }
 
-  const { factsByModule, markdownByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
+  const { factsByModule, directoryByModule, frameworkMarkdown, warnings } = extractAllModuleFacts({
     sources,
     registryPath: existsSync(registryPath) ? registryPath : null,
     coreVersion,
@@ -177,7 +177,7 @@ if (sources.length > 0) {
     factsContractVersion: 1,
   })
 
-  const extractedModuleIds = Object.keys(markdownByModule)
+  const extractedModuleIds = Object.keys(directoryByModule)
   if (extractedModuleIds.length === 0) {
     throw new Error(
       '[module-facts] package sources were discovered but produced no fact-sheets; refusing to build an empty knowledge layer',
@@ -189,8 +189,13 @@ if (sources.length > 0) {
 
   const modulesGuidesDir = join(guidesDestDir, 'modules')
   mkdirSync(modulesGuidesDir, { recursive: true })
-  for (const [moduleId, markdown] of Object.entries(markdownByModule)) {
-    writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
+  for (const [moduleId, directory] of Object.entries(directoryByModule)) {
+    const moduleGuidesDir = join(modulesGuidesDir, moduleId)
+    mkdirSync(moduleGuidesDir, { recursive: true })
+    writeFileSync(join(moduleGuidesDir, 'index.md'), directory.index)
+    for (const section of directory.sections) {
+      writeFileSync(join(moduleGuidesDir, `${section.slug}.md`), section.markdown)
+    }
   }
   writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(legacyFactsByModule))
   writeFileSync(join(guidesDestDir, 'module-facts.v2.json'), renderModuleFactsJson(factsByModule))
@@ -206,15 +211,19 @@ if (sources.length > 0) {
     if (!reference) {
       throw new Error(`[module-facts] reference module "${moduleId}" is missing from the create-app template`)
     }
-    const { entry, markdown, warnings: referenceWarnings, unresolvedTargets } = extractLocalReferenceModuleFacts({
+    const { entry, directory, warnings: referenceWarnings, unresolvedTargets } = extractLocalReferenceModuleFacts({
       packageSources: sources,
       reference,
       registryPath: existsSync(registryPath) ? registryPath : null,
       coreVersion,
     })
     referenceBundle[moduleId] = entry
-    mkdirSync(referenceGuidesDir, { recursive: true })
-    writeFileSync(join(referenceGuidesDir, `${moduleId}.md`), markdown)
+    const referenceModuleGuidesDir = join(referenceGuidesDir, moduleId)
+    mkdirSync(referenceModuleGuidesDir, { recursive: true })
+    writeFileSync(join(referenceModuleGuidesDir, 'index.md'), directory.index)
+    for (const section of directory.sections) {
+      writeFileSync(join(referenceModuleGuidesDir, `${section.slug}.md`), section.markdown)
+    }
     for (const warning of referenceWarnings) console.warn(warning)
     for (const target of unresolvedTargets) {
       console.warn(`[module-facts][reference] unresolved first-party target: ${target}`)

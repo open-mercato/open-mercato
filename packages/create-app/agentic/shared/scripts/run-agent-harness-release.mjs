@@ -25,6 +25,11 @@ const GENERATED_TEST_RUNNERS = new Set(['jest', 'playwright-api', 'playwright-br
 const RESULT_LIMIT = 262_144
 const ERROR_LIMIT = 2_000
 const VIOLATION_LIMIT = 300
+// The routing step hands this to the evaluator as --timeout and derives its own process budget from
+// the same value, so the two cannot be stated separately; the help text reads it rather than
+// repeating it (#5078).
+export const DEFAULT_CASE_TIMEOUT_MS = 600_000
+export const ROUTING_STEP_SLACK_MS = 60_000
 const COPY_EXCLUDED_PREFIXES = [
   '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',
@@ -36,6 +41,14 @@ const SENSITIVE_AUTH_DATA_FILE = /^(?:auth|credentials?|secrets?|tokens?)(?:\.(?
 const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
 const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
 const GENERATED_YARN_CONFIG_LIMIT = 16_384
+// The deterministic step invokes no model, so its ceiling must not ride --case-timeout. Timed on
+// Linux x86_64, the complete 234-case catalog finished in 768-998 ms, and narrowing the selection
+// down to a single case measured 842-890 ms, inside the same spread, so the run is dominated by
+// fixed process and catalog load rather than by case count. A flat allowance is therefore the
+// honest shape, and 120000 ms is both about 120x the slowest observed run and the value this gate
+// already gives its other model-free step, fixture preparation. It bounds a hang; a healthy run
+// never approaches it.
+export const DETERMINISTIC_STEP_TIMEOUT_MS = 120_000
 
 function usage() {
   return `Run the complete standalone agent-harness release gate.
@@ -47,10 +60,11 @@ Usage:
 Options:
   --root <absolute-app>          Controller/generated app root (default: current directory)
   --runner <codex|claude>        Required primary runner for every blocking live lane
-  --portability-runner <runner> Optional different runner for the 48-case read-only portability lane
+  --portability-runner <runner> Optional different runner for the 49-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
-  --case-timeout <ms>           Per-model invocation timeout floor (default: 120000; a writable case may raise it)
+  --case-timeout <ms>           Per-model invocation timeout floor for the routing, writable, and review lanes (default: ${DEFAULT_CASE_TIMEOUT_MS})
+                                The model-free deterministic and fixture-preparation steps carry their own flat ceilings and do not read it.
   --validation-timeout <ms>     Timeout for each yarn validation (default: 1800000)
   --acknowledge-writes          Required: fixture preparation and validation commands write files
   --help                        Show this help
@@ -76,7 +90,7 @@ function parseArgs(argv) {
     portabilityRunner: undefined,
     prepareTargets: undefined,
     writableTargets: undefined,
-    caseTimeout: 120_000,
+    caseTimeout: DEFAULT_CASE_TIMEOUT_MS,
     validationTimeout: 1_800_000,
     acknowledgeWrites: false,
     help: false,
@@ -116,6 +130,21 @@ function parseArgs(argv) {
 export function effectiveCaseTimeout(cases, caseId, fallback) {
   const declared = cases.find((item) => item.id === caseId)?.timeoutMs
   return Math.max(fallback, Number.isInteger(declared) ? declared : 0)
+}
+
+export function deterministicInvocation({ evaluator, root }) {
+  return { args: [evaluator, '--root', root, '--all'], timeout: DETERMINISTIC_STEP_TIMEOUT_MS }
+}
+
+export function routingInvocation({ evaluator, root, step, cases, caseTimeout }) {
+  const args = [evaluator, '--root', root, '--runner', step.runner]
+  if (step.lane === 'primary') args.push('--all')
+  args.push('--model', step.modelSelector, '--timeout', String(caseTimeout))
+  const timeout = step.expectedCaseIds.reduce(
+    (total, caseId) => total + effectiveCaseTimeout(cases, caseId, caseTimeout),
+    ROUTING_STEP_SLACK_MS,
+  )
+  return { args, timeout }
 }
 
 function readJson(file) {
@@ -1575,11 +1604,12 @@ export function main(argv = process.argv.slice(2)) {
   const { env: foundationEnv } = createMinimalValidationEnvironment(foundationTempRoot)
   let deterministicResult
   try {
+    const deterministic = deterministicInvocation({ evaluator, root })
     const deterministicExecution = execute(
       process.execPath,
-      [evaluator, '--root', root, '--all'],
+      deterministic.args,
       root,
-      options.caseTimeout * Math.max(1, plan.catalog.caseCount) + 60_000,
+      deterministic.timeout,
       foundationEnv,
     )
     const deterministicObserved = sortedUnique((deterministicExecution.stdout ?? '').match(/^PASS (OMH-[0-9]{3})/gm)?.map((entry) => entry.slice('PASS '.length)) ?? [])
@@ -1614,13 +1644,9 @@ export function main(argv = process.argv.slice(2)) {
   } else {
     for (const step of plan.steps.filter((entry) => entry.kind === 'routing')) {
       const before = resultFiles(root)
-      const routingArgs = [evaluator, '--root', root, '--runner', step.runner]
-      if (step.lane === 'primary') routingArgs.push('--all')
-      routingArgs.push('--model', step.modelSelector, '--timeout', String(options.caseTimeout))
-      const routingTimeout = step.expectedCaseIds.reduce(
-        (total, caseId) => total + effectiveCaseTimeout(cases, caseId, options.caseTimeout),
-        60_000,
-      )
+      const { args: routingArgs, timeout: routingTimeout } = routingInvocation({
+        evaluator, root, step, cases, caseTimeout: options.caseTimeout,
+      })
       const execution = execute(process.execPath, routingArgs, root, routingTimeout)
       const artifacts = readNewResults(root, before)
       resultArtifacts.push(...artifacts)

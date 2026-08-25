@@ -7,7 +7,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
@@ -93,6 +93,7 @@ export function SalesOrderDraftLines({
   onChange,
 }: SalesOrderDraftLinesProps) {
   const t = useT()
+  const locale = useLocale()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<SalesOrderLineDraft | null>(null)
 
@@ -112,14 +113,14 @@ export function SalesOrderDraftLines({
     {
       id: 'unitPrice',
       header: t('sales.documents.items.table.unit', 'Unit price'),
-      cell: ({ row }) => formatMoney(row.original.record.unitPriceGross, row.original.record.currencyCode ?? currencyCode ?? undefined),
+      cell: ({ row }) => formatMoney(row.original.record.unitPriceGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale),
     },
     {
       id: 'total',
       header: t('sales.documents.items.table.total', 'Total'),
-      cell: ({ row }) => formatMoney(row.original.record.totalGross, row.original.record.currencyCode ?? currencyCode ?? undefined),
+      cell: ({ row }) => formatMoney(row.original.record.totalGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale),
     },
-  ], [currencyCode, t])
+  ], [currencyCode, locale, t])
 
   const openCreate = React.useCallback(() => {
     setEditing(null)
@@ -161,7 +162,7 @@ export function SalesOrderDraftLines({
           {t('sales.documents.items.add', 'Add item')}
         </Button>
       </div>
-      {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+      {error ? <p className="text-sm text-status-error-text" role="alert">{error}</p> : null}
       <DataTable
         columns={columns}
         data={lines}

@@ -1,6 +1,6 @@
 # Module Fact-Sheet Sectioned Reading
 
-- **Status:** Proposed
+- **Status:** In progress
 - **Date:** 2026-08-13
 - **Parent:** [Module Facts Auto-Discovery](2026-07-06-module-facts-auto-discovery.md)
 - **Related:** [Complete Source-Linked Module Extension Contracts](2026-08-02-module-facts-extension-surface-completeness.md), [Module Facts Exact Unified Override Targets](2026-08-02-module-facts-exact-override-targets.md), PR #5267, issue #5251
@@ -92,4 +92,5 @@ Phase 1 is additive within the existing generated-file contract: paths, filename
 
 ## Changelog
 
+- 2026-08-14 — Implementation started for both phases; Phase 2's conditional trigger was explicitly overridden for the coordinated directory-layout migration.
 - 2026-08-13 — Spec created from the PR #5267 follow-up analysis (split-vs-hint decision), with measured sheet/section sizes and the pinned-contract inventory.

@@ -7,6 +7,7 @@ import {
   InventoryBalance,
   InventoryMovement,
   InventoryReservation,
+  WarehouseZone,
 } from '../data/entities'
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
@@ -46,6 +47,13 @@ export const inventoryReservationCrudIndexer: CrudIndexerConfig<InventoryReserva
 
 export const inventoryMovementCrudIndexer: CrudIndexerConfig<InventoryMovement> = {
   entityType: E.wms.inventory_movement,
+}
+
+// Zones are read through the hybrid query engine, which projects `cf:*` out of
+// `entity_indexes` rather than joining `custom_field_values`. Without this indexer the
+// zone commands write custom field values that no read path can ever see (#5239).
+export const warehouseZoneCrudIndexer: CrudIndexerConfig<WarehouseZone> = {
+  entityType: E.wms.warehouse_zone,
 }
 
 export const inventoryBalanceCrudEvents: CrudEventsConfig<InventoryBalance> = {

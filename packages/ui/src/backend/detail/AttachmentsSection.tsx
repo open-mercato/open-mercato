@@ -5,6 +5,7 @@ import { Upload, Trash2, File, FileText, FileSpreadsheet, FileArchive, FileAudio
 import { Button } from '../../primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { AttachmentVisualPreview, formatAttachmentFileSize } from './AttachmentVisualPreview'
 import { AttachmentDeleteDialog } from './AttachmentDeleteDialog'
@@ -20,6 +21,8 @@ type AttachmentsResponse = {
   totalPages?: number
   error?: string
 }
+
+const PAGE_SIZE = 24
 
 type Props = {
   entityId: string
@@ -45,7 +48,10 @@ function AttachmentsSectionImpl({
   const t = useT()
   const [items, setItems] = React.useState<AttachmentItem[]>([])
   const [page, setPage] = React.useState(1)
-  const [totalPages, setTotalPages] = React.useState(1)
+  // Short-page termination instead of a `total`/`totalPages` bound — see
+  // `hasMoreFromPage`. This endpoint clamps, so `load` also checks it was
+  // served the page it asked for.
+  const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
@@ -65,7 +71,7 @@ function AttachmentsSectionImpl({
         entityId,
         recordId,
         page: String(targetPage),
-        pageSize: '24',
+        pageSize: String(PAGE_SIZE),
       })
       const call = await apiCall<AttachmentsResponse>(
         `/api/attachments?${params.toString()}`,
@@ -78,9 +84,23 @@ function AttachmentsSectionImpl({
       }
       const payload = call.result ?? { items: [] }
       const nextItems = Array.isArray(payload.items) ? payload.items : []
-      setItems((current) => (replace ? nextItems : [...current, ...nextItems]))
-      setPage(typeof payload.page === 'number' ? payload.page : targetPage)
-      setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+      // `/api/attachments` clamps the requested page to the last one — for the
+      // offset and for the page it echoes back — so a request past the end does
+      // not come back short, it comes back full, re-serving the last page. Take
+      // an echoed page below the one asked for as the end of the list: appending
+      // it would duplicate every row, and its clamped page number would never
+      // advance, leaving the affordance with no terminating state.
+      const returnedPage = typeof payload.page === 'number' ? payload.page : targetPage
+      const servedRequestedPage = returnedPage >= targetPage
+      setItems((current) => {
+        if (replace) return nextItems
+        if (!servedRequestedPage) return current
+        const merged = new Map(current.map((item) => [item.id, item]))
+        nextItems.forEach((item) => merged.set(item.id, item))
+        return Array.from(merged.values())
+      })
+      setPage(returnedPage)
+      setHasMore(servedRequestedPage && hasMoreFromPage(nextItems.length, PAGE_SIZE))
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.load', 'Failed to load attachments.'))
     } finally {
@@ -94,7 +114,7 @@ function AttachmentsSectionImpl({
     } else {
       setItems([])
       setPage(1)
-      setTotalPages(1)
+      setHasMore(false)
       setError(null)
     }
   }, [load, recordId])
@@ -323,7 +343,7 @@ function AttachmentsSectionImpl({
         </div>
       )}
 
-      {items.length > 0 && page < totalPages ? (
+      {items.length > 0 && hasMore ? (
         <div className="flex justify-center">
           <Button
             type="button"
