@@ -1,0 +1,218 @@
+jest.mock('@open-mercato/queue', () => ({
+  createModuleQueue: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
+  getRedisUrl: jest.fn(),
+}))
+
+import type { AwilixContainer } from 'awilix'
+import { createCatalogCategoriesWithProgress } from '../bulkCreateCategories'
+import type { CategoryBulkCreateRow } from '../../data/validators'
+
+const ORG = 'org-1'
+const TENANT = 'tenant-1'
+
+type Row = CategoryBulkCreateRow
+
+function row(name: string, overrides: Partial<Row> = {}): Row {
+  return { name, ...overrides }
+}
+
+function buildContainer(opts: {
+  existingJobMeta?: Record<string, unknown> | null
+  existingSlugs?: string[]
+  existingParentIds?: string[]
+  alreadyCreatedByNaturalKey?: Array<{ slug?: string; name?: string; parentId?: string | null; id: string }>
+  execute?: jest.Mock
+  isCancellationRequested?: jest.Mock
+}) {
+  const execute = opts.execute ?? jest.fn().mockImplementation(async (_id: string, { input }: { input: Record<string, unknown> }) => ({
+    result: { categoryId: `created-${input.name}` },
+  }))
+
+  const findCalls: unknown[] = []
+  const find = jest.fn().mockImplementation(async (_entity: unknown, filter: Record<string, unknown>) => {
+    findCalls.push(filter)
+    if (Array.isArray((filter.slug as { $in?: string[] })?.$in)) {
+      const slugs = (filter.slug as { $in: string[] }).$in
+      return (opts.existingSlugs ?? []).filter((s) => slugs.includes(s)).map((s) => ({ slug: s, id: `existing-${s}` }))
+    }
+    if (Array.isArray((filter.id as { $in?: string[] })?.$in)) {
+      const ids = (filter.id as { $in: string[] }).$in
+      return (opts.existingParentIds ?? []).filter((id) => ids.includes(id)).map((id) => ({ id }))
+    }
+    return []
+  })
+
+  const findOne = jest.fn().mockImplementation(async (_entity: unknown, filter: Record<string, unknown>) => {
+    const rows = opts.alreadyCreatedByNaturalKey ?? []
+    const match = rows.find((r) => {
+      if (filter.slug) return r.slug === filter.slug
+      return r.name === filter.name && (r.parentId ?? null) === (filter.parentId ?? null)
+    })
+    return match ? { id: match.id, slug: match.slug ?? null } : null
+  })
+
+  const isCancellationRequested = opts.isCancellationRequested ?? jest.fn().mockResolvedValue(false)
+  const updateProgress = jest.fn().mockResolvedValue(undefined)
+  const startJob = jest.fn().mockResolvedValue(undefined)
+  const completeJob = jest.fn().mockResolvedValue(undefined)
+  const markCancelled = jest.fn().mockResolvedValue(undefined)
+  const getJob = jest.fn().mockResolvedValue(
+    opts.existingJobMeta === undefined ? { meta: null } : { meta: opts.existingJobMeta },
+  )
+
+  const container = {
+    resolve: jest.fn((name: string) => {
+      if (name === 'commandBus') return { execute }
+      if (name === 'progressService') {
+        return { getJob, startJob, updateProgress, isCancellationRequested, markCancelled, completeJob }
+      }
+      if (name === 'em') return { find, findOne }
+      return undefined
+    }),
+  } as unknown as AwilixContainer
+
+  return { container, execute, find, findOne, updateProgress, startJob, completeJob, markCancelled, getJob, isCancellationRequested }
+}
+
+describe('createCatalogCategoriesWithProgress', () => {
+  it('creates every row and reports the summary on completion', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    const mocks = buildContainer({})
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT, userId: 'user-1' },
+    })
+
+    expect(mocks.execute).toHaveBeenCalledTimes(2)
+    expect(summary).toEqual({
+      createdCount: 2,
+      failedCount: 0,
+      createdIds: ['created-Alpha', 'created-Beta'],
+      failedItems: [],
+    })
+    expect(mocks.completeJob).toHaveBeenCalledWith('job-1', { resultSummary: summary }, expect.objectContaining({ tenantId: TENANT, organizationId: ORG }))
+  })
+
+  it('fails a row whose slug already exists without calling the command', async () => {
+    const items: Row[] = [row('Alpha', { slug: 'alpha' })]
+    const mocks = buildContainer({ existingSlugs: ['alpha'] })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(summary.failedItems).toEqual([
+      { index: 0, name: 'Alpha', message: 'Category slug already exists for this organization.' },
+    ])
+  })
+
+  it('fails a row whose parentId does not resolve without calling the command', async () => {
+    const items: Row[] = [row('Alpha', { parentId: 'missing-parent' })]
+    const mocks = buildContainer({ existingParentIds: [] })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(summary.failedItems).toEqual([
+      { index: 0, name: 'Alpha', message: 'Parent category not found or inaccessible.' },
+    ])
+  })
+
+  it('catches a command execution error into failedItems and continues the batch', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    const execute = jest.fn()
+      .mockRejectedValueOnce(new Error('duplicate key'))
+      .mockResolvedValueOnce({ result: { categoryId: 'created-Beta' } })
+    const mocks = buildContainer({ execute })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(summary.createdCount).toBe(1)
+    expect(summary.failedItems).toEqual([{ index: 0, name: 'Alpha', message: 'duplicate key' }])
+  })
+
+  it('resumes from the checkpointed row and recognizes rows already created before the crash', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta'), row('Gamma'), row('Delta')]
+    // A prior attempt persisted a checkpoint after row 0 (index 0), then crashed after
+    // also creating row 1 ("Beta") but before the next checkpoint.
+    const mocks = buildContainer({
+      existingJobMeta: { lastCompletedRowIndex: 0 },
+      alreadyCreatedByNaturalKey: [{ name: 'Beta', parentId: null, id: 'existing-beta' }],
+    })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    // Row 0 is skipped entirely (before startIndex). Row 1 ("Beta") is recognized via the
+    // natural-key pre-check and NOT re-submitted to the command. Rows 2-3 are genuinely new.
+    expect(mocks.execute).toHaveBeenCalledTimes(2)
+    expect(mocks.execute).toHaveBeenNthCalledWith(1, 'catalog.categories.create', expect.objectContaining({
+      input: expect.objectContaining({ name: 'Gamma' }),
+    }))
+    expect(mocks.execute).toHaveBeenNthCalledWith(2, 'catalog.categories.create', expect.objectContaining({
+      input: expect.objectContaining({ name: 'Delta' }),
+    }))
+    expect(summary.createdIds).toEqual(['existing-beta', 'created-Gamma', 'created-Delta'])
+    expect(summary.failedItems).toEqual([])
+  })
+
+  it('stops the batch and marks the job cancelled when cancellation is requested mid-flight', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta'), row('Gamma')]
+    const isCancellationRequested = jest.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const mocks = buildContainer({ isCancellationRequested })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.execute).toHaveBeenCalledTimes(1)
+    expect(summary.createdCount).toBe(1)
+    expect(mocks.markCancelled).toHaveBeenCalledTimes(1)
+    expect(mocks.completeJob).not.toHaveBeenCalled()
+  })
+
+  it('checkpoints lastCompletedRowIndex on the final row even below the 20-row interval', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    const mocks = buildContainer({})
+
+    await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    const checkpointCalls = mocks.updateProgress.mock.calls.filter(([, input]) => (input as { meta?: Record<string, unknown> }).meta?.lastCompletedRowIndex !== undefined)
+    expect(checkpointCalls).toHaveLength(1)
+    expect(checkpointCalls[0][1]).toMatchObject({ processedCount: 2, meta: { lastCompletedRowIndex: 1 } })
+  })
+})
