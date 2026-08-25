@@ -19,6 +19,10 @@ interface ActivitiesDayStripProps {
   selectedDate: Date
   onSelectDate: (date: Date) => void
   refreshKey?: number
+  /** Rendered at the left edge of the strip's single header row (card title). */
+  headerLeft?: React.ReactNode
+  /** Rendered after the week controls (card actions, e.g. Add new). */
+  headerRight?: React.ReactNode
   /**
    * Optional pre-fetched events. When provided, the day strip skips its own fetch
    * and uses the supplied list, ensuring its busyness count agrees with the
@@ -103,7 +107,7 @@ function formatDayLabel(date: Date, t: TranslateFn): string {
   return entry ? t(entry[1], entry[2]) : ''
 }
 
-export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, events: providedEvents }: ActivitiesDayStripProps) {
+export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, headerLeft, headerRight, events: providedEvents }: ActivitiesDayStripProps) {
   const t = useT()
   const [anchor, setAnchor] = React.useState<Date>(() => anchorCenteredOn(selectedDate))
   const [fetchedEvents, setFetchedEvents] = React.useState<InteractionSummary[]>([])
@@ -171,31 +175,37 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   }, [onSelectDate])
 
   return (
-    <div className="flex w-full flex-col gap-2.5 rounded-md px-3.5 py-3">
-      {/* Top bar per reference: prev / centered range / next + Today. */}
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handlePrev}
-          aria-label={t('customers.activities.calendar.prevWindow', 'Previous days')}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronLeft className="size-4 text-foreground" />
-        </button>
-        <span className="min-w-0 flex-1 truncate text-center text-sm font-medium text-foreground">
-          {headerLabel}
-        </span>
-        <button
-          type="button"
-          onClick={handleNext}
-          aria-label={t('customers.activities.calendar.nextWindow', 'Next days')}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronRight className="size-4 text-foreground" />
-        </button>
-        <Button type="button" variant="outline" size="sm" onClick={handleToday}>
-          {t('customers.activities.calendar.today', 'Today')}
-        </Button>
+    <div className="flex w-full flex-col gap-3">
+      {/* Single header row: card title on the left, week controls + card
+          actions on the right — the separate title and nav rows left a band
+          of dead space across the top of the card. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {headerLeft ? <div className="flex min-w-0 items-center gap-2">{headerLeft}</div> : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePrev}
+            aria-label={t('customers.activities.calendar.prevWindow', 'Previous days')}
+            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
+          >
+            <ChevronLeft className="size-4 text-foreground" />
+          </button>
+          <span className="whitespace-nowrap text-sm font-medium text-foreground">
+            {headerLabel}
+          </span>
+          <button
+            type="button"
+            onClick={handleNext}
+            aria-label={t('customers.activities.calendar.nextWindow', 'Next days')}
+            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
+          >
+            <ChevronRight className="size-4 text-foreground" />
+          </button>
+          <Button type="button" variant="outline" onClick={handleToday}>
+            {t('customers.activities.calendar.today', 'Today')}
+          </Button>
+          {headerRight}
+        </div>
       </div>
       {/* Reference-style week strip: one muted track, the selected day lifts as
           a white tile (DS SegmentedControl geometry; heights overridden for the
