@@ -55,13 +55,15 @@ configured base branch `develop` instead of `main`, then close the original PR
 
 ## Progress
 
+PR: #5589
+
 ### Phase 1: Port the bump onto `develop`
 
-- [ ] 1.1 Cherry-pick Dependabot's commit onto a branch cut from `origin/develop`
-- [ ] 1.2 Add the required `cache-key` input at both call sites
+- [x] 1.1 Cherry-pick Dependabot's commit onto a branch cut from `origin/develop` — 9cab1e479
+- [x] 1.2 Add the required `cache-key` input at both call sites — a3a52e3f9
 
 ### Phase 2: Verify and hand over
 
-- [ ] 2.1 Verify no v1 reference remains and the workflow YAML parses
-- [ ] 2.2 Open the replacement PR against `develop` and apply labels
+- [x] 2.1 Verify no v1 reference remains and the workflow YAML parses — a3a52e3f9
+- [x] 2.2 Open the replacement PR against `develop` and apply labels — #5589
 - [ ] 2.3 Close #5560 with a pointer to the replacement
