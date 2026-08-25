@@ -46,6 +46,12 @@ type WarehouseRecord = {
   updatedAt: Date
 }
 
+type IndexChange = {
+  action: string
+  identifiers: { id: string; organizationId: string | null; tenantId: string | null }
+  indexerEntityType?: string
+}
+
 function createWarehouseStore(initial: WarehouseRecord[] = []) {
   const records = new Map(initial.map((record) => [record.id, { ...record }]))
 
@@ -85,9 +91,21 @@ function createWarehouseStore(initial: WarehouseRecord[] = []) {
 }
 
 function createDataEngine(setCustomFields = jest.fn().mockResolvedValue(undefined)) {
+  const indexChanges: IndexChange[] = []
   return {
     setCustomFields,
-    markOrmEntityChange: jest.fn(),
+    indexChanges,
+    markOrmEntityChange: jest.fn((opts: {
+      action: string
+      identifiers: IndexChange['identifiers']
+      indexer?: { entityType?: string }
+    }) => {
+      indexChanges.push({
+        action: opts.action,
+        identifiers: opts.identifiers,
+        indexerEntityType: opts.indexer?.entityType,
+      })
+    }),
     flushOrmEntityChanges: jest.fn().mockResolvedValue(undefined),
   }
 }
@@ -140,10 +158,13 @@ describe('WMS warehouse custom fields', () => {
     expect(typeof result.updatedAt).toBe('string')
     expect(result.updatedAt).toBeTruthy()
     expect(dataEngine.setCustomFields).not.toHaveBeenCalled()
-    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'created',
-      identifiers: expect.objectContaining({ id: result.warehouseId }),
-    }))
+    expect(dataEngine.indexChanges).toEqual([
+      {
+        action: 'created',
+        identifiers: { id: result.warehouseId, organizationId: ORG, tenantId: TENANT },
+        indexerEntityType: E.wms.warehouse,
+      },
+    ])
   })
 
   it('persists custom fields on warehouse create and update', async () => {
@@ -173,8 +194,19 @@ describe('WMS warehouse custom fields', () => {
       organizationId: ORG,
       values: expect.objectContaining({ dock_code: 'DOCK-A' }),
     }))
+    expect(dataEngine.indexChanges).toEqual([
+      {
+        action: 'created',
+        identifiers: { id: created.warehouseId, organizationId: ORG, tenantId: TENANT },
+        indexerEntityType: E.wms.warehouse,
+      },
+    ])
+    expect(dataEngine.setCustomFields.mock.invocationCallOrder[0])
+      .toBeLessThan(dataEngine.markOrmEntityChange.mock.invocationCallOrder[0])
 
     dataEngine.setCustomFields.mockClear()
+    dataEngine.markOrmEntityChange.mockClear()
+    dataEngine.indexChanges.length = 0
     const updateHandler = commandRegistry.get('wms.warehouses.update')!
     await updateHandler.execute!(
       {
@@ -191,6 +223,15 @@ describe('WMS warehouse custom fields', () => {
       recordId: created.warehouseId,
       values: expect.objectContaining({ dock_code: 'DOCK-B' }),
     }))
+    expect(dataEngine.indexChanges).toEqual([
+      {
+        action: 'updated',
+        identifiers: { id: created.warehouseId, organizationId: ORG, tenantId: TENANT },
+        indexerEntityType: E.wms.warehouse,
+      },
+    ])
+    expect(dataEngine.setCustomFields.mock.invocationCallOrder[0])
+      .toBeLessThan(dataEngine.markOrmEntityChange.mock.invocationCallOrder[0])
   })
 
   it('clears custom fields when undoing warehouse create', async () => {
@@ -211,6 +252,8 @@ describe('WMS warehouse custom fields', () => {
     )
     const record = store.records.get(created.warehouseId)!
     dataEngine.setCustomFields.mockClear()
+    dataEngine.markOrmEntityChange.mockClear()
+    dataEngine.indexChanges.length = 0
 
     await handler.undo!({
       input: {},
@@ -248,6 +291,13 @@ describe('WMS warehouse custom fields', () => {
       recordId: created.warehouseId,
       values: expect.objectContaining({ dock_code: null }),
     }))
+    expect(dataEngine.indexChanges).toEqual([
+      {
+        action: 'deleted',
+        identifiers: { id: created.warehouseId, organizationId: ORG, tenantId: TENANT },
+        indexerEntityType: E.wms.warehouse,
+      },
+    ])
   })
 
   it('restores previous custom fields when undoing warehouse update', async () => {
@@ -295,6 +345,8 @@ describe('WMS warehouse custom fields', () => {
       updatedAt: record.updatedAt.toISOString(),
     }
     dataEngine.setCustomFields.mockClear()
+    dataEngine.markOrmEntityChange.mockClear()
+    dataEngine.indexChanges.length = 0
 
     await updateHandler.undo!({
       input: {},
@@ -315,5 +367,106 @@ describe('WMS warehouse custom fields', () => {
       recordId: created.warehouseId,
       values: expect.objectContaining({ dock_code: 'DOCK-A' }),
     }))
+    expect(dataEngine.indexChanges).toEqual([
+      {
+        action: 'updated',
+        identifiers: { id: created.warehouseId, organizationId: ORG, tenantId: TENANT },
+        indexerEntityType: E.wms.warehouse,
+      },
+    ])
+  })
+
+  it('delete tombs the warehouse query index with the warehouse indexer', async () => {
+    const store = createWarehouseStore()
+    const dataEngine = createDataEngine()
+    const createHandler = commandRegistry.get('wms.warehouses.create')!
+    const deleteHandler = commandRegistry.get('wms.warehouses.delete')!
+    const ctx = createCtx(store.em, dataEngine)
+
+    const created = await createHandler.execute!(
+      {
+        tenantId: TENANT,
+        organizationId: ORG,
+        name: 'Delete Index DC',
+        code: 'DELIDX',
+        cf_dock_code: 'DOCK-A',
+      },
+      ctx as never,
+    )
+    dataEngine.indexChanges.length = 0
+
+    await deleteHandler.execute!(
+      { id: created.warehouseId },
+      ctx as never,
+    )
+
+    expect(dataEngine.indexChanges).toEqual([
+      {
+        action: 'deleted',
+        identifiers: { id: created.warehouseId, organizationId: ORG, tenantId: TENANT },
+        indexerEntityType: E.wms.warehouse,
+      },
+    ])
+  })
+
+  it('reindexes the warehouse when undoing delete', async () => {
+    const store = createWarehouseStore()
+    const dataEngine = createDataEngine()
+    const createHandler = commandRegistry.get('wms.warehouses.create')!
+    const deleteHandler = commandRegistry.get('wms.warehouses.delete')!
+    const ctx = createCtx(store.em, dataEngine)
+
+    const created = await createHandler.execute!(
+      {
+        tenantId: TENANT,
+        organizationId: ORG,
+        name: 'Undo Delete Index DC',
+        code: 'UNDODEL',
+        cf_dock_code: 'DOCK-A',
+      },
+      ctx as never,
+    )
+    await deleteHandler.execute!({ id: created.warehouseId }, ctx as never)
+    const record = store.records.get(created.warehouseId)!
+    dataEngine.markOrmEntityChange.mockClear()
+    dataEngine.indexChanges.length = 0
+
+    await deleteHandler.undo!({
+      input: {},
+      logEntry: {
+        commandPayload: {
+          undo: {
+            before: {
+              id: record.id,
+              organizationId: record.organizationId,
+              tenantId: record.tenantId,
+              name: record.name,
+              code: record.code,
+              isActive: record.isActive,
+              isPrimary: record.isPrimary,
+              addressLine1: record.addressLine1,
+              city: record.city,
+              postalCode: record.postalCode,
+              country: record.country,
+              timezone: record.timezone,
+              metadata: record.metadata,
+              createdAt: record.createdAt.toISOString(),
+              updatedAt: record.updatedAt.toISOString(),
+              custom: { dock_code: 'DOCK-A' },
+            },
+          },
+        },
+      },
+      ctx,
+      undoToken: 'undo-delete-index',
+    } as never)
+
+    expect(dataEngine.indexChanges).toEqual([
+      {
+        action: 'created',
+        identifiers: { id: created.warehouseId, organizationId: ORG, tenantId: TENANT },
+        indexerEntityType: E.wms.warehouse,
+      },
+    ])
   })
 })
