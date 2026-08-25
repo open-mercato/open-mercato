@@ -52,6 +52,12 @@ export type SalesDocumentAddressesSectionProps = {
   shippingAddressSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
   lockedReason?: string | null
+  /**
+   * Caption for the disabled action beside `lockedReason`. Defaults to the editable-status
+   * message, which is only correct when the lock IS about status — pass `null` for any other
+   * kind of lock so the banner does not contradict itself.
+   */
+  lockedActionLabel?: string | null
   onUpdated?: (patch: {
     shippingAddressId?: string | null
     billingAddressId?: string | null
@@ -209,6 +215,7 @@ export function SalesDocumentAddressesSection({
   shippingAddressSnapshot,
   billingAddressSnapshot,
   lockedReason,
+  lockedActionLabel,
   onUpdated,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
@@ -255,6 +262,10 @@ export function SalesDocumentAddressesSection({
   const [additionalSaving, setAdditionalSaving] = React.useState(false)
   const [deletingAddressIds, setDeletingAddressIds] = React.useState<Set<string>>(new Set())
   const locked = Boolean(lockedReason)
+  const resolvedLockedActionLabel =
+    lockedActionLabel === undefined
+      ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
+      : lockedActionLabel
   const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
   const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [editingSaving, setEditingSaving] = React.useState(false)
@@ -1043,9 +1054,11 @@ export function SalesDocumentAddressesSection({
             label={lockedReason}
             className="md:col-span-2"
             action={
-              <Button size="sm" variant="outline" disabled>
-                {t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')}
-              </Button>
+              resolvedLockedActionLabel ? (
+                <Button size="sm" variant="outline" disabled>
+                  {resolvedLockedActionLabel}
+                </Button>
+              ) : undefined
             }
           />
         ) : null}

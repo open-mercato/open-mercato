@@ -1914,7 +1914,7 @@ export default function SalesDocumentDetailPage({
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
-  const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
+  const [kind, setKind] = React.useState<'order' | 'quote'>(initialKind ?? 'quote')
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<string>('items')
@@ -1928,7 +1928,8 @@ export default function SalesDocumentDetailPage({
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
-  const [canManage, setCanManage] = React.useState(false)
+  const [canManageOrders, setCanManageOrders] = React.useState(false)
+  const [canManageQuotes, setCanManageQuotes] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2022,7 +2023,6 @@ export default function SalesDocumentDetailPage({
     [t]
   )
 
-  const manageFeature = kind === 'order' ? 'sales.orders.manage' : 'sales.quotes.manage'
   React.useEffect(() => {
     let active = true
     async function loadNumberPermission() {
@@ -2032,7 +2032,9 @@ export default function SalesDocumentDetailPage({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ features: ['sales.documents.number.edit', manageFeature] }),
+            body: JSON.stringify({
+              features: ['sales.documents.number.edit', 'sales.orders.manage', 'sales.quotes.manage'],
+            }),
           }
         )
         if (!active) return
@@ -2049,11 +2051,13 @@ export default function SalesDocumentDetailPage({
           return false
         })
         setCanEditNumber(Boolean(call.ok && hasFeature('sales.documents.number.edit')))
-        setCanManage(Boolean(call.ok && hasFeature(manageFeature)))
+        setCanManageOrders(Boolean(call.ok && hasFeature('sales.orders.manage')))
+        setCanManageQuotes(Boolean(call.ok && hasFeature('sales.quotes.manage')))
       } catch {
         if (active) {
           setCanEditNumber(false)
-          setCanManage(false)
+          setCanManageOrders(false)
+          setCanManageQuotes(false)
         }
       }
     }
@@ -2061,7 +2065,11 @@ export default function SalesDocumentDetailPage({
     return () => {
       active = false
     }
-  }, [scopeVersion, manageFeature])
+  }, [scopeVersion])
+  // Derived at render, not fetched per kind: `kind` starts at `initialKind ?? 'quote'` and can
+  // still flip once the document loads, and a second request would leave a window in which the
+  // answer describes the wrong document kind.
+  const canManage = kind === 'order' ? canManageOrders : canManageQuotes
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -2962,6 +2970,8 @@ export default function SalesDocumentDetailPage({
     : addressGuardBlocked
     ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
     : null
+  // A permission lock is not a status lock: suppress the status-worded action beside the banner.
+  const addressGuardActionLabel = !canManage ? null : undefined
   React.useEffect(() => {
     const id = record?.customerEntityId ?? null
     if (!id) return
@@ -4247,6 +4257,7 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
+              lockedActionLabel={addressGuardActionLabel}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
         />
       )
