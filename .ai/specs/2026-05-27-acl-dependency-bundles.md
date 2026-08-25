@@ -802,14 +802,14 @@ Per-module follow-up issues do NOT need new resolver tests — the resolver is m
 - **Wildcard sprawl** — if every dep eventually resolves through `module.*` grants, the warnings become noise. Acceptable: wildcard grants are typically admin-only, where warnings are irrelevant.
 - **Diagnostic UX overload** — a brand-new role with all features enabled produces zero diagnostics; a brand-new role with only one feature might produce dozens. The "Add all missing" affordance (deferred) addresses this; in v1 the panel is collapsed by default after 5+ items.
 
-## 11. Open questions / deferred
+## 11. Open questions / deferred and resolved follow-ups
 
 1. **Server-side enforcement.** Should `PUT /api/auth/roles/acl` reject saves that violate dependencies? Or auto-add the missing deps server-side? Or expose this as a per-tenant `configs` toggle (strict/warn/off)? Filed as follow-up spec.
 2. **Customer portal parity.** `CustomerRbacService` has its own feature catalog. Should portal features adopt the same `dependsOn`? Filed as follow-up spec — needs a separate audit because portal features cross into admin (e.g. `portal.orders.view` depends on data behind `sales.orders.view`).
 3. **Dependency severity.** Today every dep is "warning". Future: `severity: 'block' | 'warn' | 'hint'` for cases where a missing dep guarantees broken UX vs cases where partial access is intentional. Filed under §11.1.
 4. **Reverse-lookup index.** The resolver walks the catalog linearly; for very large catalogs (>1000 features) it's O(grants × catalog). Filed only if perf bites — current catalog is ~250 features total.
 5. **Auto-derived dependencies.** Could we statically scan `requireFeatures` on page metadata and infer that pages calling each other's APIs declare implicit deps? Spike-quality; filed under §11.4.
-6. **i18n of dep titles.** The warning copy names features by their `title`. Currently titles are English in `acl.ts` files. The i18n migration of feature titles is its own initiative; for now warnings display untranslated titles.
+6. **i18n of dep titles (resolved 2026-08-23).** The editor resolves feature and module titles through `auth.acl.features.<featureId>` and `auth.acl.modules.<moduleId>`, retaining the declaration title as the fallback for third-party and tenant-generated features. The localized catalog is also passed to dependency diagnostics so the picker and its warnings use the same translated titles.
 
 ## 12. References
 
@@ -821,3 +821,7 @@ Per-module follow-up issues do NOT need new resolver tests — the resolver is m
 - `packages/core/src/modules/auth/components/AclEditor.tsx` — the editor wired in this PR.
 - `packages/shared/src/security/features.ts` — `hasFeature`, `matchFeature` runtime.
 - `.ai/runs/2026-05-27-acl-dependency-bundles/` — this run's audit trail and progress.
+
+## 13. Changelog
+
+- 2026-08-23: Recorded the feature/module title localization implemented for issue #5500, including localized dependency diagnostics and fallback behavior for unknown catalog entries.

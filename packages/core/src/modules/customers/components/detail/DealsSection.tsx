@@ -12,7 +12,7 @@ import { LinkEntityDialog } from '../linking/LinkEntityDialog'
 import { createDealLinkAdapter } from '../linking/adapters/dealAdapter'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
@@ -275,9 +275,14 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
   }
 }
 
-function formatValueLabel(amount: number | null, currency: string | null, emptyLabel: string): string {
+function formatValueLabel(
+  amount: number | null,
+  currency: string | null,
+  emptyLabel: string,
+  locale?: string,
+): string {
   if (typeof amount === 'number') {
-    const formatter = new Intl.NumberFormat(undefined, {
+    const formatter = new Intl.NumberFormat(locale, {
       style: currency ? 'currency' : 'decimal',
       currency: currency ?? undefined,
       maximumFractionDigits: 2,
@@ -317,6 +322,7 @@ export function DealsSection({
   runGuardedMutation,
 }: DealsSectionProps) {
   const tHook = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
@@ -963,8 +969,8 @@ export function DealsSection({
           ) : null}
           <div className="space-y-4">
             {sortedDeals.map((deal) => {
-          const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel)
-          const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
+          const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel, locale)
+          const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt, locale) ?? emptyLabel : emptyLabel
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
           const isUnlinkPending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id
