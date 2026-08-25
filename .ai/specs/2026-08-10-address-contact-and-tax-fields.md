@@ -180,7 +180,7 @@ The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document c
 2. Align search config so a public VAT number may index where local/personal numbers stay `hashOnly` or excluded. Indexing only — display is ungated, per Design Decisions.
 
 ### Phase 3 — recipient name + customer address book *(separable)*
-1. `recipientName` on `AddressValue`/`AddressView`; `recipient_name`, `phone` columns on `CustomerAddress` with encryption-map entries.
+1. `recipientName` on `AddressValue`/`AddressView`; `recipient_name`, `phone` columns on `CustomerAddress` with encryption-map entries. This is where `showPhoneField` and `showTaxIdField` stop travelling together: the address book gains the phone and not the tax identifier, which is why the editor takes a flag for each rather than one for both.
 2. `TC-CRM-CRUDFORM-*` sweep update for the new editable fields.
 
 ### Phase 4 — rename + docs

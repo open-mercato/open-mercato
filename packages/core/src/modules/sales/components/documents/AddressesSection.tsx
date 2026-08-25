@@ -1130,7 +1130,8 @@ export function SalesDocumentAddressesSection({
               <AddressEditor
                 value={shippingDraft}
                 format={addressFormat}
-                showContactFields
+                showPhoneField
+                showTaxIdField
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
@@ -1199,7 +1200,8 @@ export function SalesDocumentAddressesSection({
                   <AddressEditor
                     value={billingDraft}
                     format={addressFormat}
-                        showContactFields
+                        showPhoneField
+                        showTaxIdField
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle

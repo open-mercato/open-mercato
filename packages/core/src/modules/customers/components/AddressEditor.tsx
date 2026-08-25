@@ -95,15 +95,20 @@ type AddressEditorProps = {
   showFormatHint?: boolean
   showCoordinateFields?: boolean
   /**
-   * Render the tax identifier and phone. Off by default, and opt-in for the same reason
-   * `showCoordinateFields` is: only a caller whose storage can hold a field should offer it. The
-   * sales document snapshot is schemaless and keeps both; `CustomerAddress` has neither column until
-   * Phase 3, so the address book would present two inputs it silently drops on save.
-   *
-   * This gates the CALLER, not the field. Inside a tile that opts in, both render whether or not they
-   * carry a value and take the same `disabled` as every neighbour.
+   * Render the phone. Off by default, opt-in for the same reason `showCoordinateFields` is: only a
+   * caller whose storage can hold a field should offer it.
    */
-  showContactFields?: boolean
+  showPhoneField?: boolean
+  /**
+   * Render the tax identifier and its scheme. Separate from the phone, and not for symmetry — a
+   * phone is a contact detail and a tax identifier is not, and the two stop travelling together at
+   * the next phase: `CustomerAddress` gains a `phone` column and no tax id, so the address book will
+   * offer one and not the other.
+   *
+   * Both gate the CALLER, not the field. Inside a tile that opts in, the input renders whether or not
+   * it carries a value and takes the same `disabled` as every neighbour.
+   */
+  showTaxIdField?: boolean
 }
 
 /**
@@ -130,7 +135,8 @@ export function AddressEditor({
   hidePrimaryToggle = false,
   showFormatHint = true,
   showCoordinateFields = false,
-  showContactFields = false,
+  showPhoneField = false,
+  showTaxIdField = false,
 }: AddressEditorProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -533,9 +539,9 @@ export function AddressEditor({
           Ordinary fields, not a block rendered beside the editor. An address's tax identifier and
           phone are as much part of it as its street, so they render always and edit the same way —
           whether the address can be edited at all is a property of the address, not decided per
-          field. Whether they appear at all is the CALLER's answer, above.
+          field. Whether each appears at all is the CALLER's answer, above.
         */}
-        {showContactFields ? (
+        {showTaxIdField ? (
         <>
         <div className="flex gap-2">
           {/*
@@ -574,6 +580,10 @@ export function AddressEditor({
           />
         </div>
         {errors.taxId ? <p className="text-xs text-destructive">{errors.taxId}</p> : null}
+        </>
+        ) : null}
+        {showPhoneField ? (
+        <>
         <Input
           className={inputClass('phone')}
           placeholder={t('customers.people.detail.addresses.fields.phone', 'Phone')}
