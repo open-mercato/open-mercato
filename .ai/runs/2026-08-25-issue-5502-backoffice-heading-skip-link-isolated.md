@@ -59,7 +59,7 @@ Complete issue #5502 with backward-compatible, explicit heading semantics, a key
 
 ### Phase 3: Repair missing page headings
 
-- [ ] 3.1 Give audit-log and message-detail pages stable top-level headings
+- [x] 3.1 Give audit-log and message-detail pages stable top-level headings — a07b945d
 
 ### Phase 4: Add regression coverage
 
