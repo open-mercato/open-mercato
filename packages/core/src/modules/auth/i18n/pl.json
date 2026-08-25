@@ -12,7 +12,7 @@
   "auth.acl.deps.orphaned.restore": "Przywróć \"{dependency}\"",
   "auth.acl.deps.orphaned.title": "Usuwasz uprawnienie wymagane przez inne przyznane uprawnienia:",
   "auth.acl.deps.unknown.title": "Niektóre zadeklarowane zależności nie pasują do żadnego znanego uprawnienia:",
-  "auth.acl.organizationWarning": "Ograniczenia organizacyjne są zapisywane tylko wtedy, gdy wybrano co najmniej jedno nadpisanie uprawnień. Dodaj uprawnienie lub włącz wildcard modułu przed zapisaniem.",
+  "auth.acl.organizationWarning": "Ograniczenia organizacyjne wymagają co najmniej jednego nadpisania uprawnień. Dodaj uprawnienie lub wildcard modułu albo wyczyść zakres organizacji przed zapisaniem.",
   "auth.acl.organizationsScope": "Zakres organizacji",
   "auth.acl.restricted": "Ograniczone",
   "auth.actions.contactSupport": "Skontaktuj się z pomocą",

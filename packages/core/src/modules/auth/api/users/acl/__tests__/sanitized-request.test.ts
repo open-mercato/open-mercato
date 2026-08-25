@@ -198,9 +198,45 @@ describe('user ACL sanitized-request reporting', () => {
 
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toEqual({
-      error: 'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.',
+      error: 'Organization restrictions require at least one feature override. Add a feature or module wildcard, or clear the organization scope before saving.',
     })
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('clears every ACL dimension when organizations is an empty array', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+
+    const res = await PUT(partialPutRequest({
+      isSuperAdmin: false,
+      features: [],
+      organizations: [],
+    }))
+
+    expect(res.status).toBe(200)
+    expect(commandAclInput()).toMatchObject({
+      isSuperAdmin: false,
+      features: [],
+      organizations: [],
+      clear: true,
+    })
+  })
+
+  it('persists an empty organization scope when a feature override remains', async () => {
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+
+    const res = await PUT(partialPutRequest({
+      isSuperAdmin: false,
+      features: ['catalog.view'],
+      organizations: [],
+    }))
+
+    expect(res.status).toBe(200)
+    expect(commandAclInput()).toMatchObject({
+      isSuperAdmin: false,
+      features: ['catalog.view'],
+      organizations: [],
+      clear: false,
+    })
   })
 
   it('preserves stored super admin access when the field is omitted', async () => {

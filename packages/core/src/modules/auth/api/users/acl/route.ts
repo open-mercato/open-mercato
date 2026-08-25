@@ -334,19 +334,21 @@ export async function PUT(req: Request) {
     }
   }
 
-  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && requestedOrganizations !== null) {
+  const organizationScopeRequested = requestedOrganizations !== null && requestedOrganizations.length > 0
+
+  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && organizationScopeRequested) {
     const { translate } = await resolveTranslations()
     return NextResponse.json({
       error: translate(
         'auth.acl.organizationWarning',
-        'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.',
+        'Organization restrictions require at least one feature override. Add a feature or module wildcard, or clear the organization scope before saving.',
       ),
     }, { status: 400 })
   }
 
   const hasCustomAcl = effectiveIsSuperAdmin
     || effectiveFeatures.length > 0
-    || requestedOrganizations !== null
+    || organizationScopeRequested
 
   // What the caller asked for, handed to the command only when it exceeds what
   // is about to be written. `assertActorCanGrantAcl` above refuses the blatant

@@ -12,7 +12,7 @@
   "auth.acl.deps.orphaned.restore": "Restore \"{dependency}\"",
   "auth.acl.deps.orphaned.title": "Removing a permission that other granted permissions need:",
   "auth.acl.deps.unknown.title": "Some declared dependencies do not match any known permission:",
-  "auth.acl.organizationWarning": "Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.",
+  "auth.acl.organizationWarning": "Organization restrictions require at least one feature override. Add a feature or module wildcard, or clear the organization scope before saving.",
   "auth.acl.organizationsScope": "Organizations scope",
   "auth.acl.restricted": "Restricted",
   "auth.actions.contactSupport": "Contact Support",

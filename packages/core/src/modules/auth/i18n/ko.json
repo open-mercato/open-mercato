@@ -12,7 +12,7 @@
   "auth.acl.deps.orphaned.restore": "\"{dependency}\" 복원",
   "auth.acl.deps.orphaned.title": "다른 부여된 권한에 필요한 권한을 제거하고 있습니다:",
   "auth.acl.deps.unknown.title": "일부 선언된 종속성이 알려진 권한과 일치하지 않습니다:",
-  "auth.acl.organizationWarning": "조직 제한은 최소 하나의 기능 재정의가 선택된 경우에만 저장됩니다. 저장하기 전에 기능을 추가하거나 모듈 와일드카드를 활성화하세요.",
+  "auth.acl.organizationWarning": "조직 제한에는 하나 이상의 기능 재정의가 필요합니다. 기능이나 모듈 와일드카드를 추가하거나 저장하기 전에 조직 범위를 지우세요.",
   "auth.acl.organizationsScope": "조직 범위",
   "auth.acl.restricted": "제한됨",
   "auth.actions.contactSupport": "지원팀 문의",

@@ -12,7 +12,7 @@
   "auth.acl.deps.orphaned.restore": "Restaurar \"{dependency}\"",
   "auth.acl.deps.orphaned.title": "Eliminando un permiso que otros permisos otorgados necesitan:",
   "auth.acl.deps.unknown.title": "Algunas dependencias declaradas no coinciden con ningún permiso conocido:",
-  "auth.acl.organizationWarning": "Las restricciones de organización se guardan solo cuando se selecciona al menos una anulación de función. Agrega una función o habilita un comodín de módulo antes de guardar.",
+  "auth.acl.organizationWarning": "Las restricciones de organización requieren al menos una anulación de función. Agrega una función o un comodín de módulo, o borra el ámbito de organización antes de guardar.",
   "auth.acl.organizationsScope": "Alcance de organizaciones",
   "auth.acl.restricted": "Restringido",
   "auth.actions.contactSupport": "Contactar soporte",

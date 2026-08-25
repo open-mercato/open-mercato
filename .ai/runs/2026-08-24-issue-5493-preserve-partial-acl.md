@@ -11,7 +11,8 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 ## Scope
 
 - The `PUT /api/auth/users/acl` merge, validation, and OpenAPI description.
-- Regression coverage for organization-only creation, `isSuperAdmin` omission/revocation, and explicit all-dimension clearing.
+- Regression coverage for organization-only creation, `isSuperAdmin` omission/revocation, and both `null` and empty-array all-dimension clearing.
+- Shared ACL warning/rejection copy that explains both valid ways out of an unsafe zero-feature organization override.
 - Focused and configured validation followed by a fresh review of PR #5537.
 
 ## Non-goals
@@ -19,7 +20,7 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 - Do not seed user ACL rows from dynamically aggregated role grants; rejecting an invalid zero-feature organization override is narrower and explicitly accepted by issue #5493.
 - Do not change the role ACL endpoint, whose partial-update merge already preserves stored dimensions.
 - Do not attempt to reconstruct ACL rows deleted on affected deployments; that needs a separate operator remediation decision.
-- Do not change the ACL editor UI or translations because rejection restores the existing warning's stated contract and the API returns an actionable error for the empty-organization path.
+- Do not change the ACL editor component; its existing empty-array output remains the supported clear-override path.
 
 ## Evidence
 
@@ -30,11 +31,12 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 | Rejecting the invalid merged state is acceptable | Issue #5493 expected outcome and the requested-changes review | high |
 | `isSuperAdmin` preservation and explicit revocation need coverage | Review by @pkarw and parity with the role ACL route | high |
 | Partial-update semantics must be documented | Review by @pkarw and the route's OpenAPI description | high |
+| `organizations: []` is the admin UI's clear-scope shape, while only a non-empty array is a restriction | Re-review by @pkarw and `AclEditor.tsx` checkbox behavior | high |
 
 ## Assumptions
 
-- A `400` response is the most reversible behavior for an organization-scoped, zero-feature, non-super-admin result because it writes nothing and asks the operator to select an explicit feature override.
-- The existing ACL editor warning remains accurate once the API rejects the state it warns about; an empty organization array is still surfaced by the API response even though the banner currently appears only for a non-empty restriction.
+- A `400` response is the most reversible behavior for a non-empty organization-scoped, zero-feature, non-super-admin result because it writes nothing and asks the operator to select an explicit feature override or clear the scope.
+- A non-empty organization array is a restriction; an empty array participates in clearing the override and must not trigger the zero-feature rejection.
 - The existing user ACL integration case can cover the partial-update path without new fixtures by applying an organization-only PUT after the initial feature grant.
 
 ## Risks
@@ -59,3 +61,9 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 
 - [x] 3.1 Run focused and configured validation and complete the follow-up review — 6906d1e4a
 - [x] 3.2 Push the reviewed fixes and update PR #5537 for re-review — 6906d1e4a
+
+### Phase 4: Address the empty-array clear regression
+
+- [ ] 4.1 Treat `organizations: []` as no restriction and cover both empty-array outcomes
+- [ ] 4.2 Widen the shared organization warning so it names clearing scope as well as adding a feature
+- [ ] 4.3 Run validation, re-review the final diff, and push the revision for maintainer review
