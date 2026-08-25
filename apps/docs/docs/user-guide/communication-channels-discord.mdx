@@ -22,10 +22,12 @@ There are three moving parts, and the third one is easy to forget:
    start it.** Outbound works without it.
 
 :::info What this release does and does not do
-Outbound messages, inbound messages and reactions in both directions work. Attachments, threaded
-replies, embeds, interactive buttons, editing or deleting a sent message, and pulling older history
-**do not** — see [What this release does not do](#what-this-release-does-not-do) before you promise
-any of them to your users.
+Outbound messages, inbound messages, reactions in both directions, and slash commands / interactive
+components all work. Optional AI auto-reply ships too, **off by default** — see
+[AI auto-reply](#ai-auto-reply-optional) before you turn it on. Attachments, threaded replies,
+embeds, editing or deleting a sent message, and pulling older history **do not** — see
+[What this release does not do](#what-this-release-does-not-do) before you promise any of them to
+your users.
 :::
 
 ## Prerequisites
@@ -99,7 +101,7 @@ https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applic
 | Scope | Why |
 |---|---|
 | `bot` | Adds the bot user to the server — required |
-| `applications.commands` | Lets you register slash commands later. Harmless to include now even though the round-trip is not implemented yet. |
+| `applications.commands` | Required to register slash commands (Part 5). Include it now even if you do not plan to use them yet — adding it later means re-inviting the bot. |
 
 Pick the **minimum** permissions the features you actually use need:
 
@@ -223,13 +225,70 @@ key matches the application you are editing.
 Locally, expose the route with a tunnel (`cloudflared tunnel --url http://localhost:3000` or
 `ngrok http 3000`) and use the public URL.
 
-:::caution The endpoint acknowledges commands; it does not answer them yet
-A verified slash command gets a *deferred* acknowledgement — Discord shows the "thinking" state and
-nothing ever replaces it, because no follow-up is sent. Registering commands and wiring their
-responses is tracked in
-[#4663](https://github.com/open-mercato/open-mercato/issues/4663). Configure this endpoint now if
-you want the plumbing in place; do not present slash commands to users as working.
+### Register the commands
+
+Setting the endpoint is not enough. A slash command only appears in Discord once it is **registered**
+against your application, which is a separate, per-guild decision:
+
+```bash
+yarn mercato channel_discord register-slash-commands --tenant <id> --org <id> \
+  [--guild <guildId>] [--commands <path-to-json>]
+```
+
+| Flag | What it does |
+|---|---|
+| `--guild <guildId>` | Overrides the `guildId` credential. Registration is guild-scoped, so commands appear immediately rather than waiting on Discord's global propagation. |
+| `--commands <path>` | Registers your own command definitions from a JSON file instead of the built-in default. |
+
+Without `--commands` you get the shipped default: `/mercato`, with a `message` option, which sends a
+message to the team through Open Mercato.
+
+:::warning Registration replaces the guild's command list
+The call is a `PUT` against the application's guild commands, so it **replaces** every command this
+application has registered in that guild rather than adding to them. If you maintain a custom set,
+register the full set every time — a partial `--commands` file silently removes the rest.
 :::
+
+### How a command is answered
+
+Discord gives the endpoint three seconds, which is not enough to do real work, so a verified command
+is answered in two stages: the route returns a *deferred* acknowledgement (Discord shows "thinking…")
+and hands the interaction to a background worker, which writes it into the unified inbox and then
+replaces the placeholder with the real message. That worker runs on the app's standard worker runner
+— unlike the Gateway, you do not start it yourself.
+
+---
+
+## AI auto-reply (optional)
+
+Off by default, per channel. When enabled, an AI agent drafts a reply to each inbound Discord
+message; most drafts become a **proposal** a human approves, and only a narrow, confident subset is
+sent automatically.
+
+Turn it on from **Integrations → Discord → the channel**, in the *AI auto-reply* section. Both the
+toggle and the agent selection live on channel state, and both default to off.
+
+:::warning Read this before enabling it on a public server
+Auto-send means the bot answers customers with no human in the loop. Three independent checks must
+all pass before that happens — a conservative classifier must rate the message "easy", the model must
+report that it does not need a human, and the model's own confidence must clear a deliberately high
+threshold (0.6). Any single "no" routes the draft to the approval surface instead, and every failure
+mode — an unavailable model, a denied policy check, a malformed response — degrades to doing nothing.
+
+Enable it on a low-traffic channel first and watch what it proposes before you trust what it sends.
+:::
+
+Operational notes worth knowing:
+
+- **It needs the `ai_assistant` module.** That peer is optional; if it is not installed the
+  subscriber is a no-op and the channel keeps working as a plain inbox.
+- **It runs under a real, tenant-scoped identity**, gated by the `channel_discord.ai_auto_reply.run`
+  permission — not as a super-admin, and not with an empty permission set.
+- **The agent cannot take actions.** It runs in object mode, so no tool is ever exposed to the model;
+  an inbound Discord message cannot reach a privileged operation.
+- **Replies go out the ordinary path** (compose → outbound bridge → Discord REST), so an auto-reply
+  is attributed and audited like any other message — and, like every other message, it is posted by
+  the bot.
 
 ---
 
@@ -293,9 +352,7 @@ declared but not implemented is work silently dropped. Everything below is there
 |---|---|---|
 | Attachments / inline images | ❌ | Outbound attachments are dropped — there is no file upload to Discord. Inbound attachments *are* captured as links. |
 | Threaded replies | ❌ | The adapter can emit a Discord reply reference, but nothing in the hub writes the field it reads, so the path is unreachable. It turns on with the hub-side change, not before. |
-| Interactive components (buttons, selects) | ❌ | The interactions endpoint verifies and acknowledges; it never sends components or a follow-up. → [#4663](https://github.com/open-mercato/open-mercato/issues/4663) |
 | Rich embeds | ❌ | Outbound is plain Markdown `content`; no embeds are built. |
-| AI auto-reply | ❌ | The subscriber ships **dormant**. Nothing in the product turns it on, there is no configuration surface for it, and the agent identity it needs does not exist yet. → [#4778](https://github.com/open-mercato/open-mercato/issues/4778) |
 | Typing indicators, presence, stickers, read receipts | ❌ | Not implemented. |
 
 Three more are implemented in the adapter but have **no way to be triggered**, so treat them as not
@@ -308,7 +365,9 @@ shipped until a surface calls them:
 | Pull older channel history | ⚠️ adapter-only | The adapter can page a Discord channel's history, but its only caller is the polling worker, which deliberately skips Discord because inbound is real-time. **Refresh** on the channel row answers "channel is push-driven — polling does not apply", and **Import history** is unavailable because the adapter does not implement the backfill entry point. New messages arrive live; older ones are not pulled in. |
 
 What **is** supported end to end: outbound messages (Markdown, up to 2000 characters — Discord's own
-limit), real-time inbound messages, and reactions in both directions.
+limit), real-time inbound messages, reactions in both directions, slash commands and interactive
+components (see [Part 5](#part-5--slash-commands-optional)), and — opt-in, off by default — AI
+auto-reply (see [AI auto-reply](#ai-auto-reply-optional)).
 
 Two more things worth setting expectations on:
 
@@ -351,8 +410,14 @@ internet (a tunnel, if you are local); the channel is connected in Open Mercato;
 **Public key** matches the application whose settings you are editing.
 
 ### A slash command shows "thinking" forever
-Expected in this release — the endpoint acknowledges but never follows up. See
-[#4663](https://github.com/open-mercato/open-mercato/issues/4663).
+This is a fault, not a limitation. The endpoint returned its deferred acknowledgement, but the
+background worker never replaced the placeholder. Check that the app's worker runner is alive and
+draining the Discord interactions queue — that worker is part of the app server, so if it is stuck
+nothing else will tell you.
+
+### Typing `/` in Discord offers no Open Mercato commands
+The Interactions Endpoint URL only tells Discord where to send commands; it does not create them. Run
+`yarn mercato channel_discord register-slash-commands` (Part 5) for the guild in question.
 
 ### Test send returns success but the message lands in the wrong channel
 The recipient must be a Discord **channel id**. Anything the endpoint cannot resolve to a

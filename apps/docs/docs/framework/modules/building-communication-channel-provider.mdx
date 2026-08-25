@@ -294,6 +294,8 @@ export const discordCapabilities: ChannelCapabilities = {
   editMessage: true,
   deleteMessage: true,
   conversationHistory: true,
+  interactiveComponents: true,          // the signed route defers, then a worker replaces the
+                                        // "thinking…" placeholder — the round-trip closes
   supportedBodyFormats: ['text', 'markdown'],
   maxBodyLength: 2000,                  // Discord's own REST limit on `content`
   realtimePush: true,                   // a gateway worker delivers inbound; do not poll this channel
@@ -302,7 +304,6 @@ export const discordCapabilities: ChannelCapabilities = {
                            // writes the metadata key it reads — the branch is unreachable
   fileSharing: false,      // outbound attachments are dropped; there is no multipart upload
   inlineImages: false,
-  interactiveComponents: false, // the interactions route acks; it never sends components
   richBlocks: false,
   typingIndicators: false,
   presence: false,
@@ -315,6 +316,11 @@ export const discordCapabilities: ChannelCapabilities = {
   voiceNotes: false,
 }
 ```
+
+The file itself carries a longer reason beside each `false`, and one beside a flag that is
+deliberately **absent**: AI auto-reply adds no capability flag, because `ChannelCapabilities`
+describes what the hub may hand the *adapter*. Auto-reply is a subscriber on the hub's generic
+`message.received` event, so a flag for it would route adapter work that does not exist.
 
 :::warning A `true` flag is not the same as a reachable feature
 The registry proves the *method exists*. It cannot prove anything *calls* it. Discord's
@@ -467,6 +473,18 @@ zero credential decrypts. Then verify against the candidates: the one whose key 
 pins the tenant. If a body carries an id you can narrow candidates by, treat it as **narrowing only**
 — it is unverified input and must never be an authorization decision, and a body claiming nothing
 falls back to the full candidate set rather than being let through.
+
+A synchronous handshake usually comes with a deadline, and the work you actually want to do will not
+fit inside it. Discord closes an interaction that is not answered within **three seconds**, so the
+route does only what is fast — verify, then return a *deferred* acknowledgement — and hands the two
+slow halves to `workers/discord-interactions.ts`: writing the interaction into the hub's inbound
+queue under the matched tenant, and replacing the "thinking…" placeholder with the real message over
+Discord's interaction-webhook endpoints.
+
+Unlike the gateway worker, this one rides the ordinary module queue and the app's standard worker
+runner, so no operator has to start it. Make the split idempotent: the hub dedups on
+`(channel_id, external_message_id)`, and using the interaction snowflake as that external id means a
+retry after a failed follow-up re-enqueues the same job harmlessly instead of duplicating the record.
 
 ### 6. Inbound over something that is not a webhook
 
