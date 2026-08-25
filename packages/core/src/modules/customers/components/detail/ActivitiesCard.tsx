@@ -270,7 +270,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         disabled={!interactive}
         className={cn(
           'flex w-full items-start gap-3 py-2.5 text-left transition-colors',
-          interactive ? 'cursor-pointer rounded-md hover:bg-accent/30 px-1' : 'px-1',
+          interactive ? 'cursor-pointer rounded-md px-1 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none' : 'px-1',
         )}
       >
         <div className="flex h-[44px] w-[43px] shrink-0 flex-col gap-[2px] pt-[2px]">
