@@ -12,10 +12,10 @@ Source doc: `.ai/specs/2026-08-25-catalog-bulk-create.md`
 | 1 | 1.2 | Worker + lib (categories bulk-create) | inline | done | 0fd7a9085 |
 | 1 | 1.3 | Verify events/index fire per row unchanged | inline | done | 012e1ad94 |
 | 1 | 1.4 | Checkpoint + idempotent resume | inline | done | 0fd7a9085 (landed with 1.2 — the row loop and its checkpoint bookkeeping are one function, not two separable diffs; see NOTIFY) |
-| 2 | 2.1 | Worker + pre-warm (products bulk-create) | inline | todo | — |
-| 2 | 2.2 | Route + validators (products bulk-create) | inline | todo | — |
-| 2 | 2.3 | Identity-map hit-rate verification | inline | todo | — |
-| 2 | 2.4 | Per-row failure + checkpoint/resume parity | inline | todo | — |
+| 2 | 2.1 | Worker + lib (products bulk-create, pre-validation only per operator decision) | inline | done | PENDING_SHA |
+| 2 | 2.2 | Route + validators (products bulk-create) | inline | done | PENDING_SHA (landed with 2.1) |
+| 2 | 2.3 | Pre-validation fail-fast verification (redefined per operator decision — no identity-map/memoization mechanism exists to measure) | inline | done | PENDING_SHA (landed with 2.1; see lib/__tests__/bulkCreateProducts.test.ts) |
+| 2 | 2.4 | Per-row failure + checkpoint/resume parity | inline | done | PENDING_SHA (landed with 2.1) |
 | 3 | 3.1 | i18n + job-detail surfacing | inline | todo | — |
 | 3 | 3.2 | Docs | inline | todo | — |
 

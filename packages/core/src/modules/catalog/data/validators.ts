@@ -328,6 +328,15 @@ export const productCreateSchema = productBaseSchema
   .superRefine(productUomCrossFieldRefinement)
   .superRefine(productComplianceCrossFieldRefinement)
 
+export const productBulkCreateRowSchema = productBaseSchema
+  .omit({ organizationId: true, tenantId: true })
+  .superRefine(productUomCrossFieldRefinement)
+  .superRefine(productComplianceCrossFieldRefinement)
+
+export const productsBulkCreateSchema = z.object({
+  items: z.array(productBulkCreateRowSchema).min(1).max(10000),
+})
+
 export const productUpdateSchema = z
   .object({
     id: uuid(),
@@ -531,6 +540,8 @@ export const productUnitConversionDeleteSchema = scoped.extend({
 
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
+export type ProductBulkCreateRow = z.infer<typeof productBulkCreateRowSchema>
+export type ProductsBulkCreateInput = z.infer<typeof productsBulkCreateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
 export type VariantUpdateInput = z.infer<typeof variantUpdateSchema>
 export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
