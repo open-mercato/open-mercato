@@ -189,7 +189,7 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   const commandBus = container.resolve('commandBus') as CommandBus
   let result: { shareId: string | null; changed: boolean }
   try {
-    result = await commandBus.execute<
+    const executed = await commandBus.execute<
       EmailConversationShareSetCommandInput,
       { shareId: string | null; changed: boolean }
     >('customers.email_conversation_shares.set', {
@@ -208,6 +208,7 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
         organizationIds: [organizationId],
       },
     })
+    result = executed.result
   } catch (err) {
     // Surfaces the 409 conflict body and the 400 "nothing to share" case with
     // their intended status instead of a generic 500.

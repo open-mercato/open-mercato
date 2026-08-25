@@ -287,7 +287,7 @@ export const privateEmailCountEnricher: ResponseEnricher<
       userId,
     ).catch(() => [])
 
-    const rows = await applyEmailHiddenFilter(baseQuery as never, {
+    const rows = await applyEmailHiddenFilter(baseQuery, {
       currentUserId: userId,
       userFeatures: undefined,
       sharedConversations,

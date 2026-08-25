@@ -171,7 +171,7 @@ const setEmailConversationShareCommand: CommandHandler<
         sharedByUserId: ownerUserId,
       } as never) as CustomerEmailConversationShare
 
-      await withAtomicFlush(em, [() => em.persist(created)], {
+      await withAtomicFlush(em, [() => { em.persist(created) }], {
         transaction: true,
         label: 'customers.email_conversation_shares.set',
       })
@@ -207,12 +207,14 @@ const setEmailConversationShareCommand: CommandHandler<
       resourceKind: RESOURCE_KIND,
       resourceId: result.shareId ?? undefined,
       summary: before
-        ? translate('customers.email.conversationShare.log.revoked', {
-            defaultValue: 'Stopped sharing an email conversation with the team',
-          })
-        : translate('customers.email.conversationShare.log.granted', {
-            defaultValue: 'Shared an email conversation with the team',
-          }),
+        ? translate(
+            'customers.email.conversationShare.log.revoked',
+            'Stopped sharing an email conversation with the team',
+          )
+        : translate(
+            'customers.email.conversationShare.log.granted',
+            'Shared an email conversation with the team',
+          ),
     }
   },
 }

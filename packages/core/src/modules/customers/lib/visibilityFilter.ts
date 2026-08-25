@@ -248,7 +248,7 @@ export type EmailVisibilityMikroFilter = EmailVisibilityFilterFragment
  * predicate can grow arms without leaking private rows at compile-clean call
  * sites.
  */
-export type EmailVisibilityFilterFragment = FilterQuery<CustomerInteraction>
+export type EmailVisibilityFilterFragment = { $or: FilterQuery<CustomerInteraction>[] }
 
 export function buildEmailVisibilityMikroFilter(
   opts: ApplyEmailVisibilityFilterOptions,

@@ -105,7 +105,12 @@ export async function GET(req: Request) {
     // disagree with the visibility-filtered list it labels.
     const emailShareGrants = await listGrantsForViewer(
       em,
-      { tenantId: auth.tenantId as string, organizationId: organizationId ?? null },
+      {
+        tenantId: auth.tenantId as string,
+        // Grants are org-scoped; with a multi-org scope fall back to tenant-wide
+        // (the predicate still matches on person + owner, never on org alone).
+        organizationId: organizationIds.length === 1 ? organizationIds[0] : null,
+      },
       viewerUserId,
     )
     baseQuery = applyEmailVisibilityFilter(baseQuery, {
