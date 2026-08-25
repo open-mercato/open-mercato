@@ -24,6 +24,32 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
+### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
+
+The route used to treat every omitted field as a cleared one: an omitted `features`
+became `[]` and an omitted `organizations` became `null`. A request carrying only
+`organizations` was therefore classified as an empty override, so the route **deleted the
+user's ACL row** and answered `200 {"ok":true}`. Because a per-user ACL is how a role gets
+*narrowed*, deleting it dropped the user back to their full role — the failure direction
+was fail-open, triggered by an ordinary administrative scope edit.
+
+Omitted `features`, `organizations`, and `isSuperAdmin` now keep their stored values, so a
+single-dimension edit no longer clears the dimensions it did not touch. Two consequences
+for callers that relied on the old shape:
+
+- **Removing an override now needs every dimension cleared explicitly.** Send
+  `{ userId, features: [], organizations: null }`. A bare `{ userId, features: [] }` against
+  a row that carries an organization restriction is now rejected (see below) rather than
+  deleting the row.
+- **An organization-scoped override with no feature grant returns `400`.** A `UserAcl` is an
+  absolute override, so persisting that state would revoke every role-granted feature
+  instead of narrowing the role. Restate the grant alongside the scope —
+  `{ userId, organizations: [orgId], features: ['module.*'] }`. Test fixtures and scripts
+  that set a scope with an organizations-only call need the same restatement; previously
+  such a call reported success while storing nothing.
+
+`PUT /api/auth/roles/acl` already behaved this way and is unchanged.
+
 ### Passkey MFA verification requires a real WebAuthn assertion (#3852)
 
 `PasskeyProvider.verify()` used to accept a second payload shape — `{ credentialId, challenge }` — beside the genuine `{ response }` assertion, and approved it by string comparison. Both compared values are public: `prepareChallenge()` returns the credential id and the challenge to the caller, and `GET /api/security/mfa/methods` discloses `providerMetadata.credentialId`. A third shape needed even less: with no prepared challenge at all, only the disclosed credential id was compared. Anyone who could reach the verify step for a session therefore passed the passkey second factor with no authenticator private key and no signature, in both login-time MFA and passkey-as-sudo step-up.
