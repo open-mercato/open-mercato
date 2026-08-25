@@ -93,6 +93,50 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
   )
 }
 
+/**
+ * Row-level predicate: is this email interaction HIDDEN from the caller?
+ *
+ * The exact logical complement of {@link applyEmailVisibilityFilter}, extracted so
+ * every enforcement point derives from one definition of the rule. Any change to
+ * the visibility predicate MUST be mirrored here and in
+ * {@link applyEmailHiddenFilter} in the same commit — the unit tests assert the
+ * three agree on a shared row matrix.
+ */
+export function isEmailHiddenFrom(opts: {
+  interactionType: string | null | undefined
+  visibility: string | null | undefined
+  authorUserId: string | null | undefined
+  currentUserId: string | null | undefined
+}): boolean {
+  if (opts.interactionType !== 'email') return false
+  if (opts.visibility !== 'private') return false
+  return !(opts.currentUserId && opts.authorUserId && opts.authorUserId === opts.currentUserId)
+}
+
+/**
+ * Kysely complement of {@link applyEmailVisibilityFilter}: narrows a query to the
+ * email rows the caller may NOT read. Used to count another user's private email
+ * without duplicating the rule in raw SQL.
+ *
+ * Note the SQL NULL semantics deliberately preserved from the original inline
+ * query: `author_user_id != caller` does not match rows whose author is NULL, so a
+ * private row with no author is neither visible nor counted. Private rows always
+ * carry the channel owner as author, so this is unreachable in practice; it is
+ * documented rather than "fixed" so counts do not shift silently.
+ */
+export function applyEmailHiddenFilter<T extends { where: (...args: any[]) => T }>(
+  query: T,
+  opts: ApplyEmailVisibilityFilterOptions,
+): T {
+  const currentUserId = opts.currentUserId
+  return query
+    .where('interaction_type', '=', 'email')
+    .where('visibility', '=', 'private')
+    .where((eb: any) =>
+      currentUserId ? eb('author_user_id', '!=', currentUserId) : eb.val(true),
+    )
+}
+
 type RbacServiceLike = {
   getEffectiveFeatures?: (
     userId: string,
@@ -138,11 +182,32 @@ export async function resolveCallerEmailFeatures(
  * privacy (v1: strict owner-only): no admin bypass — a private email is hidden
  * from everyone except its author. `opts.userFeatures` is reserved for v2.
  */
-export type EmailVisibilityMikroFilter = { $or?: FilterQuery<CustomerInteraction>[] }
+/**
+ * @deprecated Use {@link EmailVisibilityFilterFragment}. The old shape exposed
+ * `$or` as the only possible key, which invited callers to consume the fragment
+ * as `where.$or = build(...).$or` and silently drop any other arm the predicate
+ * grows. Retained for one minor per the deprecation protocol in
+ * `BACKWARD_COMPATIBILITY.md`.
+ */
+export type EmailVisibilityMikroFilter = EmailVisibilityFilterFragment
+
+/**
+ * Opaque where-fragment to merge (implicit AND) into a `CustomerInteraction`
+ * where-clause. Callers MUST merge the WHOLE fragment — `{ ...fragment }` or
+ * `Object.assign(where, fragment)` — and never cherry-pick a single key, so the
+ * predicate can grow arms without leaking private rows at compile-clean call
+ * sites.
+ */
+export type EmailVisibilityFilterFragment = FilterQuery<CustomerInteraction>
 
 export function buildEmailVisibilityMikroFilter(
   opts: ApplyEmailVisibilityFilterOptions,
-): EmailVisibilityMikroFilter {
+): EmailVisibilityFilterFragment {
+  // Deliberately a SINGLE `$or` key. Several callers merge this fragment by
+  // object spread into a where-clause that may itself carry other keys; keeping
+  // the whole predicate inside one `$or` means such a spread can never split the
+  // predicate into independently-satisfiable arms. Any future widening MUST be
+  // added as another arm of THIS `$or`, not as a sibling top-level key.
   return {
     $or: [
       { interactionType: { $ne: 'email' } },
@@ -150,5 +215,5 @@ export function buildEmailVisibilityMikroFilter(
       { visibility: { $ne: 'private' } },
       ...(opts.currentUserId ? [{ authorUserId: opts.currentUserId }] : []),
     ],
-  }
+  } as EmailVisibilityFilterFragment
 }

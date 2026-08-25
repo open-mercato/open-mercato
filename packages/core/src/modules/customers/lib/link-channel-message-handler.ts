@@ -336,7 +336,12 @@ async function handleThreadingInheritance(
         body: bodyText,
         authorUserId: channelUserId,
         occurredAt,
-        visibility: channelUserId ? 'private' : 'shared',
+        // Single source of truth for the ingestion default (see resolveVisibility).
+        // The threading-inheritance path deliberately passes no metadata and no
+        // direction: a reply is matched by parent-thread lookup and its metadata is
+        // provider-derived, so it must never be able to downgrade privacy via the
+        // `crmVisibility` override.
+        visibility: resolveVisibility(null, channelUserId, null),
         channelProviderKey: providerKey,
       })
       return
@@ -415,7 +420,9 @@ async function handleThreadingInheritance(
 
   if (inheritedPersonIdSet.size === 0) return
 
-  const visibility: 'private' | 'shared' = channelUserId ? 'private' : 'shared'
+  // Same single source of truth as the primary ingestion path; no metadata and no
+  // direction on the inheritance path (see the sibling call above).
+  const visibility: 'private' | 'shared' = resolveVisibility(null, channelUserId, null)
   const link = _link
   const inheritedMeta = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const subject =

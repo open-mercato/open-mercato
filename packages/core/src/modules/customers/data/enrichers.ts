@@ -3,6 +3,7 @@ import type { CustomerKysely } from '../lib/kysely'
 import { resolveKyselyClient } from '../lib/kysely'
 import { fetchStuckThresholdDays } from '../lib/stuckDeals'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
+import { applyEmailHiddenFilter, isEmailHiddenFrom } from '../lib/visibilityFilter'
 
 type DealRecord = Record<string, unknown> & {
   id: string
@@ -262,17 +263,24 @@ export const privateEmailCountEnricher: ResponseEnricher<
       return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
     }
 
-    const rows = await (db as CustomerKysely)
+    // The count is the complement of what the read filter admits, so it derives
+    // from the SAME shared rule (`applyEmailHiddenFilter`) rather than restating
+    // `visibility = 'private'` in raw SQL here. Keeping the two in one place is
+    // what stops the Person page reporting "3 private emails" for emails the
+    // caller can actually read once the predicate widens.
+    const baseQuery = (db as CustomerKysely)
       .selectFrom('customer_interactions')
       .select(['entity_id'])
       .select((eb) => eb.fn.countAll().as('count'))
       .where('tenant_id', '=', context.tenantId)
       .where('organization_id', '=', context.organizationId)
-      .where('interaction_type', '=', 'email')
-      .where('visibility', '=', 'private')
       .where('deleted_at', 'is', null)
       .where('entity_id', 'in', personIds)
-      .where('author_user_id', '!=', userId)
+
+    const rows = await applyEmailHiddenFilter(baseQuery as never, {
+      currentUserId: userId,
+      userFeatures: undefined,
+    })
       .groupBy('entity_id')
       .execute()
 
@@ -434,7 +442,17 @@ export const interactionEmailCardEnricher: ResponseEnricher<
       // private row is enriched only for its author. The normal read paths
       // already drop these rows; this keeps the globally-registered enricher
       // safe-by-construction for any future consumer that opts into it.
-      if (visibility === 'private' && !isAuthor) {
+      //
+      // Derives from the shared rule so the card actions can never disagree with
+      // the read filter about who may act on an email.
+      if (
+        isEmailHiddenFrom({
+          interactionType: r.interactionType,
+          visibility,
+          authorUserId,
+          currentUserId,
+        })
+      ) {
         return r
       }
       const existingIntegrations = (r._integrations ?? {}) as Record<string, unknown>

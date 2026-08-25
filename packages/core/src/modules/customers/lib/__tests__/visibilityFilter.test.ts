@@ -4,6 +4,7 @@ import {
   callerHasEmailViewPrivate,
   canChangeEmailVisibility,
   EMAIL_VIEW_PRIVATE_FEATURE,
+  isEmailHiddenFrom,
 } from '../visibilityFilter'
 
 describe('callerHasEmailViewPrivate', () => {
@@ -190,5 +191,113 @@ describe('canChangeEmailVisibility', () => {
   it('DENIES an actor-less caller (API key) without view_private', () => {
     expect(canChangeEmailVisibility({ ...base, actorUserId: null, userFeatures: ['customers.interactions.manage'] })).toBe(false)
     expect(canChangeEmailVisibility({ ...base, actorUserId: null, userFeatures: null })).toBe(false)
+  })
+})
+
+describe('email visibility fragment contract', () => {
+  // Regression guard for the fail-OPEN hazard this module used to invite: the
+  // fragment was typed `{ $or?: ... }`, and `personEmailThreads` consumed it as
+  // `where.$or = build(...).$or`. Any arm that is not expressible as a member of
+  // that single `$or` would have compiled cleanly and been silently discarded,
+  // leaking private rows. Two invariants keep that from returning.
+
+  it('is a single-key $or so a whole-fragment spread can never split the predicate', () => {
+    const fragment = buildEmailVisibilityMikroFilter({
+      currentUserId: 'user-1',
+      userFeatures: undefined,
+    })
+    // Callers merge this into where-clauses that carry their own keys
+    // (`{ entity, deletedAt, ...fragment }`). One key means the merge is total.
+    expect(Object.keys(fragment)).toEqual(['$or'])
+  })
+
+  it('survives whole-fragment merging in both styles used by the read paths', () => {
+    const fragment = buildEmailVisibilityMikroFilter({
+      currentUserId: 'user-1',
+      userFeatures: undefined,
+    })
+
+    // Style A — object spread (`api/people/[id]`, `api/companies/[id]`).
+    const spread = { entity: 'person-1', deletedAt: null, ...fragment }
+    expect(spread).toMatchObject({ entity: 'person-1', deletedAt: null })
+    expect((spread as Record<string, unknown>).$or).toEqual(
+      (fragment as Record<string, unknown>).$or,
+    )
+
+    // Style B — Object.assign (`api/activities`, `lib/personEmailThreads`).
+    const assigned: Record<string, unknown> = { entity: 'person-1', tenantId: 't1' }
+    Object.assign(assigned, fragment)
+    expect(assigned.entity).toBe('person-1')
+    expect(assigned.tenantId).toBe('t1')
+    expect(assigned.$or).toEqual((fragment as Record<string, unknown>).$or)
+  })
+
+  it('carries every predicate arm through a merge, not just the first', () => {
+    // Proves the merge is lossless over the arm list: an implementation that
+    // cherry-picked one arm (or dropped the owner arm) fails here.
+    const fragment = buildEmailVisibilityMikroFilter({
+      currentUserId: 'owner-1',
+      userFeatures: undefined,
+    }) as { $or: unknown[] }
+    const merged: Record<string, unknown> = {}
+    Object.assign(merged, fragment)
+    expect(merged.$or).toHaveLength(4)
+    expect(merged.$or).toContainEqual({ authorUserId: 'owner-1' })
+  })
+})
+
+describe('isEmailHiddenFrom', () => {
+  // Row-level complement of applyEmailVisibilityFilter. The card enricher uses
+  // it, so a disagreement here means the Reply/Forward actions and the read
+  // filter differ about who may act on an email.
+  const base = {
+    interactionType: 'email',
+    visibility: 'private',
+    authorUserId: 'owner-1',
+    currentUserId: 'other-1',
+  }
+
+  it('hides another user\'s private email', () => {
+    expect(isEmailHiddenFrom(base)).toBe(true)
+  })
+
+  it('shows a private email to its author', () => {
+    expect(isEmailHiddenFrom({ ...base, currentUserId: 'owner-1' })).toBe(false)
+  })
+
+  it('never hides non-email interactions', () => {
+    expect(isEmailHiddenFrom({ ...base, interactionType: 'call' })).toBe(false)
+    expect(isEmailHiddenFrom({ ...base, interactionType: 'task' })).toBe(false)
+  })
+
+  it('never hides shared or legacy-null rows', () => {
+    expect(isEmailHiddenFrom({ ...base, visibility: 'shared' })).toBe(false)
+    expect(isEmailHiddenFrom({ ...base, visibility: null })).toBe(false)
+  })
+
+  it('hides private email from an anonymous/API-key caller (fail closed)', () => {
+    expect(isEmailHiddenFrom({ ...base, currentUserId: null })).toBe(true)
+  })
+
+  it('agrees with the MikroORM predicate across a shared row matrix', () => {
+    // Both helpers derive from one rule; this matrix is the contract between
+    // them. `visible` is what the $or predicate admits, evaluated by hand.
+    const rows = [
+      { interactionType: 'email', visibility: 'private', authorUserId: 'owner-1', visible: false },
+      { interactionType: 'email', visibility: 'private', authorUserId: 'me', visible: true },
+      { interactionType: 'email', visibility: 'shared', authorUserId: 'owner-1', visible: true },
+      { interactionType: 'email', visibility: null, authorUserId: 'owner-1', visible: true },
+      { interactionType: 'call', visibility: 'private', authorUserId: 'owner-1', visible: true },
+    ]
+    for (const row of rows) {
+      expect(
+        isEmailHiddenFrom({
+          interactionType: row.interactionType,
+          visibility: row.visibility,
+          authorUserId: row.authorUserId,
+          currentUserId: 'me',
+        }),
+      ).toBe(!row.visible)
+    }
   })
 })

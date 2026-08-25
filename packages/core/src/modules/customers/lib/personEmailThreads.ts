@@ -154,10 +154,16 @@ export async function buildPersonEmailThreads(
   //     CRM history is never silently hidden.
   // Fail-closed: a null viewer (API-key caller) never matches the author arm, so
   // it only ever sees shared/legacy rows — never anyone's private email.
-  interactionWhere.$or = buildEmailVisibilityMikroFilter({
-    currentUserId: viewerUserId,
-    userFeatures,
-  }).$or
+  // Merge the WHOLE fragment. Cherry-picking `.$or` here would silently discard
+  // any other arm the predicate grows, which fails OPEN at a compile-clean call
+  // site — the exact hazard the fragment contract now documents.
+  Object.assign(
+    interactionWhere,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: viewerUserId,
+      userFeatures,
+    }),
+  )
 
   // `customer_interaction.title`/`body` are encrypted at rest, so reads go
   // through `findWithDecryption` even though we only consume non-encrypted
