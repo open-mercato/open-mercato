@@ -296,7 +296,7 @@ The user explicitly requested: "we should not automatically log out the user." T
 
 ### Decision: Keep built-in settings navigation server-scoped
 
-Built-in settings navigation continues to be derived from the server-side nav build in backend layout. This avoids introducing a second ACL source that is not selected-organization aware.
+Built-in settings navigation continues to be derived from the server-side nav build in backend layout. Although issue #5498 made `/api/auth/feature-check` selected-organization aware, this avoids introducing a second scoped ACL snapshot that can drift from the authoritative server-built one.
 
 ### Decision: "Sign in as different user" is opt-in navigation, not auto-redirect
 
@@ -493,5 +493,6 @@ Phases A and B should ship together as they fix the most visible user-facing bug
 
 | Date | Change |
 |------|--------|
+| 2026-08-25 | Corrected feature-check scope statements after #5498 aligned the endpoint with the request-selected organization; built-in navigation stays server-sourced |
 | 2026-03-25 | Initial draft — root cause analysis and five-phase solution |
 | 2026-03-25 | Revised draft after pre-implementation analysis — added BC bridges, full settings guard inventory, server-scoped nav model, explicit in-page forbidden-state contract, and template parity requirements |
