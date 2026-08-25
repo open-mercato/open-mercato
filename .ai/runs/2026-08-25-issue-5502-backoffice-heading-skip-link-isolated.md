@@ -54,7 +54,7 @@ Complete issue #5502 with backward-compatible, explicit heading semantics, a key
 
 ### Phase 2: Restore compatible component semantics
 
-- [ ] 2.1 Merge current `develop` without rewriting PR history and resolve conflicts
+- [x] 2.1 Merge current `develop` without rewriting PR history and resolve conflicts — 9757da47
 - [ ] 2.2 Add explicit backward-compatible heading-level APIs and update page/section consumers
 
 ### Phase 3: Repair missing page headings
