@@ -95,5 +95,28 @@ PR: #5597
 
 ### Phase 2: Validate and ship
 
-- [ ] 2.1 Run the validation gate relevant to the change
-- [ ] 2.2 Open the PR, label it, and drive CI to green
+- [x] 2.1 Run the validation gate relevant to the change — 8dfac93c7
+- [x] 2.2 Open the PR, label it, and drive CI to green — 8dfac93c7
+
+## Outcome
+
+CI green on `8dfac93c7`. The failing test now passes in **2.2 s**, against **22.0 s** on the
+red `develop` run — the old figure was 20 s of `toHaveURL` timeout plus ~2 s of real work, so
+the timing itself confirms the redirect stopped waiting on a stranded fetch. Shard totals:
+`passed=226, failed=0, flaky=0, skipped=8`.
+
+Local gate: everything green except 4 tests in `create-mercato-app`'s
+`src/lib/template-dev-log-files.test.ts`, which assert this host's inotify sysctls
+(`fs.inotify.max_user_instances: 128 < 4096`). Host limit, not the branch — the file is
+untouched here and CI's `test` job passes.
+
+Found and deliberately excluded during the run, filed as #5598: `develop` carries two silent
+drifts from #4391 (channel-discord) landing without refreshing what it derives — a stale
+`lucideRegistry.generated.tsx` missing the `bot` icon, and a `yarn template:sync` that now
+reports drift on every run because `TEMPLATE_DISABLED_MODULE_IDS` does not model the
+template's deliberate `channel_discord` disabling. A `packages/ui/**` edit was briefly swept
+into this PR by `git add -A` after a local `yarn generate` and was reverted in `8dfac93c7`;
+it had also flipped CI's integration scope to the full 15-shard suite.
+
+`develop` itself stays red until this merges — the branch requires a review approval this
+run cannot give itself.
