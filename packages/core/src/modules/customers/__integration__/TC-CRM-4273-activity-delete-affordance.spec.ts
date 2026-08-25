@@ -79,7 +79,10 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       //    overflow menu — destructive actions stay quiet by default (#4273 UX review).
       //    The fixture company owns a single interaction, so the page-scoped control
       //    is unambiguous.
-      const overflowTrigger = page.getByRole('button', { name: 'Open actions' }).first()
+      // exact: the clickable card wrapper is itself role=button and its subtree
+      // accessible name CONTAINS 'Open actions', so substring matching resolves
+      // to the card and every interaction lands on row-edit instead of the menu.
+      const overflowTrigger = page.getByRole('button', { name: 'Open actions', exact: true }).first()
       await expect(
         overflowTrigger,
         'ActivityCard on the company detail route MUST render an overflow actions menu',
@@ -89,9 +92,20 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
         'delete MUST NOT be a permanently visible control on the card',
       ).toHaveCount(0)
 
+      // The email card grows when its async action row hydrates, which can move
+      // the trigger between Playwright's coordinate resolve and the physical
+      // click — a mis-hit lands on the card body and opens the edit dialog
+      // instead. Settle the page first, then retry with an Escape reset if the
+      // click still lands wrong.
+      await page.waitForLoadState('networkidle')
       const openDeleteFromMenu = async () => {
-        await overflowTrigger.click()
         const deleteItem = page.getByRole('menuitem', { name: /Delete activity/i })
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          await overflowTrigger.click()
+          const opened = await deleteItem.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true).catch(() => false)
+          if (opened) break
+          await page.keyboard.press('Escape')
+        }
         await expect(deleteItem).toBeVisible({ timeout: 15_000 })
         await deleteItem.click()
       }
