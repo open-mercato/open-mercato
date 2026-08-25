@@ -47,7 +47,7 @@ import {
  *     `MESSAGE_CREATE` events into the hub's ingest command — NOT this
  *     `verifyWebhook` hook (Discord does not POST normal messages to a webhook).
  *   - Slash commands / buttons: a signed **Interactions** endpoint
- *     (`api/post/channel_discord/interactions`) with Ed25519 verification.
+ *     (`api/interactions` → `/api/channel_discord/interactions`) with Ed25519 verification.
  *
  * `verifyWebhook` security contract (fail-closed): the shared
  * `api/post/webhook/[provider]` route treats a non-throwing return as "verified".
@@ -138,7 +138,7 @@ class DiscordChannelAdapter implements ChannelAdapter {
     }
     // Verified interaction. The generic hub route cannot answer the synchronous
     // PING→PONG handshake, so real interactions are served by the dedicated
-    // `api/post/channel_discord/interactions` route; here we only prove the
+    // `api/interactions` → `/api/channel_discord/interactions` route; here we only prove the
     // signature and ack.
     return { raw: { discordInteraction: interaction }, eventType: 'other', metadata: { interactionType: interaction.type } }
   }

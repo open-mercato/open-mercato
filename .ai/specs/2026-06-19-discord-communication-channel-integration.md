@@ -368,7 +368,7 @@ No new hub entities. Discord reuses the hub's existing entities (`CommunicationC
 | `lib/capabilities.ts` | `ChannelCapabilities` (`realtimePush: true`, `editMessage: true`, `deleteMessage: true`). |
 | `cli.ts` → `register-slash-commands` | Registers application (slash) commands against one guild (`PUT /applications/{app}/guilds/{guild}/commands`). Operator-run, not automatic — registration is a per-guild decision. |
 
-All API route files MUST export `openApi`; `api/post/interactions/route.ts` does, and pins its operator-facing path explicitly in `metadata.path`.
+All API route files MUST export `openApi`; `api/interactions/route.ts` does, and pins its operator-facing path explicitly in `metadata.path`.
 The provider module MUST run `yarn generate` after adding DI/setup/acl/integration files.
 
 ### Interactions dispatch (issue #4663)
@@ -383,7 +383,7 @@ call — run in a worker.
 |-------|-------|--------------|
 | Screen | `lib/interactions-handler.ts` → `screenInteractionRequest` | Rejects on the request alone (missing / malformed signature header, stale timestamp) before any database work. |
 | Verify + pin | `handleDiscordInteraction` | Ed25519 fan-out over the `application_id`-narrowed candidates; the match pins tenant and organization. |
-| Answer | `api/post/interactions/route.ts` | PING → PONG. Dispatchable type → deferred ack **plus** the `dispatch` payload. Autocomplete → empty choice list (Discord rejects a deferred ack there). Anything else, or a payload with no follow-up token / channel / invoking user → an ephemeral "not handled" reply, never a promise the provider cannot keep. |
+| Answer | `api/interactions/route.ts` | PING → PONG. Dispatchable type → deferred ack **plus** the `dispatch` payload. Autocomplete → empty choice list (Discord rejects a deferred ack there). Anything else, or a payload with no follow-up token / channel / invoking user → an ephemeral "not handled" reply, never a promise the provider cannot keep. |
 | Hand off | route → `lib/interactions-queue.ts` | Enqueues on `channel_discord_interactions` **before** returning the ack; a queue that cannot accept the job downgrades the response to a visible error. |
 | Dispatch | `workers/discord-interactions.ts` | Synthesizes a Discord message object from the interaction, enqueues it on the hub's existing `communication-channels-inbound` queue, then replaces the placeholder over Discord's interaction-webhook endpoints. |
 

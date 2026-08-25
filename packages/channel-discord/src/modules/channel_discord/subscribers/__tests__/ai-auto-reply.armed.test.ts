@@ -29,8 +29,7 @@ const KEY_NAMERS = [
   'lib/ai-reply.ts', // reads the toggle + agent id for the subscriber
   'lib/credentials.ts', // declares the channelState schema they live in
   'lib/channel-state-store.ts', // carries them forward when the gateway writes resume state
-  'api/get/channels/[id]/ai-auto-reply/route.ts', // reads them for the settings form
-  'api/put/channels/[id]/ai-auto-reply/route.ts', // validates the payload before the command
+  'api/channels/[id]/ai-auto-reply/route.ts', // GET reads them for the settings form, PUT validates the payload before the command
   'backend/channel_discord/channels/[id]/ai-auto-reply/page.tsx', // the settings form itself
   'widgets/injection/ai-auto-reply/widget.client.tsx', // shows the current state per channel
 ] as const
@@ -66,6 +65,8 @@ describe('channel_discord ai-auto-reply — armed contract', () => {
   const moduleRoot = path.join(packageSrc, 'modules', 'channel_discord')
   const files = collectSourceFiles(packageSrc)
   const relative = (file: string) => path.relative(moduleRoot, file).split(path.sep).join('/')
+  const readSettingsRoute = () =>
+    fs.readFileSync(path.join(moduleRoot, 'api', 'channels', '[id]', 'ai-auto-reply', 'route.ts'), 'utf8')
 
   it('scans a real, non-empty source tree', () => {
     expect(files.length).toBeGreaterThan(20)
@@ -99,9 +100,7 @@ describe('channel_discord ai-auto-reply — armed contract', () => {
   })
 
   it('persists the settings through the command bus, not a direct entity write', () => {
-    const route = stripComments(
-      fs.readFileSync(path.join(moduleRoot, 'api', 'put', 'channels', '[id]', 'ai-auto-reply', 'route.ts'), 'utf8'),
-    )
+    const route = stripComments(readSettingsRoute())
     expect(route).toContain('CHANNEL_DISCORD_UPDATE_AI_AUTO_REPLY_COMMAND_ID')
     expect(route).not.toMatch(/\.flush\(/)
     expect(route).not.toMatch(/nativeUpdate/)
@@ -117,11 +116,12 @@ describe('channel_discord ai-auto-reply — armed contract', () => {
   })
 
   it('gates the write route on the configure feature, not merely on being signed in', () => {
-    const route = fs.readFileSync(
-      path.join(moduleRoot, 'api', 'put', 'channels', '[id]', 'ai-auto-reply', 'route.ts'),
-      'utf8',
-    )
-    expect(route).toContain('requireAuth: true')
-    expect(route).toContain('CHANNEL_DISCORD_CONFIGURE_FEATURE')
+    // The settings route exposes GET and PUT from one file, so assert on the PUT
+    // metadata block specifically: a file-wide `toContain` would still pass if the
+    // configure feature only ever guarded the read half.
+    const putMetadata = readSettingsRoute().match(/\n {2}PUT: \{[\s\S]*?\n {2}\},/)?.[0]
+    expect(putMetadata).toBeDefined()
+    expect(putMetadata).toContain('requireAuth: true')
+    expect(putMetadata).toContain('CHANNEL_DISCORD_CONFIGURE_FEATURE')
   })
 })

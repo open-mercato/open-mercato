@@ -5,21 +5,21 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
-import { discordCredentialsSchema } from '../../../lib/credentials'
-import { DISCORD_MESSAGE_FLAG_EPHEMERAL } from '../../../lib/discord-rest'
-import type { DispatchableInteraction } from '../../../lib/interactions-dispatch'
+import { discordCredentialsSchema } from '../../lib/credentials'
+import { DISCORD_MESSAGE_FLAG_EPHEMERAL } from '../../lib/discord-rest'
+import type { DispatchableInteraction } from '../../lib/interactions-dispatch'
 import {
   DEFAULT_INTERACTION_MESSAGES,
   resolveDiscordInteraction,
   screenInteractionRequest,
   type InteractionCandidate,
   type InteractionCandidateFilter,
-} from '../../../lib/interactions-handler'
+} from '../../lib/interactions-handler'
 import {
   getInteractionDispatchQueue,
   type InteractionDispatchJobPayload,
-} from '../../../lib/interactions-queue'
-import { DiscordInteractionResponseType } from '../../../lib/interactions-verify'
+} from '../../lib/interactions-queue'
+import { DiscordInteractionResponseType } from '../../lib/interactions-verify'
 
 const logger = createLogger('channel_discord').child({ component: 'interactions-route' })
 
@@ -48,10 +48,11 @@ const logger = createLogger('channel_discord').child({ component: 'interactions-
  * follow-up nothing will send.
  */
 export const metadata = {
-  // Pinned explicitly (the Gmail webhook route sets its path the same way):
-  // module-scoped routes derive `/<moduleId>/<path-under-the-method-folder>`, so
-  // the operator-facing URL below is part of this route's contract, not a
-  // by-product of where the file happens to sit.
+  // Pinned explicitly: this URL is operator-facing — it goes into the Discord
+  // application's Interactions Endpoint field — so it is part of this route's
+  // contract rather than a by-product of where the file happens to sit. It is
+  // the same path the folder derives, so the pin documents the contract instead
+  // of overriding it.
   path: '/channel_discord/interactions',
   POST: {
     requireAuth: false,
@@ -239,5 +240,3 @@ export const openApi = {
     },
   },
 }
-
-export default POST
