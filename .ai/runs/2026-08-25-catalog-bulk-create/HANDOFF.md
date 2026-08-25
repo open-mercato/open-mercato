@@ -2,8 +2,8 @@
 
 **PR:** #5610 (`feat/catalog-bulk-create` → `develop`, fork `adeptofvoltron/open-mercato`)
 **Status:** in-progress
-**Last commit:** `01b11ac39`
-**Next concrete action:** Step 7 (final validation gate + integration suite decision + style pass), Step 8 (`om-auto-review-pr --autofix`), Steps 9–10 (summary comment, labels, draft→ready, lock release). All implementation and docs work is done.
+**Last commit:** `c3249bb43`
+**Next concrete action:** Step 8 (`om-auto-review-pr --autofix`), then Steps 9–10 (summary comment, labels, draft→ready, lock release). All implementation, docs, and the Step 7 final gate are done.
 
 ## Current Tasks-table state (see PLAN.md for the authoritative table)
 
@@ -34,9 +34,12 @@ All of Phase 1 (1.1–1.4), Phase 2 (2.1–2.4), and Phase 3 (3.1, 3.2) are `don
 
 ## Remaining work
 
-1. **Step 7 (final gate)** — full `validation.commands` gate, integration suite via `om-integration-tests` (or a documented skip reason — this PR's changes are backend-only, no `.tsx` touched, so a Playwright UI pass may not be warranted; decide at that point per the skill's UI-verification rule), style-compliance pass.
-2. **Step 8** — `om-auto-review-pr 5610 --autofix`.
-3. **Steps 9–10** — comprehensive summary comment (must explicitly state the products memoization goal was dropped and why, and that the spec was corrected), label normalization, draft→ready promotion, lock release.
+1. **Step 8** — `om-auto-review-pr 5610 --autofix`.
+2. **Steps 9–10** — comprehensive summary comment (must explicitly state the products memoization goal was dropped and why, that the spec was corrected, and that the two new integration specs are unexecuted-in-this-pass), label normalization, draft→ready promotion, lock release.
+
+## Step 7 final gate — done (full detail in `final-gate-checks.md`)
+
+Full `validation.commands` gate clean (build:packages ×2, generate, i18n:check-sync, i18n:check-usage, typecheck, test, build:app) modulo the same pre-existing Polish-locale `warranty_claims` test failure noted at both checkpoints. `yarn lint` (style pass) clean, 0 errors. Added integration test coverage per AGENTS.md's rule (`TC-CAT-036`/`TC-CAT-037`, commit `c3249bb43`) — written and lint-clean, but **not executed against a live app**: no dev server/ephemeral QA env was available in this worktree, and a `playwright --list` attempt hung and was killed rather than pursued further (standing up a full ephemeral environment was judged out of proportion for this resume). Flagged as a known gap for the reviewer/CI, not silently skipped.
 
 ## Decision history: reference-data caching (fully resolved — do not re-open)
 

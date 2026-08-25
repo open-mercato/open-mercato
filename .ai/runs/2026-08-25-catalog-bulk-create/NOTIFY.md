@@ -1,5 +1,13 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T16:45:00Z — Step 7 final gate done; integration tests added but unexecuted
+
+- Added `TC-CAT-036`/`TC-CAT-037` integration specs for both bulk-create endpoints (commit `c3249bb43`), following the `customers` module's `TC-CRM-068` queue-drain/progress-poll precedent. Required by AGENTS.md's "integration coverage ships in the same change" rule; previously only unit-level (mocked commandBus) coverage existed.
+- Full `validation.commands` gate clean (8/8 steps); `yarn lint` clean. Detail in `final-gate-checks.md`.
+- **Gap disclosed, not hidden**: the two new specs were not run against a live app this pass — no dev server/ephemeral env available, and a `playwright --list` attempt hung (killed after several minutes rather than debugged further, given no environment was standing). Flagged in HANDOFF.md and will be flagged in the PR summary comment for the reviewer/CI to pick up.
+- Also noticed and fixed mid-gate: retroactively applied the `in-progress` claim label + comment for this resume, which had been skipped at the start of this session (step 1 of the skill) — the PR was otherwise correctly labeled/assigned from the prior resume's release.
+- Status remains `in-progress`, PR stays draft. Next: Step 8 (`om-auto-review-pr --autofix`).
+
 ## 2026-08-25T16:00:00Z — spec correction landed; all implementation/docs work done
 
 - `.ai/specs/2026-08-25-catalog-bulk-create.md` corrected across TLDR, Resolved Assumptions, Proposed Solution, Architecture, Data Model, UI/UX, Edge Cases, Risks, Phasing, and Implementation Plan to describe what actually ships instead of the original (non-viable) identity-map pre-warm design. Commit `01b11ac39`.
