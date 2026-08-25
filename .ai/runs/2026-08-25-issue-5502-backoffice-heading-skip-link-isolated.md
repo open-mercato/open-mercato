@@ -67,4 +67,4 @@ Complete issue #5502 with backward-compatible, explicit heading semantics, a key
 
 ### Phase 5: Verify and publish
 
-- [ ] 5.1 Run focused and full validation, review, and push final fixes
+- [x] 5.1 Run focused and full validation, review, and push final fixes — 6e161da13
