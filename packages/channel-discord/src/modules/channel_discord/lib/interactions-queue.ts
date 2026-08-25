@@ -23,9 +23,18 @@ export type InteractionDispatchJobPayload = {
   tenantId: string
   organizationId: string | null
   /**
-   * Scope the bot token is re-resolved with on the worker side. The token itself
-   * is deliberately absent: the local queue strategy persists payloads to disk
-   * as plain JSON.
+   * Scope the **bot token** is re-resolved with on the worker side. The bot token
+   * itself is deliberately absent, because the local queue strategy persists
+   * payloads to disk as plain JSON and that token is long-lived.
+   *
+   * This is not a blanket "no credential travels on this payload" guarantee, and
+   * reading it as one would be a mistake: `interaction.token` below IS a
+   * credential. It is Discord's interaction webhook token, and on its own — with
+   * no bot token at all — it can post as the application (the `auth === null`
+   * calls in `discord-rest.ts`), so it does land on disk under the local
+   * strategy. Discord expires it 15 minutes after the interaction, which bounds
+   * the exposure rather than removing it. `interactions-dispatch.ts` states the
+   * same constraint from the other side.
    */
   credentialScope: { tenantId: string; organizationId: string; userId: string | null }
   interaction: DispatchableInteraction

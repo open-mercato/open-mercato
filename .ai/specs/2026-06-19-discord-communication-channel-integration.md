@@ -347,6 +347,8 @@ No new hub entities. Discord reuses the hub's existing entities (`CommunicationC
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/api/channel_discord/interactions` | POST | Discord **Interactions** endpoint (slash commands, buttons, modal submissions, PING handshake). Unauthenticated at the platform layer; Ed25519 verification is the auth, fail-closed. Provider-owned because Discord requires a synchronous PONG the hub's generic webhook route cannot return. |
+| `/api/channel_discord/channels/{id}/ai-auto-reply` | GET / PUT | Per-channel AI auto-reply settings. GET returns the stored state, the eligible agents, and per agent whether the auto-reply principal could actually invoke it; PUT arms or disarms through the settings command. Gated on `channel_discord.view` / `channel_discord.configure`. |
+| `/api/channel_discord/ai-auto-reply/channels` | GET | Every Discord channel's auto-reply state in one query, for the integration detail panel. Deliberately does **not** build the agent directory — the panel renders booleans, not a picker — and pins its own `metadata.path` so the collection cannot be mistaken for a channel id. |
 
 | File | Purpose |
 |------|---------|
@@ -1117,6 +1119,36 @@ rule 3), and no variant should be considered done without it.
 
 ## Changelog
 
+### 2026-08-25 — Arming an auto-reply channel is authorized, and a dormant one says so (re-review of PR #4391)
+
+- **§ AI bot wiring → A configuration path.** The settings route checked that the chosen agent was
+  *shaped* right — object-mode, so `runAiAgentObject` would take it — and stopped there. The runtime
+  asks a second question: `checkAgentPolicy` runs the agent's `requiredFeatures` against the
+  principal from `lib/ai-service-principal.ts`, which carries one grant unless the tenant created a
+  channel-bot user with a wider role. An operator could therefore pick an agent from another module,
+  the PUT would succeed, the UI would read "Auto-reply on", and every inbound message would be denied
+  inside the subscriber. The route now resolves that same principal and refuses the save, naming the
+  missing grants; the comparison goes through the platform's `authorizeFeatures`, one feature at a
+  time, so wildcard grants resolve exactly as the runtime resolves them. The picker labels an agent
+  the principal cannot invoke instead of offering it silently.
+- **New § A visible failure mode.** A save-time check goes stale the moment a role is edited, and
+  the subscriber degrades every failure to a no-op by design, so "armed but answering nothing" had
+  to become observable rather than merely rarer. Each failure now writes
+  `channelState.aiAutoReplyLastError` (through `lib/channel-state-store.ts`, keeping the single-writer
+  contract on the arming keys intact) and the next successful attempt clears it. The channel row's
+  own `lastError` is deliberately untouched: the hub owns it for delivery and polling and clears it
+  on a successful poll, so borrowing it would let the two failure kinds erase each other.
+- **§ New provider-owned surface.** Lists the settings route, which the table had never carried, plus
+  the new `GET /api/channel_discord/ai-auto-reply/channels`. The integration panel was listing
+  channels and then calling the per-channel settings route once per channel — 41 requests and 40
+  agent-registry loads to render 40 booleans. One query replaces them, and a test asserts the route
+  never builds the agent directory so the N+1 cannot creep back.
+- Tests: a route-level arming matrix (refused agent, provider agent under the bare service principal,
+  foreign agent once granted, wildcard grant, disarm, masked 404, absent peer, wrong shape), the
+  feature-comparison matrix against the real `authorizeFeatures`, the marker's write/clear/dedup/
+  truncation/scope rules, and subscriber coverage proving a marker write can never escalate a
+  degraded no-op into a thrown handler.
+
 ### 2026-08-24 — AI auto-reply implemented and re-scoped in (issue #4778)
 
 Reverses the 2026-08-01 de-scope. § AI bot wiring describes shipped behaviour again, and the
@@ -1140,7 +1172,20 @@ restored — in the same change that makes the feature real, not before it.
   tenant-scoped, mutation-guarded, optimistic-locked on the channel's `updated_at`, and persisted
   through `channel_discord.channel.update_ai_auto_reply` — which merges rather than replaces
   `channelState`, so a settings save cannot clobber the gateway's resume cursor. Enabling is
-  refused when the AI peer is absent or the chosen agent is one the runtime would reject.
+  refused when the AI peer is absent, when the chosen agent is one the runtime would reject on
+  shape, and when the auto-reply principal does not hold that agent's `requiredFeatures` — the
+  three questions `runAiAgentObject` → `checkAgentPolicy` asks at run time, asked at save time
+  against the same principal and through the platform's own `authorizeFeatures`, so wildcard role
+  grants resolve identically. The picker labels an agent the principal cannot invoke with the
+  grants it is missing rather than silently offering it.
+- **A visible failure mode.** Every auto-reply failure still degrades to a no-op — a broken model
+  must never become a send — but the reason is now parked on the channel
+  (`channelState.aiAutoReplyLastError`, written only through `lib/channel-state-store.ts`) and
+  cleared by the next attempt that gets through. A save-time check cannot close this on its own,
+  because a role edited after the channel was armed makes that verdict stale; without the marker,
+  an armed channel that answers nothing looks identical to a healthy one. The settings page shows
+  it as a banner and the integration panel flips the channel's tag from "Auto-reply on" to
+  "Auto-reply failing".
 - **A proposal surface for the `complex` tier.** `message-types.ts` registers
   `channel_discord.ai_reply_proposal` with approve/dismiss `defaultActions`, which is also what
   allowlists the two commands in `commands/ai-reply-proposal.ts` against the messages module's

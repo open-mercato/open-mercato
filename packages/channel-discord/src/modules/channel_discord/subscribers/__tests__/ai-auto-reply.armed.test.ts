@@ -30,6 +30,7 @@ const KEY_NAMERS = [
   'lib/credentials.ts', // declares the channelState schema they live in
   'lib/channel-state-store.ts', // carries them forward when the gateway writes resume state
   'api/channels/[id]/ai-auto-reply/route.ts', // GET reads them for the settings form, PUT validates the payload before the command
+  'api/ai-auto-reply/channels/route.ts', // reads them for the integration panel's single-call listing
   'backend/channel_discord/channels/[id]/ai-auto-reply/page.tsx', // the settings form itself
   'widgets/injection/ai-auto-reply/widget.client.tsx', // shows the current state per channel
 ] as const
@@ -113,6 +114,27 @@ describe('channel_discord ai-auto-reply — armed contract', () => {
     expect(subscriber).not.toMatch(/features:\s*\[\s*\]/)
     expect(subscriber).toContain('principal.features')
     expect(subscriber).toContain('isSuperAdmin: principal.isSuperAdmin')
+  })
+
+  it('refuses to arm a channel against an agent the auto-reply principal cannot invoke', () => {
+    // Structural, because the behavioural half lives in the route test and this
+    // is the property that must not quietly disappear: object-mode eligibility is
+    // a SHAPE check, and on its own it re-opens the dormancy hole — the runtime
+    // also enforces `requiredFeatures` against the principal from
+    // `lib/ai-service-principal.ts`, so the save path has to ask the same
+    // question with the same principal.
+    const route = stripComments(readSettingsRoute())
+    expect(route).toContain('missingAgentFeatures')
+    expect(route).toContain('resolveDiscordAiPrincipal')
+  })
+
+  it('records why an armed channel produced nothing, instead of only logging it', () => {
+    const subscriber = stripComments(
+      fs.readFileSync(path.join(moduleRoot, 'subscribers', 'ai-auto-reply.ts'), 'utf8'),
+    )
+    // The no-op on failure is correct; being silent about it is what made the
+    // feature dormant. The marker write must survive any refactor of the catch.
+    expect(subscriber).toContain('recordDiscordAutoReplyOutcome')
   })
 
   it('gates the write route on the configure feature, not merely on being signed in', () => {

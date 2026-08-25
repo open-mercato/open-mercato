@@ -12,6 +12,7 @@ import {
 } from '../ai-agents'
 import {
   classifyDiscordMessage,
+  hasStoredAutoReplyFailure,
   isAiAssistantAvailable,
   isAiAutoReplyEnabled,
   resolveAiAgentId,
@@ -19,6 +20,8 @@ import {
 } from '../lib/ai-reply'
 import { fileDiscordReplyProposal } from '../lib/ai-proposal'
 import { resolveDiscordAiPrincipal, type DiscordAiPrincipal } from '../lib/ai-service-principal'
+import { recordDiscordAutoReplyOutcome } from '../lib/channel-state-store'
+import { describeAgentFailure } from '../lib/failure-reason'
 
 const logger = createLogger('channel_discord').child({ component: 'ai-auto-reply' })
 
@@ -154,8 +157,43 @@ export default async function handler(payload: MessageReceivedPayload, ctx: Ctx)
       tier: classification.tier,
       classificationReason: classification.reason,
     })
+    // Clearing costs a read-modify-write, so only pay it on a channel that is
+    // actually carrying a stale failure. The row was already loaded above.
+    if (hasStoredAutoReplyFailure(channel.channelState)) {
+      await recordAutoReplyOutcome({ em, channelId: payload.channelId, scope, failure: null })
+    }
   } catch (err) {
+    // The no-op is the correct behaviour — a broken model must never become a
+    // send. Staying silent about it is not: the operator's surface would keep
+    // reading "Auto-reply on" for a channel that answers nothing. Park the reason
+    // on the channel so the settings page and the integration panel can show it.
     logger.warn('discord AI auto-reply failed — degrading to no-op', { channelId: payload.channelId, err })
+    await recordAutoReplyOutcome({
+      em,
+      channelId: payload.channelId,
+      scope,
+      failure: describeAgentFailure(agentId, err),
+    })
+  }
+}
+
+/**
+ * Persisting the outcome must never be able to turn a degraded no-op into a
+ * thrown handler — the marker is diagnostics, not the job.
+ */
+async function recordAutoReplyOutcome(params: {
+  em: EntityManager
+  channelId: string
+  scope: { tenantId: string; organizationId: string | null }
+  failure: string | null
+}): Promise<void> {
+  try {
+    await recordDiscordAutoReplyOutcome(params)
+  } catch (err) {
+    logger.warn('failed to persist the discord auto-reply outcome marker', {
+      channelId: params.channelId,
+      err,
+    })
   }
 }
 

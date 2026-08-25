@@ -9,23 +9,19 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 
-type ChannelRow = {
-  id: string
-  providerKey: string
+type ChannelEntry = {
+  channelId: string
   displayName: string
-  externalIdentifier: string | null
+  aiAutoReplyEnabled: boolean
+  aiAgentId: string | null
+  aiAutoReplyLastError: string | null
+  aiAutoReplyLastErrorAt: string | null
 }
 
 type ChannelsResponse = {
-  items?: ChannelRow[]
+  items?: ChannelEntry[]
+  truncated?: boolean
 }
-
-type ChannelAiSettings = {
-  aiAutoReplyEnabled: boolean
-  aiAgentId: string | null
-}
-
-type ChannelEntry = ChannelRow & { ai: ChannelAiSettings | null }
 
 /**
  * Entry point to the per-channel AI auto-reply settings, rendered on the Discord
@@ -42,13 +38,18 @@ export default function DiscordAiAutoReplyWidget(
 ) {
   const t = useT()
   const [entries, setEntries] = React.useState<ChannelEntry[] | null>(null)
+  const [truncated, setTruncated] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
     async function load() {
+      // One call for the whole panel. Listing the channels and then asking the
+      // per-channel settings route for each one was a request per channel, and
+      // every one of those responses rebuilt the agent registry to render two
+      // booleans.
       const listed = await apiCall<ChannelsResponse>(
-        '/api/communication_channels/channels?providerKey=discord&pageSize=100',
+        '/api/channel_discord/ai-auto-reply/channels',
       ).catch(() => null)
       if (cancelled) return
       if (!listed?.ok) {
@@ -58,17 +59,8 @@ export default function DiscordAiAutoReplyWidget(
         setEntries([])
         return
       }
-      const channels = listed.result?.items ?? []
-      const withSettings = await Promise.all(
-        channels.map(async (channel) => {
-          const settings = await apiCall<ChannelAiSettings>(
-            `/api/channel_discord/channels/${encodeURIComponent(channel.id)}/ai-auto-reply`,
-          ).catch(() => null)
-          return { ...channel, ai: settings?.ok ? (settings.result ?? null) : null }
-        }),
-      )
-      if (cancelled) return
-      setEntries(withSettings)
+      setEntries(listed.result?.items ?? [])
+      setTruncated(Boolean(listed.result?.truncated))
     }
     void load()
     return () => {
@@ -99,24 +91,36 @@ export default function DiscordAiAutoReplyWidget(
       ) : (
         <ul className="divide-y rounded-md border">
           {entries.map((entry) => (
-            <li key={entry.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+            <li key={entry.channelId} className="flex flex-wrap items-center justify-between gap-3 p-3">
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">{entry.displayName}</div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {entry.ai?.aiAgentId
+                  {entry.aiAgentId
                     ?? t('channel_discord.aiAutoReply.widget.noAgent', 'No agent selected')}
                 </div>
+                {entry.aiAutoReplyLastError ? (
+                  <div className="truncate text-xs text-status-error-text">
+                    {t('channel_discord.aiAutoReply.widget.lastError', 'Last attempt failed: {reason}', {
+                      reason: entry.aiAutoReplyLastError,
+                    })}
+                  </div>
+                ) : null}
               </div>
               <div className="flex items-center gap-3">
-                {entry.ai?.aiAutoReplyEnabled ? (
-                  <Tag variant="success" dot>
-                    {t('channel_discord.aiAutoReply.widget.on', 'Auto-reply on')}
+                {entry.aiAutoReplyEnabled ? (
+                  // An armed channel whose last attempt failed is not "on" in any
+                  // sense the operator cares about — say so on the tag, not only in
+                  // the detail line they may not read.
+                  <Tag variant={entry.aiAutoReplyLastError ? 'error' : 'success'} dot>
+                    {entry.aiAutoReplyLastError
+                      ? t('channel_discord.aiAutoReply.widget.failing', 'Auto-reply failing')
+                      : t('channel_discord.aiAutoReply.widget.on', 'Auto-reply on')}
                   </Tag>
                 ) : (
                   <Tag variant="neutral">{t('channel_discord.aiAutoReply.widget.off', 'Auto-reply off')}</Tag>
                 )}
                 <Button asChild type="button" variant="outline">
-                  <Link href={`/backend/channel_discord/channels/${encodeURIComponent(entry.id)}/ai-auto-reply`}>
+                  <Link href={`/backend/channel_discord/channels/${encodeURIComponent(entry.channelId)}/ai-auto-reply`}>
                     {t('channel_discord.aiAutoReply.widget.configure', 'Configure')}
                   </Link>
                 </Button>
@@ -125,6 +129,15 @@ export default function DiscordAiAutoReplyWidget(
           ))}
         </ul>
       )}
+      {truncated ? (
+        // A capped list that says nothing reads as "these are all your channels".
+        <p className="text-xs text-muted-foreground">
+          {t(
+            'channel_discord.aiAutoReply.widget.truncated',
+            'Only the most recent channels are shown. Open a channel from the Channels page to configure the rest.',
+          )}
+        </p>
+      ) : null}
     </div>
   )
 }

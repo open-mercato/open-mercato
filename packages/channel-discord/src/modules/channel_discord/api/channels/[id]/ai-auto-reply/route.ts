@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -13,8 +15,14 @@ import {
   type UpdateAiAutoReplyInput,
   type UpdateAiAutoReplyResult,
 } from '../../../../commands/update-ai-auto-reply'
-import { isDiscordEligibleAgentId, listDiscordEligibleAgents } from '../../../../lib/ai-agent-directory'
+import {
+  findDiscordEligibleAgent,
+  listDiscordEligibleAgents,
+  missingAgentFeatures,
+  type AgentInvokingPrincipal,
+} from '../../../../lib/ai-agent-directory'
 import { CHANNEL_DISCORD_CONFIGURE_FEATURE, CHANNEL_DISCORD_VIEW_FEATURE } from '../../../../lib/ai-features'
+import { resolveDiscordAiPrincipal } from '../../../../lib/ai-service-principal'
 import { loadDiscordChannelForRequest } from '../../../../lib/channel-access'
 import { discordChannelStateSchema } from '../../../../lib/credentials'
 
@@ -33,8 +41,29 @@ type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
 }
 
-function fieldError(field: string, message: string): Response {
-  return NextResponse.json({ error: message, fieldErrors: { [field]: message } }, { status: 400 })
+function fieldError(field: string, message: string, extra?: Record<string, unknown>): Response {
+  return NextResponse.json(
+    { error: message, fieldErrors: { [field]: message }, ...extra },
+    { status: 400 },
+  )
+}
+
+/**
+ * The identity the auto-reply subscriber will run the chosen agent under, so both
+ * methods can answer "would the runtime accept this?" with the same grants the
+ * subscriber will present — the tenant's channel-bot user when it exists, the
+ * provider service principal otherwise.
+ */
+async function loadInvokingPrincipal(
+  container: AwilixContainer,
+  scope: { tenantId: string; organizationId: string | null },
+): Promise<AgentInvokingPrincipal> {
+  const em = (container.resolve('em') as EntityManager).fork()
+  return resolveDiscordAiPrincipal({
+    em,
+    resolver: { resolve: <T,>(name: string): T => container.resolve(name) as T },
+    scope,
+  })
 }
 
 /**
@@ -62,6 +91,23 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const state = discordChannelStateSchema.safeParse(channel.channelState ?? {})
   const directory = await listDiscordEligibleAgents()
 
+  // Every offered agent carries whether the auto-reply principal could actually
+  // invoke it. Without this the picker offers agents from other modules that the
+  // runtime will refuse, and the refusal only ever happens later in a background
+  // subscriber — so the operator sees "Auto-reply on" and silence.
+  const principal = directory.available
+    ? await loadInvokingPrincipal(container, {
+      tenantId: auth.tenantId as string,
+      organizationId: access.rbacOrganizationId,
+    })
+    : null
+  const agents = directory.available && principal
+    ? directory.agents.map((agent) => {
+      const missingFeatures = missingAgentFeatures(agent.requiredFeatures, principal)
+      return { ...agent, invocable: missingFeatures.length === 0, missingFeatures }
+    })
+    : []
+
   return NextResponse.json({
     id: channel.id,
     channelId: channel.id,
@@ -69,9 +115,13 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     updatedAt: channel.updatedAt ? channel.updatedAt.toISOString() : null,
     aiAutoReplyEnabled: state.success ? Boolean(state.data.aiAutoReplyEnabled) : false,
     aiAgentId: (state.success ? state.data.aiAgentId : undefined) ?? null,
+    // Why the last attempt produced nothing, so an armed channel that answers
+    // nothing says so instead of looking healthy.
+    aiAutoReplyLastError: (state.success ? state.data.aiAutoReplyLastError : undefined) ?? null,
+    aiAutoReplyLastErrorAt: (state.success ? state.data.aiAutoReplyLastErrorAt : undefined) ?? null,
     defaultAgentId: CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID,
     aiAvailable: directory.available,
-    agents: directory.available ? directory.agents : [],
+    agents,
   })
 }
 
@@ -80,10 +130,12 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
  * subscriber was missing (issue #4778).
  *
  * The route is deliberately strict about *enabling*: it refuses to arm a channel
- * whose AI peer is absent, or to point one at an agent the runtime would reject.
- * Both would store a setting that can only fail later, inside a background
- * subscriber where nobody sees the error — which is precisely how the feature
- * ended up dormant in the first place.
+ * whose AI peer is absent, one pointed at an agent the runtime would reject on
+ * shape, and one pointed at an agent the auto-reply principal is not authorized
+ * to invoke. All three would store a setting that can only fail later, inside a
+ * background subscriber where nobody sees the error — which is precisely how the
+ * feature ended up dormant in the first place. The three checks mirror, in order,
+ * what `runAiAgentObject` → `checkAgentPolicy` will ask at run time.
  */
 export async function PUT(req: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params
@@ -109,25 +161,45 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
     return fieldError(field, issue?.message ?? 'Invalid AI auto-reply settings')
   }
 
-  if (parsed.data.aiAutoReplyEnabled) {
-    const directory = await listDiscordEligibleAgents()
-    if (!directory.available) {
-      return fieldError(
-        'aiAutoReplyEnabled',
-        'channel_discord.aiAutoReply.errors.aiUnavailable',
-      )
-    }
-    const agentId = parsed.data.aiAgentId as string
-    if (!(await isDiscordEligibleAgentId(agentId))) {
-      return fieldError('aiAgentId', 'channel_discord.aiAutoReply.errors.agentNotEligible')
-    }
-  }
-
   const container = await createRequestContainer()
   // Authorize before the guard so a caller who may not touch this channel gets a
-  // masked 404 rather than a guard verdict about a record they cannot see.
+  // masked 404 rather than a guard verdict about a record they cannot see. It
+  // also comes before the arming checks below, which need the channel's resolved
+  // organization to build the principal they judge the agent against.
   const access = await loadDiscordChannelForRequest({ container, req, auth, channelId: id, mode: 'manage' })
   if ('response' in access) return access.response
+
+  if (parsed.data.aiAutoReplyEnabled) {
+    const agentId = parsed.data.aiAgentId as string
+    const agent = await findDiscordEligibleAgent(agentId)
+    if (!agent) {
+      // No eligible agent under this id: either the optional AI peer is absent, or
+      // the agent is not object-mode and `runAiAgentObject` would reject it.
+      const directory = await listDiscordEligibleAgents()
+      return directory.available
+        ? fieldError('aiAgentId', 'channel_discord.aiAutoReply.errors.agentNotEligible')
+        : fieldError('aiAutoReplyEnabled', 'channel_discord.aiAutoReply.errors.aiUnavailable')
+    }
+
+    // Shape is not authorization. `checkAgentPolicy` enforces the agent's
+    // `requiredFeatures` against the auto-reply principal at run time, so arming a
+    // channel against an agent that principal cannot invoke stores a setting that
+    // can only fail later — inside a background subscriber, where the operator
+    // never sees it. Refuse here, naming the grants the tenant's channel-bot user
+    // is missing, rather than accepting a channel that would answer nothing.
+    const principal = await loadInvokingPrincipal(container, {
+      tenantId: auth.tenantId as string,
+      organizationId: access.rbacOrganizationId,
+    })
+    const missingFeatures = missingAgentFeatures(agent.requiredFeatures, principal)
+    if (missingFeatures.length > 0) {
+      return fieldError(
+        'aiAgentId',
+        'channel_discord.aiAutoReply.errors.agentFeaturesMissing',
+        { missingFeatures },
+      )
+    }
+  }
 
   const guard = await validateRouteMutationGuard({
     container,
@@ -213,7 +285,11 @@ export const openApi = {
       tags: ['CommunicationChannels'],
       responses: [
         { status: 200, description: 'Settings stored' },
-        { status: 400, description: 'Invalid payload, AI module absent, or agent not eligible' },
+        {
+          status: 400,
+          description:
+            'Invalid payload, AI module absent, agent not eligible, or the auto-reply principal lacks the agent’s required features',
+        },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Channel not found, or not a Discord channel in this scope' },
         { status: 409, description: 'The channel changed since the form was loaded' },

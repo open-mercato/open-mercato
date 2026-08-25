@@ -58,6 +58,20 @@ export const discordChannelStateSchema = z
     // provider's own `channel_discord.auto_reply` agent; a tenant may point it at
     // any object-mode agent whose `requiredFeatures` its channel-bot user holds.
     aiAgentId: z.string().optional(),
+    // Why the last auto-reply attempt produced nothing, cleared by the next
+    // attempt that gets somewhere. The settings route validates a channel's agent
+    // against the auto-reply principal before arming it, but a role edit after the
+    // fact can still make the runtime start denying the call — and the subscriber
+    // degrades to a no-op by design, because a broken model must never become a
+    // send. Without a persisted marker that leaves an "Auto-reply on" channel
+    // answering nothing with nothing for an operator to look at. Written only by
+    // `lib/channel-state-store.ts`, never by the subscriber directly.
+    aiAutoReplyLastError: z.string().optional(),
+    // When the *current* failure was first observed. A channel that keeps failing
+    // for the same reason does not rewrite the row on every inbound message, so
+    // this is a first-seen stamp rather than a last-attempt one — the alternative
+    // is a row update per message on exactly the channels already misbehaving.
+    aiAutoReplyLastErrorAt: z.string().optional(),
   })
   .partial()
   .passthrough()

@@ -31,6 +31,20 @@ describe('mergeDiscordChannelState', () => {
     expect(merged?.sessionId).toBe('sess-1')
   })
 
+  it('carries the auto-reply failure marker forward, so a reconnect does not hide it', () => {
+    // A gateway reconnect says nothing about whether the agent call is being
+    // denied. Dropping the marker here would make the failure invisible again on
+    // exactly the channels that reconnect most.
+    const merged = mergeDiscordChannelState(
+      { aiAutoReplyLastError: 'agent x: denied', aiAutoReplyLastErrorAt: '2026-08-03T10:00:00.000Z' },
+      { sessionId: 'sess-1', sequence: 1 },
+      NOW,
+    )
+
+    expect(merged?.aiAutoReplyLastError).toBe('agent x: denied')
+    expect(merged?.aiAutoReplyLastErrorAt).toBe('2026-08-03T10:00:00.000Z')
+  })
+
   it('drops a patch that would rewind the sequence of the session already stored', () => {
     const merged = mergeDiscordChannelState(
       { sessionId: 'sess-1', sequence: 42 },

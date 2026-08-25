@@ -15,6 +15,10 @@ type EligibleAgent = {
   id: string
   label: string
   description: string
+  requiredFeatures: string[]
+  /** Whether the auto-reply principal holds the agent's `requiredFeatures`. */
+  invocable: boolean
+  missingFeatures: string[]
 }
 
 type AiAutoReplySettings = {
@@ -23,6 +27,8 @@ type AiAutoReplySettings = {
   updatedAt: string | null
   aiAutoReplyEnabled: boolean
   aiAgentId: string | null
+  aiAutoReplyLastError: string | null
+  aiAutoReplyLastErrorAt: string | null
   defaultAgentId: string
   aiAvailable: boolean
   agents: EligibleAgent[]
@@ -87,9 +93,19 @@ export default function DiscordAiAutoReplyPage() {
   }, [load])
 
   const fields = React.useMemo<CrudField[]>(() => {
+    // An agent the auto-reply principal cannot invoke stays in the list — hiding
+    // it would leave the operator wondering where an agent they can see elsewhere
+    // went — but it says what it needs, so the requirement is visible before the
+    // save rather than only in the 400 that follows.
     const agentOptions = (settings?.agents ?? []).map((agent) => ({
       value: agent.id,
-      label: agent.label,
+      label: agent.invocable
+        ? agent.label
+        : t(
+          'channel_discord.aiAutoReply.fields.agentMissingFeatures',
+          '{label} — needs {features}',
+          { label: agent.label, features: agent.missingFeatures.join(', ') },
+        ),
     }))
     return [
       {
@@ -119,9 +135,12 @@ export default function DiscordAiAutoReplyPage() {
 
   const initialValues = React.useMemo<Partial<FormValues>>(() => {
     if (!settings) return {}
-    const fallbackAgentId = settings.agents.some((agent) => agent.id === settings.defaultAgentId)
+    // Default to an agent the principal can actually invoke, so the form does not
+    // pre-select a choice the save will reject.
+    const invocable = settings.agents.filter((agent) => agent.invocable)
+    const fallbackAgentId = invocable.some((agent) => agent.id === settings.defaultAgentId)
       ? settings.defaultAgentId
-      : (settings.agents[0]?.id ?? '')
+      : (invocable[0]?.id ?? settings.agents[0]?.id ?? '')
     return {
       id: settings.channelId,
       updatedAt: settings.updatedAt,
@@ -139,6 +158,18 @@ export default function DiscordAiAutoReplyPage() {
           t('channel_discord.aiAutoReply.errors.agentRequired', 'Choose the agent that should answer this channel'),
           { aiAgentId: t('channel_discord.aiAutoReply.errors.agentRequired', 'Choose the agent that should answer this channel') },
         )
+      }
+      // The route enforces this too — it has to, since a role can change between
+      // the load and the save. Checking here as well turns the common case into an
+      // inline field error instead of a round trip.
+      const chosen = settings?.agents.find((agent) => agent.id === agentId)
+      if (enabled && chosen && !chosen.invocable) {
+        const message = t(
+          'channel_discord.aiAutoReply.errors.agentFeaturesMissing',
+          'The channel-bot user is missing the features this agent needs: {features}. Grant them first, or pick another agent.',
+          { features: chosen.missingFeatures.join(', ') },
+        )
+        throw createCrudFormError(message, { aiAgentId: message })
       }
       // Deliberately unguarded: a 409 from the optimistic-lock check has to reach
       // CrudForm, which renders it on the shared conflict bar. Catching it here
@@ -160,7 +191,7 @@ export default function DiscordAiAutoReplyPage() {
       flash(t('channel_discord.aiAutoReply.saved', 'AI auto-reply settings saved.'), 'success')
       await load()
     },
-    [channelId, load, t],
+    [channelId, load, settings, t],
   )
 
   if (isLoading) {
@@ -229,6 +260,25 @@ export default function DiscordAiAutoReplyPage() {
                   )}
                 </p>
               )}
+              {settings.aiAutoReplyLastError ? (
+                // An armed channel whose runtime call keeps being refused is the
+                // dormancy failure wearing a green tag. It is reported here, on the
+                // surface that armed it, rather than only in a subscriber log line.
+                <p className="rounded-md border border-status-error-border bg-status-error-bg p-3 text-status-error-text">
+                  {t(
+                    'channel_discord.aiAutoReply.lastError',
+                    'The last auto-reply attempt on this channel produced nothing: {reason}',
+                    { reason: settings.aiAutoReplyLastError },
+                  )}
+                  {settings.aiAutoReplyLastErrorAt ? (
+                    <span className="ml-1">
+                      {t('channel_discord.aiAutoReply.lastErrorAt', '(first seen {at})', {
+                        at: new Date(settings.aiAutoReplyLastErrorAt).toLocaleString(),
+                      })}
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
             </div>
           }
         />

@@ -145,6 +145,12 @@ export function resolveAiAgentId(channelState: unknown): string | undefined {
   return parsed.success ? parsed.data.aiAgentId : undefined
 }
 
+/** Whether a previous auto-reply attempt left a failure marker still to be cleared. */
+export function hasStoredAutoReplyFailure(channelState: unknown): boolean {
+  const parsed = discordChannelStateSchema.safeParse(channelState ?? {})
+  return parsed.success ? parsed.data.aiAutoReplyLastError !== undefined : false
+}
+
 export interface SubscriberResolver {
   resolve: <T = unknown>(name: string) => T
   container?: { resolve: <T = unknown>(name: string) => T }

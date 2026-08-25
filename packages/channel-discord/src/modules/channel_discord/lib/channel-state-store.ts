@@ -99,6 +99,76 @@ export async function persistDiscordChannelState(params: {
   return 'written'
 }
 
+export type RecordAutoReplyOutcomeResult = 'written' | 'unchanged' | 'not_found'
+
+/** Truncated so a provider stack trace cannot grow the JSONB column without bound. */
+const AUTO_REPLY_ERROR_MAX_LENGTH = 500
+
+/**
+ * Record — or clear — why the last AI auto-reply attempt on this channel produced
+ * nothing.
+ *
+ * The subscriber degrades every failure to a no-op on purpose: a broken model, a
+ * denied policy check or a malformed object must never turn into a send. Being
+ * *silent* about it is the part that hurts, because the operator's surface still
+ * reads "Auto-reply on" while the channel answers nothing, and a `logger.warn` in
+ * a background subscriber is not somewhere anyone looks. A save-time check cannot
+ * close this on its own either — the settings route validates the agent against
+ * the auto-reply principal, but a role edited afterwards makes that verdict stale.
+ *
+ * `failure: null` clears the marker, and the caller is expected to skip the write
+ * when there is nothing to clear — a successful reply on a healthy channel must
+ * not cost a row update per inbound message.
+ *
+ * The channel row's own `lastError` is deliberately left alone: the hub owns it
+ * for delivery and polling failures, clears it on a successful poll, and keys the
+ * reauth banner off `status`. Borrowing it here would let an AI failure mask a
+ * delivery failure and let a successful poll erase an AI one.
+ */
+export async function recordDiscordAutoReplyOutcome(params: {
+  em: EntityManager
+  channelId: string
+  scope: DiscordChannelScope
+  failure: string | null
+  now?: Date
+}): Promise<RecordAutoReplyOutcomeResult> {
+  const fork = params.em.fork()
+  const channel = await findOneWithDecryption(
+    fork,
+    CommunicationChannel,
+    {
+      id: params.channelId,
+      tenantId: params.scope.tenantId,
+      organizationId: params.scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    {
+      tenantId: params.scope.tenantId,
+      organizationId: params.scope.organizationId ?? params.scope.tenantId,
+    },
+  )
+  if (!channel) return 'not_found'
+
+  const current = discordChannelStateSchema.parse(channel.channelState ?? {})
+  const failure = params.failure?.slice(0, AUTO_REPLY_ERROR_MAX_LENGTH) ?? null
+  if (failure === null && current.aiAutoReplyLastError === undefined) return 'unchanged'
+  if (failure !== null && current.aiAutoReplyLastError === failure) return 'unchanged'
+
+  const next: DiscordChannelState = { ...current }
+  if (failure === null) {
+    delete next.aiAutoReplyLastError
+    delete next.aiAutoReplyLastErrorAt
+  } else {
+    next.aiAutoReplyLastError = failure
+    next.aiAutoReplyLastErrorAt = (params.now ?? new Date()).toISOString()
+  }
+
+  channel.channelState = next
+  await fork.flush()
+  return 'written'
+}
+
 export type QuarantineDiscordChannelResult = 'quarantined' | 'not_found'
 
 /**
