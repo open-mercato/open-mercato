@@ -334,7 +334,7 @@ export const productBulkCreateRowSchema = productBaseSchema
   .superRefine(productComplianceCrossFieldRefinement)
 
 export const productsBulkCreateSchema = z.object({
-  items: z.array(productBulkCreateRowSchema).min(1).max(10000),
+  items: z.array(productBulkCreateRowSchema).min(1).max(2000),
 })
 
 export const productUpdateSchema = z
