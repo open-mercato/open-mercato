@@ -82,7 +82,11 @@ describe('display value helpers', () => {
     process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'dd.MM.yyyy'
     process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT = 'dd.MM.yyyy HH:mm'
     expect(formatDisplayDate('2026-07-01')).toBe('01.07.2026')
-    expect(formatDisplayDateTime('2026-07-01T09:30:00Z')).toMatch(/^01\.07\.2026 \d{2}:\d{2}$/)
+    // Compared against the formatter rather than a literal: `09:30Z` falls on 30 June at UTC-10
+    // and further west, so a hardcoded `01.07.2026` would fail there.
+    expect(formatDisplayDateTime('2026-07-01T09:30:00Z')).toBe(
+      formatWithPublicDateFormat(new Date('2026-07-01T09:30:00Z'), 'dd.MM.yyyy HH:mm'),
+    )
   })
 
   it('returns null on empty or unparsable input', () => {
@@ -118,10 +122,10 @@ describe('toDateInputValue', () => {
   // east of UTC names the previous day. Asserted against the Date's own local getters rather than a
   // literal, so the contract holds in every runner zone — including UTC, where the two coincide.
   it('yields the local calendar day, not the UTC one', () => {
+    // Constructed from local components, so it is local July 2 in every zone — the
+    // zone-independence is in the construction, not in the assertion.
     const justAfterLocalMidnight = new Date(2026, 6, 2, 0, 30)
-    const localDay = `${justAfterLocalMidnight.getFullYear()}-07-0${justAfterLocalMidnight.getDate()}`
 
-    expect(toDateInputValue(justAfterLocalMidnight)).toBe(localDay)
     expect(toDateInputValue(justAfterLocalMidnight)).toBe('2026-07-02')
     expect(toDateInputValue('2026-07-01')).toBe('2026-07-01')
   })
@@ -169,5 +173,26 @@ describe('toUtcDateInputValue', () => {
   it('returns null when there is nothing to show', () => {
     expect(toUtcDateInputValue(null)).toBeNull()
     expect(toUtcDateInputValue('not-a-date')).toBeNull()
+  })
+})
+
+// A row that renders a stored date-only column and also seeds an editor from it must name one day.
+// `PaymentsSection` renders `receivedAt` while its Edit dialog seeds from `receivedAt.slice(0, 10)`
+// — the UTC day — so the rendered day has to be derived the same way, or one row contradicts itself.
+describe('rendering a stored date-only column', () => {
+  const STORED = '2026-07-01T00:00:00.000Z'
+
+  it('agrees with an editor that seeds from the UTC day', () => {
+    expect(toUtcDateInputValue(STORED)).toBe(STORED.slice(0, 10))
+    expect(formatDisplayDate(toUtcDateInputValue(STORED))).toBe('2026-07-01')
+  })
+
+  it('still honours the configured display format', () => {
+    process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'dd.MM.yyyy'
+    expect(formatDisplayDate(toUtcDateInputValue(STORED))).toBe('01.07.2026')
+  })
+
+  it('renders nothing when the column is empty', () => {
+    expect(formatDisplayDate(toUtcDateInputValue(null))).toBeNull()
   })
 })

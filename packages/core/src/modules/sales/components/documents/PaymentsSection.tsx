@@ -11,7 +11,7 @@ import { handleSectionMutationError, readRowUpdatedAt } from './optimisticLock'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { formatDisplayDate, formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { formatDisplayDate, formatDisplayDateTime, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
@@ -294,7 +294,11 @@ export function SalesDocumentPaymentsSection({
       {
         accessorKey: 'receivedAt',
         header: t('sales.documents.payments.receivedAt', 'Received'),
-        cell: ({ row }) => formatDisplayDate(row.original.receivedAt) ?? '—',
+        // `receivedAt` is written from a date input (`PaymentDialog`), coerced with
+        // `z.coerce.date()` and stored as UTC midnight, so its day must be read in UTC.
+        // Reading it locally names the previous day west of UTC — and disagrees with the
+        // Edit dialog, which seeds from `receivedAt.slice(0, 10)`, i.e. the UTC day.
+        cell: ({ row }) => formatDisplayDate(toUtcDateInputValue(row.original.receivedAt)) ?? '—',
       },
       {
         accessorKey: 'createdAt',

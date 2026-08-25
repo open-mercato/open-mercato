@@ -5,6 +5,7 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { render, screen } from '@testing-library/react'
+import { formatWithPublicDateFormat } from '../../primitives/date-format'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -53,7 +54,10 @@ describe('DataTable date cells', () => {
     process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT = 'dd.MM.yyyy HH:mm'
     renderTable([{ id: '1', created_at: '2026-07-01T09:30:00Z' }])
 
-    expect(screen.getByText(/^01\.07\.2026 \d{2}:\d{2}$/)).toBeInTheDocument()
+    // Same reason as the date-format suite: `09:30Z` is 30 June at UTC-10 and further west,
+    // so the expectation comes from the formatter rather than a literal.
+    const expected = formatWithPublicDateFormat(new Date('2026-07-01T09:30:00Z'), 'dd.MM.yyyy HH:mm')!
+    expect(screen.getByText(expected)).toBeInTheDocument()
   })
 
   // The date vars stay in the chain and stay bare: appending a time to a caller's date-only
