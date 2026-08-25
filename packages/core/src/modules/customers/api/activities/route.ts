@@ -5,7 +5,6 @@
  */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { raw } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -31,6 +30,7 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from '../../lib/interactionOrderBy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -149,20 +149,14 @@ function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'des
   if (sortField === 'createdAt') {
     return { createdAt: sortDir }
   }
-  return {
-    [raw('occurred_at')]: `${sortDir} nulls last`,
-    [raw('created_at')]: `${sortDir} nulls last`,
-  }
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
     return { createdAt: sortDir }
   }
-  return {
-    [raw('occurred_at')]: `${sortDir} nulls last`,
-    [raw('created_at')]: `${sortDir} nulls last`,
-  }
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {

@@ -117,6 +117,27 @@ describe('mergeOptimisticEmailThreads', () => {
     expect(merged.map((item) => item.threadKey)).toEqual(['newest', 'known', 'unknown'])
   })
 
+  it('tie-breaks unknown-date threads in descending order', () => {
+    const server = [
+      thread({ threadKey: 'thread-a', lastMessageAt: null }),
+      thread({ threadKey: 'thread-b', lastMessageAt: null }),
+    ]
+    const opt = optimistic({
+      id: 'optimistic:newest',
+      messageId: 'msg-newest',
+      threadKey: 'thread-newest',
+      sentAt: '2026-06-02T12:00:00.000Z',
+    })
+
+    const merged = mergeOptimisticEmailThreads(server, [opt])
+
+    expect(merged.map((item) => item.threadKey)).toEqual([
+      'thread-newest',
+      'thread-b',
+      'thread-a',
+    ])
+  })
+
   it('summarizes a mixed thread from its newest dated optimistic message', () => {
     const server = [
       thread({

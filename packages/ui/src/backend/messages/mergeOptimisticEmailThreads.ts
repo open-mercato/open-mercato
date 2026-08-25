@@ -109,7 +109,10 @@ function compareNullableDates(
   rightTieBreaker: string,
   direction: 'asc' | 'desc' = 'asc',
 ): number {
-  if (leftValue === rightValue) return leftTieBreaker.localeCompare(rightTieBreaker)
+  if (leftValue === rightValue) {
+    const tie = leftTieBreaker.localeCompare(rightTieBreaker)
+    return direction === 'asc' ? tie : -tie
+  }
   if (leftValue === null) return 1
   if (rightValue === null) return -1
   return direction === 'asc'

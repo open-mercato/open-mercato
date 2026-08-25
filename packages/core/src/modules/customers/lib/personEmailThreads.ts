@@ -1,8 +1,8 @@
-import { raw } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
 import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from './interactionOrderBy'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
@@ -169,10 +169,7 @@ export async function buildPersonEmailThreads(
     CustomerInteraction,
     interactionWhere as never,
     {
-      orderBy: {
-        [raw('occurred_at')]: 'desc nulls last',
-        [raw('created_at')]: 'desc nulls last',
-      },
+      orderBy: buildInteractionOccurredAtOrderBy('desc'),
       limit: maxThreads * 20,
     },
     dscope,

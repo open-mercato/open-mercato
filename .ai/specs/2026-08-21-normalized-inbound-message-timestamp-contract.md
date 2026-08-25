@@ -44,7 +44,7 @@ The persistence mapping is:
 
 | Normalized value | Destination | Meaning |
 |---|---|---|
-| `timestamp` | `Message.sentAt` and derived application projections | Best meaningful external occurrence time |
+| `timestamp` | `Message.sentAt` and derived application projections *(persisted by `messages.messages.record_existing` in Fix 1; not delivered in this PR)* | Best meaningful external occurrence time |
 | `providerTimestamp` | `ExternalMessage.providerTimestamp` | Provider-native transport/storage time only |
 | neither | Entity `createdAt` | Local Open Mercato materialization time |
 
