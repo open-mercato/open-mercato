@@ -12,6 +12,11 @@ import {
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import {
+  registerLoggerExtension,
+  resetLoggerExtension,
+  type LoggerExtensionRecord,
+} from '../../logger'
 import { z } from 'zod'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
@@ -1076,6 +1081,7 @@ describe('CRUD Factory', () => {
     await expect(res.json()).resolves.toEqual({
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
+      requestId: expect.any(String),
     })
   })
 
@@ -1114,6 +1120,53 @@ describe('CRUD Factory', () => {
     await expect(res.json()).resolves.toEqual({
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
+      requestId: expect.any(String),
+    })
+  })
+
+  // Issue #5608 — a generic 500 must carry a requestId the client/support can cite, and
+  // that same id must appear on the server log line so the two can be correlated.
+  describe('generic 500 requestId correlation', () => {
+    const logRecords: LoggerExtensionRecord[] = []
+
+    beforeEach(() => {
+      logRecords.length = 0
+      registerLoggerExtension({ emit: (record) => logRecords.push(record) })
+    })
+
+    afterEach(() => {
+      resetLoggerExtension()
+    })
+
+    it('includes a requestId in the body that matches the server log line', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+      const body = await res.json()
+
+      expect(res.status).toBe(500)
+      expect(typeof body.requestId).toBe('string')
+      expect(body.requestId.length).toBeGreaterThan(0)
+
+      const logRecord = logRecords.find((record) => record.message === 'Unexpected CRUD error')
+      expect(logRecord?.fields.requestId).toBe(body.requestId)
+    })
+
+    it('reuses an inbound x-request-id header instead of generating a new one', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+      const route = interceptorErrorRoute()
+
+      const res = await route.POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'A' }),
+        headers: { 'content-type': 'application/json', 'x-request-id': 'req-fixed-123' },
+      }))
+      const body = await res.json()
+
+      expect(res.status).toBe(500)
+      expect(body.requestId).toBe('req-fixed-123')
+      const logRecord = logRecords.find((record) => record.message === 'Unexpected CRUD error')
+      expect(logRecord?.fields.requestId).toBe('req-fixed-123')
     })
   })
 

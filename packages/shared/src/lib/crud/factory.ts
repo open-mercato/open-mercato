@@ -75,6 +75,8 @@ import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
 import { isTransientDbError } from '../db/pg-errors'
+import { getTelemetryRuntime } from '../telemetry/runtime'
+import { randomUUID } from 'node:crypto'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -594,7 +596,7 @@ function attachOperationHeader(res: Response, logEntry: any) {
   return res
 }
 
-function handleError(err: unknown): Response {
+function handleError(err: unknown, request?: Request): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
   // A command interceptor that blocked with an explicit status is a deliberate business
@@ -618,12 +620,23 @@ function handleError(err: unknown): Response {
     )
   }
 
+  // Unexpected exceptions still collapse into a generic 500 for the client (no internal
+  // detail leaked), but a requestId ties that response to this log line and to whatever
+  // reaches APM, so a client/support ticket citing it can be correlated with server-side
+  // detail (issue #5608).
   const message = err instanceof Error ? err.message : undefined
   const stack = err instanceof Error ? err.stack : undefined
-  logger.error('Unexpected CRUD error', { message, stack, err })
+  const errorName = err instanceof Error ? err.name : undefined
+  const requestId = request?.headers.get('x-request-id') ?? randomUUID()
+  logger.error('Unexpected CRUD error', { message, stack, err, requestId })
+  getTelemetryRuntime()?.reportError(err, {
+    module: 'crud',
+    attributes: { requestId, errorName },
+  })
   const body: Record<string, unknown> = {
     error: 'Internal server error',
     message: 'Something went wrong. Please try again later.',
+    requestId,
   }
   return json(body, { status: 500 })
 }
@@ -2163,7 +2176,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       return response
     } catch (e) {
       finishProfile({ result: 'error' })
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -2477,7 +2490,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       payload = await enrichSingleRecord(payload, ctx)
       return json(payload, { status: 201 })
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -2815,7 +2828,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -3104,7 +3117,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
