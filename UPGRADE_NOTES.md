@@ -24,6 +24,17 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
+
+`AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
+
+Nothing changes at runtime beyond the tag name — no prop was added, removed, or renamed, and `<p>` and `<div>` render identically under the design system's Tailwind preflight, so no visual regression accompanies the change. What changes is the **type**:
+
+- `AlertDescriptionProps` widens from `React.HTMLAttributes<HTMLParagraphElement>` to `React.HTMLAttributes<HTMLDivElement>`.
+- The forwarded ref type changes from `HTMLParagraphElement` to `HTMLDivElement`.
+
+**Action for module authors:** if you hold a ref to `AlertDescription` as `useRef<HTMLParagraphElement>(null)`, or annotate one of its event handlers with `React.*Event<HTMLParagraphElement>`, change the element type to `HTMLDivElement`. Nothing else is affected: the component is used by composition in 97 files across this repository and not one of them passes a ref, so the practical migration surface is very small. There is no runtime bridge to stage because the element type is the entire changed surface — a mismatched annotation is a compile error in your own package, never a silent behavior change. Callers that previously worked around the restriction by rendering block `<span>`s inside the description (for example the record-locks settings page shipped in #5481) keep working unchanged and may be simplified back to real paragraphs at leisure.
+
 ### Device API responses are camelCase; the snake_case keys are deprecated aliases (#5513)
 
 `GET /api/devices`, `GET /api/devices/admin/devices` and `GET /api/devices/admin/devices/:id` returned the raw database column names (`device_id`, `user_id`, `last_seen_at`, …) while every other module returns camelCase. A client written against the platform convention read `undefined` for every field on this one module. All three routes now return camelCase keys as the canonical shape:
