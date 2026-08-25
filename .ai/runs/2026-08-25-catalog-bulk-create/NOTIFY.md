@@ -1,5 +1,12 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T15:35:00Z — Phase 3 complete (3.1 verified no-op, 3.2 docs landed)
+
+- Step 3.1: verified the plan's assumption (a `jobType` → i18n-label registry in `ProgressTopBar` needing new entries) doesn't match the actual architecture — `ProgressTopBar` renders `job.name`/`job.description` directly with no per-`jobType` branching anywhere in the progress module or UI package, and `jobType` is a free-form string, not an enum. Nothing to change; documented in HANDOFF.md.
+- Step 3.2: added `/api/catalog/products/bulk-create` and `/api/catalog/categories/bulk-create` subsections to `apps/docs/docs/api/catalog.mdx`, matching the file's existing style.
+- All of Phase 1, 2, and 3 are now `done` in PLAN.md's Tasks table. Remaining before the final gate: the spec-correction commit to `.ai/specs/2026-08-25-catalog-bulk-create.md`.
+- Status remains `in-progress`, PR stays draft.
+
 ## 2026-08-25T15:10:00Z — checkpoint 2 — Steps 1.3, 2.1–2.4
 
 - Landed: Step 1.3 (categories event-emission test), Phase 2 in full (2.1 worker+lib, 2.2 route+validators, 2.3 redefined pre-validation assertions, 2.4 checkpoint/resume parity) — products bulk-create mirrors Phase 1 exactly, pre-validation only, per the final operator decision on reference-data caching.

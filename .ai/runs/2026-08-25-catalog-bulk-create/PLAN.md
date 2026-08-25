@@ -16,8 +16,8 @@ Source doc: `.ai/specs/2026-08-25-catalog-bulk-create.md`
 | 2 | 2.2 | Route + validators (products bulk-create) | inline | done | 5e356dd46 (landed with 2.1) |
 | 2 | 2.3 | Pre-validation fail-fast verification (redefined per operator decision — no identity-map/memoization mechanism exists to measure) | inline | done | 5e356dd46 (landed with 2.1; see lib/__tests__/bulkCreateProducts.test.ts) |
 | 2 | 2.4 | Per-row failure + checkpoint/resume parity | inline | done | 5e356dd46 (landed with 2.1) |
-| 3 | 3.1 | i18n + job-detail surfacing | inline | todo | — |
-| 3 | 3.2 | Docs | inline | todo | — |
+| 3 | 3.1 | i18n + job-detail surfacing (verified no-op — see note below) | inline | done | PENDING_SHA |
+| 3 | 3.2 | Docs for both new endpoints (`apps/docs/docs/api/catalog.mdx`) | inline | done | PENDING_SHA |
 
 ## Goal
 

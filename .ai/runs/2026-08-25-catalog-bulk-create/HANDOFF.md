@@ -2,12 +2,16 @@
 
 **PR:** #5610 (`feat/catalog-bulk-create` → `develop`, fork `adeptofvoltron/open-mercato`)
 **Status:** in-progress
-**Last commit:** `0db68c727`
-**Next concrete action:** Phase 3 — Step 3.1 (i18n + job-detail surfacing for the two new `jobType`s, `catalog.categories.bulk_create` and `catalog.products.bulk_create`, in `ProgressTopBar`) and Step 3.2 (docs for both endpoints in `apps/docs`). Then the spec-correction commit to `.ai/specs/2026-08-25-catalog-bulk-create.md` described below. Then the final gate (Step 7 of the skill) and `om-auto-review-pr --autofix` (Step 8).
+**Last commit:** `732b233b2` (docs commit for Phase 3 + spec correction follows to record its own SHA)
+**Next concrete action:** the spec-correction commit described below is still pending (docs-only). After that: Step 7 (final validation gate + integration suite decision + style pass), Step 8 (`om-auto-review-pr --autofix`), Steps 9–10 (summary comment, labels, draft→ready, lock release).
 
 ## Current Tasks-table state (see PLAN.md for the authoritative table)
 
-All of Phase 1 (1.1–1.4) and Phase 2 (2.1–2.4) are `done`. Phase 3 (3.1, 3.2) is `todo`. The Non-goals section's original reference-data-memoization intent for products was formally dropped by operator decision (history below) — Phase 2 ships pre-validation only, matching Phase 1's design.
+All of Phase 1 (1.1–1.4), Phase 2 (2.1–2.4), and Phase 3 (3.1, 3.2) are `done`. The Non-goals section's original reference-data-memoization intent for products was formally dropped by operator decision (history below) — Phase 2 ships pre-validation only, matching Phase 1's design.
+
+**Step 3.1 finding (no code change — verified no-op):** the plan assumed `ProgressTopBar` (and/or the progress module) holds a `jobType` → i18n-label registry that new job types must be added to. Verified this is not how the component works: `ProgressTopBar.tsx` renders `job.name`/`job.description` directly (no `jobType`-specific branching anywhere in `packages/ui/src/backend/progress/` or `packages/core/src/modules/progress/`), and `jobType` on `ProgressJob` is a free-form `z.string()`, not a validated enum requiring registration. Both new routes already set `name`/`description` inline (same pattern the existing `bulk-delete` route uses — also uninternationalized; out of scope to fix here per Non-goals "no changes to the existing bulk-delete route/worker"). There is nothing left to change for Step 3.1 under the actual architecture. Confirmed by grepping every `jobType` reference in `packages/ui/src` and `packages/core/src/modules/progress`.
+
+**Step 3.2 done:** added `/api/catalog/products/bulk-create` and `/api/catalog/categories/bulk-create` subsections to `apps/docs/docs/api/catalog.mdx`, placed after their respective non-bulk sections, matching the doc's existing style (permissions, payload shape, worker/queue behavior, result summary shape). Neither new endpoint's OpenAPI needed a manual doc file beyond this — the route files already export `openApi` for the auto-generated bundle.
 
 ## What landed since resume start
 
@@ -28,12 +32,10 @@ All of Phase 1 (1.1–1.4) and Phase 2 (2.1–2.4) are `done`. Phase 3 (3.1, 3.2
 
 ## Remaining work
 
-1. **Step 3.1** — i18n labels + job-detail surfacing for `catalog.categories.bulk_create` / `catalog.products.bulk_create` in `ProgressTopBar` (find the existing `jobType` → i18n-key mapping the `bulk-delete` jobType already uses and mirror it).
-2. **Step 3.2** — docs for both new endpoints under `apps/docs`.
-3. **Spec correction commit** — edit `.ai/specs/2026-08-25-catalog-bulk-create.md`'s Architecture/Risks sections per the "Concrete scope for Phase 2" note in the decision history below. Docs-only, its own commit.
-4. **Step 7 (final gate)** — full `validation.commands` gate, integration suite via `om-integration-tests` (or a documented skip reason — this PR's changes are backend-only, no `.tsx` touched, so a Playwright UI pass may not be warranted; decide at that point per the skill's UI-verification rule), style-compliance pass.
-5. **Step 8** — `om-auto-review-pr 5610 --autofix`.
-6. **Steps 9–10** — comprehensive summary comment (must explicitly state the products memoization goal was dropped and why, and that the spec was corrected), label normalization, draft→ready promotion, lock release.
+1. **Spec correction commit** — edit `.ai/specs/2026-08-25-catalog-bulk-create.md`'s Architecture/Risks sections per the "Concrete scope for Phase 2" note in the decision history below. Docs-only, its own commit.
+2. **Step 7 (final gate)** — full `validation.commands` gate, integration suite via `om-integration-tests` (or a documented skip reason — this PR's changes are backend-only, no `.tsx` touched, so a Playwright UI pass may not be warranted; decide at that point per the skill's UI-verification rule), style-compliance pass.
+3. **Step 8** — `om-auto-review-pr 5610 --autofix`.
+4. **Steps 9–10** — comprehensive summary comment (must explicitly state the products memoization goal was dropped and why, and that the spec was corrected), label normalization, draft→ready promotion, lock release.
 
 ## Decision history: reference-data caching (fully resolved — do not re-open)
 
