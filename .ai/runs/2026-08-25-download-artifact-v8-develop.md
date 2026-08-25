@@ -87,4 +87,4 @@ PR: #5588
 
 ### Phase 2: Retire the original PR
 
-- [ ] 2.1 Close #5561 with a comment linking the replacement PR against `develop`
+- [x] 2.1 Close #5561 with a comment linking the replacement PR against `develop` — no code change (tracker action; closed 2026-08-25, superseded by #5588)
