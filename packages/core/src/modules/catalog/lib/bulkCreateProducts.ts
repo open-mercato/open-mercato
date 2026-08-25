@@ -1,16 +1,16 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { CatalogProduct } from '../data/entities'
 import type { ProductBulkCreateRow } from '../data/validators'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
+import { readCheckpoint, readCheckpointInterval } from './bulkCreateCheckpoint'
 
 export const CATALOG_PRODUCT_BULK_CREATE_QUEUE = 'catalog-product-bulk-create'
 
-const CHECKPOINT_INTERVAL = 20
+export { getCatalogQueue } from './catalogQueue'
 
-const queues = new Map<string, Queue<Record<string, unknown>>>()
+export type CatalogProductBulkCreateFailureCode = 'sku_taken' | 'handle_taken' | 'command_failed'
 
 export type CatalogProductBulkCreateScope = {
   organizationId: string
@@ -27,6 +27,7 @@ export type CatalogProductBulkCreateJobPayload = {
 export type CatalogProductBulkCreateFailure = {
   index: number
   title?: string
+  code: CatalogProductBulkCreateFailureCode
   message: string
 }
 
@@ -35,17 +36,6 @@ export type CatalogProductBulkCreateSummary = {
   failedCount: number
   createdIds: string[]
   failedItems: CatalogProductBulkCreateFailure[]
-}
-
-export function getCatalogQueue(queueName: string): Queue<Record<string, unknown>> {
-  const existing = queues.get(queueName)
-  if (existing) return existing
-
-  const concurrency = Math.max(1, Number.parseInt(process.env.CATALOG_QUEUE_CONCURRENCY ?? '3', 10) || 3)
-  const created = createModuleQueue<Record<string, unknown>>(queueName, { concurrency })
-
-  queues.set(queueName, created)
-  return created
 }
 
 function buildCommandContext(
@@ -89,10 +79,9 @@ export async function createCatalogProductsWithProgress(params: {
   }
 
   const existingJob = await progressService.getJob(progressJobId, progressContext)
-  const priorLastCompletedRowIndex = typeof existingJob?.meta?.lastCompletedRowIndex === 'number'
-    ? (existingJob.meta.lastCompletedRowIndex as number)
-    : -1
-  const startIndex = priorLastCompletedRowIndex + 1
+  const priorCheckpoint = readCheckpoint<CatalogProductBulkCreateFailure>(existingJob?.meta)
+  const checkpointInterval = readCheckpointInterval(existingJob?.meta)
+  const startIndex = priorCheckpoint.lastCompletedRowIndex + 1
 
   await progressService.startJob(progressJobId, progressContext)
   await progressService.updateProgress(
@@ -151,11 +140,12 @@ export async function createCatalogProductsWithProgress(params: {
     : new Set<string>()
 
   const commandContext = buildCommandContext(scope, container)
-  const createdIds: string[] = []
-  const failedItems: CatalogProductBulkCreateFailure[] = []
-  const seenSkusThisBatch = new Set<string>()
-  const seenHandlesThisBatch = new Set<string>()
-  let createdCount = 0
+  // Seeded from the previous attempt's checkpoint so a resumed run's summary covers the whole
+  // batch rather than only the rows after the last durable checkpoint (see
+  // lib/bulkCreateCategories.ts for the failure this prevents).
+  const createdIds: string[] = [...priorCheckpoint.createdIds]
+  const failedItems: CatalogProductBulkCreateFailure[] = [...priorCheckpoint.failedItems]
+  let createdCount = priorCheckpoint.createdCount
 
   // Same dynamic resume-boundary search as Phase 1 (see lib/bulkCreateCategories.ts) — the
   // durably-persisted `lastCompletedRowIndex` can lag behind the in-memory processing position,
@@ -163,18 +153,51 @@ export async function createCatalogProductsWithProgress(params: {
   // title) until the first row confirmed genuinely new.
   let resumeBoundaryReached = startIndex === 0
 
+  const buildSummary = (): CatalogProductBulkCreateSummary => ({
+    createdCount,
+    failedCount: failedItems.length,
+    createdIds,
+    failedItems,
+  })
+
   const checkpoint = async (index: number) => {
     const processedCount = index + 1
-    if (processedCount % CHECKPOINT_INTERVAL === 0 || processedCount === items.length) {
+    if (processedCount % checkpointInterval === 0 || processedCount === items.length) {
       await progressService.updateProgress(
         progressJobId,
-        { processedCount, meta: { lastCompletedRowIndex: index } },
+        {
+          processedCount,
+          meta: {
+            lastCompletedRowIndex: index,
+            checkpointSummary: { createdCount, createdIds, failedItems },
+          },
+        },
         progressContext,
       )
     }
   }
 
   for (let index = startIndex; index < items.length; index += 1) {
+    // Polled at the head of the iteration and only on the checkpoint boundary — see
+    // lib/bulkCreateCategories.ts for the reasoning.
+    if ((index - startIndex) % checkpointInterval === 0) {
+      const cancelled = await progressService.isCancellationRequested(
+        progressJobId,
+        scope.tenantId,
+        scope.organizationId,
+      )
+      if (cancelled) {
+        const partialSummary = buildSummary()
+        await progressService.updateProgress(
+          progressJobId,
+          { meta: { resultSummary: partialSummary } },
+          progressContext,
+        )
+        await progressService.markCancelled(progressJobId, progressContext)
+        return partialSummary
+      }
+    }
+
     const row = items[index]
     const sku = normalizeForLookup(row.sku ?? null)
     const handle = normalizeForLookup(row.handle ?? null)
@@ -211,36 +234,25 @@ export async function createCatalogProductsWithProgress(params: {
       resumeBoundaryReached = true
     }
 
-    if (sku && (seenSkusThisBatch.has(sku) || existingSkus.has(sku))) {
-      failedItems.push({ index, title: row.title, message: 'Product SKU already exists for this organization.' })
+    if (sku && existingSkus.has(sku)) {
+      failedItems.push({
+        index,
+        title: row.title,
+        code: 'sku_taken',
+        message: 'Product SKU already exists for this organization.',
+      })
       await checkpoint(index)
       continue
     }
-    if (handle && (seenHandlesThisBatch.has(handle) || existingHandles.has(handle))) {
-      failedItems.push({ index, title: row.title, message: 'Product handle already exists for this organization.' })
+    if (handle && existingHandles.has(handle)) {
+      failedItems.push({
+        index,
+        title: row.title,
+        code: 'handle_taken',
+        message: 'Product handle already exists for this organization.',
+      })
       await checkpoint(index)
       continue
-    }
-
-    const cancelled = await progressService.isCancellationRequested(
-      progressJobId,
-      scope.tenantId,
-      scope.organizationId,
-    )
-    if (cancelled) {
-      const partialSummary: CatalogProductBulkCreateSummary = {
-        createdCount,
-        failedCount: failedItems.length,
-        createdIds,
-        failedItems,
-      }
-      await progressService.updateProgress(
-        progressJobId,
-        { meta: { resultSummary: partialSummary } },
-        progressContext,
-      )
-      await progressService.markCancelled(progressJobId, progressContext)
-      return partialSummary
     }
 
     try {
@@ -254,19 +266,14 @@ export async function createCatalogProductsWithProgress(params: {
       if (result?.productId) {
         createdIds.push(result.productId)
         createdCount += 1
-        if (sku) {
-          existingSkus.add(sku)
-          seenSkusThisBatch.add(sku)
-        }
-        if (handle) {
-          existingHandles.add(handle)
-          seenHandlesThisBatch.add(handle)
-        }
+        if (sku) existingSkus.add(sku)
+        if (handle) existingHandles.add(handle)
       }
     } catch (error) {
       failedItems.push({
         index,
         title: row.title,
+        code: 'command_failed',
         message: error instanceof Error ? error.message : 'Product creation failed',
       })
     }
@@ -274,12 +281,7 @@ export async function createCatalogProductsWithProgress(params: {
     await checkpoint(index)
   }
 
-  const summary: CatalogProductBulkCreateSummary = {
-    createdCount,
-    failedCount: failedItems.length,
-    createdIds,
-    failedItems,
-  }
+  const summary = buildSummary()
   await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
   return summary
 }

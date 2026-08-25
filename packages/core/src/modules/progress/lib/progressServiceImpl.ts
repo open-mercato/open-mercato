@@ -577,6 +577,12 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const cancelledByUserId = job.cancelledByUserId ?? ctx.userId ?? null
       const finishedAt = job.finishedAt ?? now
 
+      // Flush the throttled entry the way completeJob and failJob do. Without this a producer
+      // that writes its partial result through updateProgress immediately before cancelling
+      // loses it whenever that write landed inside the persistence throttle window, because
+      // forgetJobThrottle below discards the only copy that ever existed.
+      const entry = jobUpdateThrottle.get(jobId)
+      const snapshot = entry?.job
       const affected = await em.nativeUpdate(ProgressJob, {
         ...jobScopeFilter(jobId, ctx),
         status: { $in: CANCEL_FROM_STATUSES as ProgressJobStatus[] },
@@ -587,6 +593,13 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         finishedAt,
         etaSeconds: 0,
         updatedAt: now,
+        ...(entry && snapshot
+          ? {
+              totalCount: snapshot.totalCount ?? null,
+              meta: snapshot.meta ?? null,
+              ...buildBufferedCountData(entry),
+            }
+          : {}),
       })
       forgetJobThrottle(jobId)
 

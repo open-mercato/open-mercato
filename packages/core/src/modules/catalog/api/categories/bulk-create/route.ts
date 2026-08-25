@@ -5,15 +5,24 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import { categoriesBulkCreateSchema } from '../../../data/validators'
+import { DEFAULT_CHECKPOINT_INTERVAL } from '../../../lib/bulkCreateCheckpoint'
 import {
   CATALOG_CATEGORY_BULK_CREATE_QUEUE,
   getCatalogQueue,
 } from '../../../lib/bulkCreateCategories'
 
+const MAX_REPORTED_ISSUES = 20
+
 const responseSchema = z.object({
   ok: z.boolean(),
   progressJobId: z.string().uuid().nullable(),
   message: z.string(),
+  // Additive: existing consumers that only read `ok`/`progressJobId`/`message` are unaffected.
+  // A batch of up to several thousand structurally rich rows is impossible to debug from a bare
+  // "Invalid payload", so the first failing paths are reported back.
+  errors: z
+    .array(z.object({ path: z.string(), message: z.string() }))
+    .optional(),
 })
 
 export const metadata = {
@@ -41,6 +50,10 @@ export async function POST(req: Request) {
       ok: false,
       progressJobId: null,
       message: 'Invalid payload',
+      errors: parsed.error.issues.slice(0, MAX_REPORTED_ISSUES).map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      })),
     }), { status: 400 })
   }
 
@@ -57,7 +70,7 @@ export async function POST(req: Request) {
       cancellable: true,
       meta: {
         source: 'catalog.bulk-create',
-        checkpointInterval: 20,
+        checkpointInterval: DEFAULT_CHECKPOINT_INTERVAL,
         lastCompletedRowIndex: -1,
       },
     },

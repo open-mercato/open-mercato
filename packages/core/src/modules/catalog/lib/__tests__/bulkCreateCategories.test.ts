@@ -112,7 +112,7 @@ describe('createCatalogCategoriesWithProgress', () => {
 
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(summary.failedItems).toEqual([
-      { index: 0, name: 'Alpha', message: 'Category slug already exists for this organization.' },
+      { index: 0, name: 'Alpha', code: 'slug_taken', message: 'Category slug already exists for this organization.' },
     ])
   })
 
@@ -129,7 +129,7 @@ describe('createCatalogCategoriesWithProgress', () => {
 
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(summary.failedItems).toEqual([
-      { index: 0, name: 'Alpha', message: 'Parent category not found or inaccessible.' },
+      { index: 0, name: 'Alpha', code: 'parent_not_found', message: 'Parent category not found or inaccessible.' },
     ])
   })
 
@@ -148,15 +148,19 @@ describe('createCatalogCategoriesWithProgress', () => {
     })
 
     expect(summary.createdCount).toBe(1)
-    expect(summary.failedItems).toEqual([{ index: 0, name: 'Alpha', message: 'duplicate key' }])
+    expect(summary.failedItems).toEqual([{ index: 0, name: 'Alpha', code: 'command_failed', message: 'duplicate key' }])
   })
 
-  it('resumes from the checkpointed row and recognizes rows already created before the crash', async () => {
+  it('resumes from the checkpointed row and reports a summary covering the whole batch', async () => {
     const items: Row[] = [row('Alpha'), row('Beta'), row('Gamma'), row('Delta')]
-    // A prior attempt persisted a checkpoint after row 0 (index 0), then crashed after
-    // also creating row 1 ("Beta") but before the next checkpoint.
+    // A prior attempt persisted a checkpoint after row 0 (index 0) carrying the state it had
+    // accumulated so far, then crashed after also creating row 1 ("Beta") but before the next
+    // checkpoint.
     const mocks = buildContainer({
-      existingJobMeta: { lastCompletedRowIndex: 0 },
+      existingJobMeta: {
+        lastCompletedRowIndex: 0,
+        checkpointSummary: { createdCount: 1, createdIds: ['created-Alpha'], failedItems: [] },
+      },
       alreadyCreatedByNaturalKey: [{ name: 'Beta', parentId: null, id: 'existing-beta' }],
     })
 
@@ -167,8 +171,9 @@ describe('createCatalogCategoriesWithProgress', () => {
       scope: { organizationId: ORG, tenantId: TENANT },
     })
 
-    // Row 0 is skipped entirely (before startIndex). Row 1 ("Beta") is recognized via the
-    // natural-key pre-check and NOT re-submitted to the command. Rows 2-3 are genuinely new.
+    // Row 0 is not reprocessed, but its result is restored from the checkpoint rather than
+    // dropped. Row 1 ("Beta") is recognized via the natural-key pre-check and NOT re-submitted
+    // to the command. Rows 2-3 are genuinely new. All four rows appear in the summary.
     expect(mocks.execute).toHaveBeenCalledTimes(2)
     expect(mocks.execute).toHaveBeenNthCalledWith(1, 'catalog.categories.create', expect.objectContaining({
       input: expect.objectContaining({ name: 'Gamma' }),
@@ -176,8 +181,74 @@ describe('createCatalogCategoriesWithProgress', () => {
     expect(mocks.execute).toHaveBeenNthCalledWith(2, 'catalog.categories.create', expect.objectContaining({
       input: expect.objectContaining({ name: 'Delta' }),
     }))
-    expect(summary.createdIds).toEqual(['existing-beta', 'created-Gamma', 'created-Delta'])
+    expect(summary.createdCount).toBe(4)
+    expect(summary.createdIds).toEqual(['created-Alpha', 'existing-beta', 'created-Gamma', 'created-Delta'])
     expect(summary.failedItems).toEqual([])
+  })
+
+  it('restores failures recorded before the checkpoint so a resumed summary keeps them', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    const priorFailure = { index: 0, name: 'Alpha', code: 'command_failed', message: 'duplicate key' }
+    const mocks = buildContainer({
+      existingJobMeta: {
+        lastCompletedRowIndex: 0,
+        checkpointSummary: { createdCount: 0, createdIds: [], failedItems: [priorFailure] },
+      },
+    })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(summary.failedCount).toBe(1)
+    expect(summary.failedItems).toEqual([priorFailure])
+    expect(summary.createdCount).toBe(1)
+  })
+
+  it('resumes safely when the checkpoint predates the accumulated-summary shape', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    // A job enqueued before this shape existed carries only `lastCompletedRowIndex`. It must
+    // resume rather than throw; the pre-checkpoint rows are simply unrecoverable there.
+    const mocks = buildContainer({ existingJobMeta: { lastCompletedRowIndex: 0 } })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(summary.createdCount).toBe(1)
+    expect(summary.createdIds).toEqual(['created-Beta'])
+  })
+
+  it('persists the accumulated summary alongside lastCompletedRowIndex at each checkpoint', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    const mocks = buildContainer({})
+
+    await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    const checkpointCalls = mocks.updateProgress.mock.calls.filter(
+      ([, input]) => (input as { meta?: Record<string, unknown> }).meta?.lastCompletedRowIndex !== undefined,
+    )
+    expect(checkpointCalls[checkpointCalls.length - 1][1]).toMatchObject({
+      meta: {
+        lastCompletedRowIndex: 1,
+        checkpointSummary: {
+          createdCount: 2,
+          createdIds: ['created-Alpha', 'created-Beta'],
+          failedItems: [],
+        },
+      },
+    })
   })
 
   it('stops the batch and marks the job cancelled when cancellation is requested mid-flight', async () => {
@@ -185,7 +256,9 @@ describe('createCatalogCategoriesWithProgress', () => {
     const isCancellationRequested = jest.fn()
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true)
-    const mocks = buildContainer({ isCancellationRequested })
+    // Cancellation is polled on the checkpoint boundary, not per row, so this batch declares a
+    // one-row interval to exercise the cancel between row 0 and row 1.
+    const mocks = buildContainer({ existingJobMeta: { checkpointInterval: 1 }, isCancellationRequested })
 
     const summary = await createCatalogCategoriesWithProgress({
       container: mocks.container,

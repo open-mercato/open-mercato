@@ -1,16 +1,16 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { CatalogProductCategory } from '../data/entities'
 import type { CategoryBulkCreateRow } from '../data/validators'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
+import { readCheckpoint, readCheckpointInterval } from './bulkCreateCheckpoint'
 
 export const CATALOG_CATEGORY_BULK_CREATE_QUEUE = 'catalog-category-bulk-create'
 
-const CHECKPOINT_INTERVAL = 20
+export { getCatalogQueue } from './catalogQueue'
 
-const queues = new Map<string, Queue<Record<string, unknown>>>()
+export type CatalogCategoryBulkCreateFailureCode = 'slug_taken' | 'parent_not_found' | 'command_failed'
 
 export type CatalogCategoryBulkCreateScope = {
   organizationId: string
@@ -27,6 +27,7 @@ export type CatalogCategoryBulkCreateJobPayload = {
 export type CatalogCategoryBulkCreateFailure = {
   index: number
   name?: string
+  code: CatalogCategoryBulkCreateFailureCode
   message: string
 }
 
@@ -35,17 +36,6 @@ export type CatalogCategoryBulkCreateSummary = {
   failedCount: number
   createdIds: string[]
   failedItems: CatalogCategoryBulkCreateFailure[]
-}
-
-export function getCatalogQueue(queueName: string): Queue<Record<string, unknown>> {
-  const existing = queues.get(queueName)
-  if (existing) return existing
-
-  const concurrency = Math.max(1, Number.parseInt(process.env.CATALOG_QUEUE_CONCURRENCY ?? '3', 10) || 3)
-  const created = createModuleQueue<Record<string, unknown>>(queueName, { concurrency })
-
-  queues.set(queueName, created)
-  return created
 }
 
 function buildCommandContext(
@@ -89,10 +79,9 @@ export async function createCatalogCategoriesWithProgress(params: {
   }
 
   const existingJob = await progressService.getJob(progressJobId, progressContext)
-  const priorLastCompletedRowIndex = typeof existingJob?.meta?.lastCompletedRowIndex === 'number'
-    ? (existingJob.meta.lastCompletedRowIndex as number)
-    : -1
-  const startIndex = priorLastCompletedRowIndex + 1
+  const priorCheckpoint = readCheckpoint<CatalogCategoryBulkCreateFailure>(existingJob?.meta)
+  const checkpointInterval = readCheckpointInterval(existingJob?.meta)
+  const startIndex = priorCheckpoint.lastCompletedRowIndex + 1
 
   await progressService.startJob(progressJobId, progressContext)
   await progressService.updateProgress(
@@ -147,34 +136,72 @@ export async function createCatalogCategoriesWithProgress(params: {
     : new Set<string>()
 
   const commandContext = buildCommandContext(scope, container)
-  const createdIds: string[] = []
-  const failedItems: CatalogCategoryBulkCreateFailure[] = []
-  const seenSlugsThisBatch = new Set<string>()
-  let createdCount = 0
+  // Seeded from the previous attempt's checkpoint so a resumed run's summary covers the whole
+  // batch. Counting only from `startIndex` would silently drop every row completed before the
+  // last durable checkpoint, reporting e.g. 40 created for a 100-row batch that fully succeeded.
+  const createdIds: string[] = [...priorCheckpoint.createdIds]
+  const failedItems: CatalogCategoryBulkCreateFailure[] = [...priorCheckpoint.failedItems]
+  let createdCount = priorCheckpoint.createdCount
 
   // `ProgressService.updateProgress` persists on an internal throttle (at most
   // once per HEARTBEAT_INTERVAL_MS, or sooner on a >=1% progress change), not on
   // every call, so the durably-persisted `lastCompletedRowIndex` can legitimately
   // lag further behind the in-memory processing position than the nominal
-  // CHECKPOINT_INTERVAL. Rather than assume a fixed replay window, every row from
+  // checkpoint interval. Rather than assume a fixed replay window, every row from
   // `startIndex` is pre-checked against its natural key until the first row that
   // was NOT already created by a previous attempt — rows are created in array
   // order, so once one resumed row is confirmed genuinely new, every later row is
   // too and the natural-key pre-check is skipped for the rest of the run.
   let resumeBoundaryReached = startIndex === 0
 
+  const buildSummary = (): CatalogCategoryBulkCreateSummary => ({
+    createdCount,
+    failedCount: failedItems.length,
+    createdIds,
+    failedItems,
+  })
+
   const checkpoint = async (index: number) => {
     const processedCount = index + 1
-    if (processedCount % CHECKPOINT_INTERVAL === 0 || processedCount === items.length) {
+    if (processedCount % checkpointInterval === 0 || processedCount === items.length) {
       await progressService.updateProgress(
         progressJobId,
-        { processedCount, meta: { lastCompletedRowIndex: index } },
+        {
+          processedCount,
+          meta: {
+            lastCompletedRowIndex: index,
+            checkpointSummary: { createdCount, createdIds, failedItems },
+          },
+        },
         progressContext,
       )
     }
   }
 
   for (let index = startIndex; index < items.length; index += 1) {
+    // Polled at the head of the iteration so a cancel is honored even when every remaining row
+    // is rejected by pre-validation, and only on the checkpoint boundary: this is an
+    // identity-map-bypassing read (`isCancellationRequested` uses `disableIdentityMap`), so a
+    // per-row poll would add one uncached query per row on top of the command's own work.
+    // Cancellation therefore lands within at most `checkpointInterval` rows.
+    if ((index - startIndex) % checkpointInterval === 0) {
+      const cancelled = await progressService.isCancellationRequested(
+        progressJobId,
+        scope.tenantId,
+        scope.organizationId,
+      )
+      if (cancelled) {
+        const partialSummary = buildSummary()
+        await progressService.updateProgress(
+          progressJobId,
+          { meta: { resultSummary: partialSummary } },
+          progressContext,
+        )
+        await progressService.markCancelled(progressJobId, progressContext)
+        return partialSummary
+      }
+    }
+
     const row = items[index]
     const slug = normalizeSlugForLookup(row.slug ?? null)
 
@@ -203,36 +230,25 @@ export async function createCatalogCategoriesWithProgress(params: {
       resumeBoundaryReached = true
     }
 
-    if (slug && (seenSlugsThisBatch.has(slug) || existingSlugs.has(slug))) {
-      failedItems.push({ index, name: row.name, message: 'Category slug already exists for this organization.' })
+    if (slug && existingSlugs.has(slug)) {
+      failedItems.push({
+        index,
+        name: row.name,
+        code: 'slug_taken',
+        message: 'Category slug already exists for this organization.',
+      })
       await checkpoint(index)
       continue
     }
     if (row.parentId && !existingParentIds.has(String(row.parentId))) {
-      failedItems.push({ index, name: row.name, message: 'Parent category not found or inaccessible.' })
+      failedItems.push({
+        index,
+        name: row.name,
+        code: 'parent_not_found',
+        message: 'Parent category not found or inaccessible.',
+      })
       await checkpoint(index)
       continue
-    }
-
-    const cancelled = await progressService.isCancellationRequested(
-      progressJobId,
-      scope.tenantId,
-      scope.organizationId,
-    )
-    if (cancelled) {
-      const partialSummary: CatalogCategoryBulkCreateSummary = {
-        createdCount,
-        failedCount: failedItems.length,
-        createdIds,
-        failedItems,
-      }
-      await progressService.updateProgress(
-        progressJobId,
-        { meta: { resultSummary: partialSummary } },
-        progressContext,
-      )
-      await progressService.markCancelled(progressJobId, progressContext)
-      return partialSummary
     }
 
     try {
@@ -246,15 +262,13 @@ export async function createCatalogCategoriesWithProgress(params: {
       if (result?.categoryId) {
         createdIds.push(result.categoryId)
         createdCount += 1
-        if (slug) {
-          existingSlugs.add(slug)
-          seenSlugsThisBatch.add(slug)
-        }
+        if (slug) existingSlugs.add(slug)
       }
     } catch (error) {
       failedItems.push({
         index,
         name: row.name,
+        code: 'command_failed',
         message: error instanceof Error ? error.message : 'Category creation failed',
       })
     }
@@ -262,12 +276,7 @@ export async function createCatalogCategoriesWithProgress(params: {
     await checkpoint(index)
   }
 
-  const summary: CatalogCategoryBulkCreateSummary = {
-    createdCount,
-    failedCount: failedItems.length,
-    createdIds,
-    failedItems,
-  }
+  const summary = buildSummary()
   await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
   return summary
 }

@@ -113,7 +113,7 @@ describe('createCatalogProductsWithProgress', () => {
 
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(summary.failedItems).toEqual([
-      { index: 0, title: 'Alpha', message: 'Product SKU already exists for this organization.' },
+      { index: 0, title: 'Alpha', code: 'sku_taken', message: 'Product SKU already exists for this organization.' },
     ])
   })
 
@@ -130,7 +130,7 @@ describe('createCatalogProductsWithProgress', () => {
 
     expect(mocks.execute).not.toHaveBeenCalled()
     expect(summary.failedItems).toEqual([
-      { index: 0, title: 'Alpha', message: 'Product handle already exists for this organization.' },
+      { index: 0, title: 'Alpha', code: 'handle_taken', message: 'Product handle already exists for this organization.' },
     ])
   })
 
@@ -148,7 +148,7 @@ describe('createCatalogProductsWithProgress', () => {
     expect(mocks.execute).toHaveBeenCalledTimes(1)
     expect(summary.createdCount).toBe(1)
     expect(summary.failedItems).toEqual([
-      { index: 1, title: 'Beta', message: 'Product SKU already exists for this organization.' },
+      { index: 1, title: 'Beta', code: 'sku_taken', message: 'Product SKU already exists for this organization.' },
     ])
   })
 
@@ -167,13 +167,16 @@ describe('createCatalogProductsWithProgress', () => {
     })
 
     expect(summary.createdCount).toBe(1)
-    expect(summary.failedItems).toEqual([{ index: 0, title: 'Alpha', message: 'duplicate key' }])
+    expect(summary.failedItems).toEqual([{ index: 0, title: 'Alpha', code: 'command_failed', message: 'duplicate key' }])
   })
 
-  it('resumes from the checkpointed row and recognizes rows already created before the crash', async () => {
+  it('resumes from the checkpointed row and reports a summary covering the whole batch', async () => {
     const items: Row[] = [row('Alpha'), row('Beta'), row('Gamma'), row('Delta')]
     const mocks = buildContainer({
-      existingJobMeta: { lastCompletedRowIndex: 0 },
+      existingJobMeta: {
+        lastCompletedRowIndex: 0,
+        checkpointSummary: { createdCount: 1, createdIds: ['created-Alpha'], failedItems: [] },
+      },
       alreadyCreatedByNaturalKey: [{ title: 'Beta', id: 'existing-beta' }],
     })
 
@@ -191,8 +194,35 @@ describe('createCatalogProductsWithProgress', () => {
     expect(mocks.execute).toHaveBeenNthCalledWith(2, 'catalog.products.create', expect.objectContaining({
       input: expect.objectContaining({ title: 'Delta' }),
     }))
-    expect(summary.createdIds).toEqual(['existing-beta', 'created-Gamma', 'created-Delta'])
+    expect(summary.createdCount).toBe(4)
+    expect(summary.createdIds).toEqual(['created-Alpha', 'existing-beta', 'created-Gamma', 'created-Delta'])
     expect(summary.failedItems).toEqual([])
+  })
+
+  it('persists the accumulated summary alongside lastCompletedRowIndex at each checkpoint', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    const mocks = buildContainer({})
+
+    await createCatalogProductsWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    const checkpointCalls = mocks.updateProgress.mock.calls.filter(
+      ([, input]) => (input as { meta?: Record<string, unknown> }).meta?.lastCompletedRowIndex !== undefined,
+    )
+    expect(checkpointCalls[checkpointCalls.length - 1][1]).toMatchObject({
+      meta: {
+        lastCompletedRowIndex: 1,
+        checkpointSummary: {
+          createdCount: 2,
+          createdIds: ['created-Alpha', 'created-Beta'],
+          failedItems: [],
+        },
+      },
+    })
   })
 
   it('stops the batch and marks the job cancelled when cancellation is requested mid-flight', async () => {
@@ -200,7 +230,9 @@ describe('createCatalogProductsWithProgress', () => {
     const isCancellationRequested = jest.fn()
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true)
-    const mocks = buildContainer({ isCancellationRequested })
+    // Cancellation is polled on the checkpoint boundary, not per row, so this batch declares a
+    // one-row interval to exercise the cancel between row 0 and row 1.
+    const mocks = buildContainer({ existingJobMeta: { checkpointInterval: 1 }, isCancellationRequested })
 
     const summary = await createCatalogProductsWithProgress({
       container: mocks.container,
