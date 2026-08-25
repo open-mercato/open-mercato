@@ -85,11 +85,13 @@ timing — but the defect is in the spec, not in the product.
 
 ## Progress
 
+PR: #5597
+
 ### Phase 1: Fix the stranded-redirect race
 
-- [ ] 1.1 Hoist the create interception ahead of the asserted flow and drop the mid-test `page.unroute` in the app spec
-- [ ] 1.2 Mirror the same change into the create-app template spec
-- [ ] 1.3 Record the Playwright interception-teardown trap in `.ai/lessons.md`
+- [x] 1.1 Hoist the create interception ahead of the asserted flow and drop the mid-test `page.unroute` in the app spec — 8b667c9fc
+- [x] 1.2 Mirror the same change into the create-app template spec — 8b667c9fc
+- [x] 1.3 Record the Playwright interception-teardown trap in `.ai/lessons.md` — 8b667c9fc
 
 ### Phase 2: Validate and ship
 
