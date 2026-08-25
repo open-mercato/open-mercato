@@ -22,7 +22,10 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -34,6 +37,10 @@ type ChannelRow = {
   displayName: string
   externalIdentifier: string | null
   isPrimary: boolean
+  /** `shared` = a team mailbox: teammates can read the CRM email it ingests. */
+  visibility: 'private' | 'shared'
+  /** Version token for the share toggle's optimistic-lock header. */
+  updatedAt: string | null
   isActive: boolean
   status: 'connected' | 'requires_reauth' | 'error' | 'disconnected'
   lastError: string | null
@@ -81,6 +88,9 @@ export default function ProfileCommunicationChannelsPage() {
     contextId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
+  // Sharing a mailbox is privacy-consequential, so the widening direction is
+  // confirmed. Escape cancels and Cmd/Ctrl+Enter submits (ConfirmDialog owns both).
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   React.useEffect(() => {
     if (flashType === 'connected') {
@@ -145,6 +155,77 @@ export default function ProfileCommunicationChannelsPage() {
   }, [reloadKey, t])
 
   const reauthRows = rows.filter((r) => r.status === 'requires_reauth')
+
+  const onSetVisibility = React.useCallback(
+    async (channel: ChannelRow, nextShared: boolean) => {
+      // Only the widening direction needs a confirmation; making a mailbox
+      // private again is the safe direction and stays one click.
+      if (nextShared) {
+        const confirmed = await confirm({
+          title: t(
+            'communication_channels.profile.share.confirm.title',
+            'Share this mailbox with your team?',
+          ),
+          text: t(
+            'communication_channels.profile.share.confirm.text',
+            'Colleagues will be able to read the CRM email this mailbox handles, including messages already received. You stay the only person who can manage the connection, and you can stop sharing at any time.',
+          ),
+          confirmText: t('communication_channels.profile.share.confirm.cta', 'Share with team'),
+        })
+        if (!confirmed) return
+      }
+
+      const nextVisibility = nextShared ? 'shared' : 'private'
+      let response
+      try {
+        response = await runMutation({
+          operation: () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(channel.updatedAt),
+            () => apiCall(
+              `/api/communication_channels/channels/${encodeURIComponent(channel.id)}/visibility`,
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ visibility: nextVisibility }),
+              },
+            ),
+          ),
+          context: {
+            formId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.channel',
+            resourceId: channel.id,
+            retryLastMutation,
+          },
+          mutationPayload: { visibility: nextVisibility },
+        })
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) return
+        flash(
+          err instanceof Error
+            ? err.message
+            : t('communication_channels.profile.share.failed', 'Failed to update sharing'),
+          'error',
+        )
+        return
+      }
+      if (!response.ok) {
+        const body = response.result as { error?: string } | undefined
+        flash(
+          body?.error ?? t('communication_channels.profile.share.failed', 'Failed to update sharing'),
+          'error',
+        )
+        return
+      }
+      flash(
+        nextShared
+          ? t('communication_channels.profile.share.sharedSuccess', 'Mailbox shared with your team.')
+          : t('communication_channels.profile.share.privateSuccess', 'Mailbox is private again.'),
+        'success',
+      )
+      setReloadKey((k) => k + 1)
+    },
+    [runMutation, retryLastMutation, confirm, t],
+  )
 
   const onSetPrimary = React.useCallback(
     async (channelId: string) => {
@@ -312,6 +393,40 @@ export default function ProfileCommunicationChannelsPage() {
             >
               {t('communication_channels.profile.actions.setPrimary', 'Set as primary')}
             </Button>
+          ),
+      },
+      {
+        header: t('communication_channels.profile.columns.sharing', 'Team access'),
+        accessorKey: 'visibility',
+        cell: ({ row }) =>
+          row.original.visibility === 'shared' ? (
+            <div className="flex items-center gap-2">
+              <Tag variant="info" dot>
+                {t('communication_channels.profile.share.shared', 'Shared')}
+              </Tag>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, false)}
+              >
+                {t('communication_channels.profile.share.makePrivate', 'Make private')}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {t('communication_channels.profile.share.private', 'Only you')}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, true)}
+              >
+                {t('communication_channels.profile.share.shareCta', 'Share with team')}
+              </Button>
+            </div>
           ),
       },
       {
@@ -494,7 +609,7 @@ export default function ProfileCommunicationChannelsPage() {
         },
       },
     ],
-    [onSetPrimary, onPollNow, onRegisterPush, t],
+    [onSetPrimary, onSetVisibility, onPollNow, onRegisterPush, t],
   )
 
   return (
@@ -561,6 +676,7 @@ export default function ProfileCommunicationChannelsPage() {
             setReloadKey((k) => k + 1)
           }}
         />
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )
