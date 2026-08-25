@@ -28,7 +28,7 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { Briefcase, AlertTriangle, X } from 'lucide-react'
-import { isLostDealStatus } from '../../../lib/dealStatus'
+import { isLostDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
@@ -856,7 +856,7 @@ export default function CustomersDealsPage() {
             subtitle = (
               <span className="text-xs text-status-error-text">{t('customers.deals.list.close.overdue')}</span>
             )
-          } else if (row.original.status === 'win') {
+          } else if (isWonDealStatus(row.original.status)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.won')}</span>
             )

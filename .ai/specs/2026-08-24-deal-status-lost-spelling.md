@@ -1,7 +1,7 @@
 # Deal Status Vocabulary — Rename `loose` to `lost`
 
 **Date:** 2026-08-24
-**Status:** Proposed
+**Status:** Accepted
 **Module:** `packages/core/src/modules/customers`
 **Related:** #4667 (deal status single source of truth), #5107 (canonical status filters)
 
@@ -64,6 +64,8 @@ enum. The aggregate route's `status` filter has accepted arbitrary strings since
 | `customer_dictionary_entries` (`deal_status`, `pipeline_stage`) | the `loose` entry is renamed only when the scope has no `lost` entry, because `customer_dictionary_entries_unique` covers (org, tenant, kind, normalized_value); its label is corrected only when it is still the seeded `Loose` |
 | `customer_pipeline_stages.name` | the seeded `Loose` label becomes `Lost` |
 
+Deploy order is safe forward and unsafe backward: new code on un-migrated data classifies correctly, migrated data under rolled-back 0.7.0 code does not. See Risks & Impact Review below.
+
 A tenant that renamed the option keeps its own wording, and a tenant that already holds both
 entries keeps both. Those rows still classify correctly, because readers accept `loose`
 through `LOST_DEAL_STATUS_LIST`, `expandDealStatusAliases` and
@@ -77,6 +79,17 @@ have to guess. Leaving the data on the canonical spelling is safe because both a
 a status literally against `'loose'` should call `isLostDealStatus` instead, which matches
 both spellings. Code that reads `canonicalDealStatus` output and expects `'loose'` must
 expect `'lost'`.
+
+## Risks & Impact Review
+
+| Failure scenario | Severity | Affected area | Mitigation | Residual risk |
+|---|---|---|---|---|
+| The code is rolled back to 0.7.0 after the migration ran. 0.7.0's `dealsSummaryQueries.ts` matches `status = 'loose'` against rows that now say `lost`. | Medium | Quarter win/loss KPI and the monthly trend series | Documented in `UPGRADE_NOTES.md` with the manual reversal statement; `down()` is deliberately a no-op rather than a lossy guess | Silent. The query returns `0`, not an error, so an operator sees a blank number rather than a failure |
+| The win/loss SQL is later narrowed back to one spelling. | Medium | Same KPI surfaces | `dealsSummaryQueries.test.ts` pins `status IN ('lost', 'loose')` on the same mocked call that already pins the won half | None once the assertion is in place |
+| A tenant holds both a `loose` and a `lost` dictionary entry, so the rename would violate `customer_dictionary_entries_unique`. | Low | Deal status and pipeline stage dictionaries | The migration's correlated `NOT EXISTS` skips that scope entirely | The tenant keeps two entries. Both classify correctly through the read aliases, and an operator may see a duplicate option until they tidy it |
+| A tenant renamed the option and the migration overwrites their wording. | Low | Dictionary labels | The label rewrite is conditional on the value still being the seeded `Loose` | None |
+| The migration stamps `updated_at` on `customer_deals`. | High if it happened | Win/loss KPI windowing and the trend series | It does not, and the migration test asserts the absence | None |
+| `loose` is removed from `LOST_DEAL_STATUS_LIST` at 0.9.0 while the dashboards module keeps its own hard-coded copy. | Medium | Pipeline-summary widget | `dashboards/.../config.test.ts` cross-checks its literal against `CLOSED_DEAL_STATUS_LIST` | None once that assertion is in place |
 
 ## Changelog
 
