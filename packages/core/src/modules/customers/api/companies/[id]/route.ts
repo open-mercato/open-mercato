@@ -38,7 +38,7 @@ import {
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
-import { listGrantsForViewer } from '../../../lib/conversationShares'
+import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -486,15 +486,19 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
   // Company detail spans many Persons, so it uses the capped tenant-wide grant
   // list rather than a per-Person lookup.
-  const companyShareGrants = await listGrantsForViewer(
-    em,
-    { tenantId: companyScope.tenantId, organizationId: companyScope.organizationId },
-    viewerUserId,
-  )
+  const companyEmailScope = {
+    tenantId: companyScope.tenantId,
+    organizationId: companyScope.organizationId,
+  }
+  const [companyShareGrants, companySharedChannelIds] = await Promise.all([
+    listGrantsForViewer(em, companyEmailScope, viewerUserId),
+    listSharedChannelIds(em, companyEmailScope, viewerUserId),
+  ])
   const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
     currentUserId: viewerUserId,
     userFeatures: undefined,
     sharedConversations: companyShareGrants,
+    sharedChannelIds: companySharedChannelIds,
   })
 
   // Opt-in cache (#3664): the company existence + org read-access checks above

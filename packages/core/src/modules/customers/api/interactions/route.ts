@@ -26,7 +26,7 @@ import {
 } from '../openapi'
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
 import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
-import { listGrantsForViewer } from '../../lib/conversationShares'
+import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { resolveEncryptedSortPage } from './encryptedSortPage'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -472,11 +472,14 @@ export async function GET(req: Request) {
     const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
     // Conversation shares that widen this caller's email access. Unscoped surface,
     // so this is the capped variant (see SHARE_ARM_MAX).
-    const emailShareGrants = await listGrantsForViewer(
-      em,
-      { tenantId: auth.tenantId as string, organizationId: selectedOrganizationId },
-      viewerUserId,
-    )
+    const emailShareScope = {
+      tenantId: auth.tenantId as string,
+      organizationId: selectedOrganizationId,
+    }
+    const [emailShareGrants, emailSharedChannelIds] = await Promise.all([
+      listGrantsForViewer(em, emailShareScope, viewerUserId),
+      listSharedChannelIds(em, emailShareScope, viewerUserId),
+    ])
     const encryptionService = resolveTenantEncryptionService(em)
     // Encrypted sort columns can't use SQL keyset ordering on ciphertext, so an
     // encrypted sort field takes a bounded candidate-scan + in-memory-sort path
@@ -508,6 +511,7 @@ export async function GET(req: Request) {
         currentUserId: viewerUserId,
         userFeatures: callerUserFeatures,
         sharedConversations: emailShareGrants,
+        sharedChannelIds: emailSharedChannelIds,
       })
       const cap = resolveEncryptedSortMaxRows()
       if (cap !== null) {
@@ -554,6 +558,7 @@ export async function GET(req: Request) {
           currentUserId: viewerUserId,
           userFeatures: callerUserFeatures,
           sharedConversations: emailShareGrants,
+          sharedChannelIds: emailSharedChannelIds,
         })
         pageQuery = pageQuery.where('id', 'in', pageIds)
         const rawPageRows = await pageQuery.execute() as InteractionListRow[]
@@ -588,6 +593,7 @@ export async function GET(req: Request) {
         currentUserId: viewerUserId,
         userFeatures: callerUserFeatures,
         sharedConversations: emailShareGrants,
+        sharedChannelIds: emailSharedChannelIds,
       })
 
       rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)

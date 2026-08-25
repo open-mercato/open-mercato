@@ -9,7 +9,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
-import { listGrantsForViewer } from '../../../lib/conversationShares'
+import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -103,20 +103,21 @@ export async function GET(req: Request) {
     const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
     // Conversation shares must widen the counts too, or the `email` total would
     // disagree with the visibility-filtered list it labels.
-    const emailShareGrants = await listGrantsForViewer(
-      em,
-      {
-        tenantId: auth.tenantId as string,
-        // Grants are org-scoped; with a multi-org scope fall back to tenant-wide
-        // (the predicate still matches on person + owner, never on org alone).
-        organizationId: organizationIds.length === 1 ? organizationIds[0] : null,
-      },
-      viewerUserId,
-    )
+    const emailShareScope = {
+      tenantId: auth.tenantId as string,
+      // Grants are org-scoped; with a multi-org scope fall back to tenant-wide
+      // (the predicate still matches on person + owner, never on org alone).
+      organizationId: organizationIds.length === 1 ? organizationIds[0] : null,
+    }
+    const [emailShareGrants, emailSharedChannelIds] = await Promise.all([
+      listGrantsForViewer(em, emailShareScope, viewerUserId),
+      listSharedChannelIds(em, emailShareScope, viewerUserId),
+    ])
     baseQuery = applyEmailVisibilityFilter(baseQuery, {
       currentUserId: viewerUserId,
       userFeatures: undefined,
       sharedConversations: emailShareGrants,
+      sharedChannelIds: emailSharedChannelIds,
     })
 
     // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.

@@ -419,11 +419,11 @@ describe('conversation-share widening', () => {
       sharedConversations: [GRANTS[0]],
     })
     const predicates = qb.getPredicates() as Expr[]
-    // interaction_type, visibility, author != me, and the NOT-shared clause.
-    expect(predicates).toHaveLength(4)
+    // interaction_type, visibility, author != me, NOT-shared-channel, NOT-shared-conversation.
+    expect(predicates).toHaveLength(5)
     // "not (person AND owner)" expressed as "person != OR owner !=", so a shared
     // row stops being counted as private the moment the grant exists.
-    expect(predicates[3]).toEqual({
+    expect(predicates[4]).toEqual({
       kind: 'and',
       arms: [
         {
@@ -441,7 +441,9 @@ describe('conversation-share widening', () => {
     const qb = makeBuilder()
     applyEmailHiddenFilter(qb, { currentUserId: 'me', userFeatures: undefined })
     const predicates = qb.getPredicates() as Expr[]
+    // Both subtraction clauses degrade to a no-op TRUE when nothing is shared.
     expect(predicates[3]).toEqual({ kind: 'val', value: true })
+    expect(predicates[4]).toEqual({ kind: 'val', value: true })
   })
 
   it('unhides a row for the row-level predicate only on an exact grant match', () => {
@@ -473,5 +475,167 @@ describe('conversation-share widening', () => {
     }) as { $or: unknown[] }
     expect(fragment.$or).toHaveLength(3)
     expect(JSON.stringify(fragment.$or)).not.toContain('authorUserId')
+  })
+})
+
+describe('shared team mailbox (channel) widening', () => {
+  // A channel-level share differs from a conversation share in one critical way:
+  // it MUST key on channel_id, never on author_user_id. An owner with one shared
+  // and one private mailbox has the same author on both, so an author-keyed rule
+  // would leak the private mailbox. These tests pin that.
+
+  type Expr =
+    | { kind: 'cmp'; column: string; op: string; value: unknown }
+    | { kind: 'or'; arms: Expr[] }
+    | { kind: 'and'; arms: Expr[] }
+    | { kind: 'val'; value: unknown }
+
+  function makeBuilder() {
+    const predicates: Expr[] = []
+    const eb: any = (column: string, op: string, value: unknown): Expr => ({
+      kind: 'cmp',
+      column,
+      op,
+      value,
+    })
+    eb.or = (arms: Expr[]): Expr => ({ kind: 'or', arms })
+    eb.and = (arms: Expr[]): Expr => ({ kind: 'and', arms })
+    eb.val = (value: unknown): Expr => ({ kind: 'val', value })
+    const builder: any = {
+      where: jest.fn().mockImplementation((...args: unknown[]) => {
+        if (typeof args[0] === 'function') {
+          predicates.push((args[0] as (eb: unknown) => Expr)(eb))
+        } else {
+          predicates.push({
+            kind: 'cmp',
+            column: args[0] as string,
+            op: args[1] as string,
+            value: args[2],
+          })
+        }
+        return builder
+      }),
+      getPredicates: () => predicates,
+    }
+    return builder
+  }
+
+  const CHANNELS = ['chan-1', 'chan-2']
+
+  it('is byte-identical to the pre-channel predicate when no ids are passed', () => {
+    const without = buildEmailVisibilityMikroFilter({
+      currentUserId: 'me',
+      userFeatures: undefined,
+    })
+    const withEmpty = buildEmailVisibilityMikroFilter({
+      currentUserId: 'me',
+      userFeatures: undefined,
+      sharedChannelIds: [],
+    })
+    expect(withEmpty).toEqual(without)
+    expect((without as { $or: unknown[] }).$or).toHaveLength(4)
+  })
+
+  it('adds ONE flat $in arm for the whole channel set, keeping the fragment single-key', () => {
+    const fragment = buildEmailVisibilityMikroFilter({
+      currentUserId: 'me',
+      userFeatures: undefined,
+      sharedChannelIds: CHANNELS,
+    }) as { $or: unknown[] }
+    expect(Object.keys(fragment)).toEqual(['$or'])
+    // 4 base arms + exactly one channel arm (not one per channel).
+    expect(fragment.$or).toHaveLength(5)
+    expect(fragment.$or).toContainEqual({ channelId: { $in: CHANNELS } })
+  })
+
+  it('keys the channel arm on channel_id and never on author_user_id', () => {
+    const fragment = buildEmailVisibilityMikroFilter({
+      currentUserId: 'me',
+      userFeatures: undefined,
+      sharedChannelIds: ['chan-1'],
+    }) as { $or: Array<Record<string, unknown>> }
+    const channelArm = fragment.$or[fragment.$or.length - 1]
+    // An author-keyed arm here would expose a sibling PRIVATE mailbox owned by
+    // the same person. The arm must reference channelId and nothing else.
+    expect(Object.keys(channelArm)).toEqual(['channelId'])
+  })
+
+  it('adds the kysely channel arm as a single IN predicate', () => {
+    const qb = makeBuilder()
+    applyEmailVisibilityFilter(qb, {
+      currentUserId: 'me',
+      userFeatures: undefined,
+      sharedChannelIds: CHANNELS,
+    })
+    const predicate = qb.getPredicates()[0] as Expr
+    if (predicate.kind !== 'or') throw new Error('expected OR predicate')
+    expect(predicate.arms).toHaveLength(5)
+    expect(predicate.arms[4]).toEqual({
+      kind: 'cmp',
+      column: 'channel_id',
+      op: 'in',
+      value: CHANNELS,
+    })
+  })
+
+  it('still counts rows with an unknown channel as hidden (NULL is not shared)', () => {
+    const qb = makeBuilder()
+    applyEmailHiddenFilter(qb, {
+      currentUserId: 'me',
+      userFeatures: undefined,
+      sharedChannelIds: CHANNELS,
+    })
+    const predicates = qb.getPredicates() as Expr[]
+    // The NULL arm is explicit rather than left to SQL's three-valued `not in`,
+    // which would drop NULL-channel rows out of the count entirely.
+    expect(predicates[3]).toEqual({
+      kind: 'or',
+      arms: [
+        { kind: 'cmp', column: 'channel_id', op: 'is', value: null },
+        { kind: 'cmp', column: 'channel_id', op: 'not in', value: CHANNELS },
+      ],
+    })
+  })
+
+  it('unhides a row only when its channel is in the shared set', () => {
+    const base = {
+      interactionType: 'email',
+      visibility: 'private',
+      authorUserId: 'owner-1',
+      currentUserId: 'me',
+      sharedChannelIds: CHANNELS,
+    }
+    expect(isEmailHiddenFrom({ ...base, channelId: 'chan-1' })).toBe(false)
+    // Same owner, a DIFFERENT (private) mailbox — must stay hidden. This is the
+    // case an author-keyed rule would have leaked.
+    expect(isEmailHiddenFrom({ ...base, channelId: 'chan-private' })).toBe(true)
+    // Unknown channel — fail closed.
+    expect(isEmailHiddenFrom({ ...base, channelId: null })).toBe(true)
+    expect(isEmailHiddenFrom({ ...base, channelId: undefined })).toBe(true)
+  })
+
+  it('never unlocks a shared channel for an anonymous/API-key caller', () => {
+    // The service returns [] for a null / api_key principal, so the arm is absent
+    // and such callers stay on the strict predicate.
+    const fragment = buildEmailVisibilityMikroFilter({
+      currentUserId: null,
+      userFeatures: ['*'],
+      sharedChannelIds: [],
+    }) as { $or: unknown[] }
+    expect(fragment.$or).toHaveLength(3)
+    expect(JSON.stringify(fragment.$or)).not.toContain('channelId')
+  })
+
+  it('composes with conversation shares without either arm swallowing the other', () => {
+    const fragment = buildEmailVisibilityMikroFilter({
+      currentUserId: 'me',
+      userFeatures: undefined,
+      sharedConversations: [{ personEntityId: 'person-1', ownerUserId: 'owner-1' }],
+      sharedChannelIds: ['chan-1'],
+    }) as { $or: unknown[] }
+    // 4 base + 1 conversation + 1 channel.
+    expect(fragment.$or).toHaveLength(6)
+    expect(fragment.$or).toContainEqual({ entity: 'person-1', authorUserId: 'owner-1' })
+    expect(fragment.$or).toContainEqual({ channelId: { $in: ['chan-1'] } })
   })
 })

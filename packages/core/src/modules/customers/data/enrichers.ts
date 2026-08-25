@@ -4,7 +4,7 @@ import { resolveKyselyClient } from '../lib/kysely'
 import { fetchStuckThresholdDays } from '../lib/stuckDeals'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { listGrantsForViewer } from '../lib/conversationShares'
+import { listGrantsForViewer, listSharedChannelIds } from '../lib/conversationShares'
 import { applyEmailHiddenFilter, isEmailHiddenFrom } from '../lib/visibilityFilter'
 
 type DealRecord = Record<string, unknown> & {
@@ -281,16 +281,17 @@ export const privateEmailCountEnricher: ResponseEnricher<
 
     // A conversation the owner shared is no longer "private" to this caller, so it
     // must not be counted as hidden.
-    const sharedConversations = await listGrantsForViewer(
-      context.em as EntityManager,
-      { tenantId: context.tenantId, organizationId: context.organizationId },
-      userId,
-    ).catch(() => [])
+    const countScope = { tenantId: context.tenantId, organizationId: context.organizationId }
+    const [sharedConversations, sharedChannelIds] = await Promise.all([
+      listGrantsForViewer(context.em as EntityManager, countScope, userId).catch(() => []),
+      listSharedChannelIds(context.em as EntityManager, countScope, userId).catch(() => []),
+    ])
 
     const rows = await applyEmailHiddenFilter(baseQuery, {
       currentUserId: userId,
       userFeatures: undefined,
       sharedConversations,
+      sharedChannelIds,
     })
       .groupBy('entity_id')
       .execute()
@@ -451,11 +452,11 @@ export const interactionEmailCardEnricher: ResponseEnricher<
     const currentUserId = ctx.userId
     // Conversation shares widen which private emails this caller may act on, so
     // the card actions derive from the same grants as the read filter.
-    const sharedConversations = await listGrantsForViewer(
-      ctx.em as EntityManager,
-      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-      currentUserId,
-    ).catch(() => [])
+    const cardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    const [sharedConversations, sharedChannelIds] = await Promise.all([
+      listGrantsForViewer(ctx.em as EntityManager, cardScope, currentUserId).catch(() => []),
+      listSharedChannelIds(ctx.em as EntityManager, cardScope, currentUserId).catch(() => []),
+    ])
 
     return records.map((r) => {
       if (
@@ -489,6 +490,8 @@ export const interactionEmailCardEnricher: ResponseEnricher<
           currentUserId,
           personEntityId: readPersonEntityId(r),
           sharedConversations,
+          channelId: typeof r.channelId === 'string' ? r.channelId : null,
+          sharedChannelIds,
         })
       ) {
         return r

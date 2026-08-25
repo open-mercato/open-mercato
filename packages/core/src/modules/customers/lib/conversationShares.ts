@@ -185,3 +185,64 @@ export async function canShareConversation(
   const count = await em.count(CustomerInteraction, where as never)
   return count > 0
 }
+
+/**
+ * Upper bound on shared-channel ids folded into a read predicate. A tenant with
+ * more shared team mailboxes than this is implausible, but the cap keeps the
+ * predicate bounded and truncation is logged rather than silent.
+ */
+export const SHARED_CHANNEL_ARM_MAX = 500
+
+/**
+ * Ids of channels marked as shared team mailboxes in this scope.
+ *
+ * Read by string class name, the same cross-module pattern
+ * `personEmailThreads.ts` and `link-channel-message-handler.ts` already use, so
+ * the customers module never imports the hub's entity classes.
+ *
+ * The caller's OWN channels are excluded: their mail already reaches them via the
+ * author arm, so including them would only inflate the predicate. Returns `[]` for
+ * an anonymous/API-key caller and on any error — every failure mode is
+ * fail-closed, because these ids only ever widen visibility.
+ */
+export async function listSharedChannelIds(
+  em: EntityManager,
+  scope: ConversationShareScope,
+  viewerUserId: string | null,
+): Promise<string[]> {
+  if (!viewerUserId || viewerUserId.startsWith('api_key:')) return []
+  try {
+    const where: Record<string, unknown> = {
+      tenantId: scope.tenantId,
+      visibility: 'shared',
+      deletedAt: null,
+    }
+    if (scope.organizationId) where.organizationId = scope.organizationId
+    const rows = (await em.find('CommunicationChannel' as never, where as never, {
+      limit: SHARED_CHANNEL_ARM_MAX + 1,
+    })) as unknown as Array<{ id?: string; userId?: string | null }>
+    if (!Array.isArray(rows)) return []
+
+    const ids: string[] = []
+    for (const row of rows) {
+      if (!row || typeof row.id !== 'string' || !row.id) continue
+      // Own channels add nothing — the author arm already admits their rows.
+      if (row.userId === viewerUserId) continue
+      ids.push(row.id)
+    }
+
+    if (ids.length > SHARED_CHANNEL_ARM_MAX) {
+      logger.warn('[internal] shared channel ids truncated for read predicate', {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        limit: SHARED_CHANNEL_ARM_MAX,
+        dropped: ids.length - SHARED_CHANNEL_ARM_MAX,
+      })
+      return ids.slice(0, SHARED_CHANNEL_ARM_MAX)
+    }
+    return ids
+  } catch {
+    // Fail closed: no ids means the strict predicate, never a wider one.
+    return []
+  }
+}

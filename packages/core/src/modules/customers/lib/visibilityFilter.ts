@@ -63,6 +63,19 @@ export interface ApplyEmailVisibilityFilterOptions {
    * that has not been taught about sharing can only ever under-share.
    */
   sharedConversations?: ConversationShareGrant[]
+  /**
+   * Ids of channels the caller may read in full because their owner marked them
+   * as a shared team mailbox (`CommunicationChannel.visibility = 'shared'`).
+   *
+   * Matched against the denormalized `customer_interactions.channel_id`, NOT
+   * against `author_user_id`: an owner with one shared and one private mailbox has
+   * the same author on both, so an author-keyed rule would leak the private one.
+   *
+   * OPTIONAL and fail-closed — omitting it (or passing `[]`) yields the predicate
+   * as it stood before channel sharing existed, so an unconverted read path can
+   * only ever under-share. A row with `channel_id IS NULL` never matches.
+   */
+  sharedChannelIds?: string[]
 }
 
 /**
@@ -93,6 +106,7 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
   //     created before per-email visibility shipped) — these must remain
   //     visible to avoid silently hiding pre-existing CRM history.
   const grants = opts.sharedConversations ?? []
+  const sharedChannelIds = opts.sharedChannelIds ?? []
   return query.where((eb: any) =>
     eb.or([
       eb('interaction_type', '!=', 'email'),
@@ -110,6 +124,11 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
           eb('author_user_id', '=', grant.ownerUserId),
         ]),
       ),
+      // Shared team mailboxes: the whole channel was handed to the team. One arm
+      // for the whole set, matching the indexed `channel_id` column.
+      ...(sharedChannelIds.length > 0
+        ? [eb('channel_id', 'in', sharedChannelIds)]
+        : []),
     ]),
   )
 }
@@ -131,10 +150,19 @@ export function isEmailHiddenFrom(opts: {
   /** The Person this interaction is anchored to; required to match a share grant. */
   personEntityId?: string | null | undefined
   sharedConversations?: ConversationShareGrant[]
+  /** The channel this email arrived through; required to match a shared mailbox. */
+  channelId?: string | null | undefined
+  sharedChannelIds?: string[]
 }): boolean {
   if (opts.interactionType !== 'email') return false
   if (opts.visibility !== 'private') return false
   if (opts.currentUserId && opts.authorUserId && opts.authorUserId === opts.currentUserId) {
+    return false
+  }
+  // A shared team mailbox makes every one of its rows readable. Checked before the
+  // per-Person grants because it is the broader escalation.
+  const sharedChannelIds = opts.sharedChannelIds ?? []
+  if (sharedChannelIds.length > 0 && opts.channelId && sharedChannelIds.includes(opts.channelId)) {
     return false
   }
   const grants = opts.sharedConversations ?? []
@@ -165,11 +193,24 @@ export function applyEmailHiddenFilter<T extends { where: (...args: any[]) => T 
 ): T {
   const currentUserId = opts.currentUserId
   const grants = opts.sharedConversations ?? []
+  const sharedChannelIds = opts.sharedChannelIds ?? []
   return query
     .where('interaction_type', '=', 'email')
     .where('visibility', '=', 'private')
     .where((eb: any) =>
       currentUserId ? eb('author_user_id', '!=', currentUserId) : eb.val(true),
+    )
+    // Subtract shared team mailboxes, or the Person page would keep reporting
+    // "3 private emails" for a mailbox the caller can now read end to end.
+    // `channel_id IS NULL` must still COUNT, so the NULL case is explicit rather
+    // than left to SQL's three-valued `not in`.
+    .where((eb: any) =>
+      sharedChannelIds.length === 0
+        ? eb.val(true)
+        : eb.or([
+            eb('channel_id', 'is', null),
+            eb('channel_id', 'not in', sharedChannelIds),
+          ]),
     )
     // Subtract the shared conversations. Without this the Person page would keep
     // reporting "3 private emails" for emails the caller can now actually read.
@@ -259,6 +300,7 @@ export function buildEmailVisibilityMikroFilter(
   // predicate into independently-satisfiable arms. Any future widening MUST be
   // added as another arm of THIS `$or`, not as a sibling top-level key.
   const grants = opts.sharedConversations ?? []
+  const sharedChannelIds = opts.sharedChannelIds ?? []
   return {
     $or: [
       { interactionType: { $ne: 'email' } },
@@ -271,6 +313,9 @@ export function buildEmailVisibilityMikroFilter(
         entity: grant.personEntityId,
         authorUserId: grant.ownerUserId,
       })),
+      // Mirrors the kysely channel arm. Still flat inside this single `$or`, so
+      // the fragment stays a one-key object every caller can spread losslessly.
+      ...(sharedChannelIds.length > 0 ? [{ channelId: { $in: sharedChannelIds } }] : []),
     ],
   } as EmailVisibilityFilterFragment
 }

@@ -62,6 +62,8 @@ export type BuildPersonEmailThreadsOptions = {
    * omitting it yields the strict owner-only view.
    */
   sharedConversations?: ConversationShareGrant[]
+  /** Channels marked as shared team mailboxes; optional and fail-closed. */
+  sharedChannelIds?: string[]
   maxThreads?: number
   maxMessagesPerThread?: number
 }
@@ -135,6 +137,7 @@ export async function buildPersonEmailThreads(
     viewerUserId,
     userFeatures,
     sharedConversations,
+    sharedChannelIds,
     maxThreads = DEFAULT_MAX_THREADS,
     maxMessagesPerThread = DEFAULT_MAX_MESSAGES_PER_THREAD,
   } = opts
@@ -170,6 +173,7 @@ export async function buildPersonEmailThreads(
       currentUserId: viewerUserId,
       userFeatures,
       sharedConversations,
+      sharedChannelIds,
     }),
   )
 

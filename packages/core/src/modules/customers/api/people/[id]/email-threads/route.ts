@@ -8,7 +8,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { CustomerEntity } from '../../../../data/entities'
 import { buildPersonEmailThreads } from '../../../../lib/personEmailThreads'
-import { listGrantsForViewerOnPerson } from '../../../../lib/conversationShares'
+import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../../../lib/conversationShares'
 
 export const metadata = {
   path: '/customers/people/[id]/email-threads',
@@ -66,12 +66,11 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   // Conversation shares this viewer benefits from, scoped to THIS Person, so the
   // Emails tab shows a handed-over history. Person-scoped, so it can never hit
   // the SHARE_ARM_MAX cap.
-  const sharedConversations = await listGrantsForViewerOnPerson(
-    em,
-    { tenantId: auth.tenantId as string, organizationId },
-    viewerUserId,
-    personId,
-  )
+  const shareScope = { tenantId: auth.tenantId as string, organizationId }
+  const [sharedConversations, sharedChannelIds] = await Promise.all([
+    listGrantsForViewerOnPerson(em, shareScope, viewerUserId, personId),
+    listSharedChannelIds(em, shareScope, viewerUserId),
+  ])
 
   const threads = await buildPersonEmailThreads(em, {
     personId,
@@ -83,6 +82,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     // rather than paying an RBAC round-trip the filter discards.
     userFeatures: undefined,
     sharedConversations,
+    sharedChannelIds,
   })
 
   return NextResponse.json({ threads })

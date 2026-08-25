@@ -30,7 +30,7 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
-import { listGrantsForViewer } from '../../lib/conversationShares'
+import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -324,17 +324,18 @@ async function listCanonicalActivities(
   const activitiesViewerUserId = auth.keyId ? null : (auth.sub ?? auth.userId ?? null)
   // Conversation shares widen this surface identically to /interactions, so the
   // deprecated timeline cannot disagree with the canonical one.
-  const activitiesShareGrants = await listGrantsForViewer(
-    em,
-    { tenantId, organizationId: selectedOrganizationId },
-    activitiesViewerUserId,
-  )
+  const activitiesEmailScope = { tenantId, organizationId: selectedOrganizationId }
+  const [activitiesShareGrants, activitiesSharedChannelIds] = await Promise.all([
+    listGrantsForViewer(em, activitiesEmailScope, activitiesViewerUserId),
+    listSharedChannelIds(em, activitiesEmailScope, activitiesViewerUserId),
+  ])
   Object.assign(
     where,
     buildEmailVisibilityMikroFilter({
       currentUserId: activitiesViewerUserId,
       userFeatures: undefined,
       sharedConversations: activitiesShareGrants,
+      sharedChannelIds: activitiesSharedChannelIds,
     }),
   )
 
