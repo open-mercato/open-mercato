@@ -1,0 +1,337 @@
+---
+title: Notification Delivery
+description: How a notification type is registered by your code, which channels it may use, how the delivery gate decides, and every type currently in the registry.
+sidebar_label: Notification Delivery
+---
+
+# Notification Delivery
+
+Four modules cooperate to turn `notificationService.create(...)` into a banner on someone's phone. Each owns exactly one thing:
+
+| Module | Owns |
+|---|---|
+| `notifications` | The content, the **type registry**, per-user preferences, and the single delivery gate. |
+| `devices` | The address book — which devices a user has and what push token each holds. |
+| `push_notifications` | Transport for the `push` channel: fan-out, queue worker, retries, delivery log. |
+| `communication_channels` | The provider credentials and the adapter that talks to FCM / APNs / Expo. |
+
+This page is the map between them. For creating notifications (service API, batch, role- and feature-targeted sends, renderers) see [Notifications](./notifications.mdx); for the transport internals see [Push Notifications](./push-notifications.mdx) and [Devices](./devices.mdx).
+
+## The path a notification takes
+
+1. Your code calls `notificationService.create({ type, recipientUserId, ... })`.
+2. The **gate** runs once, at create time, per candidate channel — `packages/core/src/modules/notifications/lib/shouldDeliver.ts`. The surviving set is snapshotted onto the notification's `channels` column, so every downstream strategy obeys one decision instead of re-deriving it.
+3. The dispatcher invokes each surviving channel's **delivery strategy**.
+4. For `push`, that strategy enqueues a fan-out; the actual provider send happens in a worker, so a slow provider never blocks notification creation.
+
+The important consequence: **a channel that the gate removed is not "skipped later", it never reaches the strategy at all.** When you debug a missing notification, start at the gate.
+
+## Registering a notification type
+
+This is the part your own module writes. A notification type is declared in a `notifications.ts` file at the module root — a convention file the generator discovers (`packages/core/src/modules/notifications/generators.ts`). There is no runtime registration call and no central list to edit.
+
+```typescript
+// packages/<pkg>/src/modules/<module>/notifications.ts
+// or apps/mercato/src/modules/<module>/notifications.ts
+import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+
+export const notificationTypes: NotificationTypeDefinition[] = [
+  {
+    type: 'shipping.shipment.delayed',
+    module: 'shipping',
+    channels: ['in_app', 'email', 'push'],
+    titleKey: 'shipping.notifications.shipmentDelayed.title',
+    bodyKey: 'shipping.notifications.shipmentDelayed.body',
+    icon: 'truck',
+    severity: 'warning',
+    actions: [
+      { id: 'view', labelKey: 'common.view', href: '/backend/shipping/shipments', icon: 'external-link' },
+    ],
+    linkHref: '/backend/shipping/shipments',
+    expiresAfterHours: 72,
+  },
+]
+```
+
+Then run `yarn generate`. Emitting one is an ordinary service call:
+
+```typescript
+await notificationService.create({
+  type: 'shipping.shipment.delayed',
+  recipientUserId: userId,
+  tenantId,
+  organizationId,
+  titleVariables: { trackingNumber },
+})
+```
+
+### The type definition
+
+Declared in `packages/shared/src/modules/notifications/types.ts`.
+
+| Field | Required | What it does |
+|---|---|---|
+| `type` | yes | Stable id, `module.entity.action`. Never rename one in place — a renamed type stops matching stored preferences, and in-flight notifications referencing it lose their `nonOptOut` enforcement. |
+| `module` | yes | Owning module id. |
+| `titleKey` / `bodyKey` | title yes | i18n keys resolved per recipient locale. |
+| `icon`, `severity` | yes / yes | `info` \| `warning` \| `success` \| `error`. |
+| `actions`, `primaryActionId`, `linkHref` | no | Buttons and the click-through target. |
+| `channels` | **no, and that matters** | The channels this type may *ever* use. See the warning below. |
+| `nonOptOut` | no | The recipient cannot disable it. Preference UIs render it locked; `setPreferences` refuses to store an opt-out row. Use for security and account alerts. |
+| `silent` | no | Push is delivered as a data-only wake-up instead of a visible alert. Style only — it does **not** imply non-opt-out. To force a silent push through, mark the type `nonOptOut` as well. |
+| `hiddenFromSettings` | no | Not mirrored to `notification_types`, so a client's preferences screen never lists it. For server-dispatched internal types. |
+| `category`, `labelKey`, `descriptionKey` | no | Grouping and copy for a preferences screen. `category` defaults to the prefix before the first dot. |
+| `expiresAfterHours` | no | Auto-expiry of the in-app row. |
+| `Renderer` | no | Client-side custom rendering — declared in `notifications.client.ts`, not here. |
+
+:::warning A type that omits `channels` is eligible for every registered channel
+`resolveEligibleChannels` returns `null` for such a type, and `null` means *no restriction* — not *no channels*. Once a tenant connects a push provider, every type without an explicit `channels` list becomes push-eligible. **37 of the 65 types currently in the registry omit it** (see the map below, where they render as `— (all registered)`).
+
+Whether the platform default should stay opt-out-per-type or become opt-in is an open policy question ([#5495](https://github.com/open-mercato/open-mercato/issues/5495)). Until it is settled, declare `channels` explicitly on every type you add.
+:::
+
+### Where a type ends up
+
+`syncNotificationTypes` (`packages/core/src/modules/notifications/lib/notification-type-registry.ts`) reconciles the in-memory catalogue into the `notification_types` table. That table is the read-through mirror remote clients use:
+
+- `GET /api/notifications/types` returns the visible catalogue with server-resolved `label`, `description` and `categoryLabel`, so a mobile app can render a preferences screen without shipping the backend dictionary.
+- Types marked `hiddenFromSettings` are not mirrored and never appear there, though they stay in the in-memory registry for delivery.
+- `PATCH /api/notifications/types` stores an operator override of `channels` / `nonOptOut` for the caller's tenant.
+
+Category labels live in the **declaring** module's `i18n/*.json` under `notifications.categories.<key>`; the `notifications` module deliberately ships none and holds no list of categories.
+
+## Channels
+
+A channel has two halves, in two different convention files — do not conflate them.
+
+**Metadata** — what the preferences UI calls it. `notification-channels.ts`, exporting `notificationChannels: NotificationChannelDefinition[]`. Core ships one such file, `packages/core/src/modules/notifications/notification-channels.ts`, declaring `in_app`, `email` and `push`. It backs `GET /api/notifications/channels`.
+
+**Behavior** — what actually delivers. `notifications.delivery-strategies.ts`, exporting `deliveryStrategies`. The generator plugin declared in `packages/core/src/modules/notifications/generators.ts` collects them into a generated registry that `packages/core/src/modules/notifications/lib/delivery-strategies-registry.ts` installs at bootstrap. `push_notifications` ships exactly this and nothing more exotic — `packages/core/src/modules/push_notifications/notifications.delivery-strategies.ts` is three lines.
+
+```typescript
+// packages/<pkg>/src/modules/<module>/notifications.delivery-strategies.ts
+export const deliveryStrategies = [myChannelDeliveryStrategy]
+```
+
+A strategy declares `id` (the channel id), `label`, `defaultEnabled`, and an async `deliver(ctx)`. Keep `deliver` fast: enqueue, do not send. `packages/core/src/modules/push_notifications/lib/push-delivery-strategy.ts` is the reference.
+
+## The delivery gate
+
+`shouldDeliver` is the one place a per-channel decision is made. A channel delivers when **all four** hold, in this order:
+
+1. It is a **registered strategy id**. An unregistered channel never delivers, whatever the type says.
+2. The type is **eligible** for it — the operator's stored override (`notification_types.channels`) if set, otherwise the code-declared `type.channels`. This runs *before* the `nonOptOut` bypass, so a channel outside the effective set is completely off for that type, even for a non-opt-out security alert.
+3. It is in the **per-send target**, when the caller supplied one.
+4. Either the type is effectively `nonOptOut`, **or** the recipient has not disabled it.
+
+`silent` is deliberately not consulted: it selects push *style*, not whether a channel delivers.
+
+A type id with no registered definition (a renamed or removed type still referenced by an in-flight notification) cannot have its code-declared `nonOptOut` enforced, so it becomes user-suppressible. The gate logs that once per type id per process — worth grepping for after a rename.
+
+### Operator overrides
+
+An operator changes a type's channel eligibility and its non-opt-out flag per tenant, without a code change, from **Settings → Notification Delivery** (`/backend/config/notifications`, feature `notifications.manage`). The override replaces the code-declared value for that tenant only, and beats user preferences in both directions: a channel removed there is off even for a `nonOptOut` type, and preference UIs lock the cell.
+
+### Preferences
+
+Preferences are stored per `(user, type, channel)`.
+
+| Screen | Path | Feature |
+|---|---|---|
+| A user's own preferences | `/backend/profile/notification-preferences` | `notifications.manage_preferences` |
+| Another user's preferences (admin) | `/backend/notifications/user-preferences` | `notifications.manage_user_preferences` |
+| Per-type channel eligibility (operator) | `/backend/config/notifications` | `notifications.manage` |
+
+ACL features: `notifications.view`, `notifications.create`, `notifications.manage`, `notifications.manage_preferences`, `notifications.manage_user_preferences` (`packages/core/src/modules/notifications/acl.ts`).
+
+## Registered notification types
+
+Every type currently in the registry, grouped by the module that declares it. `— (all registered)` means the type declares no `channels` and is therefore eligible for every registered channel, push included.
+
+This map is asserted against the real convention files by `apps/docs/__tests__/notification-registry.test.mjs` — adding a type without documenting it here fails the docs test.
+
+<!-- notification-type-map:start -->
+#### `ai_assistant`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `ai_assistant.conversation_shared` | info | — (all registered) | — |
+
+#### `auth`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `auth.account.locked` | warning | `in_app`, `email` | non-opt-out |
+| `auth.login.new_device` | info | `in_app`, `email` | non-opt-out |
+| `auth.password_reset.completed` | success | `in_app`, `email` | — |
+| `auth.password_reset.requested` | info | `in_app`, `email` | — |
+| `auth.role.assigned` | success | `in_app`, `email` | — |
+| `auth.role.revoked` | warning | `in_app`, `email` | — |
+
+#### `business_rules`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `business_rules.rule.execution_failed` | error | `in_app`, `email` | — |
+
+#### `catalog`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `catalog.product.low_stock` | warning | `in_app`, `email` | — |
+
+#### `checkout`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `checkout.link.usageLimitReached` | warning | — (all registered) | — |
+| `checkout.transaction.completed` | success | — (all registered) | — |
+| `checkout.transaction.failed` | error | — (all registered) | — |
+
+#### `communication_channels`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `communication_channels.channel.requires_reauth` | warning | `in_app`, `email` | — |
+| `communication_channels.message.received` | info | `in_app`, `email` | — |
+
+#### `customer_accounts`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `customer_accounts.domain_mapping.activated` | success | `in_app`, `email` | — |
+| `customer_accounts.domain_mapping.dns_failed` | warning | `in_app`, `email` | — |
+| `customer_accounts.domain_mapping.tls_failed` | warning | `in_app`, `email` | — |
+| `customer_accounts.domain_mapping.verified` | success | `in_app`, `email` | — |
+| `customer_accounts.user.locked` | warning | `in_app`, `email` | — |
+| `customer_accounts.user.signup` | info | `in_app`, `email` | — |
+
+#### `customers`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `customers.deal.lost` | warning | `in_app`, `email` | — |
+| `customers.deal.won` | success | `in_app`, `email` | — |
+
+#### `documents`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `documents.comment.mentioned` | info | — (all registered) | — |
+| `documents.watch.changed` | info | — (all registered) | — |
+| `documents.watch.commented` | info | — (all registered) | — |
+
+#### `eudr`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `eudr.mitigation.completed` | success | — (all registered) | — |
+| `eudr.risk.non_negligible` | warning | — (all registered) | — |
+| `eudr.statement.reference_issued` | success | — (all registered) | — |
+| `eudr.statement.submitted` | info | — (all registered) | — |
+| `eudr.statement.withdrawn` | warning | — (all registered) | — |
+
+#### `example`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `demo.push_playground` | info | — (all registered) | — |
+| `demo.silent_ping` | info | — (all registered) | silent |
+| `example.umes.actionable` | info | — (all registered) | — |
+
+#### `inbox_ops`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `inbox_ops.proposal.created` | info | `in_app`, `email` | — |
+
+#### `messages`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `messages.new` | info | `in_app`, `email` | — |
+
+#### `push_notifications`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `admin.custom_message` | info | — (all registered) | non-opt-out, hidden from settings |
+| `admin.custom_silent` | info | — (all registered) | non-opt-out, silent, hidden from settings |
+
+#### `record_locks`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `record_locks.conflict.detected` | warning | — (all registered) | — |
+| `record_locks.conflict.resolved` | info | — (all registered) | — |
+| `record_locks.incoming_changes.available` | info | — (all registered) | — |
+| `record_locks.lock.contended` | warning | — (all registered) | — |
+| `record_locks.lock.force_released` | warning | — (all registered) | — |
+| `record_locks.participant.joined` | info | — (all registered) | — |
+| `record_locks.participant.left` | info | — (all registered) | — |
+| `record_locks.record.deleted` | warning | — (all registered) | — |
+
+#### `sales`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `sales.order.created` | info | `in_app`, `email` | — |
+| `sales.payment.received` | success | `in_app`, `email` | — |
+| `sales.quote.created` | info | `in_app`, `email` | — |
+| `sales.quote.expiring` | warning | `in_app`, `email` | — |
+
+#### `security`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `security.mfa.enforcement_deadline` | warning | — (all registered) | — |
+| `security.mfa.enrolled` | success | — (all registered) | — |
+| `security.mfa.reset` | warning | — (all registered) | — |
+| `security.password.changed` | success | — (all registered) | — |
+
+#### `staff`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `staff.leave_request.approved` | success | `in_app`, `email` | — |
+| `staff.leave_request.pending` | warning | `in_app`, `email` | — |
+| `staff.leave_request.rejected` | warning | `in_app`, `email` | — |
+
+#### `warranty_claims`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `warranty_claims.claim.assigned` | info | — (all registered) | — |
+| `warranty_claims.claim.customer_replied` | info | — (all registered) | — |
+| `warranty_claims.claim.escalated` | warning | — (all registered) | — |
+| `warranty_claims.claim.status_changed` | info | — (all registered) | — |
+| `warranty_claims.claim.submitted` | info | — (all registered) | — |
+
+#### `webhooks`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `webhooks.delivery.failed` | error | — (all registered) | — |
+
+#### `wms`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `wms.inventory.low_stock` | warning | — (all registered) | — |
+| `wms.inventory.reservation_shortfall` | warning | — (all registered) | — |
+
+#### `workflows`
+
+| Type | Severity | Declared channels | Flags |
+|---|---|---|---|
+| `workflows.task.assigned` | info | `in_app`, `email` | — |
+<!-- notification-type-map:end -->
+
+## Related
+
+- [Notifications](./notifications.mdx) — creating notifications, renderers, batch and role-targeted sends
+- [Devices](./devices.mdx) — the device registry push delivers to
+- [Push Notifications](./push-notifications.mdx) — the push transport
+- [Communications Hub](./communication-channels.mdx) — provider credentials and adapters
+- [Devices & Push Notifications — Getting Started](../../tutorials/devices-and-push-getting-started.mdx)
+- [Notifications & push (admin guide)](../../user-guide/notifications-and-push.mdx)

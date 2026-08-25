@@ -8,6 +8,15 @@ description: Register devices, connect a push provider, and send your first push
 A friendly guide for someone who has never touched these modules. It explains *what they are*,
 *how the pieces fit together*, and *how to send your first push notification to a phone*.
 
+:::tip Where to go next
+This page is the happy path. Once it works, the reference pages carry the detail:
+[Notification Delivery](../framework/modules/notification-delivery.mdx) (which channels a type may
+use, and why one was dropped), [Devices](../framework/modules/devices.mdx) (the registration API a
+client app calls), [Push Notifications](../framework/modules/push-notifications.mdx) (transport,
+retries, error codes, environment variables), and the
+[admin guide](../user-guide/notifications-and-push.mdx) for the screens.
+:::
+
 ---
 
 ## 1. The 30-second mental model
@@ -240,20 +249,21 @@ target a single tenant.
 - **Everything is tenant-scoped** — a tenant only ever sees its own devices and deliveries.
 - **Modules are decoupled** — they talk via events and DI, not direct ORM relationships.
 - **Resilient delivery** — retries with backoff; dead tokens auto-remove the device.
+- **Silence is a property of the type**, not of a send — a data-only wake-up is a notification whose
+  type declares `silent: true`.
 - **Status**: the device registry, notification types and preferences, push delivery, and the
   FCM/APNs/Expo adapters all ship today. Not yet built: a delivery-log purge worker, web push,
   and actionable push buttons.
 
+For the rules that decide whether a channel delivers at all — per-type eligibility, operator
+overrides, non-opt-out, and the default that makes a type without a declared channel list
+push-eligible — see [Notification Delivery](../framework/modules/notification-delivery.mdx).
+
 ## 8. Environment variables
 
-All four are optional — push works with none of them set.
+Every `OM_PUSH_*` variable is optional; push works with none of them set. The full table, including
+the reclaim and receipt-polling knobs and the two test-only provider flags, lives in
+[Push Notifications → Environment variables](../framework/modules/push-notifications.mdx#environment-variables).
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `OM_PUSH_STUCK_RECLAIM_MINUTES` | `5` | How long a delivery may sit in `sending` before the reclaim worker re-opens it. Values below `1` are rejected and fall back to the default: a `0` would re-open a send that is still in flight and deliver the push twice. |
-| `OM_PUSH_RECEIPT_MIN_AGE_MINUTES` | `15` | How long to wait before polling Expo for a delivery receipt. Expo needs time to resolve one. |
-| `OM_ENABLE_PUSH_STUB_ADAPTER` | unset | **Test only.** Registers a stub push provider so a delivery can reach `sent` with no real credentials. Never set in production. |
-| `OM_PUSH_FAKE_PROVIDERS` | unset | **Test only.** Swaps the FCM/APNs/Expo SDK *clients* for in-process fakes while the real adapters still build and validate the message, recording each native payload to a JSONL sink. Never set in production. |
-
-The two test flags are inert unless set, and are never installed at import time. Both must reach the
-worker process as well as the app, because the push worker runs in its own process.
+Both test flags must reach the worker process as well as the app, because the push worker runs in
+its own process.

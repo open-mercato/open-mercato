@@ -1,0 +1,145 @@
+---
+title: Push Notifications
+description: The push transport — fan-out, the exactly-once send worker, retries and reapers, provider adapters, silent push, the delivery log, and every OM_PUSH_* variable.
+sidebar_label: Push Notifications
+---
+
+# Push Notifications
+
+## Overview
+
+- **Location**: `packages/core/src/modules/push_notifications/`
+- **Package**: `@open-mercato/core`
+- **Requires**: `auth`, `devices`, `notifications`, `communication_channels`, `integrations`
+
+`push_notifications` owns transport for the `push` channel and nothing above it. It decides *nothing* about whether a user should be notified — that was settled once by the delivery gate (see [Notification Delivery](./notification-delivery.mdx)). It decides how the bytes reach the handset, exactly once, with retries.
+
+There is deliberately **no `PushProvider` interface in this module**. Providers plug in as `communication_channels` adapters, so push reuses the credential storage, health checks and admin connect UI the hub already has.
+
+## The send path
+
+```
+notificationService.create()
+  └─ gate → push survives → dispatcher invokes the push strategy
+       └─ fanOutPushDeliveries()            packages/core/src/modules/push_notifications/lib/push-fanout.ts
+            ├─ find the tenant's ACTIVE push channels, index them by providerKey
+            ├─ load the recipient's devices that have a token
+            ├─ match device.pushProvider → channel.providerKey   (exact string match)
+            ├─ insert one delivery row per device, ON CONFLICT DO NOTHING
+            └─ enqueue one job per inserted row
+                 └─ send-push worker                packages/core/src/modules/push_notifications/lib/push-delivery.ts
+                      ├─ atomic pending → sending claim
+                      ├─ resolve channel + adapter + credentials
+                      ├─ adapter.sendMessage(...)
+                      └─ sent | retry with backoff | failed | skipped
+```
+
+The strategy itself only enqueues, so an unreachable provider never slows notification creation.
+
+:::danger Two preconditions, both silent when unmet
+The fan-out short-circuits with **no delivery rows and no error** when either holds:
+
+1. The tenant has **no active push channel** at all. `fanOutPushDeliveries` returns `{ enqueued: 0 }` immediately.
+2. A device's `pushProvider` does not match the `providerKey` of any active channel — including the empty case. Those devices are counted into a single warn line ("Skipped devices with no matching push channel") and dropped.
+
+Neither surfaces in the UI. When "nothing happened", check these before anything else.
+:::
+
+Exactly-once under an at-least-once queue comes from the claim: the worker flips `pending → sending` atomically and only the winner sends. Rows stranded in `sending` by a crashed process are recovered by the reclaim reaper.
+
+## Delivery rows
+
+`push_notification_deliveries` is append-only, one row per `(notification, device)`, unique on that pair. Statuses: `pending`, `sending`, `sent`, `failed`, `skipped`, `expired`.
+
+`last_error` carries the terminal reason. The ones worth recognising:
+
+| `last_error` | Means |
+|---|---|
+| `channel_unavailable` | No active channel for this provider at send time — it was disconnected or deactivated between fan-out and send. |
+| `no_adapter` | The channel exists but no adapter is registered for its `providerKey`. The provider package is not installed or not registered. |
+| `device_unavailable` | The device or its token disappeared before the send. Recorded as `skipped`, not `failed`. |
+| `device_unregistered` | The provider says the token is permanently invalid. The device is soft-deleted through the audited `devices.user_devices.deactivate` command. |
+| `send_timeout` | The adapter did not answer within `OM_PUSH_SEND_TIMEOUT_MS`. Retryable. |
+
+Retryable failures are re-enqueued with exponential backoff plus jitter, capped at `MAX_ATTEMPTS = 3`; the attempt counter is persisted **before** the send, so the cap bounds real provider sends rather than successful returns.
+
+## Connecting a provider
+
+Push credentials belong to the **tenant**, not to the user who happens to connect them — an FCM service account is not a personal mailbox. Push adapters therefore declare `channelScope: 'tenant'`, and the per-user connect route refuses them.
+
+Connect through `POST /api/communication_channels/channels/connect/tenant-credentials`, gated on `communication_channels.connect_tenant_channel`, or from the admin Integrations page. The channel row carries `organization_id = NULL` and its credentials are pinned at the tenant.
+
+Three adapter packages ship with the platform:
+
+| Package | `providerKey` | Credentials |
+|---|---|---|
+| `@open-mercato/channel-fcm` | `fcm` | Service-account JSON, app name |
+| `@open-mercato/channel-apns` | `apns` | `.p8` key, key id, team id, bundle id |
+| `@open-mercato/channel-expo` | `expo` | Access token |
+
+Each registers itself into the hub's adapter registry from its own `di.ts` and declares an `IntegrationDefinition` with `hub: 'communication_channels'` and a health check. Writing another one is the [Communications Hub](./communication-channels.mdx) adapter contract plus the push envelope helpers in `packages/core/src/modules/communication_channels/lib/push-envelope.ts` and the base class in `packages/core/src/modules/communication_channels/lib/push-adapter.ts`.
+
+## Silent push
+
+A silent (data-only, content-available) push is not a separate API. It is an ordinary notification whose **type** declares `silent: true`. The flag selects delivery style only:
+
+- The in-app row is still created, and per-channel preferences still apply.
+- To make a silent wake-up unsuppressable, the type must also be `nonOptOut: true`.
+
+There is no per-call silent flag by design — silence is a property of the kind of message, not of one send.
+
+The app-readable `data` map always carries `notificationId`, `type`, and `linkHref` when present, merged over whatever the caller supplied.
+
+## Admin surfaces
+
+| Screen | Path | Feature |
+|---|---|---|
+| Delivery log | `/backend/push_notifications` | `push_notifications.view_deliveries` |
+| Delivery detail (payload, provider response, token last-8) | `/backend/push_notifications/:id` | `push_notifications.view_deliveries` |
+| Send a one-off push | `/backend/push_notifications/send` | `push_notifications.send_custom` |
+
+The one-off send uses two internal types, `admin.custom_message` and `admin.custom_silent` — both `nonOptOut` and `hiddenFromSettings`, so they never appear on a user's preferences screen. It writes no in-app row and does not consult preferences: it is an operator tool, not a notification.
+
+API: `GET /api/push_notifications/deliveries`, `GET /api/push_notifications/deliveries/:id`, `POST /api/push_notifications/custom-send`.
+
+## Background work
+
+| Worker | Job | Notes |
+|---|---|---|
+| `send-push` | One delivery row | Concurrency 8. Must be running or nothing is ever sent. |
+| `reclaim-stuck` | Rows stranded in `sending` | Registered per tenant by `seedDefaults` via `schedulerService`; silently skipped when the scheduler module is absent. |
+| Receipt polling | Async provider receipts (Expo) | Soft-deletes devices the provider later reports as unregistered. |
+
+## Environment variables
+
+All optional; defaults are in code.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `OM_PUSH_SEND_TIMEOUT_MS` | 60000 (min 5000) | Per-send adapter timeout. |
+| `OM_PUSH_STUCK_RECLAIM_MINUTES` | 5 (min 1) | How long a row may sit in `sending` before reclaim. |
+| `OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT` | 500 | Rows scanned per reclaim tick. |
+| `OM_PUSH_RECLAIM_TICK_SECONDS` | 120 (min 30) | Reclaim schedule interval. |
+| `OM_PUSH_RECEIPT_MIN_AGE_MINUTES` | — | Youngest receipt eligible for polling. |
+| `OM_PUSH_RECEIPT_MAX_AGE_MINUTES` | — | Oldest receipt still polled. |
+| `OM_PUSH_RECEIPT_BATCH_LIMIT` | — | Receipts polled per tick. |
+| `OM_ENABLE_PUSH_STUB_ADAPTER` | off | Registers a network-free `push_stub` adapter. Tests only. |
+| `OM_PUSH_FAKE_PROVIDERS` | off | In-process SDK fakes writing to a JSONL sink, for provider e2e without live credentials. Reports health as `degraded`. |
+
+## Setting it up end to end
+
+1. Enable `devices`, `notifications`, `communication_channels`, `integrations`, `push_notifications`, and install one provider package.
+2. Connect a tenant-scoped push channel for that provider.
+3. Grant `devices.*` and `push_notifications.*`, then `yarn mercato auth sync-role-acls` for existing tenants.
+4. Have the client app register its device with a `pushToken` **and** a matching `pushProvider`.
+5. Make sure the type you are sending is push-eligible — see the gate in [Notification Delivery](./notification-delivery.mdx).
+6. Run the `push-deliveries` queue worker.
+
+The step-by-step version with screens is [Notifications & push (admin guide)](../../user-guide/notifications-and-push.mdx); the narrative walkthrough is the [getting-started tutorial](../../tutorials/devices-and-push-getting-started.mdx).
+
+## Related
+
+- [Notification Delivery](./notification-delivery.mdx)
+- [Devices](./devices.mdx)
+- [Communications Hub](./communication-channels.mdx)
+- [Notifications](./notifications.mdx)
