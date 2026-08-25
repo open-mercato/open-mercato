@@ -34,6 +34,15 @@ export type IndexRecordParams = {
 }
 
 /**
+ * Parameters for indexing a batch of records by id in a single bulk write.
+ */
+export type IndexRecordsByIdParams = {
+  items: Array<{ entityId: EntityId; recordId: string }>
+  tenantId: string
+  organizationId?: string | null
+}
+
+/**
  * Parameters for deleting a record from the search index.
  */
 export type DeleteRecordParams = {
@@ -346,14 +355,12 @@ export class SearchIndexer {
    * Index a batch of records by id in a single bulk write.
    * Unlike calling indexRecordById() in a loop, this loads each record fresh
    * (same as indexRecordById) but flushes the whole batch through a single
-   * searchService.bulkIndex() call, so N queued records become exactly one
-   * write per available strategy instead of N.
+   * searchService.bulkIndex() call. Strategies that implement bulkIndex then
+   * collapse the batch into one write; strategies without it still write per
+   * record, at the bounded concurrency SearchService applies.
    */
-  async indexRecordsById(
-    items: Array<{ entityId: EntityId; recordId: string }>,
-    tenantId: string,
-    organizationId?: string | null,
-  ): Promise<{ indexed: number; skipped: number }> {
+  async indexRecordsById(params: IndexRecordsByIdParams): Promise<{ indexed: number; skipped: number }> {
+    const { items, tenantId, organizationId } = params
     if (!this.queryEngine || items.length === 0) {
       return { indexed: 0, skipped: items.length }
     }
@@ -392,13 +399,14 @@ export class SearchIndexer {
             continue
           }
 
-          const { records: built } = await this.buildIndexableRecords(
+          const { records: built, dropped } = await this.buildIndexableRecords(
             entityId,
             tenantId,
             organizationId ?? null,
             [record],
             config,
           )
+          skipped += dropped
           allRecords.push(...built)
         } catch (error) {
           skipped++

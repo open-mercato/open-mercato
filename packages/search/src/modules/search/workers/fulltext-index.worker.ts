@@ -219,11 +219,11 @@ export async function handleFulltextIndexJob(
 
       // Load and index the whole batch through a single bulk write instead of
       // one indexRecordById() call per record.
-      const { indexed: successCount, skipped: failCount } = await searchIndexer.indexRecordsById(
-        records.map(({ entityId, recordId }) => ({ entityId: entityId as EntityId, recordId })),
+      const { indexed: successCount, skipped: skippedCount } = await searchIndexer.indexRecordsById({
+        items: records.map(({ entityId, recordId }) => ({ entityId: entityId as EntityId, recordId })),
         tenantId,
         organizationId,
-      )
+      })
 
       await advanceFulltextReindexProgress({
         db,
@@ -239,7 +239,7 @@ export async function handleFulltextIndexJob(
         tenantId,
         requestedCount: records.length,
         successCount,
-        failCount,
+        skippedCount,
       })
 
       await recordIndexerLog(
@@ -249,7 +249,7 @@ export async function handleFulltextIndexJob(
           handler: 'worker:fulltext:batch-index',
           message: `Indexed ${successCount}/${records.length} records to fulltext`,
           tenantId,
-          details: { jobId: jobCtx.jobId, requestedCount: records.length, successCount, failCount },
+          details: { jobId: jobCtx.jobId, requestedCount: records.length, successCount, skippedCount },
         },
       )
       return

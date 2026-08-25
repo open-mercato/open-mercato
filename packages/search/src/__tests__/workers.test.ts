@@ -507,14 +507,14 @@ describe('Fulltext Index Worker', () => {
     // Verify the whole batch is written through exactly one indexRecordsById
     // call, not one indexRecordById call per record.
     expect(mockSearchIndexer.indexRecordsById).toHaveBeenCalledTimes(1)
-    expect(mockSearchIndexer.indexRecordsById).toHaveBeenCalledWith(
-      [
+    expect(mockSearchIndexer.indexRecordsById).toHaveBeenCalledWith({
+      items: [
         { entityId: 'test:entity', recordId: 'rec-1' },
         { entityId: 'test:entity', recordId: 'rec-2' },
       ],
-      'tenant-123',
-      undefined,
-    )
+      tenantId: 'tenant-123',
+      organizationId: undefined,
+    })
     expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
   })
 
@@ -548,6 +548,36 @@ describe('Fulltext Index Worker', () => {
       expect.objectContaining({ type: 'fulltext', tenantId: 'tenant-123', delta: 2 }),
     )
     expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+  })
+
+  it('re-throws a failed fulltext batch write without advancing reindex progress so the queue retries it', async () => {
+    mockSearchIndexer.indexRecordsById.mockRejectedValueOnce(new Error('meilisearch unavailable'))
+    const records = [
+      { entityId: 'test:entity', recordId: 'rec-1' },
+      { entityId: 'test:entity', recordId: 'rec-2' },
+    ]
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return [mockFulltextStrategy]
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'progressService') return { id: 'progress' }
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records,
+    })
+
+    await expect(
+      handleFulltextIndexJob(job, createMockJobContext(), containerWithProgress),
+    ).rejects.toThrow('meilisearch unavailable')
+
+    expect(updateReindexProgress).not.toHaveBeenCalled()
+    expect(incrementReindexProgress).not.toHaveBeenCalled()
   })
 
   it('clears an orphaned fulltext reindex lock instead of recreating it when no progress job is active', async () => {
