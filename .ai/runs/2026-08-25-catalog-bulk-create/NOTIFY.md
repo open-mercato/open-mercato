@@ -1,5 +1,13 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T15:10:00Z — checkpoint 2 — Steps 1.3, 2.1–2.4
+
+- Landed: Step 1.3 (categories event-emission test), Phase 2 in full (2.1 worker+lib, 2.2 route+validators, 2.3 redefined pre-validation assertions, 2.4 checkpoint/resume parity) — products bulk-create mirrors Phase 1 exactly, pre-validation only, per the final operator decision on reference-data caching.
+- Commits: `012e1ad94`, `b588e2cc4`, `5e356dd46`, `0db68c727`.
+- Validation: `generate`, `build:packages`, `typecheck` (27/27), `test catalog` (1437/1438 suites — same pre-existing Polish-locale failure as checkpoint 1), `eslint` on every new/changed file, `i18n:check-hardcoded` (catalog module not flagged) — all clean. Full detail in `checkpoint-2-checks.md`.
+- No UI touched — no screenshots this checkpoint.
+- Status remains `in-progress`, PR stays draft. Next: Phase 3 (i18n/docs), the spec-correction commit, then the final gate and review pass.
+
 ## 2026-08-25T14:05:00Z — operator decision: drop products memoization goal, correct the spec
 
 Final decision on the reference-data caching question (after two prior attempts at a narrower fix both turned out non-viable): drop the memoization goal for products entirely (option 2), and correct `.ai/specs/2026-08-25-catalog-bulk-create.md`'s Architecture/Risks sections to state the `fork()`-clears-identity-map finding as a permanent constraint rather than a risk to verify (option 3). Option 1 (editing `execute()`'s call sites in `commands/products.ts`) is rejected — no further edits to `commands/categories.ts`/`commands/products.ts` of any kind. Full concrete scope for Phase 2 and the spec correction recorded in `HANDOFF.md`. All three decision points on this topic are now closed; next resume proceeds Step 1.3 → Phase 2 (pre-validation only, corrected Step 2.3 test) → spec correction commit → Phase 3, with no further check-ins expected on this specific question.
