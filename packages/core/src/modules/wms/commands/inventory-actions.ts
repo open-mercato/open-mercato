@@ -1358,12 +1358,28 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
       if (delta < 0 && getAvailableQuantity(balance) < Math.abs(delta) - 0.000001) {
         throw new CrudHttpError(409, { error: 'insufficient_stock' })
       }
+      // Persist movement before bumping balance so a unique-constraint replay cannot
+      // leave a skewed on-hand and still report idempotentReplay: false.
+      const { movement, idempotentReplay } = await persistMovementWithIdempotency(trx, scope, movementInput)
+      if (idempotentReplay) {
+        return {
+          movementId: movement.id,
+          warehouseId: input.warehouseId,
+          catalogVariantId: input.catalogVariantId,
+          quantity: delta,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          movementEntity: movement,
+          balanceEntity: balance,
+          balanceAction: ('updated' as const),
+          idempotentReplay: true,
+        }
+      }
       setNumeric(
         balance as unknown as Record<string, unknown>,
         'quantityOnHand',
         toNumber(balance.quantityOnHand) + delta,
       )
-      const { movement } = await persistMovementWithIdempotency(trx, scope, movementInput)
       await trx.flush()
       return {
         movementId: movement.id,
@@ -1417,6 +1433,170 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
     }),
 }
 
+/**
+ * Core receipt mutation for an already-open transaction.
+ * Used by `wms.inventory.receive` and by ASN QC-pass receive so stock + line
+ * qty + putaway can share one transactional boundary (nested commandBus
+ * receives cannot participate in the ASN row lock).
+ */
+export type InventoryReceiveMutationResult = {
+  movementId: string
+  warehouseId: string
+  locationId: string
+  catalogVariantId: string
+  quantity: number
+  lotId: string | null
+  tenantId: string
+  organizationId: string
+  movementEntity: InventoryMovement
+  balanceEntity: InventoryBalance
+  balanceAction: 'created' | 'updated'
+  idempotentReplay: boolean
+}
+
+export async function applyInventoryReceiveInTransaction(
+  trx: EntityManager,
+  ctx: CommandRuntimeContext,
+  input: InventoryReceiveInput,
+): Promise<InventoryReceiveMutationResult> {
+  const scope = resolveScope(ctx, input)
+  await requireWarehouse(trx, ctx, input.warehouseId, scope)
+  const location = await requireLocation(trx, ctx, input.locationId, scope)
+  const locationWarehouseId = typeof location.warehouse === 'string' ? location.warehouse : location.warehouse.id
+  if (locationWarehouseId !== input.warehouseId) {
+    throw new CrudHttpError(422, { error: 'invalid_location' })
+  }
+  const profile = await loadProfileForVariant(trx, ctx, input.catalogVariantId, scope)
+  const resolvedLotId = await resolveReceiveLotId(trx, ctx, scope, input)
+  enforceInventoryTrackingRequirements(profile, {
+    lotId: resolvedLotId ?? null,
+    serialNumber: input.serialNumber ?? null,
+  })
+  const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
+    warehouseId: input.warehouseId,
+    locationId: input.locationId,
+    catalogVariantId: input.catalogVariantId,
+    lotId: resolvedLotId,
+    serialNumber: input.serialNumber,
+  })
+  const receivedAt = input.receivedAt ?? input.performedAt ?? new Date()
+  const performedAt = input.performedAt ?? receivedAt
+  const movementInput: MovementMutationInput = {
+    warehouseId: input.warehouseId,
+    locationToId: input.locationId,
+    catalogVariantId: input.catalogVariantId,
+    lotId: resolvedLotId ?? null,
+    serialNumber: input.serialNumber ?? null,
+    quantity: input.quantity,
+    type: 'receipt',
+    referenceType: input.referenceType,
+    referenceId: input.referenceId,
+    performedBy: input.performedBy,
+    performedAt,
+    receivedAt,
+    reason: input.reason,
+    metadata: input.metadata ?? null,
+  }
+  const idempotencyKey = buildMovementIdempotencyKey({
+    referenceType: movementInput.referenceType,
+    referenceId: movementInput.referenceId,
+    type: movementInput.type,
+    warehouseId: movementInput.warehouseId,
+    locationFromId: movementInput.locationFromId,
+    locationToId: movementInput.locationToId,
+    catalogVariantId: movementInput.catalogVariantId,
+    lotId: movementInput.lotId,
+    serialNumber: movementInput.serialNumber,
+    quantity: movementInput.quantity,
+  })
+  const existingMovement = await findExistingMovementByIdempotencyKey(trx, scope, idempotencyKey)
+  if (existingMovement) {
+    const existingLotRaw = existingMovement.lot ?? null
+    const existingLotId =
+      typeof existingLotRaw === 'string' ? existingLotRaw : existingLotRaw?.id ?? resolvedLotId ?? null
+    return {
+      movementId: existingMovement.id,
+      warehouseId: input.warehouseId,
+      locationId: input.locationId,
+      catalogVariantId: input.catalogVariantId,
+      quantity: input.quantity,
+      lotId: existingLotId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      movementEntity: existingMovement,
+      balanceEntity: balance,
+      balanceAction: 'updated' as const,
+      idempotentReplay: true,
+    }
+  }
+  // Persist movement before bumping balance so a unique-constraint replay cannot
+  // leave an inflated on-hand and still report idempotentReplay: false.
+  const { movement, idempotentReplay } = await persistMovementWithIdempotency(trx, scope, movementInput)
+  if (idempotentReplay) {
+    return {
+      movementId: movement.id,
+      warehouseId: input.warehouseId,
+      locationId: input.locationId,
+      catalogVariantId: input.catalogVariantId,
+      quantity: input.quantity,
+      lotId: resolvedLotId ?? null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      movementEntity: movement,
+      balanceEntity: balance,
+      balanceAction: 'updated' as const,
+      idempotentReplay: true,
+    }
+  }
+  setNumeric(
+    balance as unknown as Record<string, unknown>,
+    'quantityOnHand',
+    toNumber(balance.quantityOnHand) + input.quantity,
+  )
+  await trx.flush()
+  return {
+    movementId: movement.id,
+    warehouseId: input.warehouseId,
+    locationId: input.locationId,
+    catalogVariantId: input.catalogVariantId,
+    quantity: input.quantity,
+    lotId: resolvedLotId ?? null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    movementEntity: movement,
+    balanceEntity: balance,
+    balanceAction: balanceWasNew ? ('created' as const) : ('updated' as const),
+    idempotentReplay: false,
+  }
+}
+
+export async function emitInventoryReceiveSideEffects(
+  ctx: CommandRuntimeContext,
+  result: InventoryReceiveMutationResult,
+): Promise<void> {
+  if (result.idempotentReplay) return
+  await emitInventorySideEffects(ctx, {
+    movements: [{ entity: result.movementEntity, action: 'created' }],
+    balances: [{ entity: result.balanceEntity, action: result.balanceAction }],
+  })
+  void emitWmsEvent('wms.inventory.received', {
+    id: result.movementId,
+    movementId: result.movementId,
+    warehouseId: result.warehouseId,
+    locationId: result.locationId,
+    catalogVariantId: result.catalogVariantId,
+    quantity: toNumericString(result.quantity),
+    tenantId: result.tenantId,
+    organizationId: result.organizationId,
+  }).catch(() => undefined)
+  void emitLowStockEventIfNeeded(
+    resolveEm(ctx),
+    ctx,
+    { tenantId: result.tenantId, organizationId: result.organizationId },
+    result.catalogVariantId,
+  ).catch(() => undefined)
+}
+
 const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementId: string }> = {
   id: 'wms.inventory.receive',
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
@@ -1426,116 +1606,10 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)
-    const result = await runInTransaction(em, async (trx) => {
-      const scope = resolveScope(ctx, input)
-      await requireWarehouse(trx, ctx, input.warehouseId, scope)
-      const location = await requireLocation(trx, ctx, input.locationId, scope)
-      const locationWarehouseId = typeof location.warehouse === 'string' ? location.warehouse : location.warehouse.id
-      if (locationWarehouseId !== input.warehouseId) {
-        throw new CrudHttpError(422, { error: 'invalid_location' })
-      }
-      const profile = await loadProfileForVariant(trx, ctx, input.catalogVariantId, scope)
-      const resolvedLotId = await resolveReceiveLotId(trx, ctx, scope, input)
-      enforceInventoryTrackingRequirements(profile, {
-        lotId: resolvedLotId ?? null,
-        serialNumber: input.serialNumber ?? null,
-      })
-      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
-        warehouseId: input.warehouseId,
-        locationId: input.locationId,
-        catalogVariantId: input.catalogVariantId,
-        lotId: resolvedLotId,
-        serialNumber: input.serialNumber,
-      })
-      const receivedAt = input.receivedAt ?? input.performedAt ?? new Date()
-      const performedAt = input.performedAt ?? receivedAt
-      const movementInput: MovementMutationInput = {
-        warehouseId: input.warehouseId,
-        locationToId: input.locationId,
-        catalogVariantId: input.catalogVariantId,
-        lotId: resolvedLotId ?? null,
-        serialNumber: input.serialNumber ?? null,
-        quantity: input.quantity,
-        type: 'receipt',
-        referenceType: input.referenceType,
-        referenceId: input.referenceId,
-        performedBy: input.performedBy,
-        performedAt,
-        receivedAt,
-        reason: input.reason,
-        metadata: input.metadata ?? null,
-      }
-      const idempotencyKey = buildMovementIdempotencyKey({
-        referenceType: movementInput.referenceType,
-        referenceId: movementInput.referenceId,
-        type: movementInput.type,
-        warehouseId: movementInput.warehouseId,
-        locationFromId: movementInput.locationFromId,
-        locationToId: movementInput.locationToId,
-        catalogVariantId: movementInput.catalogVariantId,
-        lotId: movementInput.lotId,
-        serialNumber: movementInput.serialNumber,
-        quantity: movementInput.quantity,
-      })
-      const existingMovement = await findExistingMovementByIdempotencyKey(trx, scope, idempotencyKey)
-      if (existingMovement) {
-        return {
-          movementId: existingMovement.id,
-          warehouseId: input.warehouseId,
-          locationId: input.locationId,
-          catalogVariantId: input.catalogVariantId,
-          quantity: input.quantity,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          movementEntity: existingMovement,
-          balanceEntity: balance,
-          balanceAction: ('updated' as const),
-          idempotentReplay: true,
-        }
-      }
-      setNumeric(
-        balance as unknown as Record<string, unknown>,
-        'quantityOnHand',
-        toNumber(balance.quantityOnHand) + input.quantity,
-      )
-      const { movement } = await persistMovementWithIdempotency(trx, scope, movementInput)
-      await trx.flush()
-      return {
-        movementId: movement.id,
-        warehouseId: input.warehouseId,
-        locationId: input.locationId,
-        catalogVariantId: input.catalogVariantId,
-        quantity: input.quantity,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        movementEntity: movement,
-        balanceEntity: balance,
-        balanceAction: balanceWasNew ? ('created' as const) : ('updated' as const),
-        idempotentReplay: false,
-      }
-    })
-    if (!result.idempotentReplay) {
-      await emitInventorySideEffects(ctx, {
-        movements: [{ entity: result.movementEntity, action: 'created' }],
-        balances: [{ entity: result.balanceEntity, action: result.balanceAction }],
-      })
-      void emitWmsEvent('wms.inventory.received', {
-        id: result.movementId,
-        movementId: result.movementId,
-        warehouseId: result.warehouseId,
-        locationId: result.locationId,
-        catalogVariantId: result.catalogVariantId,
-        quantity: toNumericString(result.quantity),
-        tenantId: result.tenantId,
-        organizationId: result.organizationId,
-      }).catch(() => undefined)
-      void emitLowStockEventIfNeeded(
-        resolveEm(ctx),
-        ctx,
-        { tenantId: result.tenantId, organizationId: result.organizationId },
-        result.catalogVariantId,
-      ).catch(() => undefined)
-    }
+    const result = await runInTransaction(em, async (trx) =>
+      applyInventoryReceiveInTransaction(trx, ctx, input),
+    )
+    await emitInventoryReceiveSideEffects(ctx, result)
     return { movementId: result.movementId }
   },
   buildLog: async ({ input, result, ctx }) =>
@@ -1554,6 +1628,203 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
     }),
 }
 
+/**
+ * Core move mutation for an already-open transaction.
+ * Used by `wms.inventory.move` and by putaway complete so stock move + task
+ * status share one transactional boundary (nested commandBus moves cannot).
+ */
+export type InventoryMoveMutationResult = {
+  movementId: string
+  warehouseId: string
+  catalogVariantId: string
+  quantity: number
+  tenantId: string
+  organizationId: string
+  movementEntity: InventoryMovement
+  balances: AffectedBalance[]
+  idempotentReplay: boolean
+}
+
+export async function applyInventoryMoveInTransaction(
+  trx: EntityManager,
+  ctx: CommandRuntimeContext,
+  input: InventoryMoveInput,
+): Promise<InventoryMoveMutationResult> {
+  const scope = resolveScope(ctx, input)
+  await requireWarehouse(trx, ctx, input.warehouseId, scope)
+  const sourceLocation = await requireLocation(trx, ctx, input.fromLocationId, scope)
+  const targetLocation = await requireLocation(trx, ctx, input.toLocationId, scope)
+  const sourceWarehouseId =
+    typeof sourceLocation.warehouse === 'string' ? sourceLocation.warehouse : sourceLocation.warehouse.id
+  const targetWarehouseId =
+    typeof targetLocation.warehouse === 'string' ? targetLocation.warehouse : targetLocation.warehouse.id
+  if (sourceWarehouseId !== input.warehouseId || targetWarehouseId !== input.warehouseId) {
+    throw new CrudHttpError(422, { error: 'invalid_location' })
+  }
+  const sourceResult = await upsertBalanceBucket(trx, scope, {
+    warehouseId: input.warehouseId,
+    locationId: input.fromLocationId,
+    catalogVariantId: input.catalogVariantId,
+    lotId: input.lotId,
+    serialNumber: input.serialNumber,
+  })
+  const sourceBalance = sourceResult.balance
+  const sourceBalanceAction = sourceResult.created ? ('created' as const) : ('updated' as const)
+  const targetResult = await upsertBalanceBucket(trx, scope, {
+    warehouseId: input.warehouseId,
+    locationId: input.toLocationId,
+    catalogVariantId: input.catalogVariantId,
+    lotId: input.lotId,
+    serialNumber: input.serialNumber,
+  })
+  const targetBalance = targetResult.balance
+  const targetBalanceAction = targetResult.created ? ('created' as const) : ('updated' as const)
+  const performedAt = input.performedAt ?? new Date()
+  const receivedAt = await resolveReceivedAtForBalance(trx, sourceBalance, scope, performedAt)
+  const movementInput: MovementMutationInput = {
+    warehouseId: input.warehouseId,
+    locationFromId: input.fromLocationId,
+    locationToId: input.toLocationId,
+    catalogVariantId: input.catalogVariantId,
+    lotId: input.lotId ?? null,
+    serialNumber: input.serialNumber ?? null,
+    quantity: input.quantity,
+    type: input.type ?? 'transfer',
+    referenceType: input.referenceType,
+    referenceId: input.referenceId,
+    performedBy: input.performedBy,
+    performedAt,
+    receivedAt,
+    reason: input.reason,
+    reasonCode: input.reasonCode ?? null,
+    metadata: input.metadata ?? null,
+  }
+  const idempotencyKey = buildMovementIdempotencyKey({
+    referenceType: movementInput.referenceType,
+    referenceId: movementInput.referenceId,
+    type: movementInput.type,
+    warehouseId: movementInput.warehouseId,
+    locationFromId: movementInput.locationFromId,
+    locationToId: movementInput.locationToId,
+    catalogVariantId: movementInput.catalogVariantId,
+    lotId: movementInput.lotId,
+    serialNumber: movementInput.serialNumber,
+    quantity: movementInput.quantity,
+  })
+  const existingMovement = await findExistingMovementByIdempotencyKey(trx, scope, idempotencyKey)
+  if (existingMovement) {
+    return {
+      movementId: existingMovement.id,
+      warehouseId: input.warehouseId,
+      catalogVariantId: input.catalogVariantId,
+      quantity: input.quantity,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      movementEntity: existingMovement,
+      balances: [
+        { entity: sourceBalance, action: sourceBalanceAction },
+        { entity: targetBalance, action: targetBalanceAction },
+      ],
+      idempotentReplay: true,
+    }
+  }
+  // Persist movement before mutating balances so unique-constraint replay cannot
+  // leave skewed source/target on-hand and still report a fresh write.
+  const { movement, idempotentReplay } = await persistMovementWithIdempotency(trx, scope, movementInput)
+  if (idempotentReplay) {
+    return {
+      movementId: movement.id,
+      warehouseId: input.warehouseId,
+      catalogVariantId: input.catalogVariantId,
+      quantity: input.quantity,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      movementEntity: movement,
+      balances: [
+        { entity: sourceBalance, action: sourceBalanceAction },
+        { entity: targetBalance, action: targetBalanceAction },
+      ],
+      idempotentReplay: true,
+    }
+  }
+  if (getAvailableQuantity(sourceBalance) < input.quantity - 0.000001) {
+    throw new CrudHttpError(409, { error: 'insufficient_stock' })
+  }
+  setNumeric(
+    sourceBalance as unknown as Record<string, unknown>,
+    'quantityOnHand',
+    toNumber(sourceBalance.quantityOnHand) - input.quantity,
+  )
+  setNumeric(
+    targetBalance as unknown as Record<string, unknown>,
+    'quantityOnHand',
+    toNumber(targetBalance.quantityOnHand) + input.quantity,
+  )
+  await trx.flush()
+  return {
+    movementId: movement.id,
+    warehouseId: input.warehouseId,
+    catalogVariantId: input.catalogVariantId,
+    quantity: input.quantity,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    movementEntity: movement,
+    balances: [
+      { entity: sourceBalance, action: sourceBalanceAction },
+      { entity: targetBalance, action: targetBalanceAction },
+    ],
+    idempotentReplay: false,
+  }
+}
+
+export async function emitInventoryMoveSideEffects(
+  ctx: CommandRuntimeContext,
+  result: InventoryMoveMutationResult,
+): Promise<void> {
+  if (result.idempotentReplay) return
+  await emitInventorySideEffects(ctx, {
+    movements: [{ entity: result.movementEntity, action: 'created' }],
+    balances: result.balances,
+  })
+  void emitWmsEvent('wms.inventory.moved', {
+    id: result.movementId,
+    movementId: result.movementId,
+    warehouseId: result.warehouseId,
+    catalogVariantId: result.catalogVariantId,
+    quantity: toNumericString(result.quantity),
+    tenantId: result.tenantId,
+    organizationId: result.organizationId,
+  }).catch(() => undefined)
+  void emitLowStockEventIfNeeded(
+    resolveEm(ctx),
+    ctx,
+    { tenantId: result.tenantId, organizationId: result.organizationId },
+    result.catalogVariantId,
+  ).catch(() => undefined)
+}
+
+/** Find a putaway-complete movement by stable task reference (qty-independent). */
+export async function findPutawayCompleteMovementByReference(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  referenceId: string,
+): Promise<InventoryMovement | null> {
+  return findOneWithDecryption(
+    em,
+    InventoryMovement,
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      referenceType: 'manual',
+      referenceId,
+      type: 'putaway',
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+}
+
 const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: string }> = {
   id: 'wms.inventory.move',
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
@@ -1563,134 +1834,10 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)
-    const result = await runInTransaction(em, async (trx) => {
-      const scope = resolveScope(ctx, input)
-      await requireWarehouse(trx, ctx, input.warehouseId, scope)
-      const sourceLocation = await requireLocation(trx, ctx, input.fromLocationId, scope)
-      const targetLocation = await requireLocation(trx, ctx, input.toLocationId, scope)
-      const sourceWarehouseId = typeof sourceLocation.warehouse === 'string' ? sourceLocation.warehouse : sourceLocation.warehouse.id
-      const targetWarehouseId = typeof targetLocation.warehouse === 'string' ? targetLocation.warehouse : targetLocation.warehouse.id
-      if (sourceWarehouseId !== input.warehouseId || targetWarehouseId !== input.warehouseId) {
-        throw new CrudHttpError(422, { error: 'invalid_location' })
-      }
-      const sourceResult = await upsertBalanceBucket(trx, scope, {
-        warehouseId: input.warehouseId,
-        locationId: input.fromLocationId,
-        catalogVariantId: input.catalogVariantId,
-        lotId: input.lotId,
-        serialNumber: input.serialNumber,
-      })
-      const sourceBalance = sourceResult.balance
-      const sourceBalanceAction = sourceResult.created ? ('created' as const) : ('updated' as const)
-      const targetResult = await upsertBalanceBucket(trx, scope, {
-        warehouseId: input.warehouseId,
-        locationId: input.toLocationId,
-        catalogVariantId: input.catalogVariantId,
-        lotId: input.lotId,
-        serialNumber: input.serialNumber,
-      })
-      const targetBalance = targetResult.balance
-      const targetBalanceAction = targetResult.created ? ('created' as const) : ('updated' as const)
-      const performedAt = input.performedAt ?? new Date()
-      const receivedAt = await resolveReceivedAtForBalance(trx, sourceBalance, scope, performedAt)
-      const movementInput: MovementMutationInput = {
-        warehouseId: input.warehouseId,
-        locationFromId: input.fromLocationId,
-        locationToId: input.toLocationId,
-        catalogVariantId: input.catalogVariantId,
-        lotId: input.lotId ?? null,
-        serialNumber: input.serialNumber ?? null,
-        quantity: input.quantity,
-        type: input.type ?? 'transfer',
-        referenceType: input.referenceType,
-        referenceId: input.referenceId,
-        performedBy: input.performedBy,
-        performedAt,
-        receivedAt,
-        reason: input.reason,
-        reasonCode: input.reasonCode ?? null,
-        metadata: input.metadata ?? null,
-      }
-      const idempotencyKey = buildMovementIdempotencyKey({
-        referenceType: movementInput.referenceType,
-        referenceId: movementInput.referenceId,
-        type: movementInput.type,
-        warehouseId: movementInput.warehouseId,
-        locationFromId: movementInput.locationFromId,
-        locationToId: movementInput.locationToId,
-        catalogVariantId: movementInput.catalogVariantId,
-        lotId: movementInput.lotId,
-        serialNumber: movementInput.serialNumber,
-        quantity: movementInput.quantity,
-      })
-      const existingMovement = await findExistingMovementByIdempotencyKey(trx, scope, idempotencyKey)
-      if (existingMovement) {
-        return {
-          movementId: existingMovement.id,
-          warehouseId: input.warehouseId,
-          catalogVariantId: input.catalogVariantId,
-          quantity: input.quantity,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          movementEntity: existingMovement,
-          balances: [
-            { entity: sourceBalance, action: sourceBalanceAction },
-            { entity: targetBalance, action: targetBalanceAction },
-          ] as AffectedBalance[],
-          idempotentReplay: true,
-        }
-      }
-      if (getAvailableQuantity(sourceBalance) < input.quantity - 0.000001) {
-        throw new CrudHttpError(409, { error: 'insufficient_stock' })
-      }
-      setNumeric(
-        sourceBalance as unknown as Record<string, unknown>,
-        'quantityOnHand',
-        toNumber(sourceBalance.quantityOnHand) - input.quantity,
-      )
-      setNumeric(
-        targetBalance as unknown as Record<string, unknown>,
-        'quantityOnHand',
-        toNumber(targetBalance.quantityOnHand) + input.quantity,
-      )
-      const { movement } = await persistMovementWithIdempotency(trx, scope, movementInput)
-      await trx.flush()
-      return {
-        movementId: movement.id,
-        warehouseId: input.warehouseId,
-        catalogVariantId: input.catalogVariantId,
-        quantity: input.quantity,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        movementEntity: movement,
-        balances: [
-          { entity: sourceBalance, action: sourceBalanceAction },
-          { entity: targetBalance, action: targetBalanceAction },
-        ] as AffectedBalance[],
-        idempotentReplay: false,
-      }
-    })
-    if (!result.idempotentReplay) {
-      await emitInventorySideEffects(ctx, {
-        movements: [{ entity: result.movementEntity, action: 'created' }],
-        balances: result.balances,
-      })
-      void emitWmsEvent('wms.inventory.moved', {
-        id: result.movementId,
-        movementId: result.movementId,
-        warehouseId: result.warehouseId,
-        catalogVariantId: result.catalogVariantId,
-        quantity: toNumericString(result.quantity),
-        tenantId: result.tenantId,
-        organizationId: result.organizationId,
-      }).catch(() => undefined)
-      void emitLowStockEventIfNeeded(
-        resolveEm(ctx),
-        ctx,
-        { tenantId: result.tenantId, organizationId: result.organizationId },
-        result.catalogVariantId,
-      ).catch(() => undefined)
-    }
+    const result = await runInTransaction(em, async (trx) =>
+      applyInventoryMoveInTransaction(trx, ctx, input),
+    )
+    await emitInventoryMoveSideEffects(ctx, result)
     return { movementId: result.movementId }
   },
   buildLog: async ({ input, result, ctx }) =>
@@ -1796,12 +1943,28 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
           idempotentReplay: true,
         }
       }
+      // Persist movement before setting on-hand so a unique-constraint replay cannot
+      // skew the balance and still report idempotentReplay: false.
+      const { movement, idempotentReplay } = await persistMovementWithIdempotency(trx, scope, movementInput)
+      if (idempotentReplay) {
+        return {
+          adjustmentDelta: toNumericString(delta),
+          movementId: movement.id,
+          warehouseId: input.warehouseId,
+          catalogVariantId: input.catalogVariantId,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          movementEntity: movement,
+          balanceEntity: balance,
+          balanceAction: ('updated' as const),
+          idempotentReplay: true,
+        }
+      }
       setNumeric(
         balance as unknown as Record<string, unknown>,
         'quantityOnHand',
         input.countedQuantity,
       )
-      const { movement } = await persistMovementWithIdempotency(trx, scope, movementInput)
       await trx.flush()
       return {
         adjustmentDelta: toNumericString(delta),

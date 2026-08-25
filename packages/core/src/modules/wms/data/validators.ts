@@ -325,6 +325,186 @@ export const inventoryMovementCreateSchema = scopedSchema.extend({
   metadata: metadataSchema,
 })
 
+/** Statuses clients may set on create/update — terminal received/closed come from receive/complete. */
+const asnWritableStatusSchema = z.enum(['draft', 'in_transit'])
+
+export const receivingLineCreateFieldsSchema = z.object({
+  catalogVariantId: uuid(),
+  expectedQty: positiveQuantity,
+  lotNumber: z.string().trim().max(120).optional().nullable(),
+  serialNumbers: z.array(z.string().trim().min(1).max(120)).optional().nullable(),
+  targetStagingLocationId: uuid().optional().nullable(),
+  metadata: metadataSchema,
+})
+
+export const asnCreateSchema = scopedSchema.extend({
+  warehouseId: uuid(),
+  vendorId: uuid().optional().nullable(),
+  status: asnWritableStatusSchema.optional(),
+  expectedAt: z.coerce.date(),
+  referenceNumber: z.string().trim().max(120).optional().nullable(),
+  /**
+   * Stable external linkage key; unique per org when set (procurement goods receipt, etc.).
+   * Server/system creates only — public HTTP create strips this; authenticated clients cannot set it.
+   */
+  sourceKey: z.string().trim().min(1).max(200).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  lines: z.array(receivingLineCreateFieldsSchema).optional(),
+  metadata: metadataSchema,
+})
+
+/** Public ASN create body — omits `sourceKey` so clients cannot spoof procurement linkage. */
+export const asnCreatePublicSchema = asnCreateSchema.omit({ sourceKey: true })
+
+export const asnUpdateSchema = z
+  .object({ id: uuid() })
+  .merge(
+    scopedSchema
+      .extend({
+        warehouseId: uuid(),
+        vendorId: uuid().nullable(),
+        status: asnWritableStatusSchema,
+        expectedAt: z.coerce.date(),
+        referenceNumber: z.string().trim().max(120).nullable(),
+        notes: z.string().trim().max(2000).nullable(),
+        metadata: metadataSchema,
+      })
+      .partial(),
+  )
+
+export const receivingLineCreateSchema = scopedSchema.extend({
+  asnId: uuid(),
+  catalogVariantId: uuid(),
+  expectedQty: positiveQuantity,
+  lotNumber: z.string().trim().max(120).optional().nullable(),
+  serialNumbers: z.array(z.string().trim().min(1).max(120)).optional().nullable(),
+  targetStagingLocationId: uuid().optional().nullable(),
+  metadata: metadataSchema,
+})
+
+// Lifecycle fields (receivedQty / qcStatus / rejectionReason) are intentionally
+// omitted — only `wms.asns.receive-line` may mutate them.
+export const receivingLineUpdateSchema = z
+  .object({ id: uuid() })
+  .merge(
+    scopedSchema
+      .extend({
+        catalogVariantId: uuid(),
+        expectedQty: positiveQuantity,
+        lotNumber: z.string().trim().max(120).nullable(),
+        serialNumbers: z.array(z.string().trim().min(1).max(120)).nullable(),
+        targetStagingLocationId: uuid().nullable(),
+        metadata: metadataSchema,
+      })
+      .partial(),
+  )
+
+export const asnReceiveLineSchema = scopedSchema
+  .extend({
+    asnId: uuid(),
+    lineId: uuid(),
+    receivedQty: positiveQuantity,
+    /**
+     * Absolute received quantity the client intends after this attempt.
+     * Required for QC-pass and QC-fail so retries after success remain
+     * idempotent (applyQty=0) even if prior qty advanced. Do not derive from
+     * delta alone — QC-fail still advances audit receivedQty.
+     */
+    targetReceivedQty: positiveQuantity.optional(),
+    /** Optional client-stable attempt id; extra stabilizer alongside absolute target. */
+    idempotencyKey: uuid().optional(),
+    targetStagingLocationId: uuid().optional(),
+    lotId: uuid().optional(),
+    lotNumber: z.string().trim().max(120).optional(),
+    serialNumbers: z.array(z.string().trim().min(1).max(120)).optional(),
+    qcStatus: z.enum(['passed', 'failed']),
+    rejectionReason: z.string().trim().max(500).optional(),
+    performedBy: uuid(),
+    receivedAt: z.coerce.date().optional(),
+    metadata: metadataSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.targetReceivedQty == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetReceivedQty'],
+        message: 'target_received_qty_required',
+      })
+    }
+  })
+
+export const asnCloseSchema = scopedSchema.extend({
+  id: uuid(),
+  closeWhenShort: z.boolean().optional(),
+})
+
+export const putawayTaskCreateSchema = scopedSchema.extend({
+  warehouseId: uuid(),
+  sourceLocationId: uuid(),
+  targetLocationId: uuid().optional().nullable(),
+  catalogVariantId: uuid(),
+  lotId: uuid().optional().nullable(),
+  quantity: positiveQuantity,
+  priority: z.coerce.number().int().min(0).max(100).optional(),
+  assignedTo: uuid().optional().nullable(),
+  metadata: metadataSchema,
+})
+
+// Status and assignee transitions are intentionally omitted — only lifecycle
+// commands (assign/start/complete/cancel) may change those fields.
+export const putawayTaskUpdateSchema = z
+  .object({ id: uuid() })
+  .merge(
+    scopedSchema
+      .extend({
+        warehouseId: uuid(),
+        sourceLocationId: uuid(),
+        targetLocationId: uuid().nullable(),
+        catalogVariantId: uuid(),
+        lotId: uuid().nullable(),
+        quantity: positiveQuantity,
+        priority: z.coerce.number().int().min(0).max(100),
+        metadata: metadataSchema,
+      })
+      .partial(),
+  )
+
+export const putawayTaskCreateFromBalanceSchema = scopedSchema.extend({
+  warehouseId: uuid(),
+  sourceLocationId: uuid(),
+  targetLocationId: uuid(),
+  catalogVariantId: uuid(),
+  lotId: uuid().optional(),
+  quantity: positiveQuantity,
+  priority: z.coerce.number().int().min(0).max(100).optional(),
+  assignedTo: uuid().optional().nullable(),
+  metadata: metadataSchema,
+})
+
+export const putawayTaskAssignSchema = scopedSchema.extend({
+  id: uuid(),
+  assignedTo: uuid(),
+})
+
+export const putawayTaskStartSchema = scopedSchema.extend({
+  id: uuid(),
+})
+
+export const putawayTaskCompleteSchema = scopedSchema.extend({
+  id: uuid(),
+  confirmedQuantity: positiveQuantity,
+  targetLocationId: uuid(),
+  lotId: uuid().optional(),
+  performedBy: uuid(),
+  performedAt: z.coerce.date().optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
+  metadata: metadataSchema,
+})
+
+export const putawayTaskCancelSchema = scopedSchema.extend({
+  id: uuid(),
+})
+
 export type WarehouseCreateInput = z.infer<typeof warehouseCreateSchema>
 export type WarehouseUpdateInput = z.infer<typeof warehouseUpdateSchema>
 export type WarehouseZoneCreateInput = z.infer<typeof warehouseZoneCreateSchema>
@@ -342,6 +522,78 @@ export type InventoryReservationAllocateInput = z.infer<typeof inventoryReservat
 export type InventoryAdjustInput = z.infer<typeof inventoryAdjustSchema>
 export type InventoryMoveInput = z.infer<typeof inventoryMoveSchema>
 export type InventoryCycleCountInput = z.infer<typeof inventoryCycleCountSchema>
+export type AsnCreateInput = z.infer<typeof asnCreateSchema>
+export type AsnCreatePublicInput = z.infer<typeof asnCreatePublicSchema>
+export type AsnUpdateInput = z.infer<typeof asnUpdateSchema>
+export type ReceivingLineCreateInput = z.infer<typeof receivingLineCreateSchema>
+export type ReceivingLineUpdateInput = z.infer<typeof receivingLineUpdateSchema>
+export type AsnReceiveLineInput = z.infer<typeof asnReceiveLineSchema>
+export type AsnCloseInput = z.infer<typeof asnCloseSchema>
+export type PutawayTaskCreateInput = z.infer<typeof putawayTaskCreateSchema>
+export type PutawayTaskUpdateInput = z.infer<typeof putawayTaskUpdateSchema>
+export type PutawayTaskCreateFromBalanceInput = z.infer<typeof putawayTaskCreateFromBalanceSchema>
+export type PutawayTaskAssignInput = z.infer<typeof putawayTaskAssignSchema>
+export type PutawayTaskStartInput = z.infer<typeof putawayTaskStartSchema>
+export type PutawayTaskCompleteInput = z.infer<typeof putawayTaskCompleteSchema>
+export type PutawayTaskCancelInput = z.infer<typeof putawayTaskCancelSchema>
+
+export const scanResolveLocationSchema = scopedSchema.extend({
+  warehouseId: uuid(),
+  code: z.string().trim().min(1).max(120),
+})
+
+export const scanResolveLotSchema = scopedSchema.extend({
+  catalogVariantId: uuid(),
+  lotNumber: z.string().trim().min(1).max(120),
+})
+
+export const scanReceiveSchema = scopedSchema
+  .extend({
+    asnId: uuid(),
+    lineId: uuid(),
+    locationCode: z.string().trim().min(1).max(120),
+    lotNumber: z.string().trim().max(120).optional(),
+    serialNumbers: z.array(z.string().trim().min(1).max(120)).optional(),
+    receivedQty: positiveQuantity,
+    /**
+     * Absolute received quantity after this attempt. Required for QC-pass and
+     * QC-fail so identical retries no-op (applyQty=0). Do not derive as
+     * prior+delta in scan resolve — that doubles stock/audit qty on retry.
+     */
+    targetReceivedQty: positiveQuantity.optional(),
+    /** Optional client-stable attempt id; extra stabilizer alongside absolute target. */
+    idempotencyKey: uuid().optional(),
+    qcStatus: z.enum(['passed', 'failed']),
+    rejectionReason: z.string().trim().max(500).optional(),
+    performedBy: uuid(),
+    receivedAt: z.coerce.date().optional(),
+    metadata: metadataSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.targetReceivedQty == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetReceivedQty'],
+        message: 'target_received_qty_required',
+      })
+    }
+  })
+
+export const scanPutawaySchema = scopedSchema.extend({
+  taskId: uuid(),
+  targetLocationCode: z.string().trim().min(1).max(120),
+  confirmedQuantity: positiveQuantity,
+  lotId: uuid().optional(),
+  performedBy: uuid(),
+  performedAt: z.coerce.date().optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
+  metadata: metadataSchema,
+})
+
+export type ScanResolveLocationInput = z.infer<typeof scanResolveLocationSchema>
+export type ScanResolveLotInput = z.infer<typeof scanResolveLotSchema>
+export type ScanReceiveInput = z.infer<typeof scanReceiveSchema>
+export type ScanPutawayInput = z.infer<typeof scanPutawaySchema>
 
 export const salesOrderWarehouseAssignBodySchema = scopedSchema.extend({
   warehouseId: uuid(),

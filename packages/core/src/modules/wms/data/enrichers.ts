@@ -55,6 +55,11 @@ type ReorderStatus = {
   safetyStock: string
 }
 
+type InboundSummary = {
+  openAsnCount: number
+  nextExpectedAt: string | null
+}
+
 type SalesOrderWmsEnrichment = {
   _wms: {
     assignedWarehouseId: string | null
@@ -69,6 +74,7 @@ type SalesOrderWmsEnrichment = {
       status: ReservationStatus
       reservationIds: string[]
     }
+    inboundSummary: InboundSummary
   }
 }
 
@@ -85,6 +91,11 @@ type Scope = { organizationId: string; tenantId: string }
 type BalanceAggregate = { onHand: number; reserved: number; allocated: number; available: number }
 
 import { resolveWmsIntegrationToggleEnabled } from '../lib/wmsIntegrationToggles'
+const EMPTY_INBOUND_SUMMARY: InboundSummary = {
+  openAsnCount: 0,
+  nextExpectedAt: null,
+}
+
 const EMPTY_ENRICHMENT: SalesOrderWmsEnrichment = {
   _wms: {
     assignedWarehouseId: null,
@@ -95,6 +106,7 @@ const EMPTY_ENRICHMENT: SalesOrderWmsEnrichment = {
       status: 'unreserved',
       reservationIds: [],
     },
+    inboundSummary: EMPTY_INBOUND_SUMMARY,
   },
 }
 
@@ -246,6 +258,31 @@ async function isSalesOrderInventoryEnabled(context: EnricherContext): Promise<b
     )
   } catch {
     return true
+  }
+}
+
+async function loadInboundSummary(em: EntityManager, scope: Scope): Promise<InboundSummary> {
+  // Aggregate only — never load all open ASN rows (backlog can blow the enricher timeout).
+  const rows = await em.getConnection().execute<
+    Array<{ open_asn_count: string | number; next_expected_at: Date | string | null }>
+  >(
+    `select count(*)::int as open_asn_count,
+            min(expected_at) as next_expected_at
+     from wms_asns
+     where organization_id = ?
+       and tenant_id = ?
+       and deleted_at is null
+       and status in ('draft', 'in_transit')`,
+    [scope.organizationId, scope.tenantId],
+  )
+  const row = rows[0]
+  const openAsnCount = Number(row?.open_asn_count ?? 0)
+  const nextExpected = row?.next_expected_at
+  return {
+    openAsnCount: Number.isFinite(openAsnCount) ? openAsnCount : 0,
+    nextExpectedAt: nextExpected
+      ? (nextExpected instanceof Date ? nextExpected : new Date(nextExpected)).toISOString()
+      : null,
   }
 }
 
@@ -450,12 +487,16 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
       ),
     )
 
-    const [reservations, balances, primaryWarehouseId, explicitAssignments] = await Promise.all([
-      loadReservations(em, orderIds, scope),
-      loadBalances(em, variantIds, scope),
-      resolvePrimaryWarehouseId(em, scope),
-      loadExplicitAssignments(em, orderIds, scope),
-    ])
+    // inboundSummary is best-effort (raw ASN SQL); isolate so a missing table /
+    // migration lag cannot reject the whole Promise.all and drop stock/reservation.
+    const [reservations, balances, primaryWarehouseId, explicitAssignments, inboundSummary] =
+      await Promise.all([
+        loadReservations(em, orderIds, scope),
+        loadBalances(em, variantIds, scope),
+        resolvePrimaryWarehouseId(em, scope),
+        loadExplicitAssignments(em, orderIds, scope),
+        loadInboundSummary(em, scope).catch(() => EMPTY_INBOUND_SUMMARY),
+      ])
 
     const explicitWarehouseIdsByOrder = new Map<string, string>()
     for (const assignment of explicitAssignments) {
@@ -570,6 +611,7 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
             ),
             reservationIds: reservationsForOrder.map((reservation) => reservation.id),
           },
+          inboundSummary,
         },
       }
     })

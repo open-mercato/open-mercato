@@ -38,39 +38,60 @@ describe('wms sales order enrichers', () => {
   const createContext = (
     enabled: boolean,
     queryEngine: QueryStub = createQueryEngine(() => []),
-  ) => ({
-    organizationId: 'org-1',
-    tenantId: 'tenant-1',
-    userId: 'user-1',
-    em: {
-      fork: () => ({}),
+    inboundSummaryRow: { open_asn_count: number; next_expected_at: Date | string | null } = {
+      open_asn_count: 0,
+      next_expected_at: null,
+    },
+  ) => {
+    const execute = jest.fn(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('from wms_asns')) {
+        return [inboundSummaryRow]
+      }
+      return []
+    })
+    const forkedEm = {
       persist: jest.fn(),
-      create: jest.fn((_, data) => data),
+      create: jest.fn((_, data: unknown) => data),
       flush: jest.fn().mockResolvedValue(undefined),
-    },
-    container: {
-      resolve: (name: string) => {
-        if (name === 'featureTogglesService') {
-          return {
-            getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: enabled }),
-            invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
-          }
-        }
-        if (name === 'em') {
-          return {
-            fork: () => ({}),
-            persist: jest.fn(),
-            create: jest.fn((_, data) => data),
-            flush: jest.fn().mockResolvedValue(undefined),
-          }
-        }
-        if (name === 'queryEngine') {
-          return queryEngine
-        }
-        throw new Error(`Unexpected resolve: ${name}`)
+      getConnection: jest.fn(() => ({ execute })),
+    }
+    return {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      em: {
+        fork: () => forkedEm,
+        persist: jest.fn(),
+        create: jest.fn((_, data: unknown) => data),
+        flush: jest.fn().mockResolvedValue(undefined),
+        getConnection: jest.fn(() => ({ execute })),
       },
-    },
-  })
+      container: {
+        resolve: (name: string) => {
+          if (name === 'featureTogglesService') {
+            return {
+              getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: enabled }),
+              invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+            }
+          }
+          if (name === 'em') {
+            return {
+              fork: () => forkedEm,
+              persist: jest.fn(),
+              create: jest.fn((_, data: unknown) => data),
+              flush: jest.fn().mockResolvedValue(undefined),
+              getConnection: jest.fn(() => ({ execute })),
+            }
+          }
+          if (name === 'queryEngine') {
+            return queryEngine
+          }
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+      __inboundSummaryExecute: execute,
+    }
+  }
 
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
@@ -194,6 +215,10 @@ describe('wms sales order enrichers', () => {
             status: 'partially_reserved',
             reservationIds: ['reservation-1', 'reservation-2'],
           },
+          inboundSummary: {
+            openAsnCount: 0,
+            nextExpectedAt: null,
+          },
         },
       },
     ])
@@ -275,6 +300,10 @@ describe('wms sales order enrichers', () => {
         reservationSummary: {
           status: 'fully_reserved',
           reservationIds: ['reservation-1'],
+        },
+        inboundSummary: {
+          openAsnCount: 0,
+          nextExpectedAt: null,
         },
       },
     })
@@ -363,9 +392,114 @@ describe('wms sales order enrichers', () => {
             status: 'unreserved',
             reservationIds: [],
           },
+          inboundSummary: {
+            openAsnCount: 0,
+            nextExpectedAt: null,
+          },
         },
       },
     ])
+  })
+
+  it('adds additive inboundSummary from open ASN aggregate (no full ASN load)', async () => {
+    const queryEngine = createQueryEngine((entityId) => {
+      if (entityId === E.sales.sales_order_line) {
+        return [
+          {
+            id: 'line-1',
+            order_id: 'order-1',
+            product_variant_id: 'variant-1',
+            quantity: '1',
+            line_number: 1,
+          },
+        ]
+      }
+      return []
+    })
+    const expectedAt = new Date('2026-04-18T12:00:00.000Z')
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation || entity === InventoryBalance || entity === SalesOrderWarehouseAssignment) {
+        return []
+      }
+      return []
+    })
+
+    const context = createContext(true, queryEngine, {
+      open_asn_count: 2,
+      next_expected_at: expectedAt,
+    })
+    const result = await salesOrderInventoryEnricher!.enrichMany!([{ id: 'order-1' }], context)
+
+    expect(result[0]?._wms?.inboundSummary).toEqual({
+      openAsnCount: 2,
+      nextExpectedAt: expectedAt.toISOString(),
+    })
+    expect(context.__inboundSummaryExecute).toHaveBeenCalledWith(
+      expect.stringMatching(/count\(\*\)::int as open_asn_count[\s\S]*min\(expected_at\)/),
+      ['org-1', 'tenant-1'],
+    )
+  })
+
+  it('keeps stock and reservation summaries when inboundSummary ASN SQL fails', async () => {
+    const queryEngine = createQueryEngine((entityId) => {
+      if (entityId === E.sales.sales_order_line) {
+        return [
+          {
+            id: 'line-1',
+            order_id: 'order-1',
+            product_variant_id: 'variant-1',
+            quantity: '2',
+            line_number: 1,
+          },
+        ]
+      }
+      return []
+    })
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) {
+        return [
+          {
+            id: 'res-1',
+            sourceId: 'order-1',
+            catalogVariantId: 'variant-1',
+            quantity: '1',
+            status: 'active',
+            warehouse: { id: 'wh-1' },
+          } as InventoryReservation,
+        ]
+      }
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '10',
+            quantityReserved: '1',
+            quantityAllocated: '0',
+          } as InventoryBalance,
+        ]
+      }
+      if (entity === SalesOrderWarehouseAssignment) return []
+      if (entity === Warehouse) {
+        return [{ id: 'wh-1', name: 'Main' } as Warehouse]
+      }
+      return []
+    })
+
+    const context = createContext(true, queryEngine)
+    context.__inboundSummaryExecute.mockRejectedValueOnce(new Error('relation "wms_asns" does not exist'))
+
+    const result = await salesOrderInventoryEnricher!.enrichMany!([{ id: 'order-1' }], context)
+
+    expect(result[0]?._wms?.stockSummary).toEqual([
+      { catalogVariantId: 'variant-1', available: '9', reserved: '1' },
+    ])
+    expect(result[0]?._wms?.reservationSummary).toMatchObject({
+      reservationIds: ['res-1'],
+    })
+    expect(result[0]?._wms?.inboundSummary).toEqual({
+      openAsnCount: 0,
+      nextExpectedAt: null,
+    })
   })
 
   it('adds direct WMS inventory data to catalog variants', async () => {

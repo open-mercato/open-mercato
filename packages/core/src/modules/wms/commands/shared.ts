@@ -4,9 +4,12 @@ import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import {
+  Asn,
   InventoryBalance,
   InventoryMovement,
   InventoryReservation,
+  PutawayTask,
+  ReceivingLine,
   WarehouseZone,
 } from '../data/entities'
 
@@ -89,10 +92,58 @@ export const inventoryMovementCrudEvents: CrudEventsConfig<InventoryMovement> = 
   }),
 }
 
+export const asnCrudIndexer: CrudIndexerConfig<Asn> = {
+  entityType: E.wms.asn,
+}
+
+export const receivingLineCrudIndexer: CrudIndexerConfig<ReceivingLine> = {
+  entityType: E.wms.receiving_line,
+}
+
+export const asnCrudEvents: CrudEventsConfig<Asn> = {
+  module: 'wms',
+  entity: 'asn',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+export const receivingLineCrudEvents: CrudEventsConfig<ReceivingLine> = {
+  module: 'wms',
+  entity: 'receiving_line',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+export const putawayTaskCrudIndexer: CrudIndexerConfig<PutawayTask> = {
+  entityType: E.wms.putaway_task,
+}
+
+export const putawayTaskCrudEvents: CrudEventsConfig<PutawayTask> = {
+  module: 'wms',
+  entity: 'putaway_task',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
 // Cache alias resource kinds used to extend command-level cache invalidation
 // when a single mutation impacts multiple list resources.
 export const WMS_INVENTORY_BALANCE_RESOURCE = 'wms.inventoryBalance'
 export const WMS_INVENTORY_RESERVATION_RESOURCE = 'wms.inventoryReservation'
 export const WMS_INVENTORY_MOVEMENT_RESOURCE = 'wms.inventoryMovement'
+export const WMS_ASN_RESOURCE = 'wms.asn'
+export const WMS_RECEIVING_LINE_RESOURCE = 'wms.receivingLine'
+export const WMS_PUTAWAY_TASK_RESOURCE = 'wms.putawayTask'
 
 export { ensureOrganizationScope }
