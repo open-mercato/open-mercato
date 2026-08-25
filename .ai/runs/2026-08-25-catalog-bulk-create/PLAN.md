@@ -10,7 +10,7 @@ Source doc: `.ai/specs/2026-08-25-catalog-bulk-create.md`
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Route + validators (categories bulk-create) | inline | done | 86d8beeee |
 | 1 | 1.2 | Worker + lib (categories bulk-create) | inline | done | 0fd7a9085 |
-| 1 | 1.3 | Verify events/index fire per row unchanged | inline | todo | — |
+| 1 | 1.3 | Verify events/index fire per row unchanged | inline | done | PENDING_SHA |
 | 1 | 1.4 | Checkpoint + idempotent resume | inline | done | 0fd7a9085 (landed with 1.2 — the row loop and its checkpoint bookkeeping are one function, not two separable diffs; see NOTIFY) |
 | 2 | 2.1 | Worker + pre-warm (products bulk-create) | inline | todo | — |
 | 2 | 2.2 | Route + validators (products bulk-create) | inline | todo | — |
