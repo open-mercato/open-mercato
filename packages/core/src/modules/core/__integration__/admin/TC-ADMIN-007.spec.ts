@@ -50,8 +50,8 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
     await expect(page.getByText('Label', { exact: false })).toBeVisible();
     await expect(page.getByText('Description')).toBeVisible();
 
-    // Verify Entity ID default placeholder value
-    const entityIdField = page.getByRole('textbox', { name: 'module_name:entity_id' });
+    // Verify Entity ID default value
+    const entityIdField = page.getByRole('textbox', { name: 'Entity ID' });
     await expect(entityIdField).toBeVisible();
     await expect(entityIdField).toHaveValue('user:your_entity');
 
