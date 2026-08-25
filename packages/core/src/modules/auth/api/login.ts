@@ -215,13 +215,21 @@ export async function POST(req: Request) {
     ? interceptedBody.refreshToken
     : undefined
 
+  // An interceptor that swaps the issued token (the MFA challenge hands back a provisional
+  // `mfa_pending` token) has not completed authentication. Any `session_token` still in the
+  // browser from an earlier login would let `GET /api/auth/session/refresh` mint a full staff
+  // token and skip the outstanding second factor, so it is cleared alongside the swap.
+  const authTokenReplacedByInterceptor = authTokenForCookie !== token
+
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   if (remember && refreshTokenForCookie) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
-  } else if (!remember && authTokenForCookie === token) {
+  } else if (!remember && !authTokenReplacedByInterceptor) {
     res.cookies.set('session_token', sessionRefreshToken, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
+  } else if (authTokenReplacedByInterceptor) {
+    res.cookies.set('session_token', '', { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 0 })
   }
   return res
 }
