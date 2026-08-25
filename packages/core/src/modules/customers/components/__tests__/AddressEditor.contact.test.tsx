@@ -47,16 +47,24 @@ describe('AddressEditor — the contact fields are the caller\'s to offer', () =
     expect(screen.getByPlaceholderText('Phone')).toBeDisabled()
   })
 
-  it('names a filled tax id by its type, and a filled phone by itself', () => {
-    // A placeholder is this form's only label and it vanishes on typing; the marker is what keeps a
-    // filled field readable, and for the tax id it has to follow the type — `PL…` is not a NIP.
-    render({ value: { taxId: 'PL1234567890', phone: '+48 600 100 200' }, showContactFields: true, taxIdType: 'eu_vat' })
+  it('offers the scheme as a choice, showing the one the address already carries', () => {
+    // Picked rather than inferred: `PL1234567890` and `1234567890` are the same business written two
+    // ways, so reading the scheme off the form of the value is guessing — and it guesses more often
+    // as the vocabulary grows.
+    render({ value: { taxId: 'PL1234567890', taxIdType: 'eu_vat' }, showContactFields: true })
     expect(screen.getByText('EU VAT')).toBeInTheDocument()
-    expect(screen.getByText('Phone')).toBeInTheDocument()
   })
 
-  it('shows no marker while a field is empty, so nothing labels an absent value', () => {
-    render({ showContactFields: true, taxIdType: 'eu_vat' })
+  it('leaves the scheme unset when the address has none, rather than picking one', () => {
+    render({ value: { taxId: '1234567890' }, showContactFields: true })
     expect(screen.queryByText('EU VAT')).toBeNull()
+    expect(screen.queryByText('Tax ID')).toBeNull()
+  })
+
+  it('names a filled phone by itself', () => {
+    // A placeholder is this form's only label and it vanishes on typing; the marker keeps a filled
+    // phone readable where the postcode directly above looks just like it.
+    render({ value: { phone: '+48 600 100 200' }, showContactFields: true })
+    expect(screen.getByText('Phone')).toBeInTheDocument()
   })
 })

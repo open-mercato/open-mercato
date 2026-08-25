@@ -1867,6 +1867,7 @@
   "customers.people.detail.addresses.fields.street": "Ulica",
   "customers.people.detail.addresses.fields.streetExtra": "Dodatkowe informacje adresowe",
   "customers.people.detail.addresses.fields.taxId": "Nr podatkowy",
+  "customers.people.detail.addresses.fields.taxIdType": "Typ numeru",
   "customers.people.detail.addresses.fields.taxId.euVat": "VAT UE",
   "customers.people.detail.addresses.fields.taxId.other": "Nr podatkowy",
   "customers.people.detail.addresses.fields.taxId.plNip": "NIP",

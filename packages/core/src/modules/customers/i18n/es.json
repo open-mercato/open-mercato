@@ -1867,6 +1867,7 @@
   "customers.people.detail.addresses.fields.street": "Calle",
   "customers.people.detail.addresses.fields.streetExtra": "Detalles adicionales de la dirección",
   "customers.people.detail.addresses.fields.taxId": "Número fiscal",
+  "customers.people.detail.addresses.fields.taxIdType": "Tipo de número fiscal",
   "customers.people.detail.addresses.fields.taxId.euVat": "IVA UE",
   "customers.people.detail.addresses.fields.taxId.other": "Número fiscal",
   "customers.people.detail.addresses.fields.taxId.plNip": "NIF",

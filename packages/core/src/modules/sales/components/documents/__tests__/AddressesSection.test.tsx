@@ -294,11 +294,10 @@ describe('SalesDocumentAddressesSection', () => {
     })
   })
 
-  it('re-derives the tax id TYPE on save, rather than preserving a stale one', async () => {
-    // The trap this guards: `taxIdType` is not an editable key, so the unowned-key merge-back copies
-    // the PREVIOUS one back over the snapshot. Deriving before that loop would be silently undone.
-    // Here the snapshot arrives typed `eu_vat` while the value on it is a bare domestic number — the
-    // shape left behind by correcting `PL1234567890` to `1234567890` — and the save must correct it.
+  it('round-trips the tax id type the picker holds, rather than dropping it', async () => {
+    // `taxIdType` is an editable key now, so the unowned-key merge-back no longer carries it: the
+    // draft has to seed it from the snapshot and the assign list has to write it back. Miss either
+    // and a save silently clears the scheme off an address nobody touched.
     mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
 
     render(
@@ -311,7 +310,7 @@ describe('SalesDocumentAddressesSection', () => {
           city: 'Warszawa',
           country: 'PL',
           taxId: '1234567890',
-          taxIdType: 'eu_vat',
+          taxIdType: 'pl_nip',
         }}
       />,
     )

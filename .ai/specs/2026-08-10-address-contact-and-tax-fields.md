@@ -169,7 +169,7 @@ The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document c
 ### Phase 1 — contact fields and render
 1. `AddressValue` gains `phone` / `taxId` / `taxIdType`, and `resolveTaxIdLabel` names an identifier from its type.
 2. Render `taxId` and `phone` as ordinary `AddressEditor` fields, and own them in the snapshot tiles' draft (`emptyDraft` + the normalising assign list) so a manual save keeps them.
-3. Add `taxIdType` to the type, and **derive it on save** from the value and the address's country. Without that the vocabulary only ever fires for an integration: a value entered by hand carries no type, so every identifier falls to the neutral label and NIP, EU VAT and "other" read alike. `deriveTaxIdType` is exported so the rule has one home; it runs AFTER the unowned-key merge-back, which would otherwise restore the previous type over it.
+3. Add `taxIdType` to the type, and let the user **pick** it from the seeded vocabulary beside the identifier — the shape Stripe uses. Not inferred from the value: `1234567890` and `PL1234567890` are the same business written two ways, so a rule that reads the form of the value is guessing, and it guesses more often as the vocabulary grows. A wrong scheme is worse than none, because it puts a name on the number.
 4. Pass `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137`.
 5. Remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the errors it hides.
 
@@ -274,6 +274,8 @@ The justification above stands on the market comparison, not on any single deplo
 Two observations that shaped decisions above: the order-level tax-id rate exceeds the customer-level rate because business buyers reorder more often — an input to keeping the customer as master while the document freezes what it was issued under — and `buildingNumber` was populated on ~1% of addresses because house numbers are conventionally written into the street line, which is why this spec adds no further logic there.
 
 ## Changelog
+
+- `taxIdType` is a picker beside the identifier rather than a value derived from it. Deriving worked for the three seeded schemes and stops working as the vocabulary grows — `GB123456789` reads as an EU VAT number under a two-letter-prefix rule and has not been one since Brexit, which is the same example that argued for storing the type rather than recomputing it. Storing a wrong answer does not make it right. Stripe asks for the choice; so does this. `deriveTaxIdType` is gone, and with it the ordering subtlety it needed against the unowned-key merge-back: the scheme is an editable key now, seeded from the snapshot and written back like any other.
 
 - `taxIdType` is derived on save rather than only read. It was reachable only through an integration: nothing in the UI sets it, and no form should ask a user to choose between `pl_nip` and `eu_vat` when the answer is already in what they typed. So a hand-entered identifier had no type, every label fell to the neutral one, and the distinction this vocabulary exists to draw never appeared. `deriveTaxIdType(taxId, country)` applies the rule the Design Decisions already state, in both normalisers, after the merge-back that would otherwise restore a stale type.
 

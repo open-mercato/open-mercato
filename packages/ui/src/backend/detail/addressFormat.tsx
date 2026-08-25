@@ -148,27 +148,6 @@ const TAX_ID_LABEL_KEY_BY_TYPE: Record<string, keyof TaxIdLabelByType> = {
 }
 
 /**
- * The type an identifier has, given the value and the address it sits on.
- *
- * The vocabulary is Stripe's `{country}_{kind}`. Two letters in front make it an EU VAT number
- * whatever the country — `DE811907980` is one, `PL1234567890` is the same business as a bare
- * `1234567890` written the other way. An unprefixed value is domestic where the address is Polish
- * and `other` everywhere else, which is a deliberate refusal to guess: naming a foreign number after
- * a domestic scheme renames it.
- *
- * Exported because a form has to derive it. Nothing in the UI can sensibly ask a user to pick
- * between `pl_nip` and `eu_vat` — the answer is already in what they typed — while a value entered
- * by hand with no type at all would leave every identifier labelled neutrally, which is the
- * distinction this vocabulary exists to draw.
- */
-export function deriveTaxIdType(taxId: string | null | undefined, country: string | null | undefined): string | undefined {
-  const value = typeof taxId === 'string' ? taxId.trim() : ''
-  if (!value) return undefined
-  if (/^[A-Za-z]{2}/.test(value)) return 'eu_vat'
-  return (typeof country === 'string' ? country : '').toUpperCase() === 'PL' ? 'pl_nip' : 'other'
-}
-
-/**
  * The label a tax identifier should carry, given its type. Exported because the editor renders the
  * same identifier as an input and must name it the same way this formatter does — two copies of the
  * mapping is exactly how a foreign number ends up under a domestic scheme's name.

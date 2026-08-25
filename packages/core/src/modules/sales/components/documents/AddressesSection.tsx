@@ -21,7 +21,6 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
   AddressView,
-  deriveTaxIdType,
   formatAddressString,
   type AddressFormatStrategy,
   type AddressValue,
@@ -72,6 +71,7 @@ const emptyDraft: AddressEditorDraft = {
   postalCode: '',
   country: '',
   taxId: '',
+  taxIdType: '',
   phone: '',
   isPrimary: false,
 }
@@ -81,7 +81,7 @@ const EDITABLE_SNAPSHOT_KEYS = new Set(Object.keys(emptyDraft))
 /**
  * The fields the editor owns, typed, plus whatever else the caller's snapshot carried.
  *
- * The index signature is what lets an integration's extra keys — `taxIdType`, and anything a future
+ * The index signature is what lets an integration's extra keys — anything a future
  * integration writes — survive the merge-back below, while the named fields stay `string` for callers
  * that read them. `taxId` and `phone` are NOT among them any more: the editor renders both, so they
  * are assigned from the draft like every other field. Reading
@@ -132,6 +132,7 @@ function normalizeAddressDraft(
   assign('postalCode', 'postalCode')
   assign('country', 'country')
   assign('taxId', 'taxId')
+  assign('taxIdType', 'taxIdType')
   assign('phone', 'phone')
   assign('isPrimary', 'isPrimary')
   if (!hasEditableContent) return null
@@ -142,19 +143,6 @@ function normalizeAddressDraft(
       normalized[key] = value
     }
   }
-  // The type describes the value, so it follows it rather than being preserved beside it: correcting
-  // `PL1234567890` to `1234567890` must not leave `eu_vat` behind, and clearing the identifier must
-  // not leave a type describing nothing.
-  //
-  // Derived AFTER the merge-back on purpose. `taxIdType` is deliberately not an editable key — no
-  // form should ask a user to choose between `pl_nip` and `eu_vat` — so the loop above treats it as
-  // an integration's to preserve and would restore the previous value over anything set earlier.
-  const derivedTaxIdType = deriveTaxIdType(
-    typeof normalized.taxId === 'string' ? normalized.taxId : null,
-    typeof normalized.country === 'string' ? normalized.country : null,
-  )
-  if (derivedTaxIdType) normalized.taxIdType = derivedTaxIdType
-  else delete normalized.taxIdType
   return normalized
 }
 
@@ -173,6 +161,7 @@ function draftFromSnapshot(snapshot?: Record<string, unknown> | null): AddressEd
     postalCode: typeof record.postalCode === 'string' ? record.postalCode : '',
     country: typeof record.country === 'string' ? record.country : '',
     taxId: typeof record.taxId === 'string' ? record.taxId : '',
+    taxIdType: typeof record.taxIdType === 'string' ? record.taxIdType : '',
     phone: typeof record.phone === 'string' ? record.phone : '',
     isPrimary: record.isPrimary === true,
   }
@@ -1141,7 +1130,6 @@ export function SalesDocumentAddressesSection({
               <AddressEditor
                 value={shippingDraft}
                 format={addressFormat}
-                taxIdType={shippingAddressSnapshot?.taxIdType as string | undefined}
                 showContactFields
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
@@ -1211,8 +1199,7 @@ export function SalesDocumentAddressesSection({
                   <AddressEditor
                     value={billingDraft}
                     format={addressFormat}
-                    taxIdType={billingAddressSnapshot?.taxIdType as string | undefined}
-                    showContactFields
+                        showContactFields
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle

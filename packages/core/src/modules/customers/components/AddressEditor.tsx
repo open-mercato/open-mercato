@@ -47,6 +47,13 @@ export type AddressEditorDraft = {
    * keeps compiling — one that omits them renders two empty fields, exactly as it does for `region`.
    */
   taxId?: string
+  /**
+   * Which scheme the identifier belongs to, in Stripe's `{country}_{kind}` vocabulary. Chosen, not
+   * inferred: `PL1234567890` and `1234567890` are the same business written two ways, and a rule
+   * that reads the form of the value is guessing — the more schemes the vocabulary carries, the more
+   * often it guesses wrong, and a wrong type is worse than none because it names the number.
+   */
+  taxIdType?: string
   phone?: string
   latitude?: string
   longitude?: string
@@ -66,6 +73,7 @@ export type AddressEditorField =
   | 'postalCode'
   | 'country'
   | 'taxId'
+  | 'taxIdType'
   | 'phone'
   | 'latitude'
   | 'longitude'
@@ -84,7 +92,6 @@ type AddressEditorProps = {
    * metadata about the value, never an edited field, which is why it is a prop rather than a member
    * of the draft: nothing in this component may write it.
    */
-  taxIdType?: string | null
   showFormatHint?: boolean
   showCoordinateFields?: boolean
   /**
@@ -99,6 +106,20 @@ type AddressEditorProps = {
   showContactFields?: boolean
 }
 
+/**
+ * The schemes offered in the picker, in the order a Polish deployment meets them. The vocabulary is
+ * additive under the backward-compatibility contract, so a new scheme is a new entry here rather
+ * than a new branch in a rule that has to guess.
+ *
+ * The labels are the ones `resolveTaxIdLabel` resolves, so the picker and the marker beside the
+ * filled field always read the same.
+ */
+const TAX_ID_TYPES = [
+  { type: 'pl_nip', key: 'customers.people.detail.addresses.fields.taxId.plNip', fallback: 'Tax ID' },
+  { type: 'eu_vat', key: 'customers.people.detail.addresses.fields.taxId.euVat', fallback: 'EU VAT' },
+  { type: 'other', key: 'customers.people.detail.addresses.fields.taxId.other', fallback: 'Tax number' },
+] as const
+
 export function AddressEditor({
   value,
   onChange,
@@ -107,7 +128,6 @@ export function AddressEditor({
   disabled = false,
   errors = {},
   hidePrimaryToggle = false,
-  taxIdType,
   showFormatHint = true,
   showCoordinateFields = false,
   showContactFields = false,
@@ -129,6 +149,13 @@ export function AddressEditor({
     [t],
   )
 
+  // One mapping, one home. The picker's options resolve through `resolveTaxIdLabel`, so a scheme
+  // cannot be called one thing in the list and another wherever else an identifier is named.
+  const taxIdLabels = {
+    plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
+    euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
+    other: t('customers.people.detail.addresses.fields.taxId.other', 'Tax number'),
+  }
   const current: AddressEditorDraft = {
     name: value.name ?? '',
     purpose: value.purpose ?? '',
@@ -142,6 +169,7 @@ export function AddressEditor({
     postalCode: value.postalCode ?? '',
     country: value.country ?? '',
     taxId: value.taxId ?? '',
+    taxIdType: value.taxIdType ?? '',
     phone: value.phone ?? '',
     ...(showCoordinateFields
       ? { latitude: value.latitude ?? '', longitude: value.longitude ?? '' }
@@ -509,30 +537,42 @@ export function AddressEditor({
         */}
         {showContactFields ? (
         <>
-        <Input
-          className={inputClass('taxId')}
-          placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
-          // The type names the identifier once it has a value, the way the country field shows its
-          // ISO code. A placeholder cannot do it: it disappears exactly when the value arrives.
-          rightIcon={
-            current.taxId ? (
-              <span className="text-xs">
-                {resolveTaxIdLabel(
-                  {
-                    plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
-                    euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
-                    other: t('customers.people.detail.addresses.fields.taxId.other', 'Tax number'),
-                  },
-                  taxIdType,
-                )}
-              </span>
-            ) : null
-          }
-          value={current.taxId ?? ''}
-          onChange={(evt) => update('taxId', evt.target.value)}
-          disabled={disabled}
-          aria-invalid={errors.taxId ? 'true' : undefined}
-        />
+        <div className="flex gap-2">
+          {/*
+            The scheme is picked, not inferred. Reading it off the form of the value works for the
+            three seeded cases and stops working as the vocabulary grows — and a wrong type is worse
+            than none, because it puts a name on the number. Stripe asks for the same choice.
+          */}
+          <Select
+            value={current.taxIdType || undefined}
+            onValueChange={(next) => update('taxIdType', next ?? '')}
+            disabled={disabled}
+          >
+            <SelectTrigger
+              className={`shrink-0 basis-1/3 ${errors.taxIdType ? 'border-destructive' : ''}`}
+              aria-invalid={errors.taxIdType ? 'true' : undefined}
+            >
+              <SelectValue
+                placeholder={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {TAX_ID_TYPES.map((value) => (
+                <SelectItem key={value.type} value={value.type}>
+                  {t(value.key, value.fallback)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            className={inputClass('taxId')}
+            placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+            value={current.taxId ?? ''}
+            onChange={(evt) => update('taxId', evt.target.value)}
+            disabled={disabled}
+            aria-invalid={errors.taxId ? 'true' : undefined}
+          />
+        </div>
         {errors.taxId ? <p className="text-xs text-destructive">{errors.taxId}</p> : null}
         <Input
           className={inputClass('phone')}
