@@ -263,7 +263,7 @@ jobs:
           node-version: 24.19.0
 
       - name: Download mutation reports
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: mutation-report-*
           path: mutation-reports
