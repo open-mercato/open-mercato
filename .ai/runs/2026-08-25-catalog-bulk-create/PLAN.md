@@ -8,7 +8,7 @@ Source doc: `.ai/specs/2026-08-25-catalog-bulk-create.md`
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Route + validators (categories bulk-create) | inline | todo | — |
+| 1 | 1.1 | Route + validators (categories bulk-create) | inline | done | 86d8beeee |
 | 1 | 1.2 | Worker + lib (categories bulk-create) | inline | todo | — |
 | 1 | 1.3 | Verify events/index fire per row unchanged | inline | todo | — |
 | 1 | 1.4 | Checkpoint + idempotent resume | inline | todo | — |

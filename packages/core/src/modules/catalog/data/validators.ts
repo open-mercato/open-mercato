@@ -501,6 +501,15 @@ export const categoryUpdateSchema = z
   })
   .merge(categoryCreateSchema.partial())
 
+export const categoryBulkCreateRowSchema = categoryCreateSchema.omit({
+  organizationId: true,
+  tenantId: true,
+})
+
+export const categoriesBulkCreateSchema = z.object({
+  items: z.array(categoryBulkCreateRowSchema).min(1).max(10000),
+})
+
 export const productUnitConversionCreateSchema = scoped.extend({
   productId: uuid(),
   unitCode: z.string().trim().min(1).max(50),
@@ -532,6 +541,8 @@ export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
 export type CategoryCreateInput = z.infer<typeof categoryCreateSchema>
 export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>
+export type CategoryBulkCreateRow = z.infer<typeof categoryBulkCreateRowSchema>
+export type CategoriesBulkCreateInput = z.infer<typeof categoriesBulkCreateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>
 export type OfferCreateInput = z.infer<typeof offerCreateSchema>
 export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>
