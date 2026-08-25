@@ -21,6 +21,7 @@ import {
   type ComposeEmailChannel,
   type ComposeEmailValues,
 } from './ComposeEmailDialog'
+import { PersonEmailShareControl } from './PersonEmailShareControl'
 
 type PersonEmailThreadsTabProps = {
   personId: string
@@ -422,6 +423,12 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
 
   return (
     <>
+      <PersonEmailShareControl
+        personId={personId}
+        // Flipping the share changes which messages the read filter admits, so
+        // refetch rather than waiting for the background heartbeat.
+        onChanged={() => { void loadThreads() }}
+      />
       <EmailThreadsPanel
         threads={mergedThreads}
         loading={loading}
