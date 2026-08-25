@@ -55,7 +55,7 @@ Finish PR #5544 by correcting the two documentation issues requested in review w
 
 ### Phase 2: Address requested documentation changes
 
-- [ ] 2.1 Correct the remaining stale navigation rationale and add the specification changelog entry
+- [x] 2.1 Correct the remaining stale navigation rationale and add the specification changelog entry — f803f94f5
 
 ### Phase 3: Validate and return for review
 
