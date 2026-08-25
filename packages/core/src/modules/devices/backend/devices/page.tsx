@@ -15,15 +15,15 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 
 type Row = {
   id: string
-  user_id: string
-  device_id: string
+  userId: string
+  deviceId: string
   platform: string
-  client_app_version: string | null
-  os_version: string | null
-  push_provider: string | null
-  push_token_updated_at: string | null
-  last_seen_at: string | null
-  created_at: string | null
+  clientAppVersion: string | null
+  osVersion: string | null
+  pushProvider: string | null
+  pushTokenUpdatedAt: string | null
+  lastSeenAt: string | null
+  createdAt: string | null
 }
 
 type ResponsePayload = {
@@ -184,16 +184,16 @@ export default function DevicesAdminListPage() {
 
   const columns = React.useMemo<ColumnDef<Row>[]>(() => [
     {
-      accessorKey: 'device_id',
+      accessorKey: 'deviceId',
       header: t('devices.list.columns.device'),
-      cell: ({ row }) => <code className="text-xs">{row.original.device_id}</code>,
+      cell: ({ row }) => <code className="text-xs">{row.original.deviceId}</code>,
     },
     { accessorKey: 'platform', header: t('devices.list.columns.platform') },
     {
-      accessorKey: 'user_id',
+      accessorKey: 'userId',
       header: t('devices.list.columns.user'),
       cell: ({ row }) => {
-        const userId = row.original.user_id
+        const userId = row.original.userId
         const label = userLabelById.get(userId)
         return (
           // Stop the click bubbling to the row, whose default action navigates to the device edit page.
@@ -208,24 +208,24 @@ export default function DevicesAdminListPage() {
       },
     },
     {
-      accessorKey: 'client_app_version',
+      accessorKey: 'clientAppVersion',
       header: t('devices.list.columns.appVersion'),
-      cell: ({ row }) => row.original.client_app_version || t('devices.list.noValue'),
+      cell: ({ row }) => row.original.clientAppVersion || t('devices.list.noValue'),
     },
     {
-      accessorKey: 'os_version',
+      accessorKey: 'osVersion',
       header: t('devices.list.columns.osVersion'),
-      cell: ({ row }) => row.original.os_version || t('devices.list.noValue'),
+      cell: ({ row }) => row.original.osVersion || t('devices.list.noValue'),
     },
     {
-      accessorKey: 'push_provider',
+      accessorKey: 'pushProvider',
       header: t('devices.list.columns.pushProvider'),
-      cell: ({ row }) => row.original.push_provider || t('devices.list.noValue'),
+      cell: ({ row }) => row.original.pushProvider || t('devices.list.noValue'),
     },
     {
-      accessorKey: 'last_seen_at',
+      accessorKey: 'lastSeenAt',
       header: t('devices.list.columns.lastSeen'),
-      cell: ({ row }) => formatDate(row.original.last_seen_at, t),
+      cell: ({ row }) => formatDate(row.original.lastSeenAt, t),
     },
   ], [t, userLabelById])
 

@@ -34,6 +34,7 @@
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
     "@open-mercato/channel-apns": "workspace:*",
+    "@open-mercato/channel-discord": "workspace:*",
     "@open-mercato/channel-expo": "workspace:*",
     "@open-mercato/channel-fcm": "workspace:*",
     "@open-mercato/channel-gmail": "workspace:*",
