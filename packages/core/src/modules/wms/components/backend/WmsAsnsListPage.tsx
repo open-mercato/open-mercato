@@ -47,6 +47,7 @@ type PagedResponse<T> = {
   items: T[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 /** Server-side multi-status for `?queue=open` (mirrors putaway `open,in_progress`). */
@@ -368,6 +369,7 @@ export default function WmsAsnsListPage() {
                 pageSize: 50,
                 total: asnsQuery.data.total,
                 totalPages: asnsQuery.data.totalPages,
+                totalIsCapped: asnsQuery.data?.totalIsCapped === true,
                 onPageChange: setPage,
               }}
               perspective={{ tableId: extensionPoints.hosts.asnsTable.tableId }}

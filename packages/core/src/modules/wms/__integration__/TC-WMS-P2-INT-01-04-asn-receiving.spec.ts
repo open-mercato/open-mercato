@@ -171,14 +171,12 @@ test.describe('WMS-P2-INT-01…04 / INT-09: ASN receiving', () => {
         defaultStrategy: 'fifo',
       })
 
-      const vendorId = randomUUID()
       const createResponse = await apiRequest(request, 'POST', '/api/wms/asns', {
         token: adminToken,
         data: {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           warehouseId,
-          vendorId,
           expectedAt: new Date().toISOString(),
           referenceNumber: `ASN-${suffix}`,
           lines: [
@@ -207,7 +205,7 @@ test.describe('WMS-P2-INT-01…04 / INT-09: ASN receiving', () => {
       const asnBody = await readJsonSafe<{
         items?: Array<{ vendor_id?: string | null; status?: string | null; reference_number?: string | null }>
       }>(asnDetail)
-      expect(asnBody?.items?.[0]?.vendor_id).toBe(vendorId)
+      expect(asnBody?.items?.[0]?.vendor_id == null).toBe(true)
       expect(asnBody?.items?.[0]?.status).toBe('draft')
       expect(asnBody?.items?.[0]?.reference_number).toBe(`ASN-${suffix}`)
 

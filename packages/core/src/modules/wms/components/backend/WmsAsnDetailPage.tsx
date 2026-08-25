@@ -593,7 +593,6 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
           </div>
           <DataTable
             embedded
-            title={t('wms.backend.asns.detail.linesTitle', 'Receiving lines')}
             columns={columns}
             data={lines}
             rowActions={rowActions}

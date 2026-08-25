@@ -71,6 +71,7 @@ type PagedResponse<T> = {
   items: T[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function toNumber(value: string | number | null | undefined): number {
@@ -610,6 +611,7 @@ export default function WmsPutawayQueuePage() {
                 pageSize: 50,
                 total: tasksQuery.data.total,
                 totalPages: tasksQuery.data.totalPages,
+                totalIsCapped: tasksQuery.data?.totalIsCapped === true,
                 onPageChange: setPage,
               }}
               perspective={{ tableId: extensionPoints.hosts.putawayTasksTable.tableId }}

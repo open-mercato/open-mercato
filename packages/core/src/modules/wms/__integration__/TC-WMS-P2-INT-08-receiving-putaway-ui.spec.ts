@@ -151,7 +151,7 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       await waitForWmsMutationAccess(page)
 
       await expect(page.getByRole('heading', { name: asnRef })).toBeVisible({ timeout: 15_000 })
-      await expect(page.getByText(/Receiving lines/i)).toBeVisible()
+      await expect(page.getByRole('heading', { name: /Receiving lines/i })).toBeVisible()
 
       await page.getByRole('button', { name: /Open actions|Otwórz akcje/i }).first().click()
       await page.getByRole('menuitem', { name: /Receive line/i }).click()
