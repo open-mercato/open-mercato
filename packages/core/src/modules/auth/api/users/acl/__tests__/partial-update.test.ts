@@ -194,6 +194,33 @@ describe('user ACL partial updates', () => {
     expect(mockEm.persist).not.toHaveBeenCalled()
   })
 
+  // `[]` and `['__all__']` both mean "every organization" at authorization time
+  // (`rbacService`), so clearing the last organization checkbox in the ACL editor
+  // must still delete the override rather than trip the restriction guard.
+  it.each([
+    ['an empty organization list', [] as string[]],
+    ['an explicit all-organizations list', ['__all__']],
+  ])('clears the override when features are emptied alongside %s', async (_label, organizations) => {
+    const existing = {
+      id: 'acl-1',
+      isSuperAdmin: false,
+      featuresJson: ['dashboards.view'],
+      organizationsJson: [ACME_ORGANIZATION_ID],
+      updatedAt: null,
+    }
+    storedAcl = existing
+
+    const res = await PUT(putRequest({
+      userId: TARGET_USER_ID,
+      features: [],
+      organizations,
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockEm.remove).toHaveBeenCalledWith(existing)
+    expect(mockEm.persist).not.toHaveBeenCalled()
+  })
+
   it('keeps an omitted super admin flag intact', async () => {
     mockRbacService.loadAcl.mockResolvedValue({
       isSuperAdmin: true,

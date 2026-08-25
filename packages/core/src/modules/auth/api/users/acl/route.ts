@@ -238,7 +238,7 @@ export async function PUT(req: Request) {
   // Retaining an organization-only override with no features would revoke every
   // role-granted feature instead of narrowing the role. Refuse that state rather
   // than persisting it or silently dropping the organization scope.
-  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && requestedOrganizations !== null) {
+  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && hasOrganizationRestriction(requestedOrganizations)) {
     const { translate } = await resolveTranslations()
     return NextResponse.json({
       error: translate(
@@ -248,9 +248,10 @@ export async function PUT(req: Request) {
     }, { status: 400 })
   }
 
-  const hasCustomAcl = effectiveIsSuperAdmin
-    || effectiveFeatures.length > 0
-    || requestedOrganizations !== null
+  // An unrestricted organization list carries no override on its own, and the guard
+  // above already refused the restricted-but-featureless case, so the override is
+  // custom exactly when it grants super admin or at least one feature.
+  const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
 
   // Persist the ACL mutation inside a transaction so the per-user permission
   // write (or removal) commits atomically (proper ACL-edit transaction handling).
@@ -294,6 +295,14 @@ export async function PUT(req: Request) {
 function normalizeOrganizations(organizations: unknown): string[] | null {
   if (!Array.isArray(organizations)) return null
   return normalizeGrantFeatureList(organizations)
+}
+
+// Mirrors how the scope is read back at authorization time (`rbacService`): an
+// absent, empty, or `__all__` list grants every organization, so only a
+// non-empty explicit list actually narrows the user.
+function hasOrganizationRestriction(organizations: string[] | null): boolean {
+  if (!organizations || organizations.length === 0) return false
+  return !organizations.includes('__all__')
 }
 
 function sanitizeTenantFeatures(features: string[]): string[] {
