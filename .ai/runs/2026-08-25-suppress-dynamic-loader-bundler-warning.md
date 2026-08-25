@@ -42,8 +42,8 @@ Stop Next.js/Turbopack from pulling the standalone bootstrap loader into the app
 
 ### Phase 1: Isolate the compiler boundary
 
-- [ ] 1.1 Extract the compiler-only module while preserving dynamicLoader compatibility
-- [ ] 1.2 Route the AI registry fallback through the compiler-only entry point
+- [x] 1.1 Extract the compiler-only module while preserving dynamicLoader compatibility — c3a5a29128
+- [x] 1.2 Route the AI registry fallback through the compiler-only entry point — c3a5a29128
 
 ### Phase 2: Regression coverage and verification
 
