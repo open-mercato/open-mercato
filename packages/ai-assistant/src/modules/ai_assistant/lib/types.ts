@@ -249,6 +249,17 @@ export type ToolInfo = {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** MCP capability hints advertised for the tool (see `buildMcpToolAnnotations`). */
+  annotations?: McpToolAnnotations
+}
+
+/** MCP `ToolAnnotations` values carried through remote and in-process clients. */
+export type McpToolAnnotations = {
+  title?: string
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
 }
 
 /**

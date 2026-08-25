@@ -113,6 +113,20 @@ describe('buildInteractionPayload — meeting', () => {
     expect(parsed.relatedTo?.id).toBe(state.relatedTo?.id)
     expect(parsed.status).toBe('planned')
   })
+
+  it('round-trips a guest participant that has no userId', () => {
+    const payload = buildInteractionPayload(
+      makeState({
+        category: 'meeting',
+        participants: [{ name: 'External Guest', email: 'guest@example.org', isCustomer: false }],
+      }),
+      { mode: 'create' },
+    )
+    const parsed = parseItemToFormState(itemFromPayload(payload))
+    expect(parsed.participants).toEqual([
+      { userId: undefined, name: 'External Guest', email: 'guest@example.org', isCustomer: false },
+    ])
+  })
 })
 
 describe('buildInteractionPayload — recurrence', () => {

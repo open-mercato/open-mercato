@@ -9,9 +9,14 @@ export function normalizeNumber(value: unknown, fallback = 0): number {
   return fallback
 }
 
-export function formatMoney(value: number, currency: string | null | undefined): string {
+/**
+ * Pass `locale` to format in the application locale (`useLocale()` in client components).
+ * Omitting it keeps the runtime default, which varies per machine and is therefore not
+ * assertable in tests.
+ */
+export function formatMoney(value: number, currency: string | null | undefined, locale?: string): string {
   if (!currency) return value.toFixed(2)
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
 export type LineDiscountDisplay = {

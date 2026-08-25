@@ -16,6 +16,8 @@ const monorepoNodeModules = fs.realpathSync(fileURLToPath(new URL('../../../../n
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
   effectiveCaseTimeout: (cases: Array<{ id: string; timeoutMs?: number }>, caseId: string, fallback: number) => number
+  deterministicInvocation: (input: { evaluator: string; root: string }) => { args: string[]; timeout: number }
+  DETERMINISTIC_STEP_TIMEOUT_MS: number
   routingInvocation: (input: {
     evaluator: string
     root: string
@@ -79,7 +81,10 @@ test('case-local writable timeout raises but never lowers the operator timeout f
 test('the release gate owns --case-timeout and rejects the evaluator flag --timeout (#5057)', () => {
   const help = spawnSync(process.execPath, [releaseScript, '--help'], { encoding: 'utf8' })
   assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
-  assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor[^\\n]*\\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}\\)`))
+  assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor for the routing, writable, and review lanes \\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}\\)`))
+  // The help text's own claim that the model-free steps do not read this flag is the operator-facing
+  // half of #5184; pinning it keeps the sentence from outliving the behaviour it describes.
+  assert.match(help.stdout, /The model-free deterministic and fixture-preparation steps carry their own flat ceilings and do not read it\./)
   assert.equal(release.DEFAULT_CASE_TIMEOUT_MS, 600_000)
   // The help line derives from the constant, but RELEASE.md restates it as prose an operator reads
   // before ever running --help. Left unpinned it is the one copy that can silently keep the old
@@ -91,6 +96,43 @@ test('the release gate owns --case-timeout and rejects the evaluator flag --time
   const rejected = spawnSync(process.execPath, [releaseScript, '--timeout', '600000'], { encoding: 'utf8' })
   assert.equal(rejected.status, 2, `${rejected.stdout}\n${rejected.stderr}`)
   assert.match(rejected.stderr, /unknown argument: --timeout/)
+})
+
+// The deterministic step invokes no model — it is the evaluator's own catalog validation — so its
+// process budget must not be derived from --case-timeout, whose help calls it a per-model floor.
+// Pin both halves of the invocation together: the argv that makes it deterministic, and a ceiling
+// that stays put no matter what an operator hands --case-timeout (#5184).
+test('the deterministic step budgets its process independently of the per-model case timeout (#5184)', () => {
+  const invocation = release.deterministicInvocation({ evaluator: '/app/scripts/evaluate-agent-harness.mjs', root: '/app' })
+  assert.deepEqual(invocation.args, ['/app/scripts/evaluate-agent-harness.mjs', '--root', '/app', '--all'])
+  assert.equal(invocation.args.includes('--runner'), false)
+  assert.equal(invocation.args.includes('--timeout'), false)
+  assert.equal(invocation.timeout, release.DETERMINISTIC_STEP_TIMEOUT_MS)
+  // 120000 ms is about 120x the slowest observed complete-catalog run (768-998 ms over the shipped
+  // catalog) and matches the flat allowance the gate already gives fixture preparation, the release
+  // path's other model-free step.
+  assert.equal(release.DETERMINISTIC_STEP_TIMEOUT_MS, 120_000)
+  // The invocation takes the evaluator and the root and nothing else, so no operator ceiling and no
+  // catalog size can reach it. Spell out what the old formula would have produced across the whole
+  // accepted --case-timeout range and over catalog sizes from a single case to ten times the
+  // present one, so a future edit that reintroduces the scaling has to break this assertion to do
+  // it. The assertion holds for any size, so catalog growth never makes these figures wrong.
+  for (const caseTimeout of [1_000, 120_000, 600_000, 3_600_000]) {
+    for (const caseCount of [1, 234, 2_340]) {
+      assert.notEqual(invocation.timeout, caseTimeout * Math.max(1, caseCount) + 60_000)
+    }
+  }
+  assert.equal(
+    release.deterministicInvocation({ evaluator: '/other/evaluate.mjs', root: '/other' }).timeout,
+    invocation.timeout,
+  )
+  // Everything above guards the helper; none of it reaches the call site the helper exists to
+  // protect, so a revert that reinstates the inline scaling while leaving the export in place would
+  // break no assertion. Pin the wiring in the release script's own source, the idiom this file
+  // already uses for execution-sandbox.mjs, so the regression #5184 names cannot come back green.
+  const releaseSource = fs.readFileSync(releaseScript, 'utf8')
+  assert.match(releaseSource, /const deterministic = deterministicInvocation\(\{ evaluator, root \}\)/)
+  assert.doesNotMatch(releaseSource, /caseTimeout \* Math\.max\(1, plan\.catalog\.caseCount\)/)
 })
 
 // The routing step feeds one operator value into two coupled budgets: the per-case ceiling the
