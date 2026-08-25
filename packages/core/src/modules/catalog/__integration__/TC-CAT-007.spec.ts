@@ -17,7 +17,9 @@ test.describe('TC-CAT-007: Create Product Category', () => {
       await login(page, 'admin');
       await page.goto('/backend/catalog/categories/create');
 
-      await page.getByRole('textbox', { name: 'Name', exact: true }).fill(categoryName);
+      const nameInput = page.locator('[data-crud-field-id="name"] input').first();
+      await expect(nameInput).toBeVisible();
+      await nameInput.fill(categoryName);
       await page.getByRole('button', { name: 'Create' }).last().click();
 
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
