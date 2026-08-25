@@ -57,8 +57,31 @@ const generateRandomDigits = (size = 4) => {
   return digits.join('')
 }
 
+type SequenceClaimWaiter = {
+  resolve: (value: number) => void
+  reject: (error: unknown) => void
+}
+
 export class SalesDocumentNumberGenerator {
   constructor(private readonly em: EntityManager) {}
+
+  // Coalesces concurrent claims for the same (organization, tenant, kind) scope into a
+  // single `sales_document_sequences` UPDATE (#5604): under sustained concurrent order
+  // creation every caller previously issued its own single-row UPDATE, serializing on that
+  // row's lock and bloating the table with one dead tuple per claim. Callers that arrive
+  // while a claim for the same scope is already in flight join its queue instead of
+  // starting a new round trip; the one caller that dispatches the DB call claims a block
+  // covering every queued waiter with `current_value = current_value + waiterCount` and
+  // hands out the resulting contiguous values in order. Under low concurrency (the common
+  // case) each queue only ever holds one waiter, so this claims exactly one value per call —
+  // identical to the previous behavior. State is per-instance: the DI-registered instance is
+  // a singleton shared by every request (`sales/di.ts`), so this coalesces the hot
+  // order/quote/invoice/credit-memo paths; the ad-hoc instance `sales.return.create`
+  // constructs per call never has more than one in-flight claim, so it safely falls back to
+  // today's one-claim-per-call behavior without risking a claim from one caller settling on
+  // a connection that later rolls back another caller's transaction.
+  private readonly sequenceQueues = new Map<string, SequenceClaimWaiter[]>()
+  private readonly sequenceDispatching = new Set<string>()
 
   async getSettings(scope: Scope): Promise<SettingsSnapshot> {
     const record = await this.em.findOne(SalesSettings, {
@@ -129,20 +152,48 @@ export class SalesDocumentNumberGenerator {
     return DEFAULT_SEQUENCE_START
   }
 
-  private async claimSequence(kind: SalesDocumentNumberKind, scope: Scope): Promise<number> {
-    const rows = await this.em.getConnection().execute<{ current_value: string }[]>(
-      `
-        insert into sales_document_sequences (id, organization_id, tenant_id, document_kind, current_value, created_at, updated_at)
-        values (gen_random_uuid(), ?, ?, ?, ?, now(), now())
-        on conflict (organization_id, tenant_id, document_kind)
-        do update set current_value = sales_document_sequences.current_value + 1, updated_at = now()
-        returning current_value
-      `,
-      [scope.organizationId, scope.tenantId, kind, DEFAULT_SEQUENCE_START]
-    )
-    const value = Number(rows?.[0]?.current_value ?? DEFAULT_SEQUENCE_START)
-    if (!Number.isFinite(value) || value < DEFAULT_SEQUENCE_START) return DEFAULT_SEQUENCE_START
-    return Math.min(value, MAX_SEQUENCE)
+  private claimSequence(kind: SalesDocumentNumberKind, scope: Scope): Promise<number> {
+    const key = `${scope.organizationId}:${scope.tenantId}:${kind}`
+    return new Promise<number>((resolve, reject) => {
+      const queue = this.sequenceQueues.get(key) ?? []
+      queue.push({ resolve, reject })
+      this.sequenceQueues.set(key, queue)
+      this.dispatchSequenceClaims(key, kind, scope)
+    })
+  }
+
+  private dispatchSequenceClaims(key: string, kind: SalesDocumentNumberKind, scope: Scope): void {
+    if (this.sequenceDispatching.has(key)) return
+    const queue = this.sequenceQueues.get(key)
+    if (!queue || queue.length === 0) return
+    this.sequenceDispatching.add(key)
+    const waiters = queue.splice(0, queue.length)
+    void (async () => {
+      try {
+        const rows = await this.em.getConnection().execute<{ current_value: string }[]>(
+          `
+            insert into sales_document_sequences (id, organization_id, tenant_id, document_kind, current_value, created_at, updated_at)
+            values (gen_random_uuid(), ?, ?, ?, ?, now(), now())
+            on conflict (organization_id, tenant_id, document_kind)
+            do update set current_value = sales_document_sequences.current_value + ?, updated_at = now()
+            returning current_value
+          `,
+          [scope.organizationId, scope.tenantId, kind, waiters.length, waiters.length]
+        )
+        const claimedUpTo = Number(rows?.[0]?.current_value ?? DEFAULT_SEQUENCE_START)
+        const lastValue =
+          !Number.isFinite(claimedUpTo) || claimedUpTo < DEFAULT_SEQUENCE_START
+            ? DEFAULT_SEQUENCE_START
+            : Math.min(claimedUpTo, MAX_SEQUENCE)
+        const firstValue = Math.max(lastValue - waiters.length + 1, DEFAULT_SEQUENCE_START)
+        waiters.forEach((waiter, index) => waiter.resolve(Math.min(firstValue + index, MAX_SEQUENCE)))
+      } catch (error) {
+        waiters.forEach((waiter) => waiter.reject(error))
+      } finally {
+        this.sequenceDispatching.delete(key)
+        this.dispatchSequenceClaims(key, kind, scope)
+      }
+    })()
   }
 
   private formatNumber(

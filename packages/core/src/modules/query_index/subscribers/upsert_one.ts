@@ -49,6 +49,11 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     if (alwaysConsistent) {
       const db = (em as any).getKysely()
       let result: UpsertIndexResult | null = null
+      // Coverage-count adjustments hit a handful of hot `entity_index_coverage` rows shared
+      // by every writer of this entity type/tenant; computed here (inside the transaction, so
+      // it can see `result`) but applied afterward, off the request path (#5604), so the
+      // index-row transaction never holds that row's lock waiting on it.
+      let pendingCoverageAdjustments: ReturnType<typeof createCoverageAdjustments> = []
       await db.transaction().execute(async (trx: any) => {
         result = await upsertIndexRow(em, {
           entityType,
@@ -84,18 +89,32 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
           if (!Number.isFinite(baseDelta)) baseDelta = 0
           if (!Number.isFinite(indexDelta)) indexDelta = 0
 
-          const adjustments = createCoverageAdjustments({
+          pendingCoverageAdjustments = createCoverageAdjustments({
             entityType,
             tenantId: tenantId ?? null,
             organizationId: organizationId ?? null,
             baseDelta,
             indexDelta,
           })
-          if (adjustments.length) {
-            await applyCoverageAdjustments(em, adjustments, { trx })
-          }
         }
       })
+
+      if (pendingCoverageAdjustments.length) {
+        const coverageAdjustments = pendingCoverageAdjustments
+        void applyCoverageAdjustments(em, coverageAdjustments).catch((error) => recordIndexerError(
+          { em },
+          {
+            source: 'query_index',
+            handler: 'event:query_index.upsert_one:coverage',
+            error,
+            entityType,
+            recordId,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            payload,
+          },
+        ).catch(() => {}))
+      }
 
       const bus = ctx.resolve<any>('eventBus')
       const eventScope = { entityType, recordId, organizationId, tenantId }
@@ -154,7 +173,21 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         indexDelta,
       })
       if (adjustments.length) {
-        await applyCoverageAdjustments(em, adjustments)
+        // Off the request path (#5604): every write to this entity type/tenant would
+        // otherwise serialize on the same coverage row's lock and bloat it under load.
+        void applyCoverageAdjustments(em, adjustments).catch((error) => recordIndexerError(
+          { em },
+          {
+            source: 'query_index',
+            handler: 'event:query_index.upsert_one:coverage',
+            error,
+            entityType,
+            recordId,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            payload,
+          },
+        ).catch(() => {}))
       }
       if (coverageDelayMs !== undefined && coverageDelayMs >= 0) {
         try {
