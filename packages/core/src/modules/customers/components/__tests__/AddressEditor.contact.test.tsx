@@ -61,18 +61,29 @@ describe('AddressEditor — the contact fields are the caller\'s to offer', () =
     expect(screen.getByPlaceholderText('Phone')).toBeDisabled()
   })
 
-  it('offers the scheme as a choice, showing the one the address already carries', () => {
+  it('offers the scheme as a choice, and names the filled value by it', () => {
     // Picked rather than inferred: `PL1234567890` and `1234567890` are the same business written two
     // ways, so reading the scheme off the form of the value is guessing — and it guesses more often
     // as the vocabulary grows.
+    //
+    // The COUNT is the assertion. The name appears twice — once as the picker's selected option, once
+    // as the marker at the filled field's right edge — and asserting mere presence passes on the
+    // picker alone, which is how a missing marker survived a green suite before.
     render({ value: { taxId: 'PL1234567890', taxIdType: 'eu_vat' }, showPhoneField: true, showTaxIdField: true })
-    expect(screen.getByText('EU VAT')).toBeInTheDocument()
+    expect(screen.getAllByText('EU VAT')).toHaveLength(2)
   })
 
-  it('leaves the scheme unset when the address has none, rather than picking one', () => {
+  it('names a filled value neutrally when no scheme is picked, rather than guessing one', () => {
+    // Only the marker here: the picker shows its placeholder, not an option, so the neutral name
+    // appears exactly once.
     render({ value: { taxId: '1234567890' }, showPhoneField: true, showTaxIdField: true })
+    expect(screen.getAllByText('Tax number')).toHaveLength(1)
     expect(screen.queryByText('EU VAT')).toBeNull()
-    expect(screen.queryByText('Tax ID')).toBeNull()
+  })
+
+  it('shows no marker at all while the field is empty', () => {
+    render({ value: { taxIdType: 'eu_vat' }, showPhoneField: true, showTaxIdField: true })
+    expect(screen.getAllByText('EU VAT')).toHaveLength(1)
   })
 
   it('names a filled phone by itself', () => {

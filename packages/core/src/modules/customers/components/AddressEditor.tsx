@@ -87,11 +87,6 @@ type AddressEditorProps = {
   disabled?: boolean
   errors?: Partial<Record<AddressEditorField, string>>
   hidePrimaryToggle?: boolean
-  /**
-   * Interprets `taxId` for its label only — a `pl_nip` reads "NIP", an `eu_vat` reads "EU VAT". It is
-   * metadata about the value, never an edited field, which is why it is a prop rather than a member
-   * of the draft: nothing in this component may write it.
-   */
   showFormatHint?: boolean
   showCoordinateFields?: boolean
   /**
@@ -119,11 +114,7 @@ type AddressEditorProps = {
  * The labels are the ones `resolveTaxIdLabel` resolves, so the picker and the marker beside the
  * filled field always read the same.
  */
-const TAX_ID_TYPES = [
-  { type: 'pl_nip', key: 'customers.people.detail.addresses.fields.taxId.plNip', fallback: 'Tax ID' },
-  { type: 'eu_vat', key: 'customers.people.detail.addresses.fields.taxId.euVat', fallback: 'EU VAT' },
-  { type: 'other', key: 'customers.people.detail.addresses.fields.taxId.other', fallback: 'Tax number' },
-] as const
+const TAX_ID_TYPES = ['pl_nip', 'eu_vat', 'other'] as const
 
 export function AddressEditor({
   value,
@@ -543,42 +534,55 @@ export function AddressEditor({
         */}
         {showTaxIdField ? (
         <>
-        <div className="flex gap-2">
-          {/*
-            The scheme is picked, not inferred. Reading it off the form of the value works for the
-            three seeded cases and stops working as the vocabulary grows — and a wrong type is worse
-            than none, because it puts a name on the number. Stripe asks for the same choice.
-          */}
-          <Select
-            value={current.taxIdType || undefined}
-            onValueChange={(next) => update('taxIdType', next ?? '')}
-            disabled={disabled}
+        {/*
+          The scheme is picked, not inferred. Reading it off the form of the value works for the
+          three seeded cases and stops working as the vocabulary grows — and a wrong type is worse
+          than none, because it puts a name on the number. Stripe asks for the same choice.
+
+          Picker and value are two ordinary cells of the surrounding grid, like every other pair in
+          this form. Nesting them in a flex row of their own reads as tidier and is not: `Input`
+          renders a `w-full` wrapper, which as a flex item next to a fixed-basis trigger collapses to
+          nothing and takes the field with it.
+        */}
+        <Select
+          value={current.taxIdType || undefined}
+          onValueChange={(next) => update('taxIdType', next ?? '')}
+          disabled={disabled}
+        >
+          <SelectTrigger
+            className={errors.taxIdType ? 'border-destructive' : undefined}
+            aria-invalid={errors.taxIdType ? 'true' : undefined}
           >
-            <SelectTrigger
-              className={`shrink-0 basis-1/3 ${errors.taxIdType ? 'border-destructive' : ''}`}
-              aria-invalid={errors.taxIdType ? 'true' : undefined}
-            >
-              <SelectValue
-                placeholder={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {TAX_ID_TYPES.map((value) => (
-                <SelectItem key={value.type} value={value.type}>
-                  {t(value.key, value.fallback)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            className={inputClass('taxId')}
-            placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
-            value={current.taxId ?? ''}
-            onChange={(evt) => update('taxId', evt.target.value)}
-            disabled={disabled}
-            aria-invalid={errors.taxId ? 'true' : undefined}
-          />
-        </div>
+            <SelectValue
+              placeholder={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {TAX_ID_TYPES.map((type) => (
+              <SelectItem key={type} value={type}>
+                {resolveTaxIdLabel(taxIdLabels, type)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          className={inputClass('taxId')}
+          placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+          aria-label={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+          // The placeholder is this field's only label and it disappears the moment someone types,
+          // leaving a bare number directly under the postcode. The marker names it, and names it by
+          // the chosen scheme rather than generically — the same mapping the picker resolves through,
+          // so the two can never disagree.
+          rightIcon={
+            current.taxId ? (
+              <span className="text-xs">{resolveTaxIdLabel(taxIdLabels, current.taxIdType)}</span>
+            ) : null
+          }
+          value={current.taxId ?? ''}
+          onChange={(evt) => update('taxId', evt.target.value)}
+          disabled={disabled}
+          aria-invalid={errors.taxId ? 'true' : undefined}
+        />
         {errors.taxId ? <p className="text-xs text-destructive">{errors.taxId}</p> : null}
         </>
         ) : null}
@@ -587,10 +591,10 @@ export function AddressEditor({
         <Input
           className={inputClass('phone')}
           placeholder={t('customers.people.detail.addresses.fields.phone', 'Phone')}
-          // Same reason as the tax id above: the placeholder is this field's only label, and it
-          // disappears the moment someone types. A phone left bare sits directly under the postcode,
-          // and `81 333-53-64` beside `96-534` gives a reader nothing to tell them apart by. Constant,
-          // not resolved: a phone has no type to interpret.
+          aria-label={t('customers.people.detail.addresses.fields.phone', 'Phone')}
+          // Same reason as the tax id above, with one difference: this label is constant. A phone has
+          // no scheme to interpret, so there is nothing to resolve — it simply names the field once
+          // the placeholder that named it has gone.
           rightIcon={
             current.phone ? (
               <span className="text-xs">{t('customers.people.detail.addresses.fields.phone', 'Phone')}</span>

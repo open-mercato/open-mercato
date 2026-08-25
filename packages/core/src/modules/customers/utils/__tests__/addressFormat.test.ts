@@ -114,12 +114,6 @@ describe('customers utils - address formatting', () => {
       expect(resolveTaxIdLabel(BY_TYPE, 'eu_vat')).toBe('EU VAT')
     })
 
-    // Anything with a two-letter prefix is `eu_vat` whatever the country, so a German number must not
-    // fall through to the neutral label.
-    it('treats every prefixed number as EU VAT, not just the local country', () => {
-      expect(resolveTaxIdLabel(BY_TYPE, 'eu_vat')).toBe('EU VAT')
-    })
-
     // The case a flat label gets wrong: naming a foreign number after a domestic scheme renames it.
     it('falls back to the neutral label for other, unknown and missing types', () => {
       expect(resolveTaxIdLabel(BY_TYPE, 'other')).toBe('Tax number')

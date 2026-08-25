@@ -136,7 +136,7 @@ No new endpoints; no request/response shape changes. `addressSnapshotSchema` del
 
 ## Internationalization (i18n)
 
-Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, `de`, `es`, `ko`. No existing key is removed. Phase 3 adds `recipientName`.
+Six keys added under `customers.people.detail.addresses.fields.*`, in `en`, `pl`, `de`, `es`, `ko`: `phone`, `taxId` and `taxIdType` name the three inputs, and `taxId.{plNip,euVat,other}` name the three schemes. The scheme labels are keys rather than a hardcoded map because they are the same strings in two places — the picker's options and the marker beside a filled field — and `resolveTaxIdLabel` is what keeps the two readings identical. They sit under `customers.*` and not `sales.*` because the editor is a customers component; the sales document tiles are one of its callers, not its owner. No existing key is removed. Phase 3 adds `recipientName`.
 
 ## UI/UX
 
@@ -164,7 +164,7 @@ Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, 
 
 The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document creation, where no prior snapshot exists, so one there would be permanently inert. It does need the same **assign list** — a key the editor writes and the list omits is simply absent from the payload, which is reachable on the create page and silent. Collapsing the two copies is separate work with its own justification, and now has a second reason.
 
-**Only a caller whose storage can hold the fields may render them.** `AddressEditor` takes `showContactFields`, off by default, in the shape `showCoordinateFields` already established. The document snapshot is schemaless and keeps both keys, so the document detail tiles and the create form opt in. `CustomerAddress` has neither column until Phase 3, so the customer address book does not — an input there would take a value and drop it on save with nothing to show for it. This gates the caller, not the field: inside a tile that opts in, both render whether or not they carry a value and take the same `disabled` as every neighbour.
+**Only a caller whose storage can hold the fields may render them.** `AddressEditor` takes `showPhoneField` and `showTaxIdField`, both off by default, in the shape `showCoordinateFields` already established. Two props and not one: a phone is a contact detail and a tax identifier is not, and they stop travelling together at the next phase, where `CustomerAddress` gains a `phone` column and no tax id — so the address book will offer one and not the other. The document snapshot is schemaless and keeps both keys, so the document detail tiles and the create form opt in. `CustomerAddress` has neither column until Phase 3, so the customer address book opts into neither — an input there would take a value and drop it on save with nothing to show for it. Both props gate the caller, not the field: inside a tile that opts in, the field renders whether or not it carries a value and takes the same `disabled` as every neighbour.
 
 ### Phase 1 — contact fields and render
 1. `AddressValue` gains `phone` / `taxId` / `taxIdType`, and `resolveTaxIdLabel` names an identifier from its type.

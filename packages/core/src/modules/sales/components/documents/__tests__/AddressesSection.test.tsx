@@ -131,9 +131,6 @@ jest.mock('lucide-react', () => ({
 
 describe('SalesDocumentAddressesSection', () => {
   beforeEach(() => {
-  })
-
-  beforeEach(() => {
     jest.clearAllMocks()
     mockApiCall.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/customers/addresses?')) {

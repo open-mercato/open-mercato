@@ -104,9 +104,17 @@ test.describe('TC-SALES-ADDR-CONTACT-001: contact details on the document addres
     await expect(page.getByPlaceholder('Tax number')).toHaveValue('PL1234567890')
     await expect(page.getByPlaceholder('Phone')).toHaveValue('+48 600 100 200')
 
-    // A filled field keeps its name at the right edge, and for the tax id that name is chosen by
-    // `taxIdType` — `PL1234567890` is an EU VAT number, not a domestic one.
-    await expect(page.getByText('EU VAT')).toBeVisible()
+    // Visibility is a SEPARATE assertion from value, and it is the one that earns its keep: a field
+    // laid out to zero width still holds its value, so the two lines above pass while the tile shows
+    // no tax id at all. Playwright calls an element with an empty bounding box invisible, which makes
+    // this the cheapest check that the field survived the grid it is laid out in.
+    await expect(page.getByPlaceholder('Tax number')).toBeVisible()
+    await expect(page.getByPlaceholder('Phone')).toBeVisible()
+
+    // The scheme's name appears TWICE, and the count is the assertion: once as the picker's selected
+    // option and once as the marker at the filled field's right edge. Asserting mere visibility
+    // passes on the picker alone, which is how a missing marker survived a green run before.
+    await expect(page.getByText('EU VAT')).toHaveCount(2)
 
     // The type interprets the value; it is never rendered as a value itself.
     await expect(page.getByText(/eu_vat/)).toHaveCount(0)

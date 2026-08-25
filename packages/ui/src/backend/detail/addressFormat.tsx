@@ -130,17 +130,9 @@ export function formatAddressString(address: AddressValue, format: AddressFormat
 }
 
 /**
- * The address's own contact details, as `[label, value]` pairs — only the fields the caller labelled
- * AND the address actually carries. Exported so a caller can ask "is there anything to show?" without
- * rendering.
- *
- * Kept out of `formatAddressLines` on purpose: those lines are the POSTAL address, and
- * `formatAddressString` joins them with ", " into one-line summaries used in pickers and table cells.
- * A tax id or a phone number spliced into "Baker Street 10, NW1 London" would be wrong in every one
- * of those places.
- *
- * `taxIdType` never becomes a pair — it is metadata that interprets `taxId` (and will gate its
- * display), not something to print beside it.
+ * Which member of a label map names which scheme. Private, and deliberately not exhaustive: an
+ * unrecognised type resolves to `other`, so the vocabulary can widen without every caller being
+ * updated in the same release.
  */
 const TAX_ID_LABEL_KEY_BY_TYPE: Record<string, keyof TaxIdLabelByType> = {
   pl_nip: 'plNip',

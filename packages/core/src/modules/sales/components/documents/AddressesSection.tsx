@@ -1200,8 +1200,8 @@ export function SalesDocumentAddressesSection({
                   <AddressEditor
                     value={billingDraft}
                     format={addressFormat}
-                        showPhoneField
-                        showTaxIdField
+                    showPhoneField
+                    showTaxIdField
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
