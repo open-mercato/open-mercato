@@ -769,11 +769,12 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           stickyFirstColumn
           stickyActionsColumn
           title={(
-            <div className="flex flex-col">
-              <h1>{title}</h1>
+            <span className="flex flex-col">
+              <span>{title}</span>
               <span className="text-sm font-normal text-muted-foreground">{subtitle}</span>
-            </div>
+            </span>
           )}
+          titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href={`/backend/sales/documents/create?kind=${kind}`}>

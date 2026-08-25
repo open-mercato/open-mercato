@@ -205,6 +205,7 @@ export default function CreateEudrPlotPage() {
       <PageBody>
         <CrudForm<PlotFormValues>
           title={translate('eudr.plots.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/plots"
           cancelHref="/backend/eudr/plots"
           submitLabel={translate('eudr.plots.form.submitCreate')}

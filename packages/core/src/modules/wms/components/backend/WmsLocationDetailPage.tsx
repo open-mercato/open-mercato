@@ -1197,7 +1197,8 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
             </section>
 
             <DataTable<InventoryMovementRow>
-              title={<h2>{t('wms.backend.location.activity.title', 'Recent activity')}</h2>}
+              title={t('wms.backend.location.activity.title', 'Recent activity')}
+              titleHeadingLevel={2}
               columns={activityColumns}
               data={movementsQuery.data ?? []}
               disableRowClick

@@ -1133,7 +1133,8 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
             </section>
 
             <DataTable<InventoryMovementRow>
-              title={<h2>{t('wms.backend.sku.activity.title', 'Recent activity')}</h2>}
+              title={t('wms.backend.sku.activity.title', 'Recent activity')}
+              titleHeadingLevel={2}
               columns={activityColumns}
               data={movementsQuery.data ?? []}
               disableRowClick

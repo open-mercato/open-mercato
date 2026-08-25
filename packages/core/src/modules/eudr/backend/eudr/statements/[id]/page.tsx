@@ -641,6 +641,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
 
         <CrudForm<StatementFormValues>
           title={translate('eudr.statements.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/statements"
           cancelHref="/backend/eudr/statements"
           deleteRedirect="/backend/eudr/statements"
@@ -711,7 +712,8 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">{translate('eudr.statements.detail.submissions')}</h2>
           <DataTable<LinkedSubmissionRow>
-            title={<h2>{translate('eudr.statements.detail.submissionsTableTitle')}</h2>}
+            title={translate('eudr.statements.detail.submissionsTableTitle')}
+            titleHeadingLevel={2}
             columns={submissionColumns}
             data={submissionRows}
             isLoading={submissionsLoading}

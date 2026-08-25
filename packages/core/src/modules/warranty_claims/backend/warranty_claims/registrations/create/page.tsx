@@ -29,6 +29,7 @@ export default function CreateWarrantyClaimRegistrationPage() {
       <PageBody>
         <CrudForm<RegistrationFormValues>
           title={t('warranty_claims.registrations.create.title', 'New warranty registration')}
+          titleHeadingLevel={1}
           backHref="/backend/warranty_claims/registrations"
           fields={fields}
           groups={groups}

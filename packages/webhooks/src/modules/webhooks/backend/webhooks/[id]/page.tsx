@@ -503,6 +503,7 @@ export default function WebhookDetailPage() {
         <PageBody>
           <CrudForm
             title={t('webhooks.form.title.edit')}
+            titleHeadingLevel={1}
             backHref={`/backend/webhooks/${webhook.id}`}
             fields={fields}
             groups={groups}
@@ -642,7 +643,8 @@ export default function WebhookDetailPage() {
 
         <div className="mt-8">
           <DataTable
-            title={<h2>{t('webhooks.deliveries.title')}</h2>}
+            title={t('webhooks.deliveries.title')}
+            titleHeadingLevel={2}
             actions={(
               <div className="flex items-center gap-2">
                 <span className="hidden text-xs text-muted-foreground md:inline">

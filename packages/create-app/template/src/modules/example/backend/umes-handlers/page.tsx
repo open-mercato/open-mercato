@@ -436,6 +436,7 @@ export default function UmesHandlersPage() {
           key={`phase-c-form-${formSeed.nonce}`}
           schema={schema}
           title={t('example.umes.handlers.form.title')}
+          titleHeadingLevel={1}
           fields={fields}
           groups={groups}
           injectionSpotId={extensionPoints.hosts.handlersForm.spotId}

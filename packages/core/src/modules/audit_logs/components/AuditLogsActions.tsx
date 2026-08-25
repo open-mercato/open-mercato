@@ -258,7 +258,8 @@ export function AuditLogsActions({
         </Alert>
       ) : null}
       <DataTable<ActionLogItem>
-        title={t('audit_logs.actions.title')}
+      title={t('audit_logs.actions.title')}
+      titleHeadingLevel={2}
         data={actionItems}
         columns={columns}
         actions={combinedActions}

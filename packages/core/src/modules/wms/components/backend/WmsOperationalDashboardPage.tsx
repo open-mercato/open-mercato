@@ -863,7 +863,8 @@ export default function WmsOperationalDashboardPage() {
             </section>
 
             <DataTable<OperationalDashboardActivityRow>
-              title={<h2>{t('wms.backend.dashboard.activity.title', 'Recent activity')}</h2>}
+              title={t('wms.backend.dashboard.activity.title', 'Recent activity')}
+              titleHeadingLevel={2}
               columns={activityColumns}
               data={dashboardQuery.data.recentActivity}
               disableRowClick

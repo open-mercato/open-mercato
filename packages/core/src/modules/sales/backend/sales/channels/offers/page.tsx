@@ -347,7 +347,8 @@ export default function SalesChannelOffersListPage() {
     <Page>
       <PageBody>
         <DataTable<OfferRow>
-          title={tableTitle}
+        title={tableTitle}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           isLoading={isLoading}

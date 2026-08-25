@@ -141,6 +141,7 @@ export function MessageComposer(props: MessageComposerProps) {
     <CrudForm<Record<string, unknown>>
       backHref={backHref}
       title={composeWithContextPreview.composerTitle}
+      titleHeadingLevel={2}
       fields={createMessageComposeFormGroups(composeWithContextPreview)}
       initialValues={{}}
       submitLabel={composeWithContextPreview.submitLabel}

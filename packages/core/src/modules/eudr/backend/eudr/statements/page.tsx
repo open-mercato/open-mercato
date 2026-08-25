@@ -285,7 +285,8 @@ export default function EudrStatementsPage() {
     <Page>
       <PageBody>
         <DataTable<StatementRow>
-          title={translate('eudr.statements.list.title')}
+        title={translate('eudr.statements.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

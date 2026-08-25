@@ -498,6 +498,7 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
         <DataTable
           embedded
           title={t('wms.backend.config.warehouses.title', 'Warehouses')}
+          titleHeadingLevel={2}
           columns={columns}
           data={query.data?.items ?? []}
           isLoading={query.isLoading}
@@ -801,6 +802,7 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
         <DataTable
           embedded
           title={t('wms.backend.config.zones.title', 'Zones')}
+          titleHeadingLevel={2}
           columns={columns}
           data={query.data?.items ?? []}
           isLoading={query.isLoading}
@@ -1003,6 +1005,7 @@ export function LocationSection({ viewAllHref }: ConfigSectionOptions = {}) {
         <DataTable
           embedded
           title={t('wms.backend.config.locations.title', 'Locations')}
+          titleHeadingLevel={2}
           columns={columns}
           data={query.data?.items ?? []}
           isLoading={query.isLoading}
@@ -1310,6 +1313,7 @@ export function InventoryProfilesSection() {
         <DataTable
           embedded
           title={t('wms.backend.config.profiles.title', 'Inventory profiles')}
+          titleHeadingLevel={2}
           columns={columns}
           data={query.data?.items ?? []}
           isLoading={query.isLoading}

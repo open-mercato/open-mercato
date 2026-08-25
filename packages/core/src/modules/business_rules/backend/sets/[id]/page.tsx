@@ -289,6 +289,7 @@ export default function EditRuleSetPage() {
       <PageBody>
         <CrudForm
           title={t('business_rules.sets.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/sets"
           schema={ruleSetFormSchema}
           fields={fields}

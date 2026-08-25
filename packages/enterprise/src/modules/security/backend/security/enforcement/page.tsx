@@ -233,6 +233,7 @@ export default function SecurityEnforcementPage() {
       <PageBody>
         <DataTable<EnforcementPolicyDto>
           title={t('security.admin.enforcement.list.title', 'Existing policies')}
+          titleHeadingLevel={1}
           actions={(
             <Button type="button" variant="outline" size="sm" asChild>
               <Link href="/backend/security/enforcement/create">

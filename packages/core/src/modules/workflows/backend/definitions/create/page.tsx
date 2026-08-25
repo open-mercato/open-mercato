@@ -61,6 +61,7 @@ export default function CreateWorkflowDefinitionPage() {
         </Alert>
         <CrudForm
           title={t('workflows.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/definitions"
           schema={workflowDefinitionFormSchema}
           fields={fields}

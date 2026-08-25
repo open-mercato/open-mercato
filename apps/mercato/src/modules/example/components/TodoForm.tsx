@@ -113,6 +113,7 @@ export function TodoCreateForm() {
   return (
     <CrudForm
       title={t('example.todos.form.create.title')}
+      titleHeadingLevel={1}
       backHref={LIST_HREF}
       entityId={ENTITY_ID}
       fields={fields}
@@ -219,6 +220,7 @@ export function TodoEditForm({ id }: { id: string }) {
   return (
     <CrudForm<TodoFormValues>
       title={t('example.todos.form.edit.title')}
+      titleHeadingLevel={1}
       backHref={LIST_HREF}
       extraActions={(
         <SendObjectMessageDialog

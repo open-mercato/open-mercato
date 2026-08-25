@@ -296,6 +296,11 @@ export type DataTableProps<T extends RowData> = {
   data: T[]
   toolbar?: React.ReactNode
   title?: React.ReactNode
+  /**
+   * Semantic level for the title. String titles default to 2 for section-level
+   * compatibility; ReactNode titles remain caller-owned unless this is set.
+   */
+  titleHeadingLevel?: 1 | 2
   actions?: React.ReactNode
   refreshButton?: DataTableRefreshButton
   sortable?: boolean
@@ -1209,6 +1214,7 @@ export function DataTable<T extends RowData>({
   data,
   toolbar,
   title,
+  titleHeadingLevel,
   actions,
   refreshButton,
   sortable,
@@ -3270,12 +3276,11 @@ export function DataTable<T extends RowData>({
       }
     : undefined
 
+  const TitleHeading = titleHeadingLevel === 1 ? 'h1' : 'h2'
   const titleContent = hasTitle ? (
     <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
-      {typeof title === 'string'
-        ? embedded
-          ? <h2 className="text-base font-semibold">{title}</h2>
-          : <h1 className="text-base font-semibold">{title}</h1>
+      {typeof title === 'string' || titleHeadingLevel
+        ? <TitleHeading className="text-base font-semibold">{title}</TitleHeading>
         : title}
     </div>
   ) : <div className="min-h-[2.25rem]" />

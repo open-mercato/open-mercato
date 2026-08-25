@@ -534,7 +534,8 @@ export default function CustomerAccountsPage() {
         </div>
         <DataTable<UserRow>
           stickyActionsColumn
-          title={t('customer_accounts.admin.title', 'Users')}
+        title={t('customer_accounts.admin.title', 'Users')}
+        titleHeadingLevel={1}
           actions={(
             <Button onClick={() => setCreateDialogOpen(true)}>
               {t('customer_accounts.admin.actions.createUser', 'Create User')}

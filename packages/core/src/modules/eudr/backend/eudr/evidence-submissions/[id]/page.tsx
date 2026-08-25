@@ -475,6 +475,7 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
         ) : null}
         <CrudForm<EvidenceSubmissionFormValues>
           title={translate('eudr.evidenceSubmissions.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/evidence-submissions"
           cancelHref="/backend/eudr/evidence-submissions"
           deleteRedirect="/backend/eudr/evidence-submissions"
