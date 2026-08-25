@@ -48,10 +48,22 @@ configured base branch `develop` instead of `main`, then close the original PR
   behaviour, where the sticky disk key defaults to the repository name and all three builds already
   share one cache. Per-Dockerfile isolation would require three separate builder setups — deliberately
   out of scope.
-- **Verification is CI-only.** The diff touches no application source, so the configured
-  `validation.commands` gate (build/typecheck/test/build:app) cannot exercise it; the real proof is
-  the `docker-build` job running on this PR. `qa-deploy.yml` is `workflow_dispatch`-only and is not
-  exercised by PR CI — its bump carries the same review reasoning as the `ci.yml` one.
+- **Verification is CI-only, and CI fails soft.** The diff touches no application source, so the
+  configured `validation.commands` gate (build/typecheck/test/build:app) cannot exercise it. Nor is
+  a green `docker-build` job sufficient on its own: neither call site sets `nofallback` (default
+  `"false"`), and the action catches every setup error — including the `UserInputError` it throws
+  for an empty `cache-key` — into a warning plus `Falling back to local builder`, so a wrong or
+  rejected key yields a green job that quietly built without the sticky-disk cache. The check that
+  does confirm the migration is the `Setup Blacksmith Builder` step logging
+  `Getting sticky disk for cache-key: ci-docker-build` with no `Falling back to local builder`
+  warning. `nofallback: true` is deliberately not the remedy — it would turn any Blacksmith-side
+  outage into a red `docker-build` on `develop`. `qa-deploy.yml` is `workflow_dispatch`-only and is
+  not exercised by PR CI — its bump carries the same review reasoning as the `ci.yml` one.
+
+- **Cross-workflow cache split.** Under v1 the sticky-disk key was the repository name, so
+  `ci.yml`'s `docker-build` and `qa-deploy.yml`'s preview build shared one disk. They now key
+  separately (`ci-docker-build` and `./docker/preview/Dockerfile`), which is the better arrangement,
+  but the first `qa-deploy` run after this merges starts from a cold cache.
 - **`docker-build` is skipped on this PR.** `prepare` → `integration-scope` sets
   `skip_integration=true` when a PR changes no `src/modules/` path, and `docker-build` is gated on
   that flag. So the v2 action first executes on the `push` event after this merges (where
