@@ -1869,7 +1869,6 @@
   "customers.people.detail.addresses.fields.taxId": "Nr podatkowy",
   "customers.people.detail.addresses.fields.taxIdType": "Typ numeru",
   "customers.people.detail.addresses.fields.taxId.euVat": "VAT UE",
-  "customers.people.detail.addresses.fields.taxId.gbVat": "VAT GB",
   "customers.people.detail.addresses.fields.taxId.other": "Nr podatkowy",
   "customers.people.detail.addresses.fields.taxId.plNip": "NIP",
   "customers.people.detail.addresses.fields.type": "Typ adresu",

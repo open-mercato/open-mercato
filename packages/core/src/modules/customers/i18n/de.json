@@ -1869,7 +1869,6 @@
   "customers.people.detail.addresses.fields.taxId": "Steuernummer",
   "customers.people.detail.addresses.fields.taxIdType": "Art der Steuernummer",
   "customers.people.detail.addresses.fields.taxId.euVat": "USt-IdNr.",
-  "customers.people.detail.addresses.fields.taxId.gbVat": "GB USt-IdNr.",
   "customers.people.detail.addresses.fields.taxId.other": "Steuerliche Nummer",
   "customers.people.detail.addresses.fields.taxId.plNip": "Steuernummer",
   "customers.people.detail.addresses.fields.type": "Adresstyp",

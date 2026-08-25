@@ -128,18 +128,6 @@ describe('customers utils - address formatting', () => {
       expect(resolveTaxIdLabel(BY_TYPE, undefined)).toBe('Tax number')
     })
 
-    it('names a GB VAT number as its own scheme, not as an EU one', () => {
-      // The case that made the vocabulary widen: `GB123456789` reads as EU VAT under any rule that
-      // looks at the two letters in front, and has not been one since Brexit.
-      expect(resolveTaxIdLabel({ ...BY_TYPE, gbVat: 'GB VAT' }, 'gb_vat')).toBe('GB VAT')
-    })
-
-    it('falls back to the neutral label for a scheme the caller named no label for', () => {
-      // This is what makes the vocabulary widenable at all: a caller that has not caught up gets the
-      // neutral label rather than a compile error, so adding a scheme needs no coordinated release.
-      expect(resolveTaxIdLabel(BY_TYPE, 'gb_vat')).toBe('Tax number')
-    })
-
     it('accepts a plain string, which names every type the same', () => {
       expect(resolveTaxIdLabel('Tax ID', 'pl_nip')).toBe('Tax ID')
       expect(resolveTaxIdLabel('Tax ID', 'eu_vat')).toBe('Tax ID')

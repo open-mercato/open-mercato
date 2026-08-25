@@ -114,7 +114,11 @@ type AddressEditorProps = {
  * The labels are the ones `resolveTaxIdLabel` resolves, so the picker and the marker beside the
  * filled field always read the same.
  */
-const TAX_ID_TYPES = ['pl_nip', 'eu_vat', 'gb_vat', 'other'] as const
+const TAX_ID_TYPES = [
+  { type: 'pl_nip', key: 'customers.people.detail.addresses.fields.taxId.plNip', fallback: 'Tax ID' },
+  { type: 'eu_vat', key: 'customers.people.detail.addresses.fields.taxId.euVat', fallback: 'EU VAT' },
+  { type: 'other', key: 'customers.people.detail.addresses.fields.taxId.other', fallback: 'Tax number' },
+] as const
 
 export function AddressEditor({
   value,
@@ -150,7 +154,6 @@ export function AddressEditor({
   const taxIdLabels = {
     plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
     euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
-    gbVat: t('customers.people.detail.addresses.fields.taxId.gbVat', 'GB VAT'),
     other: t('customers.people.detail.addresses.fields.taxId.other', 'Tax number'),
   }
   const current: AddressEditorDraft = {
@@ -554,9 +557,9 @@ export function AddressEditor({
               />
             </SelectTrigger>
             <SelectContent>
-              {TAX_ID_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {resolveTaxIdLabel(taxIdLabels, type)}
+              {TAX_ID_TYPES.map((value) => (
+                <SelectItem key={value.type} value={value.type}>
+                  {t(value.key, value.fallback)}
                 </SelectItem>
               ))}
             </SelectContent>
