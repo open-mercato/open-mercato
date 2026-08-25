@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import {
@@ -163,9 +164,6 @@ export async function PUT(req: Request) {
     }
   }
 
-  const requestedFeatures = normalizeGrantFeatureList(parsed.data.features)
-  const organizations = normalizeOrganizations(parsed.data.organizations)
-
   let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
   // cannot silently clobber each other (#2055). Strictly additive — a no-op when
@@ -185,8 +183,21 @@ export async function PUT(req: Request) {
   }
   const existingIsSuperAdmin = acl ? !!acl.isSuperAdmin : false
   const existingFeatures = acl ? normalizeGrantFeatureList(acl.featuresJson) : []
+  const existingOrganizations = acl ? normalizeOrganizations(acl.organizationsJson) : null
 
-  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? false
+  // A per-user ACL is an absolute override, so an omitted dimension must keep
+  // its stored value. Normalizing an omitted `features` to `[]` or an omitted
+  // `organizations` to `null` turned a single-dimension edit into a silent
+  // clear, deleting the row and widening the user back to their full role.
+  const featuresWereProvided = parsed.data.features !== undefined
+  const requestedFeatures = featuresWereProvided
+    ? normalizeGrantFeatureList(parsed.data.features)
+    : existingFeatures
+  const requestedOrganizations = parsed.data.organizations === undefined
+    ? existingOrganizations
+    : normalizeOrganizations(parsed.data.organizations)
+
+  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? existingIsSuperAdmin
 
   try {
     await assertActorCanGrantAcl({
@@ -197,14 +208,17 @@ export async function PUT(req: Request) {
       organizationId: auth.orgId ?? null,
       isSuperAdmin: requestedIsSuperAdmin,
       features: requestedFeatures,
-      organizations,
+      organizations: requestedOrganizations,
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     throw err
   }
 
-  const effectiveFeatures = actorIsSuperAdmin
+  // An omitted feature list is already stored and in effect. Re-sanitizing it
+  // during an unrelated organization edit would silently revoke grants the
+  // actor did not touch, so only an explicitly submitted list is sanitized.
+  const effectiveFeatures = actorIsSuperAdmin || !featuresWereProvided
     ? requestedFeatures
     : sanitizeTenantFeatures(requestedFeatures)
 
@@ -221,7 +235,22 @@ export async function PUT(req: Request) {
     }
   }
 
-  const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
+  // Retaining an organization-only override with no features would revoke every
+  // role-granted feature instead of narrowing the role. Refuse that state rather
+  // than persisting it or silently dropping the organization scope.
+  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && requestedOrganizations !== null) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      error: translate(
+        'auth.acl.organizationWarning',
+        'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.',
+      ),
+    }, { status: 400 })
+  }
+
+  const hasCustomAcl = effectiveIsSuperAdmin
+    || effectiveFeatures.length > 0
+    || requestedOrganizations !== null
 
   // Persist the ACL mutation inside a transaction so the per-user permission
   // write (or removal) commits atomically (proper ACL-edit transaction handling).
@@ -241,7 +270,7 @@ export async function PUT(req: Request) {
         () => {
           aclRecord.isSuperAdmin = effectiveIsSuperAdmin
           aclRecord.featuresJson = effectiveFeatures
-          aclRecord.organizationsJson = organizations
+          aclRecord.organizationsJson = requestedOrganizations
           em.persist(aclRecord)
         },
       ],
@@ -311,7 +340,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user ACL',
-      description: 'Configures per-user ACL overrides, including super admin access, feature list, and organization scope.',
+      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. An organization-scoped non-super-admin override requires at least one feature grant.',
       requestBody: {
         contentType: 'application/json',
         schema: putSchema,
