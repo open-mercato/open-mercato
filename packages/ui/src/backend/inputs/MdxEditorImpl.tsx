@@ -66,12 +66,14 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
     if (!wrapper) return
 
     const applyLabelAttributes = () => {
-      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable]')
+      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable="true"]')
       if (!contentEditable) return
-      if (id) {
+      if (id && contentEditable.getAttribute('id') !== id) {
         contentEditable.setAttribute('id', id)
       }
-      contentEditable.setAttribute('aria-labelledby', ariaLabelledBy)
+      if (contentEditable.getAttribute('aria-labelledby') !== ariaLabelledBy) {
+        contentEditable.setAttribute('aria-labelledby', ariaLabelledBy)
+      }
     }
 
     applyLabelAttributes()
@@ -80,7 +82,7 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
 
     return () => {
       observer.disconnect()
-      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable]')
+      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable="true"]')
       if (!contentEditable) return
       if (id && contentEditable.getAttribute('id') === id) {
         contentEditable.removeAttribute('id')

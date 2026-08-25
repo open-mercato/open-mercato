@@ -33,7 +33,7 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       await login(page, 'admin');
 
       await page.goto('/backend/catalog/categories/create');
-      await page.getByRole('textbox', { name: 'e.g., Footwear' }).fill(parentName);
+      await page.getByRole('textbox', { name: 'Name', exact: true }).fill(parentName);
       await page.getByRole('button', { name: 'Create' }).last().click();
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
       await waitForList();
@@ -46,7 +46,7 @@ test.describe('TC-CAT-008: Create Nested Category Hierarchy', () => {
       parentCategoryId = page.url().match(/\/backend\/catalog\/categories\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
 
       await page.goto('/backend/catalog/categories/create');
-      await page.getByRole('textbox', { name: 'e.g., Footwear' }).fill(childName);
+      await page.getByRole('textbox', { name: 'Name', exact: true }).fill(childName);
       await selectParent();
       await page.getByRole('button', { name: 'Create' }).last().click();
       await expect(page).toHaveURL(/\/backend\/catalog\/categories$/);
