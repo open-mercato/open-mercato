@@ -1869,6 +1869,7 @@
   "customers.people.detail.addresses.fields.taxId": "세금 번호",
   "customers.people.detail.addresses.fields.taxIdType": "세금 번호 유형",
   "customers.people.detail.addresses.fields.taxId.euVat": "EU 부가세 번호",
+  "customers.people.detail.addresses.fields.taxId.gbVat": "영국 부가세 번호",
   "customers.people.detail.addresses.fields.taxId.other": "세금 번호",
   "customers.people.detail.addresses.fields.taxId.plNip": "납세자 번호",
   "customers.people.detail.addresses.fields.type": "주소 유형",

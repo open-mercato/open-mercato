@@ -41,7 +41,15 @@ export type AddressValue = {
 export type TaxIdLabelByType = {
   plNip: string
   euVat: string
+  /** The label for a scheme the caller supplied no name for, and the fallback for every optional one. */
   other: string
+  /**
+   * Schemes past the seed set are OPTIONAL, and that is what makes the vocabulary widenable. Adding a
+   * required key here would break every caller that builds this object on the day a scheme is added,
+   * which is the opposite of the additive contract the spec promises. A caller that has not caught up
+   * gets the neutral label instead of a compile error.
+   */
+  gbVat?: string
 }
 
 export type AddressJsonShape = {
@@ -145,6 +153,7 @@ export function formatAddressString(address: AddressValue, format: AddressFormat
 const TAX_ID_LABEL_KEY_BY_TYPE: Record<string, keyof TaxIdLabelByType> = {
   pl_nip: 'plNip',
   eu_vat: 'euVat',
+  gb_vat: 'gbVat',
 }
 
 /**
@@ -159,7 +168,9 @@ export function resolveTaxIdLabel(
   if (!label) return undefined
   if (typeof label === 'string') return label
   const key = TAX_ID_LABEL_KEY_BY_TYPE[typeof taxIdType === 'string' ? taxIdType : ''] ?? 'other'
-  return label[key]
+  // Falls through to the neutral label for a known scheme the caller named no label for. That is the
+  // whole mechanism by which this vocabulary widens without a coordinated release.
+  return label[key] ?? label.other
 }
 
 type AddressViewProps = {
