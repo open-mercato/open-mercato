@@ -3,6 +3,7 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { SalesSettings, SalesDocumentSequence, SalesTaxRate } from './data/entities'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from './lib/documentNumberTokens'
 import { seedSalesStatusDictionaries, seedSalesAdjustmentKinds } from './lib/dictionaries'
+import { seedSalesChannelsToggle } from './lib/salesChannelsToggleSeed'
 import { ensureExampleShippingMethods, ensureExamplePaymentMethods } from './seed/examples-data'
 import { seedSalesExamples } from './seed/examples'
 
@@ -116,6 +117,7 @@ export const setup: ModuleSetupConfig = {
     await seedSalesAdjustmentKinds(em, scope)
     await ensureExampleShippingMethods(em, scope)
     await ensureExamplePaymentMethods(em, scope)
+    await seedSalesChannelsToggle(em)
   },
 
   async seedExamples({ em, container, tenantId, organizationId }) {

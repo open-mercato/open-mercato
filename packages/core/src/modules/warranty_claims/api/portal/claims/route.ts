@@ -153,12 +153,13 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
+  const { translate } = await resolveTranslations()
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
   if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.customerAccountNotLinked', 'Customer account is not linked to a customer record') }, { status: 403 })
   }
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -264,6 +265,7 @@ async function validatePortalOrderOwnership(
   context: PortalContext,
   input: PortalIntakeInput,
 ): Promise<OrderValidationResult | Response> {
+  const { translate } = await resolveTranslations()
   const orderLineIds = Array.from(new Set(input.lines.flatMap((line) => line.orderLineId ? [line.orderLineId] : [])))
   const orderLinesById = await loadOwnedOrderLines(context, orderLineIds)
   const orderIds = new Set<string>()
@@ -273,7 +275,7 @@ async function validatePortalOrderOwnership(
   let resolvedOrder = input.orderId ? (ordersById.get(input.orderId) ?? null) : null
   if (input.orderId) {
     if (!resolvedOrder) {
-      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderNotOwned' }, { status: 404 })
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.orderNotOwned', 'Order not found.') }, { status: 404 })
     }
   }
 
@@ -282,10 +284,9 @@ async function validatePortalOrderOwnership(
     const resolvedLine = orderLinesById.get(line.orderLineId)
     const lineOrder = resolvedLine ? ordersById.get(resolvedLine.orderId) : null
     if (!resolvedLine || !lineOrder) {
-      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderLineMismatch' }, { status: 404 })
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.orderLineMismatch', 'Order line does not belong to the selected order') }, { status: 404 })
     }
     if (resolvedOrder && lineOrder.id !== resolvedOrder.id) {
-      const { translate } = await resolveTranslations()
       return NextResponse.json(
         { ok: false, error: translate('warranty_claims.errors.orderLineMismatch', 'Order line does not belong to the selected order') },
         { status: 400 },
@@ -337,7 +338,8 @@ export async function GET(req: Request) {
     serialNumber: url.searchParams.get('serialNumber') ?? undefined,
   })
   if (!query.success) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
   const { page, pageSize, search, status, stateGroup, serialNumber } = query.data
   const where = buildPortalOwnedClaimWhere(context)
@@ -415,15 +417,16 @@ export async function POST(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
+  const { translate } = await resolveTranslations()
   let body: unknown
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
   const parsed = portalIntakeInputSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
   const ownership = await validatePortalOrderOwnership(context, parsed.data)
   if (ownership instanceof Response) return ownership
@@ -487,7 +490,7 @@ export async function POST(req: Request) {
     )
     const claimId = createResult.result?.claimId
     if (typeof claimId !== 'string') {
-      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.save_failed' }, { status: 500 })
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
     }
     try {
       await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(

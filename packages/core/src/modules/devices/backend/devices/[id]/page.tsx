@@ -12,13 +12,13 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type DeviceDetail = {
   id: string
-  user_id: string
-  device_id: string
+  userId: string
+  deviceId: string
   platform: string
-  client_app_version: string | null
-  os_version: string | null
-  push_provider: string | null
-  updated_at: string | null
+  clientAppVersion: string | null
+  osVersion: string | null
+  pushProvider: string | null
+  updatedAt: string | null
 }
 
 type FormValues = {
@@ -65,7 +65,7 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
   // Resolve the owner's display name for a link to their profile. Devices admins may not hold
   // auth.users.list, so fall back to the raw id (rendered without a link) instead of redirecting.
   React.useEffect(() => {
-    const userId = device?.user_id
+    const userId = device?.userId
     if (!userId) return
     let cancelled = false
     void (async () => {
@@ -80,7 +80,7 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
       if (label) setUserLabel(label)
     })()
     return () => { cancelled = true }
-  }, [device?.user_id])
+  }, [device?.userId])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'clientAppVersion', label: t('devices.form.appVersion'), type: 'text' },
@@ -122,7 +122,7 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
             <dl className="grid grid-cols-1 gap-3 rounded-md border bg-muted p-4 text-sm sm:grid-cols-3">
               <div>
                 <dt className="text-xs font-medium text-muted-foreground">{t('devices.form.deviceId')}</dt>
-                <dd className="mt-1"><code className="text-xs">{device.device_id}</code></dd>
+                <dd className="mt-1"><code className="text-xs">{device.deviceId}</code></dd>
               </div>
               <div>
                 <dt className="text-xs font-medium text-muted-foreground">{t('devices.form.platform')}</dt>
@@ -131,20 +131,20 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
               <div>
                 <dt className="text-xs font-medium text-muted-foreground">{t('devices.form.userId')}</dt>
                 <dd className="mt-1">{userLabel ? (
-                  <Link href={`/backend/users/${encodeURIComponent(device.user_id)}/edit`} className="text-primary hover:underline">{userLabel}</Link>
+                  <Link href={`/backend/users/${encodeURIComponent(device.userId)}/edit`} className="text-primary hover:underline">{userLabel}</Link>
                 ) : (
-                  <code className="text-xs">{device.user_id}</code>
+                  <code className="text-xs">{device.userId}</code>
                 )}</dd>
               </div>
             </dl>
           )}
           fields={fields}
           groups={groups}
-          optimisticLockUpdatedAt={device.updated_at}
+          optimisticLockUpdatedAt={device.updatedAt}
           initialValues={{
-            clientAppVersion: device.client_app_version ?? '',
-            osVersion: device.os_version ?? '',
-            pushProvider: device.push_provider ?? '',
+            clientAppVersion: device.clientAppVersion ?? '',
+            osVersion: device.osVersion ?? '',
+            pushProvider: device.pushProvider ?? '',
           }}
           submitLabel={t('common.save')}
           cancelHref="/backend/devices"

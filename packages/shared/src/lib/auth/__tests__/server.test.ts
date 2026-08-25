@@ -10,6 +10,7 @@ jest.mock('next/headers', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/auth/jwt'),
   verifyJwt: (...args: unknown[]) => verifyJwt(...args),
 }))
 
@@ -162,6 +163,109 @@ describe('auth server integrity checks', () => {
     await expect(getAuthFromRequest(request)).resolves.toBeNull()
   })
 
+  describe('mfa-pending staff tokens', () => {
+    const pendingAuth = {
+      sub: '11111111-1111-4111-8111-111111111111',
+      sid: '44444444-4444-4444-8444-444444444444',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+      orgId: '33333333-3333-4333-8333-333333333333',
+      roles: ['admin'],
+      mfa_pending: true,
+      mfa_verified: false,
+    }
+
+    function mfaPendingRequest(path: string, method: string): Request {
+      return new Request(`https://example.test${path}`, {
+        method,
+        headers: { authorization: `Bearer pending-token` },
+      })
+    }
+
+    beforeEach(async () => {
+      // The registry ships empty; completion routes are registered by their owning module
+      // (enterprise security). Register equivalent fixtures to exercise resolver mechanics.
+      const { registerMfaPendingAccessRoutes } = await import('../mfaPendingAccess')
+      registerMfaPendingAccessRoutes([
+        { path: '/api/security/mfa/prepare', methods: ['POST'] },
+        { path: '/api/security/mfa/verify', methods: ['POST'] },
+        { path: '/api/security/mfa/recovery', methods: ['POST'] },
+      ])
+      verifyJwt.mockReturnValue(pendingAuth)
+      resolveCanonicalStaffAuthContext.mockResolvedValue({ ...pendingAuth })
+    })
+
+    it('rejects a pending token on a general staff API before roles are restored', async () => {
+      const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+
+      await expect(resolveAuthFromRequestDetailed(mfaPendingRequest('/api/customers/people', 'GET')))
+        .resolves.toEqual({ auth: null, status: 'invalid' })
+      expect(resolveCanonicalStaffAuthContext).not.toHaveBeenCalled()
+    })
+
+    it('still resolves a pending token on the registered MFA completion routes (POST)', async () => {
+      const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+
+      for (const path of ['/api/security/mfa/prepare', '/api/security/mfa/verify', '/api/security/mfa/recovery']) {
+        resolveCanonicalStaffAuthContext.mockClear()
+        const resolution = await resolveAuthFromRequestDetailed(mfaPendingRequest(path, 'POST'))
+        expect(resolution.status).toBe('authenticated')
+        expect(resolution.auth).toEqual({ ...pendingAuth })
+        expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, pendingAuth)
+      }
+    })
+
+    it('rejects a pending token with a non-completion method on a completion route', async () => {
+      const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+
+      await expect(resolveAuthFromRequestDetailed(mfaPendingRequest('/api/security/mfa/verify', 'GET')))
+        .resolves.toEqual({ auth: null, status: 'invalid' })
+      expect(resolveCanonicalStaffAuthContext).not.toHaveBeenCalled()
+    })
+
+    it('resolves the verified replacement token like a normal login', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const verifiedAuth = { ...pendingAuth, mfa_pending: false, mfa_verified: true }
+      verifyJwt.mockReturnValue(verifiedAuth)
+      resolveCanonicalStaffAuthContext.mockResolvedValue({ ...verifiedAuth, roles: ['employee'] })
+
+      const request = new Request('https://example.test/api/customers/people', {
+        headers: { authorization: 'Bearer verified-token' },
+      })
+
+      await expect(getAuthFromRequest(request)).resolves.toEqual({ ...verifiedAuth, roles: ['employee'] })
+      expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledWith(em, verifiedAuth)
+    })
+
+    it('leaves tokens without MFA claims untouched', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const plainAuth = {
+        sub: '11111111-1111-4111-8111-111111111111',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        orgId: '33333333-3333-4333-8333-333333333333',
+        roles: [],
+      }
+      verifyJwt.mockReturnValue(plainAuth)
+      resolveCanonicalStaffAuthContext.mockResolvedValue(plainAuth)
+
+      const request = new Request('https://example.test/api/test', {
+        headers: { cookie: 'auth_token=jwt-token' },
+      })
+
+      await expect(getAuthFromRequest(request)).resolves.toEqual(plainAuth)
+    })
+
+    it('rejects a pending token from cookie-based page resolution unconditionally', async () => {
+      const { getAuthFromCookies, resolveAuthFromCookiesDetailed } = await import('@open-mercato/shared/lib/auth/server')
+      cookieStore.get.mockImplementation((name: string) => {
+        if (name === 'auth_token') return { value: 'pending-jwt-token' }
+        return undefined
+      })
+
+      await expect(getAuthFromCookies()).resolves.toBeNull()
+      await expect(resolveAuthFromCookiesDetailed()).resolves.toEqual({ auth: null, status: 'invalid' })
+      expect(resolveCanonicalStaffAuthContext).not.toHaveBeenCalled()
+    })
+  })
   it('reports a transient DB failure on the api-key path as "error" (retryable 503)', async () => {
     const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
     // Distinct secret so the shared api-key auth cache does not serve a prior miss.

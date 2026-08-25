@@ -832,7 +832,7 @@ describe('generator output compatibility', () => {
     expect(content).toContain(`import { backendRouteFacades } from "./backend-route-shards.generated"`)
     expect(content).toContain(`import { frontendRoutes } from "./frontend-routes.generated"`)
     expect(content).toContain(
-      `import { registerBackendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'`,
+      `import { registerBackendRouteManifests, registerFrontendRouteManifests } from "@open-mercato/shared/modules/registry"`,
     )
     expect(content).toMatch(/export function runBootstrapRegistrations\(\): void \{[\s\S]*registerBackendRouteManifests\(backendRouteFacades\)[\s\S]*\}/)
     expect(content).toMatch(/export function runBootstrapRegistrations\(\): void \{[\s\S]*registerFrontendRouteManifests\(frontendRoutes\)[\s\S]*\}/)
