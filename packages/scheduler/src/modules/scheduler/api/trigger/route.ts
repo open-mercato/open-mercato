@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { scheduleTriggerSchema } from '../../data/validators.js'
 import type { TriggerScheduleResult } from '../../commands/trigger.js'
 import type { ScheduleTriggerInput } from '../../data/validators.js'
@@ -99,6 +100,14 @@ export async function POST(req: NextRequest) {
     })
 
   } catch (error) {
+    // A command interceptor that blocked with an explicit status is a deliberate
+    // business rejection, not a malformed request — surface its status and body
+    // instead of flattening it to the generic 400 below.
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      logger.warn('Manual trigger blocked by interceptor', { err: error })
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     // The action log is written after the enqueue, and the bus does not guard that
     // write, so a failing audit store surfaces here with the job already queued.
     // Record it loudly: the run stays traceable even when its entry was lost.
