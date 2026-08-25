@@ -1,5 +1,9 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T13:20:00Z — operator decision: approve export-only edit
+
+The operator approved option 1 from the 2026-08-25T13:00:00Z decision point: add `export` to `resolveScopedTaxRate` and `resolveProductUnitDefaults` in `commands/products.ts` (purely additive visibility, no behavior/contract change), then build the batch-scoped memoization wrapper around them plus `requireOptionSchemaTemplate` in `lib/bulkCreateProducts.ts`. Both Phase-2-blocking decision points are now resolved. Next resume: land Step 1.3 (still pending), then proceed through Step 2.1 onward.
+
 ## 2026-08-25T13:00:00Z — resume paused: second decision point before Step 2.1
 
 Started Step 2.1 per the operator's memoization-wrapper decision. Confirmed `resolveScopedTaxRate`/`resolveProductUnitDefaults` in `commands/products.ts` are separate, wrappable functions (not inlined) — but they are not `export`ed, so wrapping them requires adding `export` to `commands/products.ts` itself. That's a smaller edit than the rejected `.fork({clear:false})` change (no behavior/contract change, purely additive visibility), but it wasn't explicitly covered by the prior decision, which only cleared wrapping "without editing the command's own `execute()`". Stopped and documented full detail + two options in `HANDOFF.md` rather than deciding unilaterally. No code changed this pass; worktree still at commit `0e30d0e62`. Status remains `in-progress`, PR stays draft.

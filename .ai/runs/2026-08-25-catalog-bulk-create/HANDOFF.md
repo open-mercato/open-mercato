@@ -47,6 +47,8 @@ Per the operator's own instruction ("if they turn out to require touching the co
 1. **Approve the export-only edit** — add `export` to both functions in `commands/products.ts`, then build the batch-scoped memoization wrapper in `lib/bulkCreateProducts.ts` around them (and around option-schema-template resolution, which already goes through the already-exported `requireOptionSchemaTemplate` — no export needed there).
 2. **Reject even the export edit** — Phase 2 proceeds with the batch pre-validation pattern from Phase 1 only (fail obviously-invalid rows early) and no reference-data memoization; spec's headline DB-lookup-count reduction is dropped for products, same as rejected path 3 from the first decision, just now confirmed as the only remaining option under a "commands/products.ts stays 100% untouched" reading.
 
+**Operator decision (2026-08-25, second decision point):** approved option 1 — add `export` to `resolveScopedTaxRate` and `resolveProductUnitDefaults` in `commands/products.ts`, then build the batch-scoped memoization wrapper in `lib/bulkCreateProducts.ts` around them and around `requireOptionSchemaTemplate`. No further sign-off needed for this specific export-only edit.
+
 ## Blockers
 
-Yes — the export-keyword decision above blocks starting Step 2.1's implementation. Step 1.3 (categories integration test, no production code) is unblocked and remains the next `todo` row if the operator wants to land it before Phase 2 resumes; this resume stopped before writing it in order to report the Step 2.1 finding promptly rather than mixing an unresolved decision into further commits.
+None. Both decision points are resolved. Next resume: land Step 1.3 (categories integration test) first since it was left pending, then proceed through Step 2.1 with the approved export + memoization wrapper.
