@@ -37,15 +37,18 @@ function safeJsLiteral(value: string): string {
 }
 
 describe('Next.js bundle boundary', () => {
-  it('keeps the standalone dynamic loader out of the Next.js bundle', () => {
+  it('keeps runtime-only imports out of the Next.js bundle', () => {
     const loaderSource = fs.readFileSync(
       path.join(__dirname, '..', 'generated-registry-loader.ts'),
       'utf8',
     )
 
-    expect(loaderSource).toContain("'@open-mercato/shared/lib/bootstrap/dynamicLoader'")
-    expect(loaderSource).toContain('/* webpackIgnore: true */')
-    expect(loaderSource).toContain('/* turbopackIgnore: true */')
+    expect(loaderSource).toMatch(
+      /await import\(\s*\/\* webpackIgnore: true \*\/\s*\/\* turbopackIgnore: true \*\/\s*pathToFileURL\(jsPath\)\.href\s*\)/,
+    )
+    expect(loaderSource).toMatch(
+      /await import\(\s*\/\* webpackIgnore: true \*\/\s*\/\* turbopackIgnore: true \*\/\s*'@open-mercato\/shared\/lib\/bootstrap\/dynamicLoader'\s*\)/,
+    )
   })
 })
 

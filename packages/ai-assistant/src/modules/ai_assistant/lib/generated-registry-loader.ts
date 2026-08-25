@@ -121,7 +121,11 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
   if (useJestCjsArtifact) {
     return requireFromHere(jsPath) as Record<string, unknown>
   }
-  return (await import(pathToFileURL(jsPath).href)) as Record<string, unknown>
+  return (await import(
+    /* webpackIgnore: true */
+    /* turbopackIgnore: true */
+    pathToFileURL(jsPath).href
+  )) as Record<string, unknown>
 }
 
 function isJestRuntime(): boolean {
