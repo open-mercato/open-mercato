@@ -180,7 +180,8 @@ describe('detachOperator', () => {
   })
 
   it('keeps the operator when the provider refuses the revocation', async () => {
-    mockClient({ deleteConfig: jest.fn().mockRejectedValue(new TillioApiError('nope', 422, 'invalid')) })
+    const providerMessage = 'provider response from https://internal.example.invalid: token secret-token'
+    mockClient({ deleteConfig: jest.fn().mockRejectedValue(new TillioApiError(providerMessage, 422, 'invalid')) })
     const { service, store } = fakeStore({
       [TILLIO_INTEGRATION_ID]: { ...readyEnv },
       [TILLIO_OPERATORS_INTEGRATION_ID]: {
@@ -190,7 +191,11 @@ describe('detachOperator', () => {
     })
 
     await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1'))
-      .rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+      .rejects.toMatchObject({
+        name: 'TillioRevocationFailedError',
+        environmentMissing: false,
+        message: 'Tillio did not confirm the operator token was revoked.',
+      })
 
     const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: unknown[] }
     expect(saved.operators).toHaveLength(1)

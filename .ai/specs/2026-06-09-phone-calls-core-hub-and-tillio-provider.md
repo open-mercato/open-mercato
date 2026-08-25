@@ -132,7 +132,7 @@ packages/core/src/modules/phone_calls/
   api/calls/route.ts     # list (read-only)
   api/openapi.ts
   backend/page.tsx       # call list
-  i18n/                  # en, de, es, pl
+  i18n/                  # en, de, es, pl, ko
   __integration__/
   backend/[id]/page.tsx          # [planned] call detail
   commands/transcripts.ts        # [planned]
@@ -652,10 +652,10 @@ Scope of this report: the implemented slice (Phases 1-2). Planned phases are des
 - **RBAC**: `phone_calls.view` / `.manage` and `tillio.manage` declared in `acl.ts` and seeded in `setup.ts`
   `defaultRoleFeatures`; existing tenants pick them up via `yarn mercato auth sync-role-acls`.
 - **OpenAPI**: every route exports `openApi`.
-- **i18n and design system**: list and widgets use `useT` with `en`/`de`/`es`/`pl` locale files and
+- **i18n and design system**: list and widgets use `useT` with `en`/`de`/`es`/`pl`/`ko` locale files and
   design-system tokens; no hardcoded user-facing strings or status colors.
 - **Optimistic locking**: not applicable - the hub exposes no user-editable entity and no edit form.
-- **Tests**: 22 integration tests (TC-PHONE-HUB-001..005, TC-PHONE-001..005) plus provider and command unit
+- **Tests**: 27 integration tests (TC-PHONE-HUB-001..006, TC-PHONE-001..005) plus provider and command unit
   tests, shipped with the implementation; no live provider calls.
 - **Backward compatibility**: additive only; no contract surface modified.
 

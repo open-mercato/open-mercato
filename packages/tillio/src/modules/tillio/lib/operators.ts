@@ -245,8 +245,14 @@ export async function detachOperator(
       await client.deleteConfig(operator.plugin, operator.token, operator.tenantDomain)
       revoked = true
     } catch (err) {
+      logger.error('could not revoke the Tillio operator token', {
+        operatorId,
+        status: err instanceof TillioApiError ? err.status : undefined,
+        detail: err instanceof TillioApiError ? err.detail : undefined,
+        err,
+      })
       if (!options.force) {
-        throw new TillioRevocationFailedError(false, err instanceof Error ? err.message : undefined)
+        throw new TillioRevocationFailedError(false)
       }
     }
   }

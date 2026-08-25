@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
+import { tillioErrorCopy } from '../../../lib/error-codes'
 import type { TillioCredentialsService } from '../../../lib/operators-store'
 import {
   detachOperator,
@@ -69,12 +70,13 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
     return NextResponse.json({ ok: true, detached: result.detached, revoked: result.revoked })
   } catch (err) {
     if (err instanceof TillioRevocationFailedError) {
+      const code = err.environmentMissing ? 'environment_not_ready' : 'revocation_failed'
       return NextResponse.json(
         {
           ok: false,
-          code: err.environmentMissing ? 'environment_not_ready' : 'revocation_failed',
+          code,
           section: err.environmentMissing ? 'environment' : 'operator',
-          message: err.message,
+          message: tillioErrorCopy(code, 'detach_failed').fallback,
           canForce: true,
         },
         { status: 502 },

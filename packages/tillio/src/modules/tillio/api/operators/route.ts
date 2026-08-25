@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import {
   computeEnvFingerprint,
@@ -16,6 +17,7 @@ import { evaluateEnvironmentReadiness, type EnvironmentBlocker } from '../../lib
 import {
   TillioApiError,
 } from '../../lib/errors'
+import { tillioErrorCopy } from '../../lib/error-codes'
 import {
   attachOperator,
   classifyTillioError,
@@ -27,6 +29,7 @@ import {
 } from '../../lib/operators'
 
 const SUPPORTED_PLUGINS = ['Ringostat'] as const
+const logger = createLogger('tillio').child({ component: 'operators-route' })
 
 // Same blockers as the pull reports, worded for the action the caller was attempting.
 const ATTACH_BLOCKER_MESSAGES: Record<EnvironmentBlocker, string> = {
@@ -167,8 +170,19 @@ export async function POST(req: Request) {
     }
     if (err instanceof TillioApiError) {
       const section = classifyTillioError(err)
+      logger.error('Tillio operator attach failed at provider', {
+        section,
+        status: err.status,
+        detail: err.detail,
+        err,
+      })
       return NextResponse.json(
-        { ok: false, code: 'provider_error', section, message: err.message },
+        {
+          ok: false,
+          code: 'provider_error',
+          section,
+          message: tillioErrorCopy('provider_error', 'provider_error').fallback,
+        },
         { status: section === 'environment' ? 502 : 422 },
       )
     }
