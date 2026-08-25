@@ -64,8 +64,11 @@ function decodeHtmlEntities(value: string): string {
 function extractDisplayName(value: string): string | null {
   const decoded = decodeHtmlEntities(value).trim()
   if (!decoded) return null
-  const quoted = decoded.match(/^"([^"]*)"/)
-  const name = (quoted?.[1] ?? decoded.replace(/<[^>]*>/g, '')).trim()
+  const uriStart = decoded.indexOf('<')
+  const beforeUri = (uriStart >= 0 ? decoded.slice(0, uriStart) : decoded).trim()
+  const name = beforeUri.startsWith('"') && beforeUri.endsWith('"')
+    ? beforeUri.slice(1, -1).trim()
+    : beforeUri
   return name || null
 }
 

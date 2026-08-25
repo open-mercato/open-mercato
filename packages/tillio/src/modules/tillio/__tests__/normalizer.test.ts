@@ -98,6 +98,19 @@ describe('normalizeTillioCall', () => {
     expect(normalized.participants[0].displayName).toBeNull()
   })
 
+  it('does not preserve decoded markup in a caller display name', () => {
+    const normalized = normalizeTillioCall({
+      ...answeredCall,
+      extraFields: {
+        ...answeredCall.extraFields,
+        caller: '&quot;Safe caller&quot; &lt;script&gt;alert(1)&lt;/script&gt;',
+      },
+    }, context)
+
+    expect(normalized.participants[0].displayName).toBe('Safe caller')
+    expect(normalized.participants[0].displayName).not.toContain('<')
+  })
+
   it('tolerates a missing waitTime, which Tillio does not always send', () => {
     const { waitTime: _waitTime, ...withoutWaitTime } = missedCall
     const normalized = normalizeTillioCall(withoutWaitTime, context)

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { scryptSync } from 'node:crypto'
 import { z } from 'zod'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 
@@ -39,7 +39,8 @@ export type TillioCredentialsService = {
 }
 
 export function computeEnvFingerprint(env: { tenantSystemId: string; apiUrl: string; apiKey: string }): string {
-  return createHash('sha256').update(`${env.tenantSystemId}\n${env.apiUrl}\n${env.apiKey}`).digest('hex')
+  const material = `${env.tenantSystemId}\n${env.apiUrl}\n${env.apiKey}`
+  return scryptSync(material, 'open-mercato:tillio:environment-fingerprint:v1', 32).toString('hex')
 }
 
 export function resolveAppHost(appUrl: string): string {

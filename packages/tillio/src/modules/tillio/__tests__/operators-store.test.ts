@@ -31,6 +31,7 @@ describe('computeEnvFingerprint', () => {
 
   it('is deterministic for the same input', () => {
     expect(computeEnvFingerprint(env)).toBe(computeEnvFingerprint({ ...env }))
+    expect(computeEnvFingerprint(env)).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it('changes when any field changes', () => {

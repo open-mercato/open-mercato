@@ -30,6 +30,7 @@ type PhoneCallListResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const DIRECTION_VALUES = ['inbound', 'outbound', 'internal', 'unknown'] as const
@@ -76,6 +77,7 @@ export default function PhoneCallsPage() {
   const [rows, setRows] = React.useState<PhoneCallRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(50)
   const [search, setSearch] = React.useState('')
@@ -157,11 +159,13 @@ export default function PhoneCallsPage() {
         setRows([])
         setTotal(0)
         setTotalPages(1)
+        setTotalIsCapped(false)
       } else {
         const data = (response.result ?? {}) as PhoneCallListResponse
         setRows(Array.isArray(data.items) ? data.items : [])
         setTotal(typeof data.total === 'number' ? data.total : 0)
         setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 1)
+        setTotalIsCapped(data.totalIsCapped === true)
       }
       setIsLoading(false)
     }
@@ -287,6 +291,7 @@ export default function PhoneCallsPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
             pageSizeOptions: [10, 25, 50, 100],
             onPageSizeChange: (size) => { setPageSize(size); setPage(1) },
