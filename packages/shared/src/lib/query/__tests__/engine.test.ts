@@ -2,13 +2,14 @@ import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
 import { clearSearchTokenPresenceCache } from '../../search/availability'
-import { clearEncryptedLikeFieldsCache } from '../engine'
+import { clearEncryptedLikeFieldsCache, clearColumnExistsCache } from '../engine'
 
 // The token-presence answer is cached process-wide (TTL); without clearing it,
 // probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
   clearEncryptedLikeFieldsCache()
+  clearColumnExistsCache()
 })
 
 // Mock modules with one entity extension
@@ -1413,5 +1414,58 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
       .then(() => {
         expect(applySearchTokensSpy).toHaveBeenCalled()
       })
+  })
+})
+
+describe('process-scoped column-existence cache (#5605)', () => {
+  const columnProbes = (fakeDb: any) =>
+    fakeDb._calls.filter((b: any) => b._ops.table === 'information_schema.columns')
+
+  const columnProbesFor = (fakeDb: any, column: string) =>
+    columnProbes(fakeDb).filter((b: any) =>
+      b._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'column_name' && w[1] === '=' && w[2] === column)
+    )
+
+  test('the column-existence cache is shared across separate engine instances', async () => {
+    // `createRequestContainer()` builds a fresh `BasicQueryEngine` per HTTP request.
+    // The cache must live on the module, not the instance, so a later "request" (a
+    // second engine here) reuses the first request's answer instead of re-probing
+    // `information_schema.columns`.
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
+
+    const engine1 = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine1.query('customers:customer_entity', queryOpts)
+    const probesAfterFirstEngine = columnProbes(fakeDb).length
+    expect(probesAfterFirstEngine).toBeGreaterThan(0)
+
+    const engine2 = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine2.query('customers:customer_entity', queryOpts)
+    expect(columnProbes(fakeDb).length).toBe(probesAfterFirstEngine)
+  })
+
+  test('a missing column is remembered as false instead of being re-queried on every call', async () => {
+    // Before the fix, `columnExists` deleted a `false` result instead of caching it,
+    // so `organization_id` (absent here) was re-queried once per query projection
+    // ('full' and 'count') within a single `.query()` call.
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(columnProbesFor(fakeDb, 'organization_id').length).toBe(1)
   })
 })

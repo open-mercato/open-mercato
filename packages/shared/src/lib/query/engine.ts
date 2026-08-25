@@ -89,6 +89,19 @@ export function clearEncryptedLikeFieldsCache(): void {
   encryptedLikeFieldsCache.clear()
 }
 
+// Process-scoped: schema shape (does a table have this column?) only changes on
+// migration, and a process restart already clears this Map, so it is always safe to
+// reuse across requests — unlike per-request state such as `tenantEncryptionService`.
+// Module-level on purpose: `createRequestContainer` builds a fresh `BasicQueryEngine`
+// per request, so an instance field alone re-pays the `information_schema` probe on
+// every request (#5605).
+const columnExistsCache = new Map<string, boolean>()
+
+/** Test-only: the process-scoped memo would otherwise leak state across specs. */
+export function clearColumnExistsCache(): void {
+  columnExistsCache.clear()
+}
+
 type ResolvedCustomFieldSource = {
   entityId: EntityId
   alias: string
@@ -271,7 +284,6 @@ function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, ent
  * {@link HybridQueryEngine} when the query index is unavailable or incomplete.
  */
 export class BasicQueryEngine implements QueryEngine {
-  private columnCache = new Map<string, boolean>()
   private searchAliasSeq = 0
   private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
@@ -661,7 +673,8 @@ export class BasicQueryEngine implements QueryEngine {
     // and cf filters are expressed as correlated EXISTS semi-joins, so nothing can
     // multiply base rows and a LIMIT above the query is an enforceable bound.
     // Re-running the WHERE/JOIN logic per projection is cheap: every `columnExists`
-    // check is memoized on `this.columnCache`, so later passes hit no extra DB calls.
+    // check is memoized on the process-scoped `columnExistsCache`, so later passes
+    // hit no extra DB calls.
     const buildQuery = async (projection: 'full' | 'sortKeys' | 'count'): Promise<BuiltQuery> => {
       const isSortKeysProjection = projection === 'sortKeys'
       const isCountProjection = projection === 'count'
@@ -1545,11 +1558,8 @@ export class BasicQueryEngine implements QueryEngine {
 
   private async columnExists(table: string, column: string): Promise<boolean> {
     const key = `${table}.${column}`
-    if (this.columnCache.has(key)) {
-      const cached = this.columnCache.get(key)
-      if (cached === true) return true
-      this.columnCache.delete(key)
-    }
+    const cached = columnExistsCache.get(key)
+    if (cached !== undefined) return cached
     const db = this.getDb()
     const exists = await db
       .selectFrom('information_schema.columns' as any)
@@ -1559,8 +1569,7 @@ export class BasicQueryEngine implements QueryEngine {
       .limit(1)
       .executeTakeFirst()
     const present = !!exists
-    if (present) this.columnCache.set(key, true)
-    else this.columnCache.delete(key)
+    columnExistsCache.set(key, present)
     return present
   }
 
