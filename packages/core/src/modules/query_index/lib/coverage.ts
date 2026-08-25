@@ -140,6 +140,73 @@ async function pruneDuplicateCoverageRows(
   await query.execute()
 }
 
+// Applies a coverage delta as a single `INSERT … ON CONFLICT DO UPDATE` whose SET clause
+// increments the stored columns in SQL (#5604). The obvious alternative — read the row,
+// add the delta in JavaScript, write the total back — is a read-modify-write: two
+// adjustments for the same scope that overlap both read the same row and both write the
+// same total, so one of them is silently lost. Incrementing in SQL makes overlapping
+// adjustments compose, and drops the `SELECT` (and the window between it and the write)
+// that made the coverage row a contention point in the first place.
+async function incrementCoverageRow(
+  db: CoverageExecutor,
+  scope: CoverageScope,
+  deltas: { deltaBase: number; deltaIndex: number; deltaVector: number }
+): Promise<void> {
+  const storedOrgId = normalizeOrganizationForStore(scope.organizationId ?? null)
+  let deltaBase = deltas.deltaBase
+  let deltaIndex = deltas.deltaIndex
+  let deltaVector = deltas.deltaVector
+
+  if (scope.organizationId == null) {
+    // Legacy rows stored the global scope as a NULL organization; they are replaced by the
+    // placeholder-organization row. `RETURNING` carries their counts into this delta so the
+    // migration does not reset the counters (the read-modify-write this replaced folded them
+    // in via its `SELECT`, which matched NULL and placeholder alike).
+    let purge = db
+      .deleteFrom('entity_index_coverage' as any)
+      .where('entity_type' as any, '=', scope.entityType)
+      .where('with_deleted' as any, '=', scope.withDeleted === true)
+      .where('organization_id' as any, 'is', null as any)
+    purge = scope.tenantId == null
+      ? purge.where('tenant_id' as any, 'is', null as any)
+      : purge.where('tenant_id' as any, '=', scope.tenantId)
+    const purged = await purge
+      .returning(['base_count' as any, 'indexed_count' as any, 'vector_indexed_count' as any])
+      .execute() as Array<CoverageRow>
+    for (const row of purged ?? []) {
+      deltaBase += toCount(row.base_count)
+      deltaIndex += toCount(row.indexed_count)
+      deltaVector += toCount(row.vector_indexed_count)
+    }
+  }
+
+  const rows = await db
+    .insertInto('entity_index_coverage' as any)
+    .values({
+      entity_type: scope.entityType,
+      tenant_id: scope.tenantId ?? null,
+      organization_id: storedOrgId,
+      with_deleted: scope.withDeleted === true,
+      base_count: Math.max(deltaBase, 0),
+      indexed_count: Math.max(deltaIndex, 0),
+      vector_indexed_count: Math.max(deltaVector, 0),
+      refreshed_at: sql`now()`,
+    } as any)
+    .onConflict((oc: any) => oc
+      .columns(['entity_type', 'tenant_id', 'organization_id', 'with_deleted'])
+      .doUpdateSet({
+        base_count: sql`greatest(${sql.ref('entity_index_coverage.base_count')} + ${deltaBase}, 0)`,
+        indexed_count: sql`greatest(${sql.ref('entity_index_coverage.indexed_count')} + ${deltaIndex}, 0)`,
+        vector_indexed_count: sql`greatest(${sql.ref('entity_index_coverage.vector_indexed_count')} + ${deltaVector}, 0)`,
+        refreshed_at: sql`now()`,
+      } as any))
+    .returning(['id' as any])
+    .execute() as Array<{ id: string }>
+
+  const keepId = rows?.[0]?.id ?? null
+  await pruneDuplicateCoverageRows(db, scope, keepId)
+}
+
 async function upsertCoverageRow(
   db: CoverageExecutor,
   scope: CoverageScope,
@@ -269,19 +336,10 @@ export async function applyCoverageAdjustments(
   const db = options?.trx ?? ((em as any).getKysely() as Kysely<any>)
   const aggregated = aggregateAdjustments(adjustments)
   for (const entry of aggregated) {
-    const scope = entry.scope
-    const existing = await fetchCoverageRow(db, scope)
-    const currentBase = existing ? toCount(existing.base_count) : 0
-    const currentIndex = existing ? toCount(existing.indexed_count) : 0
-    const currentVector = existing ? toCount(existing.vector_indexed_count) : 0
-    const nextBase = Math.max(currentBase + entry.deltaBase, 0)
-    const nextIndex = Math.max(currentIndex + entry.deltaIndex, 0)
-    const nextVector = Math.max(currentVector + entry.deltaVector, 0)
-
-    await upsertCoverageRow(db, scope, {
-      baseCount: nextBase,
-      indexedCount: nextIndex,
-      vectorIndexedCount: nextVector,
+    await incrementCoverageRow(db, entry.scope, {
+      deltaBase: entry.deltaBase,
+      deltaIndex: entry.deltaIndex,
+      deltaVector: entry.deltaVector,
     })
   }
 }

@@ -6,6 +6,7 @@ import { seedSalesStatusDictionaries, seedSalesAdjustmentKinds } from './lib/dic
 import { seedSalesChannelsToggle } from './lib/salesChannelsToggleSeed'
 import { ensureExampleShippingMethods, ensureExamplePaymentMethods } from './seed/examples-data'
 import { seedSalesExamples } from './seed/examples'
+import { ensureDocumentSequencesForScope } from './services/salesDocumentNumberGenerator'
 
 type SeedScope = { tenantId: string; organizationId: string }
 
@@ -108,6 +109,10 @@ export const setup: ModuleSetupConfig = {
     }
 
     await em.flush()
+
+    // Each registry row is backed by its own Postgres sequence (#5604); create them now so
+    // the first document of a fresh tenant does not have to fall back to lazy creation.
+    await ensureDocumentSequencesForScope(em, { tenantId, organizationId })
   },
 
   async seedDefaults({ em, tenantId, organizationId }) {

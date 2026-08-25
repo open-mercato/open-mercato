@@ -60,11 +60,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
     if (alwaysConsistent) {
       const db = (em as any).getKysely()
-      // Coverage-count adjustments hit a handful of hot `entity_index_coverage` rows shared
-      // by every writer of this entity type/tenant; computed here (inside the transaction, so
-      // it can see `wasActive`/the pre-delete row) but applied afterward, off the request path
-      // (#5604), so the delete transaction never holds that row's lock waiting on it.
-      let pendingCoverageAdjustments: ReturnType<typeof createCoverageAdjustments> = []
       await db.transaction().execute(async (trx: any) => {
         const { wasActive } = await markDeleted(em, { entityType, recordId, organizationId, tenantId, trx })
 
@@ -96,32 +91,22 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         if (!Number.isFinite(effectiveIndexDelta)) effectiveIndexDelta = 0
 
         if (effectiveBaseDelta !== 0 || effectiveIndexDelta !== 0) {
-          pendingCoverageAdjustments = createCoverageAdjustments({
+          const adjustments = createCoverageAdjustments({
             entityType,
             tenantId: tenantId ?? null,
             organizationId: organizationId ?? null,
             baseDelta: effectiveBaseDelta,
             indexDelta: effectiveIndexDelta,
           })
+          if (adjustments.length) {
+            // Stays inside the transaction: `alwaysConsistent` exists to make the read
+            // projection and its coverage counters commit together, and the adjustment is a
+            // single incrementing UPSERT (see `applyCoverageAdjustments`), so it holds the
+            // coverage row's lock only for that statement.
+            await applyCoverageAdjustments(em, adjustments, { trx })
+          }
         }
       })
-
-      if (pendingCoverageAdjustments.length) {
-        const coverageAdjustments = pendingCoverageAdjustments
-        void applyCoverageAdjustments(em, coverageAdjustments).catch((error) => recordIndexerError(
-          { em },
-          {
-            source: 'query_index',
-            handler: 'event:query_index.delete_one:coverage',
-            error,
-            entityType,
-            recordId,
-            tenantId: tenantId ?? null,
-            organizationId: organizationId ?? null,
-            payload,
-          },
-        ).catch(() => {}))
-      }
 
       const bus = ctx.resolve<any>('eventBus')
       const shouldRefreshCoverage =
@@ -186,21 +171,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         indexDelta: effectiveIndexDelta,
       })
       if (adjustments.length) {
-        // Off the request path (#5604): every write to this entity type/tenant would
-        // otherwise serialize on the same coverage row's lock and bloat it under load.
-        void applyCoverageAdjustments(em, adjustments).catch((error) => recordIndexerError(
-          { em },
-          {
-            source: 'query_index',
-            handler: 'event:query_index.delete_one:coverage',
-            error,
-            entityType,
-            recordId,
-            tenantId: tenantId ?? null,
-            organizationId: organizationId ?? null,
-            payload,
-          },
-        ).catch(() => {}))
+        await applyCoverageAdjustments(em, adjustments)
       }
     }
 
