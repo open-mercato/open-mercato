@@ -36,6 +36,27 @@ function safeJsLiteral(value: string): string {
   return escapeUnsafeJsStringChars(JSON.stringify(value))
 }
 
+describe('Next.js bundle boundary', () => {
+  it('loads the app compiler without pulling in the standalone dynamic importer', () => {
+    const loaderSource = fs.readFileSync(
+      path.join(__dirname, '..', 'generated-registry-loader.ts'),
+      'utf8',
+    )
+    const compilerSource = fs.readFileSync(
+      path.resolve(__dirname, '../../../../../../shared/src/lib/bootstrap/appSourceCompiler.ts'),
+      'utf8',
+    )
+
+    expect(loaderSource).toContain(
+      "await import('@open-mercato/shared/lib/bootstrap/appSourceCompiler')",
+    )
+    expect(loaderSource).not.toContain(
+      "await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')",
+    )
+    expect(compilerSource).not.toMatch(/\bimport\s*\(\s*[A-Za-z_$][\w$]*\s*\)/)
+  })
+})
+
 describe('rewriteGeneratedAliasImports', () => {
   // Regression for the MCP dev-server crash:
   //   "Cannot find package '@/.mercato' imported from .../tool-loader.js"
