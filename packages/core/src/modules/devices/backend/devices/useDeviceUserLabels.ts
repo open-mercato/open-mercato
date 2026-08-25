@@ -27,9 +27,12 @@ export function useDeviceUserLabels(userIds: readonly (string | null | undefined
 
     const controller = new AbortController()
     void resolveDeviceUserOptions(unresolved, controller.signal)
-      .then((options) => {
+      .then(({ options, resolvedIds }) => {
         if (controller.signal.aborted) return
-        for (const userId of unresolved) resolvedIdsRef.current.add(userId)
+        // Only ids the server actually answered for are remembered. Marking an id whose request
+        // failed would keep its row showing a bare UUID for the life of the component, even though
+        // the next attempt would have worked.
+        for (const userId of resolvedIds) resolvedIdsRef.current.add(userId)
         const next: Record<string, string> = {}
         for (const option of options) next[option.value] = option.label
         if (Object.keys(next).length) setLabels((current) => ({ ...current, ...next }))

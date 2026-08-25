@@ -91,15 +91,48 @@ describe('resolveDeviceUserOptions', () => {
       { id: '11111111-1111-4111-8111-111111111111', name: 'Ada Lovelace', email: 'ada@example.test' },
     ]))
 
-    const options = await resolveDeviceUserOptions(['11111111-1111-4111-8111-111111111111'])
+    const { options } = await resolveDeviceUserOptions(['11111111-1111-4111-8111-111111111111'])
 
     expect(options[0].label).toBe('Ada Lovelace')
   })
 
   it('does not call the API for an empty id set', async () => {
-    await expect(resolveDeviceUserOptions([])).resolves.toEqual([])
-    await expect(resolveDeviceUserOptions(['  ', ''])).resolves.toEqual([])
+    await expect(resolveDeviceUserOptions([])).resolves.toEqual({ options: [], resolvedIds: [] })
+    await expect(resolveDeviceUserOptions(['  ', ''])).resolves.toEqual({ options: [], resolvedIds: [] })
     expect(apiCallMock).not.toHaveBeenCalled()
+  })
+
+  it('reports an id the server answered for as resolved even when it matched no row', async () => {
+    // A deleted user is a real answer: caching it stops a pointless lookup on every render.
+    apiCallMock.mockResolvedValue(okWith([]))
+    const id = '11111111-1111-4111-8111-111111111111'
+
+    const { options, resolvedIds } = await resolveDeviceUserOptions([id])
+
+    expect(options).toEqual([])
+    expect(resolvedIds).toEqual([id])
+  })
+
+  it('reports nothing as resolved when the lookup itself fails, so a caller can retry', async () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+
+    apiCallMock.mockResolvedValueOnce({ ok: false, status: 403, result: null })
+    await expect(resolveDeviceUserOptions([id])).resolves.toEqual({ options: [], resolvedIds: [] })
+
+    apiCallMock.mockRejectedValueOnce(new Error('network down'))
+    await expect(resolveDeviceUserOptions([id])).resolves.toEqual({ options: [], resolvedIds: [] })
+  })
+
+  it('keeps the batches that answered when another batch fails', async () => {
+    const ids = Array.from({ length: 150 }, (_, index) => `44444444-4444-4444-8444-${index.toString(16).padStart(12, '0')}`)
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 500, result: null })
+      .mockResolvedValueOnce(okWith([{ id: ids[100], name: 'Grace Hopper' }]))
+
+    const { options, resolvedIds } = await resolveDeviceUserOptions(ids)
+
+    expect(options).toEqual([{ value: ids[100], label: 'Grace Hopper', description: null }])
+    expect(resolvedIds).toEqual(ids.slice(100))
   })
 
   it('deduplicates ids and asks for exactly as many rows as it needs', async () => {
