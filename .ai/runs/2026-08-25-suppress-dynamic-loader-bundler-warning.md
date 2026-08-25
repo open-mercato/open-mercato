@@ -52,3 +52,5 @@ The extraction experiment was superseded by the narrower runtime-only import bou
 
 - [x] 2.1 Add and run focused regression coverage — 8b23c68c8c
 - [x] 2.2 Run the full validation and review gates — e4a08d12c9
+
+Review follow-up `f1faae8172` guards both runtime-only import expressions and tightens the regression assertion to pin the bundler directives inside each `import()` call. The focused suite passed 21/21 and a forced Turbopack application build completed without `Can't resolve <dynamic>`.
