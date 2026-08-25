@@ -8974,6 +8974,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/tillio@workspace:packages/tillio"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
@@ -8986,13 +8987,16 @@ __metadata:
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
+    react-is: "npm:^19.2.8"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+    react-is: ">=18.0.0"
   languageName: unknown
   linkType: soft
 

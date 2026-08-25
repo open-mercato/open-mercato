@@ -59,11 +59,14 @@
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-is": ">=18.0.0"
   },
   "devDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/react": "^19.2.17",
@@ -73,6 +76,7 @@
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-is": "^19.2.8",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
   },
