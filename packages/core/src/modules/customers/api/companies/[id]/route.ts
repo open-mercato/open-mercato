@@ -38,6 +38,7 @@ import {
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewer } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -483,9 +484,17 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // Mirrors the people detail route. API-key callers resolve to null
   // (no author match — shared/non-email rows only).
   const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+  // Company detail spans many Persons, so it uses the capped tenant-wide grant
+  // list rather than a per-Person lookup.
+  const companyShareGrants = await listGrantsForViewer(
+    em,
+    { tenantId: companyScope.tenantId, organizationId: companyScope.organizationId },
+    viewerUserId,
+  )
   const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
     currentUserId: viewerUserId,
     userFeatures: undefined,
+    sharedConversations: companyShareGrants,
   })
 
   // Opt-in cache (#3664): the company existence + org read-access checks above

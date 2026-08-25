@@ -87,6 +87,7 @@ const events = [
   // ── Email integration (2026-05-27) ────────────────────────────────────────
   { id: 'customers.email.linked', label: 'Email Linked To Person', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
   { id: 'customers.email.visibility_changed', label: 'Email Visibility Changed', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.email.conversation_visibility_changed', label: 'Email Conversation Visibility Changed', entity: 'email_conversation_share', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

@@ -3,6 +3,8 @@ import type { CustomerKysely } from '../lib/kysely'
 import { resolveKyselyClient } from '../lib/kysely'
 import { fetchStuckThresholdDays } from '../lib/stuckDeals'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { listGrantsForViewer } from '../lib/conversationShares'
 import { applyEmailHiddenFilter, isEmailHiddenFrom } from '../lib/visibilityFilter'
 
 type DealRecord = Record<string, unknown> & {
@@ -277,9 +279,18 @@ export const privateEmailCountEnricher: ResponseEnricher<
       .where('deleted_at', 'is', null)
       .where('entity_id', 'in', personIds)
 
+    // A conversation the owner shared is no longer "private" to this caller, so it
+    // must not be counted as hidden.
+    const sharedConversations = await listGrantsForViewer(
+      context.em as EntityManager,
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+      userId,
+    ).catch(() => [])
+
     const rows = await applyEmailHiddenFilter(baseQuery as never, {
       currentUserId: userId,
       userFeatures: undefined,
+      sharedConversations,
     })
       .groupBy('entity_id')
       .execute()
@@ -303,6 +314,24 @@ type InteractionRecord = Record<string, unknown> & {
   id: string
   interactionType?: string | null
   externalMessageId?: string | null
+}
+
+/**
+ * The Person an interaction is anchored to, needed to match a conversation-share
+ * grant. Different projections spell the column differently (`entityId` on the
+ * canonical CRUD shape, `entity_id` on raw rows, `entity` when the relation is
+ * serialized), so read all three and fail closed to `null`.
+ */
+function readPersonEntityId(record: Record<string, unknown>): string | null {
+  for (const key of ['entityId', 'entity_id', 'entity'] as const) {
+    const value = record[key]
+    if (typeof value === 'string' && value.length > 0) return value
+    if (value && typeof value === 'object') {
+      const nested = (value as Record<string, unknown>).id
+      if (typeof nested === 'string' && nested.length > 0) return nested
+    }
+  }
+  return null
 }
 
 type EmailIntegrationFields = {
@@ -420,6 +449,13 @@ export const interactionEmailCardEnricher: ResponseEnricher<
     }
 
     const currentUserId = ctx.userId
+    // Conversation shares widen which private emails this caller may act on, so
+    // the card actions derive from the same grants as the read filter.
+    const sharedConversations = await listGrantsForViewer(
+      ctx.em as EntityManager,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      currentUserId,
+    ).catch(() => [])
 
     return records.map((r) => {
       if (
@@ -451,6 +487,8 @@ export const interactionEmailCardEnricher: ResponseEnricher<
           visibility,
           authorUserId,
           currentUserId,
+          personEntityId: readPersonEntityId(r),
+          sharedConversations,
         })
       ) {
         return r

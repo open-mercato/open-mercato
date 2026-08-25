@@ -1,6 +1,7 @@
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { CustomerInteraction } from '../data/entities'
+import type { ConversationShareGrant } from './conversationShares'
 
 /**
  * The ACL feature that grants admins the right to see private emails authored
@@ -52,6 +53,16 @@ export function canChangeEmailVisibility(opts: {
 export interface ApplyEmailVisibilityFilterOptions {
   currentUserId: string | null
   userFeatures: string[] | null | undefined
+  /**
+   * Conversation shares that widen what this caller may read: each grant means
+   * "the owner of this mailbox handed their email history with this Person to the
+   * team" (`lib/conversationShares.ts`).
+   *
+   * OPTIONAL and fail-closed by design — omitting it (or passing `[]`) yields the
+   * byte-identical strict owner-only predicate that shipped in v1, so a read path
+   * that has not been taught about sharing can only ever under-share.
+   */
+  sharedConversations?: ConversationShareGrant[]
 }
 
 /**
@@ -81,6 +92,7 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
   //   - legacy/unset rows where `visibility IS NULL` (e.g. email-log entries
   //     created before per-email visibility shipped) — these must remain
   //     visible to avoid silently hiding pre-existing CRM history.
+  const grants = opts.sharedConversations ?? []
   return query.where((eb: any) =>
     eb.or([
       eb('interaction_type', '!=', 'email'),
@@ -89,6 +101,15 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
       currentUserId
         ? eb('author_user_id', '=', currentUserId)
         : eb.val(false),
+      // Conversation shares: the owner handed their history with this Person to
+      // the team. One arm per grant, each an AND of the two columns the covering
+      // index already leads with.
+      ...grants.map((grant) =>
+        eb.and([
+          eb('entity_id', '=', grant.personEntityId),
+          eb('author_user_id', '=', grant.ownerUserId),
+        ]),
+      ),
     ]),
   )
 }
@@ -107,10 +128,24 @@ export function isEmailHiddenFrom(opts: {
   visibility: string | null | undefined
   authorUserId: string | null | undefined
   currentUserId: string | null | undefined
+  /** The Person this interaction is anchored to; required to match a share grant. */
+  personEntityId?: string | null | undefined
+  sharedConversations?: ConversationShareGrant[]
 }): boolean {
   if (opts.interactionType !== 'email') return false
   if (opts.visibility !== 'private') return false
-  return !(opts.currentUserId && opts.authorUserId && opts.authorUserId === opts.currentUserId)
+  if (opts.currentUserId && opts.authorUserId && opts.authorUserId === opts.currentUserId) {
+    return false
+  }
+  const grants = opts.sharedConversations ?? []
+  if (grants.length > 0 && opts.personEntityId && opts.authorUserId) {
+    const shared = grants.some(
+      (grant) =>
+        grant.personEntityId === opts.personEntityId && grant.ownerUserId === opts.authorUserId,
+    )
+    if (shared) return false
+  }
+  return true
 }
 
 /**
@@ -129,11 +164,26 @@ export function applyEmailHiddenFilter<T extends { where: (...args: any[]) => T 
   opts: ApplyEmailVisibilityFilterOptions,
 ): T {
   const currentUserId = opts.currentUserId
+  const grants = opts.sharedConversations ?? []
   return query
     .where('interaction_type', '=', 'email')
     .where('visibility', '=', 'private')
     .where((eb: any) =>
       currentUserId ? eb('author_user_id', '!=', currentUserId) : eb.val(true),
+    )
+    // Subtract the shared conversations. Without this the Person page would keep
+    // reporting "3 private emails" for emails the caller can now actually read.
+    .where((eb: any) =>
+      grants.length === 0
+        ? eb.val(true)
+        : eb.and(
+            grants.map((grant) =>
+              eb.or([
+                eb('entity_id', '!=', grant.personEntityId),
+                eb('author_user_id', '!=', grant.ownerUserId),
+              ]),
+            ),
+          ),
     )
 }
 
@@ -208,12 +258,19 @@ export function buildEmailVisibilityMikroFilter(
   // the whole predicate inside one `$or` means such a spread can never split the
   // predicate into independently-satisfiable arms. Any future widening MUST be
   // added as another arm of THIS `$or`, not as a sibling top-level key.
+  const grants = opts.sharedConversations ?? []
   return {
     $or: [
       { interactionType: { $ne: 'email' } },
       { visibility: null },
       { visibility: { $ne: 'private' } },
       ...(opts.currentUserId ? [{ authorUserId: opts.currentUserId }] : []),
+      // Mirrors the kysely share arm: one AND-pair per grant, kept flat inside
+      // this single `$or` so the fragment stays a one-key object.
+      ...grants.map((grant) => ({
+        entity: grant.personEntityId,
+        authorUserId: grant.ownerUserId,
+      })),
     ],
   } as EmailVisibilityFilterFragment
 }

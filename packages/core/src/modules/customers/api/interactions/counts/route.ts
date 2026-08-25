@@ -9,6 +9,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewer } from '../../../lib/conversationShares'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -100,9 +101,17 @@ export async function GET(req: Request) {
     // per-type counts so the `email` total matches the visibility-filtered list.
     // v1 strict owner-only — no admin bypass (the filter ignores caller features).
     const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+    // Conversation shares must widen the counts too, or the `email` total would
+    // disagree with the visibility-filtered list it labels.
+    const emailShareGrants = await listGrantsForViewer(
+      em,
+      { tenantId: auth.tenantId as string, organizationId: organizationId ?? null },
+      viewerUserId,
+    )
     baseQuery = applyEmailVisibilityFilter(baseQuery, {
       currentUserId: viewerUserId,
       userFeatures: undefined,
+      sharedConversations: emailShareGrants,
     })
 
     // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.

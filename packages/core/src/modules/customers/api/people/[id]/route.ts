@@ -42,6 +42,7 @@ import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewerOnPerson } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
@@ -600,9 +601,21 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     // legacy null-visibility rows pass through. v1 is strict owner-only: there is
     // NO admin bypass — the filter ignores caller features, and
     // `customers.email.view_private` is reserved (inert) for v2 oversight.
+    // Conversation shares that widen this viewer's access to THIS person's email.
+    const sharedConversations = await listGrantsForViewerOnPerson(
+      em,
+      {
+        tenantId: person.tenantId ?? auth.tenantId ?? null,
+        organizationId: person.organizationId ?? auth.orgId ?? null,
+      } as never,
+      viewerUserId,
+      person.id,
+    )
+
     const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
       currentUserId: viewerUserId,
       userFeatures: undefined,
+      sharedConversations,
     })
 
     const personScope = { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }

@@ -1223,3 +1223,80 @@ export class CustomerPersonCompanyRole {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
+
+/**
+ * One owner-granted share of an email conversation: "mailbox owner
+ * `ownerUserId` has shared their email history with Person `personEntity` with
+ * the team."
+ *
+ * The row is a READ GRANT, not a state change. Nothing in
+ * `customer_interactions` is rewritten when a conversation is shared, so:
+ *   - sharing is retroactive (existing private rows become readable),
+ *   - un-sharing is instant and lossless (delete the row; per-message
+ *     `visibility` decisions the owner made by hand are untouched),
+ *   - the query index cannot go stale, because no indexed row is written.
+ *
+ * `lib/visibilityFilter.ts` widens its predicate with an arm matching
+ * `(entity_id, author_user_id)` against live rows of this table. Both columns are
+ * already covered by `customer_interactions_email_visibility_idx`, which is why
+ * the share is keyed on the OWNER rather than on a channel: it needs no
+ * denormalised `channel_id` and no extra join.
+ *
+ * Owner-only by construction: the write route derives `ownerUserId` from the
+ * authenticated caller and accepts no field naming another owner, so there is no
+ * escalation path to guard. `sharedByUserId` is recorded separately so a future
+ * delegated-sharing capability is additive rather than a column-meaning change.
+ */
+@Entity({ tableName: 'customer_email_conversation_shares' })
+@Index({
+  name: 'customer_email_conv_shares_lookup_idx',
+  expression:
+    `create index "customer_email_conv_shares_lookup_idx" on "customer_email_conversation_shares" ("tenant_id", "organization_id", "person_entity_id") where "deleted_at" is null`,
+})
+@Index({
+  name: 'customer_email_conv_shares_owner_idx',
+  expression:
+    `create index "customer_email_conv_shares_owner_idx" on "customer_email_conversation_shares" ("tenant_id", "owner_user_id") where "deleted_at" is null`,
+})
+@Index({
+  name: 'customer_email_conv_shares_uq',
+  expression:
+    `create unique index "customer_email_conv_shares_uq" on "customer_email_conversation_shares" ("tenant_id", "person_entity_id", "owner_user_id") where "deleted_at" is null`,
+})
+export class CustomerEmailConversationShare {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** The Person whose conversation is shared (`customer_entities`, kind='person'). */
+  @ManyToOne(() => CustomerEntity, { fieldName: 'person_entity_id' })
+  personEntity!: CustomerEntity
+
+  /**
+   * The mailbox owner whose email becomes readable. Matches
+   * `customer_interactions.author_user_id` on the rows this grant unlocks.
+   */
+  @Property({ name: 'owner_user_id', type: 'uuid' })
+  ownerUserId!: string
+
+  /** Actor who created the share, for audit. Equals `ownerUserId` today. */
+  @Property({ name: 'shared_by_user_id', type: 'uuid' })
+  sharedByUserId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  /** Required for OSS optimistic locking (default ON) on the share toggle. */
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

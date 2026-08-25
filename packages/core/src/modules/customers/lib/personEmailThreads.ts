@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
 import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
+import type { ConversationShareGrant } from './conversationShares'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
@@ -56,6 +57,11 @@ export type BuildPersonEmailThreadsOptions = {
   organizationId: string | null
   viewerUserId: string | null
   userFeatures: string[] | null | undefined
+  /**
+   * Conversation shares that widen this viewer's access. Optional and fail-closed:
+   * omitting it yields the strict owner-only view.
+   */
+  sharedConversations?: ConversationShareGrant[]
   maxThreads?: number
   maxMessagesPerThread?: number
 }
@@ -128,6 +134,7 @@ export async function buildPersonEmailThreads(
     organizationId,
     viewerUserId,
     userFeatures,
+    sharedConversations,
     maxThreads = DEFAULT_MAX_THREADS,
     maxMessagesPerThread = DEFAULT_MAX_MESSAGES_PER_THREAD,
   } = opts
@@ -162,6 +169,7 @@ export async function buildPersonEmailThreads(
     buildEmailVisibilityMikroFilter({
       currentUserId: viewerUserId,
       userFeatures,
+      sharedConversations,
     }),
   )
 
