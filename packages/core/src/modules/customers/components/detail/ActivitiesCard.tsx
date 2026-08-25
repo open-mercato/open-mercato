@@ -269,8 +269,10 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         onClick={interactive ? () => onClick?.(activity) : undefined}
         disabled={!interactive}
         className={cn(
-          'flex w-full items-start gap-3 py-2.5 text-left transition-colors',
-          interactive ? 'cursor-pointer rounded-md px-1 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none' : 'px-1',
+          // px with a matching negative margin: content stays aligned with the
+          // card while the hover surface bleeds past it on both sides.
+          '-mx-3 flex w-[calc(100%+1.5rem)] items-start gap-3 rounded-md px-3 py-3 text-left transition-colors',
+          interactive && 'cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
         )}
       >
         <div className="flex h-[44px] w-[43px] shrink-0 flex-col gap-[2px] pt-[2px]">
