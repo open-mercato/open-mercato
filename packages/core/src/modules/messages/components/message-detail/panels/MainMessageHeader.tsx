@@ -98,10 +98,10 @@ export function MainMessageHeader(props: MainMessageHeaderProps) {
       backHref="/backend/messages"
       backLabel={t('messages.actions.backToList', 'Back to messages')}
       title={(
-        <span className="inline-flex items-center gap-2">
+        <h1 className="inline-flex items-center gap-2">
           <span className="truncate">{props.subject}</span>
           <PriorityBadge priority={props.priority} />
-        </span>
+        </h1>
       )}
       utilityActions={props.canReply ? (
         <IconButton
