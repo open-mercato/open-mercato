@@ -19,7 +19,7 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 type Row = { id: string; name: string }
 
 describe('DataTable SSR render', () => {
-  it('uses a page heading for top-level tables and a section heading when embedded', () => {
+  it('keeps section-level title semantics by default and supports an explicit page heading', () => {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name' },
     ]
@@ -33,17 +33,17 @@ describe('DataTable SSR render', () => {
         </QueryClientProvider>,
       )
 
-      expect(screen.getByRole('heading', { level: 1, name: 'People' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 2, name: 'People' })).toBeInTheDocument()
 
       rerender(
         <QueryClientProvider client={queryClient}>
           <I18nProvider locale="en" dict={{}}>
-            <DataTable columns={columns} data={[]} title="People" embedded />
+            <DataTable columns={columns} data={[]} title="People" titleHeadingLevel={1} embedded />
           </I18nProvider>
         </QueryClientProvider>,
       )
 
-      expect(screen.getByRole('heading', { level: 2, name: 'People' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1, name: 'People' })).toBeInTheDocument()
     } finally {
       queryClient.clear()
     }

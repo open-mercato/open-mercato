@@ -59,13 +59,13 @@ describe('FormHeader', () => {
     )
   })
 
-  it('renders edit header injection spot with routing context', () => {
+  it('renders edit titles as section headings by default with an explicit page-heading option', () => {
     renderWithProviders(
       <FormHeader title="Edit Person" />,
       { dict: {} },
     )
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Edit Person' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Edit Person' })).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:form-header:edit')).toBeInTheDocument()
     expect(mockInjectionSpot).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -76,5 +76,12 @@ describe('FormHeader', () => {
         },
       }),
     )
+
+    renderWithProviders(
+      <FormHeader title="Edit Company" titleHeadingLevel={1} />,
+      { dict: {} },
+    )
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Edit Company' })).toBeInTheDocument()
   })
 })

@@ -64,6 +64,32 @@ describe('CrudForm custom field default application', () => {
     })
   })
 
+  it('forwards explicit title heading semantics while preserving the section-level default', () => {
+    const { rerender } = renderWithProviders(
+      <CrudForm
+        title="Edit"
+        fields={fields}
+        initialValues={{ name: 'Test' }}
+        onSubmit={() => {}}
+      />,
+      { dict },
+    )
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Edit' })).toBeInTheDocument()
+
+    rerender(
+      <CrudForm
+        title="Edit"
+        titleHeadingLevel={1}
+        fields={fields}
+        initialValues={{ name: 'Test' }}
+        onSubmit={() => {}}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Edit' })).toBeInTheDocument()
+  })
+
   it('applies defaultValue to text inputs on create form', async () => {
     setupMockDefinitions([
       { key: 'status', kind: 'text', label: 'Status', defaultValue: 'active', formEditable: true },
