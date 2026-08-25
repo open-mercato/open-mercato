@@ -78,8 +78,9 @@ async function advanceFulltextReindexProgress(params: {
  * This handler processes single record indexing, batch indexing, deletion, and purge
  * operations for the fulltext search strategy.
  *
- * All indexing operations (single and batch) use searchIndexer.indexRecordById() to load
- * fresh data, ensuring consistency with the vector worker pattern.
+ * Single-record jobs load fresh data via searchIndexer.indexRecordById(). Batch jobs load
+ * fresh data per record via searchIndexer.indexRecordsById(), which flushes the whole batch
+ * through a single bulk write instead of one write per record.
  *
  * @param job - The queued job containing payload
  * @param jobCtx - Queue job context with job ID and attempt info
@@ -202,7 +203,7 @@ export async function handleFulltextIndexJob(
       return
     }
 
-    // ========== BATCH-INDEX: Use searchIndexer.indexRecordById() for fresh data ==========
+    // ========== BATCH-INDEX: Load fresh data, write the whole batch in one call ==========
     if (jobType === 'batch-index') {
       const { records, organizationId } = job.payload
       if (!records || records.length === 0) {
@@ -216,30 +217,13 @@ export async function handleFulltextIndexJob(
         throw new Error('searchIndexer not available for batch indexing')
       }
 
-      // Process each record using indexRecordById (same pattern as vector worker)
-      let successCount = 0
-      let failCount = 0
-
-      for (const { entityId, recordId } of records) {
-        try {
-          const result = await searchIndexer.indexRecordById({
-            entityId: entityId as EntityId,
-            recordId,
-            tenantId,
-            organizationId,
-          })
-          if (result.action === 'indexed') {
-            successCount++
-          }
-        } catch (error) {
-          failCount++
-          searchDebugWarn('fulltext-index.worker', 'Failed to index record in batch', {
-            entityId,
-            recordId,
-            error: error instanceof Error ? error.message : error,
-          })
-        }
-      }
+      // Load and index the whole batch through a single bulk write instead of
+      // one indexRecordById() call per record.
+      const { indexed: successCount, skipped: failCount } = await searchIndexer.indexRecordsById(
+        records.map(({ entityId, recordId }) => ({ entityId: entityId as EntityId, recordId })),
+        tenantId,
+        organizationId,
+      )
 
       await advanceFulltextReindexProgress({
         db,

@@ -451,6 +451,7 @@ describe('Fulltext Index Worker', () => {
   const mockSearchIndexer = {
     getEntityConfig: jest.fn().mockReturnValue(null),
     indexRecordById: jest.fn().mockResolvedValue({ action: 'indexed', created: true }),
+    indexRecordsById: jest.fn().mockResolvedValue({ indexed: 0, skipped: 0 }),
   }
 
   const mockEm = {
@@ -471,6 +472,7 @@ describe('Fulltext Index Worker', () => {
     ;(hasActiveReindexProgress as jest.Mock).mockResolvedValue(true)
     mockFulltextStrategy.isAvailable.mockResolvedValue(true)
     mockSearchIndexer.indexRecordById.mockResolvedValue({ action: 'indexed', created: true })
+    mockSearchIndexer.indexRecordsById.mockResolvedValue({ indexed: 0, skipped: 0 })
   })
 
   it('should skip job with missing tenantId', async () => {
@@ -486,12 +488,13 @@ describe('Fulltext Index Worker', () => {
     expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
   })
 
-  it('should index records via searchIndexer when jobType is batch-index', async () => {
+  it('should index the whole batch in a single indexRecordsById call when jobType is batch-index', async () => {
     // Use minimal record format (just entityId + recordId)
     const records = [
       { entityId: 'test:entity', recordId: 'rec-1' },
       { entityId: 'test:entity', recordId: 'rec-2' },
     ]
+    mockSearchIndexer.indexRecordsById.mockResolvedValueOnce({ indexed: 2, skipped: 0 })
     const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
@@ -501,26 +504,22 @@ describe('Fulltext Index Worker', () => {
 
     await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    // Verify indexRecordById was called for each record
-    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(2)
-    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledWith({
-      entityId: 'test:entity',
-      recordId: 'rec-1',
-      tenantId: 'tenant-123',
-      organizationId: undefined,
-    })
-    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledWith({
-      entityId: 'test:entity',
-      recordId: 'rec-2',
-      tenantId: 'tenant-123',
-      organizationId: undefined,
-    })
+    // Verify the whole batch is written through exactly one indexRecordsById
+    // call, not one indexRecordById call per record.
+    expect(mockSearchIndexer.indexRecordsById).toHaveBeenCalledTimes(1)
+    expect(mockSearchIndexer.indexRecordsById).toHaveBeenCalledWith(
+      [
+        { entityId: 'test:entity', recordId: 'rec-1' },
+        { entityId: 'test:entity', recordId: 'rec-2' },
+      ],
+      'tenant-123',
+      undefined,
+    )
+    expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
   })
 
   it('counts handled fulltext batch records as processed so progress can complete', async () => {
-    mockSearchIndexer.indexRecordById
-      .mockResolvedValueOnce({ action: 'skipped' })
-      .mockResolvedValueOnce({ action: 'skipped' })
+    mockSearchIndexer.indexRecordsById.mockResolvedValueOnce({ indexed: 0, skipped: 2 })
     const records = [
       { entityId: 'test:entity', recordId: 'rec-1' },
       { entityId: 'test:entity', recordId: 'rec-2' },
@@ -543,7 +542,7 @@ describe('Fulltext Index Worker', () => {
 
     await handleFulltextIndexJob(job, createMockJobContext(), containerWithProgress)
 
-    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(2)
+    expect(mockSearchIndexer.indexRecordsById).toHaveBeenCalledTimes(1)
     expect(updateReindexProgress).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 2, 'org-456')
     expect(incrementReindexProgress).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'fulltext', tenantId: 'tenant-123', delta: 2 }),
@@ -572,7 +571,7 @@ describe('Fulltext Index Worker', () => {
 
     await handleFulltextIndexJob(job, createMockJobContext(), containerWithProgress)
 
-    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledTimes(1)
+    expect(mockSearchIndexer.indexRecordsById).toHaveBeenCalledTimes(1)
     expect(updateReindexProgress).not.toHaveBeenCalled()
     expect(incrementReindexProgress).not.toHaveBeenCalled()
     expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
