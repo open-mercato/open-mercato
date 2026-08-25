@@ -150,8 +150,8 @@ function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'des
     return { createdAt: sortDir }
   }
   return {
-    [raw(`occurred_at ${sortDir} nulls last`)]: null,
-    [raw(`created_at ${sortDir} nulls last`)]: null,
+    [raw('occurred_at')]: `${sortDir} nulls last`,
+    [raw('created_at')]: `${sortDir} nulls last`,
   }
 }
 
@@ -160,8 +160,8 @@ function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | '
     return { createdAt: sortDir }
   }
   return {
-    [raw(`occurred_at ${sortDir} nulls last`)]: null,
-    [raw(`created_at ${sortDir} nulls last`)]: null,
+    [raw('occurred_at')]: `${sortDir} nulls last`,
+    [raw('created_at')]: `${sortDir} nulls last`,
   }
 }
 

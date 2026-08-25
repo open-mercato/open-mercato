@@ -170,8 +170,8 @@ export async function buildPersonEmailThreads(
     interactionWhere as never,
     {
       orderBy: {
-        [raw('occurred_at desc nulls last')]: null,
-        [raw('created_at desc nulls last')]: null,
+        [raw('occurred_at')]: 'desc nulls last',
+        [raw('created_at')]: 'desc nulls last',
       },
       limit: maxThreads * 20,
     },
