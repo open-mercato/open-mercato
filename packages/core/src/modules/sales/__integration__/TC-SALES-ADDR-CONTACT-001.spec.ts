@@ -104,10 +104,14 @@ test.describe('TC-SALES-ADDR-CONTACT-001: contact details on the document addres
     await expect(page.getByPlaceholder('Tax number')).toHaveValue('PL1234567890')
     await expect(page.getByPlaceholder('Phone')).toHaveValue('+48 600 100 200')
 
-    // Visibility is a SEPARATE assertion from value, and it is the one that earns its keep: a field
-    // laid out to zero width still holds its value, so the two lines above pass while the tile shows
-    // no tax id at all. Playwright calls an element with an empty bounding box invisible, which makes
-    // this the cheapest check that the field survived the grid it is laid out in.
+    // Visibility is a separate assertion from value, because a field can be in the DOM holding the
+    // right string and still not be on screen — `toHaveValue` passes either way. It catches the blunt
+    // cases: a hidden parent, `display: none`, a zero-size box.
+    //
+    // It does NOT catch every way a field can fail to appear. The tile layout is width-dependent, and
+    // at this viewport a field can render correctly here while a narrower tile squeezes it out; that
+    // failure needs a browser at the width it happens on, which this suite does not model. Treat this
+    // pair as a guard, not as coverage for a layout regression.
     await expect(page.getByPlaceholder('Tax number')).toBeVisible()
     await expect(page.getByPlaceholder('Phone')).toBeVisible()
 
