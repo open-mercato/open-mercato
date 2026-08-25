@@ -1,7 +1,7 @@
 # Background work, part 3 — common problems and the requirements they imply
 
 **Status**: requirements statement, 2026-08-21. **This document deliberately stops before any design.**
-**Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` problems (D-n) · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — sibling modules (Q/P/W/S/… ids) · [part 3](./2026-08-21-background-work-03-common-problems-and-requirements.md) — classes C-1…C-14, requirements R-A…R-M, open decisions Δ-1…Δ-11 · [part 4](./2026-08-21-background-work-04-solution.md) — options, decision, shared invariants · [part 5](./2026-08-21-background-work-05-queue-transport-contract.md) — queue transport contract · [part 6](./2026-08-21-background-work-06-leased-jobs-in-progress.md) — leased tier in `progress` · [part 7](./2026-08-21-background-work-07-data-sync-adoption.md) — `data_sync` adoption · [part 8](./2026-08-21-background-work-08-operator-surface.md) — operator surface.
+**Series**: [part 1](./2026-08-21-background-work-01-data-sync-problems.md) — `data_sync` problems (D-n) · [part 2](./2026-08-21-background-work-02-sibling-modules-problems.md) — sibling modules (Q/P/W/S/… ids) · [part 3](./2026-08-21-background-work-03-common-problems-and-requirements.md) — classes C-1…C-14, requirements R-A…R-M, open decisions Δ-1…Δ-11 · [part 4](./2026-08-21-background-work-04-solution.md) — options, decision, shared invariants · [part 5](./2026-08-21-background-work-05-queue-transport-contract.md) — queue transport hardening · [part 6](./2026-08-21-background-work-06-data-sync-hardening.md) — phase 1: `data_sync` hardening.
 
 ---
 
@@ -79,7 +79,7 @@ The only general sweep runs inside `GET /api/progress/active` (D-5, P-3, P-5, P-
 
 ### C-4 · No single-runner guarantee and no idempotency key
 
-Two starts of the same logical work are allowed everywhere: `data_sync` overlap is a plain SELECT with no unique index and no queue job id (D-11); `progress` has no key and is used as a mutex via a capped, org-scoped list (P-10, P-11); the queue exposes no `jobId`/dedup (Q-2); the scheduler double-fires across replicas in local mode and has no overlap protection in async mode, and its `_idempotencyKey` is read by no consumer (S-5, S-8, S-9, S-10); workflow advance/task/signal/timer paths are unlocked read-then-write (W-10, W-11); poll-tick re-enqueues live channels every tick and is not single-flight (CC-1, CC-2, CC-3); a schedule id collision silently drops orgs (IN-1); `search`'s lock expires in 30 s so a second reindex starts under the first and overwrites its total (SR-4); `sync_excel` and Akeneo delete have no guard at all (SX-1, AK-5); N replicas debounce auto-reindex independently (QI-5). Where side effects are external, the result is duplicates: webhook POSTs with fresh ids (WH-1, WH-2), customer emails (CK-1), notifications (NT-1), reactions (CC-8), pushes (PU-1).
+Two starts of the same logical work are allowed everywhere: `data_sync` overlap is a plain SELECT with no unique index and no queue job id (D-11); `progress` has no key and is used as a mutex via a capped, org-scoped list (P-10, P-11); the queue exposes no `jobId`/dedup (Q-2); the scheduler double-fires across replicas in local mode and has no overlap protection in async mode, and its `_idempotencyKey` is read by no consumer (S-5, S-8, S-9, S-10); workflow advance/task/signal/timer paths are unlocked read-then-write (W-10, W-11); poll-tick re-enqueues live channels every tick and is not single-flight (CC-1, CC-2, CC-3); a schedule id collision silently drops orgs (IN-1); `search`'s lock expires in 30 s so a second reindex starts under the first and overwrites its total (SR-4); `sync_excel` and Akeneo delete have no guard at all (SX-1, AK-5); N replicas debounce auto-reindex independently (QI-5). Where side effects are external, the result is duplicates: webhook POSTs with fresh ids (WH-1, WH-2), customer emails (CK-1), notifications (NT-1), reactions (CC-8), pushes (PU-1). Note the provenance: every duplicated-external-side-effect finding in this class comes from the webhook/email/notification/push consumers — none from `data_sync`, whose writes are idempotent upserts (see the delivery-semantics premise, §3).
 **Worst consequence**: duplicate external side effects and shared-cursor clobber. **Done right**: ingest idempotency on `(channel_id, external_message_id)`, inbound webhook receipt dedup by unique violation, push fan-out `ON CONFLICT DO NOTHING`, attachment `claimExpired`.
 
 ### C-5 · Multi-phase writes with no transaction, no outbox, no compensation
@@ -138,6 +138,18 @@ All async-strategy tests mock `bullmq`; no test in any audited area runs two rep
 
 Derived from the classes above. **MUST** = without it at least one High finding, or an entire class, remains reachable; **SHOULD** = needed for the "done once, enterprise scale" bar the maintainers set; **MAY** = desirable, not load-bearing. Each requirement names the classes it discharges and an acceptance criterion that a test or a query can check. None of them prescribes *where* the mechanism lives or *what it is called* — those are §4.
 
+### The delivery-semantics premise (per consumer)
+
+Every requirement below is bounded by one question the earlier drafts did not ask per consumer: **is this consumer's unit of work idempotent under redelivery?** Where it is, at-least-once delivery plus a fence at the commit is a complete correctness story, and the heavyweight requirements (R-C slicing, a claim-time lease) become optimisations rather than obligations. Where it is not, they bind in full.
+
+| Consumer | Unit | Idempotent under redelivery? | Consequence |
+|---|---|---|---|
+| `data_sync` import | one batch: upstream reads + upserts keyed by external id + fenced cursor commit | **yes** — writes are upserts, `storeExternalIdMapping` self-heals duplicates (`id-mapping.ts:48-115`), counters/cursor sit behind the `commitBatchProgress` CAS (`sync-run-service.ts:306-336`), so a duplicated batch costs wasted reads, never corruption | at-least-once suffices; R-F3 is discharged by re-running the batch; R-C1 (per-slice hand-back) is **optional** — a re-drive redoes at most one batch — while R-C2 (bounded shutdown) and R-C4 (the `AbortSignal`) still apply and phase 1 ships them. Phase 1 (parts 5–6) builds on this |
+| `data_sync` export | one batch of external writes | **contract, not fact** — no in-repo adapter implements `streamExport` today; the adapter contract must require exporters to forward an idempotency key (R-D4) before one ships | R-D4 binds at the contract level now, enforced when the first exporter lands |
+| webhooks, customer emails, notifications, pushes, channel reactions | one external side effect | **no** — the C-4 evidence for duplicate side effects (WH-1/WH-2, CK-1, NT-1, PU-1, CC-8) is exclusively from these consumers | R-D4 + R-F3 bind in full; these are the consumers a leased/keyed mechanism exists for, and none of them adopts in phase 1 — part 4 §Staging gates the mechanism on their adoption |
+
+This table is the sizing instrument for part 4: a mechanism must be justified by the consumers that adopt it, not by the worst finding anywhere in the catalogue.
+
 ### A. One record, one clock
 
 | ID | Requirement | Discharges | Acceptance |
@@ -162,7 +174,7 @@ Derived from the classes above. **MUST** = without it at least one High finding,
 
 | ID | Requirement | Discharges | Acceptance |
 |---|---|---|---|
-| R-C1 | A handler **MUST** be able to stop at a durable boundary and continue later, such that a duplicate or stale continuation performs no work; the transport's lock, stall and retry machinery then apply to a bounded slice. | C-1 | A 7,000-batch run completes across deploys without consuming stall budget and without any in-handler retry loop. |
+| R-C1 | A handler **MUST** be able to stop at a durable boundary and continue later, such that a duplicate or stale continuation performs no work; the transport's lock, stall and retry machinery then apply to a bounded slice. *Applicability (§3 premise): for a consumer whose unit is idempotent under redelivery, "stop at a durable boundary and continue" is satisfied by redelivery-from-the-committed-cursor; per-slice hand-back is required only where redelivery is not free.* | C-1 | A 7,000-batch run completes across deploys without consuming stall budget and without any in-handler retry loop. |
 | R-C2 | Shutdown **MUST** be bounded: a worker receiving SIGTERM finishes or yields within a configurable deadline and releases its leases explicitly; redelivery after a clean shutdown **MUST NOT** wait for lock expiry. | C-1 (Q-15, D-2) | SIGTERM with a live slice → record released and re-driven within one tick, no stall counted. |
 | R-C3 | Sweeps over sets (channels, claims, transactions, sessions) **MUST** be bounded per slice and resume from a durable cursor, not restart from row 0. | C-1 (CA-4, WC-1, AI-2) | A killed sweep resumes where it stopped. |
 | R-C4 | The handler **MUST** receive an `AbortSignal` that fires on cancellation, lease loss and shutdown, and **SHOULD** be able to ask for more time explicitly. | C-7, C-8 (Q-1) | A handler awaiting I/O observes cancellation within one heartbeat interval. |
@@ -191,7 +203,7 @@ Derived from the classes above. **MUST** = without it at least one High finding,
 |---|---|---|---|
 | R-F1 | A handler **MUST NOT** swallow a failure of durable work and complete green; failures **MUST** reach the record (reason, count) and the transport (retry or terminal). | C-6 | No audited "catch → log → return" remains in a worker that owns a record. |
 | R-F2 | Transient and permanent failures **MUST** be distinguishable to the transport (fail-fast for permanent), with an owner-supplied classification and a safe default of "retry". | C-6 (Q-12, AT-2, CC-7) | A permanent error is terminal after one attempt; a transient one retries with backoff until a budget resets on committed progress. |
-| R-F3 | The retry unit **MUST** equal the idempotent unit: per-subscriber for fan-outs, per-slice for long work, per-row for sweeps; retries **MUST NOT** re-run sub-steps that already succeeded. | C-6 (EV-1, W-23, IN-3) | Subscriber A's success survives subscriber B's failure and retry. |
+| R-F3 | The retry unit **MUST** equal the idempotent unit: per-subscriber for fan-outs, per-slice for long work, per-row for sweeps; retries **MUST NOT** re-run sub-steps that already succeeded. *Applicability (§3 premise): where the whole unit is idempotent under redelivery, re-running it **is** compliance — the prohibition targets consumers whose sub-steps have external effects.* | C-6 (EV-1, W-23, IN-3) | Subscriber A's success survives subscriber B's failure and retry. |
 | R-F4 | The outcome of a transient error **MUST NOT** depend on how long the outage lasted. | C-6 (D-16) | The same fault injected for 1 s, 5 s and 5 min yields the same end state after repair. |
 | R-F5 | Retry policy (attempts, backoff, budget) **MUST** be settable per kind and changeable without re-enqueueing existing work. | C-6 (Q-11) | Changing a kind's policy affects the next retry of already-queued work. |
 
@@ -306,5 +318,6 @@ A → C-2, C-10, C-11 · B → C-1, C-3, C-6, C-8, C-9 · C → C-1, C-7, C-8 ·
 
 ## Changelog
 
+- 2026-08-25 — Added the **delivery-semantics premise** (§3): per-consumer idempotence-under-redelivery table; R-C1/R-F3 applicability notes; C-4 provenance note (the duplicate-side-effect evidence is exclusively non-`data_sync`). No classes, findings or ids changed. Follows the maintainer scope discussion on PR #5450.
 - 2026-08-21 — Initial version. Supersedes the solution-first documents removed the same day (`2026-08-21-data-sync-architecture-review.md` §10–§12 and `2026-08-21-jobs-module-durable-background-work.md`, earlier drafts not retained); their design content is intentionally not carried forward here and will be re-derived against §3 in a separate solution spec.
 - 2026-08-21 — §0 rewritten for readability (the three decisions asked of the reader stated up front; id legend moved from the header to §5); no classes, requirements, decisions or ids changed.
