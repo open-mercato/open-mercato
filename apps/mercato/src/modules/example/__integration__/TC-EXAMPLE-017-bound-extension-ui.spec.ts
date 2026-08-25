@@ -200,6 +200,9 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
     // create (as this test used to) leaves the redirect's RSC fetch hanging and the URL
     // stuck on `/backend/todos/create`. Playwright removes the route at page close, where
     // nothing in flight is asserted on.
+    // `holdCreateRequest` keeps the gate armed for exactly one submit — the transform one —
+    // so installing the route this early does not change which request is held.
+    let holdCreateRequest = false
     let markCreateRequestIntercepted: () => void = () => {}
     let releaseCreateRequest: () => void = () => {}
     const createRequestIntercepted = new Promise<void>((resolve) => {
@@ -209,10 +212,11 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       releaseCreateRequest = resolve
     })
     await page.route('**/api/example/todos', async (route) => {
-      if (route.request().method() !== 'POST') {
+      if (!holdCreateRequest || route.request().method() !== 'POST') {
         await route.continue()
         return
       }
+      holdCreateRequest = false
       markCreateRequestIntercepted()
       await createRequestRelease
       await route.continue()
@@ -240,6 +244,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       const rawTitle = `[transform] TC-EXAMPLE-017 ${suffix}`
       const expectedTitle = `TC-EXAMPLE-017 ${suffix} (transformed)`
       await titleInput.fill(rawTitle)
+      holdCreateRequest = true
       const createRequestPromise = page.waitForRequest(
         (candidate) => candidate.url().includes(TODOS_API) && candidate.method() === 'POST',
       )
