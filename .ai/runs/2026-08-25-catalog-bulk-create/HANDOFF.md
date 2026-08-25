@@ -1,9 +1,15 @@
 # HANDOFF — Catalog Bulk-Create (Products & Categories)
 
 **PR:** #5610 (`feat/catalog-bulk-create` → `develop`, fork `adeptofvoltron/open-mercato`)
-**Status:** in-progress
-**Last commit:** `c3249bb43`
-**Next concrete action:** Step 8 (`om-auto-review-pr --autofix`), then Steps 9–10 (summary comment, labels, draft→ready, lock release). All implementation, docs, and the Step 7 final gate are done.
+**Status:** complete
+**Last commit:** `655f73d4a` (this HANDOFF/NOTIFY close-out commit follows)
+**Next concrete action:** none from this automation. An independent reviewer must approve the PR (GitHub blocked this automation from approving its own PR — the code review was posted as a PR comment instead) before it can move to `merge-queue`. The two new integration specs (`TC-CAT-036`/`TC-CAT-037`) should be confirmed passing for real (they were written and lint-clean but not executed against a live app in this worktree).
+
+## Finalization (Step 8-10, this resume)
+
+- Step 8 (`om-auto-review-pr`): ran the review inline (isolated worktree already in use). No blockers/majors. Attempted to submit as a formal GitHub approving review — blocked (`Can not approve your own pull request`) — posted as a PR comment instead. Two non-blocking notes: neither new route wires the mutation-guard registry (matches the `bulk-delete` reference pattern this PR was told to mirror, not a regression), and the two integration specs are unexecuted.
+- Step 9: comprehensive summary comment posted covering all five resumes.
+- Step 10: PR body `Status: complete`, draft → ready via `gh pr ready`, labels `priority-medium`/`risk-low`/`skip-qa`/`review` added (`review` because no pipeline label existed yet and self-approval was blocked, so this PR still needs an independent approval — not `merge-queue`), `in-progress` removed, label-rationale comment posted.
 
 ## Current Tasks-table state (see PLAN.md for the authoritative table)
 

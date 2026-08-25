@@ -1,5 +1,9 @@
 # NOTIFY — Catalog Bulk-Create (Products & Categories)
 
+## 2026-08-25T17:30:00Z — run complete: reviewed, finalized, lock released
+
+Steps 8-10 done. Review found no blockers/majors; formal GitHub approval was blocked (self-approval), posted as a PR comment instead. PR body flipped to `Status: complete`, promoted draft → ready, labels normalized (`priority-medium`, `risk-low`, `skip-qa`, `review` — stays `review` pending an independent approval, not `merge-queue`, precisely because this automation couldn't self-approve). Comprehensive summary comment posted. `in-progress` lock released below. Nothing further pending from this automation; next action is a human/independent-agent review approval plus confirming the two integration specs actually pass.
+
 ## 2026-08-25T16:45:00Z — Step 7 final gate done; integration tests added but unexecuted
 
 - Added `TC-CAT-036`/`TC-CAT-037` integration specs for both bulk-create endpoints (commit `c3249bb43`), following the `customers` module's `TC-CRM-068` queue-drain/progress-poll precedent. Required by AGENTS.md's "integration coverage ships in the same change" rule; previously only unit-level (mocked commandBus) coverage existed.
