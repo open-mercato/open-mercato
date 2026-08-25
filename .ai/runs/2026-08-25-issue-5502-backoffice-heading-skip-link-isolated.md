@@ -1,8 +1,10 @@
-# PR #5543 continuation plan
+# Execution plan — restore reliable backoffice heading structure and keyboard navigation (adopted from PR #5543)
 
-Origin: adopted from PR #5543
+**Origin:** adopted — reconstructed by `om-auto-continue-pr` on 2026-08-25 because PR #5543 carried no execution plan.
+**PR:** #5543 · **Branch:** `fix/issue-5502-backoffice-heading-skip-link-isolated` · **Base:** `develop`
+**Author:** @haxiorz — this plan interprets their intent; correct it by editing this file or commenting on the PR.
 
-## Goal
+## 🎯 Goal
 
 Complete issue #5502 with backward-compatible, explicit heading semantics, a keyboard-accessible skip link, and regression coverage that protects representative backoffice page structures.
 
@@ -44,9 +46,25 @@ Complete issue #5502 with backward-compatible, explicit heading semantics, a key
 
 ## Progress
 
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Already landed on this PR (reconstructed)
+
 - [x] 1.1 Add localized skip link and initial backoffice heading coverage — 374c76f0
+
+### Phase 2: Restore compatible component semantics
+
 - [ ] 2.1 Merge current `develop` without rewriting PR history and resolve conflicts
 - [ ] 2.2 Add explicit backward-compatible heading-level APIs and update page/section consumers
+
+### Phase 3: Repair missing page headings
+
 - [ ] 3.1 Give audit-log and message-detail pages stable top-level headings
+
+### Phase 4: Add regression coverage
+
 - [ ] 4.1 Update broken integration assertions and add composed heading/skip-link coverage
+
+### Phase 5: Verify and publish
+
 - [ ] 5.1 Run focused and full validation, review, and push final fixes
