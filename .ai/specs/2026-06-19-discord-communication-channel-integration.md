@@ -1151,7 +1151,11 @@ shipped, none of them caught by a test that stayed green throughout.
   tenant's channel-bot user, and the documented way to widen or narrow the auto-reply principal — put
   the channel-bot user in a different role — did nothing, because the branch that reads it was
   unreachable. The lookup now keys on the deterministic `email_hash`, the column the tenant
-  uniqueness index already uses.
+  uniqueness index already uses — and names the `users` table directly rather than through
+  `createQueryBuilder('auth.users')`, which resolved to no registered entity and therefore had
+  MikroORM looking for the table in a schema this project never creates. The two failures were
+  indistinguishable from outside, because the helper is fail-soft by design and both produce the
+  same fallback, which is why each property now carries its own regression test.
 - **§ A visible failure mode → the banner said `agent <id>: [` (#5603).** `describeAgentFailure` kept
   a message's first line, and `ZodError.message` is pretty-printed JSON. The banner added to explain
   a silent channel explained nothing. Validation issues are now described by path and message, other
