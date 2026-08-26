@@ -458,7 +458,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user ACL',
-      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. An organization-scoped non-super-admin override requires at least one feature grant.',
+      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. Authorization evaluates the merged ACL, so a partial request returns 403 when a preserved grant is outside the actor\'s grantable ACL. An organization-scoped non-super-admin override requires at least one feature grant.',
       requestBody: {
         contentType: 'application/json',
         schema: putSchema,
