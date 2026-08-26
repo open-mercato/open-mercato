@@ -1,27 +1,29 @@
 # Handoff — 2026-08-26-sales-line-discount-amount-contract
 
-**Last updated:** 2026-08-26T07:10:00Z
+**Last updated:** 2026-08-26T07:25:00Z
 **Branch:** `fix/sales-line-discount-amount-contract`
-**PR:** https://github.com/open-mercato/open-mercato/pull/5640
-**Current phase/step:** all 25 Steps done — final gate green, handing to `om-auto-review-pr`
-**Last commit:** `97ca8214f` — docs(runs): close out the follow-up steps for the line discount contract
+**PR:** https://github.com/open-mercato/open-mercato/pull/5640 — **ready for review**, not merge-ready
+**Current phase/step:** run complete; bounded CI follow-up in progress
+**Last commit:** `f4320a7da` — test(sales): cover the line-delete rebuild against discount re-inflation
 
 ## What just happened
-- Checkpoint 1 passed: `@open-mercato/core` typechecks clean and all 97 sales suites (722 tests) pass, including the 15 new engine tests. Details in `checkpoint-1-checks.md`.
-- 15 of 24 Steps are done — Phases 0 through 3. The contract itself is implemented end to end: the engine reads percentage-first and never re-multiplies a stored line total, one shared mapper tags every rebuilt snapshot, and both upsert sites decide the discount's origin per operand.
-- The new tests were negative-controlled against the unfixed engine: 10 of 15 fail there, so they lock in real behaviour rather than passing vacuously.
+- All 26 Tasks rows are `done` (24 planned plus `3.4-fix` and two review-fix Steps). The full configured validation gate ran in order with nothing skipped and came out green end to end; the test step covered 34/34 workspaces with 0 failures.
+- `om-auto-review-pr --autofix` ran as the single authoritative pass and returned APPROVE — 0 blockers, 0 majors, 2 minors fixed inside the pass (`cloneJson` moved out of `commands/` so `lib/` stops importing upward; a missing test on the line-delete rebuild), 1 nit declined with a reason. It had to be submitted as a comment, since GitHub does not permit approving your own PR.
+- The PR was promoted from draft to ready, carries its full label set, and the lock was swapped from `in-progress` to `ci-monitoring`.
+- #5550 was closed as superseded, with a comment recording what was salvaged from it and crediting @pkarw's review.
 
 ## Next concrete action
-- Start Step 4.1: command-level tests for the order and quote upsert paths, asserting a percentage-only line at `quantity > 1` keeps both its stored `discount_amount` and its `total_net_amount` across create → upsert.
+- Nothing on the implementation. The bounded CI follow-up (40-minute budget, `/tmp/autopilot/ci-wait.sh`) is watching the checks on head `f4320a7da`; when it settles, post the `🤖 om-auto-review-pr — CI result` comment and drop `ci-monitoring`.
 
 ## Blockers / open questions
-- None blocking. One decision is still owed inside Step 5.1: whether `SalesOrderDraftLines.tsx`'s `* quantity` is correct under the shipped contract. Under D1 plus the `'unit'` default it looks correct as written, but the reasoning has to be recorded in the PR body rather than left implicit.
+- **Three gates remain, all external to this run:** an independent approving review (self-approval is impossible), the required checks going green, and `qa-approved` — while `needs-qa` is set and the repo's QA gate is on, this PR MUST NOT merge without it.
 
 ## Environment caveats
-- Dev runtime runnable: not yet attempted. Bootstrap is complete (`yarn install`, `yarn build:packages`, `yarn generate` all green in that order), so the integration spec in Phase 6 has a working tree to build on.
-- Browser / UI checks: expected to be minimal-to-none. The one UI file in scope holds an expression that is unreachable today, so there may be no rendered behaviour to capture.
-- Database/migration state: clean, and deliberately so — no migration, no snapshot change, `yarn db:generate` not run.
-- Watch out: a compound `yarn X > log 2>&1; echo $?` reports the exit code of `echo`, not of yarn. One `yarn generate` failure was briefly misread that way; capture real exit codes.
+- Dev runtime: never started this run. The Playwright integration spec is therefore **typechecked but not executed here** — CI's `ephemeral-integration` job is what exercises it.
+- Browser / UI checks: skipped, and legitimately. The one `.tsx` change is a numeric expression plus a comment in a code path unreachable today.
+- Database/migration state: clean, deliberately. No migration, no snapshot change, `yarn db:generate` never run.
+- Two traps this run hit, worth carrying forward: a compound `yarn X > log; echo $?` reports the exit code of `echo`, not of yarn; and `yarn generate` fails with `CLI not built` unless `yarn build:packages` ran first, which is why the gate lists them in that order.
+- A second cezar worktree ran its own full gate concurrently, pushing load to 20–27 and stretching the test step to 26 minutes. Contention only.
 
 ## Worktree
 - Path: `/home/wojtek/cezar/projects/open-mercato/.ai/cezar/worktrees/fd78b62c-e960-4fbd-acb3-e655785e3269`

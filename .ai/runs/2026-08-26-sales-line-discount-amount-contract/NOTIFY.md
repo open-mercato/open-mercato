@@ -46,3 +46,14 @@
 - All eight configured `validation.commands` passed in order, none skipped: `GATE_ALL_GREEN`. Test step: 34/34 workspaces, 0 failures. The tree is clean afterwards — `yarn generate` produced no uncommitted output.
 - The test step took 26 minutes because a second cezar worktree was running its own full gate on the same machine (load 20–27). Contention only; separate `node_modules`, `--env-mode=loose` on both.
 - The Playwright integration suite was NOT run locally: no provisioned test environment exists for this worktree. The new integration spec ships typechecked but unexecuted here, and CI's `ephemeral-integration` job is what exercises it. Stated in `final-gate-checks.md` rather than glossed.
+
+## 2026-08-26T07:20:00Z — review pass complete
+- `om-auto-review-pr --autofix`: APPROVE, 0 blockers, 0 majors, 2 minors fixed in the pass, 1 nit declined. Submitted as a comment because GitHub rejects self-approval, so the pipeline label stays `review` rather than `merge-queue` — calling it merge-ready would misrepresent it.
+- Minor 1: `lib/lineSnapshots.ts` was the only file under `lib/` importing from `commands/`, against the module's own convention. `cloneJson` moved to `lib/json.ts` with a re-export from `commands/shared.ts`, so all seven existing importers are untouched and `lib/` now imports nothing from `commands/`.
+- Minor 2: the line-**delete** rebuild had no test despite sharing the upsert's origin-preservation requirement. Added, and negative-controlled — it is one of the three that fail without the fix.
+- Nit declined: `toNumeric` now has a third copy. Consolidating means touching 20 call sites in `returns.ts` on a money-math PR; the risk outweighs the tidiness.
+
+## 2026-08-26T07:25:00Z — run closed out
+- PR #5640 promoted draft → ready, full label set applied with a rationale comment, summary comment posted, lock swapped from `in-progress` to `ci-monitoring`.
+- #5550 closed as superseded, with a comment recording what was salvaged and crediting @pkarw's review as correct on every substantive point.
+- Bounded CI follow-up started against head `f4320a7da` with the default 40-minute budget. On settle: post the CI-result comment and drop `ci-monitoring`. On exhaustion: report the local gate as this run's own evidence, name the still-pending checks, state that no further follow-up will come from this agent, and drop `ci-monitoring` anyway — leaving it on would promise a follow-up nobody is making.
