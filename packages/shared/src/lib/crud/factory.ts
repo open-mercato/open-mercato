@@ -42,6 +42,8 @@ import {
 } from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError, isCrudHttpError } from './errors'
+import { guardWriteBody, type CrudWriteGuardConfig } from './write-payload'
+export type { CrudWriteGuardConfig } from './write-payload'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -478,7 +480,10 @@ export type CrudCommandActionConfig = {
   schema?: z.ZodTypeAny
   mapInput?: (args: { parsed: any; raw: any; ctx: CrudCtx }) => Promise<any> | any
   metadata?: (args: { input: any; parsed: any; raw: any; ctx: CrudCtx }) => Promise<CommandLogMetadata | null> | CommandLogMetadata | null
-  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx }) => any
+  // `input` is the mapped command input. It carries `ignoredFields` when the write
+  // guard found keys it will not apply, so a response can tell the caller what was
+  // dropped instead of answering a bare `{ ok: true }`.
+  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx; input: any }) => any
   status?: number
 }
 
@@ -493,6 +498,11 @@ export type CrudCtx = {
 
 export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   metadata?: CrudMetadata
+  /**
+   * How writes handle keys they will not apply. Defaults to aliasing snake_case
+   * onto the declared camelCase name and reporting the rest as `ignoredFields`.
+   */
+  writeGuard?: CrudWriteGuardConfig
   orm: OrmEntityConfig
   list?: ListConfig<TList>
   create?: CreateConfig<TCreate>
@@ -2300,7 +2310,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
-        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        const payload = action.response ? action.response({ result, logEntry, ctx, input }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
@@ -2345,7 +2355,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const createConfig = opts.create
       if (!createConfig) throw new Error('Create configuration missing')
 
-      let input = createConfig.schema.parse(body)
+      const createGuard = guardWriteBody(createConfig.schema, body, opts.writeGuard)
+      const createIgnoredFields = createGuard.ignoredFields
+      let input = createConfig.schema.parse(createGuard.body)
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
@@ -2356,7 +2368,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       interceptorRequestPayload = beforeInterceptors.requestPayload
       interceptorMetadata = beforeInterceptors.metadataByInterceptor
       if (interceptorRequestPayload.body) {
-        input = createConfig.schema.parse(interceptorRequestPayload.body)
+        // See the update path: the report describes the caller's body, not the
+        // post-parse one an interceptor handed back.
+        const rewritten = guardWriteBody(createConfig.schema, interceptorRequestPayload.body, opts.writeGuard)
+        input = createConfig.schema.parse(rewritten.body)
       }
 
       // Sync before-event (*.creating)
@@ -2484,6 +2499,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
       let payload = createConfig.response ? createConfig.response(entity) : { id: createdEntityId }
+      if (createIgnoredFields.length > 0 && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        payload = { ...(payload as Record<string, unknown>), ignoredFields: createIgnoredFields }
+      }
       if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
         const afterInterceptors = await applyInterceptorsAfter({
           ctx,
@@ -2612,7 +2630,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (candidateId) baseMetadata.resourceId = candidateId
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
         const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
-        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        const payload = action.response ? action.response({ result, logEntry, ctx, input }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
@@ -2667,7 +2685,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const updateConfig = opts.update
       if (!updateConfig) throw new Error('Update configuration missing')
 
-      let input = updateConfig.schema.parse(body)
+      // Inspect before Zod strips: a key that is neither writable nor rejected
+      // would otherwise vanish behind a 200.
+      const updateGuard = guardWriteBody(updateConfig.schema, body, opts.writeGuard)
+      const updateIgnoredFields = updateGuard.ignoredFields
+      let input = updateConfig.schema.parse(updateGuard.body)
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
@@ -2678,7 +2700,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       interceptorRequestPayload = beforeInterceptors.requestPayload
       interceptorMetadata = beforeInterceptors.metadataByInterceptor
       if (interceptorRequestPayload.body) {
-        input = updateConfig.schema.parse(interceptorRequestPayload.body)
+        // Guard the rewritten body too, but keep the ORIGINAL report: this body has
+        // already been through `schema.parse`, so Zod has stripped the caller's
+        // unknown keys and re-deriving the list here would always come back empty.
+        // What we report is what the caller sent, not what interceptors left.
+        const rewritten = guardWriteBody(updateConfig.schema, interceptorRequestPayload.body, opts.writeGuard)
+        input = updateConfig.schema.parse(rewritten.body)
       }
 
       // Sync before-event (*.updating)
@@ -2820,7 +2847,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
-      const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
+      let payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
+      // Name what the request asked for and this endpoint did not write, so the
+      // caller can assert on the response instead of re-reading the record.
+      if (updateIgnoredFields.length > 0 && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        payload = { ...(payload as Record<string, unknown>), ignoredFields: updateIgnoredFields }
+      }
       if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
         const afterInterceptors = await applyInterceptorsAfter({
           ctx,
@@ -2945,7 +2977,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (candidateId) baseMetadata.resourceId = candidateId
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
         const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
-        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        const payload = action.response ? action.response({ result, logEntry, ctx, input }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({

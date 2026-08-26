@@ -1,6 +1,7 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import { guardWriteBody, type UnwritableKey } from '@open-mercato/shared/lib/crud/write-payload'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { z } from 'zod'
 
@@ -26,6 +27,30 @@ export type ScopedPayloadMessages = {
 export type ScopedPayloadOptions = {
   requireOrganization?: boolean
   messages?: ScopedPayloadMessages
+  /**
+   * Rename snake_case keys onto the camelCase names the schema declares.
+   *
+   * On by default, and strictly additive: these keys were previously stripped by
+   * Zod and silently discarded, so nothing that used to be written stops being
+   * written. It exists because the read endpoints emit snake_case — a caller that
+   * round-trips a record it just read otherwise writes nothing and is told it
+   * succeeded.
+   */
+  aliasSnakeCaseKeys?: boolean
+  /**
+   * Real fields that cannot change after creation. Rejected with 400 rather than
+   * accepted and dropped, so `entityId` on an activity update no longer reports
+   * success while leaving the record where it was.
+   */
+  immutableFields?: readonly string[]
+  /**
+   * Reject unknown keys with 400 instead of reporting them back in the response.
+   *
+   * Off by default. Widget injection routinely puts non-schema keys into form
+   * payloads, so flipping this on globally would break working forms; callers
+   * that own their payload end-to-end can opt in.
+   */
+  rejectUnknownFields?: boolean
 }
 
 const DEFAULT_MESSAGES: Required<ScopedPayloadMessages> = {
@@ -87,7 +112,7 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
   ctx: ScopedContext,
   translate: TranslateFn,
   options: ScopedPayloadOptions = {}
-): z.infer<TSchema> & { customFields?: Record<string, unknown> } {
+): z.infer<TSchema> & { customFields?: Record<string, unknown>; ignoredFields?: UnwritableKey[] } {
   const scoped = withScopedPayload(
     (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>,
     ctx,
@@ -108,7 +133,19 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
       throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
     }
   }
-  const { base, custom } = splitCustomFieldPayload(scoped)
+  const { base: rawBase, custom } = splitCustomFieldPayload(scoped)
+
+  // Same guard the CRUD factory applies to its own write paths, so a command
+  // action reached through `mapInput` behaves identically to an ORM-backed route.
+  const guarded = guardWriteBody(schema, rawBase, {
+    aliasSnakeCaseKeys: options.aliasSnakeCaseKeys,
+    immutableFields: options.immutableFields,
+    rejectUnknownFields: options.rejectUnknownFields,
+    translate,
+  })
+  const base = guarded.body as Record<string, unknown>
+  const unknownHits = guarded.ignoredFields
+
   const hasCustomFields = custom && Object.keys(custom).length > 0
   const candidates: Array<Record<string, unknown>> = hasCustomFields
     ? [base, { ...base, customFields: custom }]
@@ -133,7 +170,17 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
     ? Object.assign({}, parsed, { customFields: custom })
     : parsed
 
-  return parsedWithCustom as z.infer<TSchema> & { customFields?: Record<string, unknown> }
+  // Anything still unwritable is surfaced on the parsed input so the route can
+  // report it back to the caller. A 200 that lists what it ignored is the
+  // minimum a caller needs to assert on; silently dropping it is the bug.
+  const withReport = unknownHits.length > 0
+    ? Object.assign({}, parsedWithCustom, { ignoredFields: unknownHits })
+    : parsedWithCustom
+
+  return withReport as z.infer<TSchema> & {
+    customFields?: Record<string, unknown>
+    ignoredFields?: UnwritableKey[]
+  }
 }
 
 function normalizeTenant(candidate: unknown): string | null {

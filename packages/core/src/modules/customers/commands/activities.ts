@@ -87,6 +87,13 @@ function mapActivityUpdateInput(
           status: input.occurredAt ? 'done' : 'planned',
         }
       : {}),
+    // Forwarded because the canonical `interactionUpdateSchema` accepts all three
+    // and derives `scheduledAt` from `date`+`time`. They were accepted by
+    // `activityUpdateSchema` and then dropped here, so editing a call's phone
+    // number through this endpoint reported success and changed nothing.
+    ...(input.date !== undefined ? { date: input.date } : {}),
+    ...(input.time !== undefined ? { time: input.time } : {}),
+    ...(input.phoneNumber !== undefined ? { phoneNumber: input.phoneNumber } : {}),
     ...(input.dealId !== undefined ? { dealId: input.dealId ?? null } : {}),
     ...(input.authorUserId !== undefined ? { authorUserId: input.authorUserId ?? null } : {}),
     ...(input.appearanceIcon !== undefined ? { appearanceIcon: input.appearanceIcon ?? null } : {}),

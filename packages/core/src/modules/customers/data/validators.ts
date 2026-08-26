@@ -233,11 +233,17 @@ export const activityCreateSchema = scopedSchema.extend({
     .nullable(),
 })
 
+// `entityId` is deliberately omitted. An interaction's owning entity is fixed at
+// creation — the canonical `interactionUpdateSchema` has no such field and
+// `customers.interactions.update` reads the entity off the stored record — so an
+// update carrying one used to validate, get dropped by `mapActivityUpdateInput`,
+// and still answer `200 {"ok":true}`. The route names it in `immutableFields`,
+// which turns that into a 400 saying the field cannot be changed.
 export const activityUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(activityCreateSchema.partial())
+  .merge(activityCreateSchema.omit({ entityId: true }).partial())
 
 export const commentCreateSchema = scopedSchema.extend({
   entityId: uuid(),

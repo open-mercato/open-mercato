@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { withIgnoredFieldsReport } from '@open-mercato/shared/lib/crud/write-payload'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../../data/entities'
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
@@ -553,7 +554,12 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
         const { translate } = await resolveTranslations()
         return parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate)
       },
-      response: () => ({ ok: true }),
+      // The list above emits snake_case (`closure_outcome`, `loss_notes`,
+      // `owner_user_id`), so a caller updating a deal it had just read sent keys
+      // Zod stripped, and got `{ ok: true }` for a write that changed nothing.
+      // `parseScopedCommandInput` now aliases those onto the declared camelCase
+      // names and reports whatever it still cannot write.
+      response: ({ input }) => withIgnoredFieldsReport({ ok: true }, input),
     },
     delete: {
       commandId: 'customers.deals.delete',
