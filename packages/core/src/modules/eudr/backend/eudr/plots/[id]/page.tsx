@@ -93,6 +93,8 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
+  const [geometryDraft, setGeometryDraft] = React.useState<string | null>(null)
+  const areaRequired = !isPolygonGeometry(geometryDraft ?? formatGeometry(record?.geometry))
 
   React.useEffect(() => {
     let cancelled = false
@@ -197,7 +199,10 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
         <GeometryInput
           id={id}
           value={typeof value === 'string' ? value : ''}
-          onChange={(nextValue) => setValue(nextValue)}
+          onChange={(nextValue) => {
+            setValue(nextValue)
+            setGeometryDraft(nextValue)
+          }}
           disabled={disabled}
           areaHa={typeof values?.areaHa === 'string' || typeof values?.areaHa === 'number' ? String(values.areaHa) : ''}
         />
@@ -208,6 +213,7 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
       layout: 'half',
       label: translate('eudr.plots.form.areaHa'),
       type: 'custom',
+      required: areaRequired,
       description: translate('eudr.plots.form.areaHaHelp'),
       component: ({ id, value, setValue, values, disabled }) => {
         const polygonGeometry = isPolygonGeometry(values?.geometry)
@@ -241,7 +247,7 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
         />
       ),
     },
-  ], [translate])
+  ], [translate, areaRequired])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

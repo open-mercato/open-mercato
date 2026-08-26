@@ -81,20 +81,33 @@ No API route, method, request field, or response field was removed; the aggregat
 
 **Action for module authors:** if you filtered deals with raw status spellings outside the shared helpers, prefer `lib/dealStatus.ts` (`expandDealStatusAliases`, `isClosedDealStatus`) so your reads stay consistent with the platform views.
 
-### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+## 0.6.7 → 0.7.0 (2026-08-26)
 
-`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
 
-The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+The route used to treat every omitted field as a cleared one: an omitted `features`
+became `[]` and an omitted `organizations` became `null`. A request carrying only
+`organizations` was therefore classified as an empty override, so the route **deleted the
+user's ACL row** and answered `200 {"ok":true}`. Because a per-user ACL is how a role gets
+*narrowed*, deleting it dropped the user back to their full role — the failure direction
+was fail-open, triggered by an ordinary administrative scope edit.
 
-- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
-- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+Omitted `features`, `organizations`, and `isSuperAdmin` now keep their stored values, so a
+single-dimension edit no longer clears the dimensions it did not touch. Two consequences
+for callers that relied on the old shape:
 
-**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
+- **Removing an override now needs every dimension cleared explicitly.** Send
+  `{ userId, features: [], organizations: null }`. A bare `{ userId, features: [] }` against
+  a row that carries an organization restriction is now rejected (see below) rather than
+  deleting the row.
+- **An organization-scoped override with no feature grant returns `400`.** A `UserAcl` is an
+  absolute override, so persisting that state would revoke every role-granted feature
+  instead of narrowing the role. Restate the grant alongside the scope —
+  `{ userId, organizations: [orgId], features: ['module.*'] }`. Test fixtures and scripts
+  that set a scope with an organizations-only call need the same restatement; previously
+  such a call reported success while storing nothing.
 
----
-
-## 0.6.7 → 0.7.0 (2026-08-12)
+`PUT /api/auth/roles/acl` already behaved this way and is unchanged.
 
 ### Passkey MFA verification requires a real WebAuthn assertion (#3852)
 
@@ -554,6 +567,16 @@ The record-scoped attachments list was the only paged endpoint that clamped a re
 **Action for API consumers:** none, unless you relied on the clamp. The route, method, and response shape are unchanged — `items`, `total`, `page`, `pageSize`, and `totalPages` are all still returned, and `page` is still an integer of at least `1`. Two patterns are worth checking. A loop that pages while the returned page is full previously never terminated on this endpoint and now does, which is the point of the change. A caller that used a deliberately large page number as a shorthand for "give me the last page" now receives an empty page instead, and must compute the last page from `totalPages` itself.
 
 **For module authors:** a client-side workaround that treated an echoed page lower than the requested one as the end of the list — the pattern `AttachmentsSection` adopted in #5274 — remains correct; it simply never triggers now. You can drop it when convenient, but nothing forces you to.
+### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+
+The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+
+- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
+- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+
+**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
 
 ## 0.6.6 → 0.6.7 (2026-08-05)
 

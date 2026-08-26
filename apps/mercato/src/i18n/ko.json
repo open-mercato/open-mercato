@@ -807,6 +807,8 @@
   "ui.colorPicker.eyedropper.ariaLabel": "화면에서 색상 선택",
   "ui.columnChooser.available": "사용 가능한 열",
   "ui.columnChooser.close": "닫기",
+  "ui.columnChooser.customFieldsGroup": "사용자 정의 필드",
+  "ui.columnChooser.defaultGroup": "열",
   "ui.columnChooser.hideAll": "모두 숨기기",
   "ui.columnChooser.search": "열 검색...",
   "ui.columnChooser.selected": "선택된 열",

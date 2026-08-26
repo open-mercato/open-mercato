@@ -33,6 +33,7 @@ import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { resolveListCountCap } from './count-cap'
 import { mapWithConcurrency } from './bounded-decrypt'
+import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'query' })
@@ -87,6 +88,58 @@ export async function resolveEncryptedLikeFieldSet(
 /** Test-only: the TTL memo would otherwise leak state across specs. */
 export function clearEncryptedLikeFieldsCache(): void {
   encryptedLikeFieldsCache.clear()
+}
+
+// Module-scoped on purpose: `createRequestContainer` builds a fresh `BasicQueryEngine`
+// per request, so an instance field alone re-pays the `information_schema` probe on
+// every request (#5605). Schema shape (does a table have this column?) is not
+// per-request state — unlike `tenantEncryptionService` — so sharing the answer across
+// requests is safe. One map per module instance rather than a true process singleton:
+// standalone builds can duplicate this package, which for a memo is harmless (two
+// caches, both correct), so nothing may be built on top of singleton semantics here.
+//
+// Bounded and TTL'd for two reasons. `columnExists` is reached with caller-supplied
+// field names via `resolveBaseColumn` (sort fields and base filter keys arrive raw from
+// the HTTP layer), so an unbounded map would grow monotonically on request input. And a
+// cached `false` is consumed where the tenant/organization/soft-delete predicates are
+// applied, so a schema change that adds one of those columns must not stay invisible
+// until the process restarts — a migration applied against a running `yarn dev` or
+// not-yet-recycled pods converges within the TTL instead. The TTL still removes
+// essentially all of the traffic: a hot column is probed twelve times an hour rather
+// than tens of thousands. Set OM_QUERY_COLUMN_EXISTS_CACHE_MS=0 to disable and probe
+// per request again; OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES tunes the bound.
+const COLUMN_EXISTS_CACHE_DEFAULT_TTL_MS = 300_000
+const COLUMN_EXISTS_CACHE_DEFAULT_MAX_ENTRIES = 10_000
+const columnExistsCache = new Map<string, { value: boolean; expiresAt: number }>()
+
+function resolveColumnExistsCacheTtlMs(): number {
+  return parseNumberWithDefault(process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS, COLUMN_EXISTS_CACHE_DEFAULT_TTL_MS, { integer: true, min: 0 })
+}
+
+function resolveColumnExistsCacheMaxEntries(): number {
+  return parseNumberWithDefault(process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES, COLUMN_EXISTS_CACHE_DEFAULT_MAX_ENTRIES, { integer: true, min: 1 })
+}
+
+function storeColumnExists(key: string, value: boolean, ttlMs: number): void {
+  const maxEntries = resolveColumnExistsCacheMaxEntries()
+  if (columnExistsCache.size >= maxEntries) {
+    const now = Date.now()
+    for (const [entryKey, entry] of columnExistsCache) {
+      if (entry.expiresAt <= now) columnExistsCache.delete(entryKey)
+    }
+    if (columnExistsCache.size >= maxEntries) columnExistsCache.clear()
+  }
+  columnExistsCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+}
+
+/** Test-only: the module-scoped memo would otherwise leak state across specs. */
+export function clearColumnExistsCache(): void {
+  columnExistsCache.clear()
+}
+
+/** Test-only: entry count of the column-existence memo, for the cap regression test. */
+export function columnExistsCacheSize(): number {
+  return columnExistsCache.size
 }
 
 type ResolvedCustomFieldSource = {
@@ -271,7 +324,6 @@ function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, ent
  * {@link HybridQueryEngine} when the query index is unavailable or incomplete.
  */
 export class BasicQueryEngine implements QueryEngine {
-  private columnCache = new Map<string, boolean>()
   private searchAliasSeq = 0
   private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
@@ -661,7 +713,8 @@ export class BasicQueryEngine implements QueryEngine {
     // and cf filters are expressed as correlated EXISTS semi-joins, so nothing can
     // multiply base rows and a LIMIT above the query is an enforceable bound.
     // Re-running the WHERE/JOIN logic per projection is cheap: every `columnExists`
-    // check is memoized on `this.columnCache`, so later passes hit no extra DB calls.
+    // check is memoized on the module-scoped `columnExistsCache`, so later passes
+    // hit no extra DB calls.
     const buildQuery = async (projection: 'full' | 'sortKeys' | 'count'): Promise<BuiltQuery> => {
       const isSortKeysProjection = projection === 'sortKeys'
       const isCountProjection = projection === 'count'
@@ -1545,11 +1598,9 @@ export class BasicQueryEngine implements QueryEngine {
 
   private async columnExists(table: string, column: string): Promise<boolean> {
     const key = `${table}.${column}`
-    if (this.columnCache.has(key)) {
-      const cached = this.columnCache.get(key)
-      if (cached === true) return true
-      this.columnCache.delete(key)
-    }
+    const ttlMs = resolveColumnExistsCacheTtlMs()
+    const cached = columnExistsCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) return cached.value
     const db = this.getDb()
     const exists = await db
       .selectFrom('information_schema.columns' as any)
@@ -1559,8 +1610,7 @@ export class BasicQueryEngine implements QueryEngine {
       .limit(1)
       .executeTakeFirst()
     const present = !!exists
-    if (present) this.columnCache.set(key, true)
-    else this.columnCache.delete(key)
+    if (ttlMs > 0) storeColumnExists(key, present, ttlMs)
     return present
   }
 

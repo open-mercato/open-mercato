@@ -29,6 +29,7 @@ import {
   type ReferencedStatementValue,
   translateEudrCrudError,
 } from '../../../../components/formConfig'
+import { canDeleteStatement } from '../../../../lib/statement-lifecycle'
 import { StatementLifecycleBar } from '../../../../components/StatementLifecycleBar'
 import { StatementReadinessChecklist } from '../../../../components/StatementReadinessChecklist'
 import { StatementRiskSection, type StatementLatestRisk } from '../../../../components/StatementRiskSection'
@@ -645,6 +646,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
           backHref="/backend/eudr/statements"
           cancelHref="/backend/eudr/statements"
           deleteRedirect="/backend/eudr/statements"
+          deleteVisible={canDeleteStatement(record.status)}
           submitLabel={translate('eudr.statements.form.submitUpdate')}
           fields={fields}
           groups={groups}

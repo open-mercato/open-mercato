@@ -6,6 +6,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { loadDeviceUserOptions } from '../userOptions'
 
 type FormValues = {
   userId: string
@@ -27,7 +28,22 @@ export default function DeviceAdminCreatePage() {
   const t = useT()
 
   const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'userId', label: t('devices.form.userId'), type: 'text', required: true, description: t('devices.form.userIdHint') },
+    {
+      id: 'userId',
+      label: t('devices.form.userId'),
+      type: 'combobox',
+      required: true,
+      description: t('devices.form.userIdHint'),
+      placeholder: t('devices.form.userIdPlaceholder'),
+      loadOptions: loadDeviceUserOptions,
+      // The owner must resolve to a real directory entry: `ComboboxInput` reverts anything that is
+      // not a known option on blur, so free text and an id belonging to nobody never reach submit.
+      // (A raw id that IS a known option still resolves — `findOptionForInput` matches on value, and
+      // `CrudForm` keeps the unfiltered first page as suggestions — which is a real user either way.)
+      // `devices.admin` declares `dependsOn: ['auth.users.list']` in `acl.ts`, so a role that can
+      // reach this form can also search the directory that fills the picker.
+      allowCustomValues: false,
+    },
     { id: 'deviceId', label: t('devices.form.deviceId'), type: 'text', required: true },
     {
       id: 'platform',

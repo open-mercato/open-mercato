@@ -398,34 +398,38 @@ function LocationKpiCard({
 }: LocationKpiCardProps) {
   return (
     <section className="flex min-h-52 flex-col rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
-      <div className="mt-2 flex items-end gap-3">
-        <p className="text-3xl font-semibold tracking-tight">{value}</p>
-        {badgeLabel ? (
-          <StatusBadge variant={badgeVariant} dot>
-            {badgeLabel}
-          </StatusBadge>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
+      </div>
+      <div className="mt-auto pt-2">
+        <div className="flex items-end gap-3">
+          <p className="text-3xl font-semibold tracking-tight">{value}</p>
+          {badgeLabel ? (
+            <StatusBadge variant={badgeVariant} dot>
+              {badgeLabel}
+            </StatusBadge>
+          ) : null}
+        </div>
+        {progress != null ? (
+          <Progress
+            value={progress}
+            max={100}
+            tone={progress >= 80 ? 'warning' : 'accent'}
+            size="sm"
+            className="mt-3"
+          />
+        ) : null}
+        {onCtaClick ? (
+          <LinkButton variant="primary" size="sm" className="mt-4 w-fit" onClick={onCtaClick}>
+            {ctaLabel}
+          </LinkButton>
+        ) : ctaHref ? (
+          <LinkButton asChild variant="primary" size="sm" className="mt-4 w-fit">
+            <Link href={ctaHref}>{ctaLabel}</Link>
+          </LinkButton>
         ) : null}
       </div>
-      {progress != null ? (
-        <Progress
-          value={progress}
-          max={100}
-          tone={progress >= 80 ? 'warning' : 'accent'}
-          size="sm"
-          className="mt-3"
-        />
-      ) : null}
-      {onCtaClick ? (
-        <LinkButton variant="primary" size="sm" className="mt-auto pt-4 w-fit" onClick={onCtaClick}>
-          {ctaLabel}
-        </LinkButton>
-      ) : ctaHref ? (
-        <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
-          <Link href={ctaHref}>{ctaLabel}</Link>
-        </LinkButton>
-      ) : null}
     </section>
   )
 }
