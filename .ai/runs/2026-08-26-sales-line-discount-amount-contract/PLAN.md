@@ -33,8 +33,8 @@
 | 4 | 4.2 | Command test — upsert-existing without re-sending the amount | inline | done | landed with 4.1 |
 | 4 | 4.3 | Command test — return create/delete leaves header totals identical | inline | done | 2e4655709 |
 | 4 | 4.4 | Command test — the § 3 producer invariant (criterion 9) | inline | done | f09787156 |
-| 5 | 5.1 | Resolve the per-unit reading in `SalesOrderDraftLines.tsx` | inline | done | — |
-| 5 | 5.2 | `UPGRADE_NOTES.md` entry for the three behaviour changes | inline | todo | — |
+| 5 | 5.1 | Resolve the per-unit reading in `SalesOrderDraftLines.tsx` | inline | done | 837d09cd0 |
+| 5 | 5.2 | `UPGRADE_NOTES.md` entry for the three behaviour changes | inline | done | — |
 | 6 | 6.1 | Integration spec — line-discount idempotency across the API | inline | todo | — |
 | 7 | 7.1 | File the D5 operator-CLI follow-up issue and link it | inline | todo | — |
 | 7 | 7.2 | File the adjacent `totalNetAmount` follow-up issue | inline | todo | — |
