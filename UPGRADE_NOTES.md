@@ -95,6 +95,14 @@ invitation — with no failure at boot to warn you. Add the dependency and the e
 Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
 The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
 
+Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
+safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates
+no channel and leaves the SES integration disabled — which matters because `AWS_REGION` is not an
+email variable (`.env.example` ships it for vector search, and every AWS runtime injects it), so an
+ungated SES preset would advertise a connected channel nobody configured. Switching
+`SYSTEM_EMAIL_PROVIDER` and re-running `yarn mercato seed:defaults --module channel_<provider>`
+seeds the new provider.
+
 Credential resolution for a tenant-scoped send runs in this order:
 
 | Tenant state | Credentials used |

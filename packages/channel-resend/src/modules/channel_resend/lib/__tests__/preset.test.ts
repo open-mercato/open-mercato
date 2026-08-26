@@ -141,4 +141,39 @@ describe('channel_resend env preset', () => {
     delete process.env.RESEND_API_KEY
     expect(readResendEnvPreset()).toBeNull()
   })
+
+  it('still seeds when no provider is selected, because Resend is the documented default', async () => {
+    delete process.env.SYSTEM_EMAIL_PROVIDER
+    mockedFindOneWithDecryption.mockResolvedValue(null)
+    const flush = jest.fn().mockResolvedValue(undefined)
+    const em = { create: jest.fn().mockReturnValue({ id: 'channel-1' }), persist: jest.fn().mockReturnValue({ flush }) }
+    const { container, save } = createContainer()
+
+    await applyResendEnvPreset({
+      em: em as never,
+      container,
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  it('seeds nothing when SES is the selected provider, even with a leftover RESEND_API_KEY', async () => {
+    process.env.SYSTEM_EMAIL_PROVIDER = 'ses'
+    const em = { create: jest.fn(), persist: jest.fn(), flush: jest.fn() }
+    const { container, save, upsert } = createContainer()
+
+    await applyResendEnvPreset({
+      em: em as never,
+      container,
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(save).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(mockedFindOneWithDecryption).not.toHaveBeenCalled()
+  })
 })

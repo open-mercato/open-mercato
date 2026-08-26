@@ -6,12 +6,16 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ChannelAdapterRegistry } from './registry'
 import { htmlToText } from './email-mime'
-import { getSystemEmailProviderConfigResolver } from './system-email-provider-config'
+import {
+  DEFAULT_SYSTEM_EMAIL_PROVIDER,
+  getSystemEmailProviderConfigResolver,
+  resolveSystemEmailProvider,
+} from './system-email-provider-config'
 import { isTestChannelSeedingEnabled, TEST_SEED_PROVIDER_KEY } from './test-seed'
 import { ensureSystemEmailChannel } from './ensure-system-email-channel'
 import { CommunicationChannel } from '../data/entities'
 
-export const DEFAULT_SYSTEM_EMAIL_PROVIDER = 'resend'
+export { DEFAULT_SYSTEM_EMAIL_PROVIDER }
 
 const logger = createLogger('communication_channels')
 
@@ -35,10 +39,6 @@ type ResolvedSystemEmailChannel = Pick<CommunicationChannel, 'providerKey' | 'ch
 type ResolvedSystemEmailTarget = {
   channel: ResolvedSystemEmailChannel
   hasTenantChannel: boolean
-}
-
-function resolveSystemEmailProvider(): string {
-  return normalizeEnvString(process.env.SYSTEM_EMAIL_PROVIDER) ?? DEFAULT_SYSTEM_EMAIL_PROVIDER
 }
 
 export function isSystemEmailTransportConfigured(): boolean {

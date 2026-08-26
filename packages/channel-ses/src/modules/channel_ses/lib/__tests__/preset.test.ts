@@ -22,6 +22,7 @@ describe('channel_ses env preset', () => {
   beforeEach(() => {
     process.env = {
       ...originalEnv,
+      SYSTEM_EMAIL_PROVIDER: 'ses',
       AWS_SES_REGION: 'eu-west-2',
       EMAIL_FROM: 'from@example.com',
     }
@@ -141,5 +142,43 @@ describe('channel_ses env preset', () => {
     delete process.env.AWS_SES_REGION
     delete process.env.AWS_REGION
     expect(readSesEnvPreset()).toBeNull()
+  })
+
+  it('seeds nothing when another provider is selected, even with AWS_REGION set', async () => {
+    // `AWS_REGION` is set by every AWS runtime and ships uncommented in `.env.example` for vector
+    // search, so without the provider gate a Resend instance would get an Enabled SES integration
+    // and a connected SES channel it never configured.
+    process.env.SYSTEM_EMAIL_PROVIDER = 'resend'
+    delete process.env.AWS_SES_REGION
+    process.env.AWS_REGION = 'eu-central-1'
+    const em = { create: jest.fn(), persist: jest.fn(), flush: jest.fn() }
+    const { container, save, upsert } = createContainer()
+
+    await applySesEnvPreset({
+      em: em as never,
+      container,
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(save).not.toHaveBeenCalled()
+    expect(upsert).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(mockedFindOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('seeds nothing when no provider is selected, because the default is Resend', async () => {
+    delete process.env.SYSTEM_EMAIL_PROVIDER
+    const em = { create: jest.fn(), persist: jest.fn(), flush: jest.fn() }
+    const { container, save } = createContainer()
+
+    await applySesEnvPreset({
+      em: em as never,
+      container,
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(save).not.toHaveBeenCalled()
   })
 })

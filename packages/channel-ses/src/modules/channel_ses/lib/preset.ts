@@ -3,6 +3,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { normalizeEnvString, resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { ensureSystemEmailChannel } from '@open-mercato/core/modules/communication_channels/lib/ensure-system-email-channel'
+import { isSelectedSystemEmailProvider } from '@open-mercato/core/modules/communication_channels/lib/system-email-provider-config'
 import { sesCapabilities } from '../capabilities'
 
 const logger = createLogger('channel_ses')
@@ -43,6 +44,12 @@ export function readSesEnvPreset(): { region: string; fromAddress: string; confi
 }
 
 export async function applySesEnvPreset(ctx: PresetScope): Promise<void> {
+  // Only the provider this instance actually selected seeds anything. `AWS_REGION` is not an email
+  // variable here — `.env.example` ships it uncommented for vector search, and every AWS runtime
+  // injects it — so without this gate a Resend instance would advertise an Enabled SES integration
+  // and a `status: 'connected'` SES channel nobody configured. That is the same misleading admin
+  // state #5531 was filed for, pointed the other way.
+  if (!isSelectedSystemEmailProvider('ses')) return
   const preset = readSesEnvPreset()
   if (!preset) return
 

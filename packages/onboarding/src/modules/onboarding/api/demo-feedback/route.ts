@@ -49,6 +49,11 @@ export async function POST(req: Request) {
 
   const { email, message, marketingConsent } = parsed.data
   const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
+  // Load-bearing despite the discarded result: building the request container is what runs
+  // `communication_channels`' DI registration, and that is the only caller of
+  // `registerEmailTransport`. Without it `sendEmail` below finds no registered transport and
+  // throws `EMAIL_TRANSPORT_NOT_CONFIGURED`. This route is the one `sendEmail` call site with no
+  // container of its own, so the dependency has to be satisfied explicitly here.
   await createRequestContainer()
 
   const marketingText = marketingConsent ? 'Marketing consent: Yes' : 'Marketing consent: No'

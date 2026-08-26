@@ -3,6 +3,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { normalizeEnvString, resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { ensureSystemEmailChannel } from '@open-mercato/core/modules/communication_channels/lib/ensure-system-email-channel'
+import { isSelectedSystemEmailProvider } from '@open-mercato/core/modules/communication_channels/lib/system-email-provider-config'
 import { resendCapabilities } from '../capabilities'
 
 const logger = createLogger('channel_resend')
@@ -48,6 +49,11 @@ export function readResendEnvPreset(): { apiKey: string; fromAddress: string } |
 }
 
 export async function applyResendEnvPreset(ctx: PresetScope): Promise<void> {
+  // Only the provider this instance actually selected seeds anything, so a leftover RESEND_API_KEY
+  // on an instance that moved to `SYSTEM_EMAIL_PROVIDER=ses` no longer advertises an Enabled Resend
+  // integration and a connected channel that nothing sends through. `resend` is the default, so the
+  // documented `RESEND_API_KEY`-only setup is unaffected.
+  if (!isSelectedSystemEmailProvider('resend')) return
   const preset = readResendEnvPreset()
   if (!preset) return
 
