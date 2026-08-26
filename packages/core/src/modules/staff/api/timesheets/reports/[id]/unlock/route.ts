@@ -78,7 +78,7 @@ export async function POST(req: Request) {
       organizationId,
       reportId,
       actorUserId: typeof auth.sub === 'string' ? auth.sub : null,
-      actorFeatures: grantedFeatures ?? [],
+      actorFeatures: grantedFeatures,
       status: 'closed',
       reason: parsed.reason,
     })
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
         userId: auth.sub ?? '',
         tenantId,
         organizationId,
-        userFeatures: grantedFeatures ?? undefined,
+        userFeatures: grantedFeatures,
       },
       input: {
         resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeReport,

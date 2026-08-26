@@ -67,10 +67,9 @@ describe('resolveReportRequestContext money visibility', () => {
     rbacService = { userHasAllFeatures, getGrantedFeatures }
   })
 
-  it('shows money when the service grants rates.view, and says the grants are real', async () => {
+  it('shows money when the service grants rates.view, and hands back the real grant list', async () => {
     const context = await resolveContext()
     expect(context.canSeeMoney).toBe(true)
-    expect(context.featuresResolved).toBe(true)
     expect(context.grantedFeatures).toEqual(['staff.timesheets.reports.view', RATES_FEATURE])
     expect(context.reportId).toBe(reportId)
   })
@@ -86,14 +85,13 @@ describe('resolveReportRequestContext money visibility', () => {
     userHasAllFeatures.mockResolvedValue(false)
     const context = await resolveContext()
     expect(context.canSeeMoney).toBe(false)
-    expect(context.featuresResolved).toBe(true)
+    expect(context.grantedFeatures).toEqual(['staff.timesheets.reports.view', RATES_FEATURE])
   })
 
   it('hides money when the check throws', async () => {
     userHasAllFeatures.mockRejectedValue(new Error('[internal] rbac down'))
     const context = await resolveContext()
     expect(context.canSeeMoney).toBe(false)
-    expect(context.featuresResolved).toBe(false)
     expect(context.grantedFeatures).toEqual([])
   })
 
@@ -110,7 +108,6 @@ describe('resolveReportRequestContext money visibility', () => {
     rbacService = { getGrantedFeatures }
     const context = await resolveContext()
     expect(context.canSeeMoney).toBe(false)
-    expect(context.featuresResolved).toBe(false)
     expect(context.grantedFeatures).toEqual([])
   })
 
@@ -118,15 +115,18 @@ describe('resolveReportRequestContext money visibility', () => {
     resolveThrows = true
     const context = await resolveContext()
     expect(context.canSeeMoney).toBe(false)
-    expect(context.featuresResolved).toBe(false)
     expect(context.grantedFeatures).toEqual([])
   })
 
-  it('does not report an empty grant list as authoritative when the service cannot list grants', async () => {
+  // The context carries an array, never `null`. A nullable grant list is what let
+  // "RBAC could not answer" read as "no restriction" on these routes, and every
+  // consumer of an empty one — the approval policies, the interceptor context, the
+  // mutation-guard registry — treats it the same fail-closed way.
+  it('hands back an empty grant list, never null, when the service cannot list grants', async () => {
     rbacService = { userHasAllFeatures }
     const context = await resolveContext()
     expect(context.canSeeMoney).toBe(true)
-    expect(context.featuresResolved).toBe(false)
     expect(context.grantedFeatures).toEqual([])
+    expect(context.grantedFeatures).not.toBeNull()
   })
 })

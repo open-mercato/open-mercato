@@ -41,6 +41,8 @@ type TimeTrackingAccessResolver = {
     tenantId?: string | null
     organizationId?: string | null
     userFeatures?: readonly string[]
+    /** The manage-all decision, resolved by the caller through `resolveFeatureAccess`. Preferred over `userFeatures`. */
+    canManageAll?: boolean
     /** Resolved `access.assignmentGraceDays`; omitted/null falls back to the documented default (14). */
     assignmentGraceDays?: number | null
     /** Injectable clock for the assignment window; defaults to now. */
@@ -54,6 +56,11 @@ type TimeTrackingAccessResolver = {
 `AvailabilityWriteAccess.unregistered?: boolean` is an additive sentinel field (BC surface #2 — STABLE) set to `true` only when staff DI is missing. Existing required fields MUST NOT be removed.
 
 Route-side, gate a project id with `assertProjectAccess(access, projectId)` from `lib/time-tracking/access.ts` instead of re-implementing the `canManageAll` / `projectIds` check. `userFeatures` is matched with the shared `authorizeFeatures` policy, so `staff.*` and `staff.timesheets.*` grants are honoured — MUST NOT compare the raw feature array with exact string equality.
+
+**One RBAC authority (time tracking).** Every time-tracking feature question MUST go through `resolveFeatureAccess(container, userId, features, scope)` in [`lib/time-tracking/featureAccess.ts`](./lib/time-tracking/featureAccess.ts) — the module MUST NOT hand-roll a `rbacService.getGrantedFeatures` / `userHasAllFeatures` read at a call site. It asks `userHasAllFeatures` (the call that carries `isSuperAdmin`), fails closed on every path, and logs the failure. It returns `{ allowed, grantedFeatures }`:
+
+- `allowed` is the decision. Authorize on this, and pass it to `resolveProjectAccess` as `canManageAll` rather than letting the resolver re-derive it from an array.
+- `grantedFeatures` is plumbing for the surfaces that take a list — approval policies, the interceptor context, `runRouteMutationGuards`. It is **always an array, never `null`**: a nullable grant list cannot say whether an empty answer means "no grants" or "could not ask", and every consumer treats an empty one the same fail-closed way. MUST NOT gate money, or anything else, on it.
 
 ### API routes (BC surface #7 — STABLE)
 
@@ -97,7 +104,12 @@ Money is gated on `staff.timesheets.rates.view` and is **absent** from payloads 
 
 Every hand-rolled `/api/staff/timesheets/*` write route runs the same guard set as
 `makeCrudRoute` (`api/guards.ts` → `runStaffMutationGuards`, which collects
-`getAllMutationGuardInstances()` plus the bridged legacy DI service). The
+`getAllMutationGuardInstances()` plus the bridged legacy DI service). It resolves the
+caller's granted features itself, through `resolveFeatureAccess` — **do not pass a
+grant list**. `runMutationGuards` drops any guard whose declared `features` the caller
+does not hold, so supplying an empty list silently disables every feature-gated guard;
+the deprecated `resolveUserFeatures(auth)` did exactly that, because `AuthContext` has
+no `features` field. The
 `resourceKind` a guard matches on is published as
 `STAFF_TIME_TRACKING_RESOURCE_KINDS` in [`api/guards.ts`](./api/guards.ts) — import it
 rather than re-typing a string:
@@ -177,7 +189,15 @@ both match, so nothing runs twice.
   **no feature check** — so a broadcast payload MUST NOT carry a rate, a cost or an amount.
   `time_report.closed` therefore carries minute totals but no `totalAmount`, and
   `time_project.budget_threshold_reached` carries `budgetValue`/`usedValue` only for an
-  `hours` budget.
+  `hours` budget. **Money is not the only thing that audience rules out.** A broadcast
+  payload also carries no operator free text and no customer identity:
+  `time_report.unlocked` omits its mandatory `reason` (2000 characters of prose about a
+  client's billing, kept on the `StaffTimeReportEvent` audit row instead) and
+  `time_report.closed` omits `customerId`. `reference` and the minute totals stay —
+  stable identifiers and non-money aggregates the published webhook contract and the
+  live reports screen both need, and the DOM bridge can narrow an audience only by user
+  or role id, which this module deliberately does not gate on.
+  `__tests__/timeTrackingEventPayloads.test.ts` fails if a forbidden field reappears.
 - **Webhooks.** There is no per-event registration: `packages/webhooks` subscribes with
   `event: '*'` and matches each id against a webhook's subscribed patterns, so declaring
   the event in `events.ts` IS its registration. Delivery needs `tenantId` in the payload —
@@ -238,8 +258,8 @@ portal-broadcast, and that is a security decision rather than an omission: the
 portal SSE stream (`customer_accounts/api/portal/events/stream.ts`) filters a
 broadcast by tenant + organization and narrows to named people only when the
 payload carries `recipientUserIds`. One organization serves many customers, so
-flagging `time_report.closed` — which carries `reference`, `customerId` and the
-minute totals — would give every client a feed of every other client's reports.
+flagging `time_report.closed` — which carries `reference` and the minute totals —
+would give every client a feed of every other client's reports.
 That event is also `clientBroadcast: true` with a published webhook payload, so it
 cannot be narrowed without breaking its backoffice consumers.
 
@@ -463,6 +483,32 @@ always the last candidate. They differ only in what they do with that order:
 - **conjunction, first refusal** — every approval policy must agree. `canClose`/`canUnlock`
   return a refusal or nothing, **never a grant**, so no policy can open a door the ACL
   closed. The ACL check in the close/unlock routes runs first and unconditionally.
+
+### A built-in is a separate slot, and a contribution's answer is not trusted
+
+Two rules the registry itself enforces, so a call site cannot get them wrong:
+
+- **`register()` refuses a built-in id and no disposer can remove a built-in.** The
+  eleven built-in ids are published above, and the map used to be last-writer-wins:
+  registering `{ id: 'staff.time_tracking.rounding.unit', … }` made you the built-in,
+  put you on the unscoped path the fail-closed gate exists to keep byte-identical,
+  and let your disposer delete the real built-in for the life of the process. Built-ins
+  now live in a map `register()` cannot reach (`registerBuiltIn`, module-load only),
+  and `selectScopedStrategy` takes the built-in **by reference** rather than looking
+  its id up among the candidates.
+- **Every strategy invocation is wrapped, and every numeric answer is clamped.**
+  `registries/invoke.ts` publishes `runStrategy` (single-winner: fall back to the
+  built-in), `tryStrategy` (chain: skip this candidate, ask the next) and
+  `clampToStoredMinutes`. `roundMinutes` clamps to `Math.max(0, Math.round(v))` or
+  falls back — `rounded_minutes` is an `integer` column and the sole input to cost, and
+  the obvious contributed strategy (`Math.floor(raw / ctx.settings.unitMinutes) * …`)
+  is `NaN` under the shipped default `unitMinutes: 0`, which stores garbage and then
+  bills 0.00 in silence. `CapacityProvider.resolve` and `ProjectCodeGenerator.generate`
+  validate their answers the same way. Two deliberate exceptions: a failing export
+  `serialize` re-raises as an internal error naming the format (falling back would
+  answer with another format's bytes under the requested MIME type), and a throwing
+  `canClose`/`canUnlock` becomes a **refusal** — those are gates, and the built-in
+  grants, so falling back to it would turn a broken policy into permission.
 
 ### Scoping — fail closed to the built-in
 

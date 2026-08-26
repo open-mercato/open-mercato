@@ -14,6 +14,7 @@
 
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
+import { tryStrategy } from './registries/invoke'
 import { hasResolverScope, type ScopedResolverContext } from './registries/scope'
 
 export type CostEntry = {
@@ -90,13 +91,11 @@ function builtInRate(ctx: TimeRateContext): number | null {
   return null
 }
 
-const builtInRateResolver: TimeRateResolver = {
+const builtInRateResolver: TimeRateResolver = registry.registerBuiltIn({
   id: BUILT_IN_TIME_RATE_RESOLVER_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
   resolve: builtInRate,
-}
-
-registerTimeRateResolver(builtInRateResolver)
+})
 
 /**
  * Walks the registry in priority order and takes the first non-null answer.
@@ -107,7 +106,9 @@ export function resolveTimeRate(ctx: TimeRateContext): number | null {
   const scoped = hasResolverScope(ctx)
   for (const resolver of registry.list()) {
     if (!scoped && resolver.id !== BUILT_IN_TIME_RATE_RESOLVER_ID) continue
-    const rate = resolver.resolve(ctx)
+    // A chain asks the next candidate anyway, so a thrower is skipped rather than
+    // replaced — and the built-in is always the last candidate.
+    const rate = tryStrategy(TIME_RATE_REGISTRY_ID, resolver.id, () => resolver.resolve(ctx))
     if (rate !== null && rate !== undefined && Number.isFinite(rate)) return rate
   }
   return null

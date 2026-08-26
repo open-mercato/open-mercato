@@ -14,7 +14,6 @@ import { assertTimeEntryUnlocked } from '../../../../../commands/timesheets-entr
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
-  resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
@@ -109,7 +108,6 @@ export async function POST(req: Request) {
         requestMethod: req.method,
         requestHeaders: req.headers,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(

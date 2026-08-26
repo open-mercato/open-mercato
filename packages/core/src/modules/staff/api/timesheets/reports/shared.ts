@@ -37,14 +37,21 @@ export type ReportRequestContext = {
   reportId: string
   translate: Translate
   /**
-   * The caller's grants, for the plumbing that needs a list (mutation guards,
-   * project-access). Empty when RBAC could not be consulted — read
-   * `featuresResolved` before reading anything into an empty array, and never
-   * gate money on this.
+   * The caller's grants, for the plumbing that takes a list: the approval
+   * policies, the interceptor context and the mutation-guard registry. Always an
+   * array, never `null` — a nullable grant list is what let "RBAC could not
+   * answer" read as "no restriction" on these routes.
+   *
+   * Empty means the same thing whether RBAC answered "nothing" or could not
+   * answer at all, and every consumer treats it the same fail-closed way: an
+   * approval policy that requires a feature refuses, a feature-gated interceptor
+   * does not run, and a feature-gated guard does not run. Authorization never
+   * rests on it — `canSeeMoney` and each route's own `resolveFeatureAccess` gate
+   * are the decisions, and both fail closed on their own. `resolveFeatureAccess`
+   * logs a grant list it could not read, so an outage is visible to operators
+   * without a flag here that no caller can act on.
    */
   grantedFeatures: string[]
-  /** `false` when RBAC could not be consulted; the declarative guard still applies. */
-  featuresResolved: boolean
   /** Fail-closed `staff.timesheets.rates.view` decision — never re-derive it. */
   canSeeMoney: boolean
 }
@@ -89,14 +96,12 @@ export async function resolveReportRequestContext(
 
   // One lookup, through the module's single RBAC authority, answering both
   // questions the four routes ask: may this caller see money, and what is the
-  // grant list the mutation guards want. Decided here, once, so no route
-  // re-derives it and none can pick the other failure direction.
+  // grant list the plumbing wants. Decided here, once, so no route re-derives it
+  // and none can pick the other failure direction.
   //
   // `resolveFeatureAccess` fails closed on every path — an unresolvable service,
   // a service that cannot answer, a call that throws — so an RBAC outage hides
-  // rates and costs instead of handing them to a plain report viewer. The grant
-  // list is a convenience for the plumbing and must never gate money; `resolved`
-  // is what says whether an empty list is RBAC's answer or its absence.
+  // rates and costs instead of handing them to a plain report viewer.
   const ratesAccess = await resolveFeatureAccess(container, auth.sub ?? null, [RATES_FEATURE], {
     tenantId,
     organizationId,
@@ -111,7 +116,6 @@ export async function resolveReportRequestContext(
     reportId,
     translate,
     grantedFeatures: ratesAccess.grantedFeatures,
-    featuresResolved: ratesAccess.resolved,
     canSeeMoney: ratesAccess.allowed,
   }
 }

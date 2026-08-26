@@ -461,13 +461,22 @@ const taskTagEnricher: ResponseEnricher<EntityRecord, TaskTagEnrichment> = {
 /**
  * The consulting-suite fields on a time-entry row: the `description` alias, the
  * rounded minutes, the lock state, the assigned tags, and — only for a caller
- * holding `staff.timesheets.rates.view` — `cost` and `currencyCode`, with the
- * stored rate override stripped for everyone else.
+ * holding `staff.timesheets.rates.view` — `cost`, `currencyCode` and the stored
+ * rate override, which the route's projection deliberately does not select.
  *
  * This was a route-private `hooks.afterList` until EP-14. As a declared enricher a
  * third-party enricher for the same entity composes with it and can read what it
  * added, and the CRUD list cache stores the pre-enrichment rows instead of one
  * caller's decorated copy.
+ *
+ * **`critical: false` with no `fallback`, and the money gate does not depend on
+ * either.** A non-critical enricher that throws or times out leaves the items as
+ * the route produced them, which is a page of entries without the decoration —
+ * degraded, but never a page of entries WITH money the caller may not see, because
+ * every money key on the row is one this enricher put there. A `fallback` is
+ * deliberately absent: it merges one fixed object into every row, and there is no
+ * value of `description`, `roundedMinutes` or `tags` that is correct for all of
+ * them. Omitting the decoration is honest; inventing it is not.
  */
 type TimeEntryEnrichment = Record<string, unknown>
 

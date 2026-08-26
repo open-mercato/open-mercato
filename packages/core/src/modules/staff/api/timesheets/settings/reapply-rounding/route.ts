@@ -59,13 +59,6 @@ const responseSchema = z.object({
   candidateCount: z.number().int(),
 })
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
 export async function POST(req: Request) {
   try {
     const container = await createRequestContainer()
@@ -86,22 +79,14 @@ export async function POST(req: Request) {
     const actorId = typeof auth.sub === 'string' && auth.sub.trim().length > 0 ? auth.sub : 'system'
     const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
-    let grantedFeatures: string[] | null = null
-    try {
-      const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-      grantedFeatures = rbac?.getGrantedFeatures
-        ? await rbac.getGrantedFeatures(actorId, { tenantId, organizationId })
-        : null
-    } catch {
-      grantedFeatures = null
-    }
-    // Checked unconditionally. The `grantedFeatures &&` this replaces turned the
-    // check off whenever the grant read failed — harmless here only because the
-    // route metadata happens to require the same feature, which is exactly the
-    // shape that leaked rates on the report routes where no such backstop existed.
-    if (!(await resolveFeatureAccess(container, actorId, [MANAGE_FEATURE], { tenantId, organizationId })).allowed) {
+    // One lookup through the module's single RBAC authority: the decision is
+    // checked unconditionally and fails closed, and the grant list the plumbing
+    // takes comes from the same answer instead of a second, nullable read.
+    const access = await resolveFeatureAccess(container, actorId, [MANAGE_FEATURE], { tenantId, organizationId })
+    if (!access.allowed) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
+    const grantedFeatures = access.grantedFeatures
 
     const interceptors = await runTimesheetInterceptors({
       request: req,
@@ -126,7 +111,7 @@ export async function POST(req: Request) {
         userId: actorId,
         tenantId,
         organizationId,
-        userFeatures: grantedFeatures ?? undefined,
+        userFeatures: grantedFeatures,
       },
       input: {
         resourceKind: RESOURCE_KIND,

@@ -40,6 +40,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { StaffTimeTask, StaffTimeTaskComment } from '../data/entities'
+import { staffTimeTaskCommentCrudEvents } from '../lib/crud'
 import {
   staffTimeTaskCommentCreateSchema,
   staffTimeTaskCommentUpdateSchema,
@@ -84,17 +85,16 @@ const commentCrudIndexer: CrudIndexerConfig<StaffTimeTaskComment> = {
   entityType: 'staff:staff_time_task_comment',
 }
 
-/** `staff.timesheets.time_task_comment.{created,updated,deleted}` from `events.ts`. */
-const commentCrudEvents: CrudEventsConfig<StaffTimeTaskComment> = {
-  module: 'staff',
-  entity: 'timesheets.time_task_comment',
-  persistent: true,
-  buildPayload: (ctx) => ({
-    id: ctx.identifiers.id,
-    organizationId: ctx.identifiers.organizationId,
-    tenantId: ctx.identifiers.tenantId,
-  }),
-}
+/**
+ * `staff.timesheets.time_task_comment.{created,updated,deleted}` from `events.ts`.
+ *
+ * The route is hand-written (it must answer 404 rather than an empty page for a
+ * task the caller cannot see), so it takes no `events:` config the CRUD factory
+ * could read — the command emits the lifecycle events itself. It uses the shared
+ * export rather than a local copy so the ids the module publishes and the ids this
+ * command emits cannot drift apart.
+ */
+const commentCrudEvents: CrudEventsConfig<StaffTimeTaskComment> = staffTimeTaskCommentCrudEvents
 
 type Translate = (key: string, fallback: string) => string
 

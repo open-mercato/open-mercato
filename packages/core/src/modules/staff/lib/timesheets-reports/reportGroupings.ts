@@ -71,6 +71,11 @@ export function hasReportGrouping(id: string | null | undefined): boolean {
   return registry.has(id)
 }
 
+/** Identity, not membership of `BUILT_IN_REPORT_GROUPING_IDS` — a contribution cannot claim one. */
+export function isBuiltInReportGrouping(id: string | null | undefined): boolean {
+  return registry.isBuiltIn(id)
+}
+
 /** Built-ins first, in the order the module shipped them, then contributions. */
 export function reportGroupingIds(): string[] {
   const builtIn = BUILT_IN_REPORT_GROUPING_IDS.filter((id) => registry.has(id))
@@ -111,8 +116,10 @@ function taskLineKey(entry: ReportInputEntry): ReportGroupingKey {
   return { key: rootId, parentKey: null }
 }
 
-function registerBuiltInReportGrouping(grouping: Omit<ReportGroupingStrategy, 'priority'>): void {
-  registry.register({ ...grouping, priority: BUILT_IN_STRATEGY_PRIORITY })
+function registerBuiltInReportGrouping(
+  grouping: Omit<ReportGroupingStrategy, 'priority'>,
+): ReportGroupingStrategy {
+  return registry.registerBuiltIn({ ...grouping, priority: BUILT_IN_STRATEGY_PRIORITY })
 }
 
 registerBuiltInReportGrouping({

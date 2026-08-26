@@ -20,6 +20,7 @@
 import { MINUTES_PER_DAY, deriveInterval, parseClock } from './interval'
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
+import { tryStrategy } from './registries/invoke'
 import { hasResolverScope, type ScopedResolverContext } from './registries/scope'
 
 export type OverlapSpan = {
@@ -132,7 +133,7 @@ export function getOverlapPolicy(id: string | null | undefined): OverlapPolicy |
   return overlapRegistry.get(id)
 }
 
-registerOverlapPolicy({
+overlapRegistry.registerBuiltIn({
   id: BUILT_IN_OVERLAP_POLICY_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
   evaluate: (spans, ctx) => (ctx.warningsEnabled && spans.length > 0 ? 'warn' : 'allow'),
@@ -148,8 +149,11 @@ export function evaluateOverlapPolicies(
   let decision: OverlapDecision = 'allow'
   for (const policy of overlapRegistry.list()) {
     if (!scoped && policy.id !== BUILT_IN_OVERLAP_POLICY_ID) continue
-    const answer = policy.evaluate(spans, ctx)
-    if (DECISION_SEVERITY[answer] > DECISION_SEVERITY[decision]) decision = answer
+    // A policy can only ESCALATE, so a thrower is skipped: it cannot express a
+    // warning, and letting it abort the evaluation would suppress the warnings the
+    // remaining policies — including the built-in — do express.
+    const answer = tryStrategy(OVERLAP_POLICY_REGISTRY_ID, policy.id, () => policy.evaluate(spans, ctx))
+    if (answer && DECISION_SEVERITY[answer] > DECISION_SEVERITY[decision]) decision = answer
   }
   return decision
 }

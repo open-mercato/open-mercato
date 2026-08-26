@@ -14,6 +14,7 @@ import { emitStaffEvent } from '../../../events'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
 import { runTimesheetInterceptors } from '../_shared/withTimesheetInterceptors'
+import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/access-requests' })
 
@@ -43,13 +44,6 @@ const accessRequestResponseSchema = z.object({
   ok: z.literal(true),
   deduplicated: z.boolean(),
 })
-
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
 
 type DedupeCacheLike = {
   get: (key: string) => Promise<unknown>
@@ -93,25 +87,6 @@ async function resolveAccessRequestContext(req: Request): Promise<AccessRequestC
     requesterUserId,
     requesterEmail: typeof auth.email === 'string' && auth.email.trim().length > 0 ? auth.email : null,
     translate,
-  }
-}
-
-/**
- * Granted features feed the mutation-guard registry so feature-gated guards run
- * for the caller. Returns null when RBAC cannot be consulted, in which case the
- * declarative `requireFeatures` guard in `metadata` remains the authorization
- * source.
- */
-async function resolveGrantedFeatures(context: AccessRequestContext): Promise<string[] | null> {
-  try {
-    const rbac = context.container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return null
-    return await rbac.getGrantedFeatures(context.requesterUserId, {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-    })
-  } catch {
-    return null
   }
 }
 
@@ -180,7 +155,17 @@ async function resolveRequesterName(context: AccessRequestContext): Promise<stri
 async function POST(req: Request) {
   try {
     const context = await resolveAccessRequestContext(req)
-    const grantedFeatures = await resolveGrantedFeatures(context)
+    // The grant list the interceptors and the mutation-guard registry gate on
+    // comes from the module's single RBAC authority, so it is always an array:
+    // the nullable read it replaces could not say whether an empty answer meant
+    // "no grants" or "could not ask". Authorization itself stays with the
+    // declarative `requireFeatures` guard in `metadata`.
+    const grantedFeatures = (
+      await resolveFeatureAccess(context.container, context.requesterUserId, [VIEW_FEATURE], {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+      })
+    ).grantedFeatures
 
     const interceptors = await runTimesheetInterceptors({
       request: req,
@@ -206,7 +191,7 @@ async function POST(req: Request) {
         userId: context.requesterUserId,
         tenantId: context.tenantId,
         organizationId: context.organizationId,
-        userFeatures: grantedFeatures ?? undefined,
+        userFeatures: grantedFeatures,
       },
       input: {
         resourceKind: RESOURCE_KIND,

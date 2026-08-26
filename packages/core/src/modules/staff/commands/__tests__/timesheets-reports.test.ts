@@ -21,6 +21,7 @@ import type { AwilixContainer } from 'awilix'
 
 const mockEmitCrudSideEffects = jest.fn()
 const mockFindWithDecryption = jest.fn()
+const mockEmitStaffEvent = jest.fn().mockResolvedValue(undefined)
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
@@ -43,7 +44,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../../events', () => ({
-  emitStaffEvent: jest.fn().mockResolvedValue(undefined),
+  emitStaffEvent: (...args: unknown[]) => mockEmitStaffEvent(...args),
 }))
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -246,7 +247,13 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockEmitCrudSideEffects.mockResolvedValue(undefined)
   mockFindWithDecryption.mockResolvedValue([])
+  mockEmitStaffEvent.mockResolvedValue(undefined)
 })
+
+function broadcastPayload(eventId: string): Record<string, unknown> | undefined {
+  const call = mockEmitStaffEvent.mock.calls.find(([id]) => id === eventId)
+  return call?.[1] as Record<string, unknown> | undefined
+}
 
 describe('staff.timesheets.reports.create', () => {
   it('allocates the first RAP number of the year and snapshots the customer', async () => {
@@ -569,6 +576,24 @@ describe('staff.timesheets.reports.close (US-G3)', () => {
       commands['staff.timesheets.reports.close'].execute({ id: REPORT_ID }, createCtx(em)),
     ).rejects.toMatchObject({ status: 404 })
   })
+
+  /**
+   * M-1. The close broadcast reaches every browser in the organization with no
+   * feature check. Money was already withheld; the customer identity is too — it is
+   * the one field that says which client was billed, and nothing subscribes to it
+   * (both in-repo subscribers re-read the report from the database).
+   */
+  it('broadcasts the close without the amount or the customer identity', async () => {
+    const { commands, em } = await closeFixture([entry()])()
+
+    await commands['staff.timesheets.reports.close'].execute({ id: REPORT_ID }, createCtx(em))
+
+    const payload = broadcastPayload('staff.timesheets.time_report.closed')
+    expect(payload).toMatchObject({ id: REPORT_ID, tenantId: TENANT_ID, reference: 'RAP-2026-0042' })
+    expect(payload).not.toHaveProperty('customerId')
+    expect(payload).not.toHaveProperty('totalAmount')
+    expect(JSON.stringify(payload)).not.toContain(CUSTOMER_ID)
+  })
 })
 
 describe('staff.timesheets.reports.unlock (US-G3)', () => {
@@ -639,6 +664,24 @@ describe('staff.timesheets.reports.unlock (US-G3)', () => {
     await expect(
       commands['staff.timesheets.reports.unlock'].execute({ id: REPORT_ID, reason: '   ' }, createCtx(em)),
     ).rejects.toThrow()
+  })
+
+  /**
+   * M-1. `time_report.unlocked` is `clientBroadcast: true` and the DOM Event Bridge
+   * filters on tenant + organization with no feature check, so the mandatory unlock
+   * justification — free operator prose about a client's billing — must not be on
+   * the wire. It stays on the audit row, which is read behind the ACL.
+   */
+  it('broadcasts the unlock without the operator justification', async () => {
+    const { commands, em } = await unlockFixture()
+    const reason = 'Klient zakwestionował 4 h na refaktorze.'
+
+    await commands['staff.timesheets.reports.unlock'].execute({ id: REPORT_ID, reason }, createCtx(em))
+
+    const payload = broadcastPayload('staff.timesheets.time_report.unlocked')
+    expect(payload).toMatchObject({ id: REPORT_ID, tenantId: TENANT_ID, unlockedEntryCount: 2 })
+    expect(payload).not.toHaveProperty('reason')
+    expect(JSON.stringify(payload)).not.toContain('refaktorze')
   })
 })
 

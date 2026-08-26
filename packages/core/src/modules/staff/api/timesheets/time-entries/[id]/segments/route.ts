@@ -16,7 +16,6 @@ import { staffTimeEntrySegmentCreateSchema } from '../../../../../data/validator
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
-  resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
@@ -115,7 +114,6 @@ export async function POST(req: Request) {
         requestHeaders: req.headers,
         mutationPayload: input as unknown as Record<string, unknown>,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(

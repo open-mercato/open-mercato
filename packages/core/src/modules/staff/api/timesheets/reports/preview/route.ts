@@ -39,7 +39,8 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { staffTimeReportPreviewSchema } from '../../../../data/validators'
 import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
-import { resolveProjectAccess } from '../../../../lib/time-tracking/access'
+import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess } from '../../../../lib/time-tracking/access'
+import { resolveFeatureAccess } from '../../../../lib/time-tracking/featureAccess'
 import { readTimeTrackingSettings } from '../../../../lib/time-tracking/settings'
 import { loadReportData } from '../../../../lib/timesheets-reports/loadReportData'
 import {
@@ -57,28 +58,6 @@ const VIEW_FEATURE = 'staff.timesheets.reports.view'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: [VIEW_FEATURE] },
-}
-
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
-async function resolveGrantedFeatures(
-  container: Awaited<ReturnType<typeof createRequestContainer>>,
-  userId: string,
-  tenantId: string,
-  organizationId: string | null,
-): Promise<string[] | null> {
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return null
-    return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
-  } catch {
-    return null
-  }
 }
 
 export type PreviewProjectTotals = {
@@ -177,11 +156,16 @@ export async function POST(req: Request) {
       })
     }
 
-    const grantedFeatures = await resolveGrantedFeatures(container, auth.sub ?? '', tenantId, organizationId)
-    // Fail-closed, and asked of the RBAC service rather than matched against the
-    // grant array: the previous `grantedFeatures === null || …` handed rates and
-    // costs to any report viewer whenever that array could not be read, and this
-    // route requires only `reports.view`.
+    // Both questions go through the module's single RBAC authority, which asks the
+    // service and fails closed on every path. The hand-rolled grant read this
+    // replaces returned `string[] | null`, and a null it could not explain was read
+    // as "no restriction" — that is how rates reached a plain report viewer, since
+    // this route requires only `reports.view`.
+    const manageAccess = await resolveFeatureAccess(container, auth.sub ?? null, [MANAGE_PROJECTS_FEATURE], {
+      tenantId,
+      organizationId,
+    })
+    const grantedFeatures = manageAccess.grantedFeatures
     const canSeeMoney = await resolveMoneyVisibility(container, auth.sub ?? null, {
       tenantId,
       organizationId,
@@ -204,7 +188,8 @@ export async function POST(req: Request) {
       userId: auth.sub ?? null,
       tenantId,
       organizationId,
-      userFeatures: grantedFeatures ?? [],
+      canManageAll: manageAccess.allowed,
+      userFeatures: grantedFeatures,
       assignmentGraceDays: await readAssignmentGraceDays(container, tenantId),
     })
 

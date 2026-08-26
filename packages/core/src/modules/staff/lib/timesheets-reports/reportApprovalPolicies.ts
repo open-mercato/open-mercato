@@ -14,6 +14,7 @@
 
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from '../time-tracking/registries/registry'
+import { runStrategy } from '../time-tracking/registries/invoke'
 import { hasResolverScope, type ScopedResolverContext } from '../time-tracking/registries/scope'
 
 export type ReportApprovalContext = ScopedResolverContext & {
@@ -61,7 +62,7 @@ export function getReportApprovalPolicy(id: string | null | undefined): ReportAp
   return registry.get(id)
 }
 
-registerReportApprovalPolicy({
+registry.registerBuiltIn({
   id: BUILT_IN_REPORT_APPROVAL_POLICY_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
 })
@@ -73,21 +74,41 @@ function applicablePolicies(ctx: ReportApprovalContext): ReportApprovalPolicy[] 
     .filter((policy) => scoped || policy.id === BUILT_IN_REPORT_APPROVAL_POLICY_ID)
 }
 
-/** The first refusal wins; every policy must agree before a close proceeds. */
-export function evaluateReportClosePolicies(ctx: ReportApprovalContext): ReportApprovalRefusal | null {
+/**
+ * These two are the only registry call sites that do NOT fall back to the built-in
+ * when a policy throws, and the asymmetry is deliberate: they are gates, and the
+ * built-in grants (it declares no `canClose`/`canUnlock` at all, because the ACL
+ * check in the routes runs first and unconditionally). Falling back would turn a
+ * broken policy into permission. A thrower refuses instead, which is the same answer
+ * the policy would have given if it could not satisfy itself.
+ */
+function refusalOnFailure(): ReportApprovalRefusal {
+  return { code: 'approval_policy_unavailable', messageKey: 'staff.errors.forbidden' }
+}
+
+function evaluatePolicyVerdict(
+  ctx: ReportApprovalContext,
+  read: (policy: ReportApprovalPolicy) => ReportApprovalVerdict,
+): ReportApprovalRefusal | null {
   for (const policy of applicablePolicies(ctx)) {
-    const verdict = policy.canClose?.(ctx)
+    const verdict = runStrategy(
+      REPORT_APPROVAL_POLICY_REGISTRY_ID,
+      policy.id,
+      () => read(policy),
+      () => refusalOnFailure(),
+    )
     if (verdict) return verdict
   }
   return null
 }
 
+/** The first refusal wins; every policy must agree before a close proceeds. */
+export function evaluateReportClosePolicies(ctx: ReportApprovalContext): ReportApprovalRefusal | null {
+  return evaluatePolicyVerdict(ctx, (policy) => policy.canClose?.(ctx))
+}
+
 export function evaluateReportUnlockPolicies(ctx: ReportApprovalContext): ReportApprovalRefusal | null {
-  for (const policy of applicablePolicies(ctx)) {
-    const verdict = policy.canUnlock?.(ctx)
-    if (verdict) return verdict
-  }
-  return null
+  return evaluatePolicyVerdict(ctx, (policy) => policy.canUnlock?.(ctx))
 }
 
 export type ReportApprovalNotificationFailure = {

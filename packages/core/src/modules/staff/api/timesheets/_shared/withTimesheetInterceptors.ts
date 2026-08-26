@@ -47,12 +47,18 @@ export type TimesheetInterceptorScope = {
   tenantId: string | null | undefined
   organizationId: string | null | undefined
   /**
-   * The caller's granted features, when the route already resolved them. Omitted,
-   * the helper asks `rbacService.getGrantedFeatures` once — the same source the CRUD
-   * factory uses — so a feature-gated interceptor is evaluated against a real grant
-   * set rather than an empty one.
+   * The caller's granted features, when the route already resolved them — through
+   * `resolveFeatureAccess`, which always yields an array. Deliberately not
+   * nullable: a grant list that can be `null` cannot say whether an empty answer
+   * means "no grants" or "could not ask", and passing that ambiguity on is what
+   * this helper's own fallback exists to avoid.
+   *
+   * Omitted, the helper asks `rbacService.getGrantedFeatures` once — the same
+   * source the CRUD factory uses — so a feature-gated interceptor is evaluated
+   * against a real grant set rather than an empty one, and an unreadable set gates
+   * every feature-scoped interceptor off.
    */
-  userFeatures?: readonly string[] | null
+  userFeatures?: readonly string[]
   /**
    * Opt-in for the tenant-global routes (`/settings`, `/settings/reapply-rounding`),
    * whose records have no organization at all. Without it a request that resolved no

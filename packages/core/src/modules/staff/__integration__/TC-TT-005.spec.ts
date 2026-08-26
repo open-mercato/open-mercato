@@ -237,8 +237,21 @@ test.describe('TC-TT-005: Project team drawer', () => {
       await expect(memberRow).toBeVisible({ timeout: 30_000 })
       await expect(memberRow).toContainText('2:30 in this project', { timeout: 30_000 })
 
+      // Let the backend shell finish settling before opening a modal on top of it.
+      // The app loads its component-override registry after hydration; when that
+      // resolves it swaps the overridden components, which remounts this subtree and
+      // takes every portalled dialog with it. Roughly a second after the drawer
+      // becomes interactive, an already-open confirmation is therefore destroyed with
+      // its pending promise unresolved — the same settle-wait TC-LOCK-OSS-043 takes
+      // before driving its confirm dialog.
+      await page.waitForLoadState('networkidle')
+
       // Screen 5 note 3 — the confirmation names the person and the hours at stake.
-      await memberRow.getByRole('checkbox').uncheck()
+      // `.click()` rather than `.uncheck()`: clearing the box is what opens the
+      // confirmation, and the row only flips once Confirm is pressed, so
+      // `uncheck()`'s post-condition ("the box now reads unchecked") is exactly
+      // the state this dialog exists to withhold.
+      await memberRow.getByRole('checkbox').click()
       const confirmDialog = page.getByRole('alertdialog', { name: /revoke access\?/i })
       await expect(confirmDialog).toBeVisible()
       await expect(confirmDialog).toContainText(`${employeeMember!.displayName} has 2:30 in this project`)

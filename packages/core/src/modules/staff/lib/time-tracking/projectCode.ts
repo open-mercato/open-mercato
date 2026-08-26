@@ -18,6 +18,7 @@
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
 import { selectScopedStrategy, type ScopedResolverContext } from './registries/scope'
+import { runStrategy } from './registries/invoke'
 
 export const PROJECT_CODE_MAX_LENGTH = 20
 
@@ -178,27 +179,43 @@ export function getProjectCodeGenerator(id: string | null | undefined): ProjectC
   return generatorRegistry.get(id)
 }
 
-const builtInProjectCodeGenerator: ProjectCodeGenerator = {
+const builtInProjectCodeGenerator: ProjectCodeGenerator = generatorRegistry.registerBuiltIn({
   id: BUILT_IN_PROJECT_CODE_GENERATOR_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
   generate: (name, taken) => deriveInitialsCode(name, taken),
-}
-
-registerProjectCodeGenerator(builtInProjectCodeGenerator)
+})
 
 export function resolveProjectCodeGenerator(
   ctx?: ScopedResolverContext | null,
 ): ProjectCodeGenerator {
-  return (
-    selectScopedStrategy(generatorRegistry.list(), BUILT_IN_PROJECT_CODE_GENERATOR_ID, ctx) ??
-    builtInProjectCodeGenerator
-  )
+  return selectScopedStrategy(generatorRegistry.list(), builtInProjectCodeGenerator, ctx)
 }
 
+/**
+ * The code lands in a column with a length limit and is quoted on every task
+ * reference, so a generator that throws or answers with a blank, an over-long or a
+ * non-string value falls back to the module's own initials rule. A save that refuses
+ * to happen, or a project whose reference is unreadable, is worse than a code the
+ * contributor did not choose.
+ */
 export function deriveProjectCode(
   name: string,
   taken: Set<string> = new Set(),
   ctx?: ProjectCodeContext | null,
 ): string {
-  return resolveProjectCodeGenerator(ctx).generate(name, taken ?? new Set(), ctx ?? {})
+  const generator = resolveProjectCodeGenerator(ctx)
+  const reserved = taken ?? new Set<string>()
+  const builtIn = () => deriveInitialsCode(name, reserved)
+  if (generator === builtInProjectCodeGenerator) return builtIn()
+
+  const answer = runStrategy(
+    PROJECT_CODE_GENERATOR_REGISTRY_ID,
+    generator.id,
+    () => generator.generate(name, reserved, ctx ?? {}) as unknown,
+    () => null,
+  )
+  if (typeof answer !== 'string') return builtIn()
+  const trimmed = answer.trim()
+  if (!trimmed || trimmed.length > PROJECT_CODE_MAX_LENGTH) return builtIn()
+  return trimmed
 }

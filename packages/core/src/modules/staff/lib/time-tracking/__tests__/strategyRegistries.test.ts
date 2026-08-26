@@ -77,6 +77,7 @@ import {
   type ReportApprovalContext,
 } from '../../timesheets-reports/reportApprovalPolicies'
 import type { ReportExportInput } from '../../timesheets-reports/reportExport'
+import { computeReportTotals } from '../../timesheets-reports/reportTotals'
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
@@ -449,5 +450,269 @@ describe('EP-41 report approval policy provider', () => {
       dispose()
     }
     expect(await notifyReportClosed({ ...ctx, status: 'closed' })).toEqual([])
+  })
+})
+
+/**
+ * M-3 — a contribution cannot impersonate a built-in, and cannot delete one.
+ *
+ * All eleven built-in ids are published in `staff/AGENTS.md`, and `register()` used
+ * to be `slots.set(id, slot)`: last writer wins. A module registering
+ * `{ id: 'staff.time_tracking.rounding.unit', … }` therefore BECAME the built-in —
+ * it ran on the unscoped path the fail-closed gate exists to keep byte-identical,
+ * and its disposer then removed the real built-in permanently, after which
+ * `resolveGroupingStrategy` throws on every report list, sheet and export.
+ */
+describe('built-in strategies are not replaceable', () => {
+  it('refuses a contribution registered under a built-in id', () => {
+    expect(() =>
+      registerTimeRoundingStrategy({
+        id: BUILT_IN_TIME_ROUNDING_STRATEGY_ID,
+        labelKey: 'test.impostor',
+        round: () => 1,
+      }),
+    ).toThrow(/built-in/)
+
+    expect(() =>
+      registerReportGrouping({
+        id: 'project_task',
+        labelKey: 'test.impostor',
+        groupOf: () => ({ key: 'x', parentKey: null }),
+        labelOf: () => 'x',
+        sort: () => 0,
+      }),
+    ).toThrow(/built-in/)
+
+    expect(() =>
+      registerCapacityProvider({
+        id: BUILT_IN_CAPACITY_PROVIDER_ID,
+        resolve: () => ({ targetMinutesByDate: {}, totalTargetMinutes: 0 }),
+      }),
+    ).toThrow(/built-in/)
+
+    // Nothing was displaced by the attempts.
+    expect(resolveTimeRoundingStrategy(SCOPE).id).toBe(BUILT_IN_TIME_ROUNDING_STRATEGY_ID)
+    expect(getReportGrouping('project_task')).not.toBeNull()
+    expect(roundMinutes(62, { unitMinutes: 15, direction: 'up' }, SCOPE)).toBe(75)
+  })
+
+  it('cannot be removed by a contributed strategy disposer', () => {
+    const dispose = registerReportGrouping({
+      id: 'test.by_tag',
+      labelKey: 'test.by_tag',
+      groupOf: (entry) => ({ key: entry.date || UNASSIGNED_LINE_KEY, parentKey: null }),
+      labelOf: (key) => key,
+      sort: () => 0,
+    })
+    dispose()
+    // Disposing twice, the shape a buggy contribution takes, must not reach further.
+    dispose()
+
+    expect(getReportGrouping('test.by_tag')).toBeNull()
+    for (const id of BUILT_IN_REPORT_GROUPING_IDS) {
+      expect(getReportGrouping(id)).not.toBeNull()
+    }
+    expect(reportGroupingIds()).toEqual(expect.arrayContaining([...BUILT_IN_REPORT_GROUPING_IDS]))
+    expect(normalizeReportGrouping('project_task')).toBe('project_task')
+  })
+})
+
+/**
+ * M-4 — a contributed strategy's return value is not trusted, and neither is its
+ * ability to return at all.
+ *
+ * `roundMinutes` feeds `staff_time_entries.rounded_minutes`, an `integer` column and
+ * the sole input to cost. The obvious contributed strategy —
+ * `Math.floor(raw / ctx.settings.unitMinutes) * ctx.settings.unitMinutes`, the shape
+ * this suite's own fixture uses — is `NaN` under the SHIPPED default of
+ * `unitMinutes: 0`: the write either fails or stores garbage, and on read
+ * `entryAmount` substitutes `0`, so the entry bills 0.00 in silence.
+ */
+describe('a contributed strategy cannot corrupt the value it returns', () => {
+  const suppressed: jest.SpyInstance[] = []
+
+  beforeEach(() => {
+    suppressed.push(jest.spyOn(console, 'error').mockImplementation(() => {}))
+  })
+
+  afterEach(() => {
+    for (const spy of suppressed.splice(0)) spy.mockRestore()
+  })
+
+  it('falls back to the built-in rounding when a strategy answers NaN', () => {
+    const dispose = registerTimeRoundingStrategy({
+      id: 'test.divide_by_unit',
+      labelKey: 'test.divide_by_unit',
+      round: (raw, ctx) => Math.floor(raw / ctx.settings.unitMinutes) * ctx.settings.unitMinutes,
+    })
+    try {
+      // The shipped default. Before the clamp this stored NaN and billed 0.00.
+      expect(roundMinutes(62, { unitMinutes: 0, direction: 'up' }, SCOPE)).toBe(62)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('clamps a fractional or negative answer to something the column can hold', () => {
+    const dispose = registerTimeRoundingStrategy({
+      id: 'test.fractional',
+      labelKey: 'test.fractional',
+      round: (raw) => -raw / 3,
+    })
+    try {
+      expect(roundMinutes(62, { unitMinutes: 15, direction: 'up' }, SCOPE)).toBe(0)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('falls back to the built-in rounding when a strategy throws', () => {
+    const dispose = registerTimeRoundingStrategy({
+      id: 'test.thrower',
+      labelKey: 'test.thrower',
+      round: () => {
+        throw new Error('[internal] contributed rounding blew up')
+      },
+    })
+    try {
+      expect(roundMinutes(62, { unitMinutes: 15, direction: 'up' }, SCOPE)).toBe(75)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('falls back to the flat daily target when a capacity provider throws or answers nonsense', () => {
+    const range = { from: '2026-01-01', to: '2026-01-02', workingDays: ['2026-01-01', '2026-01-02'] }
+    const disposeThrower = registerCapacityProvider({
+      id: 'test.capacity_thrower',
+      priority: 10,
+      resolve: () => {
+        throw new Error('[internal] contributed capacity blew up')
+      },
+    })
+    try {
+      expect(resolveTimesheetCapacity('member-1', range, { ...SCOPE, dailyHours: 8 })).toEqual({
+        targetMinutesByDate: { '2026-01-01': 480, '2026-01-02': 480 },
+        totalTargetMinutes: 960,
+      })
+    } finally {
+      disposeThrower()
+    }
+
+    const disposeNonsense = registerCapacityProvider({
+      id: 'test.capacity_nonsense',
+      priority: 10,
+      resolve: () =>
+        ({ targetMinutesByDate: { '2026-01-01': Number.NaN }, totalTargetMinutes: Number.NaN }) as never,
+    })
+    try {
+      expect(
+        resolveTimesheetCapacity('member-1', range, { ...SCOPE, dailyHours: 8 }).totalTargetMinutes,
+      ).toBe(960)
+    } finally {
+      disposeNonsense()
+    }
+  })
+
+  it('falls back to the initials rule when a project code generator throws or answers unusably', () => {
+    const disposeThrower = registerProjectCodeGenerator({
+      id: 'test.code_thrower',
+      generate: () => {
+        throw new Error('[internal] contributed generator blew up')
+      },
+    })
+    try {
+      expect(deriveProjectCode('Ergo Hestia Korpo', new Set(), SCOPE)).toBe('EHK')
+    } finally {
+      disposeThrower()
+    }
+
+    const disposeBlank = registerProjectCodeGenerator({
+      id: 'test.code_blank',
+      generate: () => '   ',
+    })
+    try {
+      expect(deriveProjectCode('Ergo Hestia Korpo', new Set(), SCOPE)).toBe('EHK')
+    } finally {
+      disposeBlank()
+    }
+  })
+
+  it('keeps a report renderable when a contributed grouping sort throws', () => {
+    const dispose = registerReportGrouping({
+      id: 'test.sort_thrower',
+      labelKey: 'test.sort_thrower',
+      groupOf: (entry) => ({ key: entry.staffMemberId ?? UNASSIGNED_LINE_KEY, parentKey: null }),
+      labelOf: (key) => key,
+      sort: () => {
+        throw new Error('[internal] contributed sort blew up')
+      },
+    })
+    try {
+      const totals = computeReportTotals({
+        entries: [
+          {
+            id: 'e1',
+            date: '2026-01-01',
+            staffMemberId: 'member-1',
+            timeProjectId: 'project-1',
+            taskId: null,
+            rootTaskId: null,
+            isBillable: true,
+            roundedMinutes: 60,
+            durationMinutes: 60,
+            rateOverrideAmount: null,
+            lockedReportId: null,
+          },
+        ],
+        projects: [{ id: 'project-1', name: 'Apollo', hourlyRate: 100, currencyCode: 'PLN' }],
+        directory: { taskLabelById: {}, personLabelById: { 'member-1': 'Ada' } },
+        options: { grouping: 'test.sort_thrower', nonBillableMode: 'separate', includeAlreadyReported: false },
+        labels: { unassignedTask: '—', unassignedPerson: '—', nonbillableGroup: 'Non-billable' },
+      })
+      expect(totals.groups[0].lines).toHaveLength(1)
+    } finally {
+      dispose()
+    }
+  })
+
+  it('re-raises a failing export serializer as a diagnosable internal error', () => {
+    const dispose = registerReportExportFormat({
+      id: 'test.broken_format',
+      labelKey: 'test.broken_format',
+      mimeType: 'application/x-broken',
+      extension: 'brk',
+      serialize: () => {
+        throw new Error('boom')
+      },
+    })
+    try {
+      expect(() => serializeReportExport('test.broken_format', {} as ReportExportInput)).toThrow(
+        /\[internal\] report export format test\.broken_format failed to serialize/,
+      )
+    } finally {
+      dispose()
+    }
+  })
+
+  it('refuses a close when an approval policy throws, rather than treating it as consent', () => {
+    const dispose = registerReportApprovalPolicy({
+      id: 'test.policy_thrower',
+      canClose: () => {
+        throw new Error('[internal] contributed policy blew up')
+      },
+    })
+    try {
+      const refusal = evaluateReportClosePolicies({
+        ...SCOPE,
+        reportId: 'report-1',
+        actorUserId: 'user-1',
+        actorFeatures: ['staff.timesheets.lock'],
+        status: 'draft',
+      })
+      expect(refusal).toMatchObject({ code: 'approval_policy_unavailable' })
+    } finally {
+      dispose()
+    }
   })
 })

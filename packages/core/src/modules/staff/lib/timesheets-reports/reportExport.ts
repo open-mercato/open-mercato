@@ -12,6 +12,7 @@
  * event and nothing else.
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { serializeExport, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { buildPdf, PDF_CONTENT_TYPE, type PdfLine } from './pdf'
 import { buildXlsx, XLSX_CONTENT_TYPE } from './xlsx'
@@ -23,6 +24,8 @@ import {
   reportExportFormatIds,
   type ReportExportFormat,
 } from './reportExportFormats'
+
+const logger = createLogger('staff').child({ component: 'timesheets-reports/reportExport' })
 
 export type { ReportExportFormat }
 
@@ -345,6 +348,14 @@ registerBuiltInReportExportFormat({
   },
 })
 
+/**
+ * A contributed `serialize` is the one strategy whose failure cannot be absorbed:
+ * the caller asked for a named format and every fallback would answer with bytes of
+ * a different type under the requested filename and MIME. So the throw propagates —
+ * but it is caught and re-raised as an internal error naming the format, so the one
+ * request fails with something diagnosable instead of a stack trace from a third
+ * party's serializer.
+ */
 export function serializeReportExport(
   format: ReportExportFormat,
   input: ReportExportInput,
@@ -353,5 +364,10 @@ export function serializeReportExport(
   if (!definition) {
     throw new Error(`[internal] unknown report export format: ${String(format)}`)
   }
-  return definition.serialize(input)
+  try {
+    return definition.serialize(input)
+  } catch (err) {
+    logger.error('a report export format failed to serialize', { format: definition.id, err })
+    throw new Error(`[internal] report export format ${definition.id} failed to serialize`)
+  }
 }

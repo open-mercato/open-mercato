@@ -38,13 +38,19 @@ export function hasResolverScope(ctx: ScopedResolverContext | null | undefined):
  * Picks the strategy a scoped call site should run: the highest-priority
  * contribution when the scope is complete, the built-in otherwise. `candidates`
  * arrives already ordered by the registry.
+ *
+ * The built-in is passed **by reference**, not looked up by id among the
+ * candidates. An id is a string anyone can register; identity is not. Resolving
+ * the fail-closed default by id meant a contribution that named itself after the
+ * built-in was served on the unscoped path the rule exists to keep byte-identical
+ * — `registry.ts` now refuses that registration, and this makes the second half of
+ * the same guarantee structural rather than conventional.
  */
 export function selectScopedStrategy<TEntry extends { id: string }>(
   candidates: readonly TEntry[],
-  builtInId: string,
+  builtIn: TEntry,
   ctx: ScopedResolverContext | null | undefined,
-): TEntry | null {
-  const builtIn = candidates.find((candidate) => candidate.id === builtInId) ?? null
+): TEntry {
   if (!hasResolverScope(ctx)) return builtIn
   return candidates[0] ?? builtIn
 }

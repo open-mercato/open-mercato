@@ -14,6 +14,7 @@
 
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
+import { tryStrategy } from './registries/invoke'
 import { hasResolverScope, type ScopedResolverContext } from './registries/scope'
 import type { TimeTrackingSettings } from './settings'
 
@@ -50,19 +51,17 @@ export function getBillabilityResolver(id: string | null | undefined): Billabili
   return registry.get(id)
 }
 
-const builtInBillabilityResolver: BillabilityResolver = {
+const builtInBillabilityResolver: BillabilityResolver = registry.registerBuiltIn({
   id: BUILT_IN_BILLABILITY_RESOLVER_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
   resolve: (ctx) => ctx.requested ?? ctx.project?.billableByDefault ?? ctx.settings.defaults.billable,
-}
-
-registerBillabilityResolver(builtInBillabilityResolver)
+})
 
 export function resolveBillability(ctx: BillabilityContext): boolean {
   const scoped = hasResolverScope(ctx)
   for (const resolver of registry.list()) {
     if (!scoped && resolver.id !== BUILT_IN_BILLABILITY_RESOLVER_ID) continue
-    const answer = resolver.resolve(ctx)
+    const answer = tryStrategy(BILLABILITY_REGISTRY_ID, resolver.id, () => resolver.resolve(ctx))
     if (typeof answer === 'boolean') return answer
   }
   return ctx.settings.defaults.billable

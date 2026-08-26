@@ -1,8 +1,9 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deriveProjectCode } from '@open-mercato/core/modules/staff/lib/time-tracking/projectCode'
 import { createTestCustomer, type TestCustomerFixture } from './fixtures'
 
 export const integrationMeta = {
@@ -70,6 +71,38 @@ async function readProject(
   return record as TimeProjectRecord
 }
 
+/**
+ * The codes the create form treats as taken, read the same way
+ * `useTakenProjectCodes` reads them. `deriveProjectCode` needs them because a
+ * three-character code collides often by design and the collision counter is
+ * part of the derivation, so the expectation is wrong without them.
+ */
+async function readTakenProjectCodes(request: APIRequestContext, token: string): Promise<Set<string>> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `${TIME_PROJECTS_PATH}?page=1&pageSize=100&sortField=code&sortDir=asc`,
+    { token },
+  )
+  expect(response.ok(), `GET ${TIME_PROJECTS_PATH} should list the project codes in scope: ${response.status()}`).toBeTruthy()
+  const body = await readJsonSafe<{ items?: TimeProjectRecord[] }>(response)
+  const codes = (body?.items ?? [])
+    .map((item) => (typeof item.code === 'string' ? item.code.trim().toUpperCase() : ''))
+    .filter((code) => code.length > 0)
+  return new Set(codes)
+}
+
+/**
+ * `CrudForm` renders its submit button twice by design — `FormHeader` and
+ * `FormFooter` both receive the same `submit` descriptor — so a page-wide role
+ * locator matches two elements on every CrudForm page. The footer copy is the
+ * one inside the `<form>` element; the header copy sits outside it and is bound
+ * back through the `form` attribute.
+ */
+function createButton(page: Page): Locator {
+  return page.locator('form').getByRole('button', { name: 'Create', exact: true })
+}
+
 async function pickCustomer(page: Page, customerName: string): Promise<void> {
   const customerField = page.locator('[data-crud-field-id="customerId"]')
   await customerField.getByRole('combobox').fill(customerName)
@@ -87,10 +120,7 @@ test.describe('TC-TT-004: Create a time tracking project', () => {
     test.setTimeout(120_000)
 
     const stamp = String(Date.now()).slice(-9)
-    // `QATT4 <9 digits>` slugifies to `QATT4-<9 digits>` (15 chars), inside the
-    // 19-character word budget, so the derived code is exact and collision-free.
     const projectName = `QATT4 ${stamp}`
-    const derivedCode = `QATT4-${stamp}`
     const manualCode = `QATT4M-${stamp}`
     const customerName = `QATT4 Company ${stamp}`
 
@@ -112,6 +142,12 @@ test.describe('TC-TT-004: Create a time tracking project', () => {
         (item) => typeof item.value === 'string' && item.value.length > 0 && typeof item.label === 'string',
       )
       expect(currency, 'The tenant needs at least one currency for the project currency picker').toBeTruthy()
+
+      // D-10 — the code the form is expected to derive, computed with the same
+      // generator the form uses (`PROJECT_CODE_TARGET_LENGTH` is 3, so
+      // `QATT4 <digits>` reduces to `QAT`) rather than restated as a literal,
+      // so the assertion follows the shipped rule instead of shadowing it.
+      const derivedCode = deriveProjectCode(projectName, await readTakenProjectCodes(request, adminToken))
 
       await login(page, 'admin')
       await page.goto(CREATE_PAGE)
@@ -146,7 +182,7 @@ test.describe('TC-TT-004: Create a time tracking project', () => {
       await page.getByRole('switch', { name: 'Track the limit' }).click()
       await page.getByLabel('Limit', { exact: true }).fill('125')
 
-      await page.getByRole('button', { name: 'Create', exact: true }).click()
+      await createButton(page).click()
 
       await page.waitForURL(PROJECT_URL_PATTERN, { timeout: 60_000 })
       createdProjectId = projectIdFromUrl(page)
@@ -201,14 +237,14 @@ test.describe('TC-TT-004: Create a time tracking project', () => {
       await expect(page.locator('[data-crud-field-id="customerId"]')).toContainText(
         'Time is organised per customer',
       )
-      await page.getByRole('button', { name: 'Create', exact: true }).click()
+      await createButton(page).click()
 
       await expect(page).toHaveURL(new RegExp(`${CREATE_PAGE}$`))
       await expect(page.locator('[data-crud-field-id="customerId"]')).toContainText(/required/i)
 
       // The same form, now with a sole trader, saves and persists that customer.
       await pickCustomer(page, soleTraderName)
-      await page.getByRole('button', { name: 'Create', exact: true }).click()
+      await createButton(page).click()
 
       await page.waitForURL(PROJECT_URL_PATTERN, { timeout: 60_000 })
       createdProjectId = projectIdFromUrl(page)

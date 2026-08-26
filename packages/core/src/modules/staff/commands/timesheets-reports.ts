@@ -1071,12 +1071,26 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
     // gated on `staff.timesheets.rates.view`. The minute totals and the locked-entry
     // count are not money and are what a live report screen needs; the amount is read
     // back from the report itself by a caller entitled to it.
+    //
+    // What else that unfiltered audience decides, field by field:
+    //
+    //  - `customerId` is DROPPED. It is the one field that links a report to a named
+    //    client, and one organization serves many; a tenant's whole staff learning
+    //    which client was billed this week is a disclosure with no consumer asking
+    //    for it. The schema always declared it optional, both in-repo subscribers
+    //    re-read the report from the database, and the portal mirror
+    //    (`time_report.portal_published`) resolves the customer itself.
+    //  - `reference` and the two minute totals STAY. They are stable identifiers and
+    //    non-money aggregates, they are the published webhook contract an external
+    //    billing system codes against, and they are what a live reports screen needs
+    //    to refresh a row. Narrowing them further is not expressible here: the DOM
+    //    bridge can only pin an audience by user or ROLE id, and this module
+    //    deliberately gates on immutable feature ids rather than mutable roles.
     void emitStaffEvent('staff.timesheets.time_report.closed', {
       id: report.id,
       tenantId: report.tenantId,
       organizationId: report.organizationId,
       reference: report.reference,
-      customerId: report.customerId,
       reportId: result.reportId,
       lockedEntryCount: result.lockedEntryCount,
       totalBillableMinutes: result.totalBillableMinutes,
@@ -1252,12 +1266,21 @@ const unlockReportCommand: CommandHandler<StaffTimeReportUnlockInput, StaffTimeR
       indexer: reportCrudIndexer,
     })
 
+    // `reason` is deliberately NOT on the wire.
+    //
+    // This event is `clientBroadcast: true`, and the DOM Event Bridge filters a
+    // broadcast by tenant + organization only — no feature check — so every
+    // signed-in user of the organization receives whatever the payload carries.
+    // `reason` is mandatory operator prose of up to 2000 characters explaining why
+    // a client's billing was reopened; broadcasting it organization-wide is a
+    // disclosure the screen it comes from (`staff.timesheets.reports.unlock`) does
+    // not make. It is already persisted verbatim on the `StaffTimeReportEvent`
+    // audit row above, which is read behind the ACL, so nothing is lost.
     void emitStaffEvent('staff.timesheets.time_report.unlocked', {
       id: report.id,
       tenantId: report.tenantId,
       organizationId: report.organizationId,
       reference: report.reference,
-      reason: parsed.reason,
       actorUserId: actorId,
       unlockedEntryCount,
     }).catch((err) => {

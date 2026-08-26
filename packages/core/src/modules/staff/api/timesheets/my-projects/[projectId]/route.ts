@@ -13,7 +13,6 @@ import { StaffTimeProjectMember, StaffTeamMember } from '../../../../data/entiti
 import { staffMyProjectVisibilityUpdateSchema } from '../../../../data/validators'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
-  resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
@@ -137,7 +136,6 @@ export async function PATCH(req: Request) {
         requestHeaders: req.headers,
         mutationPayload: parsed.data as unknown as Record<string, unknown>,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(

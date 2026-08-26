@@ -4,6 +4,7 @@ import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../api/guards'
 import { STAFF_TIME_TASK_RESOURCE_KIND } from '../commands/timesheets-tasks'
 import { STAFF_TIME_REPORT_RESOURCE_KIND } from '../commands/timesheets-reports'
 import { eventsConfig } from '../events'
+import * as staffCrudConfigs from '../lib/crud'
 import {
   staffTimeEntryCrudEvents,
   staffTimeProjectCrudEvents,
@@ -91,6 +92,43 @@ describe('time-tracking CRUD routes declare the frozen event ids', () => {
     expect(crudEventId(staffTimeTaskStatusCrudEvents, 'created')).toBe(
       'staff.timesheets.time_task_status.created',
     )
+  })
+})
+
+/**
+ * The guard the `resources` list above cannot be: it names the configs by hand, so a
+ * config that nobody remembered to list is a config nobody checks. `time_tag.*` and
+ * `time_task_status.*` were emitted by two `makeCrudRoute` resources for a whole
+ * phase without appearing in `events.ts` — invisible in `GET /api/webhooks/events`,
+ * carrying no payload contract, and tripping `warnIfUndeclaredEvent` on every write,
+ * while a webhook subscribed to `staff.timesheets.*` received them anyway because
+ * the dispatcher matches patterns rather than a registry.
+ *
+ * This walks every `CrudEventsConfig` `lib/crud.ts` exports instead, so a new one is
+ * covered the moment it is exported.
+ */
+describe('every exported CRUD events config names a declared event id', () => {
+  const declaredIds = new Set(eventsConfig.events.map((event) => event.id))
+
+  function isCrudEventsConfig(value: unknown): value is { module: string; entity: string } {
+    if (!value || typeof value !== 'object') return false
+    const candidate = value as { module?: unknown; entity?: unknown }
+    return typeof candidate.module === 'string' && typeof candidate.entity === 'string'
+  }
+
+  const exportedConfigs = Object.entries(staffCrudConfigs)
+    .filter((entry): entry is [string, { module: string; entity: string }] => isCrudEventsConfig(entry[1]))
+    .map(([exportName, config]) => ({ exportName, config }))
+
+  it('finds every config lib/crud.ts publishes', () => {
+    expect(exportedConfigs.length).toBeGreaterThanOrEqual(16)
+  })
+
+  it.each(exportedConfigs)('$exportName', ({ config }) => {
+    for (const action of ['created', 'updated', 'deleted'] as const) {
+      const eventId = crudEventId(config, action)
+      expect({ eventId, declared: declaredIds.has(eventId) }).toEqual({ eventId, declared: true })
+    }
   })
 })
 

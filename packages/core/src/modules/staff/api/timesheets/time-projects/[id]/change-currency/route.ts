@@ -6,7 +6,6 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -32,40 +31,12 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: [MANAGE_FEATURE] },
 }
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
 function extractProjectIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
   try {
     const url = new URL(request.url)
     const match = url.pathname.match(/\/time-projects\/([^/]+)\/change-currency/)
     return match?.[1] ?? null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Granted features power both the explicit manage check and the feature gating
- * inside the mutation-guard registry. Returns null when RBAC cannot be consulted,
- * in which case the declarative `requireFeatures` guard in `metadata` remains the
- * authorization source.
- */
-async function resolveGrantedFeatures(
-  container: Awaited<ReturnType<typeof createRequestContainer>>,
-  userId: string,
-  tenantId: string,
-  organizationId: string | null,
-): Promise<string[] | null> {
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return null
-    return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
   } catch {
     return null
   }
@@ -104,14 +75,16 @@ export async function POST(req: Request) {
     }
 
     const actorId = auth.sub ?? ''
-    const grantedFeatures = await resolveGrantedFeatures(container, actorId, tenantId, organizationId)
-    // Checked unconditionally. The `grantedFeatures &&` this replaces turned the
-    // check off whenever the grant read failed — harmless here only because the
-    // route metadata happens to require the same feature, which is exactly the
-    // shape that leaked rates on the report routes where no such backstop existed.
-    if (!(await resolveFeatureAccess(container, actorId, [MANAGE_FEATURE], { tenantId, organizationId })).allowed) {
+    // One lookup through the module's single RBAC authority, answering both
+    // questions this route asks: may the caller manage projects, and what grant
+    // list do the interceptors and the mutation-guard registry gate on. The
+    // decision is checked unconditionally and fails closed; the list is plumbing
+    // and is empty — never absent — when RBAC could not produce it.
+    const access = await resolveFeatureAccess(container, actorId, [MANAGE_FEATURE], { tenantId, organizationId })
+    if (!access.allowed) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
+    const grantedFeatures = access.grantedFeatures
 
     const interceptors = await runTimesheetInterceptors({
       request: req,
@@ -131,7 +104,7 @@ export async function POST(req: Request) {
         userId: actorId,
         tenantId,
         organizationId,
-        userFeatures: grantedFeatures ?? undefined,
+        userFeatures: grantedFeatures,
       },
       input: {
         resourceKind: RESOURCE_KIND,

@@ -5,7 +5,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../events'
@@ -45,13 +44,6 @@ function settingsResponseSchema(): z.ZodTypeAny {
   return buildTimeTrackingSettingsSchema()
 }
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
 type SettingsContext = {
   container: Awaited<ReturnType<typeof createRequestContainer>>
   tenantId: string
@@ -85,25 +77,6 @@ function resolveConfigService(context: SettingsContext): ModuleConfigService {
   return context.container.resolve('moduleConfigService') as ModuleConfigService
 }
 
-/**
- * Granted features power both the explicit manage check below and the feature
- * gating inside the mutation-guard registry. Returns null when RBAC cannot be
- * consulted, in which case the declarative `requireFeatures` guard in `metadata`
- * remains the authorization source.
- */
-async function resolveGrantedFeatures(context: SettingsContext): Promise<string[] | null> {
-  try {
-    const rbac = context.container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return null
-    return await rbac.getGrantedFeatures(context.actorId, {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-    })
-  } catch {
-    return null
-  }
-}
-
 async function GET(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
@@ -133,14 +106,19 @@ async function GET(req: Request) {
 async function PUT(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
-    const grantedFeatures = await resolveGrantedFeatures(context)
-    // Checked unconditionally. The `grantedFeatures &&` this replaces turned the
-    // check off whenever the grant read failed — harmless here only because the
-    // route metadata happens to require the same feature, which is exactly the
-    // shape that leaked rates on the report routes where no such backstop existed.
-    if (!(await resolveFeatureAccess(context.container, context.actorId || null, [MANAGE_FEATURE], { tenantId: context.tenantId, organizationId: context.organizationId })).allowed) {
+    // One lookup through the module's single RBAC authority, answering both
+    // questions this route asks: may the caller manage settings, and what grant
+    // list do the interceptors and the mutation-guard registry gate on. The
+    // decision is checked unconditionally and fails closed; the list is plumbing
+    // and is empty — never absent — when RBAC could not produce it.
+    const access = await resolveFeatureAccess(context.container, context.actorId || null, [MANAGE_FEATURE], {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+    })
+    if (!access.allowed) {
       throw forbidden(context.translate('staff.errors.forbidden', 'Forbidden'))
     }
+    const grantedFeatures = access.grantedFeatures
 
     const interceptors = await runTimesheetInterceptors({
       request: req,
@@ -168,7 +146,7 @@ async function PUT(req: Request) {
         userId: context.actorId,
         tenantId: context.tenantId,
         organizationId: context.organizationId,
-        userFeatures: grantedFeatures ?? undefined,
+        userFeatures: grantedFeatures,
       },
       input: {
         resourceKind: RESOURCE_KIND,

@@ -32,6 +32,15 @@ const schemaIds = Object.keys(staffTimeTrackingEventPayloadSchemas) as StaffTime
 const MONEY_FIELD_PATTERN = /rate|cost|amount/i
 
 /**
+ * Enumerated rather than pattern-matched, for the reason the money columns are:
+ * `reason` is 2000 characters of operator prose about a client's billing and
+ * `customerId` names the client, while `reference`, `notes` on a task and the
+ * minute totals are identifiers and aggregates a live backoffice screen needs.
+ * A regex over "reason|customer" would sweep up the second group with the first.
+ */
+const FORBIDDEN_BROADCAST_FIELDS = new Set(['reason', 'customerId', 'customerName', 'description'])
+
+/**
  * EP-06. `time_report.portal_published` is a portal mirror, not a business
  * transition: it is emitted only when a closed report has portal recipients, and
  * it duplicates `time_report.closed`, which stays fully deliverable. So it ships
@@ -103,5 +112,17 @@ describe('clientBroadcast payloads carry no money', () => {
       .filter(([, field]) => !(field as z.ZodTypeAny).isOptional())
       .map(([key]) => key)
     expect(required.filter((key) => MONEY_FIELD_PATTERN.test(key))).toEqual([])
+  })
+
+  /**
+   * M-1. The EP-05 audit searched for money-shaped keys only, so free text walked
+   * through: `time_report.unlocked` broadcast the operator's mandatory unlock
+   * justification — up to 2000 characters of prose about a client's billing — to
+   * every browser in the organization. The same unfiltered audience is why
+   * `time_report.closed` no longer names a customer.
+   */
+  it.each(broadcastIds)('declares no free-text or identity-disclosing field on %s', (eventId) => {
+    const schema = staffTimeTrackingEventPayloadSchemas[eventId] as z.ZodObject<z.ZodRawShape>
+    expect(Object.keys(schema.shape).filter((key) => FORBIDDEN_BROADCAST_FIELDS.has(key))).toEqual([])
   })
 })

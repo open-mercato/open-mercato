@@ -30,6 +30,12 @@
  * when the budget is measured in hours. Both events are `clientBroadcast: true` and
  * the DOM Event Bridge has no feature gate, so the amounts are withheld from the
  * payload itself rather than from one of its two audiences.
+ *
+ * Money is not the only thing that audience decides. A `clientBroadcast: true`
+ * payload must also carry no operator free text and no customer identity: SSE
+ * reaches every signed-in user of the organization, so `time_report.unlocked` omits
+ * its mandatory `reason` and `time_report.closed` omits `customerId`.
+ * `__tests__/timeTrackingEventPayloads.test.ts` fails if either reappears.
  */
 
 import { z } from 'zod'
@@ -103,23 +109,32 @@ const taskStatusChanged = scope
   })
   .passthrough()
 
+/**
+ * No `customerId`: the event is `clientBroadcast: true` and the DOM Event Bridge
+ * applies no feature check, so the one field linking a report to a named client is
+ * withheld from the payload rather than from one of its two audiences — the same
+ * trade the amount already makes. The emitter documents the field-by-field call.
+ */
 const reportClosed = scope
   .extend({
     id: z.string(),
     reportId: z.string(),
     reference: z.string(),
-    customerId: z.string().nullable().optional(),
     lockedEntryCount: z.number(),
     totalBillableMinutes: z.number(),
     totalNonbillableMinutes: z.number(),
   })
   .passthrough()
 
+/**
+ * No `reason`: unlocking demands a written justification of up to 2000 characters,
+ * and this event reaches every browser in the organization with no feature check.
+ * The prose lives on the `StaffTimeReportEvent` audit row, behind the ACL.
+ */
 const reportUnlocked = scope
   .extend({
     id: z.string(),
     reference: z.string(),
-    reason: z.string(),
     actorUserId: z.string().nullable(),
     unlockedEntryCount: z.number(),
   })
@@ -226,6 +241,12 @@ export const staffTimeTrackingEventPayloadSchemas = {
   'staff.timesheets.time_task.updated': crudPayload,
   'staff.timesheets.time_task.deleted': crudPayload,
   'staff.timesheets.time_task.status_changed': taskStatusChanged,
+  'staff.timesheets.time_task_status.created': crudPayload,
+  'staff.timesheets.time_task_status.updated': crudPayload,
+  'staff.timesheets.time_task_status.deleted': crudPayload,
+  'staff.timesheets.time_tag.created': crudPayload,
+  'staff.timesheets.time_tag.updated': crudPayload,
+  'staff.timesheets.time_tag.deleted': crudPayload,
   'staff.timesheets.time_task_comment.created': crudPayload,
   'staff.timesheets.time_task_comment.updated': crudPayload,
   'staff.timesheets.time_task_comment.deleted': crudPayload,

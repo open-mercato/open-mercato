@@ -54,7 +54,6 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -132,13 +131,6 @@ const targetNotEmptySchema = z.object({
   existingEntryIds: z.array(z.string().uuid()),
 })
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
 type ContainerLike = { resolve: (name: string) => unknown }
 
 type SkippedSource = {
@@ -156,21 +148,6 @@ function dayKey(value: Date | string | null | undefined): string {
   if (!value) return ''
   const date = value instanceof Date ? value : new Date(value)
   return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().slice(0, 10)
-}
-
-async function resolveGrantedFeatures(
-  container: ContainerLike,
-  userId: string,
-  tenantId: string,
-  organizationId: string | null,
-): Promise<string[] | null> {
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return null
-    return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
-  } catch {
-    return null
-  }
 }
 
 async function resolveAssignmentGraceDays(container: ContainerLike, tenantId: string): Promise<number | null> {
@@ -258,17 +235,19 @@ export async function POST(req: Request) {
     }
 
     const actorId = auth.sub ?? ''
-    const grantedFeatures = await resolveGrantedFeatures(container, actorId, tenantId, organizationId)
-    // Checked unconditionally. The `grantedFeatures &&` this replaces turned the
-    // check off whenever the grant read failed — harmless here only because the
-    // route metadata happens to require the same feature, which is exactly the
-    // shape that leaked rates on the report routes where no such backstop existed.
-    if (!(await resolveFeatureAccess(container, actorId, [MANAGE_OWN_FEATURE], { tenantId, organizationId })).allowed) {
+    // Both decisions come from the module's single RBAC authority, which asks the
+    // service and fails closed on every path. The nullable grant array they were
+    // matched against could not say whether an empty answer meant "no grants" or
+    // "could not ask", and `grantedFeatures ? … : false` silently answered the
+    // second as the first.
+    const manageOwn = await resolveFeatureAccess(container, actorId, [MANAGE_OWN_FEATURE], { tenantId, organizationId })
+    if (!manageOwn.allowed) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
-    const hasManageAll = grantedFeatures
-      ? authorizeFeatures([MANAGE_ALL_FEATURE], { grantedFeatures, scopeAllowed: true })
-      : false
+    const grantedFeatures = manageOwn.grantedFeatures
+    const hasManageAll = (
+      await resolveFeatureAccess(container, actorId, [MANAGE_ALL_FEATURE], { tenantId, organizationId })
+    ).allowed
 
     const interceptors = await runTimesheetInterceptors({
       request: req,
@@ -293,7 +272,7 @@ export async function POST(req: Request) {
       })
     }
 
-    const access = await loadProjectAccess(container, actorId || null, tenantId, organizationId, grantedFeatures ?? [])
+    const access = await loadProjectAccess(container, actorId || null, tenantId, organizationId, grantedFeatures)
     // Ownership: the copies are attributed by the create command, which silently
     // files them under the caller unless they hold `staff.timesheets.manage_all`.
     // Refusing here rather than letting that happen keeps a projects-manager from
@@ -362,7 +341,7 @@ export async function POST(req: Request) {
         userId: actorId,
         tenantId,
         organizationId,
-        userFeatures: grantedFeatures ?? undefined,
+        userFeatures: grantedFeatures,
       },
       input: {
         resourceKind: RESOURCE_KIND,

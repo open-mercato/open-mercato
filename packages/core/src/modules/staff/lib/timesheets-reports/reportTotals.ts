@@ -32,11 +32,15 @@
 import { applicableRate, entryAmount, round2, sumAmounts } from '../time-tracking/cost'
 import {
   getReportGrouping,
+  isBuiltInReportGrouping,
+  REPORT_GROUPING_REGISTRY_ID,
   DEFAULT_REPORT_GROUPING,
   UNASSIGNED_LINE_KEY,
   type ReportGrouping,
   type ReportGroupingLabelContext,
+  type ReportGroupingStrategy,
 } from './reportGroupings'
+import { runStrategy } from '../time-tracking/registries/invoke'
 
 export type { ReportGrouping }
 export type ReportNonBillableMode = 'separate' | 'exclude'
@@ -273,10 +277,32 @@ function collectValues(bucket: LineBucket): ResolvedEntryValues[] {
  * Resolving the strategy once per computation keeps a stored id whose module has
  * been removed from silently producing a different sheet on every call.
  */
-function resolveGroupingStrategy(grouping: ReportGrouping) {
+function resolveGroupingStrategy(grouping: ReportGrouping): ReportGroupingStrategy {
   const strategy = getReportGrouping(grouping) ?? getReportGrouping(DEFAULT_REPORT_GROUPING)
   if (!strategy) throw new Error('[internal] no report grouping strategy is registered')
   return strategy
+}
+
+/**
+ * A grouping contributes three functions that run once per entry, once per line and
+ * O(n log n) times per project, all in the middle of rendering a client-facing
+ * sheet. A thrower in any of them used to abort the whole report; it now degrades to
+ * the module default for that one call, so the sheet still renders — with the
+ * grouping the module shipped rather than none at all. The default itself is exempt:
+ * there is nothing left to fall back to, and it cannot be a contribution.
+ */
+function guardGrouping(strategy: ReportGroupingStrategy): ReportGroupingStrategy {
+  if (isBuiltInReportGrouping(strategy.id)) return strategy
+  const fallback = getReportGrouping(DEFAULT_REPORT_GROUPING)
+  if (!fallback) throw new Error('[internal] no report grouping strategy is registered')
+  const guard = <TResult>(run: () => TResult, recover: () => TResult): TResult =>
+    runStrategy(REPORT_GROUPING_REGISTRY_ID, strategy.id, run, recover)
+  return {
+    ...strategy,
+    groupOf: (entry) => guard(() => strategy.groupOf(entry), () => fallback.groupOf(entry)),
+    labelOf: (key, ctx) => guard(() => strategy.labelOf(key, ctx), () => fallback.labelOf(key, ctx)),
+    sort: (left, right) => guard(() => strategy.sort(left, right), () => fallback.sort(left, right)),
+  }
 }
 
 export type ComputeReportTotalsInput = {
@@ -295,7 +321,7 @@ export type ComputeReportTotalsInput = {
 
 export function computeReportTotals(input: ComputeReportTotalsInput): ReportTotals {
   const { entries, projects, directory, options, labels } = input
-  const grouping = resolveGroupingStrategy(options.grouping)
+  const grouping = guardGrouping(resolveGroupingStrategy(options.grouping))
   const labelContext: ReportGroupingLabelContext = { directory, fallbacks: labels }
   const lineKeyFor = (entry: ReportInputEntry) => grouping.groupOf(entry)
   const labelFor = (key: string) => grouping.labelOf(key, labelContext)

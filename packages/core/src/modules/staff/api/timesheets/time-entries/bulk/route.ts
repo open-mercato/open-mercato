@@ -34,7 +34,6 @@ import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
-  resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
@@ -256,7 +255,7 @@ export async function POST(req: Request) {
       requestHeaders: req.headers,
       mutationPayload: parsed.data as unknown as Record<string, unknown>,
     }
-    const guardResult = await runStaffMutationGuards(container, guardInput, resolveUserFeatures(auth))
+    const guardResult = await runStaffMutationGuards(container, guardInput)
     if (!guardResult.ok) {
       return NextResponse.json(
         guardResult.errorBody ?? { error: 'Operation blocked by guard' },

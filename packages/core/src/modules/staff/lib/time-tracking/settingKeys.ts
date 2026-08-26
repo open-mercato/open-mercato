@@ -90,7 +90,12 @@ function registerKey(input: TimeTrackingSettingKeyInput, builtIn: boolean): () =
   if (!parsed.success) {
     throw new Error(`[internal] the default for the time-tracking setting key ${id} fails its own schema`)
   }
-  return registry.register({ ...input, group, key, id, builtIn })
+  const definition = { ...input, group, key, id, builtIn }
+  if (builtIn) {
+    registry.registerBuiltIn(definition)
+    return () => {}
+  }
+  return registry.register(definition)
 }
 
 /**

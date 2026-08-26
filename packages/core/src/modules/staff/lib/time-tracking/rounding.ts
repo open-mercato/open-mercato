@@ -12,6 +12,7 @@
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
 import { selectScopedStrategy, type ScopedResolverContext } from './registries/scope'
+import { clampToStoredMinutes, runStrategy } from './registries/invoke'
 
 export type RoundingUnitMinutes = 0 | 5 | 10 | 15
 
@@ -72,28 +73,44 @@ function roundToUnit(raw: number, settings: RoundingSettings): number {
   return sign * units * unit
 }
 
-const builtInRoundingStrategy: TimeRoundingStrategy = {
+const builtInRoundingStrategy: TimeRoundingStrategy = registry.registerBuiltIn({
   id: BUILT_IN_TIME_ROUNDING_STRATEGY_ID,
   labelKey: 'staff.time_tracking.rounding.strategy.unit',
   priority: BUILT_IN_STRATEGY_PRIORITY,
   round: (rawMinutes, ctx) => roundToUnit(rawMinutes, ctx.settings),
-}
-
-registerTimeRoundingStrategy(builtInRoundingStrategy)
+})
 
 export function resolveTimeRoundingStrategy(
   ctx?: ScopedResolverContext | null,
 ): TimeRoundingStrategy {
-  return (
-    selectScopedStrategy(registry.list(), BUILT_IN_TIME_ROUNDING_STRATEGY_ID, ctx) ??
-    builtInRoundingStrategy
-  )
+  return selectScopedStrategy(registry.list(), builtInRoundingStrategy, ctx)
 }
 
+/**
+ * The single rounding entry point, and the boundary a contributed strategy's answer
+ * has to survive.
+ *
+ * The result is written straight into `staff_time_entries.rounded_minutes` — an
+ * `integer` column, and the only input to every amount the suite computes — so an
+ * unusable answer is clamped back to the built-in's rather than stored. The built-in
+ * is exempt from the clamp on purpose: it is the arithmetic the module shipped, it
+ * cannot produce a non-finite or fractional value, and re-shaping its output would
+ * be the behaviour change the registries exist to avoid.
+ */
 export function roundMinutes(
   raw: number,
   settings: RoundingSettings,
   ctx?: ScopedResolverContext | null,
 ): number {
-  return resolveTimeRoundingStrategy(ctx).round(raw, { ...(ctx ?? {}), settings })
+  const strategy = resolveTimeRoundingStrategy(ctx)
+  const builtIn = () => roundToUnit(raw, settings)
+  if (strategy === builtInRoundingStrategy) return builtIn()
+
+  const answer = runStrategy(
+    TIME_ROUNDING_REGISTRY_ID,
+    strategy.id,
+    () => strategy.round(raw, { ...(ctx ?? {}), settings }),
+    () => Number.NaN,
+  )
+  return clampToStoredMinutes(answer, builtIn)
 }

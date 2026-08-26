@@ -44,6 +44,12 @@ const events = [
   { id: 'staff.timesheets.time_task.updated', label: 'Time Task Updated', entity: 'time_task', category: 'crud' },
   { id: 'staff.timesheets.time_task.deleted', label: 'Time Task Deleted', entity: 'time_task', category: 'crud' },
   { id: 'staff.timesheets.time_task.status_changed', label: 'Time Task Status Changed', entity: 'time_task', category: 'lifecycle', clientBroadcast: true },
+  { id: 'staff.timesheets.time_task_status.created', label: 'Time Task Status Created', entity: 'time_task_status', category: 'crud' },
+  { id: 'staff.timesheets.time_task_status.updated', label: 'Time Task Status Updated', entity: 'time_task_status', category: 'crud' },
+  { id: 'staff.timesheets.time_task_status.deleted', label: 'Time Task Status Deleted', entity: 'time_task_status', category: 'crud' },
+  { id: 'staff.timesheets.time_tag.created', label: 'Time Tag Created', entity: 'time_tag', category: 'crud' },
+  { id: 'staff.timesheets.time_tag.updated', label: 'Time Tag Updated', entity: 'time_tag', category: 'crud' },
+  { id: 'staff.timesheets.time_tag.deleted', label: 'Time Tag Deleted', entity: 'time_tag', category: 'crud' },
   { id: 'staff.timesheets.time_task_comment.created', label: 'Time Task Comment Created', entity: 'time_task_comment', category: 'crud' },
   { id: 'staff.timesheets.time_task_comment.updated', label: 'Time Task Comment Updated', entity: 'time_task_comment', category: 'crud' },
   { id: 'staff.timesheets.time_task_comment.deleted', label: 'Time Task Comment Deleted', entity: 'time_task_comment', category: 'crud' },
@@ -62,6 +68,11 @@ const events = [
   // gated on `staff.timesheets.rates.view` (staff/AGENTS.md), a gate SSE cannot
   // apply. `time_report.closed` and `time_project.budget_threshold_reached` emit
   // their money fields conditionally for exactly this reason; see their emitters.
+  //
+  // Money is not the only thing that audience decides. The same absence of a feature
+  // check is why `time_report.unlocked` broadcasts no `reason` — the operator's
+  // mandatory, free-text unlock justification, which lives on the audit row instead —
+  // and why `time_report.closed` broadcasts no `customerId`.
 
   // Time tracking (Phase 3) — transitions owned by the hand-rolled routes that sit
   // beside the CRUD factory resources. Declared here so a third-party module can
@@ -88,9 +99,9 @@ const events = [
   // The portal SSE stream (`customer_accounts/api/portal/events/stream.ts`)
   // filters a broadcast by tenant + organization and narrows to specific people
   // only when the payload carries `recipientUserId(s)`. One organization serves
-  // many customers, so flagging `time_report.closed` — which carries `reference`,
-  // `customerId` and the minute totals — would hand every client of the tenant a
-  // running feed of every other client's reports. `time_report.closed` also has
+  // many customers, so flagging `time_report.closed` — which carries `reference`
+  // and the minute totals — would hand every client of the tenant a running feed
+  // of every other client's reports. `time_report.closed` also has
   // `clientBroadcast: true` and a published webhook payload, so it cannot be
   // narrowed without breaking its backoffice consumers.
   //

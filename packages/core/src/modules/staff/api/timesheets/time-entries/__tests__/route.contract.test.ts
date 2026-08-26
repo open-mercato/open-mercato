@@ -19,10 +19,15 @@ jest.mock('../../../../lib/time-tracking/access', () => ({
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
 import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
-import { buildScopedTimeEntryListFilters, decorateTimeEntryList, RATES_FEATURE } from '../route'
+import {
+  buildScopedTimeEntryListFilters,
+  decorateTimeEntryList,
+  RATES_FEATURE,
+  timeEntryListFields,
+} from '../route'
 import { enrichers } from '../../../../data/enrichers'
 import { resolveProjectAccess } from '../../../../lib/time-tracking/access'
-import { StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } from '../../../../data/entities'
+import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject, StaffTimeTag } from '../../../../data/entities'
 
 const mockResolveProjectAccess = resolveProjectAccess as jest.Mock
 
@@ -37,6 +42,7 @@ const ENTRY_ID = '77777777-7777-4777-8777-777777777777'
 const TASK_ID = '66666666-6666-4666-8666-666666666666'
 const CHILD_TASK_ID = '66666666-6666-4666-8666-6666666666aa'
 const TAG_ID = '88888888-8888-4888-8888-000000000001'
+const LOCKED_REPORT_ID = '99999999-9999-4999-8999-999999999999'
 const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
 
 type Row = Record<string, unknown>
@@ -70,15 +76,29 @@ type DecorateWorld = {
   assignments?: { timeEntryId: string; tagId: string }[]
   tags?: { id: string; slug: string; label: string; color: string | null }[]
   projects?: { id: string; hourlyRate: string | null; currencyCode: string | null }[]
+  /**
+   * `staff_time_entries` rows the enricher reads back for an entitled caller. The
+   * two money columns are NOT in the route's projection, so this is the only place
+   * a rate override can come from.
+   */
+  entries?: { id: string; rateOverrideAmount: string | null; rateCurrencyCode: string | null }[]
+  /** Every query hangs — the shape of a database slow enough to blow the timeout. */
+  stall?: boolean
+}
+
+function pricedProject(hourlyRate: string | null, currencyCode: string | null) {
+  return { id: MEMBER_PROJECT_ID, hourlyRate, currencyCode }
 }
 
 function decorateCtx(canSeeRates: boolean, world: DecorateWorld = {}): CrudCtx {
   const em = {
     fork: () => em,
     find: async (cls: unknown) => {
+      if (world.stall) return new Promise<never[]>(() => {})
       if (cls === StaffTimeEntryTag) return world.assignments ?? []
       if (cls === StaffTimeTag) return world.tags ?? []
       if (cls === StaffTimeProject) return world.projects ?? []
+      if (cls === StaffTimeEntry) return world.entries ?? []
       return []
     },
   }
@@ -111,8 +131,6 @@ function entryItem(overrides: Row = {}): Row {
     time_project_id: MEMBER_PROJECT_ID,
     task_id: null,
     is_billable: true,
-    rate_override_amount: null,
-    rate_currency_code: 'PLN',
     locked_report_id: null,
     locked_at: null,
     source: 'manual',
@@ -239,113 +257,22 @@ describe('buildScopedTimeEntryListFilters — taskId', () => {
   })
 })
 
-describe('decorateTimeEntryList — response fields', () => {
-  it('returns the note under both `notes` and `description`', async () => {
-    const items = [entryItem()]
-    await decorateTimeEntryList({ items }, decorateCtx(true))
-
-    expect(items[0].notes).toBe('Cart migration')
-    expect(items[0].description).toBe('Cart migration')
-  })
-
-  it('adds the rounded minutes, lock state and tags', async () => {
-    const items = [entryItem({ locked_report_id: '99999999-9999-4999-8999-999999999999' })]
-    await decorateTimeEntryList(
-      { items },
-      decorateCtx(true, {
-        assignments: [{ timeEntryId: ENTRY_ID, tagId: TAG_ID }],
-        tags: [{ id: TAG_ID, slug: 'dev', label: 'rozwój', color: '#123456' }],
-      }),
-    )
-
-    expect(items[0]).toMatchObject({
-      roundedMinutes: 75,
-      isLocked: true,
-      lockedReportId: '99999999-9999-4999-8999-999999999999',
-      tags: [{ id: TAG_ID, slug: 'dev', label: 'rozwój', color: '#123456' }],
-    })
-  })
-
-  it('computes cost from the rounded minutes and the project rate', async () => {
-    const items = [entryItem()]
-    await decorateTimeEntryList(
-      { items },
-      decorateCtx(true, {
-        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
-      }),
-    )
-
-    // 75 rounded minutes at 320/h, not the 61 raw minutes.
-    expect(items[0].cost).toBe(400)
-    expect(items[0].currencyCode).toBe('PLN')
-  })
-
-  it('prefers the entry rate override over the project rate', async () => {
-    const items = [entryItem({ rate_override_amount: '260' })]
-    await decorateTimeEntryList(
-      { items },
-      decorateCtx(true, {
-        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
-      }),
-    )
-
-    expect(items[0].cost).toBe(325)
-  })
-
-  it('gives a non-billable entry a null cost, never zero', async () => {
-    const items = [entryItem({ is_billable: false })]
-    await decorateTimeEntryList(
-      { items },
-      decorateCtx(true, {
-        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
-      }),
-    )
-
-    expect(items[0].cost).toBeNull()
-    expect(items[0].cost).not.toBe(0)
-  })
-
-  it('leaves every money key out of the payload without `staff.timesheets.rates.view`', async () => {
-    const items = [entryItem({ rate_override_amount: '260' })]
-    await decorateTimeEntryList(
-      { items },
-      decorateCtx(false, {
-        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
-      }),
-    )
-
-    expect(items[0]).not.toHaveProperty('cost')
-    expect(items[0]).not.toHaveProperty('currencyCode')
-    expect(items[0]).not.toHaveProperty('rate_override_amount')
-    expect(items[0]).not.toHaveProperty('rate_currency_code')
-    // The non-money additions still land.
-    expect(items[0]).toMatchObject({ roundedMinutes: 75, isLocked: false, description: 'Cart migration' })
-  })
-
-  it('falls back to the project currency when the entry carries no snapshot', async () => {
-    const items = [entryItem({ rate_currency_code: null })]
-    await decorateTimeEntryList(
-      { items },
-      decorateCtx(true, {
-        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'EUR' }],
-      }),
-    )
-
-    expect(items[0].currencyCode).toBe('EUR')
-  })
-
-  it('is a no-op on an empty page', async () => {
-    const payload = { items: [] }
-    await expect(decorateTimeEntryList(payload, decorateCtx(true))).resolves.toBeUndefined()
-  })
-})
-
-// EP-14 — the decoration above is no longer a route-private `hooks.afterList`; it is
-// the declared `staff.timesheets-time-entries` response enricher. Two things must
-// hold after that move, and both fail silently: the rows the endpoint returns must
-// look exactly as they did behind the hook, and a third-party enricher registered
-// for the same entity must now compose with it instead of being shadowed by it.
-describe('the time-entry enricher is the list host', () => {
+// EP-14 — the decoration is no longer a route-private `hooks.afterList`; it is the
+// declared `staff.timesheets-time-entries` response enricher, and that enricher is
+// the path `/api/staff/timesheets/time-entries` actually runs. So these assertions
+// drive `applyResponseEnrichers`; the route's own `decorateTimeEntryList` export
+// survives only as a deprecated wrapper and is pinned separately at the bottom.
+//
+// Three properties are pinned here because all three fail silently:
+//
+//  1. the rows the endpoint returns look exactly as they did behind the hook;
+//  2. a third-party enricher registered for the same entity composes with the
+//     decoration instead of being shadowed by it;
+//  3. **money is ADDED by the enricher, never subtracted by it.** The enricher is
+//     `critical: false`, so a throw or a timeout leaves the runner's items
+//     untouched — a subtractive gate would hand every money column to an
+//     unentitled caller the first time the database was slow.
+describe('the time-entry enricher — response fields', () => {
   const THIRD_PARTY_FIELD = '_jira'
 
   function enricherContext(canSeeRates: boolean, world: DecorateWorld = {}): EnricherContext {
@@ -358,7 +285,7 @@ describe('the time-entry enricher is the list host', () => {
       userId: USER_ID,
       em: ctx.container.resolve('em'),
       container: ctx.container,
-    }
+    } as unknown as EnricherContext
   }
 
   const thirdPartyEnricher: ResponseEnricher<Row & { id: string }, Record<string, unknown>> = {
@@ -373,29 +300,91 @@ describe('the time-entry enricher is the list host', () => {
     },
   }
 
+  async function enrich(canSeeRates: boolean, items: Row[], world: DecorateWorld = {}) {
+    registerResponseEnrichers([{ moduleId: 'staff', enrichers }])
+    return applyResponseEnrichers(items, 'staff:staff_time_entry', enricherContext(canSeeRates, world))
+  }
+
   afterEach(() => {
     registerResponseEnrichers([{ moduleId: 'staff', enrichers }])
   })
 
-  it('produces the same row the route-private hook produced', async () => {
-    registerResponseEnrichers([{ moduleId: 'staff', enrichers }])
-    const world: DecorateWorld = {
+  it('returns the note under both `notes` and `description`', async () => {
+    const result = await enrich(true, [entryItem()])
+
+    expect(result.items[0].notes).toBe('Cart migration')
+    expect(result.items[0].description).toBe('Cart migration')
+  })
+
+  it('adds the rounded minutes, lock state and tags', async () => {
+    const result = await enrich(true, [entryItem({ locked_report_id: LOCKED_REPORT_ID })], {
       assignments: [{ timeEntryId: ENTRY_ID, tagId: TAG_ID }],
       tags: [{ id: TAG_ID, slug: 'dev', label: 'rozwój', color: '#123456' }],
-      projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
-    }
+    })
 
-    const viaHook = [entryItem()]
-    await decorateTimeEntryList({ items: viaHook }, decorateCtx(true, world))
+    expect(result.items[0]).toMatchObject({
+      roundedMinutes: 75,
+      isLocked: true,
+      lockedReportId: LOCKED_REPORT_ID,
+      tags: [{ id: TAG_ID, slug: 'dev', label: 'rozwój', color: '#123456' }],
+    })
+  })
 
-    const viaEnricher = await applyResponseEnrichers(
-      [entryItem()],
-      'staff:staff_time_entry',
-      enricherContext(true, world),
-    )
+  it('computes cost from the rounded minutes and the project rate', async () => {
+    const result = await enrich(true, [entryItem()], { projects: [pricedProject('320.0000', 'PLN')] })
 
-    expect(viaEnricher.items[0]).toEqual(viaHook[0])
-    expect(viaEnricher._meta.enrichedBy).toContain('staff.timesheets-time-entries')
+    // 75 rounded minutes at 320/h, not the 61 raw minutes.
+    expect(result.items[0].cost).toBe(400)
+    expect(result.items[0].currencyCode).toBe('PLN')
+  })
+
+  it('reads the stored rate override back for an entitled caller and prefers it over the project rate', async () => {
+    const result = await enrich(true, [entryItem()], {
+      projects: [pricedProject('320.0000', 'PLN')],
+      entries: [{ id: ENTRY_ID, rateOverrideAmount: '260', rateCurrencyCode: 'PLN' }],
+    })
+
+    // The column is not in the base projection — the enricher fetched it.
+    expect(result.items[0].rate_override_amount).toBe('260')
+    expect(result.items[0].cost).toBe(325)
+  })
+
+  it('gives a non-billable entry a null cost, never zero', async () => {
+    const result = await enrich(true, [entryItem({ is_billable: false })], {
+      projects: [pricedProject('320.0000', 'PLN')],
+    })
+
+    expect(result.items[0].cost).toBeNull()
+    expect(result.items[0].cost).not.toBe(0)
+  })
+
+  it('leaves every money key out of the payload without `staff.timesheets.rates.view`', async () => {
+    const result = await enrich(false, [entryItem()], {
+      projects: [pricedProject('320.0000', 'PLN')],
+      entries: [{ id: ENTRY_ID, rateOverrideAmount: '260', rateCurrencyCode: 'PLN' }],
+    })
+
+    expect(result.items[0]).not.toHaveProperty('cost')
+    expect(result.items[0]).not.toHaveProperty('currencyCode')
+    expect(result.items[0]).not.toHaveProperty('rate_override_amount')
+    expect(result.items[0]).not.toHaveProperty('rate_currency_code')
+    // The non-money additions still land.
+    expect(result.items[0]).toMatchObject({ roundedMinutes: 75, isLocked: false, description: 'Cart migration' })
+  })
+
+  it('falls back to the project currency when the entry carries no snapshot', async () => {
+    const result = await enrich(true, [entryItem()], {
+      projects: [pricedProject('320.0000', 'EUR')],
+      entries: [{ id: ENTRY_ID, rateOverrideAmount: null, rateCurrencyCode: null }],
+    })
+
+    expect(result.items[0].currencyCode).toBe('EUR')
+  })
+
+  it('is a no-op on an empty page', async () => {
+    const result = await enrich(true, [])
+
+    expect(result.items).toEqual([])
   })
 
   it('lets a third-party enricher add its own fields beside the decoration', async () => {
@@ -407,9 +396,7 @@ describe('the time-entry enricher is the list host', () => {
     const result = await applyResponseEnrichers(
       [entryItem()],
       'staff:staff_time_entry',
-      enricherContext(true, {
-        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
-      }),
+      enricherContext(true, { projects: [pricedProject('320.0000', 'PLN')] }),
     )
 
     expect(result.items[0]).toMatchObject({
@@ -430,10 +417,11 @@ describe('the time-entry enricher is the list host', () => {
     ])
 
     const result = await applyResponseEnrichers(
-      [entryItem({ rate_override_amount: '260' })],
+      [entryItem()],
       'staff:staff_time_entry',
       enricherContext(false, {
-        projects: [{ id: MEMBER_PROJECT_ID, hourlyRate: '320.0000', currencyCode: 'PLN' }],
+        projects: [pricedProject('320.0000', 'PLN')],
+        entries: [{ id: ENTRY_ID, rateOverrideAmount: '260', rateCurrencyCode: 'PLN' }],
       }),
     )
 
@@ -442,5 +430,69 @@ describe('the time-entry enricher is the list host', () => {
     expect(result.items[0]).not.toHaveProperty('rate_override_amount')
     expect(result.items[0]).not.toHaveProperty('rate_currency_code')
     expect(result.items[0]).toHaveProperty(THIRD_PARTY_FIELD)
+  })
+})
+
+// B-1 — the money gate must survive the enricher not running at all.
+//
+// `staff.timesheets-time-entries` is `critical: false` with no `fallback`, and
+// `enricher-runner.ts` leaves `currentItems` untouched when such an enricher throws
+// or exceeds its timeout. Anything the route's own projection selects therefore
+// reaches the client whatever the enricher does — which is why the projection
+// selects no money column and the enricher adds them instead.
+describe('the money gate when the enricher never completes', () => {
+  it('selects no money column in the base projection', () => {
+    expect(timeEntryListFields).not.toContain('rate_override_amount')
+    expect(timeEntryListFields).not.toContain('rate_currency_code')
+  })
+
+  it('serves a page with no money at all when the enricher times out', async () => {
+    jest.useFakeTimers()
+    try {
+      registerResponseEnrichers([{ moduleId: 'staff', enrichers }])
+      const ctx = decorateCtx(true, {
+        stall: true,
+        projects: [pricedProject('320.0000', 'PLN')],
+        entries: [{ id: ENTRY_ID, rateOverrideAmount: '260', rateCurrencyCode: 'PLN' }],
+      }) as unknown as { container: { resolve: (name: string) => unknown } }
+
+      const pending = applyResponseEnrichers([entryItem()], 'staff:staff_time_entry', {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        userId: USER_ID,
+        em: ctx.container.resolve('em'),
+        container: ctx.container,
+      } as unknown as EnricherContext)
+
+      // Past the enricher's declared 3000 ms budget.
+      await jest.advanceTimersByTimeAsync(3100)
+      const result = await pending
+
+      expect(result._meta.enricherErrors).toContain('staff.timesheets-time-entries')
+      expect(result.items[0]).not.toHaveProperty('cost')
+      expect(result.items[0]).not.toHaveProperty('currencyCode')
+      expect(result.items[0]).not.toHaveProperty('rate_override_amount')
+      expect(result.items[0]).not.toHaveProperty('rate_currency_code')
+      expect(result.items[0]).toEqual(entryItem())
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
+
+// The route still exports `decorateTimeEntryList` as a deprecated wrapper over the
+// same shared decoration. It is a published symbol of the route module, so it keeps
+// working; it is simply no longer the path the endpoint runs.
+describe('decorateTimeEntryList — the deprecated route wrapper', () => {
+  it('still decorates the rows it is handed', async () => {
+    const items = [entryItem()]
+    await decorateTimeEntryList({ items }, decorateCtx(true, { projects: [pricedProject('320.0000', 'PLN')] }))
+
+    expect(items[0]).toMatchObject({ description: 'Cart migration', roundedMinutes: 75, cost: 400 })
+  })
+
+  it('is a no-op on an empty page', async () => {
+    const payload = { items: [] }
+    await expect(decorateTimeEntryList(payload, decorateCtx(true))).resolves.toBeUndefined()
   })
 })

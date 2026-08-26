@@ -16,7 +16,9 @@
  *  3. **Money is added, not hidden.** `cost`, `currencyCode` and the stored rate
  *     override only exist in the payload for a caller holding
  *     `staff.timesheets.rates.view`; everyone else gets a response with no money
- *     keys at all, the same shape the project portfolio enricher uses.
+ *     keys at all, the same shape the project portfolio enricher uses. The base
+ *     projection selects no money column — see `timeEntryListFields` for why that
+ *     is the gate rather than an optimisation.
  *
  * `cost` is computed from `rounded_minutes` — never from `duration_minutes` — via
  * `entryAmount`, so a non-billable entry reads `null` rather than `0`: zero is a
@@ -323,6 +325,19 @@ export async function buildScopedTimeEntryListFilters(
   return filters
 }
 
+/**
+ * The base projection, and the reason `rate_override_amount` / `rate_currency_code`
+ * are NOT in it.
+ *
+ * The money gate is `staff.timesheets.rates.view`, and it is applied by the
+ * `staff.timesheets-time-entries` response enricher, which is declared
+ * `critical: false`. A non-critical enricher that throws or exceeds its timeout
+ * leaves the items exactly as the route produced them (`enricher-runner.ts`), so
+ * anything the projection selects survives an enricher failure. Selecting the two
+ * money columns here and removing them there would therefore fail OPEN under DB
+ * contention. They are read back inside the enricher instead, for entitled callers
+ * only — see `lib/timesheets/timeEntryDecoration.ts`.
+ */
 export const timeEntryListFields = [
   F.id,
   F.organization_id,
@@ -340,8 +355,6 @@ export const timeEntryListFields = [
   F.deal_id,
   F.order_id,
   F.is_billable,
-  F.rate_override_amount,
-  F.rate_currency_code,
   F.locked_report_id,
   F.locked_at,
   F.source,

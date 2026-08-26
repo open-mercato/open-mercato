@@ -6,12 +6,21 @@ import {
   type MutationGuardInput,
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import { resolveFeatureAccess } from '../lib/time-tracking/featureAccess'
 
 type GuardAfterCallback = {
   guard: MutationGuard
   metadata: Record<string, unknown> | null
 }
 
+/**
+ * @deprecated `AuthContext` has no `features` field, so this always answered `[]` —
+ * which silently filtered out every registered guard declaring `features`, leaving
+ * feature-gated guards enforced on the `makeCrudRoute` resources (the factory
+ * resolves real grants) and skipped on every hand-rolled write route.
+ * `runStaffMutationGuards` now resolves the caller's grants itself through
+ * `resolveFeatureAccess`; pass nothing. Kept as an exported symbol for one release.
+ */
 export function resolveUserFeatures(auth: unknown): string[] {
   const features = (auth as { features?: unknown })?.features
   if (!Array.isArray(features)) return []
@@ -68,11 +77,24 @@ export type StaffTimeTrackingResourceKind =
  * service. Mirrors `collectAndRunGuards()` in the CRUD factory; bridging only the
  * legacy service — as this did originally — left registry guards unenforced on every
  * hand-rolled time-tracking write route.
+ *
+ * **The grant list is resolved here, not passed in.** `runMutationGuards` drops any
+ * guard whose `features` the caller does not hold, so an empty list silently disables
+ * every feature-gated guard — a third-party `record_locks.enforce` guard fired on the
+ * `makeCrudRoute` resources (the factory asks RBAC) and was skipped on `/bulk`, the
+ * timer transitions, segments, tag assignments and report close/unlock. Callers used
+ * to supply `resolveUserFeatures(auth)`, which read a field `AuthContext` does not
+ * have and therefore always returned `[]`. The lookup now goes through
+ * `resolveFeatureAccess`, the module's one RBAC authority, which fails closed and
+ * logs rather than failing silently.
+ *
+ * `extraFeatures` is additive and exists only for a caller that already holds a
+ * resolved grant list; it is never the sole source.
  */
 export async function runStaffMutationGuards(
   container: AwilixContainer,
   input: MutationGuardInput,
-  userFeatures: string[],
+  extraFeatures: readonly string[] = [],
 ): Promise<{
   ok: boolean
   errorBody?: Record<string, unknown>
@@ -86,6 +108,12 @@ export async function runStaffMutationGuards(
   if (!allGuards.length) {
     return { ok: true, afterSuccessCallbacks: [] }
   }
+
+  const { grantedFeatures } = await resolveFeatureAccess(container, input.userId ?? null, [], {
+    tenantId: input.tenantId ?? null,
+    organizationId: input.organizationId ?? null,
+  })
+  const userFeatures = Array.from(new Set([...grantedFeatures, ...extraFeatures]))
 
   return runMutationGuards(allGuards, input, { userFeatures })
 }

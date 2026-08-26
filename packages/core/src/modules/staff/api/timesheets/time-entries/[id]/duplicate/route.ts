@@ -36,7 +36,6 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -80,13 +79,6 @@ const lockedConflictSchema = z.object({
   lockedReportIds: z.array(z.string().uuid()),
 })
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
 type ContainerLike = { resolve: (name: string) => unknown }
 
 function extractEntryIdFromUrl(request?: Request): string | null {
@@ -95,27 +87,6 @@ function extractEntryIdFromUrl(request?: Request): string | null {
     const url = new URL(request.url)
     const match = url.pathname.match(/\/time-entries\/([^/]+)\/duplicate/)
     return match?.[1] ?? null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Granted features power both the explicit feature check and the feature gating
- * inside the mutation-guard registry. Returns null when RBAC cannot be consulted,
- * in which case the declarative `requireFeatures` guard in `metadata` remains the
- * authorization source.
- */
-async function resolveGrantedFeatures(
-  container: ContainerLike,
-  userId: string,
-  tenantId: string,
-  organizationId: string | null,
-): Promise<string[] | null> {
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return null
-    return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
   } catch {
     return null
   }
@@ -191,14 +162,14 @@ export async function POST(req: Request) {
     }
 
     const actorId = auth.sub ?? ''
-    const grantedFeatures = await resolveGrantedFeatures(container, actorId, tenantId, organizationId)
-    // Checked unconditionally. The `grantedFeatures &&` this replaces turned the
-    // check off whenever the grant read failed — harmless here only because the
-    // route metadata happens to require the same feature, which is exactly the
-    // shape that leaked rates on the report routes where no such backstop existed.
-    if (!(await resolveFeatureAccess(container, actorId, [MANAGE_OWN_FEATURE], { tenantId, organizationId })).allowed) {
+    // One lookup through the module's single RBAC authority: the decision is
+    // checked unconditionally and fails closed, and the grant list the plumbing
+    // takes comes from the same answer instead of a second, nullable read.
+    const manageOwn = await resolveFeatureAccess(container, actorId, [MANAGE_OWN_FEATURE], { tenantId, organizationId })
+    if (!manageOwn.allowed) {
       throw forbidden(translate('staff.errors.forbidden', 'Forbidden'))
     }
+    const grantedFeatures = manageOwn.grantedFeatures
 
     const interceptors = await runTimesheetInterceptors({
       request: req,
@@ -222,7 +193,7 @@ export async function POST(req: Request) {
       {},
       { tenantId, organizationId },
     )
-    const access = await loadProjectAccess(container, actorId || null, tenantId, organizationId, grantedFeatures ?? [])
+    const access = await loadProjectAccess(container, actorId || null, tenantId, organizationId, grantedFeatures)
     if (!source || !isTimeEntryVisible(source, access)) {
       throw new CrudHttpError(404, {
         error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found, deleted, or not owned by you.'),
@@ -236,7 +207,7 @@ export async function POST(req: Request) {
         userId: actorId,
         tenantId,
         organizationId,
-        userFeatures: grantedFeatures ?? undefined,
+        userFeatures: grantedFeatures,
       },
       input: {
         resourceKind: RESOURCE_KIND,

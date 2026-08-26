@@ -49,7 +49,8 @@ export function registerReportExportFormat(format: ReportExportFormatDefinition)
 export function registerBuiltInReportExportFormat(
   format: Omit<ReportExportFormatDefinition, 'priority'>,
 ): () => void {
-  return registry.register({ ...format, priority: BUILT_IN_STRATEGY_PRIORITY })
+  registry.registerBuiltIn({ ...format, priority: BUILT_IN_STRATEGY_PRIORITY })
+  return () => {}
 }
 
 export function listReportExportFormats(): ReportExportFormatDefinition[] {

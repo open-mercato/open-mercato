@@ -81,5 +81,5 @@ const builtInSources: readonly Omit<TimeEntrySourceDefinition, 'priority'>[] = [
 ]
 
 for (const source of builtInSources) {
-  registerTimeEntrySource({ ...source, priority: BUILT_IN_STRATEGY_PRIORITY })
+  registry.registerBuiltIn({ ...source, priority: BUILT_IN_STRATEGY_PRIORITY })
 }

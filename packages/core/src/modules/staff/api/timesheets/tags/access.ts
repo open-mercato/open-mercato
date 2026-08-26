@@ -17,7 +17,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeTask } from '../../../data/entities'
-import { resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
+import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
+import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/tags' })
@@ -26,33 +27,10 @@ const DENIED_ACCESS: ProjectAccess = { canManageAll: false, projectIds: [], staf
 
 export type ContainerLike = { resolve: (name: string) => unknown }
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
-}
-
 export type TagAssignmentScope = {
   tenantId: string
   organizationId: string
   userId: string
-}
-
-export async function resolveGrantedFeatures(
-  container: ContainerLike,
-  userId: string,
-  scope: { tenantId: string; organizationId: string },
-): Promise<string[]> {
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
-    if (!rbac?.getGrantedFeatures) return []
-    return (await rbac.getGrantedFeatures(userId, scope)) ?? []
-  } catch {
-    // Fail closed: an unreadable grant set is no grant set, so the caller falls
-    // back to their project memberships instead of being treated as a manager.
-    return []
-  }
 }
 
 async function resolveAssignmentGraceDays(container: ContainerLike, tenantId: string): Promise<number | null> {
@@ -71,7 +49,10 @@ export async function loadTagProjectAccess(
   scope: TagAssignmentScope,
 ): Promise<ProjectAccess> {
   try {
-    const grantedFeatures = await resolveGrantedFeatures(container, scope.userId, {
+    // One lookup, one authority, one failure direction. The hand-rolled grant read
+    // this replaces could not tell "denied" from "could not ask", so an RBAC hiccup
+    // silently demoted a manager to their own memberships.
+    const access = await resolveFeatureAccess(container, scope.userId, [MANAGE_PROJECTS_FEATURE], {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })
@@ -81,7 +62,8 @@ export async function loadTagProjectAccess(
       userId: scope.userId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      userFeatures: grantedFeatures,
+      canManageAll: access.allowed,
+      userFeatures: access.grantedFeatures,
       assignmentGraceDays: await resolveAssignmentGraceDays(container, scope.tenantId),
     })
   } catch (err) {

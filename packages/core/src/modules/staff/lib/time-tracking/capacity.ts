@@ -15,6 +15,7 @@
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries/registry'
 import { selectScopedStrategy, type ScopedResolverContext } from './registries/scope'
+import { runStrategy } from './registries/invoke'
 
 export type CapacityDateRange = {
   /** `yyyy-mm-dd`, inclusive. */
@@ -65,7 +66,7 @@ export function getCapacityProvider(id: string | null | undefined): CapacityProv
   return registry.get(id)
 }
 
-const builtInCapacityProvider: CapacityProvider = {
+const builtInCapacityProvider: CapacityProvider = registry.registerBuiltIn({
   id: BUILT_IN_CAPACITY_PROVIDER_ID,
   priority: BUILT_IN_STRATEGY_PRIORITY,
   resolve: (_staffMemberId, dateRange, ctx) => {
@@ -81,21 +82,43 @@ const builtInCapacityProvider: CapacityProvider = {
       totalTargetMinutes: dailyMinutes * (dateRange.workingDays?.length ?? 0),
     }
   },
-}
-
-registerCapacityProvider(builtInCapacityProvider)
+})
 
 export function resolveCapacityProvider(ctx?: ScopedResolverContext | null): CapacityProvider {
-  return (
-    selectScopedStrategy(registry.list(), BUILT_IN_CAPACITY_PROVIDER_ID, ctx) ??
-    builtInCapacityProvider
+  return selectScopedStrategy(registry.list(), builtInCapacityProvider, ctx)
+}
+
+function isCapacityResult(value: unknown): value is CapacityResult {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as { targetMinutesByDate?: unknown; totalTargetMinutes?: unknown }
+  if (!candidate.targetMinutesByDate || typeof candidate.targetMinutesByDate !== 'object') return false
+  const total = candidate.totalTargetMinutes
+  if (total !== null && (typeof total !== 'number' || !Number.isFinite(total))) return false
+  return Object.values(candidate.targetMinutesByDate as Record<string, unknown>).every(
+    (minutes) => typeof minutes === 'number' && Number.isFinite(minutes),
   )
 }
 
+/**
+ * The targets the timesheet renders and compares logged minutes against. A provider
+ * that throws, or that answers with something the caller cannot subtract from, falls
+ * back to the flat daily target the module shipped — a timesheet showing the wrong
+ * target reads as the person being behind, which is worse than showing the default.
+ */
 export function resolveTimesheetCapacity(
   staffMemberId: string | null,
   dateRange: CapacityDateRange,
   ctx: CapacityContext,
 ): CapacityResult {
-  return resolveCapacityProvider(ctx).resolve(staffMemberId, dateRange, ctx)
+  const provider = resolveCapacityProvider(ctx)
+  const builtIn = () => builtInCapacityProvider.resolve(staffMemberId, dateRange, ctx)
+  if (provider === builtInCapacityProvider) return builtIn()
+
+  const answer = runStrategy(
+    CAPACITY_PROVIDER_REGISTRY_ID,
+    provider.id,
+    () => provider.resolve(staffMemberId, dateRange, ctx) as unknown,
+    () => null,
+  )
+  return isCapacityResult(answer) ? answer : builtIn()
 }

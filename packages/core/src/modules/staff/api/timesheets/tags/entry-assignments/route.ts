@@ -29,7 +29,6 @@ import {
 import { staffTimeTagCommandIds } from '../../../../commands/timesheets-tags'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
-  resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
@@ -143,7 +142,6 @@ async function handle(req: Request, commandId: string, operation: 'create' | 'de
       requestHeaders: req.headers,
       mutationPayload: input,
     },
-    resolveUserFeatures(ctx.auth),
   )
   if (!guardResult.ok) {
     return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, {
