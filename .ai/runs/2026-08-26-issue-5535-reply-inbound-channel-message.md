@@ -71,3 +71,13 @@
 
 - [x] 5.1 Run the full configured validation gate — all eight commands green locally on `b82bc962` (plus `yarn lint`: 0 errors, 10 pre-existing warnings in untouched files)
 - [x] 5.2 Run `om-auto-review-pr 5645 --autofix`, push, and re-request review from @pkarw — re-review of `3e62eb24` found no blocker or major in the follow-up work and recorded all four inherited findings as fixed; autofix had nothing to apply. `changes-requested` → `review`, review re-requested from @pkarw.
+
+### Phase 6: UI QA against a live app (added after the QA pass found a blocker)
+
+- [x] 6.1 Provision an ephemeral app from the PR head and execute `TC-CHANNEL-REPLY-001` for the first time — it **failed** on `b683e650` with `403` on `GET /api/messages/{id}`: the Phase 3 gate read `ctx.auth.features`, and the session JWT carries no `features` claim, so it denied every caller including a tenant admin
+- [x] 6.2 Resolve the gate through `rbacService.userHasAllFeatures` instead, drop the test stub that hid it, and pin the regression — c160232e
+- [x] 6.3 Re-run `TC-CHANNEL-REPLY-001` on the fixed head — passes (25.3s) — c160232e
+- [x] 6.4 Drive the browser through the whole #5535 journey and verify blocker 1 on the live system: the reply is delivered (channel total 2), the forward is not (total stays 2) — evidence posted on the PR
+- [x] 6.5 Re-run the full validation gate on the fixed head
+
+> QA note: `OM_ENABLE_TEST_CHANNEL_SEEDING` is set nowhere in the CLI runner or the CI workflow, so `TC-CHANNEL-REPLY-001` and every sibling channel spec `test.skip` silently in CI. That is why a defect this size survived an all-green run, and it is worth wiring in its own change.
