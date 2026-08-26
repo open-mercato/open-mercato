@@ -201,6 +201,40 @@ describe('frontend customer portal org binding', () => {
     }))
   })
 
+  it.each(['/org-a/portal', '/org-a/portal/'])(
+    'renders authenticated chrome at the portal root %s when the session matches the URL org',
+    async (pathname) => {
+      headerStore.get.mockReturnValue(pathname)
+
+      const element = await FrontendLayout({ children: <div>child</div> })
+      renderToStaticMarkup(element as React.ReactElement)
+
+      expect(portalShellMock).toHaveBeenCalledWith(expect.objectContaining({
+        orgSlug: 'org-a',
+        organizationId: 'org-a-id',
+        authenticated: true,
+        userName: 'Customer One',
+        userEmail: 'customer@example.com',
+        customerAuth,
+      }))
+    },
+  )
+
+  it.each(['/org-a/portal/login', '/org-a/portal/signup', '/org-a/portal/invite'])(
+    'keeps the public chrome on auth route %s even when the session matches the URL org',
+    async (pathname) => {
+      headerStore.get.mockReturnValue(pathname)
+
+      const element = await FrontendLayout({ children: <div>child</div> })
+      renderToStaticMarkup(element as React.ReactElement)
+
+      expect(portalShellMock).toHaveBeenCalledWith(expect.objectContaining({
+        orgSlug: 'org-a',
+        authenticated: false,
+      }))
+    },
+  )
+
   it('does not render mismatched organization chrome for authenticated protected portal routes', async () => {
     const element = await FrontendLayout({ children: <div>child</div> })
     renderToStaticMarkup(element as React.ReactElement)
