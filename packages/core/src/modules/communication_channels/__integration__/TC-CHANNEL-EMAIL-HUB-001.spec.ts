@@ -148,6 +148,47 @@ test.describe('TC-CHANNEL-EMAIL-HUB-001: per-user channel API contract', () => {
     }
   })
 
+  // `to` became optional so a provider that carries its own outbound target can run
+  // the documented smoke test without naming a recipient (#4976). That must not leak
+  // into the email path: no email adapter has a default address to fall back to, so
+  // an omitted recipient here has to stay a 422 rather than become a silent no-target
+  // send. This is the case that would fail if the optionality were made unconditional.
+  test('POST test-send on a connected email channel still requires a recipient', async ({
+    request,
+  }) => {
+    test.slow()
+    let token: string | null = null
+    let channelId: string | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      const seedingAvailable = await isChannelSeedingAvailable(request, token)
+      test.skip(
+        !seedingAvailable,
+        'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled in this environment; cannot seed a connected channel.',
+      )
+
+      const stamp = Date.now()
+      channelId = await seedConnectedChannel(request, token, {
+        displayName: `TC-CHANNEL-EMAIL-HUB-001 no-recipient ${stamp}`,
+        externalIdentifier: `hub-001-no-recipient-${stamp}@test-seed.local`,
+      })
+
+      const response = await apiRequest(
+        request,
+        'POST',
+        `/api/communication_channels/channels/${encodeURIComponent(channelId)}/test-send`,
+        { token, data: { body: 'no recipient named' } },
+      )
+      expect(response.status(), 'an email-format channel refuses an omitted recipient').toBe(422)
+      const body = await readJsonSafe<{ error?: string }>(response)
+      expect(body?.error, 'the rejection comes from the recipient validator').toBe(
+        'Recipient is required',
+      )
+    } finally {
+      await deleteChannelIfExists(request, token, channelId)
+    }
+  })
+
   test('POST test-send on a connected channel rejects a CR/LF header injection with 422', async ({
     request,
   }) => {
