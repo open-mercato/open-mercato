@@ -69,5 +69,5 @@
 
 ### Phase 5: Validation, review and hand-back
 
-- [ ] 5.1 Run the full configured validation gate
+- [x] 5.1 Run the full configured validation gate — all eight commands green locally on `b82bc962` (plus `yarn lint`: 0 errors, 10 pre-existing warnings in untouched files)
 - [ ] 5.2 Run `om-auto-review-pr 5645 --autofix`, push, and re-request review from @pkarw
