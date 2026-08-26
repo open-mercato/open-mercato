@@ -456,7 +456,7 @@ which only 202-acks. Ship your own route from the provider package instead of ch
 Discord does exactly this for its Interactions endpoint:
 
 ```ts
-// api/post/interactions/route.ts  →  /api/channel_discord/interactions
+// api/interactions/route.ts  →  /api/channel_discord/interactions
 export const metadata = {
   path: '/channel_discord/interactions',
   POST: {
