@@ -132,6 +132,7 @@ import {
 import {
   mapOrderLineEntityToSnapshot,
   mapQuoteLineEntityToSnapshot,
+  resolveUpsertDiscountFields,
 } from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
@@ -3060,6 +3061,7 @@ function createLineSnapshotFromInput(
     unitPriceNet: line.unitPriceNet ?? null,
     unitPriceGross: line.unitPriceGross ?? null,
     discountAmount: line.discountAmount ?? null,
+    discountAmountBasis: line.discountAmountBasis ?? "unit",
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,
@@ -7208,8 +7210,11 @@ const orderLineUpsertCommand: CommandHandler<
         order.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
@@ -7702,8 +7707,11 @@ const quoteLineUpsertCommand: CommandHandler<
         quote.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
