@@ -55,14 +55,14 @@ issue and saying so is a fine disposition"). Filed as a follow-up issue and link
 
 ### Phase 1: Pin the guard's collection floors
 
-- [x] 1.1 Hoist `moduleRoots` into a named binding so it can be asserted on
-- [x] 1.2 Replace `expect(pages.length).toBeGreaterThan(0)` with `> 200`, and assert `moduleRoots.length > 10` alongside it
-- [x] 1.3 Verify the floors actually bite (simulate each swallowed `catch` collapsing; confirm red)
-- [x] 1.4 Run the validation gate
+- [x] 1.1 Hoist `moduleRoots` into a named binding so it can be asserted on — e82ae3dac
+- [x] 1.2 Replace `expect(pages.length).toBeGreaterThan(0)` with `> 200`, and assert `moduleRoots.length > 10` alongside it — e82ae3dac
+- [x] 1.3 Verify the floors actually bite (simulate each swallowed `catch` collapsing; confirm red) — e82ae3dac
+- [x] 1.4 Run the validation gate — e82ae3dac
 
 ### Phase 2: Dispose of minor 2 and hand back
 
-- [x] 2.1 File the follow-up issue for the three surviving `resolvePathnameId` fallbacks
+- [x] 2.1 File the follow-up issue for the three surviving `resolvePathnameId` fallbacks — issue #5656
 - [x] 2.2 Link it on the PR and say so in the handback comment
 - [x] 2.3 Normalize labels (`changes-requested` → `review`), release the lock
 
