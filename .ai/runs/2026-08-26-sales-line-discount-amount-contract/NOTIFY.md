@@ -34,3 +34,15 @@
 
 ## 2026-08-26T06:10:00Z — decision: the shared mapper keeps the stricter numeric coercion
 - The two duplicated mappers differed in one respect: `returns.ts` guarded numeric inputs with `Number.isFinite`, `documents.ts` did not. The extracted mapper keeps the guarded version, so this is not a pure move — a `NaN` on the documents path now coerces to `0` rather than propagating. Unreachable from `numeric` columns in practice, and the safer direction, but it is a behaviour change and is flagged for review rather than buried.
+
+## 2026-08-26T06:35:00Z — blocker found and fixed: the fix was incomplete
+- Writing the Phase 4 command tests exposed a real defect in this run's own Phase 3 work. The line upsert rebuilds EVERY line of the order and runs each back through `createLineSnapshotFromInput`, which Step 3.4 had made overwrite the origin with the caller default. Untouched lines therefore lost their stored-row origin and were still re-inflated by quantity — the defect had been moved one step further down, not fixed.
+- `createLineSnapshotFromInput` is now origin-preserving, which makes all twelve of its call sites correct whether they are fed raw caller input or a re-mapped snapshot. Landed as Step `3.4-fix` with the test that fails without it.
+
+## 2026-08-26T06:40:00Z — decision: two of this run's tests were rewritten because they passed vacuously
+- Negative-controlling each new suite against the reverted implementation caught two tests that passed either way. Both asserted the origin of a discount on a line that also carried a `discount_percent` — and percentage-first precedence heals such a line regardless of how its amount is tagged, so the assertion could never observe the defect. Both were moved onto amount-only lines, which is the only shape that exercises the origin at all. Recorded because the same trap will catch the next person writing tests against this contract.
+
+## 2026-08-26T07:10:00Z — final gate green
+- All eight configured `validation.commands` passed in order, none skipped: `GATE_ALL_GREEN`. Test step: 34/34 workspaces, 0 failures. The tree is clean afterwards — `yarn generate` produced no uncommitted output.
+- The test step took 26 minutes because a second cezar worktree was running its own full gate on the same machine (load 20–27). Contention only; separate `node_modules`, `--env-mode=loose` on both.
+- The Playwright integration suite was NOT run locally: no provisioned test environment exists for this worktree. The new integration spec ships typechecked but unexecuted here, and CI's `ephemeral-integration` job is what exercises it. Stated in `final-gate-checks.md` rather than glossed.

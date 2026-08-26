@@ -1,10 +1,10 @@
 # Handoff — 2026-08-26-sales-line-discount-amount-contract
 
-**Last updated:** 2026-08-26T06:10:00Z
+**Last updated:** 2026-08-26T07:10:00Z
 **Branch:** `fix/sales-line-discount-amount-contract`
 **PR:** https://github.com/open-mercato/open-mercato/pull/5640
-**Current phase/step:** Phase 4 Step 4.1 (next to start)
-**Last commit:** `c12d509ed` — fix(sales): apply the per-operand discount split at both line upsert sites
+**Current phase/step:** all 25 Steps done — final gate green, handing to `om-auto-review-pr`
+**Last commit:** `97ca8214f` — docs(runs): close out the follow-up steps for the line discount contract
 
 ## What just happened
 - Checkpoint 1 passed: `@open-mercato/core` typechecks clean and all 97 sales suites (722 tests) pass, including the 15 new engine tests. Details in `checkpoint-1-checks.md`.
