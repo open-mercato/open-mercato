@@ -185,8 +185,15 @@ jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({
   formatAddressString: () => '',
 }))
 
+// `useLocale` belongs in this partial mock even though nothing here asserts a formatted
+// string: the `lines` custom field renders the real `SalesOrderDraftLines`, which reads the
+// application locale to format money (#5105), and a partial mock returns `undefined` for
+// every hook it omits — so the component throws on render rather than failing an assertion.
+// The pin is a non-en locale so a future money assertion in this suite cannot be satisfied
+// by a component that ignores the locale on an en-default runner.
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
+  useLocale: () => 'pl-PL',
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
