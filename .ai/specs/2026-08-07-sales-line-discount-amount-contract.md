@@ -1,8 +1,11 @@
 # Sales line `discount_amount` — a single, idempotent contract
 
-Status: draft — design decision requested
+Status: approved — implementation in progress
 Scope: `packages/core/src/modules/sales/{lib/calculations.ts,lib/types.ts,commands/documents.ts,commands/returns.ts,data/validators.ts}`
-Tracking: [#5019](https://github.com/open-mercato/open-mercato/issues/5019); related display-only PR [#5006](https://github.com/open-mercato/open-mercato/pull/5006)
+Tracking: [#3757](https://github.com/open-mercato/open-mercato/issues/3757) — the de facto tracker now that
+[#5019](https://github.com/open-mercato/open-mercato/issues/5019) is closed; related display-only PR
+[#5006](https://github.com/open-mercato/open-mercato/pull/5006). Approved by @wojciechszyjka on 2026-08-26 —
+see § Decision Record for what was decided and what follows from it.
 Verified against: `develop` @ `33a7d00c4` (2026-08-21). Line numbers are a convenience pinned to that
 commit and drift; the symbol or command id beside each is the durable identifier.
 
