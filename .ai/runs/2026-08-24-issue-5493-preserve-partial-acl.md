@@ -67,3 +67,8 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 - [x] 4.1 Treat `organizations: []` as no restriction and cover both empty-array outcomes — a5a14af33
 - [x] 4.2 Widen the shared organization warning so it names clearing scope as well as adding a feature — a5a14af33
 - [x] 4.3 Run validation, re-review the final diff, and push the revision for maintainer review — `d2e9a61f6`
+
+### Phase 5: Pin merged-snapshot authorization
+
+- [ ] 5.1 Cover partial PUT authorization against the merged ACL snapshot and document the resulting refusal contract.
+- [ ] 5.2 Merge current `develop`, run the configured validation gate, re-review the final diff, and push the revision.
