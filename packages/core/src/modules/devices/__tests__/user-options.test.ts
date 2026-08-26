@@ -16,6 +16,11 @@ function lastUrl(): URL {
   return new URL(url as string, 'https://example.test')
 }
 
+// Real UUIDs, so a fixture stays valid if the client ever validates ids before sending them.
+function uuidsFor(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `44444444-4444-4444-8444-${index.toString(16).padStart(12, '0')}`)
+}
+
 beforeEach(() => {
   apiCallMock.mockReset()
 })
@@ -32,7 +37,6 @@ describe('loadDeviceUserOptions', () => {
       {
         value: '11111111-1111-4111-8111-111111111111',
         label: 'Ada Lovelace — ada@example.test',
-        description: 'ada@example.test',
       },
     ])
   })
@@ -46,8 +50,6 @@ describe('loadDeviceUserOptions', () => {
     const options = await loadDeviceUserOptions()
 
     expect(options[0].label).toBe('ada@example.test')
-    // The email is already the label, so repeating it as the description would be noise.
-    expect(options[0].description).toBeNull()
     expect(options[1].label).toBe('22222222-2222-4222-8222-222222222222')
   })
 
@@ -124,14 +126,14 @@ describe('resolveDeviceUserOptions', () => {
   })
 
   it('keeps the batches that answered when another batch fails', async () => {
-    const ids = Array.from({ length: 150 }, (_, index) => `44444444-4444-4444-8444-${index.toString(16).padStart(12, '0')}`)
+    const ids = uuidsFor(150)
     apiCallMock
       .mockResolvedValueOnce({ ok: false, status: 500, result: null })
       .mockResolvedValueOnce(okWith([{ id: ids[100], name: 'Grace Hopper' }]))
 
     const { options, resolvedIds } = await resolveDeviceUserOptions(ids)
 
-    expect(options).toEqual([{ value: ids[100], label: 'Grace Hopper', description: null }])
+    expect(options).toEqual([{ value: ids[100], label: 'Grace Hopper' }])
     expect(resolvedIds).toEqual(ids.slice(100))
   })
 
@@ -149,7 +151,7 @@ describe('resolveDeviceUserOptions', () => {
 
   it('chunks past the 100-id request cap instead of silently truncating', async () => {
     apiCallMock.mockResolvedValue(okWith([]))
-    const ids = Array.from({ length: 150 }, (_, index) => `1111111${index.toString().padStart(1, '0')}`)
+    const ids = uuidsFor(150)
 
     await resolveDeviceUserOptions(ids)
 

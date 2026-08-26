@@ -1,9 +1,9 @@
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { MAX_USER_LOOKUP_IDS } from '@open-mercato/core/modules/auth/lib/userIdFilter'
 
 export type DeviceUserOption = {
   value: string
   label: string
-  description?: string | null
 }
 
 type AuthUserItem = {
@@ -12,14 +12,16 @@ type AuthUserItem = {
   email?: unknown
 }
 
-// `/api/auth/users` caps `pageSize` at 100 and `?ids=` at the shared MAX_IDS_PER_REQUEST.
 const SEARCH_PAGE_SIZE = 20
-const MAX_IDS_PER_LOOKUP = 100
+// Imported rather than restated: `parseIdsParam` slices past the route's cap without complaining,
+// so a client batch larger than the server accepts loses the overflow ids silently.
+const MAX_IDS_PER_LOOKUP = MAX_USER_LOOKUP_IDS
 
 /**
  * Two label styles on purpose. A picker suggestion has to disambiguate two people with the same
- * display name, and `CrudForm`'s combobox drops the option description — so the email has to live in
- * the label there. A resolved column label is read next to a device, where the email is noise.
+ * display name, and neither `CrudForm`'s combobox nor `FilterBar` renders anything but the label —
+ * so the email has to live in the label there. A resolved column label is read next to a device,
+ * where the email is noise.
  */
 type LabelStyle = 'search' | 'compact'
 
@@ -29,11 +31,13 @@ function toOption(item: AuthUserItem | null | undefined, style: LabelStyle): Dev
   const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : null
   const email = typeof item.email === 'string' && item.email.trim() ? item.email.trim() : null
   const label = style === 'search' && name && email ? `${name} — ${email}` : name ?? email ?? id
-  return [{ value: id, label, description: email && email !== label ? email : null }]
+  return [{ value: id, label }]
 }
 
-// Devices admins may not hold `auth.users.list`; `x-om-forbidden-redirect: 0` keeps a 403 from
-// bouncing the whole page to /login. `null` means the call itself failed, which callers must not
+// `devices.admin` declares `dependsOn: ['auth.users.list']`, but dependsOn only diagnoses — a
+// hand-built role can still reach these screens without it until the ACL editor or
+// `sync-role-acls` fixes it. `x-om-forbidden-redirect: 0` keeps that 403 from bouncing the whole
+// page to /login. `null` means the call itself failed, which callers must not
 // confuse with a successful call that matched nobody — a caller caching "already resolved" would
 // otherwise remember a transient network error forever.
 async function fetchUsers(

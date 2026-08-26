@@ -24,7 +24,7 @@
   "devices.form.success.created": "Urządzenie zarejestrowane",
   "devices.form.success.updated": "Urządzenie zaktualizowane",
   "devices.form.userId": "Użytkownik",
-  "devices.form.userIdHint": "Wyszukaj po nazwie lub e-mailu albo wklej ID użytkownika.",
+  "devices.form.userIdHint": "Zacznij wpisywać nazwę lub e-mail, a następnie wybierz właściciela z listy.",
   "devices.form.userIdPlaceholder": "Szukaj użytkowników",
   "devices.list.actions.deactivate": "Dezaktywuj",
   "devices.list.actions.edit": "Edytuj",

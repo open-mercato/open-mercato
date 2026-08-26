@@ -400,10 +400,10 @@ export async function GET(req: Request) {
 
     filters.push(searchFilters.length > 1 ? { $or: searchFilters } : searchFilters[0])
   }
+  // `?id=` has no separate path: resolveUserIdFilter folds it into `idFilter`, and a `kind: 'none'`
+  // outcome already returned above, so `idFilter` is null only when neither param was supplied.
   if (idFilter && idFilter.size) {
     filters.push({ id: { $in: Array.from(idFilter) as any } })
-  } else if (id) {
-    filters.push({ id })
   }
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })

@@ -24,7 +24,7 @@
   "devices.form.success.created": "Device registered",
   "devices.form.success.updated": "Device updated",
   "devices.form.userId": "User",
-  "devices.form.userIdHint": "Search by name or email, or paste a user ID.",
+  "devices.form.userIdHint": "Start typing a name or email, then pick the owner from the list.",
   "devices.form.userIdPlaceholder": "Search users",
   "devices.list.actions.deactivate": "Deactivate",
   "devices.list.actions.edit": "Edit",
