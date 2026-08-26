@@ -106,6 +106,7 @@ The following authentication endpoints have two-layer rate limiting built in:
 | `POST /api/login` | IP | 20 | 60s | 60s |
 | `POST /api/reset` | IP | 10 | 60s | 60s |
 | `POST /api/reset/confirm` | IP | 5 | 300s | &mdash; |
+| `POST /api/auth/reset/validate` | IP | 10 | 300s | &mdash; |
 
 **Layer 2 — Compound** caps attempts per IP + account pair (email is SHA-256 hashed):
 
@@ -114,7 +115,7 @@ The following authentication endpoints have two-layer rate limiting built in:
 | `POST /api/login` | `IP:emailHash` | 5 | 60s | 60s |
 | `POST /api/reset` | `IP:emailHash` | 3 | 60s | 60s |
 
-The reset-confirm endpoint uses IP-only limiting because no email is available at that point.
+The reset-confirm and reset-validate endpoints use IP-only limiting because no email is available at that point — both are reached with a token alone. Reset-validate is the read-only check the reset page makes on load to decide whether to render the password form or a terminal "link is no longer valid" state; it never consumes the token, so it gets a slightly larger budget than reset-confirm.
 
 On successful login, the compound counter is automatically reset so legitimate users aren't penalized for prior typos. The IP-only counter is not reset.
 
@@ -203,6 +204,8 @@ When using `redis` strategy, the service reads `REDIS_URL` (already used by cach
 | `RATE_LIMIT_RESET_IP_BLOCK_DURATION` | `60` | Block duration after exceeding IP limit |
 | `RATE_LIMIT_RESET_CONFIRM_POINTS` | `5` | Max reset confirm attempts per IP per window |
 | `RATE_LIMIT_RESET_CONFIRM_DURATION` | `300` | Window in seconds |
+| `RATE_LIMIT_RESET_VALIDATE_POINTS` | `10` | Max reset-token checks per IP per window |
+| `RATE_LIMIT_RESET_VALIDATE_DURATION` | `300` | Window in seconds |
 
 **Future:**
 

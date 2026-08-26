@@ -24,6 +24,41 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
+
+`AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
+
+Nothing changes at runtime beyond the tag name — no prop was added, removed, or renamed, and `<p>` and `<div>` render identically under the design system's Tailwind preflight, so no visual regression accompanies the change. What changes is the **type**:
+
+- `AlertDescriptionProps` widens from `React.HTMLAttributes<HTMLParagraphElement>` to `React.HTMLAttributes<HTMLDivElement>`.
+- The forwarded ref type changes from `HTMLParagraphElement` to `HTMLDivElement`.
+
+**Action for module authors:** if you hold a ref to `AlertDescription` as `useRef<HTMLParagraphElement>(null)`, or annotate one of its event handlers with `React.*Event<HTMLParagraphElement>`, change the element type to `HTMLDivElement`. Nothing else is affected: the component is used by composition in 97 files across this repository and not one of them passes a ref, so the practical migration surface is very small. There is no runtime bridge to stage because the element type is the entire changed surface — a mismatched annotation is a compile error in your own package, never a silent behavior change. Callers that previously worked around the restriction by rendering block `<span>`s inside the description (for example the record-locks settings page shipped in #5481) keep working unchanged and may be simplified back to real paragraphs at leisure.
+
+### Device API responses are camelCase; the snake_case keys are deprecated aliases (#5513)
+
+`GET /api/devices`, `GET /api/devices/admin/devices` and `GET /api/devices/admin/devices/:id` returned the raw database column names (`device_id`, `user_id`, `last_seen_at`, …) while every other module returns camelCase. A client written against the platform convention read `undefined` for every field on this one module. All three routes now return camelCase keys as the canonical shape:
+
+| Deprecated alias | Canonical key |
+|------------------|---------------|
+| `tenant_id` | `tenantId` (list routes only) |
+| `organization_id` | `organizationId` (list routes only) |
+| `user_id` | `userId` |
+| `device_id` | `deviceId` |
+| `client_app_version` | `clientAppVersion` |
+| `os_version` | `osVersion` |
+| `push_provider` | `pushProvider` |
+| `push_token_updated_at` | `pushTokenUpdatedAt` |
+| `last_seen_at` | `lastSeenAt` |
+| `created_at` | `createdAt` |
+| `updated_at` | `updatedAt` |
+
+`id`, `platform` and `locale` are spelled the same either way and are unchanged. Nothing was removed: **every snake_case key is still returned**, holding the same value as its camelCase counterpart, and is marked deprecated in the OpenAPI document. The aliases are removed no earlier than the next minor release.
+
+Request-side contracts are untouched — query parameters, the `sortField` values (`lastSeenAt`, `createdAt`, `updatedAt`, already camelCase), request bodies, and the `POST`/`PUT`/`DELETE` response shapes are unchanged, as are the database columns themselves. The one behavior difference for a caller already reading the snake_case keys is that timestamp columns now always serialize as ISO-8601 strings under both spellings. `push_token` remains absent from every response under either spelling.
+
+**Action for API consumers:** switch to the camelCase keys. A client that keeps reading the snake_case ones works unchanged until the aliases are removed.
+
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 
 `interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.
@@ -32,20 +67,47 @@ Nothing that was previously accepted is now rejected, and no field was removed f
 
 **Action for API consumers:** treat `participants[].userId` as optional. A generated client or hand-written type that declares it required keeps working until someone in that tenant actually invites an external guest, at which point a strict response validator will reject the payload and a `participant.userId` dereference will yield `undefined`. Identify a participant by `userId` when present and fall back to the normalized (trimmed, lower-cased) `email` otherwise — that is exactly the canonical actor key the platform's own calendar mapping, participant dedupe and conflict detection now use (`lib/calendar/participantIdentity.ts`). No database migration is required: `customer_interactions.participants` is a schemaless JSONB column with no foreign key or constraint.
 
-### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+### CRM deal status filters and closures now use one canonical vocabulary (#5107)
 
-`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+`customer_deals.status` is a lenient text column whose writers disagreed on spelling: UI closure flows persist `win` / `loose`, the AI tool `customers.update_deal_stage` persists `won` / `lost`, and the seeded dictionary also carries `closed`. Deal filtering previously matched whatever spelling the caller sent, so "won" results differed between the CRM list view, the Kanban board, and deals closed through different surfaces.
 
-The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+Three behavior changes ship together — additive on the wire, but visible to operators:
 
-- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
-- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+1. **Status filters are expanded through the canonical vocabulary** (`expandDealStatusAliases` in `@open-mercato/core/modules/customers/lib/dealStatus.ts`, shared by the deals list route, the Kanban lane queries, the map route, and the Kanban aggregate route). `win` / `won` both match won deals, `loose` / `lost` both match lost deals, values are matched case-insensitively (each result also keeps the caller's original token), and **the seeded `closed` option now matches the whole terminal set (`win`, `won`, `loose`, `lost`, `closed`) instead of the single literal `closed` status**, which no writer ever persisted. Any other value passes through trimmed, alongside its lower-case form, for exact matching.
+2. **Closing a deal by status alone now records full closure state.** `customers.deals.update` derives `closureOutcome` from a terminal status spelling when the request carries no explicit outcome or stage (UI spellings `win`/`loose` and AI spellings `won`/`lost` behave identically) and relocates the deal to the pipeline's terminal Won/Lost stage when one exists. Conversely, updating an already-closed deal to a non-terminal status without an explicit `closureOutcome` now clears `closureOutcome`, `lossReasonId`, and `lossNotes`.
+3. **The AI mutation-approval card projects these derived writes** (terminal stage, closure outcome, cleared loss columns), so what the operator approves matches what the command persists.
 
-**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
+No API route, method, request field, or response field was removed; the aggregate route's accepted `status` values were widened. On `GET /api/customers/deals/aggregate` an injected `status = 'open'` for `isOverdue=true` is now suppressed when the caller supplies an explicit status filter (matching `GET /api/customers/deals`), so combined overdue+status lane header counts change accordingly. A deal moved into a terminal stage by Kanban drag-and-drop keeps its previous status — it is placed by stage but not matched by status filters until it is closed through a closure flow; recording that gap is deliberate, and automating status on drag is future work. Existing rows closed by the AI tool before this change keep their stored status and lane — they match the corrected filters via spelling expansion but are not retroactively moved to a terminal stage; re-saving such a deal through any closure flow applies the new state. No data backfill runs automatically.
 
----
+**Action for module authors:** if you filtered deals with raw status spellings outside the shared helpers, prefer `lib/dealStatus.ts` (`expandDealStatusAliases`, `isClosedDealStatus`) so your reads stay consistent with the platform views.
 
-## 0.6.7 → 0.7.0 (2026-08-12)
+## 0.6.7 → 0.7.0 (2026-08-26)
+
+### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
+
+The route used to treat every omitted field as a cleared one: an omitted `features`
+became `[]` and an omitted `organizations` became `null`. A request carrying only
+`organizations` was therefore classified as an empty override, so the route **deleted the
+user's ACL row** and answered `200 {"ok":true}`. Because a per-user ACL is how a role gets
+*narrowed*, deleting it dropped the user back to their full role — the failure direction
+was fail-open, triggered by an ordinary administrative scope edit.
+
+Omitted `features`, `organizations`, and `isSuperAdmin` now keep their stored values, so a
+single-dimension edit no longer clears the dimensions it did not touch. Two consequences
+for callers that relied on the old shape:
+
+- **Removing an override now needs every dimension cleared explicitly.** Send
+  `{ userId, features: [], organizations: null }`. A bare `{ userId, features: [] }` against
+  a row that carries an organization restriction is now rejected (see below) rather than
+  deleting the row.
+- **An organization-scoped override with no feature grant returns `400`.** A `UserAcl` is an
+  absolute override, so persisting that state would revoke every role-granted feature
+  instead of narrowing the role. Restate the grant alongside the scope —
+  `{ userId, organizations: [orgId], features: ['module.*'] }`. Test fixtures and scripts
+  that set a scope with an organizations-only call need the same restatement; previously
+  such a call reported success while storing nothing.
+
+`PUT /api/auth/roles/acl` already behaved this way and is unchanged.
 
 ### Passkey MFA verification requires a real WebAuthn assertion (#3852)
 
@@ -505,6 +567,16 @@ The record-scoped attachments list was the only paged endpoint that clamped a re
 **Action for API consumers:** none, unless you relied on the clamp. The route, method, and response shape are unchanged — `items`, `total`, `page`, `pageSize`, and `totalPages` are all still returned, and `page` is still an integer of at least `1`. Two patterns are worth checking. A loop that pages while the returned page is full previously never terminated on this endpoint and now does, which is the point of the change. A caller that used a deliberately large page number as a shorthand for "give me the last page" now receives an empty page instead, and must compute the last page from `totalPages` itself.
 
 **For module authors:** a client-side workaround that treated an echoed page lower than the requested one as the end of the list — the pattern `AttachmentsSection` adopted in #5274 — remains correct; it simply never triggers now. You can drop it when convenient, but nothing forces you to.
+### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+
+The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+
+- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
+- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+
+**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
 
 ## 0.6.6 → 0.6.7 (2026-08-05)
 

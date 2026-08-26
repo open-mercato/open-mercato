@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/modules/auth/__tests__/acl-feature-catalog.i18n.test.ts',
+        scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },

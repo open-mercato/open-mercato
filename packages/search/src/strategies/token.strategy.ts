@@ -67,9 +67,20 @@ export class TokenSearchStrategy implements SearchStrategy {
     // Dynamically import tokenization to avoid circular dependencies
     const { tokenizeText } = await import('@open-mercato/shared/lib/search/tokenize')
     const { resolveSearchConfig } = await import('@open-mercato/shared/lib/search/config')
+    const { listSearchTokenExcludedEntityTypes } = await import(
+      '@open-mercato/core/modules/query_index/lib/search-entity-policy'
+    )
 
     const config = resolveSearchConfig()
     if (!config.enabled) return []
+
+    // The rows themselves stay in `search_tokens` — list routes and the query engines' encrypted
+    // like/ilike rewrite depend on them — so the exclusion is enforced here, at read time.
+    const excludedEntityTypes = listSearchTokenExcludedEntityTypes()
+    const requestedEntityTypes = options.entityTypes?.length
+      ? options.entityTypes.filter((entityType) => !excludedEntityTypes.includes(entityType))
+      : undefined
+    if (options.entityTypes?.length && !requestedEntityTypes?.length) return []
 
     const { hashes } = tokenizeText(query, config)
     if (hashes.length === 0) return []
@@ -96,8 +107,10 @@ export class TokenSearchStrategy implements SearchStrategy {
       queryBuilder = queryBuilder.where('organization_id' as any, 'in', organizationIds)
     }
 
-    if (options.entityTypes?.length) {
-      queryBuilder = queryBuilder.where('entity_type' as any, 'in', options.entityTypes)
+    if (requestedEntityTypes?.length) {
+      queryBuilder = queryBuilder.where('entity_type' as any, 'in', requestedEntityTypes)
+    } else if (excludedEntityTypes.length) {
+      queryBuilder = queryBuilder.where('entity_type' as any, 'not in', excludedEntityTypes)
     }
 
     const rows = await queryBuilder.execute() as Array<{

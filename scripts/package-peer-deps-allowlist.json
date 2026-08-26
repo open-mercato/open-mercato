@@ -6,6 +6,8 @@
     "@open-mercato/ai-assistant -> react-markdown -> @types/react": "Type-only peer; the scaffolded app declares @types/react itself and a runtime build never resolves it",
     "@open-mercato/channel-apns -> @open-mercato/core -> @open-mercato/ai-assistant": "Workspace peer the scaffolded app installs directly from its own package.json",
     "@open-mercato/channel-apns -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
+    "@open-mercato/channel-discord -> @open-mercato/core -> @open-mercato/ai-assistant": "Workspace peer the scaffolded app installs directly from its own package.json",
+    "@open-mercato/channel-discord -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
     "@open-mercato/channel-expo -> @open-mercato/core -> @open-mercato/ai-assistant": "Workspace peer the scaffolded app installs directly from its own package.json",
     "@open-mercato/channel-expo -> @open-mercato/ui -> react-is": "Pre-existing: satisfied transitively in the scaffolded app today. Not a fresh break, but it is undeclared — see the `followUp` note above",
     "@open-mercato/channel-fcm -> @open-mercato/core -> @open-mercato/ai-assistant": "Workspace peer the scaffolded app installs directly from its own package.json",

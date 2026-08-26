@@ -69,7 +69,7 @@ Built-in settings items are already filtered once during server-side nav constru
 This creates two problems:
 
 1. The settings nav pipeline cannot reason about access rules consistently because built-in item metadata is lost during conversion
-2. Introducing a second, client-side `/api/auth/feature-check` pass would be unsafe because that endpoint is not selected-organization aware, while page guards are
+2. Introducing a second, client-side `/api/auth/feature-check` pass would create a second filtering source that can drift from the server-built navigation snapshot. Issue #5498 later aligned the endpoint with the same request-selected organization scope used by page and API guards, but built-in navigation still has one authoritative server-side source.
 
 ### Root Cause 4: No in-page "access denied" state for data components
 
@@ -136,7 +136,7 @@ This preserves legitimate role-only settings pages.
 
 **Goal:** Built-in settings navigation never exposes broader access than page guards, without introducing a second ACL source.
 
-**Key decision:** This spec does **not** add a new client-side built-in settings filter based on `/api/auth/feature-check`. That endpoint is not selected-organization aware, while backend page guards are. The built-in settings navigation should continue to rely on the server-side nav build performed in backend layout.
+**Key decision:** This spec does **not** add a new client-side built-in settings filter based on `/api/auth/feature-check`. Although issue #5498 later made that endpoint selected-organization aware, built-in settings navigation should continue to rely on the server-side nav build performed in backend layout so one scoped snapshot remains authoritative.
 
 **Implementation approach:**
 
@@ -296,7 +296,7 @@ The user explicitly requested: "we should not automatically log out the user." T
 
 ### Decision: Keep built-in settings navigation server-scoped
 
-Built-in settings navigation continues to be derived from the server-side nav build in backend layout. This avoids introducing a second ACL source that is not selected-organization aware.
+Built-in settings navigation continues to be derived from the server-side nav build in backend layout. Although issue #5498 made `/api/auth/feature-check` selected-organization aware, this avoids introducing a second scoped ACL snapshot that can drift from the authoritative server-built one.
 
 ### Decision: "Sign in as different user" is opt-in navigation, not auto-redirect
 
@@ -384,7 +384,7 @@ No database schema changes required. This spec only affects client-side UI behav
 |------|----------|------|------------|----------|
 | Phase A updates `apiFetch` but misses QueryProvider | High | Auth / UI | Change both `apiFetch` and `QueryProvider` in the same phase; add unit tests for both layers | Low |
 | Removing `redirectToForbiddenLogin()` would break public imports | High | Backward compatibility | Keep the helper as a deprecated exported bridge for at least one minor version | Low |
-| Built-in settings nav is re-filtered client-side using `/api/auth/feature-check` | High | RBAC scope | Do not add that second ACL source in this spec; keep built-ins server-scoped | None |
+| Built-in settings nav is re-filtered client-side using `/api/auth/feature-check` | High | RBAC consistency | Do not add a second scoped ACL snapshot in this spec; keep built-ins server-sourced | None |
 | Role-only settings pages get forced into `requireFeatures` | Medium | Auth | Validation rule allows either `requireFeatures` or `requireRoles` | Low |
 | Existing employees lose access to Translations page after Phase B | Low | UX | This is the intended fix. Admins can grant `translations.manage_locales` to employees who need it. | None |
 | DataTable / CrudForm forbidden props are ignored by existing consumers | None | UI | Props are additive and default to false | None |
@@ -423,7 +423,7 @@ Phases A and B should ship together as they fix the most visible user-facing bug
 1. Extend nav item types to preserve `requireFeatures` / `requireRoles`
 2. Copy those fields through settings nav conversion helpers
 3. Add nav helper tests that guard metadata survives conversion
-4. Keep built-in settings filtering sourced from backend layout rather than adding a new client feature-check pass
+4. Keep built-in settings filtering sourced from backend layout rather than adding a second client feature-check snapshot
 
 ### Phase D
 
@@ -493,5 +493,6 @@ Phases A and B should ship together as they fix the most visible user-facing bug
 
 | Date | Change |
 |------|--------|
+| 2026-08-25 | Corrected feature-check scope statements after #5498 aligned the endpoint with the request-selected organization; built-in navigation stays server-sourced |
 | 2026-03-25 | Initial draft — root cause analysis and five-phase solution |
 | 2026-03-25 | Revised draft after pre-implementation analysis — added BC bridges, full settings guard inventory, server-scoped nav model, explicit in-page forbidden-state contract, and template parity requirements |
