@@ -54,6 +54,9 @@ jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({
 }))
 
 import { POST } from '../modules/onboarding/api/post/onboarding'
+import type { OnboardingStartInput } from '../modules/onboarding/data/validators'
+
+type UserLookup = { $or?: Array<{ email?: string }> }
 
 const EXISTING_EMAIL = 'has-account@example.com'
 const NEW_EMAIL = 'no-account@example.com'
@@ -83,7 +86,9 @@ async function probe(email: string): Promise<ProbeResult> {
   return { status: response.status, body: await response.json() }
 }
 
-function collectStrings(node: any, into: string[] = []): string[] {
+type RenderedNode = { props?: { href?: unknown; children?: unknown } }
+
+function collectStrings(node: unknown, into: string[] = []): string[] {
   if (node == null || typeof node === 'boolean') return into
   if (typeof node === 'string' || typeof node === 'number') {
     into.push(String(node))
@@ -93,9 +98,11 @@ function collectStrings(node: any, into: string[] = []): string[] {
     for (const child of node) collectStrings(child, into)
     return into
   }
-  if (typeof node === 'object' && node.props) {
-    if (typeof node.props.href === 'string') into.push(node.props.href)
-    collectStrings(node.props.children, into)
+  if (typeof node === 'object') {
+    const props = (node as RenderedNode).props
+    if (!props) return into
+    if (typeof props.href === 'string') into.push(props.href)
+    collectStrings(props.children, into)
   }
   return into
 }
@@ -116,11 +123,11 @@ beforeEach(() => {
   consume.mockResolvedValue({ allowed: true, remainingPoints: 0, msBeforeNext: 0, consumedPoints: 1 })
   deleteRateLimitKey.mockResolvedValue(undefined)
   resolveRateLimiterService.mockReturnValue({ consume, delete: deleteRateLimitKey })
-  findOneWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: any) => {
+  findOneWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: UserLookup) => {
     const probed = where?.$or?.[0]?.email
     return probed === EXISTING_EMAIL ? { id: 'user-1', email: EXISTING_EMAIL } : null
   })
-  createOrUpdateRequest.mockImplementation(async (input: any) => ({
+  createOrUpdateRequest.mockImplementation(async (input: OnboardingStartInput) => ({
     request: {
       email: input.email,
       firstName: input.firstName,
