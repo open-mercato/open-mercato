@@ -495,6 +495,14 @@ must not touch rows it cannot prove wrong.
 in core at all. It is the one piece of scope that is arguably a deployment concern rather than a
 platform one.
 
+**Answered 2026-08-26 (D5): a follow-up, tracked in
+[#5641](https://github.com/open-mercato/open-mercato/issues/5641).** It does not ship with the
+implementation of §§ 1–4 — it is opt-in, operator-facing, and touches no contract surface, so bundling
+it into an already-large behaviour change would add risk without adding correctness. The narrower
+question that issue still carries is whether the tool belongs in core at all or as an operator
+runbook. Until it is answered and built, rows in the third bucket above stay wrong, which is why the
+implementation PR references #3757 rather than closing it.
+
 ## Out of Scope
 
 ### Adjacent: `totalNetAmount` is accepted, validated, then ignored
@@ -851,6 +859,18 @@ executing it is `.ai/runs/2026-08-26-sales-line-discount-amount-contract/`.
 
 ## Changelog
 
+- 2026-08-26 — **Approved.** @wojciechszyjka signed off § Proposed Solution 1 (the column is a line
+  total) and § Proposed Solution 2 (percentage-first precedence, a stored `0` treated as absent),
+  releasing the gate this spec had held since 2026-08-07. Four dependent calls were resolved in the
+  same pass and written up in the new § Decision Record: the third question this spec raised is
+  answered as **apply** (`discountAmount: 0` alongside a non-zero percent now applies the percentage,
+  which inverts rather than drops existing integration behaviour and gets its own upgrade note and
+  test); § Alternatives E is **not** adopted, since the § 3 type shape is identical either way and E
+  therefore stays additively adoptable later; the operator repair CLI is deferred to
+  [#5641](https://github.com/open-mercato/open-mercato/issues/5641); and § Proposed Solution 3's
+  mapper de-duplication takes the extraction route rather than the two-copies-plus-equivalence-test
+  fallback. Added the § Implementation Plan the spec had never carried — its absence was what made the
+  spec unimplementable by automation — and re-pointed § Tracking at #3757 now that #5019 is closed.
 - 2026-08-07 — Initial draft.
 - 2026-08-11 — Grounded the severity argument in the create-vs-upsert asymmetry in the code, stated
   as a deterministic worked example plus a detection recipe operators can run against their own data.

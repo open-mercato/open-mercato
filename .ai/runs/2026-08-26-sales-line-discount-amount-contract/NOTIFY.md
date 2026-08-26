@@ -18,3 +18,9 @@
 
 ## 2026-08-26T05:52:00Z — environment note
 - The reused linked worktree had no `node_modules`; a full `yarn install` was run here before any validation. It completed cleanly. Nothing was symlinked into the worktree — doing so has previously emptied the source checkout's install.
+
+## 2026-08-26T06:05:00Z — decision: the D5 follow-up issue was filed early
+- Step 0.4 has to record the D5 deferral in the spec *with a link*, and Step 7.1 was planned to file that issue. Filing it first (#5641) rather than writing a dangling "a follow-up issue will exist" sentence keeps the spec honest at every commit. Step 7.1 accordingly becomes: link it from the PR body and confirm. The Tasks table order is unchanged.
+
+## 2026-08-26T06:05:00Z — note: the Commit column is backfilled one step late
+- `git commit --amend` rewrites the SHA, so a step cannot record its own final SHA inside its own commit. Each step therefore lands with `Status: done` and its SHA filled in by the next commit; a closing plan-sync backfills the last one. `Status` is what `om-auto-continue-pr-loop` resumes from, so resumability is unaffected.
