@@ -129,6 +129,10 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
+import {
+  mapOrderLineEntityToSnapshot,
+  mapQuoteLineEntityToSnapshot,
+} from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
 import type { CacheStrategy } from "@open-mercato/cache";
@@ -2966,68 +2970,6 @@ function buildCalculationContext(params: {
       paymentMethodCode: params.paymentMethodCode,
       currencyCode: params.currencyCode,
     }),
-  };
-}
-
-function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  };
-}
-
-function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
   };
 }
 
