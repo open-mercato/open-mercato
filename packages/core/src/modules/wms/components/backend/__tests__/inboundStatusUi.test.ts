@@ -3,6 +3,7 @@ import {
   canShowPutawayCompleteAction,
   formatAgingLabel,
   lineHasDiscrepancy,
+  mapPutawayQueueSortField,
   putawayStatusVariant,
   qcStatusVariant,
   resolveAsnCompleteGate,
@@ -38,6 +39,13 @@ describe('inboundStatusUi', () => {
     expect(formatAgingLabel('2026-08-12T11:30:00.000Z', now)).toBe('30m')
     expect(formatAgingLabel('2026-08-12T09:00:00.000Z', now)).toBe('3h')
     expect(formatAgingLabel('2026-08-10T12:00:00.000Z', now)).toBe('2d')
+  })
+
+  it('maps putaway queue aging sort column to createdAt API field', () => {
+    expect(mapPutawayQueueSortField('aging')).toBe('createdAt')
+    expect(mapPutawayQueueSortField('priority')).toBe('priority')
+    expect(mapPutawayQueueSortField('status')).toBe('status')
+    expect(mapPutawayQueueSortField('createdAt')).toBe('createdAt')
   })
 
   it('gates putaway Complete on adjust_inventory floor + manage or assignee', () => {

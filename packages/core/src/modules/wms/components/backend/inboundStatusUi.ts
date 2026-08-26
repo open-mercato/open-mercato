@@ -63,6 +63,11 @@ export function formatAgingLabel(createdAt: string | null | undefined, nowMs = D
   return `${days}d`
 }
 
+/** Map putaway queue column ids to list API `sortField` values. Aging is derived from created_at. */
+export function mapPutawayQueueSortField(columnId: string): string {
+  return columnId === 'aging' ? 'createdAt' : columnId
+}
+
 export function lineHasDiscrepancy(
   expectedQty: string | number | null | undefined,
   receivedQty: string | number | null | undefined,
