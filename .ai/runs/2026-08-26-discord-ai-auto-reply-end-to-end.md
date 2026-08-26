@@ -108,6 +108,8 @@ The two defects that are contained to one function each, and that nothing else i
 
 ## Progress
 
+PR: #5639
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Hub identity and failure reason
@@ -133,5 +135,5 @@ The two defects that are contained to one function each, and that nothing else i
 
 ### Phase 5: Documentation and the gate
 
-- [ ] 5.1 Record the fixes in the Discord spec changelog
-- [ ] 5.2 Run the full validation gate
+- [x] 5.1 Record the fixes in the Discord spec changelog — 48664e1c6
+- [x] 5.2 Run the full validation gate — green: build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage (advisory), typecheck, test (34/34 workspaces, 11 560 core tests), build:app
