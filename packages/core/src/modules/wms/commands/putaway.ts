@@ -673,13 +673,30 @@ const deletePutawayTaskCommand: CommandHandler<{ id: string }, { taskId: string 
     const before = payload?.before
     if (!before?.id) return
     const em = resolveEm(ctx)
-    const task = await findOneWithDecryption(em, PutawayTask, { id: before.id }, undefined, {
-      tenantId: before.tenantId,
-      organizationId: before.organizationId,
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    // Soft-deleted rows are excluded from withLockedPutawayTask; lock the
+    // deleted row directly and re-assert cancelled before undelete.
+    const task = await em.transactional(async (trx) => {
+      const locked = await findOneWithDecryption(
+        trx,
+        PutawayTask,
+        { id: before.id },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scope,
+      )
+      if (!locked) return null
+      ensureTenantScope(ctx, locked.tenantId)
+      ensureOrganizationScope(ctx, locked.organizationId)
+      // Only cancelled tasks may be soft-deleted; refuse undelete if status drifted.
+      if (locked.status !== 'cancelled') {
+        throw new CrudHttpError(409, { error: 'invalid_putaway_state' })
+      }
+      if (!locked.deletedAt) return locked
+      locked.deletedAt = null
+      await trx.flush()
+      return locked
     })
     if (!task) return
-    task.deletedAt = null
-    await em.flush()
     await emitPutawaySideEffects(ctx, [{ entity: task, action: 'updated' }])
   },
   buildLog: async ({ snapshots, input, result, ctx }) => {

@@ -206,7 +206,7 @@ Indexes required:
 Indexes required:
 - `(organization_id, warehouse_id, status, priority)`
 - `(organization_id, assigned_to, status)`
-- unique `(organization_id, putaway_key)` where `putaway_key is not null and deleted_at is null`
+- unique `(organization_id, putaway_key)` where `putaway_key is not null and deleted_at is null and status <> 'cancelled'`
 
 ### Validation Rules
 
@@ -239,7 +239,7 @@ Mirror new IDs in `setup.ts` / `lib/roleFeatures.ts` and run `yarn mercato auth 
    - **Operator recovery (mistaken QC fail):** do not flip the line — physically rework/quarantine as needed, then create a **new** receiving line (or a new ASN) for re-inspection and receive that line with QC pass. Close the original ASN with `closeWhenShort` when short/failed qty should not block close.
    - **Operator recovery (mistaken QC pass):** stock/putaway may already exist — reverse via inventory adjust / putaway cancel+complete residual paths; do not attempt to rewrite QC on the original line.
 5. Putaway completion moves stock staging → storage via explicit `InventoryMovement` (`type: putaway`).
-6. Locations with `type = staging` or `type = dock` may hold inbound stock; later phases must not treat that stock as pick-preferred unless configured.
+6. Locations with `type = staging` or `type = dock` may hold inbound stock; reservation (`listCandidateBalances` / sales availability) **excludes** those location types so ASN receive re-eval cannot claim staging stock and block putaway. Stock becomes reservable after putaway into storage (bin/slot/…). Later phases must not treat staging/dock as pick-preferred unless configured.
 7. Directed putaway **rules** (fixed/dynamic slotting from #388) are **out of MVP** — operators confirm `targetLocationId` on complete; rules engine is a follow-up.
 
 ## API Contracts
@@ -370,7 +370,7 @@ Vendor data used in UI should be snapshot or enrichment-based:
 Phase 2 does not create picks, but it feeds sales demand orchestration already present in Phase 1:
 
 - On QC-pass receipt that increases available stock, emit `wms.asn.line_received` (and **also** emit `wms.inventory.received` so existing listeners stay consistent — dual-emit is intentional and additive).
-- Subscribers on `wms.asn.line_received` and `wms.putaway.completed` SHOULD invoke the existing sales-order inventory automation / re-run reservation path when `wms_integration_sales_order_inventory` is enabled.
+- Subscribers on `wms.asn.line_received` and `wms.putaway.completed` SHOULD invoke the existing sales-order inventory automation / re-run reservation path when `wms_integration_sales_order_inventory` is enabled. Reservation candidates exclude staging/dock, so ASN receive typically records shortfall until putaway moves stock into storage.
 - Sales detail enrichers MAY add additive `_wms.inboundSummary` (open ASN count, next expected ETA) via a scoped SQL aggregate (`count` + `min(expected_at)`), not by loading all open ASN rows.
 
 Example additive sales payload fragment:
@@ -480,7 +480,7 @@ UX expectations:
 | WMS-P2-INT-04 | API | Over-receipt against ASN | discrepancy is recorded explicitly and ASN does not silently normalize expected quantity |
 | WMS-P2-INT-05 | API | Complete putaway task | stock moves from staging to target location via explicit movement row |
 | WMS-P2-INT-06 | API | Scan endpoint resolves location/lot and supports receive flow | canonical IDs returned and scan action remains UI-agnostic |
-| WMS-P2-INT-07 | API | Sales reservation re-evaluation after accepted receipt | receipt/putaway event path makes previously waiting order eligible for reservation |
+| WMS-P2-INT-07 | API | Sales reservation re-evaluation after putaway to storage | staging-only after ASN receive does **not** reserve; putaway.completed into bin makes waiting order reservable |
 | WMS-P2-INT-08 | UI | Receive ASN and complete putaway from backend queues | receiving and putaway pages expose correct status transitions and alerts |
 | WMS-P2-INT-09 | API/Auth | Deny receipt or putaway action without inbound feature grant | request rejected with no inventory mutation |
 
@@ -574,6 +574,13 @@ None.
 - See pre-implement analysis: `.ai/specs/analysis/ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway.md`
 
 ## Changelog
+
+### 2026-08-26 (rev 45) — OM Critical/High: i18n sync + staging not reservable
+- Critical: sort WMS i18n keys (`en`/`pl`/`es`/`de`/`ko`) so `yarn i18n:check-sync` passes
+- High: exclude `staging`/`dock` from reservation candidates (`listCandidateBalances`) and sales availability (`buildWarehouseAvailability`) so ASN receive re-eval cannot reserve inbound holding stock and block putaway complete; putaway.completed into storage still re-evals
+- Medium: `wms.putaway-tasks.delete` undo locks soft-deleted row (`PESSIMISTIC_WRITE`) and re-asserts `cancelled` before undelete
+- Spec: putaway unique index docs include `status <> 'cancelled'`; INT-07 expects reserve after putaway (not staging alone)
+- Unit: location-type reserve filters; sales automation staging shortfall; putaway delete undo lock/status; INT-07 updated
 
 ### 2026-08-25 (rev 44) — Bugbot Medium: already-at-target putaway oversubscribe + inboundSummary isolation
 - Medium: QC-pass already-at-target receive retry no longer recreates putaway when staging stock is already fully committed by other open/in_progress putaways; prefers covering open task (shared uncommitted staging floor helpers)

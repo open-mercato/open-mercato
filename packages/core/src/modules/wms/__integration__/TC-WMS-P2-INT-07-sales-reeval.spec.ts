@@ -42,6 +42,11 @@ type SalesStatusListResponse = {
   }>
 }
 
+type ReceiveResult = {
+  ok?: boolean
+  putawayTaskIds?: string[]
+}
+
 async function fetchOrderStatusId(
   request: APIRequestContext,
   token: string,
@@ -59,8 +64,10 @@ async function fetchOrderStatusId(
   return expectId(status?.id, `Missing order status "${value}"`)
 }
 
-test.describe('WMS-P2-INT-07: Sales reservation re-evaluation after receipt', () => {
-  test('ASN QC-pass receipt re-evaluates waiting sales order reservations', async ({ request }) => {
+test.describe('WMS-P2-INT-07: Sales reservation re-evaluation after putaway', () => {
+  test('putaway into storage re-evaluates waiting sales order reservations (staging alone does not)', async ({
+    request,
+  }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
@@ -85,14 +92,17 @@ test.describe('WMS-P2-INT-07: Sales reservation re-evaluation after receipt', ()
         'wms.manage_locations',
         'wms.manage_inventory',
         'wms.manage_asn',
+        'wms.manage_putaway',
         'wms.manage_reservations',
         'wms.receive_inventory',
+        'wms.adjust_inventory',
       ],
     )
 
     let productId: string | null = null
     let warehouseId: string | null = null
     let stagingId: string | null = null
+    let binId: string | null = null
     let profileId: string | null = null
     let asnId: string | null = null
     let orderId: string | null = null
@@ -133,6 +143,15 @@ test.describe('WMS-P2-INT-07: Sales reservation re-evaluation after receipt', ()
         warehouseId,
         code: `RE-STG-${suffix}`,
         type: 'staging',
+        isActive: true,
+      })
+
+      binId = await createCrudFixture(request, adminToken, '/api/wms/locations', {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        warehouseId,
+        code: `RE-BIN-${suffix}`,
+        type: 'bin',
         isActive: true,
       })
 
@@ -187,7 +206,7 @@ test.describe('WMS-P2-INT-07: Sales reservation re-evaluation after receipt', ()
       expect(asnId).toBeTruthy()
       expect(lineId).toBeTruthy()
 
-      await postAction(request, adminToken, `/api/wms/asns/${asnId}/receive`, {
+      const receiveResult = await postAction<ReceiveResult>(request, adminToken, `/api/wms/asns/${asnId}/receive`, {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         lineId,
@@ -195,6 +214,33 @@ test.describe('WMS-P2-INT-07: Sales reservation re-evaluation after receipt', ()
         targetReceivedQty: 4,
         targetStagingLocationId: stagingId,
         qcStatus: 'passed',
+        performedBy: scope.userId,
+      })
+      expect(receiveResult.ok).toBe(true)
+      expect(receiveResult.putawayTaskIds?.length).toBe(1)
+      const taskId = receiveResult.putawayTaskIds?.[0] ?? null
+      expect(taskId).toBeTruthy()
+
+      // Staging/dock stock is not reservable — ASN receive re-eval must not claim it.
+      await expect
+        .poll(
+          async () => {
+            const reservations = await fetchReservations(request, adminToken, {
+              sourceType: 'order',
+              sourceId: orderId!,
+              status: 'active',
+            })
+            return reservations.length
+          },
+          { timeout: 5_000, intervals: [250, 500, 1_000] },
+        )
+        .toBe(0)
+
+      await postAction(request, adminToken, `/api/wms/putaway-tasks/${taskId}/complete`, {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        confirmedQuantity: 4,
+        targetLocationId: binId,
         performedBy: scope.userId,
       })
 
@@ -235,6 +281,7 @@ test.describe('WMS-P2-INT-07: Sales reservation re-evaluation after receipt', ()
       }
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/asns', asnId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
+      await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', binId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', stagingId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
       await deleteCatalogProductIfExists(request, adminToken, productId)

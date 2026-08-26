@@ -63,6 +63,7 @@ import {
 } from '../data/validators'
 import {
   evaluateLowStock,
+  isBalanceLocationReservable,
   isLotEligible,
   resolveReservationStrategyFromProfile,
   sortBucketsForStrategy,
@@ -487,11 +488,16 @@ async function listCandidateBalances(
     },
     scope,
   )
+  const reservable: InventoryBalance[] = []
   for (const balance of balances) {
     ensureTenantScope(ctx, balance.tenantId)
     ensureOrganizationScope(ctx, balance.organizationId)
+    // Staging/dock are inbound holding locations — not pick/reserve candidates
+    // (Phase 2: ASN receive must not reserve staging stock and block putaway).
+    if (!isBalanceLocationReservable(balance)) continue
+    reservable.push(balance)
   }
-  return balances
+  return reservable
 }
 
 async function listBalancesForVariant(

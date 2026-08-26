@@ -265,6 +265,111 @@ describe('putaway lifecycle commands — pessimistic lock', () => {
     expect(task.deletedAt).toBeInstanceOf(Date)
     expect(em.flush).toHaveBeenCalled()
   })
+
+  it('delete undo restores soft-deleted cancelled task under PESSIMISTIC_WRITE', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({
+      status: 'cancelled',
+      putawayKey: null,
+      deletedAt: new Date('2026-08-26T12:00:00.000Z'),
+    })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity, _where, options) => {
+      if (entity === PutawayTask) {
+        expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
+        return task
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.putaway-tasks.delete')
+    await handler!.undo!({
+      logEntry: {
+        commandPayload: {
+          undo: {
+            before: {
+              id: TASK_ID,
+              organizationId: ORG,
+              tenantId: TENANT,
+              warehouseId: '55555555-5555-4555-8555-555555555555',
+              sourceLocationId: '66666666-6666-4666-8666-666666666661',
+              targetLocationId: null,
+              catalogVariantId: '77777777-7777-4777-8777-777777777777',
+              lotId: null,
+              quantity: '5',
+              status: 'cancelled',
+              assignedTo: null,
+              priority: 5,
+              putawayKey: null,
+              metadata: null,
+              createdAt: new Date('2026-08-01T00:00:00.000Z'),
+              updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+              deletedAt: new Date('2026-08-26T12:00:00.000Z'),
+            },
+          },
+        },
+      } as never,
+      ctx: ctx as never,
+    })
+
+    expect(task.deletedAt).toBeNull()
+    expect(em.transactional).toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('delete undo refuses when task status is no longer cancelled', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({
+      status: 'open',
+      putawayKey: null,
+      deletedAt: new Date('2026-08-26T12:00:00.000Z'),
+    })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === PutawayTask) return task
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.putaway-tasks.delete')
+    await expect(
+      handler!.undo!({
+        logEntry: {
+          commandPayload: {
+            undo: {
+              before: {
+                id: TASK_ID,
+                organizationId: ORG,
+                tenantId: TENANT,
+                warehouseId: '55555555-5555-4555-8555-555555555555',
+                sourceLocationId: '66666666-6666-4666-8666-666666666661',
+                targetLocationId: null,
+                catalogVariantId: '77777777-7777-4777-8777-777777777777',
+                lotId: null,
+                quantity: '5',
+                status: 'cancelled',
+                assignedTo: null,
+                priority: 5,
+                putawayKey: null,
+                metadata: null,
+                createdAt: new Date('2026-08-01T00:00:00.000Z'),
+                updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+                deletedAt: new Date('2026-08-26T12:00:00.000Z'),
+              },
+            },
+          },
+        } as never,
+        ctx: ctx as never,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'invalid_putaway_state' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(task.deletedAt).toBeInstanceOf(Date)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 })
 
 describe('wms.putaway-tasks.update execute lock', () => {

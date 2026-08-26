@@ -9,6 +9,7 @@ import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation } from '../data/entities'
 import { emitWmsEvent } from '../events'
 import { loadExplicitWarehouseIdForOrder } from './salesOrderWarehouseAssignment'
+import { isBalanceLocationReservable } from './inventoryPolicy'
 import {
   resolvePrimaryWarehouseId,
   sortWarehouseAvailabilityForReservation,
@@ -199,7 +200,7 @@ async function loadBalances(
       organizationId: scope.organizationId,
       deletedAt: null,
     },
-    undefined,
+    { populate: ['location'] },
     scope,
   )
 }
@@ -234,6 +235,10 @@ function buildWarehouseAvailability(
 ): Map<string, WarehouseAvailability[]> {
   const byVariant = new Map<string, Map<string, number>>()
   for (const balance of balances) {
+    // Staging/dock are inbound holding locations — availability for sales
+    // reservation must ignore them so ASN receive re-eval does not claim
+    // stock that putaway still needs to move into storage.
+    if (!isBalanceLocationReservable(balance)) continue
     const warehouseId = getWarehouseId(balance)
     if (!warehouseId) continue
     const available =
