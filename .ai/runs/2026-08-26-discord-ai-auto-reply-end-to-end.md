@@ -117,13 +117,13 @@ The two defects that are contained to one function each, and that nothing else i
 
 ### Phase 2: Send path
 
-- [ ] 2.1 Declare sourceChannelType on the AI auto-reply compose (#5601)
-- [ ] 2.2 Declare sourceChannelType on the proposal-approve compose (#5601)
+- [x] 2.1 Declare sourceChannelType on the AI auto-reply compose (#5601) — 5c6a06b92
+- [x] 2.2 Declare sourceChannelType on the proposal-approve compose (#5601) — 5c6a06b92
 
 ### Phase 3: Panel listing route
 
-- [ ] 3.1 Add channelOwnerScopeWhere to the hub access-control helpers (#5602)
-- [ ] 3.2 Replace the panel route's userId: null filter with the owner-scope clause (#5602)
+- [x] 3.1 Add channelOwnerScopeWhere to the hub access-control helpers (#5602) — 6cd2338a9
+- [x] 3.2 Replace the panel route's userId: null filter with the owner-scope clause (#5602) — 6cd2338a9
 
 ### Phase 4: Integration coverage
 
