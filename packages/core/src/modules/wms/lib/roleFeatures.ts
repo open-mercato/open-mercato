@@ -20,6 +20,8 @@ export const WMS_MANAGE_FEATURES = [
   'wms.manage_locations',
   'wms.manage_inventory',
   'wms.manage_reservations',
+  'wms.manage_asn',
+  'wms.manage_putaway',
 ] as const
 
 export const WMS_SUPERVISOR_FEATURES = [

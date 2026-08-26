@@ -82,6 +82,8 @@ describe('wms setup role mappings', () => {
       'wms.manage_reservations',
       'wms.adjust_inventory',
       'wms.receive_inventory',
+      'wms.manage_asn',
+      'wms.manage_putaway',
       'wms.cycle_count',
       'wms.import',
     ])

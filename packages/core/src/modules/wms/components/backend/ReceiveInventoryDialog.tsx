@@ -424,12 +424,12 @@ export function ReceiveInventoryDialog({
         <div className="border-b px-6 py-4 pr-12">
           <DialogHeader className="space-y-1 text-left">
             <DialogTitle>
-              {t('wms.backend.inventory.receive.dialog.title', 'Receive inventory')}
+              {t('wms.backend.inventory.receive.dialog.title', 'Receive inventory (no ASN)')}
             </DialogTitle>
             <DialogDescription>
               {t(
                 'wms.backend.inventory.receive.dialog.description',
-                'Record inbound stock as a receipt movement',
+                'Ad-hoc inbound receipt without an ASN. Use ASN receiving for expected shipments.',
               )}
             </DialogDescription>
           </DialogHeader>

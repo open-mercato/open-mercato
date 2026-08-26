@@ -7,10 +7,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -54,40 +51,44 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
       request: options.request,
     }
     const body = await readJsonSafe<Record<string, unknown>>(options.request, {})
-    const parsed = options.inputSchema.parse(body)
-    const resource = options.describeResource(parsed)
-    const guardResult = await validateCrudMutationGuard(container, {
-      tenantId: auth.tenantId,
-      organizationId: ctx.selectedOrganizationId,
-      userId: auth.sub,
-      resourceKind: resource.resourceKind,
-      resourceId: resource.resourceId,
-      operation: 'custom',
-      requestMethod: options.request.method,
-      requestHeaders: options.request.headers,
-      mutationPayload: parsed as Record<string, unknown>,
-    })
-    if (guardResult && !guardResult.ok) {
-      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    const organizationId = ctx.selectedOrganizationId ?? auth.orgId ?? null
+    if (!organizationId) {
+      throw new CrudHttpError(400, { error: 'organization_scope_required' })
     }
-    const commandBus = container.resolve('commandBus') as CommandBus
-    const execution = await commandBus.execute<TInput, TResult>(options.commandId, {
-      input: parsed,
-      ctx,
-    })
-    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-      await runCrudMutationGuardAfterSuccess(container, {
+    // Scope tenant/org from auth/session — never trust body organizationId/tenantId
+    // (same contract as scan/receive and resolve-location/lot).
+    const scopedBody = {
+      ...body,
+      tenantId: auth.tenantId,
+      organizationId,
+    }
+    const parsed = options.inputSchema.parse(scopedBody)
+    const resource = options.describeResource(parsed)
+    const guardResult = await runRouteMutationGuards({
+      container,
+      req: options.request,
+      auth: {
+        userId: auth.sub,
         tenantId: auth.tenantId,
         organizationId: ctx.selectedOrganizationId,
-        userId: auth.sub,
+      },
+      input: {
         resourceKind: resource.resourceKind,
         resourceId: resource.resourceId,
         operation: 'custom',
-        requestMethod: options.request.method,
-        requestHeaders: options.request.headers,
-        metadata: guardResult.metadata ?? null,
-      })
+        mutationPayload: parsed as Record<string, unknown>,
+      },
+    })
+    if (!guardResult.ok) {
+      return NextResponse.json(guardResult.errorBody, { status: guardResult.errorStatus })
     }
+    const commandInput = (guardResult.modifiedPayload as TInput | undefined) ?? parsed
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const execution = await commandBus.execute<TInput, TResult>(options.commandId, {
+      input: commandInput,
+      ctx,
+    })
+    await guardResult.runAfterSuccess()
     const responseBody = options.mapSuccess(execution.result)
     const intercepted = await runCustomRouteAfterInterceptors({
       routePath: options.routePath,
@@ -95,7 +96,7 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
       request: {
         method: 'POST',
         url: options.request.url,
-        body: parsed as Record<string, unknown>,
+        body: commandInput as Record<string, unknown>,
         headers: Object.fromEntries(options.request.headers.entries()),
       },
       response: {
