@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/integrations/extension-points'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -133,7 +133,7 @@ type LogEntry = {
 
 type IntegrationDetailPageProps = {
   params?: {
-    id?: string | string[]
+    id?: string
   }
 }
 
@@ -283,18 +283,6 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   webhook: Webhook,
 }
 
-function resolveRouteId(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) return value[0]
-  return value
-}
-
-function resolvePathnameId(pathname: string): string | undefined {
-  const parts = pathname.split('/').filter(Boolean)
-  const integrationId = parts.at(-1)
-  if (!integrationId || integrationId === 'integrations' || integrationId === 'bundle') return undefined
-  return decodeURIComponent(integrationId)
-}
-
 function buildCredentialFields(
   credFields: CredentialField[],
   secretFieldsConfigured: SecretFieldsConfigured,
@@ -433,10 +421,9 @@ function splitLogPayload(payload: Record<string, unknown> | null | undefined) {
 }
 
 export default function IntegrationDetailPage({ params }: IntegrationDetailPageProps) {
-  const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const integrationId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
+  const integrationId = params?.id
   const t = useT()
 
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)
@@ -464,17 +451,9 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
   const credentialsFormId = React.useId()
 
-  const resolveCurrentIntegrationId = React.useCallback(() => {
-    return integrationId ?? (
-      typeof window !== 'undefined'
-        ? resolvePathnameId(window.location.pathname)
-        : undefined
-    )
-  }, [integrationId])
-
   const loadDetail = React.useCallback(async (options?: { showLoading?: boolean }) => {
     const showLoading = options?.showLoading ?? true
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     if (!currentIntegrationId) {
       if (showLoading) setIsLoading(false)
       if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
@@ -505,10 +484,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
       if (showLoading) setIsLoading(false)
     }
-  }, [resolveCurrentIntegrationId, t])
+  }, [integrationId, t])
 
   const loadCredentials = React.useCallback(async () => {
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     if (!currentIntegrationId) return
     const call = await apiCall<{
       credentials: Record<string, unknown>
@@ -535,10 +514,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setCredValues(next)
       setCredentialsFormKey((current) => current + 1)
     }
-  }, [resolveCurrentIntegrationId])
+  }, [integrationId])
 
   const loadLogs = React.useCallback(async () => {
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     if (!currentIntegrationId) return
     setIsLoadingLogs(true)
     const params = new URLSearchParams({ integrationId: currentIntegrationId, pageSize: '50' })
@@ -552,7 +531,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setLogs(call.result.items)
     }
     setIsLoadingLogs(false)
-  }, [logLevel, resolveCurrentIntegrationId])
+  }, [logLevel, integrationId])
 
   const detailWidgetSpotId = React.useMemo(
     () => resolveIntegrationDetailWidgetSpotId(detail?.integration ?? null, extensionPoints.hosts.legacyDetailTabs.spotId),
@@ -696,7 +675,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   React.useEffect(() => { void loadLogs() }, [loadLogs])
 
   const handleToggleState = React.useCallback(async (enabled: boolean) => {
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     if (!currentIntegrationId) return
     setIsTogglingState(true)
     try {
@@ -731,10 +710,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsTogglingState(false)
     }
-  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, integrationId, runMutationWithContext, t])
 
   const handleSaveCredentials = React.useCallback(async (values: Record<string, unknown>) => {
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     if (!currentIntegrationId) return
     setIsSavingCredentials(true)
     try {
@@ -781,10 +760,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsSavingCredentials(false)
     }
-  }, [credentialsUpdatedAt, detail, loadCredentials, resolveCurrentIntegrationId, runMutationWithContext, secretFieldsConfigured, t])
+  }, [credentialsUpdatedAt, detail, loadCredentials, integrationId, runMutationWithContext, secretFieldsConfigured, t])
 
   const handleVersionChange = React.useCallback(async (version: string) => {
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     if (!currentIntegrationId) return
     try {
       const call = await runMutationWithContext({
@@ -810,10 +789,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } catch {
       flash(t('integrations.detail.version.saveError'), 'error')
     }
-  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, integrationId, runMutationWithContext, t])
 
   const handleHealthCheck = React.useCallback(async () => {
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     if (!currentIntegrationId) return
     setIsCheckingHealth(true)
     try {
@@ -849,7 +828,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsCheckingHealth(false)
     }
-  }, [refreshLogs, resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [refreshLogs, integrationId, runMutationWithContext, t])
 
   const hasVersions = Boolean(detail?.integration.apiVersions?.length)
   const integration = detail?.integration ?? null
@@ -1039,7 +1018,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   }, [searchParams, visibleTabIds])
 
   const handleTabChange = React.useCallback((nextValue: string) => {
-    const currentIntegrationId = resolveCurrentIntegrationId()
+    const currentIntegrationId = integrationId
     const nextTab = resolveRequestedIntegrationDetailTab(nextValue, visibleTabIds)
     setActiveTab(nextTab)
     if (!currentIntegrationId) return
@@ -1049,7 +1028,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     else params.set('tab', nextTab)
     const query = params.toString()
     router.replace(query ? `${basePath}?${query}` : basePath)
-  }, [resolveCurrentIntegrationId, router, searchParams, visibleTabIds])
+  }, [integrationId, router, searchParams, visibleTabIds])
 
   React.useEffect(() => {
     if (!runIdFromUrl) {
