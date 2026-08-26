@@ -136,37 +136,24 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       await expect(confirmAgain).toBeVisible({ timeout: 15_000 })
       // Capture the DELETE outcome directly: on failure this reports the
       // status and body instead of a mute missing-flash timeout.
-      const confirmDeleteAndCapture = async (dialog = confirmAgain) => {
+      const confirmDeleteAndCapture = async () => {
         const responsePromise = page.waitForResponse(
           (response) =>
             response.request().method() === 'DELETE'
             && response.url().includes('/api/customers/interactions'),
           { timeout: 15_000 },
         )
-        await dialog.getByRole('button', { name: /Delete activity/i }).click()
+        await confirmAgain.getByRole('button', { name: /Delete activity/i }).click()
         const response = await responsePromise
         const body = await response.text().catch(() => '')
         return { response, body }
       }
 
-      let deleteOutcome = await confirmDeleteAndCapture()
-
-      // Enterprise environments run the record_locks module, whose action-log
-      // chain can flag the first UI mutation of a row created out-of-band as an
-      // overridable conflict. The product path is the conflict banner's
-      // Refresh → redo; follow it once, then hold the hard assertion.
-      if (deleteOutcome.response.status() === 409 && deleteOutcome.body.includes('record_lock_conflict')) {
-        const banner = page.getByText('Record changed').first()
-        await expect(banner).toBeVisible({ timeout: 15_000 })
-        await Promise.all([
-          page.waitForLoadState('domcontentloaded'),
-          page.getByRole('button', { name: 'Refresh' }).click(),
-        ])
-        await page.getByRole('tab', { name: /Activity log/i }).click()
-        await page.waitForLoadState('networkidle')
-        await openDeleteFromMenu()
-        deleteOutcome = await confirmDeleteAndCapture(page.getByRole('alertdialog'))
-      }
+      // Enterprise environments run the record_locks module: the page-level
+      // company lock widget attaches its scoped headers to every mutation on
+      // the page, and the guard must ignore headers scoped to a different
+      // resource — so this DELETE succeeds outright, no conflict recovery.
+      const deleteOutcome = await confirmDeleteAndCapture()
 
       expect(
         deleteOutcome.response.status(),
