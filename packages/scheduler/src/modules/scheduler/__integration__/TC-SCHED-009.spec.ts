@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { ACTIONS_PATH as AUDIT_ACTIONS_PATH } from '@open-mercato/core/modules/audit_logs/__integration__/helpers/auditLogsApi'
 import {
   SCHEDULER_TRIGGER_PATH,
   createScheduleJob,
@@ -8,7 +9,6 @@ import {
   uniqueScheduleName,
 } from './helpers/scheduler'
 
-const AUDIT_ACTIONS_PATH = '/api/audit-logs/actions'
 const TRIGGER_COMMAND_ID = 'scheduler.jobs.trigger'
 
 type ActionLogItem = {
