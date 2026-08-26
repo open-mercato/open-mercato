@@ -32,6 +32,21 @@ describe('buildQueryParams', () => {
     })
   })
 
+  // A plain `out[key] = value` assignment runs the `__proto__` setter, which
+  // would swap the returned object's prototype for the array and drop the key.
+  // `Object.fromEntries` defines own data properties, matching what the parse
+  // site did before this change.
+  it('carries a __proto__ key as an own property instead of touching the prototype', () => {
+    const repeated = buildQueryParams(new URLSearchParams('__proto__=a&__proto__=b'))
+    expect(Object.getPrototypeOf(repeated)).toBe(Object.prototype)
+    expect(Object.prototype.hasOwnProperty.call(repeated, '__proto__')).toBe(true)
+    expect(Object.getOwnPropertyDescriptor(repeated, '__proto__')?.value).toEqual(['a', 'b'])
+
+    const single = buildQueryParams(new URLSearchParams('__proto__=a'))
+    expect(Object.getPrototypeOf(single)).toBe(Object.prototype)
+    expect(Object.getOwnPropertyDescriptor(single, '__proto__')?.value).toBe('a')
+  })
+
   it('rejects the Object.fromEntries shape this replaced', () => {
     // Regression guard: reverting the parse site to
     // `Object.fromEntries(url.searchParams.entries())` makes this fail.

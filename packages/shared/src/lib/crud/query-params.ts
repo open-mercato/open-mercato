@@ -25,6 +25,11 @@ export type QueryParamValue = string | string[]
  * comma semantics that belong to the individual route, not to the generic
  * parser. Use `readQueryParamList` / `toQueryValueList` where a field's contract
  * says a comma separates values.
+ *
+ * The result is assembled with `Object.fromEntries`, which defines own data
+ * properties. Assigning into an object literal instead would run the
+ * `__proto__` setter, so `?__proto__=a&__proto__=b` would replace the returned
+ * object's prototype and drop the key rather than carrying it to the schema.
  */
 export function buildQueryParams(searchParams: URLSearchParams): Record<string, QueryParamValue> {
   const grouped = new Map<string, string[]>()
@@ -33,11 +38,12 @@ export function buildQueryParams(searchParams: URLSearchParams): Record<string, 
     if (existing) existing.push(value)
     else grouped.set(key, [value])
   })
-  const out: Record<string, QueryParamValue> = {}
-  for (const [key, values] of grouped) {
-    out[key] = values.length === 1 ? values[0] : values
-  }
-  return out
+  return Object.fromEntries(
+    Array.from(grouped, ([key, values]): [string, QueryParamValue] => [
+      key,
+      values.length === 1 ? values[0] : values,
+    ]),
+  )
 }
 
 /**
