@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Project, ScriptKind, SyntaxKind, type ObjectLiteralExpression, type SourceFile } from 'ts-morph'
@@ -226,6 +226,14 @@ describe('lucideRegistry.generated importers', () => {
   })
 })
 
+type MonorepoProbe = { available: true } | { available: false; reason: string }
+
+function detectMonorepoCheckout(repoRoot: string): MonorepoProbe {
+  const generatorPath = join(repoRoot, 'packages', 'ui', 'build.mjs')
+  if (!existsSync(generatorPath)) return { available: false, reason: `${generatorPath} is missing` }
+  return { available: true }
+}
+
 // The registry is build output, so a module can reference an icon string and merge
 // while the committed file still lacks it — the icon then silently renders as nothing.
 // Running the real discovery pass here turns that drift into a failing test.
@@ -233,20 +241,34 @@ describe('committed lucideRegistry.generated.tsx', () => {
   const repoRoot = join(packageDir, '..', '..')
   const committedSource = readFileSync(join(iconsDir, 'lucideRegistry.generated.tsx'), 'utf-8')
   const regenerationHint = 'run `yarn build:packages` and commit the regenerated file'
+  // The scan reads the repo, so — like the `git grep` guard above — it can only run
+  // inside the monorepo. Published tarballs ship these tests without the sources they
+  // scan, where an empty scan would fail an invariant it cannot evaluate rather than
+  // report real drift. There, this degrades to a skip that states why.
+  const checkout = detectMonorepoCheckout(repoRoot)
+  const itInsideMonorepo = checkout.available ? it : it.skip
+  const skipReason = checkout.available ? '' : ` — skipped: ${checkout.reason}`
   let discoveredIcons: ResolvedIcon[] = []
 
   beforeAll(async () => {
+    if (!checkout.available) return
     discoveredIcons = await discoverResolvedIcons(repoRoot)
   })
 
-  it(`registers every icon string used across the repo — ${regenerationHint}`, () => {
+  itInsideMonorepo(`registers every icon string used across the repo — ${regenerationHint}${skipReason}`, () => {
     const registered = new Set(Object.keys(registryEntries(committedSource)))
     const missing = discoveredIcons.map((icon) => icon.kebab).filter((kebab) => !registered.has(kebab))
     expect(missing).toEqual([])
   })
 
-  it(`is byte-identical to a fresh generator run — ${regenerationHint}`, () => {
+  itInsideMonorepo(`is byte-identical to a fresh generator run — ${regenerationHint}${skipReason}`, () => {
     expect(committedSource).toBe(buildLucideRegistrySource(discoveredIcons))
+  })
+
+  it('states a reason instead of asserting when the monorepo sources are absent', () => {
+    const probe = detectMonorepoCheckout(join(tmpdir(), 'lucide-registry-absent-monorepo'))
+    expect(probe.available).toBe(false)
+    expect(probe.available ? '' : probe.reason).toContain('build.mjs')
   })
 })
 
