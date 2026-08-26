@@ -245,8 +245,13 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
       await login(page, 'superadmin')
 
       const listArms = [
-        { label: 'people', path: '/backend/customers/people', title: personName },
-        { label: 'companies', path: '/backend/customers/companies', title: companyName },
+        { label: 'people', path: '/backend/customers/people', endpoint: '/api/customers/people', title: personName },
+        {
+          label: 'companies',
+          path: '/backend/customers/companies',
+          endpoint: '/api/customers/companies',
+          title: companyName,
+        },
       ] as const
 
       for (const arm of listArms) {
@@ -255,7 +260,25 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
 
         const searchBox = page.getByPlaceholder(LIST_SEARCH_PLACEHOLDER)
         await expect(searchBox).toBeVisible()
+
+        // Wait for the FILTERED response specifically. Asserting only that the row is
+        // visible after typing would be a false guard: a freshly created customer can
+        // already sit on the unfiltered first page, so the assertion would pass even if
+        // list search resolved no ids at all — the exact regression this arm exists to
+        // catch. Keying the wait on `search=<token>` proves the query really ran.
+        const filteredResponse = page.waitForResponse(
+          (response) => {
+            const url = new URL(response.url())
+            return (
+              url.pathname === arm.endpoint &&
+              url.searchParams.get('search') === arm.title &&
+              response.status() === 200
+            )
+          },
+          { timeout: 30_000 },
+        )
         await searchBox.fill(arm.title)
+        await filteredResponse
 
         await expect(
           page.getByText(arm.title, { exact: true }).first(),
