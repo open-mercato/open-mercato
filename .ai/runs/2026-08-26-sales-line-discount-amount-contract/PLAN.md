@@ -38,6 +38,8 @@
 | 6 | 6.1 | Integration spec — line-discount idempotency across the API | inline | done | 85ea256e4 |
 | 7 | 7.1 | File the D5 operator-CLI follow-up issue and link it | inline | done | #5641, linked in spec at 91a2e4d13 |
 | 7 | 7.2 | File the adjacent `totalNetAmount` follow-up issue | inline | done | #5644 |
+| 7 | 7.3-review-fix | Move `cloneJson` into `lib/` so `lib/` stops importing `commands/` | inline | done | — |
+| 7 | 7.4-review-fix | Cover the line-delete rebuild against discount re-inflation | inline | done | — |
 
 ## Goal
 

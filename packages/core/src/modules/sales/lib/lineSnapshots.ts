@@ -1,5 +1,5 @@
 import type { SalesOrderLine, SalesQuoteLine } from '../data/entities'
-import { cloneJson } from '../commands/shared'
+import { cloneJson } from './json'
 import type { SalesLineDiscountBasis, SalesLineSnapshot } from './types'
 
 function toNumeric(value: unknown): number {

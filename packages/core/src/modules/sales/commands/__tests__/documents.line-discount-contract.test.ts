@@ -191,6 +191,25 @@ async function runUpsert(body: Record<string, unknown>) {
   return byId
 }
 
+/**
+ * Deleting a line rebuilds and recalculates every *remaining* line through the
+ * same `createLineSnapshotFromInput` path the upsert uses, so it carries the
+ * identical origin-preservation requirement — and no caller-supplied discount
+ * is in play at all, which makes it purely a test of the rebuild.
+ */
+async function runLineDelete(lineId: string) {
+  const handler = commandRegistry.get('sales.orders.lines.delete')!
+  const em = makeEm()
+  await handler.execute(
+    { body: { id: lineId, orderId: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID } } as never,
+    makeCtx(em) as never,
+  )
+  const world = (globalThis as any).__discountWorld
+  const byId = new Map<string, PersistedLine>()
+  for (const line of world.lines) byId.set(line.id, line)
+  return byId
+}
+
 function num(value: unknown): number {
   return Number(value ?? 0)
 }
@@ -424,5 +443,37 @@ describe('sales.orders.lines.upsert — line discount contract (#3757)', () => {
     const edited = lines.get(EDITED_LINE_ID)!
     expect(num(edited.discountAmount)).toBeCloseTo(12.75, 4)
     expect(num(edited.totalNetAmount)).toBeCloseTo(242.25, 4)
+  })
+  it('does not re-inflate the remaining lines when another line is deleted', async () => {
+    // Deleting a line recalculates the whole document. The surviving
+    // amount-only discounted line must come through the rebuild unchanged.
+    setWorld([
+      buildLine({
+        id: EDITED_LINE_ID,
+        lineNumber: 1,
+        quantity: '1',
+        unitPriceNet: '10',
+        unitPriceGross: '10',
+        totalNetAmount: '10',
+        totalGrossAmount: '10',
+      } as Partial<PersistedLine> & { id: string }),
+      buildLine({
+        id: UNTOUCHED_LINE_ID,
+        lineNumber: 2,
+        quantity: '4',
+        unitPriceNet: '25',
+        unitPriceGross: '25',
+        discountAmount: '10',
+        discountPercent: '0',
+        totalNetAmount: '90',
+        totalGrossAmount: '90',
+      } as Partial<PersistedLine> & { id: string }),
+    ])
+
+    const lines = await runLineDelete(EDITED_LINE_ID)
+
+    const survivor = lines.get(UNTOUCHED_LINE_ID)!
+    expect(num(survivor.discountAmount)).toBeCloseTo(10, 4)
+    expect(num(survivor.totalNetAmount)).toBeCloseTo(90, 4)
   })
 })
