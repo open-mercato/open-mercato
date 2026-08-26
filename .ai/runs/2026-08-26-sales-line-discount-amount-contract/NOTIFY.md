@@ -24,3 +24,13 @@
 
 ## 2026-08-26T06:05:00Z — note: the Commit column is backfilled one step late
 - `git commit --amend` rewrites the SHA, so a step cannot record its own final SHA inside its own commit. Each step therefore lands with `Status: done` and its SHA filled in by the next commit; a closing plan-sync backfills the last one. `Status` is what `om-auto-continue-pr-loop` resumes from, so resumability is unaffected.
+
+## 2026-08-26T06:10:00Z — checkpoint 1 (Steps 0.1–3.4)
+- Typecheck clean on `@open-mercato/core`; 97 sales suites / 722 tests pass. The 15 new engine tests were negative-controlled against the unfixed engine and 10 of them fail there, so they lock in real behaviour.
+- The checkpoint fired late (at Step 3.4 rather than 1.1) because the worktree needed `yarn install`, `yarn build:packages` and `yarn generate` — in that order — before any validation command could give a trustworthy answer.
+
+## 2026-08-26T06:10:00Z — blocker resolved: the generate/build ordering
+- `yarn generate` failed with "CLI not built" until `yarn build:packages` had run, which is exactly why the configured gate lists the build first. An earlier invocation was misreported as passing because the exit code captured belonged to a trailing `echo` rather than to yarn; every command since has had its real status captured.
+
+## 2026-08-26T06:10:00Z — decision: the shared mapper keeps the stricter numeric coercion
+- The two duplicated mappers differed in one respect: `returns.ts` guarded numeric inputs with `Number.isFinite`, `documents.ts` did not. The extracted mapper keeps the guarded version, so this is not a pure move — a `NaN` on the documents path now coerces to `0` rather than propagating. Unreachable from `numeric` columns in practice, and the safer direction, but it is a behaviour change and is flagged for review rather than buried.

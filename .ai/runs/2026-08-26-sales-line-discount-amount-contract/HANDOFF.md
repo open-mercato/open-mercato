@@ -1,26 +1,28 @@
 # Handoff — 2026-08-26-sales-line-discount-amount-contract
 
-**Last updated:** 2026-08-26T05:52:00Z
+**Last updated:** 2026-08-26T06:10:00Z
 **Branch:** `fix/sales-line-discount-amount-contract`
-**PR:** not yet opened
-**Current phase/step:** Phase 0 Step 0.1
-**Last commit:** — (run folder commit pending)
+**PR:** https://github.com/open-mercato/open-mercato/pull/5640
+**Current phase/step:** Phase 4 Step 4.1 (next to start)
+**Last commit:** `c12d509ed` — fix(sales): apply the per-operand discount split at both line upsert sites
 
 ## What just happened
-- The maintainer (@wojciechszyjka) approved the two gated decisions in `.ai/specs/2026-08-07-sales-line-discount-amount-contract.md` on 2026-08-26, unblocking an implementation that had been gated since 2026-08-07. Three further calls (D3, D4, D5) plus the mapper de-duplication (D6) were resolved as part of the same approval and are recorded in `PLAN.md`.
-- The run folder was planned against the live code on `develop@97319f09f` rather than against the spec's pinned line numbers, which the spec itself flags as drifting. Both upsert coalescing sites were re-located at `commands/documents.ts:7270` (orders) and `:7764` (quotes), and the three entity→snapshot mappers at `documents.ts:2972`, `:3003` and `returns.ts:137`.
+- Checkpoint 1 passed: `@open-mercato/core` typechecks clean and all 97 sales suites (722 tests) pass, including the 15 new engine tests. Details in `checkpoint-1-checks.md`.
+- 15 of 24 Steps are done — Phases 0 through 3. The contract itself is implemented end to end: the engine reads percentage-first and never re-multiplies a stored line total, one shared mapper tags every rebuilt snapshot, and both upsert sites decide the discount's origin per operand.
+- The new tests were negative-controlled against the unfixed engine: 10 of 15 fail there, so they lock in real behaviour rather than passing vacuously.
 
 ## Next concrete action
-- Start Step 0.1: flip the spec header from `Status: draft — design decision requested` to `Status: approved — implementation in progress`.
+- Start Step 4.1: command-level tests for the order and quote upsert paths, asserting a percentage-only line at `quantity > 1` keeps both its stored `discount_amount` and its `total_net_amount` across create → upsert.
 
 ## Blockers / open questions
-- None. The spec's own gate ("no implementation lands until § Proposed Solution 1 and 2 are approved") is satisfied by the Decision Record that Phase 0 writes.
+- None blocking. One decision is still owed inside Step 5.1: whether `SalesOrderDraftLines.tsx`'s `* quantity` is correct under the shipped contract. Under D1 plus the `'unit'` default it looks correct as written, but the reasoning has to be recorded in the PR body rather than left implicit.
 
 ## Environment caveats
-- Dev runtime runnable: unknown — not yet exercised this run.
-- Browser / UI checks: expected to be minimal. The only UI file in scope is `SalesOrderDraftLines.tsx`, and the line in question is unreachable today, so there may be no rendered behaviour to capture.
-- Database/migration state: clean. This change deliberately adds no migration and does not run `yarn db:generate`.
+- Dev runtime runnable: not yet attempted. Bootstrap is complete (`yarn install`, `yarn build:packages`, `yarn generate` all green in that order), so the integration spec in Phase 6 has a working tree to build on.
+- Browser / UI checks: expected to be minimal-to-none. The one UI file in scope holds an expression that is unreachable today, so there may be no rendered behaviour to capture.
+- Database/migration state: clean, and deliberately so — no migration, no snapshot change, `yarn db:generate` not run.
+- Watch out: a compound `yarn X > log 2>&1; echo $?` reports the exit code of `echo`, not of yarn. One `yarn generate` failure was briefly misread that way; capture real exit codes.
 
 ## Worktree
 - Path: `/home/wojtek/cezar/projects/open-mercato/.ai/cezar/worktrees/fd78b62c-e960-4fbd-acb3-e655785e3269`
-- Created this run: no — an existing linked worktree was reused, per the skill's worktree rule. It was switched from `cez/fd78b62c` to the task branch; dependencies were installed here from scratch because the worktree had no `node_modules`.
+- Created this run: no — an existing linked worktree was reused and switched from `cez/fd78b62c` to the task branch. Dependencies were installed here from scratch; nothing was symlinked in.
