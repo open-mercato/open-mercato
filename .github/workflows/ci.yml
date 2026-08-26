@@ -677,6 +677,17 @@ jobs:
         # running `yarn ds:tokens` fails here instead of drifting silently.
         run: yarn ds:tokens:check
 
+      - name: Check lucide icon registry drift (always, unfiltered)
+        # packages/ui/src/backend/icons/lucideRegistry.generated.tsx is emitted
+        # from a repo-WIDE scan for `icon: '<name>'` strings, so the PR that
+        # drifts it usually touches another package entirely. turbo's
+        # --filter=[base]... selects a changed package and its DEPENDENTS, and
+        # packages/ui is a dependency of those packages rather than a dependent,
+        # so any guard living in ui's own suite is skipped on exactly the PRs
+        # that break it — which is how #4391 added `icon: 'bot'` and left the
+        # registry stale until #5651. Same reasoning as the DS token check above.
+        run: yarn ui:icons:check
+
       - name: Check create-app template parity (always, unfiltered)
         # The create-app package guards byte-parity between the monorepo app shell
         # (apps/mercato/**) and the standalone template (packages/create-app/template/**).

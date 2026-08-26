@@ -94,6 +94,7 @@
     "check:resolutions": "node scripts/check-resolutions.mjs",
     "ds:tokens": "node scripts/ds-tokens-export.mjs --write",
     "ds:tokens:check": "node scripts/ds-tokens-export.mjs --check",
+    "ui:icons:check": "node packages/ui/build.mjs --check",
     "ds:tokens:figma": "node scripts/ds-tokens-export.mjs --figma-ops",
     "ds:code-connect:check": "yarn workspace @open-mercato/ui figma connect parse",
     "ds:code-connect:publish": "yarn workspace @open-mercato/ui figma connect publish",
