@@ -24,6 +24,23 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### The shipped-line freeze is now a setting, still on by default (#5572)
+
+Editing an order line that already has shipment items — its unit price, discount, tax rate, unit, derived totals, or a quantity below what shipped — has been refused with a `409` since the fix for #3993. That refusal is now conditional on a new per-scope sales setting, `orderShippedLineEditable`.
+
+**Nothing changes on upgrade.** The new `sales_settings.order_shipped_line_editable` column is `not null default false`, and a scope with no `sales_settings` row resolves to the same answer, so `sales.orders.lines.upsert` and the order-graph restore keep refusing exactly what they refused before, with the same messages. The line dialog keeps its pricing lock and its quantity floor. Migration `Migration20260826120000_sales_settings_shipped_line_editable` adds the column; there is no backfill.
+
+**Turning it on** (Sales → order editing settings, or `PUT /api/sales/settings/order-editing` with `{ "orderShippedLineEditable": true }`) lets those corrections through, in the API *and* in the admin — the dialog reads the same setting, so an operator can send what the server now accepts. This is for deployments that mirror an external system of record and have to record what that system does to an order after dispatch: a re-rated VAT line, a price fixed by accounting days later, a quantity restated after a return.
+
+Two boundaries do **not** move with the setting:
+
+- **Over-shipment still cannot be created.** `sales.shipments.create` rejects shipping more than the remaining quantity, which is the invariant #3993 asked for and predates its fix.
+- **A line with shipment items still cannot be deleted.** That guard fronts the `sales_shipment_items.order_line_id` foreign key, so no setting can make the delete succeed — only turn an explained `409` into a raw database error.
+
+Turning it on does re-admit the display #3993 reported (`Shipped: 4 of 2`) when the source system lowers a quantity below what shipped. That is deliberate: for a mirrored order it is a true statement about what happened, and refusing the write never removed the discrepancy, only the record of it.
+
+**Action for API consumers:** none, unless you want the new behaviour. A client that relies on the `409` keeps getting it. Note that the default is expected to flip in a future major — the argument for `true` being the more reasonable platform default is on #5572 — so a deployment that wants the freeze as policy should set `orderShippedLineEditable` to `false` explicitly rather than rely on the default staying put.
+
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 
 `interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.
