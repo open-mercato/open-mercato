@@ -36,9 +36,12 @@ export default function DeviceAdminCreatePage() {
       description: t('devices.form.userIdHint'),
       placeholder: t('devices.form.userIdPlaceholder'),
       loadOptions: loadDeviceUserOptions,
-      // The owner must be picked from the directory: a free-typed value is reverted on blur rather
-      // than submitted. `devices.admin` declares `dependsOn: ['auth.users.list']` in `acl.ts`, so a
-      // role that can reach this form can also search the directory that fills the picker.
+      // The owner must resolve to a real directory entry: `ComboboxInput` reverts anything that is
+      // not a known option on blur, so free text and an id belonging to nobody never reach submit.
+      // (A raw id that IS a known option still resolves — `findOptionForInput` matches on value, and
+      // `CrudForm` keeps the unfiltered first page as suggestions — which is a real user either way.)
+      // `devices.admin` declares `dependsOn: ['auth.users.list']` in `acl.ts`, so a role that can
+      // reach this form can also search the directory that fills the picker.
       allowCustomValues: false,
     },
     { id: 'deviceId', label: t('devices.form.deviceId'), type: 'text', required: true },

@@ -101,9 +101,15 @@ write busts both caches (see cache-tag note above).
 `yarn mercato auth sync-role-acls` after changing `acl.ts`/`setup.ts` to backfill existing tenants.
 
 `devices.admin` declares `dependsOn: ['auth.users.list']`: the admin screens name owners by person,
-and the register form's owner picker rejects free-typed values, so a role holding `devices.admin`
-without the dependency cannot complete that form. `dependsOn` only surfaces the gap in the ACL
-editor — it does not grant. Run the sync command above after deploying an ACL change here.
+and the register form's owner picker rejects values that do not resolve to a directory entry, so a
+role holding `devices.admin` without the dependency cannot complete that form. `dependsOn` only
+surfaces the gap in the ACL editor — it does not grant. Run the sync command above after deploying
+an ACL change here.
+
+The picker is `allowCustomValues: false`. That rejects free text and an id belonging to nobody; it
+does **not** reject a raw id that is already a known option, because `ComboboxInput` matches on
+`option.value` and `CrudForm` keeps the unfiltered first page as suggestions for the form's
+lifetime. Either way the submitted value is a real user in the caller's scope.
 
 ## Validation Commands
 
