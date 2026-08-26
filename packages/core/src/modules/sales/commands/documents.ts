@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 import { randomUUID } from "crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler } from "@open-mercato/shared/lib/commands";
@@ -9215,6 +9216,36 @@ const invoiceUpdateChangeKeys = [
   "metadata",
 ] as const;
 
+function toAuditISOString(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  return null;
+}
+
+function auditValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left instanceof Date || right instanceof Date) {
+    const leftIso = toAuditISOString(left);
+    const rightIso = toAuditISOString(right);
+    return leftIso !== null && rightIso !== null && leftIso === rightIso;
+  }
+  return isDeepStrictEqual(left, right);
+}
+
+function buildAuditChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, { from: unknown; to: unknown }> {
+  const changedKeys = keys.filter((key) => !auditValuesEqual(before[key], after[key]));
+  return buildChanges(before, after, changedKeys);
+}
+
 function selectInvoiceUpdateChangeKeys(
   input: z.infer<typeof invoiceUpdateSchema>,
 ): Array<(typeof invoiceUpdateChangeKeys)[number]> {
@@ -9324,7 +9355,7 @@ const updateInvoiceCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.invoice as unknown as Record<string, unknown>,
           after.invoice as unknown as Record<string, unknown>,
           selectInvoiceUpdateChangeKeys(input),
@@ -9868,7 +9899,7 @@ const updateCreditMemoCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.creditMemo as unknown as Record<string, unknown>,
           after.creditMemo as unknown as Record<string, unknown>,
           selectCreditMemoUpdateChangeKeys(input),

@@ -361,6 +361,43 @@ describe('invoice and credit memo header updates', () => {
     expect(metadata?.payload).toStrictEqual({ undo: { before, after } })
   })
 
+  it('sales.invoices.update omits equal-valued dates and metadata from audit changes', async () => {
+    const invoice = makeInvoice()
+    const { ctx } = makeHarness(invoice)
+    const handler = getInvoiceUpdateHandler()
+    const beforeMetadata = { source: 'stored', nested: { first: 1, second: 2 } }
+    const afterMetadata = { nested: { second: 2, first: 1 }, source: 'stored' }
+    const before = buildInvoiceSnapshot({
+      issueDate: new Date('2026-08-10T00:00:00.000Z'),
+      dueDate: new Date('2026-08-31T00:00:00.000Z'),
+      metadata: beforeMetadata,
+    })
+    const after = buildInvoiceSnapshot({
+      issueDate: new Date('2026-08-10T00:00:00.000Z'),
+      dueDate: new Date('2026-08-31T00:00:00.000Z'),
+      metadata: afterMetadata,
+    })
+
+    expect(after.invoice.issueDate).not.toBe(before.invoice.issueDate)
+    expect(after.invoice.dueDate).not.toBe(before.invoice.dueDate)
+    expect(after.invoice.metadata).not.toBe(before.invoice.metadata)
+
+    const metadata = await handler.buildLog?.({
+      input: {
+        id: INVOICE_ID,
+        issueDate: new Date('2026-08-10T00:00:00.000Z'),
+        dueDate: new Date('2026-08-31T00:00:00.000Z'),
+        metadata: { source: 'stored', nested: { first: 1, second: 2 } },
+      },
+      result: { invoiceId: INVOICE_ID },
+      ctx,
+      snapshots: { before, after },
+    })
+
+    expect(metadata?.changes).toBeNull()
+    expect(metadata?.payload).toStrictEqual({ undo: { before, after } })
+  })
+
   it('sales.credit_memos.update assigns scalar values, normalizes numbers, and preserves omitted fields', async () => {
     const creditMemo = makeCreditMemo()
     const originalIssueDate = creditMemo.issueDate
@@ -453,6 +490,39 @@ describe('invoice and credit memo header updates', () => {
       reason: { from: 'Before reason', to: 'After reason' },
       grandTotalGrossAmount: { from: '61.5', to: '75.25' },
     })
+    expect(metadata?.payload).toStrictEqual({ undo: { before, after } })
+  })
+
+  it('sales.credit_memos.update omits equal-valued dates and metadata from audit changes', async () => {
+    const creditMemo = makeCreditMemo()
+    const { ctx } = makeHarness(creditMemo)
+    const handler = getCreditMemoUpdateHandler()
+    const beforeMetadata = { source: 'stored', nested: { first: 1, second: 2 } }
+    const afterMetadata = { nested: { second: 2, first: 1 }, source: 'stored' }
+    const before = buildCreditMemoSnapshot({
+      issueDate: new Date('2026-08-10T00:00:00.000Z'),
+      metadata: beforeMetadata,
+    })
+    const after = buildCreditMemoSnapshot({
+      issueDate: new Date('2026-08-10T00:00:00.000Z'),
+      metadata: afterMetadata,
+    })
+
+    expect(after.creditMemo.issueDate).not.toBe(before.creditMemo.issueDate)
+    expect(after.creditMemo.metadata).not.toBe(before.creditMemo.metadata)
+
+    const metadata = await handler.buildLog?.({
+      input: {
+        id: CREDIT_MEMO_ID,
+        issueDate: new Date('2026-08-10T00:00:00.000Z'),
+        metadata: { source: 'stored', nested: { first: 1, second: 2 } },
+      },
+      result: { creditMemoId: CREDIT_MEMO_ID },
+      ctx,
+      snapshots: { before, after },
+    })
+
+    expect(metadata?.changes).toBeNull()
     expect(metadata?.payload).toStrictEqual({ undo: { before, after } })
   })
 })

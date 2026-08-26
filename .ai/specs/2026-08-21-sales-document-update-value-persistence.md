@@ -29,7 +29,7 @@ Apply only the update schemas' supported header fields when they are present, no
 3. `PUT /api/sales/credit-memos` returns 200 for a valid scoped update and preserves the existing `{ creditMemoId }` response.
 4. A subsequent credit-memo GET returns the updated header values as scalars, never `{ from, to }` objects.
 5. Omitted update fields remain unchanged; organization, tenant, relation, line, custom-field, and lifecycle fields are not mass-assigned.
-6. Each update action log derives a `{ from, to }` diff from before/after snapshots, and the existing undo payload remains snapshot-based.
+6. Each update action log derives a `{ from, to }` diff from before/after snapshots, treats equal-valued dates and metadata as unchanged, and keeps the existing snapshot-based undo payload.
 7. Existing route metadata, Zod schemas, optimistic-lock behavior, tenant and organization checks, events, query indexing, cache invalidation, command IDs, and API paths remain unchanged.
 
 ### Design Decisions
@@ -40,6 +40,7 @@ Apply only the update schemas' supported header fields when they are present, no
 | Normalize numeric inputs with `toNumericString` | Keeps entity values consistent with create commands and numeric column typings. |
 | Resolve dictionary status before scalar mutation | Avoids a query between pending scalar mutations and `em.flush()`, preserving MikroORM unit-of-work safety. |
 | Compute audit changes in `buildLog` | The command bus already supplies authoritative before/after snapshots there, matching sibling document commands. |
+| Compare selected audit values semantically | Separate entity-manager forks produce distinct date and JSON object instances even when their persisted values are equal. |
 | Deliver invoice and credit-memo repairs together | Issue #3801 explicitly defines both instances of the same defect and both integration scenarios as one implementation unit. |
 
 ### Alternatives Considered
@@ -161,7 +162,7 @@ No breaking change. The fix restores the existing stable PUT routes and response
 ### Testing Strategy
 
 - Unit: execute both commands against managed entity doubles and assert scalar values, omitted-field preservation, numeric normalization, and absence of diff objects on entities.
-- Unit: invoke each `buildLog` with before/after snapshots and assert audit `{ from, to }` values and unchanged undo snapshots.
+- Unit: invoke each `buildLog` with before/after snapshots, assert audit `{ from, to }` values and unchanged undo snapshots, and prove distinct but equal-valued date and metadata objects are omitted.
 - Integration: extend TC-SALES-031 and TC-SALES-032 to run create → read → update → read → delete with per-test fixtures and `finally` cleanup.
 - Validation: run focused Jest and Playwright tests, then all commands returned by `required-checks` and the configured validation gate.
 
@@ -199,8 +200,8 @@ No breaking change. The fix restores the existing stable PUT routes and response
 - **Scenario**: Moving diff calculation removes useful audit details or corrupts undo snapshots.
 - **Severity**: Medium
 - **Affected area**: Action logs and undo for both update commands.
-- **Mitigation**: Build diffs from captured snapshots, preserve `snapshotBefore`, `snapshotAfter`, and the undo envelope, and cover them in unit tests.
-- **Residual risk**: Strict equality semantics in the shared audit helper remain unchanged.
+- **Mitigation**: Build diffs from captured snapshots, compare selected values with the command bus's date-aware deep-equality semantics, preserve `snapshotBefore`, `snapshotAfter`, and the undo envelope, and cover them in unit tests.
+- **Residual risk**: The shared audit helper remains unchanged for unrelated command handlers.
 
 #### Tenant or authorization regression
 - **Scenario**: The fix bypasses scoped lookup or permission enforcement.
@@ -261,11 +262,16 @@ Fully compliant: approved for implementation, subject to the pre-implementation 
 - **Review**: Security passed; performance passed; cache/event behavior passed; commands and undo passed; risks passed; verdict approved for implementation.
 - Implemented both phases with focused command regression coverage and passing TC-SALES-031/032 API round trips.
 
+### 2026-08-26
+
+- Addressed review feedback by filtering invoice and credit-memo audit diffs with date-aware deep equality before calling the shared audit helper.
+- Added focused regression cases for equal-valued, separately loaded dates and nested metadata objects.
+
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
 |---|---|---|---|
-| Phase 1 — Correct command mutation and audit behavior | Done | 2026-08-21 | Explicit field application, numeric normalization, snapshot-derived audit diffs, and 4 focused Jest cases pass. |
+| Phase 1 — Correct command mutation and audit behavior | Done | 2026-08-26 | Explicit field application, numeric normalization, semantic snapshot-derived audit diffs, and 6 focused Jest cases pass. |
 | Phase 2 — Restore API round-trip coverage | Done | 2026-08-21 | TC-SALES-031 and TC-SALES-032 each pass both cases in fully managed ephemeral environments. |
 
 ### Phase 1 — Detailed Progress
