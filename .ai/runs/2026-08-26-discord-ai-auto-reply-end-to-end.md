@@ -133,6 +133,13 @@ PR: #5639
 - [x] 4.2 TC-CHANNEL-DISCORD-009 — the panel lists per-user Discord channels — 0d64048ec (shipped as TC-CHANNEL-DISCORD-011; 009/010 stay reserved for #4665's live-Discord coverage)
 - [x] 4.3 TC-CHANNEL-DISCORD-010 — the send path composes without an address — 0d64048ec (shipped as TC-CHANNEL-DISCORD-012)
 
+### Phase 6: Review pass (om-auto-review-pr)
+
+- [x] 6.1 Query the users table directly — `createQueryBuilder('auth.users')` named no registered entity (#5599) — 58894254e
+- [x] 6.2 Load the relabelled seed row through findOneWithDecryption — 58894254e
+- [x] 6.3 Use a policy-compliant password in TC-CHANNEL-DISCORD-011 — 58894254e
+- [x] 6.4 Re-run the full validation gate after the fixes — green (11 564 core tests, 34/34 workspaces, build:app)
+
 ### Phase 5: Documentation and the gate
 
 - [x] 5.1 Record the fixes in the Discord spec changelog — 48664e1c6
