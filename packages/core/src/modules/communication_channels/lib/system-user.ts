@@ -32,6 +32,12 @@ export function systemUserEmail(tenantId: string): string {
  * sentinel. The inbound-processor must never refuse to ingest a message
  * because the channel-bot user doesn't exist.
  *
+ * That fail-soft design is also what hid #5599 for as long as it did — a broken
+ * lookup and an absent user produce the identical outcome — so the two
+ * properties the lookup depends on (the column it matches and the table it
+ * names) are pinned by `__tests__/system-user.test.ts` rather than left to the
+ * next reader to notice.
+ *
  * @param em            EntityManager scoped to the tenant.
  * @param tenantId      Tenant id for which to resolve the system user.
  * @param fallbackId    Optional caller-supplied fallback (e.g., the channel's
@@ -44,21 +50,6 @@ export async function resolveCommunicationChannelsSystemUserId(
 ): Promise<string> {
   try {
     const expectedEmail = systemUserEmail(tenantId)
-    // Untyped QB by design — the helper is intentionally cross-module
-    // (resolving an `auth.user` from the hub) and must not pull the User
-    // entity class. MikroORM v7's typed builder requires an entity ref;
-    // we keep the lookup table-name-driven so the helper compiles without
-    // a cross-module import. The mocks in `__tests__/system-user.test.ts`
-    // exercise this code path through a duck-typed `createQueryBuilder` stub.
-    type RawQueryBuilder = {
-      select: (fields: string[]) => RawQueryBuilder
-      where: (cond: Record<string, unknown>) => RawQueryBuilder
-      limit: (count: number) => RawQueryBuilder
-      execute: (mode: string) => Promise<unknown>
-    }
-    const qb = (
-      em as unknown as { createQueryBuilder: (table: string, alias: string) => RawQueryBuilder }
-    ).createQueryBuilder('auth.users', 'u')
     // Match on `email_hash`, never on `email` (#5599). `users.email` is
     // encrypted at rest with a per-row IV, so its ciphertext is
     // non-deterministic and an equality filter against the plaintext can never
@@ -73,13 +64,25 @@ export async function resolveCommunicationChannelsSystemUserId(
     // helper keeps this module free of a cross-module code dependency; the two
     // must stay aligned if `auth` ever adopts a context.
     const emailHashes = lookupHashCandidates(expectedEmail)
-    const row = await qb
-      .select(['u.id'])
-      .where({ email_hash: { $in: emailHashes }, tenant_id: tenantId, deleted_at: null })
-      .limit(1)
-      .execute('get')
-      .catch(() => null)
-    const id = (row as { id?: string } | null)?.id
+
+    // Raw SQL against the table, not `createQueryBuilder('auth.users')`. That
+    // call names no registered entity — entities are discovered under their
+    // class names — so MikroORM reads the dot as a schema qualifier and looks
+    // for `users` in a schema named `auth`, which this project never creates
+    // (`Migration20251030150038` puts `users` in the default schema). The helper
+    // swallows every error by design, so the miss was indistinguishable from
+    // "no channel-bot user exists" and hid behind the same fallback as the
+    // plaintext-vs-ciphertext defect above. A parameterized statement names the
+    // table unambiguously and still pulls in no cross-module entity class,
+    // keeping the decoupling this helper was written for.
+    const placeholders = emailHashes.map(() => '?').join(', ')
+    const rows = await em
+      .getConnection()
+      .execute<Array<{ id?: string }>>(
+        `SELECT id FROM users WHERE email_hash IN (${placeholders}) AND tenant_id = ? AND deleted_at IS NULL LIMIT 1`,
+        [...emailHashes, tenantId],
+      )
+    const id = Array.isArray(rows) ? rows[0]?.id : undefined
     if (typeof id === 'string' && id.length > 0) return id
   } catch {
     // ignore — fall through to fallback

@@ -41,6 +41,13 @@ export function redactSecrets(text: string): string {
  * Cap on the persisted reason. The marker lives in a JSONB column and renders in
  * a banner, so an unbounded provider message would bloat both. Applied AFTER
  * redaction, never before, so truncation can never be what saves a secret.
+ *
+ * Deliberately tighter than the 500-character hard slice `channel-state-store.ts`
+ * applies on write: that one is a storage backstop that cuts mid-word and leaves
+ * no sign it did, whereas this one marks the cut with an ellipsis so an operator
+ * can tell a short reason from a clipped one. Keeping it below the store's limit
+ * means the backstop never fires for this producer, which is the point — only
+ * one of the two is a message a human reads.
  */
 const MAX_REASON_LENGTH = 300
 

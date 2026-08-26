@@ -249,10 +249,13 @@ export async function POST(req: Request): Promise<Response> {
     }
     if (body.labelAsProviderKey && body.labelAsProviderKey !== input.providerKey) {
       const seedEm = (container.resolve('em') as EntityManager).fork()
-      const connected = await seedEm.findOne(CommunicationChannel, {
-        id: result.channelId,
-        tenantId,
-      })
+      const connected = await findOneWithDecryption(
+        seedEm,
+        CommunicationChannel,
+        { id: result.channelId, tenantId },
+        undefined,
+        { tenantId, organizationId },
+      )
       if (!connected) {
         return NextResponse.json(
           { error: '[internal] test-seed could not reload the channel it just connected' },

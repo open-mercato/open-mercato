@@ -11,7 +11,6 @@ const mockCommandExecute = jest.fn()
 
 const mockEm = {
   fork: jest.fn(),
-  findOne: jest.fn(),
   create: jest.fn(),
   persist: jest.fn(),
   flush: jest.fn(),
@@ -217,7 +216,7 @@ describe('POST /api/communication_channels/test-seed — connect-channel provide
     jest.clearAllMocks()
     connectedRow = { id: CHANNEL_ID, providerKey: '__test_seed_chat__' }
     mockEm.fork.mockReturnValue(mockEm)
-    mockEm.findOne.mockResolvedValue(connectedRow)
+    mockFindOneWithDecryption.mockResolvedValue(connectedRow)
     mockEm.flush.mockResolvedValue(undefined)
     mockCreateRequestContainer.mockResolvedValue(mockContainer)
     mockCommandExecute.mockResolvedValue({
@@ -247,7 +246,10 @@ describe('POST /api/communication_channels/test-seed — connect-channel provide
     })
     expect(connectedRow.providerKey).toBe('discord')
     expect(mockEm.flush).toHaveBeenCalledTimes(1)
-    expect(mockEm.findOne.mock.calls[0][1]).toEqual({ id: CHANNEL_ID, tenantId: CALLER_TENANT })
+    expect(mockFindOneWithDecryption.mock.calls[0][2]).toEqual({
+      id: CHANNEL_ID,
+      tenantId: CALLER_TENANT,
+    })
   })
 
   it('leaves the row alone when no relabelling was asked for', async () => {
@@ -255,7 +257,7 @@ describe('POST /api/communication_channels/test-seed — connect-channel provide
 
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({ providerKey: '__test_seed_chat__' })
-    expect(mockEm.findOne).not.toHaveBeenCalled()
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
     expect(mockEm.flush).not.toHaveBeenCalled()
   })
 

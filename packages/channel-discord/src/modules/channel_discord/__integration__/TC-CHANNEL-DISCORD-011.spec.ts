@@ -111,15 +111,19 @@ test.describe('TC-CHANNEL-DISCORD-011: the AI auto-reply panel listing', () => {
       // `channel_discord.view` grant. Personal channels are owner-only in v1, so
       // no feature grant may reveal one — widening the listing must not have
       // opened that door.
+      // Uppercase + digit + special: the default password policy
+      // (`buildPasswordSchema`) requires all three, so a plainer literal would
+      // fail at fixture creation rather than at the assertion under test.
       const otherEmail = `tc-discord-011-${stamp}@integration.test`
+      const otherPassword = 'Secret123!'
       otherUserId = await createUserFixture(request, token, {
         email: otherEmail,
-        password: 'secret123',
+        password: otherPassword,
         organizationId,
         roles: ['admin'],
         name: `TC-CHANNEL-DISCORD-011 peer ${stamp}`,
       })
-      otherToken = await getAuthToken(request, otherEmail, 'secret123')
+      otherToken = await getAuthToken(request, otherEmail, otherPassword)
 
       otherChannelId = await seedConnectedChannel(request, otherToken, {
         displayName: `TC-CHANNEL-DISCORD-011 peer ${stamp}`,
