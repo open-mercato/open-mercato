@@ -2,6 +2,7 @@ import { GET, PATCH, DELETE } from '@open-mercato/core/modules/messages/api/[id]
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
@@ -9,6 +10,10 @@ const findWithDecryptionMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
+  // Only the request-context entry points are stubbed. `canUseChannelThreadFallback`
+  // stays REAL so the RBAC gate is exercised against the fixture's container rather
+  // than against a stub that could agree with a broken route.
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/routeHelpers'),
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   hasOrganizationAccess: (...args: unknown[]) => hasOrganizationAccessMock(...args),
 }))
@@ -914,7 +919,14 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
 
   function setupHarness(
     channelThreadAccess: unknown,
-    options: { registered?: boolean; features?: string[]; thread?: unknown[]; anchor?: unknown } = {},
+    options: {
+      registered?: boolean
+      features?: string[]
+      thread?: unknown[]
+      anchor?: unknown
+      /** `false` drops `rbacService` from the container entirely. */
+      rbac?: boolean
+    } = {},
   ) {
     const thread = options.thread ?? threadMessages
     const anchor = options.anchor ?? inboundMessage
@@ -936,12 +948,22 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
     ))
 
     const resolveChannelThreadAccess = jest.fn(async () => channelThreadAccess)
+    // The session JWT carries no `features` claim, so the route resolves the
+    // caller's grants through RBAC — the fixture mirrors that, wildcard matching
+    // included, rather than handing the route a features array it never sees.
+    const grantedFeatures = options.features ?? ['messages.view']
+    const rbacService = {
+      userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) => (
+        authorizeFeatures(required, { grantedFeatures })
+      )),
+    }
     resolveMessageContextMock.mockResolvedValue({
       ctx: {
-        auth: { features: options.features ?? ['messages.view'] },
+        auth: { sub: operatorUserId },
         container: {
           resolve: (name: string) => {
             if (name === 'em') return em
+            if (name === 'rbacService') return options.rbac === false ? null : rbacService
             if (name === 'communicationChannelsResolveChannelThreadAccess') {
               return options.registered === false ? null : resolveChannelThreadAccess
             }
@@ -951,7 +973,7 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
       },
       scope: { tenantId, organizationId, userId: operatorUserId },
     })
-    return { resolveChannelThreadAccess }
+    return { resolveChannelThreadAccess, rbacService }
   }
 
   const grantedThread = {
@@ -972,16 +994,24 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
   }
 
   it('lets an operator open a message the channel behind its thread grants access to', async () => {
-    const { resolveChannelThreadAccess } = setupHarness(grantedThread)
+    const { resolveChannelThreadAccess, rbacService } = setupHarness(grantedThread)
 
     const response = await getDetail()
 
     expect(response.status).toBe(200)
+    // The gate is the RBAC call; `actor.features` is only the documented
+    // pass-through, and on a real request it is empty because the session JWT
+    // carries no `features` claim. Asserting that here keeps the two apart.
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      operatorUserId,
+      ['messages.view'],
+      { tenantId, organizationId },
+    )
     expect(resolveChannelThreadAccess).toHaveBeenCalledWith(
       expect.anything(),
       { tenantId, organizationId },
       { messageThreadId: threadId },
-      { userId: operatorUserId, features: ['messages.view'] },
+      { userId: operatorUserId, features: [] },
     )
   })
 
@@ -1042,6 +1072,18 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
 
       expect((await getDetail()).status).toBe(200)
       expect(resolveChannelThreadAccess).toHaveBeenCalled()
+    })
+
+    // QA regression (PR #5645): the first cut of this gate read
+    // `ctx.auth.features`, which is always empty on a real request — the session
+    // JWT has no `features` claim — so it returned 403 to every caller including
+    // a tenant admin, re-closing the journey #5535 opened. TC-CHANNEL-REPLY-001
+    // caught it against a live app; this pins it without one.
+    it('denies when RBAC cannot be consulted rather than trusting the session payload', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, { rbac: false })
+
+      expect((await getDetail()).status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
     })
   })
 

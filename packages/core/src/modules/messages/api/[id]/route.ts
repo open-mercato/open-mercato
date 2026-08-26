@@ -5,13 +5,11 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
 import {
-  CHANNEL_THREAD_FALLBACK_FEATURE,
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
 } from '../../lib/channelThreadAccess'
@@ -19,7 +17,7 @@ import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
-import { hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
+import { canUseChannelThreadFallback, hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
@@ -124,14 +122,13 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // a caller the route already feature-gated, and this route is `requireAuth`
   // only so that a participant can always read their own message. Without this
   // gate the fallback would hand any authenticated tenant user the whole external
-  // conversation on a shared inbox.
+  // conversation on a shared inbox. The check goes through RBAC, not through
+  // `ctx.auth.features` — the session JWT carries no `features` claim at all, so
+  // reading it would deny everyone, tenant admin included.
   const actorFeatures = resolveUserFeatures(ctx.auth)
-  const mayUseChannelFallback = authorizeFeatures(
-    [CHANNEL_THREAD_FALLBACK_FEATURE],
-    { grantedFeatures: actorFeatures },
-  )
+  const mayUseChannelFallback = message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+    && await canUseChannelThreadFallback(ctx, scope)
   const channelThread = mayUseChannelFallback
-    && message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
     ? await resolveMessageChannelThreadAccess(
       ctx.container,
       { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
