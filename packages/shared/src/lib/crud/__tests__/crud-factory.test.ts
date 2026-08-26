@@ -370,6 +370,63 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('repeated query parameters (#5548)', () => {
+    const makeFilterRoute = () => {
+      const seen: unknown[] = []
+      const route = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.extend({
+            status: z.union([z.string(), z.array(z.string())]).optional(),
+            search: z.string().optional(),
+          }),
+          entityId: 'example.todo',
+          fields: ['id', 'title'],
+          buildFilters: (query) => {
+            seen.push((query as any).status)
+            return {} as any
+          },
+        },
+      })
+      return { route, seen }
+    }
+
+    it('hands the list schema every value of a repeated key', async () => {
+      const { route, seen } = makeFilterRoute()
+      await route.GET(new Request('http://x/api/example/todos?status=win&status=loose'))
+      expect(seen.at(-1)).toEqual(['win', 'loose'])
+    })
+
+    it('still hands a plain string to a key that occurs once', async () => {
+      const { route, seen } = makeFilterRoute()
+      await route.GET(new Request('http://x/api/example/todos?status=win'))
+      expect(seen.at(-1)).toBe('win')
+    })
+
+    it('leaves a comma-bearing scalar untouched so free-text filters survive', async () => {
+      const { route, seen } = makeFilterRoute()
+      await route.GET(new Request(`http://x/api/example/todos?search=${encodeURIComponent('Smith, John')}&status=win`))
+      expect(seen.at(-1)).toBe('win')
+    })
+
+    it('resolves both orderings of the same repeated filter identically', async () => {
+      const { route, seen } = makeFilterRoute()
+      await route.GET(new Request('http://x/api/example/todos?status=win&status=loose'))
+      await route.GET(new Request('http://x/api/example/todos?status=loose&status=win'))
+      expect([...(seen.at(-2) as string[])].sort()).toEqual([...(seen.at(-1) as string[])].sort())
+    })
+
+    it('keeps a repeated ids filter instead of dropping it entirely', async () => {
+      const idA = '550e8400-e29b-41d4-a716-446655440001'
+      const idB = '550e8400-e29b-41d4-a716-446655440002'
+      await route.GET(new Request(`http://x/api/example/todos?ids=${idA}&ids=${idB}`))
+      const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+      expect(queryArgs?.filters).toEqual({ id: { $in: [idA, idB] } })
+    })
+  })
+
   it('GET resolves a function-form list.fields projection per request (#2233)', async () => {
     const fieldsResolver = jest.fn((query: any) =>
       query?.id ? ['id', 'title', 'is_done', 'snapshot'] : ['id', 'title'],
