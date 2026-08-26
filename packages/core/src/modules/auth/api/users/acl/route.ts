@@ -6,8 +6,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import {
   assertActorCanAccessUserTarget,
@@ -288,6 +288,11 @@ export async function PUT(req: Request) {
   const existingIsSuperAdmin = acl ? !!acl.isSuperAdmin : false
   const existingFeatures = acl ? normalizeGrantFeatureList(acl.featuresJson) : []
   const existingOrganizations = acl ? normalizeOrganizations(acl.organizationsJson) : null
+
+  // A per-user ACL is an absolute override, so an omitted dimension must keep
+  // its stored value. Normalizing an omitted `features` to `[]` or an omitted
+  // `organizations` to `null` turned a single-dimension edit into a silent
+  // clear, deleting the row and widening the user back to their full role.
   const featuresWereProvided = parsed.data.features !== undefined
   const requestedFeatures = featuresWereProvided
     ? normalizeGrantFeatureList(parsed.data.features)
@@ -334,9 +339,10 @@ export async function PUT(req: Request) {
     }
   }
 
-  const organizationScopeRequested = requestedOrganizations !== null && requestedOrganizations.length > 0
-
-  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && organizationScopeRequested) {
+  // Retaining an organization-only override with no features would revoke every
+  // role-granted feature instead of narrowing the role. Refuse that state rather
+  // than persisting it or silently dropping the organization scope.
+  if (!effectiveIsSuperAdmin && effectiveFeatures.length === 0 && hasOrganizationRestriction(requestedOrganizations)) {
     const { translate } = await resolveTranslations()
     return NextResponse.json({
       error: translate(
@@ -346,9 +352,10 @@ export async function PUT(req: Request) {
     }, { status: 400 })
   }
 
-  const hasCustomAcl = effectiveIsSuperAdmin
-    || effectiveFeatures.length > 0
-    || organizationScopeRequested
+  // An unrestricted organization list carries no override on its own, and the guard
+  // above already refused the restricted-but-featureless case, so the override is
+  // custom exactly when it grants super admin or at least one feature.
+  const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
 
   // What the caller asked for, handed to the command only when it exceeds what
   // is about to be written. `assertActorCanGrantAcl` above refuses the blatant
@@ -411,6 +418,16 @@ export async function PUT(req: Request) {
 function normalizeOrganizations(organizations: unknown): string[] | null {
   if (!Array.isArray(organizations)) return null
   return normalizeGrantFeatureList(organizations)
+}
+
+// Whether the caller expressed an intentional narrowing. `null` and `__all__`
+// are the two documented ways to say "every organization"; an empty list is the
+// editor's "no organization picked" state ("Empty = all organizations"), which
+// is not a restriction an administrator chose. Only a concrete list narrows, so
+// only a concrete list has to justify itself against the feature grant below.
+function hasOrganizationRestriction(organizations: string[] | null): boolean {
+  if (!organizations || organizations.length === 0) return false
+  return !organizations.includes('__all__')
 }
 
 function sanitizeTenantFeatures(features: string[]): string[] {

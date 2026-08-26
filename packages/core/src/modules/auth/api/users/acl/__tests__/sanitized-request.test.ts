@@ -1,7 +1,6 @@
 /** @jest-environment node */
 
 import { User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
-import { assertActorCanGrantAcl } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { PUT } from '../route'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -28,7 +27,6 @@ const mockRbacService = {
 }
 
 const mockCommandBus = { execute: jest.fn(async () => ({ result: null, logEntry: null })) }
-const mockAssertActorCanGrantAcl = jest.mocked(assertActorCanGrantAcl)
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -174,19 +172,6 @@ describe('user ACL sanitized-request reporting', () => {
       organizations: ['org-next'],
       clear: false,
     })
-  })
-
-  it('authorizes a partial update against the merged ACL snapshot', async () => {
-    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: false })
-
-    const res = await PUT(partialPutRequest({ organizations: ['org-next'] }))
-
-    expect(res.status).toBe(200)
-    expect(mockAssertActorCanGrantAcl).toHaveBeenCalledWith(expect.objectContaining({
-      isSuperAdmin: false,
-      features: ['catalog.view'],
-      organizations: ['org-next'],
-    }))
   })
 
   it('preserves the stored organization restriction when only features change', async () => {

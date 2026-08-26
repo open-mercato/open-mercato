@@ -77,6 +77,8 @@ test.describe('TC-AUTH-043: user ACL override grants a feature (#2464)', () => {
       expect(aclBody?.hasCustomAcl, 'user should now have a custom ACL').toBe(true);
       expect(aclBody?.features ?? [], 'granted feature should be listed').toContain(GRANTED_FEATURE);
 
+      // A follow-up PUT that carries only the organization scope must keep the feature
+      // grant it did not touch, instead of clearing the override (#5493).
       const scopePutRes = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
         token: superadminToken,
         data: { userId, organizations: [organizationId] },
