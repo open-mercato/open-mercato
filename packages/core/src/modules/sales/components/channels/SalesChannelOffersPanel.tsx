@@ -177,9 +177,9 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
 
   const tableTitle = (
     <div>
-      <div className="text-lg font-semibold">
+      <h2 className="text-lg font-semibold">
         {t('sales.channels.offers.heading', 'Offers for {{name}}', { name: channelName || t('sales.channels.nav.title', 'Sales channels') })}
-      </div>
+      </h2>
       <p className="text-sm text-muted-foreground">
         {t('sales.channels.offers.subtitle', 'Override product presentation and pricing per channel.')}
       </p>
@@ -197,7 +197,6 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
   return (
     <DataTable<OfferRow>
       title={tableTitle}
-      titleHeadingLevel={2}
       actions={actions}
       columns={columns}
       data={rows}
