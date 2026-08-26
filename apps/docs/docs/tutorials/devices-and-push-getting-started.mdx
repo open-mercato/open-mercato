@@ -117,6 +117,10 @@ Two ways to change the set:
   tenants keep their own settings — and replaces the code default in both directions: enable push
   for a type that ships without it, or switch any channel off entirely.
 
+Registering a new channel does not automatically make existing built-in types eligible for it.
+Channel authors should declare it on notification types their module owns; operators can add it to
+other types through the tenant-scoped override.
+
 Channels inside the set behave as usual: users opt in/out per type, and `nonOptOut` types always
 deliver. The eligibility check runs before both — a channel outside the set is off even for
 `nonOptOut` types.
