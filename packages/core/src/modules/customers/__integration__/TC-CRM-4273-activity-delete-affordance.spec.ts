@@ -134,23 +134,34 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       await openDeleteFromMenu()
       const confirmAgain = page.getByRole('alertdialog')
       await expect(confirmAgain).toBeVisible({ timeout: 15_000 })
+      // Capture the DELETE outcome directly: when this fails in CI it reports
+      // the status and body (a 409 carries the expected/actual lock versions),
+      // instead of a mute missing-flash timeout.
+      const deleteResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'DELETE'
+          && response.url().includes('/api/customers/interactions'),
+        { timeout: 15_000 },
+      )
       await confirmAgain.getByRole('button', { name: /Delete activity/i }).click()
+      const deleteResponse = await deleteResponsePromise
+      const deleteBody = await deleteResponse.text().catch(() => '')
+      expect(
+        deleteResponse.status(),
+        `DELETE /api/customers/interactions responded ${deleteResponse.status()}: ${deleteBody.slice(0, 400)}`,
+      ).toBe(200)
 
-      // Success flash first: it separates "the DELETE failed and the error path
-      // swallowed it" from "the list did not refresh" in a single run.
+      // Success flash: the UI acknowledged the deletion.
       await expect(page.getByText('Activity deleted').first()).toBeVisible({ timeout: 15_000 })
 
-      // The history list is query-index-backed; deletion reaches the index via
-      // async side effects, so under CI load the row can outlive the request.
-      // Poll with reloads until the durable state converges.
-      await expect
-        .poll(async () => {
-          await page.reload({ waitUntil: 'domcontentloaded' })
-          await page.getByRole('tab', { name: /Activity log/i }).click()
-          await page.waitForLoadState('networkidle')
-          return page.getByText(meetingTitle).count()
-        }, { timeout: 90_000, intervals: [3_000] })
-        .toBe(0)
+      // Primary guard — the timeline refreshes on its own, no reload.
+      await expect(page.getByText(meetingTitle)).toHaveCount(0, { timeout: 30_000 })
+
+      // Secondary durability check: the deletion survives a reload.
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.getByRole('tab', { name: /Activity log/i }).click()
+      await page.waitForLoadState('networkidle')
+      await expect(page.getByText(meetingTitle)).toHaveCount(0, { timeout: 15_000 })
 
       const afterRes = await apiRequest(
         request,

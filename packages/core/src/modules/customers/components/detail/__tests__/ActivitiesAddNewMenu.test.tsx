@@ -26,7 +26,7 @@ describe('ActivitiesAddNewMenu', () => {
     const optionButtons = screen
       .getAllByRole('button')
       .filter((node) => node.getAttribute('data-slot') === 'button')
-    expect(optionButtons.length).toBeGreaterThanOrEqual(5)
+    expect(optionButtons.length).toBe(5)
   })
 
   it('invokes onSelect with the chosen activity kind and closes the menu', async () => {
