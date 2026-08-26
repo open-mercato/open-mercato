@@ -1,54 +1,55 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 
 const repoRoot = resolve(__dirname, '../../../..')
 
-const expectedChannelsByFile: Record<string, Record<string, string[]>> = {
-  'packages/ai-assistant/src/modules/ai_assistant/notifications.ts': {
-    'ai_assistant.conversation_shared': ['in_app', 'email'],
-  },
-  'packages/checkout/src/modules/checkout/notifications.ts': {
-    'checkout.transaction.completed': ['in_app', 'email'],
-    'checkout.transaction.failed': ['in_app', 'email'],
-    'checkout.link.usageLimitReached': ['in_app', 'email'],
-  },
-  'packages/core/src/modules/eudr/notifications.ts': {
-    'eudr.statement.submitted': ['in_app', 'email'],
-    'eudr.statement.reference_issued': ['in_app', 'email'],
-    'eudr.statement.withdrawn': ['in_app', 'email'],
-    'eudr.risk.non_negligible': ['in_app', 'email'],
-    'eudr.mitigation.completed': ['in_app', 'email'],
-  },
-  'packages/core/src/modules/warranty_claims/notifications.ts': {
-    'warranty_claims.claim.submitted': ['in_app', 'email'],
-    'warranty_claims.claim.assigned': ['in_app', 'email'],
-    'warranty_claims.claim.status_changed': ['in_app', 'email'],
-    'warranty_claims.claim.escalated': ['in_app', 'email'],
-    'warranty_claims.claim.customer_replied': ['in_app', 'email'],
-  },
-  'packages/core/src/modules/wms/notifications.ts': {
-    'wms.inventory.low_stock': ['in_app', 'email'],
-    'wms.inventory.reservation_shortfall': ['in_app', 'email'],
-  },
-  'packages/documents/src/modules/documents/notifications.ts': {
-    'documents.comment.mentioned': ['in_app', 'email'],
-    'documents.watch.commented': ['in_app', 'email'],
-    'documents.watch.changed': ['in_app', 'email'],
-  },
-  'packages/webhooks/src/modules/webhooks/notifications.ts': {
-    'webhooks.delivery.failed': ['in_app', 'email'],
-  },
-  'apps/mercato/src/modules/example/notifications.ts': {
-    'demo.silent_ping': ['push'],
-    'demo.push_playground': ['push'],
-    'example.umes.actionable': ['in_app', 'email'],
-  },
-  'packages/create-app/template/src/modules/example/notifications.ts': {
-    'demo.silent_ping': ['push'],
-    'demo.push_playground': ['push'],
-    'example.umes.actionable': ['in_app', 'email'],
-  },
+const channelOmissionExceptions: Record<string, string> = {
+  'packages/core/src/modules/push_notifications/notifications.ts#admin.custom_message':
+    'Hidden one-off admin push type that bypasses the user-configurable catalogue and targets push explicitly at send time.',
+  'packages/core/src/modules/push_notifications/notifications.ts#admin.custom_silent':
+    'Hidden one-off silent admin push type that bypasses the user-configurable catalogue and targets push explicitly at send time.',
+}
+
+type NotificationDeclaration = {
+  type: string
+  channels: string[] | null
+  hiddenFromSettings: boolean
+}
+
+type DiscoveredNotification = NotificationDeclaration & {
+  relativePath: string
+}
+
+function toRepoRelative(fullPath: string): string {
+  return relative(repoRoot, fullPath).split(sep).join('/')
+}
+
+function workspaceModuleRoots(workspacesRoot: string): string[] {
+  return readdirSync(workspacesRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+    .map((entry) => join(workspacesRoot, entry.name, 'src', 'modules'))
+    .filter((modulesRoot) => existsSync(modulesRoot))
+}
+
+function collectNotificationCatalogs(modulesRoot: string, catalogs: string[]): void {
+  if (!existsSync(modulesRoot)) return
+  for (const moduleEntry of readdirSync(modulesRoot, { withFileTypes: true })) {
+    if (!moduleEntry.isDirectory() || moduleEntry.isSymbolicLink()) continue
+    const catalogPath = join(modulesRoot, moduleEntry.name, 'notifications.ts')
+    if (existsSync(catalogPath)) catalogs.push(toRepoRelative(catalogPath))
+  }
+}
+
+function discoverNotificationCatalogs(): string[] {
+  const catalogs: string[] = []
+  const moduleRoots = [
+    ...workspaceModuleRoots(resolve(repoRoot, 'packages')),
+    ...workspaceModuleRoots(resolve(repoRoot, 'apps')),
+    resolve(repoRoot, 'packages/create-app/template/src/modules'),
+  ]
+  for (const modulesRoot of moduleRoots) collectNotificationCatalogs(modulesRoot, catalogs)
+  return catalogs.sort()
 }
 
 function propertyName(property: ts.PropertyName): string | null {
@@ -65,51 +66,169 @@ function findProperty(
   )
 }
 
-function notificationTypeArray(sourceFile: ts.SourceFile): ts.ArrayLiteralExpression {
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression
+  while (
+    ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+function notificationTypeArray(sourceFile: ts.SourceFile, relativePath: string): ts.ArrayLiteralExpression {
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) continue
     for (const declaration of statement.declarationList.declarations) {
       if (!ts.isIdentifier(declaration.name) || declaration.name.text !== 'notificationTypes') continue
-      if (declaration.initializer && ts.isArrayLiteralExpression(declaration.initializer)) {
-        return declaration.initializer
+      if (declaration.initializer) {
+        const initializer = unwrapExpression(declaration.initializer)
+        if (ts.isArrayLiteralExpression(initializer)) return initializer
       }
     }
   }
-  throw new Error('[internal] notificationTypes array not found')
+  throw new Error(`[internal] ${relativePath} does not export a literal notificationTypes array`)
 }
 
-function declaredChannels(relativePath: string): Record<string, string[] | null> {
+function stringConstants(sourceFile: ts.SourceFile): Map<string, string> {
+  const constants = new Map<string, string>()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+      const initializer = unwrapExpression(declaration.initializer)
+      if (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) {
+        constants.set(declaration.name.text, initializer.text)
+      }
+    }
+  }
+  return constants
+}
+
+function stringValue(
+  initializer: ts.Expression,
+  constants: Map<string, string>,
+  relativePath: string,
+): string {
+  const valueExpression = unwrapExpression(initializer)
+  if (ts.isStringLiteral(valueExpression) || ts.isNoSubstitutionTemplateLiteral(valueExpression)) {
+    return valueExpression.text
+  }
+  if (ts.isIdentifier(valueExpression)) {
+    const value = constants.get(valueExpression.text)
+    if (value !== undefined) return value
+  }
+  throw new Error(`[internal] ${relativePath} contains a notification type without a resolvable string id`)
+}
+
+function channelsValue(
+  property: ts.PropertyAssignment | undefined,
+  relativePath: string,
+): string[] | null {
+  if (!property) return null
+  const initializer = unwrapExpression(property.initializer)
+  if (!ts.isArrayLiteralExpression(initializer)) {
+    throw new Error(`[internal] ${relativePath} contains a non-array channels declaration`)
+  }
+  return initializer.elements.map((channel) => {
+    const channelExpression = unwrapExpression(channel)
+    if (!ts.isStringLiteral(channelExpression)) {
+      throw new Error(`[internal] ${relativePath} contains a non-string channel id`)
+    }
+    return channelExpression.text
+  })
+}
+
+function hiddenFromSettingsValue(
+  property: ts.PropertyAssignment | undefined,
+  relativePath: string,
+): boolean {
+  if (!property) return false
+  const initializer = unwrapExpression(property.initializer)
+  if (initializer.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (initializer.kind === ts.SyntaxKind.FalseKeyword) return false
+  throw new Error(`[internal] ${relativePath} contains a non-boolean hiddenFromSettings declaration`)
+}
+
+function declaredNotifications(relativePath: string): NotificationDeclaration[] {
   const source = readFileSync(resolve(repoRoot, relativePath), 'utf8')
   const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const entries = notificationTypeArray(sourceFile).elements.map((element) => {
+  const constants = stringConstants(sourceFile)
+  return notificationTypeArray(sourceFile, relativePath).elements.map((element) => {
     if (!ts.isObjectLiteralExpression(element)) {
       throw new Error(`[internal] ${relativePath} contains a non-object notification type`)
     }
     const typeProperty = findProperty(element, 'type')
-    if (!typeProperty || !ts.isStringLiteral(typeProperty.initializer)) {
-      throw new Error(`[internal] ${relativePath} contains a notification type without a string id`)
+    if (!typeProperty) {
+      throw new Error(`[internal] ${relativePath} contains a notification type without an id`)
     }
-    const channelsProperty = findProperty(element, 'channels')
-    if (!channelsProperty) return [typeProperty.initializer.text, null] as const
-    if (!ts.isArrayLiteralExpression(channelsProperty.initializer)) {
-      throw new Error(`[internal] ${relativePath} contains a non-array channels declaration`)
+    return {
+      type: stringValue(typeProperty.initializer, constants, relativePath),
+      channels: channelsValue(findProperty(element, 'channels'), relativePath),
+      hiddenFromSettings: hiddenFromSettingsValue(
+        findProperty(element, 'hiddenFromSettings'),
+        relativePath,
+      ),
     }
-    const channels = channelsProperty.initializer.elements.map((channel) => {
-      if (!ts.isStringLiteral(channel)) {
-        throw new Error(`[internal] ${relativePath} contains a non-string channel id`)
-      }
-      return channel.text
-    })
-    return [typeProperty.initializer.text, channels] as const
   })
-  return Object.fromEntries(entries)
+}
+
+const notificationCatalogs = discoverNotificationCatalogs()
+const notifications: DiscoveredNotification[] = notificationCatalogs.flatMap((relativePath) =>
+  declaredNotifications(relativePath).map((notification) => ({ ...notification, relativePath })),
+)
+
+function omissionExceptionKey(notification: DiscoveredNotification): string {
+  return `${notification.relativePath}#${notification.type}`
 }
 
 describe('user-configurable built-in notification channel eligibility', () => {
-  it.each(Object.entries(expectedChannelsByFile))(
-    'keeps every type in %s explicit',
-    (relativePath, expectedChannels) => {
-      expect(declaredChannels(relativePath)).toEqual(expectedChannels)
-    },
-  )
+  it('discovers module-root notification catalogues across packages, enterprise, and apps', () => {
+    expect(notificationCatalogs.length).toBeGreaterThan(0)
+    expect(notificationCatalogs).toEqual(expect.arrayContaining([
+      'apps/mercato/src/modules/example/notifications.ts',
+      'packages/core/src/modules/auth/notifications.ts',
+      'packages/create-app/template/src/modules/example/notifications.ts',
+      'packages/enterprise/src/modules/record_locks/notifications.ts',
+      'packages/enterprise/src/modules/security/notifications.ts',
+    ]))
+  })
+
+  it('requires every catalogue type to declare its intended channels or a documented hidden exception', () => {
+    const violations: string[] = []
+    for (const notification of notifications) {
+      if (notification.channels) {
+        if (notification.channels.length === 0) {
+          violations.push(`${notification.relativePath}: ${notification.type} declares an empty channels array`)
+        }
+        continue
+      }
+      const reason = channelOmissionExceptions[omissionExceptionKey(notification)]
+      if (!notification.hiddenFromSettings) {
+        violations.push(`${notification.relativePath}: ${notification.type} is user-configurable but omits channels`)
+      } else if (!reason?.trim()) {
+        violations.push(`${notification.relativePath}: ${notification.type} omits channels without a documented exception`)
+      }
+    }
+    expect(violations).toEqual([])
+  })
+
+  it('keeps omission exceptions documented, hidden, and live', () => {
+    const violations: string[] = []
+    for (const [exceptionKey, reason] of Object.entries(channelOmissionExceptions)) {
+      if (!reason.trim()) violations.push(`${exceptionKey} has an empty omission reason`)
+      const notification = notifications.find(
+        (candidate) => omissionExceptionKey(candidate) === exceptionKey,
+      )
+      if (!notification) {
+        violations.push(`${exceptionKey} omission exception is stale`)
+      } else if (notification.channels || !notification.hiddenFromSettings) {
+        violations.push(`${exceptionKey} no longer matches the hidden channel-omission contract`)
+      }
+    }
+    expect(violations).toEqual([])
+  })
 })
