@@ -22,9 +22,9 @@
 | 1 | 1.3 | Unit tests for the calculation engine | inline | done | 993d11b3f |
 | 2 | 2.1 | Extract the shared order-line entity→snapshot mapper | inline | done | f0da7848f |
 | 2 | 2.2 | Point `commands/documents.ts` at the shared mapper | inline | done | 734810446 |
-| 2 | 2.3 | Point `commands/returns.ts` at it and delete the duplicate | inline | done | — |
+| 2 | 2.3 | Point `commands/returns.ts` at it and delete the duplicate | inline | done | 5411e155f |
 | 2 | 2.4 | Tag `mapQuoteLineEntityToSnapshot` as stored-row sourced | inline | done | landed in 2.1 |
-| 3 | 3.1 | Add `discountAmountBasis` to the shared `linePricingSchema` | inline | todo | — |
+| 3 | 3.1 | Add `discountAmountBasis` to the shared `linePricingSchema` | inline | done | — |
 | 3 | 3.2 | Decompose the coalescing chain at `sales.orders.lines.upsert` | inline | todo | — |
 | 3 | 3.3 | Decompose the coalescing chain at `sales.quotes.lines.upsert` | inline | todo | — |
 | 3 | 3.4 | Carry the caller basis through `createLineSnapshotFromInput` | inline | todo | — |
