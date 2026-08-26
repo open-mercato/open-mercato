@@ -106,7 +106,7 @@ A channel has two halves, in two different convention files — do not conflate 
 
 **Metadata** — what the preferences UI calls it. `notification-channels.ts`, exporting `notificationChannels: NotificationChannelDefinition[]`. Core ships one such file, `packages/core/src/modules/notifications/notification-channels.ts`, declaring `in_app`, `email` and `push`. It backs `GET /api/notifications/channels`.
 
-**Behavior** — what actually delivers. `notifications.delivery-strategies.ts`, exporting `deliveryStrategies`. The generator plugin declared in `packages/core/src/modules/notifications/generators.ts` collects them into a generated registry that `packages/core/src/modules/notifications/lib/delivery-strategies-registry.ts` installs at bootstrap. `push_notifications` ships exactly this and nothing more exotic — `packages/core/src/modules/push_notifications/notifications.delivery-strategies.ts` is three lines.
+**Behavior** — what actually delivers. `notifications.delivery-strategies.ts`, exporting `deliveryStrategies`. The generator plugin declared in `packages/core/src/modules/notifications/generators.ts` collects them into a generated registry that `packages/core/src/modules/notifications/lib/delivery-strategies-registry.ts` installs at bootstrap. `push_notifications` ships exactly this and nothing more exotic — `packages/core/src/modules/push_notifications/notifications.delivery-strategies.ts` is two imports and two exports.
 
 ```typescript
 // packages/<pkg>/src/modules/<module>/notifications.delivery-strategies.ts
@@ -148,7 +148,9 @@ ACL features: `notifications.view`, `notifications.create`, `notifications.manag
 
 Every type currently in the registry, grouped by the module that declares it. `— (all registered)` means the type declares no `channels` and is therefore eligible for every registered channel, push included.
 
-This map is asserted against the real convention files by `apps/docs/__tests__/notification-registry.test.mjs` — adding a type without documenting it here fails the docs test.
+This map is asserted against the real convention files by `apps/docs/__tests__/notification-registry.test.mjs` — every cell of every row, not just the type id, plus the two counts quoted in the warning above. Adding a type without documenting it here, or changing a type's severity, channels or flags without updating its row, fails the docs test.
+
+Groups marked *(enterprise)* are declared in `packages/enterprise` and are not present in an OSS install.
 
 <!-- notification-type-map:start -->
 #### `ai_assistant`
@@ -258,7 +260,7 @@ This map is asserted against the real convention files by `apps/docs/__tests__/n
 | `admin.custom_message` | info | — (all registered) | non-opt-out, hidden from settings |
 | `admin.custom_silent` | info | — (all registered) | non-opt-out, silent, hidden from settings |
 
-#### `record_locks`
+#### `record_locks` *(enterprise)*
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
@@ -280,7 +282,7 @@ This map is asserted against the real convention files by `apps/docs/__tests__/n
 | `sales.quote.created` | info | `in_app`, `email` | — |
 | `sales.quote.expiring` | warning | `in_app`, `email` | — |
 
-#### `security`
+#### `security` *(enterprise)*
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|

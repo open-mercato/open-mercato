@@ -8,7 +8,7 @@
     "build": "docusaurus build",
     "serve": "docusaurus serve",
     "clean": "rimraf build .docusaurus",
-    "test": "yarn clean && yarn build && node --test __tests__/search-index.test.mjs __tests__/reference-example-module.test.mjs __tests__/notification-registry.test.mjs"
+    "test": "yarn clean && yarn build && node --test __tests__/search-index.test.mjs __tests__/reference-example-module.test.mjs __tests__/notification-registry.test.mjs __tests__/push-env-table.test.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "^3.10.2",

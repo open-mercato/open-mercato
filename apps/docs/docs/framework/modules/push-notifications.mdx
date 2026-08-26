@@ -1,6 +1,6 @@
 ---
 title: Push Notifications
-description: The push transport — fan-out, the exactly-once send worker, retries and reapers, provider adapters, silent push, the delivery log, and every OM_PUSH_* variable.
+description: The push transport — fan-out, the exactly-once send worker, retries and reapers, provider adapters, silent push, the delivery log, and every OM_PUSH_* variable this module reads.
 sidebar_label: Push Notifications
 ---
 
@@ -116,15 +116,24 @@ All optional; defaults are in code.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `OM_PUSH_SEND_TIMEOUT_MS` | 60000 (min 5000) | Per-send adapter timeout. |
-| `OM_PUSH_STUCK_RECLAIM_MINUTES` | 5 (min 1) | How long a row may sit in `sending` before reclaim. |
+| `OM_PUSH_SEND_TIMEOUT_MS` | 60000 (min 5000) | Per-send adapter timeout. Clamped against the reclaim window — see below. |
+| `OM_PUSH_STUCK_RECLAIM_MINUTES` | 5 (min 1) | How long a row may sit in `sending` before reclaim. Also caps the send timeout above. |
 | `OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT` | 500 | Rows scanned per reclaim tick. |
 | `OM_PUSH_RECLAIM_TICK_SECONDS` | 120 (min 30) | Reclaim schedule interval. |
-| `OM_PUSH_RECEIPT_MIN_AGE_MINUTES` | — | Youngest receipt eligible for polling. |
-| `OM_PUSH_RECEIPT_MAX_AGE_MINUTES` | — | Oldest receipt still polled. |
-| `OM_PUSH_RECEIPT_BATCH_LIMIT` | — | Receipts polled per tick. |
+| `OM_PUSH_RECEIPT_MIN_AGE_MINUTES` | 15 | Youngest receipt eligible for polling. Expo needs roughly this long to resolve one, so polling sooner finds nothing. |
+| `OM_PUSH_RECEIPT_MAX_AGE_MINUTES` | 60 | Oldest receipt still polled. Floored at `MIN + 1` minute so the window is never empty. |
+| `OM_PUSH_RECEIPT_BATCH_LIMIT` | 500 | Receipts polled per tick. Floored at 1. |
 | `OM_ENABLE_PUSH_STUB_ADAPTER` | off | Registers a network-free `push_stub` adapter. Tests only. |
 | `OM_PUSH_FAKE_PROVIDERS` | off | In-process SDK fakes writing to a JSONL sink, for provider e2e without live credentials. Reports health as `degraded`. |
+
+:::warning The send timeout and the reclaim window are one knob, not two
+The effective per-send wait is `min(OM_PUSH_SEND_TIMEOUT_MS, max(5000, reclaim window − 60s))` (`packages/core/src/modules/push_notifications/lib/push-delivery.ts`). A send allowed to outlive the reclaim window would be reclaimed mid-flight and re-sent by a second worker, so the wait is capped below the window rather than honored as configured. Two consequences the table cannot show, neither of them logged:
+
+- Setting `OM_PUSH_SEND_TIMEOUT_MS` above `OM_PUSH_STUCK_RECLAIM_MINUTES` minus 60 s has no effect; the configured value is discarded silently.
+- `OM_PUSH_STUCK_RECLAIM_MINUTES=1` forces the send timeout to 5000 ms whatever `OM_PUSH_SEND_TIMEOUT_MS` says.
+
+To lengthen a per-send wait, raise `OM_PUSH_STUCK_RECLAIM_MINUTES` first.
+:::
 
 ## Setting it up end to end
 
