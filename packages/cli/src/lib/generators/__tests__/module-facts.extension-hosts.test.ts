@@ -113,6 +113,6 @@ describe('module-facts extension host extraction', () => {
     ])
 
     const sales = extractModuleFacts({ moduleId: 'sales', coreSrcRoot })
-    expect(sales.hostTokens.tableIds).toEqual(['sales.orders', 'sales.quotes'])
+    expect(sales.hostTokens.tableIds).toEqual(['sales.orders', 'sales.payments', 'sales.quotes'])
   })
 })

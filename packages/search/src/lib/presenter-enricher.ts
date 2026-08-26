@@ -104,6 +104,95 @@ type EnrichmentResult = {
   links?: SearchResultLink[]
 }
 
+function primaryNavigationHref(result: SearchResult): string | null {
+  if (typeof result.url === 'string' && result.url.trim().length > 0) {
+    return result.url.trim()
+  }
+  const primaryLink = result.links?.find((link) => link.kind === 'primary' && link.href.trim().length > 0)
+  return primaryLink?.href.trim() ?? null
+}
+
+function directNavigationRecordId(href: string): string | null {
+  try {
+    const url = new URL(href, 'http://search.local')
+    if (url.search || url.hash) return null
+    const segments = url.pathname.split('/').filter(Boolean)
+    const lastSegment = segments.at(-1)
+    return lastSegment ? decodeURIComponent(lastSegment) : null
+  } catch {
+    return null
+  }
+}
+
+function presenterTitle(result: SearchResult): string | null {
+  const title = result.presenter?.title?.trim()
+  return title?.length ? title : null
+}
+
+function resultScopeKey(result: SearchResult, recordId: string): string {
+  return `${result.organizationId ?? ''}:${recordId}`
+}
+
+function mergeResultMetadata(
+  targetMetadata: SearchResult['metadata'],
+  linkedMetadata: SearchResult['metadata'],
+): SearchResult['metadata'] {
+  if (!targetMetadata && !linkedMetadata) return undefined
+  return {
+    ...targetMetadata,
+    ...linkedMetadata,
+  }
+}
+
+function mergeLinkedDuplicateResults(results: SearchResult[]): SearchResult[] {
+  const indexesByRecord = new Map<string, number[]>()
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index]
+    const key = resultScopeKey(result, result.recordId)
+    const indexes = indexesByRecord.get(key) ?? []
+    indexes.push(index)
+    indexesByRecord.set(key, indexes)
+  }
+
+  const replacements = new Map<number, SearchResult>()
+  const removedIndexes = new Set<number>()
+
+  for (let index = 0; index < results.length; index += 1) {
+    const linkedResult = results[index]
+    const href = primaryNavigationHref(linkedResult)
+    const targetRecordId = href ? directNavigationRecordId(href) : null
+    if (!targetRecordId || targetRecordId === linkedResult.recordId) continue
+
+    const targetIndexes = (indexesByRecord.get(resultScopeKey(linkedResult, targetRecordId)) ?? [])
+      .filter((candidateIndex) => candidateIndex !== index && !removedIndexes.has(candidateIndex))
+    if (targetIndexes.length !== 1) continue
+
+    const targetIndex = targetIndexes[0]
+    const targetResult = replacements.get(targetIndex) ?? results[targetIndex]
+    if (primaryNavigationHref(targetResult)) continue
+
+    const linkedTitle = presenterTitle(linkedResult)
+    const targetTitle = presenterTitle(targetResult)
+    if (!linkedTitle || linkedTitle !== targetTitle) continue
+
+    replacements.set(targetIndex, {
+      ...targetResult,
+      score: Math.max(targetResult.score, linkedResult.score),
+      source: linkedResult.score > targetResult.score ? linkedResult.source : targetResult.source,
+      presenter: linkedResult.presenter ?? targetResult.presenter,
+      url: linkedResult.url ?? targetResult.url,
+      links: linkedResult.links ?? targetResult.links,
+      metadata: mergeResultMetadata(targetResult.metadata, linkedResult.metadata),
+    })
+    removedIndexes.add(index)
+  }
+
+  return results
+    .map((result, index) => replacements.get(index) ?? result)
+    .filter((_, index) => !removedIndexes.has(index))
+    .sort((left, right) => right.score - left.score)
+}
+
 /**
  * Compute presenter, URL, and links for a single doc using config or fallback.
  * Returns presenter (null if cannot be computed), and optionally URL/links from config.
@@ -285,7 +374,7 @@ export function createPresenterEnricher(
     }
 
     // Enrich results with computed presenter, URL, and links
-    return results.map((result) => {
+    const enrichedResults = results.map((result) => {
       if (!shouldEnrich(result)) return result
       const key = `${result.entityId}:${result.recordId}`
       const enriched = enrichmentMap.get(key)
@@ -297,5 +386,7 @@ export function createPresenterEnricher(
         links: enriched.links ?? result.links,
       }
     })
+
+    return mergeLinkedDuplicateResults(enrichedResults)
   }
 }

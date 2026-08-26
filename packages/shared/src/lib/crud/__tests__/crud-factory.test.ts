@@ -12,6 +12,16 @@ import {
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import {
+  registerLoggerExtension,
+  resetLoggerExtension,
+  type LoggerExtensionRecord,
+} from '@open-mercato/shared/lib/logger'
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 import { z } from 'zod'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
@@ -266,6 +276,28 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  it('GET spreads totalIsCapped only when the engine reports a capped count', async () => {
+    queryEngine.query.mockResolvedValueOnce({
+      items: [{ id: 'id-1', title: 'A', is_done: false }],
+      total: 10_000,
+      page: 1,
+      pageSize: 10,
+      meta: { listCountCapWarning: { entity: 'example.todo', cap: 10_000 } },
+    })
+    const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.total).toBe(10_000)
+    expect(body.totalIsCapped).toBe(true)
+    expect(body.meta.listCountCapWarning).toEqual({ entity: 'example.todo', cap: 10_000 })
+  })
+
+  it('GET omits totalIsCapped entirely for exact totals', async () => {
+    const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    const body = await res.json()
+    expect('totalIsCapped' in body).toBe(false)
   })
 
   const makeDecoratedRoute = () => makeCrudRoute({
@@ -1054,6 +1086,7 @@ describe('CRUD Factory', () => {
     await expect(res.json()).resolves.toEqual({
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
+      requestId: expect.any(String),
     })
   })
 
@@ -1092,6 +1125,138 @@ describe('CRUD Factory', () => {
     await expect(res.json()).resolves.toEqual({
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
+      requestId: expect.any(String),
+    })
+  })
+
+  // Issue #5608 — a generic 500 must carry a requestId the client/support can cite, and
+  // that same id must appear on the server log line so the two can be correlated.
+  describe('generic 500 requestId correlation', () => {
+    const logRecords: LoggerExtensionRecord[] = []
+    const reportError = jest.fn()
+
+    const postWithRequestId = (requestId: string) => interceptorErrorRoute().POST(
+      new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'A' }),
+        headers: { 'content-type': 'application/json', 'x-request-id': requestId },
+      }),
+    )
+
+    beforeEach(() => {
+      logRecords.length = 0
+      reportError.mockClear()
+      registerLoggerExtension({ emit: (record) => logRecords.push(record) })
+      registerTelemetryRuntime({
+        canUseGlobalTracePropagation: () => false,
+        captureTraceContext: () => ({}),
+        continueTrace: (_carrier, _name, fn) => fn(),
+        recordHttpDuration: () => {},
+        reportError,
+        shutdown: async () => {},
+      } satisfies TelemetryRuntime)
+    })
+
+    afterEach(() => {
+      resetLoggerExtension()
+      resetTelemetryRuntime()
+    })
+
+    it('includes a requestId in the body that matches the server log line', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+      const body = await res.json()
+
+      expect(res.status).toBe(500)
+      expect(typeof body.requestId).toBe('string')
+      expect(body.requestId.length).toBeGreaterThan(0)
+
+      const logRecord = logRecords.find((record) => record.message === 'Unexpected CRUD error')
+      expect(logRecord?.fields.requestId).toBe(body.requestId)
+    })
+
+    it('echoes the requestId on an x-request-id response header', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+      const body = await res.json()
+
+      expect(res.headers.get('x-request-id')).toBe(body.requestId)
+    })
+
+    it('reuses an inbound x-request-id header instead of generating a new one', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postWithRequestId('req-fixed-123')
+      const body = await res.json()
+
+      expect(res.status).toBe(500)
+      expect(body.requestId).toBe('req-fixed-123')
+      const logRecord = logRecords.find((record) => record.message === 'Unexpected CRUD error')
+      expect(logRecord?.fields.requestId).toBe('req-fixed-123')
+    })
+
+    // `Headers.get()` returns '' for an empty or whitespace-only header, which a plain
+    // `?? randomUUID()` would hand straight through as a blank correlation id.
+    it.each([
+      ['an empty inbound header', ''],
+      ['a whitespace-only inbound header', '   '],
+    ])('generates a fresh id for %s', async (_label, inbound) => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postWithRequestId(inbound)
+      const body = await res.json()
+
+      expect(res.status).toBe(500)
+      expect(typeof body.requestId).toBe('string')
+      expect(body.requestId.length).toBeGreaterThan(0)
+      const logRecord = logRecords.find((record) => record.message === 'Unexpected CRUD error')
+      expect(logRecord?.fields.requestId).toBe(body.requestId)
+    })
+
+    // A caller-controlled id lands verbatim in the unquoted `key=value` log line, so an
+    // over-long one or one carrying spaces/`=` is discarded rather than echoed.
+    it.each([
+      ['a value carrying log-field separators', 'a=1 tenantId=victim'],
+      ['an over-long value', 'x'.repeat(129)],
+    ])('discards %s in favor of a generated id', async (_label, inbound) => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postWithRequestId(inbound)
+      const body = await res.json()
+
+      expect(res.status).toBe(500)
+      expect(body.requestId).not.toBe(inbound)
+      expect(body.requestId).toMatch(/^[A-Za-z0-9-]{36}$/)
+    })
+
+    it('reports the error to telemetry with the same requestId', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+
+      const res = await postWithRequestId('req-fixed-123')
+      const body = await res.json()
+
+      expect(body.requestId).toBe('req-fixed-123')
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        { module: 'crud', attributes: { requestId: 'req-fixed-123', errorName: 'Error' } },
+      )
+    })
+
+    // The 503/422 branches deliberately stay outside this change (issue #5608) — lock that
+    // in so a later refactor cannot quietly widen the correlation id across every branch.
+    it('leaves the interceptor-rejection branch without a requestId', async () => {
+      commandBus.execute.mockRejectedValue(
+        new CommandInterceptorError('Missing required fields: VAT id', { status: 422 }),
+      )
+
+      const res = await postWithRequestId('req-fixed-123')
+
+      expect(res.status).toBe(422)
+      await expect(res.json()).resolves.toEqual({ error: 'Missing required fields: VAT id' })
+      expect(res.headers.get('x-request-id')).toBeNull()
     })
   })
 

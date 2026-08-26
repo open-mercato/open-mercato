@@ -112,8 +112,11 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       throw notFound(translate('customers.errors.company_not_found', 'Company not found'))
     }
 
+    // Existence oracle (#5504): deny a cross-org read as not-found — identical to
+    // the parent-not-found above — so it cannot reveal that a company exists in an
+    // organization the caller cannot see.
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
-      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+      throw notFound(translate('customers.errors.company_not_found', 'Company not found'))
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: company.organizationId }

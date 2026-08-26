@@ -83,7 +83,7 @@ Client side, `useFeatureFlagBoolean({ id })` and `<FeatureGuard id={...}>` read 
 
 A toggle with no definition row resolves to `MISSING_TOGGLE`, the check API answers `404`, and the client helpers coerce that to **disabled**. Two consequences:
 
-- Every toggle must have a definition row before dependent code runs. Core toggles should ship in `packages/core/src/modules/feature_toggles/defaults.json` and be seeded with `yarn mercato feature_toggles seed-defaults`; third-party definitions currently require explicit operator provisioning.
+- Every toggle must have a definition row before dependent code runs. The owning module should register its own toggles idempotently from its `setup.ts` `seedDefaults` hook (`portal`, `customers`, `sales` and `wms` all do), which covers new tenants and lets existing installations catch up with `yarn mercato seed:defaults --module <moduleId>`. `packages/core/src/modules/feature_toggles/defaults.json` is only for demo/platform toggles that no module owns; it is seeded once by `yarn mercato feature_toggles seed-defaults` during `init`, so a toggle that lives only there stays unregistered on every database created before it shipped.
 - Name toggles so that *missing* is the safe state. Prefer a positive `*_enabled` identifier with `defaultValue: true` over an inverted `disable_*` flag.
 
 Where hiding UI on a failed lookup would be worse than showing it, wrap the check in your own fail-open helper rather than depending on the default coercion — `packages/core/src/modules/sales/lib/salesChannelsToggle.ts` is the reference.
@@ -132,7 +132,7 @@ Follow the standard entity workflow: update `data/entities.ts`, run `yarn db:gen
 
 A client uses products but has a single sales channel, so the channel picker, column, filter, and management pages are noise for them.
 
-The value varies per tenant, only gates UI surfaces, and has to be read from client components — litmus test step 3, so a **feature toggle**. `sales_channels_enabled` ships in `defaults.json` with `defaultValue: true`; tenant admins override it at `/backend/feature-toggles/overrides`. No data-layer change was needed: `channelId` is already nullable and channel-less base prices already resolve.
+The value varies per tenant, only gates UI surfaces, and has to be read from client components — litmus test step 3, so a **feature toggle**. `sales_channels_enabled` is defined and seeded by the sales module itself (`packages/core/src/modules/sales/lib/salesChannelsToggleSeed.ts`, wired into `sales/setup.ts` `seedDefaults`) with `defaultValue: true`; tenant admins override it at `/backend/feature-toggles/overrides`. No data-layer change was needed: `channelId` is already nullable and channel-less base prices already resolve.
 
 Two alternatives that would have been wrong:
 
@@ -143,6 +143,6 @@ Two alternatives that would have been wrong:
 
 Documented so you are not surprised by them:
 
-- **Toggle definitions are centralised.** `defaults.json` lives inside `@open-mercato/core`, so a third-party module cannot ship a toggle definition without editing core or having an operator run the CLI. Every other module contract (`acl.ts`, `events.ts`, `ce.ts`, `setup.ts`) is auto-discovered from the module's own folder.
+- **Toggle definitions are not auto-discovered.** A module registers its toggles by calling its own seeding helper from `setup.ts` `seedDefaults`; there is no `toggles.ts` contract the generator picks up the way it picks up `acl.ts`, `events.ts` or `ce.ts`. Forgetting the `seedDefaults` call is silent — the toggle simply resolves to `MISSING_TOGGLE` at runtime.
 - **Feature toggles have no code-side default.** `getFeatureToggleValue` and `useFeatureFlagBoolean` take no default value, so callers who need fail-open behaviour hand-roll it. `ModuleConfigService.getValue` does accept `defaultValue`.
 - **`OM_*` env vars are not indexed.** There are well over a hundred and they are only discoverable by grep. A handful are semantically per-tenant despite being process-wide — `OM_ATTACHMENT_TENANT_QUOTA_MB` and `OM_SEARCH_ENABLED` among them. Treat those as legacy, not as precedent.

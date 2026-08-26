@@ -24,6 +24,63 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
+
+`AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
+
+Nothing changes at runtime beyond the tag name — no prop was added, removed, or renamed, and `<p>` and `<div>` render identically under the design system's Tailwind preflight, so no visual regression accompanies the change. What changes is the **type**:
+
+- `AlertDescriptionProps` widens from `React.HTMLAttributes<HTMLParagraphElement>` to `React.HTMLAttributes<HTMLDivElement>`.
+- The forwarded ref type changes from `HTMLParagraphElement` to `HTMLDivElement`.
+
+**Action for module authors:** if you hold a ref to `AlertDescription` as `useRef<HTMLParagraphElement>(null)`, or annotate one of its event handlers with `React.*Event<HTMLParagraphElement>`, change the element type to `HTMLDivElement`. Nothing else is affected: the component is used by composition in 97 files across this repository and not one of them passes a ref, so the practical migration surface is very small. There is no runtime bridge to stage because the element type is the entire changed surface — a mismatched annotation is a compile error in your own package, never a silent behavior change. Callers that previously worked around the restriction by rendering block `<span>`s inside the description (for example the record-locks settings page shipped in #5481) keep working unchanged and may be simplified back to real paragraphs at leisure.
+
+### Device API responses are camelCase; the snake_case keys are deprecated aliases (#5513)
+
+`GET /api/devices`, `GET /api/devices/admin/devices` and `GET /api/devices/admin/devices/:id` returned the raw database column names (`device_id`, `user_id`, `last_seen_at`, …) while every other module returns camelCase. A client written against the platform convention read `undefined` for every field on this one module. All three routes now return camelCase keys as the canonical shape:
+
+| Deprecated alias | Canonical key |
+|------------------|---------------|
+| `tenant_id` | `tenantId` (list routes only) |
+| `organization_id` | `organizationId` (list routes only) |
+| `user_id` | `userId` |
+| `device_id` | `deviceId` |
+| `client_app_version` | `clientAppVersion` |
+| `os_version` | `osVersion` |
+| `push_provider` | `pushProvider` |
+| `push_token_updated_at` | `pushTokenUpdatedAt` |
+| `last_seen_at` | `lastSeenAt` |
+| `created_at` | `createdAt` |
+| `updated_at` | `updatedAt` |
+
+`id`, `platform` and `locale` are spelled the same either way and are unchanged. Nothing was removed: **every snake_case key is still returned**, holding the same value as its camelCase counterpart, and is marked deprecated in the OpenAPI document. The aliases are removed no earlier than the next minor release.
+
+Request-side contracts are untouched — query parameters, the `sortField` values (`lastSeenAt`, `createdAt`, `updatedAt`, already camelCase), request bodies, and the `POST`/`PUT`/`DELETE` response shapes are unchanged, as are the database columns themselves. The one behavior difference for a caller already reading the snake_case keys is that timestamp columns now always serialize as ISO-8601 strings under both spellings. `push_token` remains absent from every response under either spelling.
+
+**Action for API consumers:** switch to the camelCase keys. A client that keeps reading the snake_case ones works unchanged until the aliases are removed.
+
+### Interaction participants may omit `userId` — external calendar guests (#5115)
+
+`interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.
+
+Nothing that was previously accepted is now rejected, and no field was removed from any response. What changes for consumers is that `participants[].userId` in the `GET /api/customers/interactions` response — and in the OpenAPI document generated from `interactionListItemSchema` — is now **optional rather than required**. Every participant that could exist before still carries its `userId`; the key is absent only on guest participants, a row shape that could not be stored until this release.
+
+**Action for API consumers:** treat `participants[].userId` as optional. A generated client or hand-written type that declares it required keeps working until someone in that tenant actually invites an external guest, at which point a strict response validator will reject the payload and a `participant.userId` dereference will yield `undefined`. Identify a participant by `userId` when present and fall back to the normalized (trimmed, lower-cased) `email` otherwise — that is exactly the canonical actor key the platform's own calendar mapping, participant dedupe and conflict detection now use (`lib/calendar/participantIdentity.ts`). No database migration is required: `customer_interactions.participants` is a schemaless JSONB column with no foreign key or constraint.
+
+### CRM deal status filters and closures now use one canonical vocabulary (#5107)
+
+`customer_deals.status` is a lenient text column whose writers disagreed on spelling: UI closure flows persist `win` / `loose`, the AI tool `customers.update_deal_stage` persists `won` / `lost`, and the seeded dictionary also carries `closed`. Deal filtering previously matched whatever spelling the caller sent, so "won" results differed between the CRM list view, the Kanban board, and deals closed through different surfaces.
+
+Three behavior changes ship together — additive on the wire, but visible to operators:
+
+1. **Status filters are expanded through the canonical vocabulary** (`expandDealStatusAliases` in `@open-mercato/core/modules/customers/lib/dealStatus.ts`, shared by the deals list route, the Kanban lane queries, the map route, and the Kanban aggregate route). `win` / `won` both match won deals, `loose` / `lost` both match lost deals, values are matched case-insensitively (each result also keeps the caller's original token), and **the seeded `closed` option now matches the whole terminal set (`win`, `won`, `loose`, `lost`, `closed`) instead of the single literal `closed` status**, which no writer ever persisted. Any other value passes through trimmed, alongside its lower-case form, for exact matching.
+2. **Closing a deal by status alone now records full closure state.** `customers.deals.update` derives `closureOutcome` from a terminal status spelling when the request carries no explicit outcome or stage (UI spellings `win`/`loose` and AI spellings `won`/`lost` behave identically) and relocates the deal to the pipeline's terminal Won/Lost stage when one exists. Conversely, updating an already-closed deal to a non-terminal status without an explicit `closureOutcome` now clears `closureOutcome`, `lossReasonId`, and `lossNotes`.
+3. **The AI mutation-approval card projects these derived writes** (terminal stage, closure outcome, cleared loss columns), so what the operator approves matches what the command persists.
+
+No API route, method, request field, or response field was removed; the aggregate route's accepted `status` values were widened. On `GET /api/customers/deals/aggregate` an injected `status = 'open'` for `isOverdue=true` is now suppressed when the caller supplies an explicit status filter (matching `GET /api/customers/deals`), so combined overdue+status lane header counts change accordingly. A deal moved into a terminal stage by Kanban drag-and-drop keeps its previous status — it is placed by stage but not matched by status filters until it is closed through a closure flow; recording that gap is deliberate, and automating status on drag is future work. Existing rows closed by the AI tool before this change keep their stored status and lane — they match the corrected filters via spelling expansion but are not retroactively moved to a terminal stage; re-saving such a deal through any closure flow applies the new state. No data backfill runs automatically.
+
+**Action for module authors:** if you filtered deals with raw status spellings outside the shared helpers, prefer `lib/dealStatus.ts` (`expandDealStatusAliases`, `isClosedDealStatus`) so your reads stay consistent with the platform views.
+
 ### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
 
 `loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
@@ -162,6 +219,53 @@ beforeExecute: async (input, context) => ({
 The key is `logContext`, not `context`, specifically so that the generic `metadata` payload an interceptor already passes to its own `afterExecute` hook is never silently promoted into audit storage.
 
 **Also changed:** `ActionLog.context_json` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context` (in ascending precedence). Previously `buildLog().context` replaced `options.metadata.context` wholesale, so entries where both were set now carry the union of their keys rather than only the former's. **Action:** if you read `context_json` and relied on absent base keys, key off the specific fields you own rather than the object's shape.
+
+### List totals are capped at 10 000 by default — treat `total` as a floor when `totalIsCapped` is true
+
+Every CRUD list count is now bounded: the database stops counting after
+`OM_LIST_COUNT_CAP` (default `10000`) matching rows. Below the cap, `total` stays
+exact and responses are byte-identical to before. At the cap, the response
+reports `total: <cap>` together with a new optional `totalIsCapped: true` field
+(and `meta.listCountCapWarning` from the query engine). **When `totalIsCapped`
+is true, both `total` and `totalPages` are floors, not values** — rows past the
+cap exist and remain servable (data queries are offset-based and independent of
+the count), but any pager that derives its page count from `total` will stop
+offering them. The platform's `Pagination`/`DataTable` handle this: a capped
+pager never clamps the current page down to the floor, suppresses the last-page
+jump, and keeps Next available through short-page detection while pages come
+back full. A custom pager built on `total` must do the same or its users cannot
+reach rows past the cap. This is a **value-level behavior change on a STABLE
+response surface**, shipped enabled, because an exact `COUNT` over arbitrary
+filters is `O(matching rows)` and dominates list latency on large tables.
+
+**Action for API clients:** wherever you consume `total` as ground truth about
+the full result set (loop bounds, "N results" labels, reconciliation), treat it
+as a floor whenever `totalIsCapped` is `true`. To enumerate a full result set,
+page until a page comes back with fewer rows than requested — never until you
+have collected `total` rows.
+
+**Action for UI authors:** thread `totalIsCapped` from your list response into
+`DataTable`'s `pagination` prop. Every in-tree list does this already, and a
+CI guard (`yarn check:pagination-capped`) keeps the set closed, so this applies
+to tables you maintain outside the repo. It is not only a labelling concern: an
+unadopted table renders the floor as if it were exact **and stops offering rows
+past it**, because its page count is derived from a capped `total`. With the
+flag threaded, `DataTable` renders "10 000+", keeps Next available while pages
+come back full, and never clamps a deep-linked page down to the floor.
+
+**Escape hatch:** `OM_LIST_COUNT_CAP=0` disables capping and restores exact
+count *values* globally. It is read per request from the environment, is
+permanently supported, and needs no redeploy. Note it restores the values, not
+the previous query shape: counts keep running through the rebuilt
+scope-and-filters query (with filters as `EXISTS` semi-joins), which is
+strictly lighter on unfiltered lists and plans set-oriented on filtered ones.
+
+**Doc-storage counts count rows, not distinct record ids.** Custom-entity
+(doc-storage) list counts changed from `count(distinct entity_id)` to
+`count(*)`. Within one organization the two are identical. Across a scope
+spanning several organizations that hold a row for the same record id, the
+count now matches the item list — which returns one row per storage row — where
+it previously under-reported relative to the items.
 
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
@@ -929,6 +1033,75 @@ Same root cause as above, in the enterprise `security` module. Because `security
 3. **Enforcement compliance & policies.** `GET /api/security/enforcement/compliance` now requires platform-admin for `scope=platform` (previously it counted users across all tenants) and validates `scope=tenant|organisation` ownership; enforcement policy list/create/update/delete reject foreign-tenant/org scopes for non-super-admins (`403`). The unfiltered `em.find(User, { deletedAt: null })` is unreachable for non-super-admins.
 
 *Action for downstream:* none unless internal tooling relied on a tenant admin viewing other tenants' MFA posture or using `scope=platform` — those calls now require a platform/super-admin. No DB schema change; no ACL feature IDs renamed. Service methods (`MfaAdminService`, `MfaEnforcementService`) gained an **optional** actor-context backstop param — additive, existing callers unaffected. Reuses the core `enforceTenantSelection`/`resolveIsSuperAdmin` helpers, so the enterprise build must be paired with a core that has them (true since ≤ 0.6.4). See [`.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md`](.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md).
+
+### Scheduler queue targets restricted to authorized safe workers (security)
+
+The scheduler job API previously let any user holding `scheduler.jobs.manage` point a
+schedule at **any** registered queue worker with an arbitrary JSON payload, and both
+dispatch paths delivered that payload to the worker nearly verbatim — turning the
+scheduler into a confused deputy for privileged internal operations (e.g. a scheduled
+payload could synthesize Stripe webhook events with attacker-chosen scope).
+
+Queue targeting is now an explicit opt-in:
+
+- A worker declares itself schedulable by adding `schedulerSafe: true` to its
+  `WorkerMeta` (`packages/queue`); the module registry propagates the flag and the
+  scheduler honors it everywhere:
+  - `GET /api/scheduler/targets` advertises only safe queues (response shape unchanged).
+  - Create/update via `/api/scheduler/jobs` rejects any other queue with a validation
+    error on `targetQueue`.
+  - Dispatch re-authorizes before enqueue: module-authored schedules
+    (`sourceType: 'module'`) keep working against their own internal queues;
+    API-authored schedules may only target safe queues.
+- The dispatcher rebuilds tenant/organization authority context server-side. Keys named
+  `scope`, `tenantId`, or `organizationId` — plus every `_`-prefixed envelope key — are
+  stripped from author-supplied payloads at the root and inside the local-strategy
+  `payload` wrapper, then replaced with trusted values derived from the schedule row.
+  Module-authored payloads that already stored their own scope equal to the schedule's
+  scope (communication channels, integrations, data-sync) behave identically.
+- Provenance is now server-owned. `sourceType`/`sourceModule` are no longer accepted
+  from API request bodies (unknown keys are dropped silently): schedules created
+  through `/api/scheduler/jobs` are always user-authored and stamped with the acting
+  user. Module-authored schedules keep targeting internal queues **only while their
+  recorded `sourceModule` still owns the queue in the live module registry AND the row
+  carries no acting-user stamp** (`created_by_user_id IS NULL`) — `schedulerService.register()`
+  never sets one, while every session-authenticated API write does. **Known residual:**
+  a row created before the upgrade by a **non-user-bound API key** also lacks that
+  stamp and is indistinguishable from a genuine registration at rest; such rows still
+  pass the dispatch guard. Audit them after upgrading with
+  `yarn mercato scheduler audit-queue-targets`, which lists every module-authored
+  queue-target row with its current dispatch verdict so unrecognized ALLOWED entries
+  can be disabled. Module-authored schedules also reject API changes to their
+  target/payload; unchanged targets are treated as no-ops so operational edits (name,
+  schedule, enabled) keep working from the backend UI, and legacy user rows pointing at
+  now-unapproved queues can still be disabled from the UI (retargeting or leaving such
+  a row active requires an approved queue).
+- Error-status changes on `PUT /api/scheduler/jobs`: retargeting onto an unapproved
+  queue now returns `422` from the update command instead of a zod `400`, rewriting a
+  module-authored schedule's target returns `403`, and saving a user-authored row in a
+  way that leaves it active on an unapproved queue returns `422`. Clients asserting on
+  `400` for these cases should match the new codes.
+- Opted-in targets can declare per-target creator features via
+  `schedulerRequiredFeatures` in worker metadata and a payload schema through
+  `registerSchedulerQueuePayloadSchema(queue, schema)`; both are enforced when
+  creating/updating schedules and re-checked immediately before dispatch. The shipped
+  `scheduler-test` QA queue demonstrates the full descriptor (`{ message?: string }`
+  plus arbitrary keys).
+- Payment webhook processors now fail closed on untrusted dispatch origins: only jobs
+  enqueued by the inbound webhook route (signature verified) carry the trusted origin
+  marker; scheduler-originated or unmarked jobs are dropped with an error log. Jobs that
+  were already sitting in Redis during an upgrade window will be dropped once. The
+  route now enqueues the marked payload flat (`queue.enqueue(jobPayload)`), matching
+  `Queue.enqueue(data)` semantics across strategies.
+
+**Action required:** if your module relied on users scheduling work onto one of your
+queues, add `schedulerSafe: true` to that worker's metadata and validate the schedule
+payload shape in the worker; if you enqueued payment webhook jobs from custom code,
+migrate that code to the standard webhook route or mark the payload with
+`markQueueJobOrigin(payload, 'inbound-webhook')` from
+`@open-mercato/shared/lib/queue/dispatchOrigin`.
+
+No database, ACL-feature, API-route-URL, or response-shape changes ship with this fix.
 
 ### New `om-prepare-issue` skill (deferred-work capture)
 

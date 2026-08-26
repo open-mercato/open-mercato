@@ -104,7 +104,10 @@ jobs:
           CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
 
           # These paths affect behaviour across all modules — run the full sharded suite.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
+          # down this very suite. A change there matches no `src/modules/` path, so without this
+          # entry the job that would exercise it is the one job it can never trigger.
+          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
@@ -401,6 +404,15 @@ jobs:
       - name: Lint
         run: yarn lint
 
+      - name: Guard against unmet peer dependencies in published packages
+        # A peer that only lives in devDependencies resolves fine through the
+        # monorepo's hoisted node_modules but is absent from a standalone app,
+        # which installs dependencies + peerDependencies only. No PR job builds a
+        # standalone app, so without this gate the break first appears post-merge
+        # in the snapshot workflow's `Standalone App Integration Tests`.
+        # Pre-existing cases are pinned in scripts/package-peer-deps-allowlist.json.
+        run: yarn packages:check-peer-deps
+
       - name: Guard against raw console.* logging
         # Blocking since the application-wide migration to the structured
         # logging facade (see .ai/specs/2026-07-02-structured-logging-facade.md).
@@ -612,6 +624,9 @@ jobs:
 
       - name: Check dependency version conflicts
         run: yarn check:dep-versions
+
+      - name: Check paginated lists forward totalIsCapped
+        run: yarn check:pagination-capped
 
       - name: Check i18n sync
         run: yarn tsx scripts/i18n-check-sync.ts
@@ -1063,7 +1078,11 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          # One builder serves all three Dockerfile builds in this job, so they share one
+          # layer cache — same as v1, where the key defaulted to the repository name.
+          cache-key: ci-docker-build
 
       - name: Build docs Dockerfile
         uses: useblacksmith/build-push-action@v2

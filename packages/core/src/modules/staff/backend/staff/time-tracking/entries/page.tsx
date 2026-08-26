@@ -238,6 +238,7 @@ export default function TimeTrackingEntriesPage() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'date', desc: true }])
   const [rows, setRows] = React.useState<TimeEntryListRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [totalPages, setTotalPages] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
@@ -554,6 +555,7 @@ export default function TimeTrackingEntriesPage() {
           .filter((row): row is TimeEntryListRow => row !== null),
       )
       setTotal(typeof listPayload.total === 'number' ? listPayload.total : items.length)
+      setTotalIsCapped(listPayload.totalIsCapped === true)
       setTotalPages(
         typeof listPayload.totalPages === 'number'
           ? listPayload.totalPages
@@ -1151,6 +1153,7 @@ export default function TimeTrackingEntriesPage() {
             page,
             pageSize: PAGE_SIZE,
             total,
+            totalIsCapped,
             totalPages,
             onPageChange: setPage,
           }}

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { WebhookEvent } from '@open-mercato/shared/modules/payment_gateways/types'
+import { isTrustedWebhookDispatch } from '@open-mercato/shared/lib/queue/dispatchOrigin'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { claimWebhookProcessing, releaseWebhookClaim } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
@@ -38,6 +39,17 @@ function readSessionIdFromEvent(event: WebhookEvent): string | null {
 }
 
 export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: HandlerContext): Promise<void> {
+  // Fail closed on untrusted dispatch origins (#5213): only jobs enqueued by the
+  // inbound webhook route (signature verified against per-tenant credentials) may
+  // drive Stripe payment state. Scheduler-dispatched or unmarked jobs are dropped.
+  if (!isTrustedWebhookDispatch(job.payload)) {
+    logger.error('Dropping webhook job with missing or untrusted dispatch origin', {
+      eventType: job.payload?.event?.eventType,
+      transactionId: job.payload?.transactionId ?? null,
+    })
+    return
+  }
+
   const em = ctx.resolve<EntityManager>('em')
   const paymentGatewayService = ctx.resolve<PaymentGatewayService>('paymentGatewayService')
   const integrationLogService = ctx.resolve<IntegrationLogService>('integrationLogService')

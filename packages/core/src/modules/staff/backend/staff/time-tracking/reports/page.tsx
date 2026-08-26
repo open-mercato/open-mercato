@@ -80,6 +80,7 @@ export default function TimeTrackingReportsPage() {
 
   const [rows, setRows] = React.useState<ReportRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [loading, setLoading] = React.useState(true)
 
@@ -108,12 +109,14 @@ export default function TimeTrackingReportsPage() {
           : []
         setRows(items.map(toRow).filter((row): row is ReportRow => row !== null))
         setTotal(readNumber((result as { total?: unknown })?.total) ?? 0)
+        setTotalIsCapped((result as { totalIsCapped?: unknown })?.totalIsCapped === true)
       })
       .catch((err) => {
         if (cancelled) return
         logger.error('staff.time_tracking.reports list failed', { err })
         setRows([])
         setTotal(0)
+        setTotalIsCapped(false)
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -209,6 +212,7 @@ export default function TimeTrackingReportsPage() {
             page,
             pageSize: PAGE_SIZE,
             total,
+            totalIsCapped,
             totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
             onPageChange: setPage,
           }}

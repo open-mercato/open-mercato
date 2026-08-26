@@ -25,10 +25,16 @@ const validSummary = {
   winRate: { value: 0, deltaPp: 0, direction: 'unchanged', previousValue: 0, series: [] },
 }
 
-function renderStrip() {
+// The KPI values are Intl-formatted, so the locale is pinned explicitly (#5105) instead of
+// inheriting the runner's default — DealsKpiStrip formats through the app locale, which
+// `renderWithProviders` supplies via I18nProvider.
+const EN = 'en-US'
+
+function renderStrip(locale = EN) {
   return renderWithProviders(
     <DealsKpiStrip ownerNames={{}} stageDictionary={{}} pipelineCount={0} />,
     {
+      locale,
       dict: {
         'customers.deals.list.kpi.error': "Couldn't load deal metrics",
         'customers.deals.list.kpi.retry': 'Retry',
@@ -47,6 +53,12 @@ describe('DealsKpiStrip — resilience to summary response shape', () => {
     renderStrip()
     expect(await screen.findByText('1K')).toBeInTheDocument()
     expect(screen.queryByText("Couldn't load deal metrics")).not.toBeInTheDocument()
+  })
+
+  it('formats the KPI values in the app locale rather than the runtime default', async () => {
+    mockedApiCall.mockResolvedValue({ ok: true, result: validSummary, cacheStatus: null } as unknown as ApiResult)
+    renderStrip('pl-PL')
+    expect(await screen.findByText('1 tys.')).toBeInTheDocument()
   })
 
   it('shows the error state (never crashes the page) when the summary response is non-conforming', async () => {
