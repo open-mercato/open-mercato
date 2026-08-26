@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import {
   createCompanyFixture,
@@ -93,6 +93,37 @@ async function waitForSingleIndexedProfile(
     .toBe('ready')
 }
 
+/**
+ * Fixtures are seeded with the `admin` token, never the `superadmin` one, even though every
+ * search-side operation below runs as `superadmin`.
+ *
+ * `withScopedPayload` (`packages/shared/src/lib/api/scoped.ts`) rejects a create with
+ * `400 organizationRequired` unless an organization resolves from
+ * `payload.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId`. A superadmin is
+ * tenant-wide with `orgId: null`, so seeding an org-scoped customer with its token is a
+ * guaranteed 400 — the same split TC-CRM-084 uses, where `superadmin` does tenant-level work
+ * and `admin` creates the org-scoped records.
+ *
+ * Both accounts are seeded into the same tenant, which is what makes the split safe: the
+ * superadmin's tenant-wide search still sees the admin's records. That assumption is asserted
+ * rather than trusted, so a seeding change fails here with a clear message instead of
+ * surfacing later as an inexplicably empty palette.
+ */
+async function resolveTokens(
+  request: APIRequestContext,
+): Promise<{ adminToken: string; superToken: string }> {
+  const adminToken = await getAuthToken(request, 'admin')
+  const superToken = await getAuthToken(request, 'superadmin')
+  const adminTenant = getTokenContext(adminToken).tenantId
+  const superTenant = getTokenContext(superToken).tenantId
+  expect(adminTenant.length, 'the admin token carries a tenant id').toBeGreaterThan(0)
+  expect(
+    superTenant,
+    'admin and superadmin must share a tenant, or the superadmin palette cannot see the seeded customers',
+  ).toBe(adminTenant)
+  return { adminToken, superToken }
+}
+
 async function openPaletteWithQuery(page: Page, query: string): Promise<void> {
   await page.locator('header').getByRole('button', { name: 'Open global search' }).click()
   const input = page.locator('[data-search-expanded="true"] input[type="text"]')
@@ -138,22 +169,26 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
     const stamp = Date.now()
     const personName = `QASRCH014P${stamp}`
     const companyName = `QASRCH014C${stamp}`
-    let token: string | null = null
+    let adminToken: string | null = null
+    let superToken: string | null = null
     let originalStrategies: string[] | null = null
     let personId: string | null = null
     let companyId: string | null = null
 
     try {
-      token = await getAuthToken(request, 'superadmin')
-      originalStrategies = await readEnabledStrategies(request, token)
-      await writeEnabledStrategies(request, token, ['tokens'])
+      const tokens = await resolveTokens(request)
+      adminToken = tokens.adminToken
+      superToken = tokens.superToken
 
-      personId = await createPersonFixture(request, token, {
+      originalStrategies = await readEnabledStrategies(request, superToken)
+      await writeEnabledStrategies(request, superToken, ['tokens'])
+
+      personId = await createPersonFixture(request, adminToken, {
         firstName: 'QA',
         lastName: `Search 014 ${stamp}`,
         displayName: personName,
       })
-      companyId = await createCompanyFixture(request, token, companyName)
+      companyId = await createCompanyFixture(request, adminToken, companyName)
 
       const fixtures: Fixture[] = [
         {
@@ -172,8 +207,10 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
         },
       ]
 
+      // Poll as `superadmin` — the same principal the palette queries as — so an entity-access
+      // difference between the two accounts surfaces here rather than as an empty palette.
       for (const fixture of fixtures) {
-        await waitForSingleIndexedProfile(request, token, fixture.title, fixture.entityId)
+        await waitForSingleIndexedProfile(request, superToken, fixture.title, fixture.entityId)
       }
 
       await login(page, 'superadmin')
@@ -206,10 +243,10 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
         await page.waitForURL(new RegExp(`${fixture.detailPrefix}/[^/?#]+$`), { timeout: 20_000 })
       }
     } finally {
-      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
-      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
-      if (token && originalStrategies) {
-        await writeEnabledStrategies(request, token, originalStrategies).catch(() => undefined)
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
+      await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId)
+      if (superToken && originalStrategies) {
+        await writeEnabledStrategies(request, superToken, originalStrategies).catch(() => undefined)
       }
     }
   })
@@ -228,19 +265,19 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
     const stamp = Date.now()
     const personName = `QASRCH014LP${stamp}`
     const companyName = `QASRCH014LC${stamp}`
-    let token: string | null = null
+    let adminToken: string | null = null
     let personId: string | null = null
     let companyId: string | null = null
 
     try {
-      token = await getAuthToken(request, 'superadmin')
+      adminToken = (await resolveTokens(request)).adminToken
 
-      personId = await createPersonFixture(request, token, {
+      personId = await createPersonFixture(request, adminToken, {
         firstName: 'QA',
         lastName: `Search 014 List ${stamp}`,
         displayName: personName,
       })
-      companyId = await createCompanyFixture(request, token, companyName)
+      companyId = await createCompanyFixture(request, adminToken, companyName)
 
       await login(page, 'superadmin')
 
@@ -286,8 +323,8 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
         ).toBeVisible({ timeout: 20_000 })
       }
     } finally {
-      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
-      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
+      await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId)
     }
   })
 })
