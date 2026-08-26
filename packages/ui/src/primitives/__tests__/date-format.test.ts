@@ -52,30 +52,34 @@ describe('display value helpers', () => {
   // Local midnight is `00:00` in every zone, so asserting the time pins the parse without the
   // runner being in a particular zone. A UTC parse reads `02:00` in Europe/Warsaw.
   it('parses a date-only value as local midnight, so the stored day survives the viewer timezone', () => {
-    expect(formatDisplayDateTime('2026-07-01')).toBe('2026-07-01 00:00')
-    expect(formatDisplayDate('2026-07-01')).toBe('2026-07-01')
+    expect(formatDisplayDateTime('2026-07-01', 'pl')).toBe('1 lip 2026 00:00')
+    expect(formatDisplayDate('2026-07-01', 'pl')).toBe('1 lip 2026')
   })
 
-  it('defaults to ISO even under a locale whose picker pattern differs', () => {
+  // With no env override the display pattern is the locale's own, and the month name comes from
+  // the resolved date-fns locale — so this agrees with `ReturnsSection` / `ShipmentsSection`,
+  // which render `9 cze 2026` beside it. A bare string locale is enough; callers hold one.
+  it('derives the pattern and the month name from the locale', () => {
     expect(deriveDateDisplayFormat('pl')).toBe('d MMM yyyy')
-    expect(formatDisplayDate('2026-07-01', pl)).toBe('2026-07-01')
+    expect(formatDisplayDate('2026-07-01', 'pl')).toBe('1 lip 2026')
+    expect(formatDisplayDate('2026-07-01', 'en')).toBe('Jul 1, 2026')
   })
 
   it('keeps the instant for an offset-carrying value', () => {
-    expect(formatDisplayDateTime('2026-07-01T09:30:00Z')).toBe(
-      formatWithPublicDateFormat(new Date('2026-07-01T09:30:00Z'), 'yyyy-MM-dd HH:mm'),
+    expect(formatDisplayDateTime('2026-07-01T09:30:00Z', 'pl')).toBe(
+      formatWithPublicDateFormat(new Date('2026-07-01T09:30:00Z'), 'd MMM yyyy HH:mm', pl),
     )
   })
 
   it('accepts a Date as well as a string', () => {
-    expect(formatDisplayDate(new Date(2026, 6, 1))).toBe('2026-07-01')
-    expect(formatDisplayDateTime(new Date(2026, 6, 1, 9, 30))).toBe('2026-07-01 09:30')
-    expect(formatDisplayDate(new Date('not-a-date'))).toBeNull()
+    expect(formatDisplayDate(new Date(2026, 6, 1), 'pl')).toBe('1 lip 2026')
+    expect(formatDisplayDateTime(new Date(2026, 6, 1, 9, 30), 'pl')).toBe('1 lip 2026 09:30')
+    expect(formatDisplayDate(new Date('not-a-date'), 'pl')).toBeNull()
   })
 
   it('tolerates surrounding whitespace, as DataTable does', () => {
-    expect(formatDisplayDate(' 2026-07-01 ')).toBe('2026-07-01')
-    expect(formatDisplayDate('   ')).toBeNull()
+    expect(formatDisplayDate(' 2026-07-01 ', 'pl')).toBe('1 lip 2026')
+    expect(formatDisplayDate('   ', 'pl')).toBeNull()
   })
 
   it('honours the configured env formats', () => {
@@ -112,8 +116,9 @@ describe('resolveDisplayDateTimeFormat', () => {
     expect(resolveDisplayDateTimeFormat()).toBe('dd.MM.yyyy HH:mm')
   })
 
-  it('ends at ISO with a time', () => {
-    expect(resolveDisplayDateTimeFormat()).toBe('yyyy-MM-dd HH:mm')
+  it('ends at the locale pattern with a time', () => {
+    expect(resolveDisplayDateTimeFormat('pl')).toBe('d MMM yyyy HH:mm')
+    expect(resolveDisplayDateTimeFormat('en')).toBe('MMM d, yyyy HH:mm')
   })
 })
 
@@ -185,7 +190,7 @@ describe('rendering a stored date-only column', () => {
 
   it('agrees with an editor that seeds from the UTC day', () => {
     expect(toUtcDateInputValue(STORED)).toBe(STORED.slice(0, 10))
-    expect(formatDisplayDate(toUtcDateInputValue(STORED))).toBe('2026-07-01')
+    expect(formatDisplayDate(toUtcDateInputValue(STORED), 'pl')).toBe('1 lip 2026')
   })
 
   it('still honours the configured display format', () => {

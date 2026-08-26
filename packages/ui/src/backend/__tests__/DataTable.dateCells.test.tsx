@@ -46,7 +46,10 @@ describe('DataTable date cells', () => {
   it('renders a date-only value as local midnight of the stored day', () => {
     renderTable([{ id: '1', created_at: '2026-07-01' }])
 
-    expect(screen.getByText('2026-07-01 00:00')).toBeInTheDocument()
+    // `en` is the locale this harness provides; with no env override the pattern is that locale's.
+    // The time is asserted too: a UTC parse reads `02:00` in Europe/Warsaw and 30 June further west,
+    // while local midnight is `00:00` everywhere.
+    expect(screen.getByText('Jul 1, 2026 00:00')).toBeInTheDocument()
   })
 
   // One env chain with the detail-page helpers: a table cell and a detail field must not disagree.

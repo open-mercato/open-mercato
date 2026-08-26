@@ -62,13 +62,17 @@ class ResizeObserverMock {
 // with a `Z`. The Edit dialog seeds itself from `receivedAt.slice(0, 10)` — the UTC day — so
 // the cell must name that same day, or one row contradicts itself with no reload.
 const STORED_RECEIVED_AT = '2026-07-01T00:00:00.000Z'
-const DIALOG_SEEDS = STORED_RECEIVED_AT.slice(0, 10)
+// `pl-PL` on purpose: it renders a day the en-US default never produces, so a component that
+// stops threading the locale fails here instead of merely looking plausible — the rule in
+// `.ai/lessons/tests-asserting-intl-output-must-pin-locale-and-date.md`.
+const DIALOG_SEEDS_DAY = '1 lip 2026'
+const LOCAL_READING_WOULD_SAY = '30 cze 2026'
 
 function renderSection() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0, retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <I18nProvider locale="en" dict={{}}>
+      <I18nProvider locale="pl-PL" dict={{}}>
         <SalesDocumentPaymentsSection orderId="order-1" currencyCode="EUR" />
       </I18nProvider>
     </QueryClientProvider>,
@@ -97,15 +101,16 @@ describe('sales payments table — the Received column', () => {
     })
   })
 
-  // Reading the stored instant's LOCAL day renders 2026-06-30 anywhere west of UTC, while the
-  // Edit dialog on the same row still reads 2026-07-01. Asserting against the dialog's own
-  // derivation keeps the expectation true in every zone.
+  // Reading the stored instant's LOCAL day names 30 June anywhere west of UTC, while the Edit
+  // dialog on the same row still seeds 2026-07-01. The assertion is on the *day*, not on the
+  // format: which convention renders it is a separate decision (locale by default here).
   it('names the day the Edit dialog seeds, not the viewer-local day', async () => {
     renderSection()
 
     await waitFor(() => {
       expect(screen.getByText('REF-1')).toBeInTheDocument()
     })
-    expect(screen.getByText(DIALOG_SEEDS)).toBeInTheDocument()
+    expect(screen.getByText(DIALOG_SEEDS_DAY)).toBeInTheDocument()
+    expect(screen.queryByText(LOCAL_READING_WOULD_SAY)).toBeNull()
   })
 })

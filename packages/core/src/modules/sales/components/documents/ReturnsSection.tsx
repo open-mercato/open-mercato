@@ -41,12 +41,12 @@ type SalesReturnsSectionProps = {
   documentUpdatedAt?: string | null
 }
 
-export function formatDisplayDate(value: string | null | undefined, locale?: string): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
-}
+// One date formatter for this page rather than three with incompatible semantics. Unchanged for
+// these call sites: with no env override the shared helper derives its pattern from the same
+// locale this used to pass to `Intl`.
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
+
+export { formatDisplayDate }
 
 export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
   const t = useT()

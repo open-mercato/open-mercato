@@ -298,14 +298,14 @@ export function SalesDocumentPaymentsSection({
         // `z.coerce.date()` and stored as UTC midnight, so its day must be read in UTC.
         // Reading it locally names the previous day west of UTC — and disagrees with the
         // Edit dialog, which seeds from `receivedAt.slice(0, 10)`, i.e. the UTC day.
-        cell: ({ row }) => formatDisplayDate(toUtcDateInputValue(row.original.receivedAt)) ?? '—',
+        cell: ({ row }) => formatDisplayDate(toUtcDateInputValue(row.original.receivedAt), locale) ?? '—',
       },
       {
         accessorKey: 'createdAt',
         header: t('sales.documents.payments.createdAt', 'Created'),
-        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt) ?? '—',
+        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt, locale) ?? '—',
         meta: {
-          tooltipContent: (row: PaymentRow) => formatDisplayDateTime(row.createdAt) ?? undefined,
+          tooltipContent: (row: PaymentRow) => formatDisplayDateTime(row.createdAt, locale) ?? undefined,
         },
       },
       {

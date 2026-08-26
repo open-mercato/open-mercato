@@ -1,6 +1,11 @@
 import { format as formatDateFns } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import type { Locale } from 'date-fns/locale'
+import { enUS } from 'date-fns/locale/en-US'
+import { pl } from 'date-fns/locale/pl'
+import { es } from 'date-fns/locale/es'
+import { de } from 'date-fns/locale/de'
+import { ko } from 'date-fns/locale/ko'
 
 type LocaleLike = Locale | string | null | undefined
 
@@ -14,6 +19,23 @@ function getLocaleCode(locale?: LocaleLike): string {
   if (!locale) return ''
   if (typeof locale === 'string') return locale.split('-')[0]?.toLowerCase() ?? ''
   return locale.code?.split('-')[0]?.toLowerCase() ?? ''
+}
+
+/**
+ * The five locales this app ships translations for, so a caller holding the BCP-47 string from
+ * `useLocale()` can reach a date-fns `Locale`. Without this a locale-derived pattern still renders
+ * English month names — `9 Jun 2026` where the sibling tabs render `9 cze 2026`.
+ *
+ * An unknown code falls back to `enUS` rather than throwing: a missing translation should degrade
+ * to English, not blank the date.
+ */
+const DATE_FNS_LOCALES: Record<string, Locale> = { en: enUS, pl, es, de, ko }
+
+export function resolveDateFnsLocale(locale?: LocaleLike): Locale | undefined {
+  if (!locale) return undefined
+  if (typeof locale !== 'string') return locale
+  const code = locale.split('-')[0]?.toLowerCase() ?? ''
+  return DATE_FNS_LOCALES[code] ?? enUS
 }
 
 export function normalizeDateFormatPattern(value: string | null | undefined): string | null {
@@ -63,19 +85,20 @@ export function formatWithPublicDateFormat(date: Date, format: string, locale?: 
 /**
  * The pattern for a date rendered as static text next to a label — a detail field, a summary card.
  *
- * Deliberately NOT `resolvePublicDateFormat`: that one falls back to a locale-derived, month-name
- * pattern (`d MMM yyyy`) suited to a date picker's own display. Static values are dense and get
- * scanned in bulk, and they sit alongside `DataTable` cells, which resolve through
- * `resolveDisplayDateTimeFormat` — so both default to ISO and both honour the same env overrides.
+ * With no env override the pattern is derived from the application locale, which is what the rest
+ * of this page already does: `ReturnsSection` and `ShipmentsSection` render `9 cze 2026` under a
+ * `pl` locale, and a detail field formatting ISO beside them puts two conventions on one screen —
+ * the regression UI QA caught on #5182. ISO stays the contract for machine-facing values
+ * (`toDateInputValue`, storage, serialization), never for a display label.
  *
- * A date-only value reads only the date vars: there is no time to render, so a `…DATE_TIME_FORMAT`
- * pattern cannot apply. An app that sets only that var therefore still gets ISO here.
+ * An env override wins over the locale, so a deployment that wants one fixed shape sets
+ * `NEXT_PUBLIC_OM_DATE_FORMAT` and gets it everywhere.
  */
-export function resolveDisplayDateFormat(): string {
+export function resolveDisplayDateFormat(locale?: LocaleLike): string {
   return (
     normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
     ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-    ?? 'yyyy-MM-dd'
+    ?? deriveDateDisplayFormat(locale)
   )
 }
 
@@ -87,13 +110,13 @@ export function resolveDisplayDateFormat(): string {
  * said how a date should look and said nothing about time — appending `HH:mm` would invent a
  * requirement. This is the precedence `resolvePublicDateTimeFormat` already uses.
  */
-export function resolveDisplayDateTimeFormat(): string {
+export function resolveDisplayDateTimeFormat(locale?: LocaleLike): string {
   return (
     normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
     ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_TIME_FORMAT)
     ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
     ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-    ?? `${resolveDisplayDateFormat()} HH:mm`
+    ?? `${resolveDisplayDateFormat(locale)} HH:mm`
   )
 }
 
@@ -113,15 +136,17 @@ function parseDisplayValue(value: string | Date | null | undefined): Date | null
 }
 
 /** Render a date for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDate(value: string | Date | null | undefined, locale?: Locale): string | null {
+export function formatDisplayDate(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
   const parsed = parseDisplayValue(value)
-  return parsed ? formatWithPublicDateFormat(parsed, resolveDisplayDateFormat(), locale) : null
+  if (!parsed) return null
+  return formatWithPublicDateFormat(parsed, resolveDisplayDateFormat(locale), resolveDateFnsLocale(locale))
 }
 
 /** Render a timestamp for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDateTime(value: string | Date | null | undefined, locale?: Locale): string | null {
+export function formatDisplayDateTime(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
   const parsed = parseDisplayValue(value)
-  return parsed ? formatWithPublicDateFormat(parsed, resolveDisplayDateTimeFormat(), locale) : null
+  if (!parsed) return null
+  return formatWithPublicDateFormat(parsed, resolveDisplayDateTimeFormat(locale), resolveDateFnsLocale(locale))
 }
 
 /**

@@ -3873,7 +3873,7 @@ export default function SalesDocumentDetailPage({
         renderDisplay: (params) => {
           const { value, emptyLabel } = params
           return (
-            <span className="text-sm text-muted-foreground">{formatDisplayDate(value) ?? emptyLabel}</span>
+            <span className="text-sm text-muted-foreground">{formatDisplayDate(value, locale) ?? emptyLabel}</span>
           )
         },
       })
@@ -3915,10 +3915,10 @@ export default function SalesDocumentDetailPage({
         render: () => (
           <SectionCard title={t('sales.documents.detail.timestamps', 'Timestamps')} muted>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.created', 'Created')}: {formatDisplayDateTime(record?.createdAt) ?? '—'}
+              {t('sales.documents.detail.created', 'Created')}: {formatDisplayDateTime(record?.createdAt, locale) ?? '—'}
             </p>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.updated', 'Updated')}: {formatDisplayDateTime(record?.updatedAt) ?? '—'}
+              {t('sales.documents.detail.updated', 'Updated')}: {formatDisplayDateTime(record?.updatedAt, locale) ?? '—'}
             </p>
           </SectionCard>
         ),
@@ -4720,7 +4720,7 @@ export default function SalesDocumentDetailPage({
             saveLabel={t('customers.people.detail.inline.saveShortcut')}
             renderDisplay={({ value, emptyLabel }) => (
               <span className="text-sm text-muted-foreground">
-                {formatDisplayDate(value) ?? emptyLabel}
+                {formatDisplayDate(value, locale) ?? emptyLabel}
               </span>
             )}
           />
