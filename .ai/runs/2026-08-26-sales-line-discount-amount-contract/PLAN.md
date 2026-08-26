@@ -19,8 +19,8 @@
 | 0 | 0.4 | Record the D5 deferral and the changelog entry | inline | done | 91a2e4d13 |
 | 1 | 1.1 | Add the discount-basis types to `lib/types.ts` | inline | done | 6d2a702fe |
 | 1 | 1.2 | Percentage-first, basis-aware discount in `buildBaseLineResult` | inline | done | 376d6aad6 |
-| 1 | 1.3 | Unit tests for the calculation engine | inline | done | — |
-| 2 | 2.1 | Extract the shared order-line entity→snapshot mapper | inline | todo | — |
+| 1 | 1.3 | Unit tests for the calculation engine | inline | done | 993d11b3f |
+| 2 | 2.1 | Extract the shared order-line entity→snapshot mapper | inline | done | — |
 | 2 | 2.2 | Point `commands/documents.ts` at the shared mapper | inline | todo | — |
 | 2 | 2.3 | Point `commands/returns.ts` at it and delete the duplicate | inline | todo | — |
 | 2 | 2.4 | Tag `mapQuoteLineEntityToSnapshot` as stored-row sourced | inline | todo | — |
