@@ -26,7 +26,7 @@ describe('Notification primitive', () => {
   it('renders title as AlertTitle and description below', () => {
     render(<Notification title="John commented" description="On the latest deal" />)
     expect(screen.getByText('John commented').tagName).toBe('H5')
-    expect(screen.getByText('On the latest deal').tagName).toBe('P')
+    expect(screen.getByText('On the latest deal').tagName).toBe('DIV')
   })
 
   it('description gets opacity-70 (DS opacity scale; was opacity-72 in early v5, snapped to scale per .ai/ds-rules.md)', () => {
