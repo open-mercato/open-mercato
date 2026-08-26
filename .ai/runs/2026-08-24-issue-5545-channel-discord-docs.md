@@ -165,3 +165,51 @@ Also worth correcting on the #4391 branch: the spec's § Invite the bot carries 
 integers, its Interactions Endpoint URL points at `/api/communication_channels/webhook/discord`
 rather than the shipped `/api/channel_discord/interactions`, and it references a
 `register-slash-commands` CLI command `cli.ts` does not define.
+
+### Phase 6: Resume after #4391 merged (`om-auto-continue-pr 5587`)
+
+Added on 2026-08-26. Phases 1–5 were all `- [x]`, but the PR was not finishable: it carried
+`blocked` because `packages/channel-discord` was not yet on `develop`, and the re-review left two
+follow-ups that could only be done once it was. [#4391](https://github.com/open-mercato/open-mercato/pull/4391)
+merged as `f75c35b3d` on 2026-08-25, so both are now actionable.
+
+- [x] 6.1 Merge `origin/develop` into the branch so the docs sit on the code they describe — 3d09ca07e
+- [x] 6.2 Re-verify every code-anchored claim against #4391's **merged** head — ecdacb72b (the re-review's
+      substantive follow-up: the previous pass verified against a moving branch)
+- [x] 6.3 Run the `apps/docs` Docusaurus production build against this head — the re-review flagged
+      that no build had been run since `b735d7882`, and nothing in CI covers `apps/docs`
+- [x] 6.4 Refresh the PR description: the merge-ordering warning and the "#4663 / #4778 are out of
+      scope" framing are both stale
+- [x] 6.5 Flip the pipeline label from `blocked` to `merge-queue`
+
+**Re-verification against merged `packages/channel-discord` (`f75c35b3d`).** Every code-anchored
+claim on both pages was checked against the merged source, not against a branch snapshot:
+
+| Claim | Source of truth | Result |
+|---|---|---|
+| Capability table (21 flags, `supportedBodyFormats`, `maxBodyLength: 2000`, `recipientFormat`) | `lib/capabilities.ts` | ✅ flag-for-flag |
+| Three CLI commands and every flag (`start-gateway --tenant/--refresh` default 60; `configure-from-env --tenant/--org`; `register-slash-commands --tenant/--org/--guild/--commands`) | `cli.ts` | ✅ |
+| Default slash command `/mercato` with a required `message` option; guild `PUT` replaces the list | `lib/slash-commands.ts`, `cli.ts` | ✅ |
+| Interactions route `/api/channel_discord/interactions`, `requireAuth: false`, `rateLimit 120/60s`, defer-then-worker | `api/interactions/route.ts` | ✅ |
+| ±300s replay window, screened before the signature fan-out | `lib/interactions-verify.ts` (`DISCORD_SIGNATURE_MAX_SKEW_SECONDS = 300`), `api/interactions/route.ts` | ✅ |
+| AI auto-reply: default off, `channel_discord.ai_auto_reply.run`, three-way auto-send gate with a 0.6 floor, optional `ai_assistant` → no-op, object mode | `subscribers/ai-auto-reply.ts` (`AUTO_SEND_MIN_CONFIDENCE = 0.6`), `acl.ts` | ✅ |
+| Eight `OM_CHANNEL_DISCORD_*` vars and their defaults | `lib/preset.ts`, `lib/discord-rest.ts` | ✅ |
+| DI service names, integration manifest, connect widget spot + feature | `di.ts`, `integration.ts`, `widgets/injection-table.ts` | ✅ |
+| Hub event ids and payload fields; `providerKey === 'discord'` | `communication_channels/events.ts`, `lib/adapter.ts` | ✅ |
+| `test-send` request body `{ to, body }` | `communication_channels/api/post/channels/[id]/test-send/route.ts` | ✅ |
+| Signed-route file path | `api/interactions/route.ts` | ❌ guide said `api/post/interactions/route.ts` — **fixed in ecdacb72b** |
+
+**Docs gate, re-run against `ecdacb72b`** (runner **local**):
+
+| Command | Result |
+|---|---|
+| `yarn build` (`apps/docs`, Docusaurus production build) | ✅ exit 0 |
+| `node --test __tests__/search-index.test.mjs __tests__/reference-example-module.test.mjs` | ✅ exit 0 |
+
+The one broken anchor the build reports, `/installation/wsl2#connecting-wsl2-to-a-windows-hosted-database`,
+is pre-existing and untouched by this branch. The rest of `validation.commands` covers code surfaces
+this branch does not touch — the diff against `develop` is eight files, seven `.mdx` plus
+`apps/docs/sidebars.ts`, which the Docusaurus build loads and type-checks.
+
+Status after this resume: **complete**. Pipeline label `merge-queue`; already approved by @pkarw and
+carrying `skip-qa`.
