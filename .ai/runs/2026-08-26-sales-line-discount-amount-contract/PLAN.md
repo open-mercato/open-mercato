@@ -29,10 +29,10 @@
 | 3 | 3.3 | Decompose the coalescing chain at `sales.quotes.lines.upsert` | inline | done | landed with 3.2 |
 | 3 | 3.4 | Carry the caller basis through `createLineSnapshotFromInput` | inline | done | c12d509ed |
 | 3 | 3.4-fix | Preserve stored-row origin when re-mapping a snapshot | inline | done | 1f5a84340 |
-| 4 | 4.1 | Command tests — order and quote upsert idempotency | inline | done | — |
+| 4 | 4.1 | Command tests — order and quote upsert idempotency | inline | done | 632713cf9 |
 | 4 | 4.2 | Command test — upsert-existing without re-sending the amount | inline | done | landed with 4.1 |
 | 4 | 4.3 | Command test — return create/delete leaves header totals identical | inline | todo | — |
-| 4 | 4.4 | Command test — the § 3 producer invariant (criterion 9) | inline | todo | — |
+| 4 | 4.4 | Command test — the § 3 producer invariant (criterion 9) | inline | done | — |
 | 5 | 5.1 | Resolve the per-unit reading in `SalesOrderDraftLines.tsx` | inline | todo | — |
 | 5 | 5.2 | `UPGRADE_NOTES.md` entry for the three behaviour changes | inline | todo | — |
 | 6 | 6.1 | Integration spec — line-discount idempotency across the API | inline | todo | — |
