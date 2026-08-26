@@ -95,4 +95,14 @@ answered, which is a behavior change of its own. They are pinned in
       path-scoped guard surfaced one genuine pre-existing gap — `messages/api/[id]` `GET` dispatches
       `messages.recipients.mark_read` outside any `try`, so the file is recorded as uncaught for that
       handler while its `PATCH`/`DELETE` stay covered.
-- [ ] CI green on the PR head
+- [x] Maintainer review by `@pkarw` (2026-08-24) worked through: the `BACKWARD_COMPATIBILITY.md` ledger entry now
+      carries the direct-`execute` transport rollout and the deliberately-uncovered surfaces, the outlier branch
+      position in `security/api/profile/password` matches the other 78 sites, the spec front matter records this PR
+      alongside #5067, and the second `eudr` batch route gained the behavioural test its twin already had.
+- [x] Base merge (2026-08-26) followed through: `develop` had moved 19 commits and shipped `packages/channel-discord`
+      — a fifth package with a bus-calling route, created after this branch opened. Its `ai-auto-reply` route mapped
+      `isCrudHttpError` and rethrew everything else, so a deliberate 422 left the handler as an unhandled error. It now
+      maps the rejection with the same rethrow-shape idiom as the `warranty_claims` portal routes, with a behavioural
+      test, and the spec, ledger and coverage tables record it. The guard could not have caught this (it scans
+      `packages/core`); widening its scope is tracked in #5636.
+- [x] CI green on the PR head
