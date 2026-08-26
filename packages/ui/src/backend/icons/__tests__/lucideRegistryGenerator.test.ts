@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Project, ScriptKind, SyntaxKind, type ObjectLiteralExpression, type SourceFile } from 'ts-morph'
+import { discoverResolvedIcons } from '../../../../scripts/lucideIconDiscovery.cjs'
 import { buildLucideRegistrySource } from '../../../../scripts/lucideRegistrySource.cjs'
 import jestConfig from '../../../../jest.config.cjs'
 
@@ -222,6 +223,30 @@ describe('lucideRegistry.generated importers', () => {
     const probe = detectGitWorkTree(absentDir)
     expect(probe.available).toBe(false)
     expect(probe.available ? '' : probe.reason).toContain(absentDir)
+  })
+})
+
+// The registry is build output, so a module can reference an icon string and merge
+// while the committed file still lacks it — the icon then silently renders as nothing.
+// Running the real discovery pass here turns that drift into a failing test.
+describe('committed lucideRegistry.generated.tsx', () => {
+  const repoRoot = join(packageDir, '..', '..')
+  const committedSource = readFileSync(join(iconsDir, 'lucideRegistry.generated.tsx'), 'utf-8')
+  const regenerationHint = 'run `yarn build:packages` and commit the regenerated file'
+  let discoveredIcons: ResolvedIcon[] = []
+
+  beforeAll(async () => {
+    discoveredIcons = await discoverResolvedIcons(repoRoot)
+  })
+
+  it(`registers every icon string used across the repo — ${regenerationHint}`, () => {
+    const registered = new Set(Object.keys(registryEntries(committedSource)))
+    const missing = discoveredIcons.map((icon) => icon.kebab).filter((kebab) => !registered.has(kebab))
+    expect(missing).toEqual([])
+  })
+
+  it(`is byte-identical to a fresh generator run — ${regenerationHint}`, () => {
+    expect(committedSource).toBe(buildLucideRegistrySource(discoveredIcons))
   })
 })
 
