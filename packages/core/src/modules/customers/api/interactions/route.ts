@@ -172,6 +172,7 @@ type InteractionListRow = {
   priority: number | null
   author_user_id: string | null
   owner_user_id: string | null
+  external_message_id: string | null
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
@@ -304,6 +305,12 @@ const INTERACTION_LIST_COLUMNS = [
   'priority',
   'author_user_id',
   'owner_user_id',
+  // The MessageChannelLink id for an email-typed interaction. Required by
+  // `interactionEmailCardEnricher` (data/enrichers.ts), which keys its
+  // `_integrations.email.*` lookup on it and silently passes the row through
+  // when it is absent — so omitting it here does not error, it just makes every
+  // email card lose its Reply/Forward/visibility actions.
+  'external_message_id',
   'appearance_icon',
   'appearance_color',
   'source',
@@ -654,6 +661,12 @@ export async function GET(req: Request) {
       priority: row.priority ?? null,
       authorUserId: row.author_user_id ?? null,
       ownerUserId: row.owner_user_id ?? null,
+      // The MessageChannelLink id for an email-typed interaction.
+      // `interactionEmailCardEnricher` keys its `_integrations.email.*` lookup on
+      // this and passes the row through untouched when it is absent, so leaving
+      // it out does not error — it silently strips every email card's
+      // Reply/Forward/visibility actions.
+      externalMessageId: row.external_message_id ?? null,
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
@@ -733,6 +746,7 @@ const interactionListItemSchema = z
     priority: z.number().nullable(),
     authorUserId: z.string().uuid().nullable(),
     ownerUserId: z.string().uuid().nullable(),
+    externalMessageId: z.string().uuid().nullable().optional(),
     appearanceIcon: z.string().nullable().optional(),
     appearanceColor: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
