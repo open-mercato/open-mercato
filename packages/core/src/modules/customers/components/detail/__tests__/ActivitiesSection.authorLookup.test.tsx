@@ -68,7 +68,9 @@ jest.mock('../ActivityTimeline', () => ({
   },
 }))
 
-const AUTHOR_COUNT = 150
+// Derived from the cap rather than hard-coded, so raising `MAX_USER_LOOKUP_IDS` keeps this suite
+// asserting "one full batch plus a partial one" instead of silently collapsing to a single request.
+const AUTHOR_COUNT = MAX_USER_LOOKUP_IDS + 50
 
 /** Real UUIDs — the route validates `?ids=` entries as UUIDs, so placeholder ids would not be representative. */
 function authorId(index: number): string {
@@ -163,12 +165,15 @@ describe('ActivitiesSection author lookup', () => {
 
     renderSection()
 
-    await waitFor(() => expect(apiCallMock).toHaveBeenCalled())
-    // The route's pageSize defaults to 50 — a 100-id batch would come back half-answered.
-    const [url] = apiCallMock.mock.calls[0]
-    const params = new URLSearchParams(String(url).split('?')[1])
-    expect(params.get('pageSize')).toBe(String(MAX_USER_LOOKUP_IDS))
-    expect(params.get('page')).toBe('1')
+    await waitFor(() => expect(userLookupBatches().length).toBe(2))
+    // The route's pageSize defaults to 50 — a 100-id batch would come back half-answered. Assert
+    // the relationship (page size equals this batch's own id count) rather than a literal, so the
+    // check still means something if the cap moves.
+    for (const [url] of apiCallMock.mock.calls) {
+      const params = new URLSearchParams(String(url).split('?')[1])
+      expect(params.get('page')).toBe('1')
+      expect(params.get('pageSize')).toBe(String(idsOf(String(url)).length))
+    }
   })
 
   it('does not let a 403 on the lookup redirect the whole detail page', async () => {
