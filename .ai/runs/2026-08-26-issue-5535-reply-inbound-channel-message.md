@@ -54,8 +54,8 @@
 
 ### Phase 2: Blocker 1 — outbound delivery intent guard
 
-- [ ] 2.1 Add the delivery-intent predicate and wire it into the outbound bridge
-- [ ] 2.2 Regression test driving `messages.messages.forward` through the real bridge seam
+- [x] 2.1 Add the delivery-intent predicate and wire it into the outbound bridge — 1a2f1004
+- [x] 2.2 Regression test driving `messages.messages.forward` through the real bridge seam — 1a2f1004
 
 ### Phase 3: Blocker 2 — gate and filter the detail-route channel fallback
 
