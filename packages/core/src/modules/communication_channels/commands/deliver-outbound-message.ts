@@ -13,6 +13,7 @@ import {
   getOrCreateThreadToken,
 } from '../lib/thread-token'
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
+import { resolveOutboundReplyExternalId } from '../lib/outbound-reply-ref'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
@@ -348,6 +349,29 @@ const deliverOutboundMessageCommand: CommandHandler<
       moduleLogger.warn('thread token unavailable, proceeding without it', { err: tokenErr })
     }
 
+    // (4c) Chat-provider reply threading — resolve the provider-native id of the
+    // message this one answers so a threading adapter can attach it (Discord's
+    // `message_reference`). Email adapters ignore this and keep threading on the
+    // `inReplyTo` / `references` headers built above. Best-effort like the thread
+    // token: an unresolvable parent sends an unthreaded reply rather than failing
+    // a delivery.
+    let replyToExternalId: string | null = null
+    try {
+      replyToExternalId = await resolveOutboundReplyExternalId(em, {
+        parentMessageId: message.parentMessageId ?? null,
+        externalConversationId: mapping.externalConversationId,
+        capabilities: adapter.capabilities,
+        scope: {
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        },
+      })
+    } catch (replyRefErr) {
+      moduleLogger.warn('outbound reply reference unavailable, sending unthreaded', {
+        err: replyRefErr,
+      })
+    }
+
     // (5) + (6) Convert + send.
     try {
       const outboundPayload = (link.channelPayload as Record<string, unknown> | null) ?? {}
@@ -395,6 +419,10 @@ const deliverOutboundMessageCommand: CommandHandler<
           ...baseMetadata,
           references: mergedReferences,
           ...(threadToken ? { omThreadToken: threadToken } : {}),
+          // AFTER `baseMetadata` on purpose: `send-as-user` merges caller-supplied
+          // metadata into the link, and a caller must not be able to point a reply
+          // at an arbitrary provider message id. The hub-resolved value wins.
+          ...(replyToExternalId ? { replyToExternalId } : {}),
         },
       })
 

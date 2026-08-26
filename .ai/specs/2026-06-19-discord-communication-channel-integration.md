@@ -254,7 +254,7 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
 |-------------------------|------------------------|
 | `providerKey` | `'discord'` |
 | `channelType` | `'discord'` (the contract's `channelType` is `'whatsapp' \| 'slack' \| 'email' \| 'sms' \| string` — `'discord'` is allowed as a string) |
-| `capabilities` | **As shipped.** Declared `true`: `recipientFormat: 'provider-native'` (a Discord recipient is a channel snowflake, never an address), `richText: true` (markdown), `reactions: true`, `editMessage: true`, `deleteMessage: true`, `conversationHistory: true`, `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`, `interactiveComponents: true` (slash commands, buttons, select menus and modal submissions are dispatched into the hub's inbound queue and answered with a real follow-up — see § Interactions dispatch). Declared **`false`**, because the first release does not implement them and the hub would otherwise route work this adapter silently drops — each with its reason recorded in `lib/capabilities.ts`: `threading` (nothing hub-side writes `replyToExternalId` into *outbound* metadata; it exists only on the inbound normalized shape), `fileSharing` / `inlineImages` (`convertOutbound` drops attachments and the REST client has no multipart upload), plus `multiReactionPerUser`, `typingIndicators`, `presence`, `richBlocks`, `stickers`, `readReceipts`, `deliveryReceipts`, `contactCards`, `locationSharing`, `voiceNotes`. A flag flips back to `true` only in the change that implements it, guarded by the parity test in `lib/__tests__/capabilities.test.ts` |
+| `capabilities` | **As shipped.** Declared `true`: `recipientFormat: 'provider-native'` (a Discord recipient is a channel snowflake, never an address), `richText: true` (markdown), `reactions: true`, `editMessage: true`, `deleteMessage: true`, `conversationHistory: true`, `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`, `interactiveComponents: true` (slash commands, buttons, select menus and modal submissions are dispatched into the hub's inbound queue and answered with a real follow-up — see § Interactions dispatch), `threading: true` (the hub resolves the parent's Discord snowflake in `communication_channels/lib/outbound-reply-ref.ts` and writes `channelMetadata.replyToExternalId`, which `convertOutbound` turns into `message_reference`; capability-gated and fail-soft, see the 2026-08-26 changelog entry). Declared **`false`**, because the first release does not implement them and the hub would otherwise route work this adapter silently drops — each with its reason recorded in `lib/capabilities.ts`: `fileSharing` / `inlineImages` (`convertOutbound` drops attachments and the REST client has no multipart upload), plus `multiReactionPerUser`, `typingIndicators`, `presence`, `richBlocks`, `stickers`, `readReceipts`, `deliveryReceipts`, `contactCards`, `locationSharing`, `voiceNotes`. A flag flips back to `true` only in the change that implements it, guarded by the parity test in `lib/__tests__/capabilities.test.ts` |
 | `sendMessage` | REST `POST /channels/{id}/messages` (`Authorization: Bot <token>`) |
 | `verifyWebhook` | Ed25519 verify of interactions POST; **throws** on failure (fail-closed). Plain messages do not arrive here — they come via the gateway worker — so for a non-interaction body it returns `eventType: 'other'` (route acks without tenant-scoped work) |
 | `normalizeInbound` | Discord message object → `NormalizedInboundMessage` (sender id/handle, content, attachments, `replyToExternalId` from `message_reference`) |
@@ -1118,6 +1118,34 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-08-26 — Outbound reply threading implemented; `threading` flips back to `true` (issue #5541)
+
+- **§ Adapter method map → `capabilities`.** `threading` moves from the deliberately-disabled list
+  back to the shipped-`true` list, now backed by an implementation rather than by intent.
+- **The missing piece was hub-side, not adapter-side.** `convertOutbound` → `adapter.sendMessage` →
+  `discord-rest.createMessage` already carried `channelMetadata.replyToExternalId` all the way to
+  `body.message_reference`; nothing on the outbound path ever produced that key, so the branch was
+  unreachable in production (#5541, found against a live bot). The new
+  `communication_channels/lib/outbound-reply-ref.ts` is that producer: given the delivered message's
+  `parentMessageId`, it resolves the parent's `MessageChannelLink` → `ExternalMessage` and returns the
+  provider-native id, which `deliver-outbound-message.ts` merges into the outbound `channelMetadata`.
+- **Capability-gated and fail-soft by design.** The resolver returns `null` unless the adapter declares
+  `threading`, so no provider is handed a key it silently drops — the same mismatch the capability list
+  exists to prevent. It also returns `null` for a non-reply, an unlinked parent, or a parent in another
+  conversation (Discord answers `400 Unknown message` for a cross-channel reference), and the caller
+  swallows lookup errors: an unthreaded delivery always beats a failed one.
+- **Ordering is a security property.** The resolved id is merged *after* the link's stored metadata, so
+  the caller-supplied `channelMetadata` that `send-as-user` passes through cannot point a reply at an
+  arbitrary provider message id. Pinned by a test.
+- **Coverage.** `communication_channels/lib/__tests__/outbound-reply-ref.test.ts` (resolution, the four
+  `null` paths, scoping assertions), five cases in
+  `commands/__tests__/deliver-outbound-message.test.ts` (threading adapter, non-threading adapter,
+  non-reply, lookup failure, caller-override), and the rewritten
+  `channel_discord/lib/__tests__/capabilities.test.ts` threading case, which now drives the whole path
+  down to the REST body instead of asserting the flag.
+- Supersedes the `threading` demotion recorded on 2026-08-24, which explicitly reserved the flip for
+  "the same change that gives the hub an outbound reply producer".
 
 ### 2026-08-25 — Arming an auto-reply channel is authorized, and a dormant one says so (re-review of PR #4391)
 

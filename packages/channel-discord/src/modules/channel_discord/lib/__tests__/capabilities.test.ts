@@ -56,30 +56,54 @@ describe('discordCapabilities honesty', () => {
     expect(discordCapabilities.stickers).toBe(false)
   })
 
-  it('does not advertise threading while no hub producer writes an outbound reply id', async () => {
-    // `convertOutboundForDiscord` reads `channelMetadata.replyToExternalId` and
-    // would emit a `message_reference` from it — but that key only ever exists on
-    // the INBOUND `NormalizedInboundMessage` shape. The hub's outbound metadata
-    // producers (`send-as-user.ts`, `deliver-outbound-message.ts`) write the
-    // email-shaped `inReplyTo` / `references` instead, so the branch below is
-    // unreachable in production. Confirmed against a live bot in #5541.
-    expect(discordCapabilities.threading).toBe(false)
+  it('advertises threading, and a reply carries message_reference all the way to the REST body', async () => {
+    // #5541: this flag was `false` while the conversion below existed but was
+    // unreachable — `channelMetadata.replyToExternalId` lived only on the INBOUND
+    // shape, and the hub's outbound producers wrote the email-shaped `inReplyTo` /
+    // `references` instead. `communication_channels/lib/outbound-reply-ref.ts` is
+    // the producer that closed the gap, so the flag may claim threading again.
+    // Assert the whole path, not the flag: the conversion, the adapter hand-off,
+    // and the JSON body Discord actually receives.
+    expect(discordCapabilities.threading).toBe(true)
 
-    const withoutReplyId = await convertOutboundForDiscord({
-      body: 'hello',
-      bodyFormat: 'text',
-      channelMetadata: { inReplyTo: 'some-parent-id', references: ['some-parent-id'] },
-    } as Parameters<typeof convertOutboundForDiscord>[0])
-    expect(withoutReplyId.metadata?.messageReferenceId).toBeUndefined()
-
-    // The conversion itself stays ready, so the flag flips back with the hub-side
-    // producer and nothing else.
     const withReplyId = await convertOutboundForDiscord({
       body: 'hello',
       bodyFormat: 'text',
       channelMetadata: { replyToExternalId: 'parent-snowflake' },
     } as Parameters<typeof convertOutboundForDiscord>[0])
     expect(withReplyId.metadata?.messageReferenceId).toBe('parent-snowflake')
+
+    const restClient = getDiscordRestClient()
+    // Intercept at the transport boundary so the real `createMessage` still
+    // builds the body — a hand-rolled fake client would only assert itself.
+    const sentBodies: Array<Record<string, unknown>> = []
+    const request = jest
+      .spyOn(restClient as unknown as { request: (...args: unknown[]) => Promise<unknown> }, 'request')
+      .mockImplementation(async (..._args: unknown[]) => {
+        sentBodies.push(_args[3] as Record<string, unknown>)
+        return { id: 'sent-1', channel_id: '999' }
+      })
+    try {
+      await restClient.createMessage(
+        { botToken: 'bot-token' },
+        {
+          channelId: '999',
+          content: withReplyId.content.text ?? '',
+          messageReferenceId: withReplyId.metadata?.messageReferenceId as string,
+        },
+      )
+    } finally {
+      request.mockRestore()
+    }
+    expect(sentBodies[0]?.message_reference).toEqual({ message_id: 'parent-snowflake' })
+
+    // A non-reply still sends a plain channel message — no dangling reference.
+    const withoutReplyId = await convertOutboundForDiscord({
+      body: 'hello',
+      bodyFormat: 'text',
+      channelMetadata: { inReplyTo: 'some-parent-id', references: ['some-parent-id'] },
+    } as Parameters<typeof convertOutboundForDiscord>[0])
+    expect(withoutReplyId.metadata?.messageReferenceId).toBeUndefined()
   })
 
   it('does not advertise rich blocks — outbound is plain markdown, no embeds are built', () => {
