@@ -28,7 +28,7 @@
 | 3 | 3.2 | Decompose the coalescing chain at `sales.orders.lines.upsert` | inline | done | 721b8df24 |
 | 3 | 3.3 | Decompose the coalescing chain at `sales.quotes.lines.upsert` | inline | done | landed with 3.2 |
 | 3 | 3.4 | Carry the caller basis through `createLineSnapshotFromInput` | inline | done | c12d509ed |
-| 3 | 3.4-fix | Preserve stored-row origin when re-mapping a snapshot | inline | done | — |
+| 3 | 3.4-fix | Preserve stored-row origin when re-mapping a snapshot | inline | done | 1f5a84340 |
 | 4 | 4.1 | Command tests — order and quote upsert idempotency | inline | done | — |
 | 4 | 4.2 | Command test — upsert-existing without re-sending the amount | inline | done | landed with 4.1 |
 | 4 | 4.3 | Command test — return create/delete leaves header totals identical | inline | todo | — |
