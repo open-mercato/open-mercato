@@ -128,6 +128,28 @@ describe('AclEditor organization scope (#5642)', () => {
     expect(denyAllWarning()).not.toBeInTheDocument()
   })
 
+  it('does not submit the surrounding form when the allow-all control is used', async () => {
+    mockApi([])
+    const onSubmit = jest.fn((event: React.FormEvent) => event.preventDefault())
+    renderWithProviders(
+      <form onSubmit={onSubmit}>
+        <AclEditor kind="role" targetId="role-1" canEditOrganizations currentUserIsSuperAdmin />
+      </form>,
+      { locale: 'en', dict: enDict },
+    )
+
+    await screen.findByLabelText('Warsaw')
+    const allowAll = screen.getByRole('button', { name: enDict['auth.acl.allowAllOrganizations'] })
+    expect(allowAll).toHaveAttribute('type', 'button')
+
+    fireEvent.click(allowAll)
+
+    await waitFor(() => {
+      expect(summary()).toBe(enDict['auth.acl.organizationsScopeCurrent.all'])
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('keeps the scope hint from claiming that an empty selection means all organizations', () => {
     expect(enDict['auth.acl.organizationsScopeHint']).not.toMatch(/Empty means all organizations/i)
     expect(enDict['auth.acl.organizationsScopeHint']).toMatch(/denies access to all organizations/i)

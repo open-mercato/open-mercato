@@ -417,6 +417,7 @@ export function AclEditor({
                 {t('auth.acl.globalWildcard.description', 'This grants access to all features in the system.')}
               </div>
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 className="mt-2"
@@ -605,7 +606,7 @@ export function AclEditor({
                 })}
               </div>
               <div className="mt-2">
-                <Button variant="outline" onClick={() => setOrganizations(null)}>{t('auth.acl.allowAllOrganizations', 'Allow all organizations')}</Button>
+                <Button type="button" variant="outline" onClick={() => setOrganizations(null)}>{t('auth.acl.allowAllOrganizations', 'Allow all organizations')}</Button>
               </div>
               {showOrganizationWarning && (
                 <div className="mt-3 rounded border border-status-warning-border bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text">
