@@ -12,18 +12,20 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { loadDeviceUserOptions, type DeviceUserOption } from './userOptions'
+import { useDeviceUserLabels } from './useDeviceUserLabels'
 
 type Row = {
   id: string
-  user_id: string
-  device_id: string
+  userId: string
+  deviceId: string
   platform: string
-  client_app_version: string | null
-  os_version: string | null
-  push_provider: string | null
-  push_token_updated_at: string | null
-  last_seen_at: string | null
-  created_at: string | null
+  clientAppVersion: string | null
+  osVersion: string | null
+  pushProvider: string | null
+  pushTokenUpdatedAt: string | null
+  lastSeenAt: string | null
+  createdAt: string | null
 }
 
 type ResponsePayload = {
@@ -58,42 +60,36 @@ export default function DevicesAdminListPage() {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [userOptions, setUserOptions] = React.useState<{ value: string; label: string; description?: string | null }[]>([])
+  const [userOptions, setUserOptions] = React.useState<DeviceUserOption[]>([])
 
-  // Devices admins may not hold auth.users.list; degrade gracefully (no options) instead of redirecting.
-  const loadUserOptions = React.useCallback(async (query?: string) => {
-    const params = new URLSearchParams()
-    params.set('page', '1')
-    params.set('pageSize', '20')
-    if (query && query.trim().length > 0) params.set('search', query.trim())
-    const call = await apiCall<{ items?: { id: string; name?: string | null; email?: string | null }[] }>(
-      `/api/auth/users?${params.toString()}`,
-      { headers: { 'x-om-forbidden-redirect': '0' } },
-      { fallback: null },
-    ).catch(() => null)
-    if (!call || !call.ok) return []
-    const next = (call.result?.items ?? []).flatMap((item) => {
-      if (!item || typeof item.id !== 'string' || !item.id.trim()) return []
-      const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : null
-      const email = typeof item.email === 'string' && item.email.trim() ? item.email.trim() : null
-      const label = name ?? email ?? item.id
-      return [{ value: item.id, label, description: email && email !== label ? email : null }]
-    })
+  const mergeUserOptions = React.useCallback((next: DeviceUserOption[]) => {
+    if (next.length === 0) return
     setUserOptions((prev) => {
       const map = new Map(prev.map((opt) => [opt.value, opt]))
       for (const opt of next) map.set(opt.value, opt)
       return Array.from(map.values())
     })
-    return next
   }, [])
+
+  // Devices admins may not hold auth.users.list; the helper degrades to no options instead of
+  // redirecting the whole page to /login.
+  const loadUserOptions = React.useCallback(async (query?: string) => {
+    const next = await loadDeviceUserOptions(query)
+    mergeUserOptions(next)
+    return next
+  }, [mergeUserOptions])
 
   React.useEffect(() => { void loadUserOptions() }, [loadUserOptions, scopeVersion])
 
-  // Reuse the picker cache to label the User column; rows whose owner isn't cached still link by id.
   const userLabelById = React.useMemo(
     () => new Map(userOptions.map((opt) => [opt.value, opt.label])),
     [userOptions],
   )
+
+  // The picker only ever caches the users it happened to prefetch, so resolve the owners of the rows
+  // actually on this page. Without it most rows render a bare UUID.
+  const rowUserIds = React.useMemo(() => rows.map((row) => row.userId), [rows])
+  const resolvedUserLabels = useDeviceUserLabels(rowUserIds)
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -184,17 +180,17 @@ export default function DevicesAdminListPage() {
 
   const columns = React.useMemo<ColumnDef<Row>[]>(() => [
     {
-      accessorKey: 'device_id',
+      accessorKey: 'deviceId',
       header: t('devices.list.columns.device'),
-      cell: ({ row }) => <code className="text-xs">{row.original.device_id}</code>,
+      cell: ({ row }) => <code className="text-xs">{row.original.deviceId}</code>,
     },
     { accessorKey: 'platform', header: t('devices.list.columns.platform') },
     {
-      accessorKey: 'user_id',
+      accessorKey: 'userId',
       header: t('devices.list.columns.user'),
       cell: ({ row }) => {
-        const userId = row.original.user_id
-        const label = userLabelById.get(userId)
+        const userId = row.original.userId
+        const label = resolvedUserLabels[userId] ?? userLabelById.get(userId)
         return (
           // Stop the click bubbling to the row, whose default action navigates to the device edit page.
           <Link
@@ -208,26 +204,26 @@ export default function DevicesAdminListPage() {
       },
     },
     {
-      accessorKey: 'client_app_version',
+      accessorKey: 'clientAppVersion',
       header: t('devices.list.columns.appVersion'),
-      cell: ({ row }) => row.original.client_app_version || t('devices.list.noValue'),
+      cell: ({ row }) => row.original.clientAppVersion || t('devices.list.noValue'),
     },
     {
-      accessorKey: 'os_version',
+      accessorKey: 'osVersion',
       header: t('devices.list.columns.osVersion'),
-      cell: ({ row }) => row.original.os_version || t('devices.list.noValue'),
+      cell: ({ row }) => row.original.osVersion || t('devices.list.noValue'),
     },
     {
-      accessorKey: 'push_provider',
+      accessorKey: 'pushProvider',
       header: t('devices.list.columns.pushProvider'),
-      cell: ({ row }) => row.original.push_provider || t('devices.list.noValue'),
+      cell: ({ row }) => row.original.pushProvider || t('devices.list.noValue'),
     },
     {
-      accessorKey: 'last_seen_at',
+      accessorKey: 'lastSeenAt',
       header: t('devices.list.columns.lastSeen'),
-      cell: ({ row }) => formatDate(row.original.last_seen_at, t),
+      cell: ({ row }) => formatDate(row.original.lastSeenAt, t),
     },
-  ], [t, userLabelById])
+  ], [t, userLabelById, resolvedUserLabels])
 
   return (
     <Page>

@@ -16,7 +16,7 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
@@ -166,6 +166,7 @@ export function SalesDocumentItemsSection({
   shippedLineEditable = false,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
+  const locale = useLocale();
   const { organizationId, tenantId } = useOrganizationScopeDetail();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null;
@@ -835,6 +836,7 @@ export function SalesDocumentItemsSection({
                           {formatMoney(
                             item.unitPriceGross,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           <span className="text-xs text-muted-foreground">
                             {t("sales.documents.items.table.gross", "gross")}
@@ -844,6 +846,7 @@ export function SalesDocumentItemsSection({
                           {formatMoney(
                             item.unitPriceNet,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           {t("sales.documents.items.table.net", "net")}
                         </span>
@@ -858,6 +861,7 @@ export function SalesDocumentItemsSection({
                                   item.currencyCode ??
                                     currencyCode ??
                                     undefined,
+                                  locale,
                                 ),
                                 unit: unitPriceReference.referenceUnitCode,
                               },
@@ -881,6 +885,7 @@ export function SalesDocumentItemsSection({
                                       item.currencyCode ??
                                         currencyCode ??
                                         undefined,
+                                      locale,
                                     ),
                                   },
                                 )}
@@ -911,6 +916,7 @@ export function SalesDocumentItemsSection({
                           {formatMoney(
                             item.totalGross,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           <span className="text-xs font-normal text-muted-foreground">
                             {t("sales.documents.items.table.gross", "gross")}
@@ -920,6 +926,7 @@ export function SalesDocumentItemsSection({
                           {formatMoney(
                             item.totalNet,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           {t("sales.documents.items.table.net", "net")}
                         </span>

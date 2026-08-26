@@ -382,19 +382,23 @@ function SkuKpiCard({
 }: SkuKpiCardProps) {
   return (
     <section className="flex min-h-52 flex-col rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
-      <div className="mt-2 flex items-end gap-3">
-        <p className="text-3xl font-semibold tracking-tight">{value}</p>
-        {badgeLabel ? (
-          <StatusBadge variant={badgeVariant} dot>
-            {badgeLabel}
-          </StatusBadge>
-        ) : null}
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
       </div>
-      <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
-        <Link href={ctaHref}>{ctaLabel}</Link>
-      </LinkButton>
+      <div className="mt-auto pt-2">
+        <div className="flex items-end gap-3">
+          <p className="text-3xl font-semibold tracking-tight">{value}</p>
+          {badgeLabel ? (
+            <StatusBadge variant={badgeVariant} dot>
+              {badgeLabel}
+            </StatusBadge>
+          ) : null}
+        </div>
+        <LinkButton asChild variant="primary" size="sm" className="mt-4 w-fit">
+          <Link href={ctaHref}>{ctaLabel}</Link>
+        </LinkButton>
+      </div>
     </section>
   )
 }

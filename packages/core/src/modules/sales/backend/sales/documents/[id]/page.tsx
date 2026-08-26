@@ -38,7 +38,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
@@ -79,13 +79,17 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
 
-function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
+function formatMessageAmount(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+  locale?: string
+): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
-  if (!currency) return amount.toLocaleString()
+  if (!currency) return amount.toLocaleString(locale)
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount)
   } catch {
-    return `${amount.toLocaleString()} ${currency}`
+    return `${amount.toLocaleString(locale)} ${currency}`
   }
 }
 
@@ -1900,6 +1904,7 @@ export default function SalesDocumentDetailPage({
   includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
+  const locale = useLocale()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -2810,7 +2815,7 @@ export default function SalesDocumentDetailPage({
       : null
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
-  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null)
+  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}
   if (includeAmountInMessageMetadata && previewAmount) {
     messagePreviewMetadata[t('sales.documents.detail.totals.grandTotalGross')] = previewAmount
@@ -3870,7 +3875,7 @@ export default function SalesDocumentDetailPage({
         renderDisplay: (params) => {
           const { value, emptyLabel } = params
           if (value && value.length) {
-            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
+            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString(locale)}</span>
           }
           return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
         },
@@ -3947,6 +3952,7 @@ export default function SalesDocumentDetailPage({
     shippingMethodLoading,
     shippingMethodOptions,
     t,
+    locale,
     kind,
     saveShortcutLabel,
   ])
@@ -4721,7 +4727,7 @@ export default function SalesDocumentDetailPage({
             renderDisplay={({ value, emptyLabel }) =>
               value && value.length ? (
                 <span className="text-sm text-muted-foreground">
-                  {new Date(value).toLocaleDateString()}
+                  {new Date(value).toLocaleDateString(locale)}
                 </span>
               ) : (
                 <span className="text-sm text-muted-foreground">{emptyLabel}</span>

@@ -70,7 +70,7 @@ function DeviceField({ value, setValue, setFormValue, values, onState }: CrudCus
     let cancelled = false
     setLoading(true)
     const params = new URLSearchParams({ userId, pageSize: '50' })
-    apiCall<{ items?: Array<{ id: string; device_id: string; platform: string; push_provider?: string | null }> }>(
+    apiCall<{ items?: Array<{ id: string; deviceId: string; platform: string; pushProvider?: string | null }> }>(
       `/api/devices/admin/devices?${params.toString()}`,
       { headers: { 'x-om-forbidden-redirect': '0' } },
       { fallback: null },
@@ -80,9 +80,9 @@ function DeviceField({ value, setValue, setFormValue, values, onState }: CrudCus
         if (cancelled) return
         const items = (call && call.ok ? call.result?.items : []) ?? []
         const opts = items
-          .filter((d): d is { id: string; device_id: string; platform: string; push_provider?: string | null } =>
-            !!d && typeof d.id === 'string' && !!d.push_provider)
-          .map((d) => ({ id: d.id, label: `${d.device_id} · ${d.platform}${d.push_provider ? ` · ${d.push_provider}` : ''}`, platform: d.platform }))
+          .filter((d): d is { id: string; deviceId: string; platform: string; pushProvider?: string | null } =>
+            !!d && typeof d.id === 'string' && !!d.pushProvider)
+          .map((d) => ({ id: d.id, label: `${d.deviceId} · ${d.platform}${d.pushProvider ? ` · ${d.pushProvider}` : ''}`, platform: d.platform }))
         setDevices(opts)
         if (selected && !opts.some((o) => o.id === selected)) setValue('')
       })
