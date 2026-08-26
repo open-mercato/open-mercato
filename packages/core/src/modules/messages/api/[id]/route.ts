@@ -5,11 +5,13 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
 import {
+  CHANNEL_THREAD_FALLBACK_FEATURE,
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
 } from '../../lib/channelThreadAccess'
@@ -115,17 +117,38 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // button is unreachable. For a thread the channels hub owns, that hub's access
   // rule applies instead; an internal thread resolves to `null` and keeps the
   // participant rule unchanged. Only channel-sourced messages pay the lookup.
-  const channelThread = message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+  //
+  // The fallback is feature-gated here rather than on the route, because
+  // `assertCanAccessChannel` — the rule behind `canAccess` — deliberately ignores
+  // features and returns for EVERY shared channel; its documented precondition is
+  // a caller the route already feature-gated, and this route is `requireAuth`
+  // only so that a participant can always read their own message. Without this
+  // gate the fallback would hand any authenticated tenant user the whole external
+  // conversation on a shared inbox.
+  const actorFeatures = resolveUserFeatures(ctx.auth)
+  const mayUseChannelFallback = authorizeFeatures(
+    [CHANNEL_THREAD_FALLBACK_FEATURE],
+    { grantedFeatures: actorFeatures },
+  )
+  const channelThread = mayUseChannelFallback
+    && message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
     ? await resolveMessageChannelThreadAccess(
       ctx.container,
       { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
       { messageThreadId: message.threadId ?? message.id },
-      { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
+      { userId: scope.userId, features: actorFeatures },
     )
     : null
   const hasChannelThreadAccess = channelThread?.canAccess === true
 
   if (!isSender && !isRecipient && !hasChannelThreadAccess) {
+    return Response.json({ error: 'Access denied' }, { status: 403 })
+  }
+
+  // Channel access says "you may work this conversation", not "you may read what
+  // other operators kept off it". An internal note stays participant-only however
+  // the caller reached the thread.
+  if (!isSender && !isRecipient && message.visibility === 'internal') {
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
@@ -176,11 +199,17 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // is not a platform user, so filtering by participation would hide the inbound
   // messages and every other operator's answer, leaving the operator looking at
   // half a conversation (#5535).
+  //
+  // Internal notes are the exception: they are addressed to platform
+  // participants, so they keep the participant rule even on a channel thread.
+  const isThreadMessageParticipant = (threadMessage: { id: string; senderUserId?: string | null }) => (
+    threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
+  )
   const actorVisibleThreadMessages = hasChannelThreadAccess
-    ? threadMessages
-    : threadMessages.filter((threadMessage) => (
-      threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
+    ? threadMessages.filter((threadMessage) => (
+      threadMessage.visibility !== 'internal' || isThreadMessageParticipant(threadMessage)
     ))
+    : threadMessages.filter(isThreadMessageParticipant)
 
   const actorRecipientStatusByMessageId = new Map<string, string>()
   for (const row of visibleRecipientRows) {

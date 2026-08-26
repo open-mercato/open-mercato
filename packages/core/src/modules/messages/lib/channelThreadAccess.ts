@@ -23,6 +23,17 @@ export type ChannelThreadReference = {
   externalConversationId?: string | null
 }
 
+/**
+ * Feature a caller must hold before the channel-thread fallback may widen a
+ * route's participant test.
+ *
+ * The fallback delegates to `assertCanAccessChannel`, which grants every shared
+ * channel unconditionally and documents its precondition as "a caller the route
+ * already feature-gated". Routes that are `requireAuth`-only must therefore
+ * apply this gate themselves before consulting the facade.
+ */
+export const CHANNEL_THREAD_FALLBACK_FEATURE = 'messages.view'
+
 type ContainerLike = { resolve: <T = unknown>(name: string) => T }
 
 type ResolveChannelThreadAccessService = (

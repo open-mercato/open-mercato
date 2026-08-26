@@ -912,28 +912,33 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
     },
   ]
 
-  function setupHarness(channelThreadAccess: unknown, options: { registered?: boolean } = {}) {
+  function setupHarness(
+    channelThreadAccess: unknown,
+    options: { registered?: boolean; features?: string[]; thread?: unknown[]; anchor?: unknown } = {},
+  ) {
+    const thread = options.thread ?? threadMessages
+    const anchor = options.anchor ?? inboundMessage
     const em = {
       findOne: jest.fn(async () => null),
       find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
-        if (entity === Message && where.threadId === threadId) return threadMessages
+        if (entity === Message && where.threadId === threadId) return thread
         return []
       }),
     }
 
     findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => {
-      if (entity === Message) return threadMessages
+      if (entity === Message) return thread
       if (entity === User) return []
       return []
     })
     findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => (
-      entity === Message ? inboundMessage : null
+      entity === Message ? anchor : null
     ))
 
     const resolveChannelThreadAccess = jest.fn(async () => channelThreadAccess)
     resolveMessageContextMock.mockResolvedValue({
       ctx: {
-        auth: { features: ['messages.view'] },
+        auth: { features: options.features ?? ['messages.view'] },
         container: {
           resolve: (name: string) => {
             if (name === 'em') return em
@@ -1007,5 +1012,83 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
     setupHarness(null, { registered: false })
 
     expect((await getDetail()).status).toBe(403)
+  })
+
+  // @pkarw's blocker on #5645: `assertCanAccessChannel` grants every SHARED
+  // channel unconditionally and documents its precondition as a caller the route
+  // already feature-gated — and this route is `requireAuth` only. Without a gate
+  // of its own the fallback handed any authenticated tenant user the whole
+  // external conversation. The fixture below is the one the review named: an
+  // actor holding NO features at all.
+  describe('feature gate on the channel fallback', () => {
+    it('denies a caller holding no features and never consults the channel at all', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, { features: [] })
+
+      expect((await getDetail()).status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    })
+
+    it('denies a caller holding only unrelated features', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, {
+        features: ['sales.view', 'catalog.view'],
+      })
+
+      expect((await getDetail()).status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    })
+
+    it('honors a wildcard grant rather than an exact feature-string match', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, { features: ['messages.*'] })
+
+      expect((await getDetail()).status).toBe(200)
+      expect(resolveChannelThreadAccess).toHaveBeenCalled()
+    })
+  })
+
+  // Channel access means "you may work this conversation", not "you may read the
+  // notes other operators kept off it".
+  describe('internal-visibility messages stay participant-only', () => {
+    const internalNoteId = '44444444-4444-4444-8444-444444444444'
+    const threadWithInternalNote = [
+      ...threadMessages,
+      {
+        id: internalNoteId,
+        senderUserId: otherOperatorId,
+        sourceEntityType: 'communication_channels.external_conversation',
+        visibility: 'internal',
+        body: 'known chargeback risk — do not refund',
+        bodyFormat: 'text',
+        sentAt: new Date('2026-08-23T10:06:00.000Z'),
+      },
+    ]
+
+    it('hides another operator internal note from a caller who reached the thread via the channel', async () => {
+      setupHarness(grantedThread, { thread: threadWithInternalNote })
+
+      const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+      expect((payload.thread ?? []).map((item) => item.id)).not.toContain(internalNoteId)
+    })
+
+    it('keeps the caller own internal note visible', async () => {
+      setupHarness(grantedThread, {
+        thread: [
+          ...threadMessages,
+          { ...threadWithInternalNote[threadWithInternalNote.length - 1], senderUserId: operatorUserId },
+        ],
+      })
+
+      const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+      expect((payload.thread ?? []).map((item) => item.id)).toContain(internalNoteId)
+    })
+
+    it('denies opening another operator internal note directly, channel access notwithstanding', async () => {
+      setupHarness(grantedThread, {
+        anchor: { ...inboundMessage, visibility: 'internal', senderUserId: otherOperatorId },
+      })
+
+      expect((await getDetail()).status).toBe(403)
+    })
   })
 })
