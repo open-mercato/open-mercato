@@ -519,7 +519,7 @@ export function ScheduleActivityDialog({
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-medium">
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
-            <span className="text-accent-indigo"> *</span>
+            <span aria-hidden="true" className="text-accent-indigo"> *</span>
           </label>
           <Input
             type="text"

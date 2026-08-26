@@ -717,11 +717,11 @@ function TimePickerCard({
   const initialScrollDoneRef = React.useRef(false)
   React.useEffect(() => {
     if (initialScrollDoneRef.current) return
-    initialScrollDoneRef.current = true
     const container = slotListRef.current
     if (!container) return
     const parsed = parseTime(value)
     if (!parsed) return
+    initialScrollDoneRef.current = true
     const targetMinutes = parsed.hour * 60 + parsed.minute
     let nearestIndex = -1
     let nearestDistance = Number.POSITIVE_INFINITY

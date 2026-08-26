@@ -136,7 +136,21 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       await expect(confirmAgain).toBeVisible({ timeout: 15_000 })
       await confirmAgain.getByRole('button', { name: /Delete activity/i }).click()
 
-      await expect(page.getByText(meetingTitle)).toHaveCount(0, { timeout: 30_000 })
+      // Success flash first: it separates "the DELETE failed and the error path
+      // swallowed it" from "the list did not refresh" in a single run.
+      await expect(page.getByText('Activity deleted').first()).toBeVisible({ timeout: 15_000 })
+
+      // The history list is query-index-backed; deletion reaches the index via
+      // async side effects, so under CI load the row can outlive the request.
+      // Poll with reloads until the durable state converges.
+      await expect
+        .poll(async () => {
+          await page.reload({ waitUntil: 'domcontentloaded' })
+          await page.getByRole('tab', { name: /Activity log/i }).click()
+          await page.waitForLoadState('networkidle')
+          return page.getByText(meetingTitle).count()
+        }, { timeout: 90_000, intervals: [3_000] })
+        .toBe(0)
 
       const afterRes = await apiRequest(
         request,
@@ -192,15 +206,49 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       await activityTab.click()
       await expect(page.getByText(/Activity history/i).first()).toBeVisible({ timeout: 30_000 })
 
-      // The day strip renders five fixed-width tiles; they must scroll inside their own
-      // container rather than widening the document past the viewport.
-      const overflow = await page.evaluate(() => ({
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-      }))
+      // The document-level check alone became unfalsifiable once html/body got
+      // overflow-x: clip (clip clamps scrollWidth by construction), so the real
+      // guard measures the widest content INSIDE main, where clip does not
+      // clamp: any card or strip forcing min-content past the viewport still
+      // shows up as an element scrollWidth or an off-viewport right edge.
+      const overflow = await page.evaluate(() => {
+        const doc = {
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        }
+        let widest = 0
+        let widestTag = ''
+        const record = (el: Element, width: number) => {
+          if (width > widest) {
+            widest = width
+            widestTag = `${el.tagName}.${String((el as HTMLElement).className).slice(0, 60)}`
+          }
+        }
+        const walk = (el: Element) => {
+          const style = getComputedStyle(el)
+          // Invisible measurement helpers and out-of-flow elements do not
+          // widen the layout viewport.
+          if (style.visibility === 'hidden' || style.position === 'absolute' || style.position === 'fixed') return
+          const clips = /(auto|scroll|hidden|clip)/.test(style.overflowX)
+          // A clipping/scrolling container contributes only its own box; its
+          // children may legitimately extend inside it (tab strips, the day
+          // strip) — so measure the box and stop descending.
+          record(el, Math.round(el.getBoundingClientRect().right))
+          if (clips) return
+          record(el, el.scrollWidth)
+          for (const child of el.children) walk(child)
+        }
+        const main = document.querySelector('main')
+        if (main) walk(main)
+        return { ...doc, widest, widestTag }
+      })
       expect(
         overflow.scrollWidth,
         `document scrollWidth ${overflow.scrollWidth} exceeds viewport ${overflow.clientWidth}`,
+      ).toBeLessThanOrEqual(overflow.clientWidth + 1)
+      expect(
+        overflow.widest,
+        `content (${overflow.widestTag}) is ${overflow.widest}px wide on a ${overflow.clientWidth}px viewport`,
       ).toBeLessThanOrEqual(overflow.clientWidth + 1)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)

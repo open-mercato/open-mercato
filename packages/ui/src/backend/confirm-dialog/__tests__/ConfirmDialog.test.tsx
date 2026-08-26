@@ -61,7 +61,9 @@ describe('ConfirmDialog', () => {
     expect(dialog.parentElement).toBe(document.body)
   })
 
-  it('renders the destructive confirmation as the outlined DS destructive variant', () => {
+  it('renders the destructive confirmation as the solid variant', () => {
+    // ds-rules.md: the confirm button inside a confirmation dialog is the single
+    // point of no return and MUST be the filled destructive-solid variant.
     renderWithProviders(
       <ConfirmDialog
         open
@@ -75,9 +77,8 @@ describe('ConfirmDialog', () => {
     )
 
     const classNames = screen.getByRole('button', { name: 'Delete' }).className.split(/\s+/)
-    expect(classNames).toContain('border-destructive')
-    expect(classNames).not.toContain('bg-destructive')
-    expect(classNames).toContain('text-destructive')
+    expect(classNames).toContain('bg-destructive')
+    expect(classNames).toContain('text-white')
   })
 
   it('keeps the default confirmation on the primary variant', () => {

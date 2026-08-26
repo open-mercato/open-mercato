@@ -112,8 +112,14 @@ describe('ActivityHistorySection delete flow', () => {
       expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ id: 'interaction-1' }) }),
     )
     expect(flashMock).toHaveBeenCalledWith('Activity deleted', 'success')
-    // The history reloads so the deleted row disappears without a manual refresh.
-    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalled())
+    // The history reloads so the deleted row disappears without a manual
+    // refresh — pinned to the interactions list URL so the counts refetch
+    // alone cannot satisfy it.
+    await waitFor(() =>
+      expect(
+        readApiResultOrThrowMock.mock.calls.some(([url]) => String(url).includes('/api/customers/interactions?')),
+      ).toBe(true),
+    )
   })
 
   it('routes the delete through the guarded-mutation runner when the host supplies one', async () => {

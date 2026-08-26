@@ -47,14 +47,13 @@ export function ActivitiesAddNewMenu({ onSelect, disabled }: ActivitiesAddNewMen
       {/* PopoverContent's base min-w-[280px] would win over a plain width class,
           so reset it — the menu matches the w-44 RowActions dropdown width. */}
       <PopoverContent align="end" className="min-w-0 w-44 p-1">
-        <ul role="menu" className="flex flex-col">
+        <ul className="flex flex-col">
           {MENU_ITEMS.map(({ kind, icon: Icon, key, fallback }) => (
-            <li key={kind} role="none">
+            <li key={kind}>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                role="menuitem"
                 onClick={() => handleSelect(kind)}
                 className="w-full justify-start gap-2 font-normal text-foreground"
               >

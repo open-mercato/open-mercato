@@ -49,7 +49,9 @@ export function Field({ label, children, error, className, required }: { label: 
   return (
     <div className={cn('flex w-full flex-col gap-1.5', className)}>
       <span className={LABEL_CLASS}>
-        {label}
+        {/* Label text in its own node so exact-text queries (and the TC-CAL
+            specs) keep matching the bare label without the marker. */}
+        <span>{label}</span>
         {required ? <span aria-hidden="true" className="ml-1 text-accent-indigo">*</span> : null}
       </span>
       {children}

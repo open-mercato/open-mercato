@@ -135,7 +135,9 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
       : ''
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
   const [markingDone, setMarkingDone] = React.useState(false)
-  const [deleting, setDeleting] = React.useState(false)
+  // Re-entrancy guard only — a ref avoids a render pair per delete since
+  // nothing in the UI consumes the in-flight state.
+  const deletingRef = React.useRef(false)
 
   const handleMarkDone = React.useCallback(async () => {
     if (markingDone) return
@@ -167,14 +169,14 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
   }, [activity.id, markingDone, onChanged, runMutation, t])
 
   const handleDelete = React.useCallback(async () => {
-    if (!onDelete || deleting) return
-    setDeleting(true)
+    if (!onDelete || deletingRef.current) return
+    deletingRef.current = true
     try {
       await onDelete(activity)
     } finally {
-      setDeleting(false)
+      deletingRef.current = false
     }
-  }, [activity, deleting, onDelete])
+  }, [activity, onDelete])
 
   return (
     <div
@@ -205,7 +207,7 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
       <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1 basis-40">
-            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
               <h4 className="truncate text-sm font-semibold text-foreground">{title}</h4>
               {showExternalLink ? <ExternalLink className="size-3.5 text-muted-foreground" /> : null}
             </div>

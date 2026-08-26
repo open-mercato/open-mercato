@@ -304,7 +304,7 @@ export function ActivitiesSection({
       title: t('customers.activities.actions.deleteConfirmTitle', 'Delete activity?'),
       description: t(
         'customers.activities.actions.deleteConfirmDescription',
-        'The activity will be removed from the timeline.',
+        'This permanently deletes the activity record, not just its entry on this timeline.',
       ),
       confirmText: t('customers.activities.actions.delete', 'Delete activity'),
       cancelText: t('customers.activities.actions.deleteCancel', 'Cancel'),

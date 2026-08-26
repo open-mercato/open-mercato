@@ -248,7 +248,7 @@ export function ParticipantsField({
           {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, avatar + label + × */}
           {participants.map((p, index) => (
             <div key={p.userId ?? p.email ?? index} className="inline-flex h-6 items-center gap-1 rounded-sm bg-muted pl-1 pr-1.5">
-              <span className={cn('inline-flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-white', p.color ?? 'bg-primary')}>
+              <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-overline font-bold text-white', p.color ?? 'bg-primary')}>
                 {p.name.charAt(0).toUpperCase()}
               </span>
               <span className="text-xs font-medium text-foreground">{p.name}</span>

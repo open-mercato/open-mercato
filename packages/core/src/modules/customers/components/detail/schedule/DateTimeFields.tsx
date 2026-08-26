@@ -123,7 +123,7 @@ export function DateTimeFields({
         <div className="flex min-w-0 flex-[1.5] flex-col gap-1.5">
           <label className="text-sm font-medium">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
-            <span className="text-accent-indigo"> *</span>
+            <span aria-hidden="true" className="text-accent-indigo"> *</span>
           </label>
           <DatePicker
             value={parseIsoDate(date)}
@@ -146,7 +146,7 @@ export function DateTimeFields({
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <label className="text-sm font-medium">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
-              <span className="text-accent-indigo"> *</span>
+              <span aria-hidden="true" className="text-accent-indigo"> *</span>
             </label>
             <TimePicker
               value={startTime || null}

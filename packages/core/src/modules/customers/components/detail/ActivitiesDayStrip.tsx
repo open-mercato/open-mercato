@@ -4,7 +4,7 @@ import * as React from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { toZonedTime } from 'date-fns-tz'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
@@ -109,6 +109,7 @@ function formatDayLabel(date: Date, t: TranslateFn): string {
 
 export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, headerLeft, headerRight, events: providedEvents }: ActivitiesDayStripProps) {
   const t = useT()
+  const locale = useLocale()
   const [anchor, setAnchor] = React.useState<Date>(() => anchorCenteredOn(selectedDate))
   const [fetchedEvents, setFetchedEvents] = React.useState<InteractionSummary[]>([])
   // When the parent supplies `events` (preferred path — keeps day strip and
@@ -126,7 +127,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   }, [selectedDate])
 
   const visibleDays = React.useMemo(() => buildVisibleDays(anchor), [anchor])
-  const headerLabel = React.useMemo(() => formatRangeLabel(visibleDays), [visibleDays])
+  const headerLabel = React.useMemo(() => formatRangeLabel(visibleDays, locale), [visibleDays, locale])
 
   React.useEffect(() => {
     if (useProvidedEvents) return
@@ -242,7 +243,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
                 {formatDayLabel(day, t)}
               </span>
               <span className="text-xl font-semibold leading-7 text-foreground">{day.getDate()}</span>
-              <span className="whitespace-nowrap text-[11px] leading-none text-muted-foreground">
+              <span className="whitespace-nowrap text-overline leading-none text-muted-foreground">
                 {/* Narrow cells fit only the bare count; the full label returns from sm up. */}
                 <span className="sm:hidden">{eventCount > 0 ? eventCount : '\u00A0'}</span>
                 <span className="hidden sm:inline">
@@ -268,11 +269,13 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   )
 }
 
-function formatRangeLabel(days: Date[]): string {
+function formatRangeLabel(days: Date[], locale: string): string {
   if (days.length === 0) return ''
   const first = days[0]
   const last = days[days.length - 1]
-  const dayMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' })
+  // App locale, not the browser locale — a pl tenant on an en-US browser must
+  // still read Polish month names here (same fix as 4dbca7b35 on develop).
+  const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long' })
   const year = last.getFullYear()
   if (first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear()) {
     return `${first.getDate()}–${dayMonth.format(last)} ${year}`

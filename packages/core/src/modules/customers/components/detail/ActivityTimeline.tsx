@@ -91,7 +91,9 @@ function TimelineEntry({
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
   const isOpen = isOpenInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
-  const [deleting, setDeleting] = React.useState(false)
+  // Re-entrancy guard only — a ref avoids a render pair per delete since
+  // nothing in the UI consumes the in-flight state.
+  const deletingRef = React.useRef(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
     event.stopPropagation()
@@ -105,14 +107,14 @@ function TimelineEntry({
   }, [activity.id, markingDone, onMarkDone])
 
   const handleDelete = React.useCallback(async () => {
-    if (!onDelete || deleting) return
-    setDeleting(true)
+    if (!onDelete || deletingRef.current) return
+    deletingRef.current = true
     try {
       await onDelete(activity)
     } finally {
-      setDeleting(false)
+      deletingRef.current = false
     }
-  }, [activity, deleting, onDelete])
+  }, [activity, onDelete])
 
   return (
     <div
