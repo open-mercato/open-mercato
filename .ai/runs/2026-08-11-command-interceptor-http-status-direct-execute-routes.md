@@ -105,4 +105,11 @@ answered, which is a behavior change of its own. They are pinned in
       maps the rejection with the same rethrow-shape idiom as the `warranty_claims` portal routes, with a behavioural
       test, and the spec, ledger and coverage tables record it. The guard could not have caught this (it scans
       `packages/core`); widening its scope is tracked in #5636.
+- [x] Second base merge (2026-08-26, later the same day): `develop` moved 5 further commits. Merged cleanly, and
+      the whole contract was re-checked against the merged tree rather than the old head. The two route files
+      `develop` touched (`auth/api/users`, `wms/api/warehouses`) change neither a bus call nor a `catch`, the
+      coverage guard passes 6/6 on the merge result, and the cross-package scan still finds bus-calling routes in
+      exactly five packages (`core` 85, `enterprise` 8, `checkout` 5, `documents` 2, `channel-discord` 1).
+      Re-verified `@pkarw`'s minor finding and all three nits as already fixed on the previous head — the ledger
+      entry carries 80 branches across 67 `core` route files, which matches the merged tree exactly.
 - [x] CI green on the PR head
