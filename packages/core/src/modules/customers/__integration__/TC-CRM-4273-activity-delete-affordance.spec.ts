@@ -134,21 +134,43 @@ test.describe('TC-CRM-4273: activity delete + prefill on the production activity
       await openDeleteFromMenu()
       const confirmAgain = page.getByRole('alertdialog')
       await expect(confirmAgain).toBeVisible({ timeout: 15_000 })
-      // Capture the DELETE outcome directly: when this fails in CI it reports
-      // the status and body (a 409 carries the expected/actual lock versions),
-      // instead of a mute missing-flash timeout.
-      const deleteResponsePromise = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'DELETE'
-          && response.url().includes('/api/customers/interactions'),
-        { timeout: 15_000 },
-      )
-      await confirmAgain.getByRole('button', { name: /Delete activity/i }).click()
-      const deleteResponse = await deleteResponsePromise
-      const deleteBody = await deleteResponse.text().catch(() => '')
+      // Capture the DELETE outcome directly: on failure this reports the
+      // status and body instead of a mute missing-flash timeout.
+      const confirmDeleteAndCapture = async (dialog = confirmAgain) => {
+        const responsePromise = page.waitForResponse(
+          (response) =>
+            response.request().method() === 'DELETE'
+            && response.url().includes('/api/customers/interactions'),
+          { timeout: 15_000 },
+        )
+        await dialog.getByRole('button', { name: /Delete activity/i }).click()
+        const response = await responsePromise
+        const body = await response.text().catch(() => '')
+        return { response, body }
+      }
+
+      let deleteOutcome = await confirmDeleteAndCapture()
+
+      // Enterprise environments run the record_locks module, whose action-log
+      // chain can flag the first UI mutation of a row created out-of-band as an
+      // overridable conflict. The product path is the conflict banner's
+      // Refresh → redo; follow it once, then hold the hard assertion.
+      if (deleteOutcome.response.status() === 409 && deleteOutcome.body.includes('record_lock_conflict')) {
+        const banner = page.getByText('Record changed').first()
+        await expect(banner).toBeVisible({ timeout: 15_000 })
+        await Promise.all([
+          page.waitForLoadState('domcontentloaded'),
+          page.getByRole('button', { name: 'Refresh' }).click(),
+        ])
+        await page.getByRole('tab', { name: /Activity log/i }).click()
+        await page.waitForLoadState('networkidle')
+        await openDeleteFromMenu()
+        deleteOutcome = await confirmDeleteAndCapture(page.getByRole('alertdialog'))
+      }
+
       expect(
-        deleteResponse.status(),
-        `DELETE /api/customers/interactions responded ${deleteResponse.status()}: ${deleteBody.slice(0, 400)}`,
+        deleteOutcome.response.status(),
+        `DELETE /api/customers/interactions responded ${deleteOutcome.response.status()}: ${deleteOutcome.body.slice(0, 400)}`,
       ).toBe(200)
 
       // Success flash: the UI acknowledged the deletion.
