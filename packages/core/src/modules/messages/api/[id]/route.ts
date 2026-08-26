@@ -9,6 +9,10 @@ import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveMessageChannelThreadAccess,
+} from '../../lib/channelThreadAccess'
 import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
@@ -105,7 +109,23 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const isSender = message.senderUserId === scope.userId
   const isRecipient = Boolean(recipient)
 
-  if (!isSender && !isRecipient) {
+  // #5535: a message that arrived over a communication channel has the channel
+  // system user as its sender and, on an unassigned conversation, no recipient
+  // rows — so the participant test below denies every operator and the reply
+  // button is unreachable. For a thread the channels hub owns, that hub's access
+  // rule applies instead; an internal thread resolves to `null` and keeps the
+  // participant rule unchanged. Only channel-sourced messages pay the lookup.
+  const channelThread = message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+    ? await resolveMessageChannelThreadAccess(
+      ctx.container,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      { messageThreadId: message.threadId ?? message.id },
+      { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
+    )
+    : null
+  const hasChannelThreadAccess = channelThread?.canAccess === true
+
+  if (!isSender && !isRecipient && !hasChannelThreadAccess) {
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
@@ -152,9 +172,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     })
     : []
   const visibleRecipientMessageIds = new Set(visibleRecipientRows.map((item) => item.messageId))
-  const actorVisibleThreadMessages = threadMessages.filter((threadMessage) => (
-    threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
-  ))
+  // On a channel-linked thread the conversation IS the thread: the correspondent
+  // is not a platform user, so filtering by participation would hide the inbound
+  // messages and every other operator's answer, leaving the operator looking at
+  // half a conversation (#5535).
+  const actorVisibleThreadMessages = hasChannelThreadAccess
+    ? threadMessages
+    : threadMessages.filter((threadMessage) => (
+      threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
+    ))
 
   const actorRecipientStatusByMessageId = new Map<string, string>()
   for (const row of visibleRecipientRows) {

@@ -36,12 +36,15 @@ function tryResolveChannelThreadAccessService(
   container: ContainerLike,
 ): ResolveChannelThreadAccessService | undefined {
   try {
-    return container.resolve<ResolveChannelThreadAccessService>(
+    const service = container.resolve<ResolveChannelThreadAccessService>(
       'communicationChannelsResolveChannelThreadAccess',
     )
+    return typeof service === 'function' ? service : undefined
   } catch {
     // `communication_channels` is optional: without it no thread can be
     // channel-linked, so "internal thread" is both correct and fail-closed.
+    // A container that answers with a non-callable instead of throwing reads
+    // the same way.
     return undefined
   }
 }

@@ -849,3 +849,163 @@ describe('messages /api/messages/[id] optimistic locking', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * #5535 — an inbound channel message is authored by the channel system user and,
+ * on an unassigned conversation, has no recipient rows, so the participant test
+ * above denied every operator: the detail page the reply button lives on could
+ * not even be opened. For a thread the channels hub owns, the hub's own access
+ * rule applies instead.
+ */
+describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', () => {
+  const operatorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const systemUserId = '00000000-0000-0000-0000-000000000000'
+  const otherOperatorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const threadId = '11111111-1111-4111-8111-111111111111'
+  const anchorId = '22222222-2222-4222-8222-222222222222'
+
+  const inboundMessage = {
+    id: anchorId,
+    threadId,
+    senderUserId: systemUserId,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+    isDraft: false,
+    type: 'channel.discord',
+    visibility: 'public',
+    sourceEntityType: 'communication_channels.external_conversation',
+    sourceEntityId: '77777777-7777-4777-8777-777777777777',
+    externalEmail: null,
+    externalName: 'discord-user',
+    parentMessageId: null,
+    subject: 'Incoming from Discord',
+    body: 'is anyone there?',
+    bodyFormat: 'text',
+    priority: 'normal',
+    sentAt: new Date('2026-08-23T10:00:00.000Z'),
+    actionData: null,
+    actionTaken: null,
+    actionTakenAt: null,
+    actionTakenByUserId: null,
+  }
+
+  const threadMessages = [
+    {
+      id: anchorId,
+      senderUserId: systemUserId,
+      externalName: 'discord-user',
+      sourceEntityType: 'communication_channels.external_conversation',
+      body: 'is anyone there?',
+      bodyFormat: 'text',
+      sentAt: new Date('2026-08-23T10:00:00.000Z'),
+    },
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      senderUserId: otherOperatorId,
+      sourceEntityType: 'communication_channels.external_conversation',
+      body: 'answered by a colleague',
+      bodyFormat: 'text',
+      sentAt: new Date('2026-08-23T10:05:00.000Z'),
+    },
+  ]
+
+  function setupHarness(channelThreadAccess: unknown, options: { registered?: boolean } = {}) {
+    const em = {
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === Message && where.threadId === threadId) return threadMessages
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === Message) return threadMessages
+      if (entity === User) return []
+      return []
+    })
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => (
+      entity === Message ? inboundMessage : null
+    ))
+
+    const resolveChannelThreadAccess = jest.fn(async () => channelThreadAccess)
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: {
+        auth: { features: ['messages.view'] },
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'communicationChannelsResolveChannelThreadAccess') {
+              return options.registered === false ? null : resolveChannelThreadAccess
+            }
+            return null
+          },
+        },
+      },
+      scope: { tenantId, organizationId, userId: operatorUserId },
+    })
+    return { resolveChannelThreadAccess }
+  }
+
+  const grantedThread = {
+    messageThreadId: threadId,
+    externalConversationId: '77777777-7777-4777-8777-777777777777',
+    channelId: '88888888-8888-4888-8888-888888888888',
+    channelType: 'discord',
+    canAccess: true,
+  }
+
+  beforeEach(() => jest.clearAllMocks())
+
+  function getDetail() {
+    return GET(
+      new Request(`http://localhost/api/messages/${anchorId}?skipMarkRead=1`),
+      { params: { id: anchorId } },
+    )
+  }
+
+  it('lets an operator open a message the channel behind its thread grants access to', async () => {
+    const { resolveChannelThreadAccess } = setupHarness(grantedThread)
+
+    const response = await getDetail()
+
+    expect(response.status).toBe(200)
+    expect(resolveChannelThreadAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId, organizationId },
+      { messageThreadId: threadId },
+      { userId: operatorUserId, features: ['messages.view'] },
+    )
+  })
+
+  it('shows the whole conversation rather than only the operator own messages', async () => {
+    setupHarness(grantedThread)
+
+    const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+    expect((payload.thread ?? []).map((item) => item.id)).toEqual([
+      anchorId,
+      '33333333-3333-4333-8333-333333333333',
+    ])
+  })
+
+  it('still denies a caller the channel itself refuses', async () => {
+    setupHarness({ ...grantedThread, canAccess: false })
+
+    expect((await getDetail()).status).toBe(403)
+  })
+
+  it('still denies when the thread is not channel-linked', async () => {
+    setupHarness(null)
+
+    expect((await getDetail()).status).toBe(403)
+  })
+
+  it('still denies when the channels module is not installed', async () => {
+    setupHarness(null, { registered: false })
+
+    expect((await getDetail()).status).toBe(403)
+  })
+})
