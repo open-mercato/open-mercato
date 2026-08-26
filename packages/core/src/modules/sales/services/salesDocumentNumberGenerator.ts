@@ -144,14 +144,22 @@ export class SalesDocumentNumberGenerator {
   async setNextSequence(kind: SalesDocumentNumberKind, scope: Scope, nextValue: number): Promise<void> {
     const next = Math.min(Math.max(Math.floor(nextValue), DEFAULT_SEQUENCE_START), MAX_SEQUENCE)
     await this.ensureSequence(kind, scope)
-    // `is_called = false` makes the next `nextval` return exactly `next`.
+    // Park the sequence on `next - 1` as an already-issued value, so the next `nextval`
+    // returns exactly `next`. The `setval(next, false)` form would do that too, but it leaves
+    // `is_called = false`, and that is precisely the state `pg_sequence_last_value` reports as
+    // NULL — `peekNextSequence` would then read the series back as the start value and the
+    // settings form would write that rewind back on its next save.
+    // The start value has no predecessor to park on and `minvalue` forbids one; it is also the
+    // one value the untouched "never called" state already claims and reports correctly.
+    const isCalled = next > DEFAULT_SEQUENCE_START
+    const armedAt = isCalled ? next - 1 : DEFAULT_SEQUENCE_START
     await this.em.getConnection().execute(
       `
-        select setval(${SEQUENCE_REGCLASS_SQL}, ?, false)
+        select setval(${SEQUENCE_REGCLASS_SQL}, ?, ?)
           from sales_document_sequences
          where ${SEQUENCE_SCOPE_PREDICATE}
       `,
-      [next, scope.organizationId, scope.tenantId, kind]
+      [armedAt, isCalled, scope.organizationId, scope.tenantId, kind]
     )
     await this.em.getConnection().execute(
       `
@@ -191,7 +199,8 @@ export class SalesDocumentNumberGenerator {
     let rows: { last_value: string | number | null }[] | undefined
     try {
       // `pg_sequence_last_value` reports the sequence's state without consuming a value, and
-      // returns NULL for a sequence `nextval` has never touched.
+      // returns NULL for a sequence that has never been called — which is the only state
+      // `setNextSequence` leaves behind for the start value, and the value it claims next.
       rows = await this.em.getConnection().execute<{ last_value: string | number | null }[]>(
         `
           select pg_sequence_last_value(${SEQUENCE_REGCLASS_SQL}) as last_value

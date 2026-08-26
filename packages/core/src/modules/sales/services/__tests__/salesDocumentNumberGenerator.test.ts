@@ -21,11 +21,17 @@ class MissingRelationError extends Error {
  * Test double for the Postgres connection. `nextval` is modelled as what it actually is —
  * an atomic counter that never returns the same value twice — so the tests can assert the
  * invariant that matters for document numbering rather than the shape of the SQL.
+ *
+ * `is_called` is modelled too, because it is the difference between the two `setval` forms and
+ * the reason `pg_sequence_last_value` answers NULL: a double that always reported a value hid
+ * a rewind of the whole numbering series past this suite (#5613).
  */
 function createEm(options: { sequenceExists?: boolean; startAt?: number } = {}) {
+  const startAt = options.startAt ?? 1
   const state = {
     sequenceExists: options.sequenceExists ?? true,
-    nextValue: options.startAt ?? 1,
+    lastValue: startAt > 1 ? startAt - 1 : 1,
+    isCalled: startAt > 1,
     created: [] as string[],
   }
   const statements: Statement[] = []
@@ -44,14 +50,17 @@ function createEm(options: { sequenceExists?: boolean; startAt?: number } = {}) 
     }
     if (normalized.includes('nextval(')) {
       if (!state.sequenceExists) throw new MissingRelationError()
-      return [{ claimed: String(state.nextValue++) }]
+      if (state.isCalled) state.lastValue += 1
+      else state.isCalled = true
+      return [{ claimed: String(state.lastValue) }]
     }
     if (normalized.includes('pg_sequence_last_value(')) {
       if (!state.sequenceExists) throw new MissingRelationError()
-      return [{ last_value: state.nextValue > 1 ? String(state.nextValue - 1) : null }]
+      return [{ last_value: state.isCalled ? String(state.lastValue) : null }]
     }
     if (normalized.includes('setval(')) {
-      state.nextValue = Number(params[0])
+      state.lastValue = Number(params[0])
+      state.isCalled = params[1] === true
       return []
     }
     if (normalized.startsWith('update sales_document_sequences')) {
@@ -164,8 +173,40 @@ describe('SalesDocumentNumberGenerator sequence claiming (#5604)', () => {
 
     const setval = statements.find((statement) => statement.sql.includes('setval('))
     expect(setval).toBeDefined()
-    expect(setval!.params[0]).toBe(500)
+    expect(setval!.params.slice(0, 2)).toEqual([499, true])
     expect(next.sequence).toBe(500)
+  })
+
+  it('reports the value it was just set to instead of falling back to the start value', async () => {
+    const { em } = createEm()
+    const generator = new SalesDocumentNumberGenerator(em)
+
+    await generator.setNextSequence('order', scope, 900)
+
+    await expect(generator.peekSequences(scope)).resolves.toMatchObject({ order: 900 })
+  })
+
+  it('survives a re-save of the value it reports, instead of rewinding the series', async () => {
+    const { em } = createEm()
+    const generator = new SalesDocumentNumberGenerator(em)
+
+    await generator.setNextSequence('order', scope, 950)
+    // The settings form posts back whatever the API reported, so a peek that under-reports
+    // gets written into the sequence on the next save and re-issues numbers already in use.
+    const reported = await generator.peekSequences(scope)
+    await generator.setNextSequence('order', scope, reported.order)
+
+    await expect(generator.generate({ kind: 'order', ...scope })).resolves.toMatchObject({ sequence: 950 })
+  })
+
+  it('round-trips the start value, which has no predecessor to park the sequence on', async () => {
+    const { em } = createEm({ startAt: 40 })
+    const generator = new SalesDocumentNumberGenerator(em)
+
+    await generator.setNextSequence('order', scope, 1)
+
+    await expect(generator.peekSequences(scope)).resolves.toMatchObject({ order: 1 })
+    await expect(generator.generate({ kind: 'order', ...scope })).resolves.toMatchObject({ sequence: 1 })
   })
 })
 
