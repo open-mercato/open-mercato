@@ -253,6 +253,8 @@ describe('LookupSelect selected value display', () => {
   it('renders nothing selected when there is no value', () => {
     render(<LookupSelect value={null} onChange={() => {}} fetchItems={async () => []} />)
     expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+  })
+})
 
 // `disabled` used to gate only the search box, so a caller that locked the
 // control still shipped a live option list: the selected card kept its click and

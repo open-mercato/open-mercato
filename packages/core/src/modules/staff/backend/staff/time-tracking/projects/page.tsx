@@ -119,6 +119,7 @@ type ProjectRow = {
 type ProjectsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
+  totalIsCapped?: boolean
   totalPages?: number
 }
 

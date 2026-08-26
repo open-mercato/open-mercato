@@ -127,6 +127,7 @@ const RESOURCE_KIND = 'staff.timesheets.time_entry'
 type EntriesResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
+  totalIsCapped?: boolean
   totalPages?: number
 }
 
