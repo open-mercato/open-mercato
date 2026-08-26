@@ -22,6 +22,10 @@ import {
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveMessageChannelThreadAccess,
+} from '../lib/channelThreadAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -489,6 +493,40 @@ export async function POST(req: Request) {
     }
   }
 
+  // #5535: composing on a channel conversation without naming a parent message
+  // used to open a brand-new thread. A fresh thread has no `ChannelThreadMapping`,
+  // so the outbound bridge had nothing to route on and the operator got a 201 for
+  // a message that was never delivered — a silent failure worse than a refusal.
+  // Attach the message to the conversation's existing thread instead, and refuse
+  // outright when there is no such thread to attach it to. Only messages meant to
+  // leave the platform are affected: a draft, or an internal note filed against
+  // the same conversation, is never delivered anyway and stays untouched.
+  let composeParentMessageId = input.parentMessageId
+  if (
+    isPublicVisibility &&
+    !input.isDraft &&
+    !input.parentMessageId &&
+    input.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE &&
+    input.sourceEntityId
+  ) {
+    const channelThread = await resolveMessageChannelThreadAccess(
+      ctx.container,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      { externalConversationId: input.sourceEntityId },
+      { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
+    )
+    if (!channelThread) {
+      return Response.json(
+        { error: 'Conversation has no channel thread to deliver into' },
+        { status: 409 },
+      )
+    }
+    if (!channelThread.canAccess) {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
+    composeParentMessageId = channelThread.messageThreadId
+  }
+
   const guardResult = await runMessageMutationGuards(
     ctx.container,
     {
@@ -514,6 +552,7 @@ export async function POST(req: Request) {
   const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
     input: {
       ...input,
+      parentMessageId: composeParentMessageId,
       sendViaEmail,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,

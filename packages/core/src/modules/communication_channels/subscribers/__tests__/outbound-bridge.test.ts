@@ -126,6 +126,74 @@ describe('outbound-bridge subscriber behaviour', () => {
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 
+  // #5535 — `sourceEntityType` alone cannot tell an ingested inbound message
+  // apart from an operator's own message in the same conversation, because a
+  // reply inherits it from the message it answers. Before the fix every
+  // operator message in a channel thread was dropped here without a trace.
+  describe('inbound ingest vs operator message (#5535)', () => {
+    const EXTERNAL = 'communication_channels.external_conversation'
+    const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
+
+    it('skips the ingested inbound message identified by its inbound link', async () => {
+      const findOne = jest.fn()
+      findOne.mockResolvedValueOnce({
+        id: messageId,
+        threadId: 'thread-1',
+        senderUserId: 'assigned-operator',
+        sourceEntityType: EXTERNAL,
+      }) // Message
+      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+      findOne.mockResolvedValueOnce({ id: 'link-1', direction: 'inbound', deliveryStatus: 'received' })
+      await handler({ messageId, tenantId }, makeCtx({ findOne }))
+      expect(enqueueMock).not.toHaveBeenCalled()
+    })
+
+    it('skips the ingested inbound message by its ingest dedup key before the link is visible', async () => {
+      const findOne = jest.fn()
+      findOne.mockResolvedValueOnce({
+        id: messageId,
+        threadId: 'thread-1',
+        senderUserId: 'assigned-operator',
+        sourceEntityType: EXTERNAL,
+        idempotencyKey: 'cc:ch-1:external-42',
+      }) // Message
+      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+      findOne.mockResolvedValueOnce(null) // link not flushed yet
+      await handler({ messageId, tenantId }, makeCtx({ findOne }))
+      expect(enqueueMock).not.toHaveBeenCalled()
+    })
+
+    it('skips the ingested inbound message attributed to the channel system user', async () => {
+      const findOne = jest.fn()
+      findOne.mockResolvedValueOnce({
+        id: messageId,
+        threadId: 'thread-1',
+        senderUserId: SYSTEM_USER_ID,
+        sourceEntityType: EXTERNAL,
+      }) // Message
+      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+      findOne.mockResolvedValueOnce(null) // link not flushed yet
+      await handler({ messageId, tenantId }, makeCtx({ findOne }))
+      expect(enqueueMock).not.toHaveBeenCalled()
+    })
+
+    it('delivers an operator reply that inherited the conversation source type', async () => {
+      const findOne = jest.fn()
+      findOne.mockResolvedValueOnce({
+        id: messageId,
+        threadId: 'thread-1',
+        senderUserId: 'operator-1',
+        sourceEntityType: EXTERNAL,
+      }) // Message
+      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-1' })
+      findOne.mockResolvedValueOnce(null) // no link yet — nothing was sent for this message
+      findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // shared channel
+      await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
+      expect(enqueueMock).toHaveBeenCalledTimes(1)
+      expect((enqueueMock.mock.calls[0][0] as any).messageId).toBe(messageId)
+    })
+  })
+
   it('enqueues delivery when the message sender OWNS the per-user channel', async () => {
     const findOne = jest.fn()
     findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'owner-b' }) // Message

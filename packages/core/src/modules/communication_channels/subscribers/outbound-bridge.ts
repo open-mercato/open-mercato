@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, CommunicationChannel, MessageChannelLink } from '../data/entities'
 import { Message } from '../../messages/data/entities'
+import { isIngestedInboundMessage } from '../lib/inbound-message-origin'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 
@@ -88,16 +89,6 @@ export default async function handler(
   if (message.sourceEntityType === 'communication_channels.send_as_user') {
     return
   }
-  // Inbound ingest path: when `ingest-inbound-message` composes a new platform
-  // Message for an incoming email, the messages module also emits
-  // `messages.message.sent` (the Message row is fresh and marked sent). Without
-  // this guard, we'd treat it as outbound and queue a redundant SMTP delivery —
-  // which fails because inbound MCLs carry recipient info in `channelPayload`,
-  // not `channelMetadata`, and the failure marker then leaks back onto the
-  // inbound link itself.
-  if (message.sourceEntityType === 'communication_channels.external_conversation') {
-    return
-  }
   if (!message.threadId) return // Internal-only; no channel routing.
 
   // (b) Look up the channel mapping by threadId.
@@ -126,6 +117,23 @@ export default async function handler(
     undefined,
     dscope,
   )
+  // (c1) Inbound ingest path: when `ingest-inbound-message` composes a platform
+  // Message for an incoming message, the messages module also emits
+  // `messages.message.sent` (the Message row is fresh and marked sent). Without
+  // this guard we'd treat it as outbound and queue a redundant delivery — which
+  // fails because inbound MCLs carry recipient info in `channelPayload`, not
+  // `channelMetadata`, and the failure marker then leaks back onto the inbound
+  // link itself.
+  //
+  // The guard used to be `sourceEntityType === external_conversation`, but an
+  // operator's reply inherits that value from the message it answers, so every
+  // operator message in a channel thread was dropped here — silently, which is
+  // the delivery half of #5535. `isIngestedInboundMessage` distinguishes the
+  // ingested message from an operator's own message in the same conversation.
+  if (await isIngestedInboundMessage(em, { message, existingLink, tenantId: payload.tenantId })) {
+    return
+  }
+
   if (
     existingLink &&
     (existingLink.deliveryStatus === 'queued' ||
