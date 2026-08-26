@@ -92,13 +92,23 @@ function toRepoRelative(full: string): string {
 }
 
 describe('backend module pages resolve route params from the params prop', () => {
+  const moduleRoots = [...collectModuleRootsUnder(packagesRoot), ...collectModuleRootsUnder(appsRoot)]
   const pages: string[] = []
-  for (const root of [...collectModuleRootsUnder(packagesRoot), ...collectModuleRootsUnder(appsRoot)]) {
-    collectBackendPages(root, false, pages)
-  }
+  for (const root of moduleRoots) collectBackendPages(root, false, pages)
 
-  it('finds backend pages to scan', () => {
-    expect(pages.length).toBeGreaterThan(0)
+  /**
+   * Both floors exist because the two filesystem `catch` blocks above swallow
+   * their errors and return an empty result: without a floor, a scan that
+   * collapsed to a handful of workspaces or files would still report green and
+   * the guard below would pass vacuously. The numbers are the same style of
+   * floor the sibling workspace guards pin (optimistic-lock-ui-coverage-workspace
+   * pins > 3 roots and > 200 candidates; optimistic-lock-command-coverage pins
+   * > 100 files) — set well under today's 22 module roots and 277 pages so
+   * ordinary churn never trips them.
+   */
+  it('scans every workspace module tree, not a truncated slice of it', () => {
+    expect(moduleRoots.length).toBeGreaterThan(10)
+    expect(pages.length).toBeGreaterThan(200)
   })
 
   it('has no backend page that reads route params via useParams()', () => {
