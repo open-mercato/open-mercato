@@ -58,6 +58,7 @@ Nothing changes at runtime beyond the tag name — no prop was added, removed, o
 Request-side contracts are untouched — query parameters, the `sortField` values (`lastSeenAt`, `createdAt`, `updatedAt`, already camelCase), request bodies, and the `POST`/`PUT`/`DELETE` response shapes are unchanged, as are the database columns themselves. The one behavior difference for a caller already reading the snake_case keys is that timestamp columns now always serialize as ISO-8601 strings under both spellings. `push_token` remains absent from every response under either spelling.
 
 **Action for API consumers:** switch to the camelCase keys. A client that keeps reading the snake_case ones works unchanged until the aliases are removed.
+
 ### The shipped-line freeze is now a setting, still on by default (#5572)
 
 Editing an order line that already has shipment items — its unit price, discount, tax rate, unit, derived totals, or a quantity below what shipped — has been refused with a `409` since the fix for #3993. That refusal is now conditional on a new per-scope sales setting, `orderShippedLineEditable`.
