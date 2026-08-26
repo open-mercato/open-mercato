@@ -23,12 +23,13 @@ function collectTestFiles(directory: string): string[] {
   })
 }
 
-test('the test script builds once before the runner starts', () => {
+test('the test script builds and prepares Git history before the runner starts', () => {
   assert.match(
     testScript,
-    /^node build\.mjs && node /,
-    'the package build must run once, before node --test, so no test file has to spawn it (#5059)',
+    /^node build\.mjs && node scripts\/prepare-test-git-history\.mjs && node /,
+    'the package build and shallow-history fetch must finish before parallel tests start (#5059, #5236)',
   )
+  assert.equal(fs.existsSync(join(pkgRoot, 'scripts', 'prepare-test-git-history.mjs')), true)
 })
 
 test('turbo knows the test task now needs the sibling builds', () => {

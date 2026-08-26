@@ -1,0 +1,1 @@
+export { WarrantyClaimNotificationRenderer } from './WarrantyClaimNotificationRenderer'

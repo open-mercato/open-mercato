@@ -30,7 +30,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 214-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 234-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -531,13 +531,29 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 211. Let a new customer request their own workspace without a second signup flow.
 212. Express when staff are actually available without a private schedule table.
 213. Serve product and category names in each customer's language without duplicate columns.
-214. Use the installed EUDR compliance workflow instead of building a duplicate module.
+214. Classify a multi-step returns capability before any implementation starts.
+215. Classify a reproducible order due-date defect before changing any code.
+216. Classify a rename-only refactor and stale README wording as bounded maintenance.
+217. Honor an explicit skip-the-spec instruction for a new pickup schedule page.
+218. Ask one bounded question about an ambiguous order export improvement.
+219. Ground a new CRUD module on the canonical example CRUD, entity, and validator sources.
+220. Select the canonical example DataTable injection sources for a host table extension.
+221. Pick the canonical example table and CrudForm sources for a new backend screen set.
+222. Route a command, typed event, and index bridge design onto the canonical example sources.
+223. Deliver only a covering specification for a multi-step stock transfer capability.
+224. Amend the seeded appointment reminder specification instead of writing a second one.
+225. Select the canonical example operation-progress sources for a durable bulk job.
+226. Ground a new AI tool pack, agent, and agent extension on the canonical example sources.
+227. Reuse the shipped reference-module activation specification instead of writing a second one.
+228. Trace a Button and token decision through gallery and design-foundation evidence.
+229. Use the installed EUDR compliance workflow instead of building a duplicate module.
+230. Reuse installed collaborative documents instead of building a private notes system.
 
 ### Evaluation levels and release matrix
 
-All 214 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 46 representative cases (21.5% of the catalog). A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
+All 230 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 48 representative cases (20.9% of the catalog). A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
 
-Executable coverage is distributed across these slices; the release matrix and trusted oracles must remain aligned for all 46 cases:
+Executable coverage is distributed across these slices; the release matrix and trusted oracles must remain aligned for all 48 cases:
 
 - module vertical slice: 9, 11, 12, 14;
 - extension/UI: 26, 27, 29, 31;
@@ -549,11 +565,12 @@ Executable coverage is distributed across these slices; the release matrix and t
 - business test-authoring slices: 163, 164, 165;
 - business regressions: 171, 172;
 - complete standalone module: 185;
-- field-tested generative regressions: 188, 189, 190, 191, 192.
+- field-tested generative regressions: 188, 189, 190, 191, 192;
+- specification-only planning cases: 223, 224.
 
 Implementation cases use a fresh disposable scaffold, explicit allowed-write paths, deterministic fixture setup, expected artifacts, and executable validator IDs. A fixed controller-owned TypeScript AST oracle covers every registered writable case and rejects comment/import token stuffing; isolated mocked behavior probes additionally exercise provider/workflow effects and seeded regressions. The target cannot replace executable oracle code. The after phase also runs the target's fixed `yarn typecheck` gate. Every target command, including `yarn build`, runs with network mode `none`. Regression cases must fail their oracle before the agent change and pass it afterward. Provider cases use mocked effects or contract servers unless explicit test credentials are supplied. Broad cases may use parameterized variants, but each variant has a distinct result and oracle.
 
-All 46 writable implementation and regression cases must pass an isolated generative judge after their trusted oracle, target commands, and any declared generated-test execution pass. The evaluator binds the judge to those attestations and the final whole-target fingerprint, then copies changed regular text files as line-numbered inert snapshots, plus the controller-installed pinned `om-judge-agent-session` and `om-code-review` skills, a static judge policy, controller oracle evidence, and UI/design-system references only for UI-routed cases into a bounded temporary read-only bundle. Target scripts, dependencies, Git/tracker state, original executable source files, and the target's absolute path are not copied or supplied. Trace-verified out-of-bundle, environment, or process inspection and any bundle/target mutation fail closed. A separate sanitized judge artifact records the source result, target, skill/policy versions, command and generated-test attestations, final-fingerprint hashes, artifact findings, harness-owner findings, strict verdict, and actionable fixes; this supplemental gate does not claim the skill's full repository validation gate or CI passed. The existing generated-code-review CLI flags and result projection remain compatibility aliases for at least one minor version.
+All 48 writable implementation and regression cases must pass an isolated generative judge after their trusted oracle, target commands, and any declared generated-test execution pass. The evaluator binds the judge to those attestations and the final whole-target fingerprint, then copies changed regular text files as line-numbered inert snapshots, plus the controller-installed pinned `om-judge-agent-session` and `om-code-review` skills, a static judge policy, controller oracle evidence, and UI/design-system references only for UI-routed cases into a bounded temporary read-only bundle. Target scripts, dependencies, Git/tracker state, original executable source files, and the target's absolute path are not copied or supplied. Trace-verified out-of-bundle, environment, or process inspection and any bundle/target mutation fail closed. A separate sanitized judge artifact records the source result, target, skill/policy versions, command and generated-test attestations, final-fingerprint hashes, artifact findings, harness-owner findings, strict verdict, and actionable fixes; this supplemental gate does not claim the skill's full repository validation gate or CI passed. The existing generated-code-review CLI flags and result projection remain compatibility aliases for at least one minor version.
 
 ### Generative session judge
 
@@ -570,10 +587,10 @@ Cases 163, 164, 165, and 192 are executable test-authoring evaluations. They pro
 
 The checked-in `releaseMatrix` pins supported runner model selectors plus required and portability case IDs. The release invocation pins one primary runner for the whole suite; per-case fallback or mixed writable ownership is forbidden. Acceptance for this PR is:
 
-1. deterministic validation: 214/214 pass, including 100% forbidden/safety assertions;
-2. selected primary-runner routing: 214/214 pass with one fresh-process correction allowed only for correctable read-only routing assertions, in addition to the bounded invalid-output/transient retry;
-3. optional portability routing: when a different `--portability-runner` is explicitly requested, the exact 46-case representative target passes with the same retry rule; when omitted, the release report records `portabilityRunner: null` and does not claim cross-model evidence;
-4. writable implementation/regression: the selected primary runner owns all 46 cases, and every target oracle, fixed target command, declared generated test, duplicate normalized API/backend/frontend route guard, and mandatory generative judge passes;
+1. deterministic validation: 230/230 pass, including 100% forbidden/safety assertions;
+2. selected primary-runner routing: 230/230 pass with one fresh-process correction allowed only for correctable read-only routing assertions, in addition to the bounded invalid-output/transient retry;
+3. optional portability routing: when a different `--portability-runner` is explicitly requested, the exact 48-case representative target passes with the same retry rule; when omitted, the release report records `portabilityRunner: null` and does not claim cross-model evidence;
+4. writable implementation/regression: the selected primary runner owns all 48 cases, and every target oracle, fixed target command, declared generated test, duplicate normalized API/backend/frontend route guard, and mandatory generative judge passes;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
 
 Primary-runner unavailability blocks claiming live release evidence; it does not invalidate deterministic CI. An unrequested secondary runner is not a release prerequisite. Once the portability lane is explicitly requested, its failures or unavailability fail that extended run. Primary runner, safety, forbidden-pattern, executable-oracle, validation, generated-test, duplicate-route, and generative-judge failures remain non-waivable. No score averaging hides a failed mandatory case.
@@ -647,11 +664,11 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
 | Generated module facts | Source-linked API routes, backend pages, frontend pages, CLI commands, AI tools/MCP capabilities, AI agents, and correlated UMES hosts/contributions resolve exact targets and specialist routes without enabling broad dependency discovery; framework-owned hosts remain in the sibling framework extension catalog. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
-| Deterministic harness validation | 214 schema-valid cases, existing references, no contradictory stale patterns, complete emitted module-fact coverage, context budgets, dependency closure. |
+| Deterministic harness validation | 230 schema-valid cases, existing references, no contradictory stale patterns, complete emitted module-fact coverage, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
-| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 214 cases, one fresh session per case. |
-| Optional portability live runner | A different explicitly requested runner executes the exact 46-case representative read-only target; omission is recorded without blocking release. |
-| Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 46 implementation/regression cases, with bounded controller-materialized installed-package context when declared by the case. |
+| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 230 cases, one fresh session per case. |
+| Optional portability live runner | A different explicitly requested runner executes the exact 48-case representative read-only target; omission is recorded without blocking release. |
+| Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 48 implementation/regression cases, with bounded controller-materialized installed-package context when declared by the case. |
 | Writable route uniqueness | Every generated API, backend page, and frontend page route is normalized (including dynamic-segment names), compared with app-owned peers and the installed-route baseline in module facts, and duplicate URLs fail before semantic judging. Page metadata cannot override the filesystem-derived route used by the generator. |
 | Generated test execution | Fixed-argv execution of the generated Jest units plus Linux/Bubblewrap-isolated Playwright API and browser cases in canonical module-local paths; a host-loopback listener remains unreachable. |
 | Mandatory generative judge | Post-oracle/command/test judgment of every writable result in a bounded source-only bundle using `om-judge-agent-session`, pinned `om-code-review`, and the applicable design-system references. |
@@ -682,6 +699,7 @@ All runtime framework contract surfaces remain unchanged. The scaffold/harness s
 6. **Agentic rerun:** pre-manifest apps are migrated conservatively; unknown/user files are preserved. Generated marker blocks are replaced idempotently.
 7. **Published assets:** `dist/agentic` cleanup removes stale generated artifacts before package publication, with tests to prevent deleted legacy skills from reappearing.
 8. **Evaluator CLI/results:** `--judge-writable-result` is canonical; `--review-writable-result` and the existing generated-code-review result projection remain compatibility aliases for at least one minor release.
+9. **Experimental validation hooks:** gate-evidence/typecheck validator hooks remain available for Claude Code, Codex, and Cursor but are no longer emitted by default. The additive `--experimental-hooks-validator` option enables them, with `OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR` as its environment default. Ownership-aware updates retire only unchanged generated validator assets and preserve locally modified copies through the existing conflict path.
 
 ## 📋 Phasing
 
@@ -707,7 +725,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Finalize this spec from current scaffold/package/PR evidence and run the 13-surface compatibility audit.
 2. Add case/result schemas, validator registry, release matrix, and tests that fail on missing paths/owners/rule IDs, duplicate IDs, dangling relations, excessive byte/token budgets, stale route/entity/signature patterns, unsafe commands, and unresolved references.
-3. Add baseline cases for all 214 tasks and mark cases 57–70 mandatory.
+3. Add baseline cases for all 230 tasks and mark cases 57–70 mandatory.
 
 ### Phase 2: Root context and local skills
 
@@ -727,7 +745,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Select Codex or Claude once for the release; run all 214 primary routing cases and all 46 primary-owned writable implementation/regression target oracles, generated tests, target commands, duplicate-route guards, and generative judges. Optionally request the other runner for the exact 46-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Select Codex or Claude once for the release; run all 230 primary routing cases and all 48 primary-owned writable implementation/regression target oracles, generated tests, target commands, duplicate-route guards, and generative judges. Optionally request the other runner for the exact 48-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -748,7 +766,11 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
-- **2026-08-07** — Rebased the facts-first EUDR compliance route as OMH-214 after upstream added OMH-204–213, and synchronized the 214-case contract across schema, tests, and release documentation.
+- **2026-08-18** — Reconciled with the upstream 233-case expansion (OMH-232 push-notification phone reach, OMH-233 tenant-wide push credentials) by moving the Documents facts-first reuse decision to OMH-234 and synchronizing the 234-case/49-writable schema, documentation, and tests.
+- **2026-08-17** — Reconciled with the upstream 231-case expansion by moving the Documents facts-first reuse decision to OMH-232, keeping the upstream OMH-230/OMH-231 identities intact, and synchronizing the 232-case/49-writable schema, documentation, and tests.
+- **2026-08-14** — Made the gate-evidence/typecheck validator hook layer opt-in across Claude Code, Codex, and Cursor. Fresh scaffolds and `agentic:init` runs omit it by default; the additive `--experimental-hooks-validator` flag or `OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR=1` enables it without changing the underlying validator semantics.
+- **2026-08-12** — Preserved the upstream 229-case expansion and allocated OMH-230 to the Documents facts-first reuse decision, retaining both contracts without reusing an existing identity; synchronized the 230-case/48-writable schema, documentation, and tests.
+- **2026-08-12** — Merged the upstream EUDR compliance route as OMH-229 without reusing the PR's existing OMH-214 identity, and synchronized the 229-case/48-writable contract across schema, tests, and release documentation.
 - **2026-08-03** — Added OMH-203 for CRM detail-tab UMES routing, extended bounded installed framework context to read-only routing cases, enforced guidance-before-source ordering, and synchronized the 203-case contract across schema, tests, and release documentation.
 - **2026-08-03** — Replaced the standalone monolithic lesson placeholder with a tagged progressive index plus one-record template, made nested lesson records user-editable in both copy-pipeline manifests, added the shared consistency checker, and taught root/evolution routing to load only area/module/topic matches.
 - **2026-08-01** — Strengthened OMH-088/089 and targeted enricher/interceptor/guard/form/table/menu/DOM/portal cases around fact-first UMES target resolution, correlation provenance, every bound CrudForm/DataTable family, framework-owned hosts, and exact unified override modes; the UMES umbrella spec is optional provenance only and remains unnecessary in emitted standalone apps.

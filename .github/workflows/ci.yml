@@ -25,7 +25,19 @@ env:
   # Keep build-time and runtime onboarding config aligned so the browser
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
+  # NEXT_PUBLIC_* values are inlined by Next.js at build time, so this MUST be
+  # workflow-wide: `prepare` builds the app once (`yarn build:app`) and every
+  # `ephemeral-integration` shard reuses that artifact. Declaring it only on
+  # the shard job would leave the built bundle with collaboration disabled and
+  # TC-DOCUMENTS-017 unable to reach the sidecar. The Docker image builds are
+  # unaffected — `docker/build-push-action` forwards no job env. Production
+  # runtime validation ignores loopback endpoints unless the integration flag
+  # explicitly allows them.
+  NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
 
+# `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
+# `develop`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `develop`.
 on:
   push:
     branches:
@@ -56,7 +68,7 @@ jobs:
   #                      Only uploaded when integration tests will actually run;
   #                      skipped for CI/docs-only PRs to save ~2 min.
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
@@ -92,7 +104,10 @@ jobs:
           CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
 
           # These paths affect behaviour across all modules — run the full sharded suite.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
+          # down this very suite. A change there matches no `src/modules/` path, so without this
+          # entry the job that would exercise it is the one job it can never trigger.
+          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
@@ -121,7 +136,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -189,6 +204,10 @@ jobs:
         if: steps.integration-scope.outputs.skip != 'true'
         run: yarn build:app
 
+      - name: Check Documents bundle budgets
+        if: steps.integration-scope.outputs.skip != 'true'
+        run: yarn documents:check-bundles
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -222,7 +241,7 @@ jobs:
   # Determines whether dependency audit needs to run. Package manifests and
   # lockfiles are the only inputs that can change the dependency graph.
   audit-scope:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       should_run: ${{ steps.dependency-files.outputs.should_run }}
     steps:
@@ -271,7 +290,7 @@ jobs:
   # `.github/workflows/audit.yml` instead — this job is the change-triggered
   # half of the pair (#4479).
   audit:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     needs: audit-scope
     if: needs.audit-scope.outputs.should_run == 'true'
@@ -282,7 +301,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -315,6 +334,17 @@ jobs:
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
 
+      - name: Check for dead resolution keys
+        # Runs before the audit because a dead `resolutions` key is a *cause* of the
+        # failure the next step reports, and nothing else surfaces it: Yarn silently
+        # ignores a resolution whose `@npm:<descriptor>` suffix matches no descriptor
+        # in the tree, so a security pin stops applying the moment its requester bumps
+        # its declared range. All four `undici` keys had rotted that way before #5085,
+        # and the only symptom was a red audit with nothing in the diff to explain it
+        # (#5098). This job is the right home for the check because `audit-scope` gates
+        # it on exactly the inputs that can rot a key — manifests and lockfiles.
+        run: yarn check:resolutions
+
       - name: Audit dependencies for known CVEs
         # Uses scripts/audit-ci.mjs instead of `yarn npm audit` as a workaround for
         # an npm registry bug: the bulk advisories endpoint returns a gzip body with
@@ -332,7 +362,7 @@ jobs:
   # in scope: excluding it left turbo with zero commands and a permanently green
   # no-op job (issue #4472).
   lint:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -340,7 +370,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -374,6 +404,15 @@ jobs:
       - name: Lint
         run: yarn lint
 
+      - name: Guard against unmet peer dependencies in published packages
+        # A peer that only lives in devDependencies resolves fine through the
+        # monorepo's hoisted node_modules but is absent from a standalone app,
+        # which installs dependencies + peerDependencies only. No PR job builds a
+        # standalone app, so without this gate the break first appears post-merge
+        # in the snapshot workflow's `Standalone App Integration Tests`.
+        # Pre-existing cases are pinned in scripts/package-peer-deps-allowlist.json.
+        run: yarn packages:check-peer-deps
+
       - name: Guard against raw console.* logging
         # Blocking since the application-wide migration to the structured
         # logging facade (see .ai/specs/2026-07-02-structured-logging-facade.md).
@@ -393,7 +432,7 @@ jobs:
   # native compiler has no JS API, so the parser's `typescript` import must be
   # redirected to `typescript-js`.
   ds-lint:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
@@ -404,7 +443,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -499,7 +538,7 @@ jobs:
   # so typecheck cost does not add to the integration wall time.
   # merge-coverage and docker-build both wait for this job to complete.
   test:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
@@ -522,7 +561,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -585,6 +624,9 @@ jobs:
 
       - name: Check dependency version conflicts
         run: yarn check:dep-versions
+
+      - name: Check paginated lists forward totalIsCapped
+        run: yarn check:pagination-capped
 
       - name: Check i18n sync
         run: yarn tsx scripts/i18n-check-sync.ts
@@ -667,6 +709,62 @@ jobs:
         # scans — the whole set is ~10 s, so it stays on the common PR path.
         run: yarn test:repo-wide-guards
 
+  # ── Documents multi-instance durability ────────────────────────────────────
+  # The standard Documents Jest suite intentionally skips this infrastructure
+  # regression. Run it as a dedicated required job on GitHub's Docker-capable
+  # runner so every change proves the two-sidecar Redis/PostgreSQL persistence
+  # path rather than relying on an opt-in local command.
+  documents-multi-instance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run real two-sidecar durability regression
+        run: yarn workspace @open-mercato/documents test:multi-instance
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -679,7 +777,7 @@ jobs:
   #         wall time from ~45 min to ~6 min. A merge-coverage job then
   #         combines per-shard coverage reports.
   ephemeral-integration:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
@@ -696,7 +794,14 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
-      JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
+      # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
+      # the same ephemeral database. The separate documents-multi-instance job
+      # proves the Redis-backed two-sidecar path.
+      # NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is declared at workflow level so the
+      # reused `prepare` app build agrees with this runtime environment.
+      OM_DOCUMENTS_COLLAB_INTEGRATION: '1'
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
+      JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
       # The mock inbound webhook adapter now requires a real HMAC-SHA256
@@ -739,7 +844,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -882,8 +987,8 @@ jobs:
   # Ensures both typecheck/units and integration must pass before reporting green.
   # On push: downloads per-shard artifacts, merges coverage reports, writes summary.
   merge-coverage:
-    runs-on: ubuntu-latest
-    needs: [prepare, test, ephemeral-integration]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [prepare, test, documents-multi-instance, ephemeral-integration]
     if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
@@ -892,7 +997,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Download shard artifacts
         uses: actions/download-artifact@v8
@@ -960,7 +1065,7 @@ jobs:
   # a 10+ min rebuild caused by Docker layer cache busting when files like
   # turbo.json or scripts/ are the only things that changed.
   docker-build:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: prepare
     # Only run on non-fork PRs and direct pushes (forks don't have access to GHA cache).
     # Also skip for CI/docs-only PRs — no app code changed, image is unchanged.
@@ -972,31 +1077,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          # One builder serves all three Dockerfile builds in this job, so they share one
+          # layer cache — same as v1, where the key defaulted to the repository name.
+          cache-key: ci-docker-build
 
       - name: Build docs Dockerfile
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: apps/docs/Dockerfile
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Build fullapp (main app)
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: Dockerfile
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Build opencode container
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: ./docker/opencode
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

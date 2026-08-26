@@ -115,6 +115,12 @@ import MarkdownField from './inputs/MarkdownField'
 const logger = createLogger('ui').child({ component: 'CrudForm' })
 
 const EMPTY_OPTIONS: CrudFieldOption[] = []
+
+function areOptionListsEqual(a: CrudFieldOption[], b: CrudFieldOption[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((option, index) => option.value === b[index].value && option.label === b[index].label)
+}
 // Sentinel for the optional-Select clear affordance. Radix Select forbids
 // empty-string item values, so we use a stable non-empty token that maps to
 // `undefined` in the change handler.
@@ -777,6 +783,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
   )
   const valuesRef = React.useRef(values)
+  const pendingFieldChangeEventsRef = React.useRef<Array<{
+    eventId: number
+    fieldId: string
+    fieldValue: unknown
+    fieldRevision: number
+    fieldRevisionsAtEnqueue: Map<string, number>
+    formGeneration: number
+  }>>([])
+  const nextFieldChangeEventIdRef = React.useRef(0)
+  const fieldChangeRevisionByFieldRef = React.useRef(new Map<string, number>())
+  const fieldChangeFormGenerationRef = React.useRef(0)
+  const fieldChangeFormSnapshotRef = React.useRef<string | undefined>(undefined)
+  const fieldChangeDispatcherMountedRef = React.useRef(false)
+  const activeFieldChangeDispatchRef = React.useRef<{ eventId: number; formGeneration: number } | null>(null)
+  const [fieldChangeDispatchVersion, setFieldChangeDispatchVersion] = React.useState(0)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState(false)
   // Synchronous guard against re-entrant submit/delete invocations (e.g. rapid
@@ -880,9 +901,32 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
   }, [injectionContext])
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     valuesRef.current = values
   }, [values])
+  const fieldChangeFormSnapshot = React.useMemo(
+    () => createDirtySnapshot((initialValues ?? {}) as Record<string, unknown>),
+    [initialValues],
+  )
+  React.useLayoutEffect(() => {
+    const fieldChangeRevisions = fieldChangeRevisionByFieldRef.current
+    fieldChangeDispatcherMountedRef.current = true
+    return () => {
+      fieldChangeDispatcherMountedRef.current = false
+      fieldChangeFormGenerationRef.current += 1
+      pendingFieldChangeEventsRef.current = []
+      fieldChangeRevisions.clear()
+      activeFieldChangeDispatchRef.current = null
+    }
+  }, [])
+  React.useLayoutEffect(() => {
+    if (fieldChangeFormSnapshotRef.current === fieldChangeFormSnapshot) return
+    fieldChangeFormSnapshotRef.current = fieldChangeFormSnapshot
+    fieldChangeFormGenerationRef.current += 1
+    pendingFieldChangeEventsRef.current = []
+    fieldChangeRevisionByFieldRef.current.clear()
+    activeFieldChangeDispatchRef.current = null
+  }, [fieldChangeFormSnapshot])
 
   const isDirtyRef = React.useRef(false)
   const navigationPromptBypassRef = React.useRef(false)
@@ -957,6 +1001,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const clearDirtyState = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     const source = snapshotSource ?? (valuesRef.current as Record<string, unknown>)
+    pendingDirtyBaselineCommitRef.current = null
     dirtyBaselineSnapshotRef.current = createDirtySnapshot(source)
     dirtyBaselineValuesRef.current = { ...source }
     userEditedFieldIdsRef.current.clear()
@@ -2315,29 +2360,32 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [])
 
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
-    let nextData: CrudFormValues<TValues> | null = null
-    let nextDirty: boolean | null = null
-    const currentValue = (valuesRef.current as Record<string, unknown>)[id]
-    if (!Object.is(currentValue, nextValue)) {
-      updateEditedFieldMarker(id, nextValue)
-    }
-    setValues((prev) => {
-      if (Object.is(prev[id], nextValue)) return prev
-      const baselineSource = dirtyBaselineValuesRef.current ?? (prev as Record<string, unknown>)
+    const currentValues = valuesRef.current
+    if (!Object.is(currentValues[id], nextValue)) {
+      pendingDirtyBaselineCommitRef.current = null
+      const baselineSource = dirtyBaselineValuesRef.current ?? (currentValues as Record<string, unknown>)
       updateEditedFieldMarker(id, nextValue, baselineSource)
-      nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
-      valuesRef.current = nextData
       if (!(embedded && !trackDirtyWhenEmbedded)) {
-        const baseline = dirtyBaselineSnapshotRef.current ?? createDirtySnapshot(prev as Record<string, unknown>)
-        dirtyBaselineSnapshotRef.current = baseline
+        dirtyBaselineSnapshotRef.current ??= createDirtySnapshot(currentValues as Record<string, unknown>)
         dirtyBaselineValuesRef.current = baselineSource
-        nextDirty = createDirtySnapshot(nextData as Record<string, unknown>) !== baseline
       }
-      return nextData
-    })
-    if (nextDirty !== null) {
-      isDirtyRef.current = nextDirty
-      setHasUnsavedChanges(nextDirty)
+      if (extendedInjectionEventsEnabled) {
+        const fieldRevision = (fieldChangeRevisionByFieldRef.current.get(id) ?? 0) + 1
+        fieldChangeRevisionByFieldRef.current.set(id, fieldRevision)
+        nextFieldChangeEventIdRef.current += 1
+        pendingFieldChangeEventsRef.current.push({
+          eventId: nextFieldChangeEventIdRef.current,
+          fieldId: id,
+          fieldValue: nextValue,
+          fieldRevision,
+          fieldRevisionsAtEnqueue: new Map(fieldChangeRevisionByFieldRef.current),
+          formGeneration: fieldChangeFormGenerationRef.current,
+        })
+        setFieldChangeDispatchVersion((version) => version + 1)
+      }
+      setValues((prev) => Object.is(prev[id], nextValue)
+        ? prev
+        : ({ ...prev, [id]: nextValue } as CrudFormValues<TValues>))
     }
     const clearedMessages: string[] = []
     setErrors((prev) => {
@@ -2373,19 +2421,50 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         return prev
       })
     }
-    if (!nextData || !extendedInjectionEventsEnabled) return
-    void triggerInjectionEvent('onFieldChange', nextData as TValues, injectionContextRef.current, {
-      fieldId: id,
-      fieldValue: nextValue,
+  }, [embedded, extendedInjectionEventsEnabled, t, trackDirtyWhenEmbedded, translateValidationMessage, updateEditedFieldMarker])
+
+  React.useEffect(() => {
+    if (!extendedInjectionEventsEnabled) {
+      pendingFieldChangeEventsRef.current = []
+      return
+    }
+    if (!fieldChangeDispatcherMountedRef.current || activeFieldChangeDispatchRef.current) return
+    let pendingEvent = pendingFieldChangeEventsRef.current.shift()
+    while (pendingEvent && pendingEvent.formGeneration !== fieldChangeFormGenerationRef.current) {
+      pendingEvent = pendingFieldChangeEventsRef.current.shift()
+    }
+    if (!pendingEvent) return
+    const dispatchToken = {
+      eventId: pendingEvent.eventId,
+      formGeneration: pendingEvent.formGeneration,
+    }
+    activeFieldChangeDispatchRef.current = dispatchToken
+    void triggerInjectionEvent('onFieldChange', values as TValues, injectionContextRef.current, {
+      fieldId: pendingEvent.fieldId,
+      fieldValue: pendingEvent.fieldValue,
     }).then((result) => {
+      const isCurrentEvent =
+        fieldChangeDispatcherMountedRef.current &&
+        fieldChangeFormGenerationRef.current === pendingEvent.formGeneration &&
+        fieldChangeRevisionByFieldRef.current.get(pendingEvent.fieldId) === pendingEvent.fieldRevision
+      if (!isCurrentEvent) return
       if (!result.ok) return
       const change = result.fieldChange
       if (!change) return
-      const updates: Record<string, unknown> = { ...(change.sideEffects ?? {}) }
+      const candidateUpdates: Record<string, unknown> = { ...(change.sideEffects ?? {}) }
       if (change.value !== undefined) {
-        updates[id] = change.value
+        candidateUpdates[pendingEvent.fieldId] = change.value
+      }
+      const updates: Record<string, unknown> = {}
+      for (const [fieldId, value] of Object.entries(candidateUpdates)) {
+        if (
+          fieldChangeRevisionByFieldRef.current.get(fieldId) !==
+          pendingEvent.fieldRevisionsAtEnqueue.get(fieldId)
+        ) continue
+        updates[fieldId] = value
       }
       if (Object.keys(updates).length > 0) {
+        pendingDirtyBaselineCommitRef.current = null
         setValues((prev) => {
           let changed = false
           const next = { ...prev } as Record<string, unknown>
@@ -2402,8 +2481,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     }).catch((err) => {
       logger.error('Error in onFieldChange', { err })
+    }).finally(() => {
+      const activeDispatch = activeFieldChangeDispatchRef.current
+      if (
+        activeDispatch?.eventId === dispatchToken.eventId &&
+        activeDispatch.formGeneration === dispatchToken.formGeneration
+      ) {
+        activeFieldChangeDispatchRef.current = null
+      }
+      if (
+        fieldChangeDispatcherMountedRef.current &&
+        fieldChangeFormGenerationRef.current === dispatchToken.formGeneration
+      ) {
+        setFieldChangeDispatchVersion((version) => version + 1)
+      }
     })
-  }, [embedded, extendedInjectionEventsEnabled, flash, t, trackDirtyWhenEmbedded, translateValidationMessage, triggerInjectionEvent, updateEditedFieldMarker])
+  }, [extendedInjectionEventsEnabled, fieldChangeDispatchVersion, triggerInjectionEvent, values])
 
   const onBlurRequest = React.useCallback((fieldId: string) => {
     void validateFieldOnBlur(fieldId)
@@ -2446,68 +2539,83 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const appliedInitialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
+  const initialValuesTransformMountedRef = React.useRef(true)
   const dirtyBaselineSnapshotRef = React.useRef<string | undefined>(undefined)
   const dirtyBaselineValuesRef = React.useRef<Record<string, unknown> | undefined>(undefined)
+  const pendingDirtyBaselineCommitRef = React.useRef<{
+    guardSnapshot?: string
+    valuesSnapshot: string
+    values: Record<string, unknown>
+  } | null>(null)
   const userEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
   const everEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
+  React.useLayoutEffect(() => {
+    initialValuesTransformMountedRef.current = true
+    return () => {
+      initialValuesTransformMountedRef.current = false
+    }
+  }, [])
+  React.useLayoutEffect(() => {
+    const pendingBaseline = pendingDirtyBaselineCommitRef.current
+    if (!pendingBaseline) return
+    pendingDirtyBaselineCommitRef.current = null
+    if (
+      pendingBaseline.guardSnapshot !== undefined &&
+      appliedInitialValuesSnapshotRef.current !== pendingBaseline.guardSnapshot
+    ) return
+    const committedValues = values as Record<string, unknown>
+    if (createDirtySnapshot(committedValues) !== pendingBaseline.valuesSnapshot) return
+    dirtyBaselineSnapshotRef.current = pendingBaseline.valuesSnapshot
+    dirtyBaselineValuesRef.current = { ...pendingBaseline.values }
+  }, [values])
   React.useLayoutEffect(() => {
     if (!initialValues) return
     const snapshot = JSON.stringify({
       initialValues,
       injectedFieldIds: injectedFieldDefinitions.map((definition) => definition.id),
+      injectionWidgetIds: injectionWidgets.map((widget) => `${widget.moduleId}:${widget.widgetId}:${widget.key}`),
       customFieldMappings: cfDefinitions.map((definition) => definition.key),
       dotPathBaseFieldIds: Array.from(dotPathBaseFieldIds),
     })
     if (appliedInitialValuesSnapshotRef.current === snapshot) return
     appliedInitialValuesSnapshotRef.current = snapshot
     const initialRecord = initialValues as Record<string, unknown>
-    let mergedValues: CrudFormValues<TValues> | null = null
-    // Whether the user already has unsaved edits relative to the load-time baseline,
-    // computed from `prev` (React's latest committed values) — NOT from isDirtyRef or
-    // valuesRef, which are both updated in post-render effects and therefore still
-    // hold stale values when this layout effect runs in the SAME render that async
-    // custom-field / injected-field definitions arrive. That lag was the residual
-    // race that let the baseline absorb an in-progress edit under load.
-    let hadUnsavedEdits = false
-    setValues((prev) => {
-      const priorBaseline = dirtyBaselineSnapshotRef.current
-      const editedFieldIds = userEditedFieldIdsRef.current
-      hadUnsavedEdits =
-        editedFieldIds.size > 0 ||
-        priorBaseline !== undefined &&
-        createDirtySnapshot(prev as Record<string, unknown>) !== priorBaseline
-      const merged = { ...prev } as CrudFormValues<TValues>
-      const mergedRecord = merged as Record<string, unknown>
-      for (const [key, value] of Object.entries(initialValues as Record<string, unknown>)) {
-        if (editedFieldIds.has(key)) continue
-        mergedRecord[key] = value
+    const currentValues = valuesRef.current
+    const priorBaseline = dirtyBaselineSnapshotRef.current
+    const editedFieldIds = userEditedFieldIdsRef.current
+    const hadUnsavedEdits =
+      editedFieldIds.size > 0 ||
+      priorBaseline !== undefined &&
+      createDirtySnapshot(currentValues as Record<string, unknown>) !== priorBaseline
+    const mergedValues = { ...currentValues } as CrudFormValues<TValues>
+    const mergedRecord = mergedValues as Record<string, unknown>
+    for (const [key, value] of Object.entries(initialValues as Record<string, unknown>)) {
+      if (editedFieldIds.has(key)) continue
+      mergedRecord[key] = value
+    }
+    for (const definition of injectedFieldDefinitions) {
+      if (mergedValues[definition.id] !== undefined) continue
+      const extracted = readByDotPath(initialRecord, definition.id)
+      if (extracted !== undefined) {
+        mergedRecord[definition.id] = extracted
       }
-      for (const definition of injectedFieldDefinitions) {
-        if (merged[definition.id] !== undefined) continue
-        const extracted = readByDotPath(initialRecord, definition.id)
-        if (extracted !== undefined) {
-          ;(merged as Record<string, unknown>)[definition.id] = extracted
-        }
+    }
+    for (const definition of cfDefinitions) {
+      const targetId = customEntity ? definition.key : `cf_${definition.key}`
+      if (!targetId || mergedValues[targetId] !== undefined) continue
+      const extracted = readInitialCustomFieldValue(initialRecord, definition.key)
+      if (extracted !== undefined) {
+        mergedRecord[targetId] = extracted
       }
-      for (const definition of cfDefinitions) {
-        const targetId = customEntity ? definition.key : `cf_${definition.key}`
-        if (!targetId || merged[targetId] !== undefined) continue
-        const extracted = readInitialCustomFieldValue(initialRecord, definition.key)
-        if (extracted !== undefined) {
-          ;(merged as Record<string, unknown>)[targetId] = extracted
-        }
+    }
+    for (const fieldId of dotPathBaseFieldIds) {
+      if (mergedValues[fieldId] !== undefined) continue
+      const extracted = readByDotPath(initialRecord, fieldId)
+      if (extracted !== undefined) {
+        mergedRecord[fieldId] = extracted
       }
-      for (const fieldId of dotPathBaseFieldIds) {
-        if (merged[fieldId] !== undefined) continue
-        const extracted = readByDotPath(initialRecord, fieldId)
-        if (extracted !== undefined) {
-          ;(merged as Record<string, unknown>)[fieldId] = extracted
-        }
-      }
-      mergedValues = merged
-      return mergedValues
-    })
-    if (mergedValues && !hadUnsavedEdits) {
+    }
+    if (!hadUnsavedEdits) {
       // Do not absorb an in-progress edit into the pristine baseline. This effect
       // re-runs whenever the snapshot changes — which includes custom-field
       // definitions and injected fields loading ASYNCHRONOUSLY after mount. If the
@@ -2518,11 +2626,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       // only when there are no pending edits; while dirty, keep the load-time
       // baseline so the edit stays dirty until save/discard. Root cause of the flaky
       // optimistic-lock stale-edit conflicts (#2055 / TC-LOCK-OSS-015 / TC-LOCK-OSS-029).
-      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
-      dirtyBaselineValuesRef.current = { ...(mergedValues as Record<string, unknown>) }
+      pendingDirtyBaselineCommitRef.current = {
+        guardSnapshot: snapshot,
+        valuesSnapshot: createDirtySnapshot(mergedValues as Record<string, unknown>),
+        values: { ...(mergedValues as Record<string, unknown>) },
+      }
+    } else {
+      pendingDirtyBaselineCommitRef.current = null
     }
-    if (!extendedInjectionEventsEnabled || !mergedValues) return
-    let cancelled = false
+    setValues(mergedValues)
+    if (!extendedInjectionEventsEnabled || hadUnsavedEdits) return
+    const transformSourceSnapshot = createDirtySnapshot(mergedValues as Record<string, unknown>)
     const run = async () => {
       try {
         const result = await triggerInjectionEvent(
@@ -2531,21 +2645,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           injectionContextRef.current,
         )
         const transformed = result.data
-        if (cancelled || !transformed) return
-        // As above: never re-apply transformed display data over an in-progress
-        // edit — it would overwrite the user's unsaved changes and reset dirty.
-        if (isDirtyRef.current) return
-        dirtyBaselineSnapshotRef.current = createDirtySnapshot(transformed as Record<string, unknown>)
-        dirtyBaselineValuesRef.current = { ...(transformed as Record<string, unknown>) }
-        setValues(transformed as CrudFormValues<TValues>)
+        if (
+          !initialValuesTransformMountedRef.current ||
+          appliedInitialValuesSnapshotRef.current !== snapshot ||
+          !transformed
+        ) return
+        if (createDirtySnapshot(valuesRef.current as Record<string, unknown>) !== transformSourceSnapshot) return
+        const transformedValues = transformed as CrudFormValues<TValues>
+        pendingDirtyBaselineCommitRef.current = {
+          guardSnapshot: snapshot,
+          valuesSnapshot: createDirtySnapshot(transformedValues as Record<string, unknown>),
+          values: { ...(transformedValues as Record<string, unknown>) },
+        }
+        setValues((current) => {
+          if (createDirtySnapshot(current as Record<string, unknown>) !== transformSourceSnapshot) return current
+          return transformedValues
+        })
       } catch (err) {
         logger.error('Error in transformDisplayData', { err })
       }
     }
     void run()
-    return () => {
-      cancelled = true
-    }
   }, [
     cfDefinitions,
     customEntity,
@@ -2553,6 +2673,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     extendedInjectionEventsEnabled,
     initialValues,
     injectedFieldDefinitions,
+    injectionWidgets,
     triggerInjectionEvent,
   ])
 
@@ -2589,26 +2710,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     if (Object.keys(defaults).length === 0) return
 
-    let mergedValues: CrudFormValues<TValues> | null = null
-    setValues((prev) => {
-      const merged = { ...prev } as CrudFormValues<TValues>
-      let applied = false
-      for (const [fieldId, defaultVal] of Object.entries(defaults)) {
-        // Skip if a value already exists (from initialValues or user input)
-        if (merged[fieldId] !== undefined) continue
-        ;(merged as Record<string, unknown>)[fieldId] = defaultVal
-        applied = true
-      }
-      if (!applied) return prev
-      mergedValues = merged
-      return mergedValues
-    })
-
-    // Update the dirty baseline so the form doesn't appear dirty from defaults
-    if (mergedValues) {
-      dirtyBaselineSnapshotRef.current = createDirtySnapshot(mergedValues as Record<string, unknown>)
-      dirtyBaselineValuesRef.current = { ...(mergedValues as Record<string, unknown>) }
+    const currentValues = valuesRef.current
+    const mergedValues = { ...currentValues } as CrudFormValues<TValues>
+    let applied = false
+    for (const [fieldId, defaultVal] of Object.entries(defaults)) {
+      // Skip if a value already exists (from initialValues or user input)
+      if (mergedValues[fieldId] !== undefined) continue
+      ;(mergedValues as Record<string, unknown>)[fieldId] = defaultVal
+      applied = true
     }
+    if (!applied) return
+
+    // Update the dirty baseline only after the defaults commit so an interrupted
+    // render cannot make the navigation guard observe values the user never saw.
+    pendingDirtyBaselineCommitRef.current = {
+      valuesSnapshot: createDirtySnapshot(mergedValues as Record<string, unknown>),
+      values: { ...(mergedValues as Record<string, unknown>) },
+    }
+    setValues(mergedValues)
   }, [isLoading, initialValuesHasId, cfDefinitions, customEntity])
 
   const markFormAsClean = React.useCallback((snapshotSource?: Record<string, unknown>) => {
@@ -2962,7 +3081,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!displayMessage) {
         displayMessage = hasFieldErrors ? highlightedMessage : saveErrorMessage
       }
-      displayMessage = parseServerMessage(displayMessage)
+      // Translate the top-level submit error the same way field errors are translated above.
+      // Server commands return stable i18n keys (e.g. `warranty_claims.errors.*`) in the error
+      // body; without this they leaked to the UI as raw keys. `t(msg, msg)` is a no-op for
+      // already-localized strings, so this only affects unresolved keys.
+      displayMessage = translateValidationMessage(parseServerMessage(displayMessage))
       if (optimisticLockConflict) {
         // Primary surface for the conflict is the persistent, error-styled
         // RecordConflictBanner (unified across all forms). Keep the inline
@@ -2986,6 +3109,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     Map<string, ((query?: string) => Promise<CrudFieldOption[]>) | undefined>
   >(new Map())
 
+  // Ref mirror of dynamicOptions so loadFieldOptions keeps a stable identity; a state-dep
+  // callback re-created per cache write re-fired every field's init effect and cascaded
+  // refetch loops across loader fields (same loop class as #814).
+  const dynamicOptionsRef = React.useRef<Record<string, CrudFieldOption[]>>({})
+
+  const storeDynamicOptions = React.useCallback((fieldId: string, fetched: CrudFieldOption[]) => {
+    const current = dynamicOptionsRef.current[fieldId]
+    if (current && areOptionListsEqual(current, fetched)) return
+    dynamicOptionsRef.current = { ...dynamicOptionsRef.current, [fieldId]: fetched }
+    setDynamicOptions(dynamicOptionsRef.current)
+  }, [])
+
   // Stable key prevents infinite re-render loop (see #814) — do not depend on allFields directly.
   React.useEffect(() => {
     let cancelled = false
@@ -2999,7 +3134,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           try {
             dynamicOptionLoadersRef.current.set(f.id, f.loadOptions)
             const opts = await f.loadOptions()
-            if (!cancelled) setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
+            if (!cancelled) storeDynamicOptions(f.id, opts)
           } catch {
             // ignore
           }
@@ -3010,7 +3145,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return () => {
       cancelled = true
     }
-  }, [dynamicOptionLoaderKey])
+  }, [dynamicOptionLoaderKey, storeDynamicOptions])
 
   const loadFieldOptions = React.useCallback(async (field: CrudField, query?: string): Promise<CrudFieldOption[]> => {
     if (!('type' in field) || field.type === 'custom') return EMPTY_OPTIONS
@@ -3020,28 +3155,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const previousLoader = dynamicOptionLoadersRef.current.get(field.id)
       const loaderChanged = previousLoader !== loader
       dynamicOptionLoadersRef.current.set(field.id, loader)
-      if (
-        query === undefined &&
-        !loaderChanged &&
-        Array.isArray(dynamicOptions[field.id])
-      ) {
-        return dynamicOptions[field.id]
+      const cached = dynamicOptionsRef.current[field.id]
+      if (query === undefined && !loaderChanged && Array.isArray(cached)) {
+        return cached
       }
       try {
         const fetched = await loader(query)
         if (query === undefined) {
-          setDynamicOptions((prev) => ({
-            ...prev,
-            [field.id]: fetched,
-          }))
+          storeDynamicOptions(field.id, fetched)
         }
         return fetched
       } catch {
         return builtin.options ?? EMPTY_OPTIONS
       }
     }
-    return dynamicOptions[field.id] || builtin.options || EMPTY_OPTIONS
-  }, [dynamicOptions])
+    return dynamicOptionsRef.current[field.id] || builtin.options || EMPTY_OPTIONS
+  }, [storeDynamicOptions])
 
   const fieldOptionsById = React.useMemo(() => {
     const map = new globalThis.Map<string, CrudFieldOption[]>()
@@ -4269,6 +4398,14 @@ const FieldControl = React.memo(function FieldControlImpl({
     loadFieldOptions(field).catch(() => {})
   }, [field, hasLoader, loadFieldOptions])
 
+  const loadFieldSuggestions = React.useMemo(() => {
+    if (!hasLoader) return undefined
+    return async (query?: string) => {
+      const opts = await loadFieldOptions(field, query)
+      return opts.map((opt) => ({ value: opt.value, label: opt.label }))
+    }
+  }, [field, hasLoader, loadFieldOptions])
+
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
@@ -4432,14 +4569,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
-          loadSuggestions={
-            typeof builtin?.loadOptions === 'function'
-              ? async (query?: string) => {
-                  const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
-                }
-              : undefined
-          }
+          loadSuggestions={loadFieldSuggestions}
         />
       )}
       {field.type === 'combobox' && (
@@ -4459,14 +4589,7 @@ const FieldControl = React.memo(function FieldControlImpl({
               : undefined
           }
           resolveLabel={builtin?.resolveLabel}
-          loadSuggestions={
-            typeof builtin?.loadOptions === 'function'
-              ? async (query?: string) => {
-                  const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
-                }
-              : undefined
-          }
+          loadSuggestions={loadFieldSuggestions}
           allowCustomValues={builtin?.allowCustomValues ?? true}
           clearable={!field.required}
           disabled={disabled}

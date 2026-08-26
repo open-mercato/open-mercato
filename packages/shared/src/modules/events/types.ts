@@ -34,6 +34,8 @@ export interface EventDefinition {
   excludeFromTriggers?: boolean
   /** When true, this event is bridged to the browser via SSE (DOM Event Bridge). Default: false */
   clientBroadcast?: boolean
+  /** When true, this event is bridged between server processes without enabling browser delivery. Default: false */
+  crossProcessBroadcast?: boolean
   /** When true, this event is bridged to the customer portal via SSE (Portal Event Bridge). Default: false */
   portalBroadcast?: boolean
 }
@@ -62,6 +64,25 @@ export interface EventPayload {
 export interface EmitOptions {
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
+  /** Trusted tenant scope forwarded to subscribers separately from the payload */
+  tenantId?: string | null
+  /** Trusted organization scope forwarded to subscribers separately from the payload */
+  organizationId?: string | null
+  /**
+   * Trusted multi-organization audience forwarded to subscribers separately
+   * from the payload. Mirrors the documented SSE audience contract, where a
+   * clientBroadcast event may target several organizations at once; carried in
+   * trusted options so the receiver never falls back to payload scope.
+   */
+  organizationIds?: string[] | null
+  /**
+   * Module that emitted a private cross-process coordination event.
+   *
+   * This is stamped by `createModuleEvents`; application inputs must not set or
+   * derive it from event payloads.
+   * @internal
+   */
+  emitterModuleId?: string
 }
 
 // =============================================================================

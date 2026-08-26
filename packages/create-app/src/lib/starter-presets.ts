@@ -1,4 +1,4 @@
-export type StarterPresetId = 'classic' | 'empty' | 'crm' | (string & {})
+export type StarterPresetId = 'classic' | 'empty' | 'crm' | 'wms' | (string & {})
 
 export type ModuleEntry = { id: string; from: string }
 
@@ -59,7 +59,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
     description: 'Minimal builder-ready baseline',
     modules: { mode: 'replace', enabled: EMPTY_MODULES },
     ui: { startPageVariant: 'minimal', hideDemoLinks: true },
-    files: { remove: ['src/modules/example', 'src/modules/example_customers_sync'] },
+    // The example source ships in every preset and stays runtime-disabled through
+    // the generated `src/modules.ts`; never delete it here.
     constraints: { rejectWithReadyApps: true },
   },
 
@@ -72,6 +73,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       mode: 'patch',
       add: [
         { id: 'customers', from: CORE },
+        { id: 'attachments', from: CORE },
+        { id: 'messages', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'currencies', from: CORE },
@@ -80,6 +83,27 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       ],
     },
     ui: { startPageVariant: 'crm', hideDemoLinks: true },
+    constraints: { rejectWithReadyApps: true },
+  },
+
+  wms: {
+    id: 'wms',
+    label: 'WMS',
+    description: 'Empty preset plus warehouse and inventory capabilities',
+    extends: 'empty',
+    modules: {
+      mode: 'patch',
+      add: [
+        { id: 'customers', from: CORE },
+        { id: 'dictionaries', from: CORE },
+        { id: 'feature_toggles', from: CORE },
+        { id: 'catalog', from: CORE },
+        { id: 'sales', from: CORE },
+        { id: 'wms', from: CORE },
+        { id: 'currencies', from: CORE },
+      ],
+    },
+    ui: { startPageVariant: 'minimal', hideDemoLinks: true },
     constraints: { rejectWithReadyApps: true },
   },
 }

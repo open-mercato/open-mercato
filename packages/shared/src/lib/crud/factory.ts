@@ -75,6 +75,8 @@ import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
 import { isTransientDbError } from '../db/pg-errors'
+import { getTelemetryRuntime } from '../telemetry/runtime'
+import { randomUUID } from 'node:crypto'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -236,9 +238,13 @@ export type ListConfig<TList> = {
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
   allowCsv?: boolean
+  // The function forms mirror `fields` above: a route whose export columns depend
+  // on per-request state (for example custom-field definitions discovered in
+  // `beforeList`) MUST resolve them from `ctx` rather than from module-level
+  // mutable state, which would bleed one tenant's columns into another's export.
   csv?: {
-    headers: string[]
-    row: (item: any) => (string | number | boolean | null | undefined)[]
+    headers: string[] | ((query: TList, ctx: CrudCtx) => string[])
+    row: (item: any, ctx: CrudCtx) => (string | number | boolean | null | undefined)[]
     filename?: string
   }
   export?: CrudExportOptions
@@ -347,14 +353,20 @@ function buildExportFromColumns(items: any[], columnsConfig: CrudExportColumnCon
   }
 }
 
-function buildExportFromCsv(items: any[], csv: NonNullable<ListConfig<any>['csv']>): PreparedExport {
+function buildExportFromCsv(
+  items: any[],
+  csv: NonNullable<ListConfig<any>['csv']>,
+  query: unknown,
+  ctx: CrudCtx,
+): PreparedExport {
   const used = new Set<string>()
-  const columns = csv.headers.map((header, idx) => ({
+  const resolvedHeaders = typeof csv.headers === 'function' ? csv.headers(query as any, ctx) : csv.headers
+  const columns = resolvedHeaders.map((header, idx) => ({
     field: sanitizeFieldName(header || `column_${idx + 1}`, used, idx),
     header: header || `Column ${idx + 1}`,
   }))
   const rows = items.map((item) => {
-    const values = csv.row(item) || []
+    const values = csv.row(item, ctx) || []
     const row: Record<string, unknown> = {}
     columns.forEach((column, idx) => {
       row[column.field] = values[idx]
@@ -377,12 +389,12 @@ function buildDefaultExport(items: any[]): PreparedExport {
   }
 }
 
-function prepareExportData(items: any[], list: ListConfig<any>): PreparedExport {
+function prepareExportData(items: any[], list: ListConfig<any>, query: unknown, ctx: CrudCtx): PreparedExport {
   if (list.export?.columns && list.export.columns.length > 0) {
     return buildExportFromColumns(items, list.export.columns)
   }
   if (list.csv) {
-    return buildExportFromCsv(items, list.csv)
+    return buildExportFromCsv(items, list.csv, query, ctx)
   }
   const prepared = buildDefaultExport(items)
   return {
@@ -584,7 +596,19 @@ function attachOperationHeader(res: Response, logEntry: any) {
   return res
 }
 
-function handleError(err: unknown): Response {
+// An inbound `x-request-id` is caller-controlled, so it is only reused when it still
+// looks like an id. `Headers.get()` yields '' for an empty or whitespace-only header —
+// which `??` would not replace — and an unbounded value carrying spaces or `=` would
+// forge fields in the unquoted `key=value` log line this id exists to be read from.
+const INBOUND_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+
+function resolveRequestId(request?: Request): string {
+  const inbound = request?.headers.get('x-request-id')?.trim()
+  if (inbound && INBOUND_REQUEST_ID_PATTERN.test(inbound)) return inbound
+  return randomUUID()
+}
+
+function handleError(err: unknown, request?: Request): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
   // A command interceptor that blocked with an explicit status is a deliberate business
@@ -608,14 +632,25 @@ function handleError(err: unknown): Response {
     )
   }
 
+  // Unexpected exceptions still collapse into a generic 500 for the client (no internal
+  // detail leaked), but a requestId ties that response to this log line and to whatever
+  // reaches APM, so a client/support ticket citing it can be correlated with server-side
+  // detail (issue #5608).
   const message = err instanceof Error ? err.message : undefined
   const stack = err instanceof Error ? err.stack : undefined
-  logger.error('Unexpected CRUD error', { message, stack, err })
+  const errorName = err instanceof Error ? err.name : undefined
+  const requestId = resolveRequestId(request)
+  logger.error('Unexpected CRUD error', { message, stack, err, requestId })
+  getTelemetryRuntime()?.reportError(err, {
+    module: 'crud',
+    attributes: { requestId, errorName },
+  })
   const body: Record<string, unknown> = {
     error: 'Internal server error',
     message: 'Something went wrong. Please try again later.',
+    requestId,
   }
-  return json(body, { status: 500 })
+  return json(body, { status: 500, headers: { 'x-request-id': requestId } })
 }
 
 const LIFECYCLE_ACTION_MAP: Record<string, { before: string; after: string }> = {
@@ -1890,7 +1925,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
           const prepared = exportFullRequested
             ? { columns: ensureColumns(exportItems), rows: exportItems }
-            : prepareExportData(exportItems, opts.list)
+            : prepareExportData(exportItems, opts.list, validated as any, ctx)
           const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
           const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
           const serialized = serializeExport(prepared, requestedExport)
@@ -1931,6 +1966,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           page: page.page || requestedPage,
           pageSize: page.pageSize || requestedPageSize,
           totalPages: Math.ceil(res.total / (Number(page.pageSize) || 1)),
+          ...(res.meta?.listCountCapWarning ? { totalIsCapped: true } : {}),
           ...(res.meta ? { meta: res.meta } : {}),
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
@@ -2092,7 +2128,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
         const prepared = exportFullRequested
           ? { columns: ensureColumns(exportItems), rows: exportItems }
-          : prepareExportData(exportItems, opts.list)
+          : prepareExportData(exportItems, opts.list, validated as any, ctx)
         const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
         const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
         const serialized = serializeExport(prepared, requestedExport)
@@ -2152,7 +2188,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       return response
     } catch (e) {
       finishProfile({ result: 'error' })
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -2466,7 +2502,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       payload = await enrichSingleRecord(payload, ctx)
       return json(payload, { status: 201 })
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -2804,7 +2840,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -3093,7 +3129,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 

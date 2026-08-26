@@ -1,7 +1,10 @@
 FROM node:24-alpine AS builder
 
+ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
+
 ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL}
 
 WORKDIR /app
 
@@ -18,6 +21,10 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/channel-apns/package.json ./packages/channel-apns/
+COPY packages/channel-discord/package.json ./packages/channel-discord/
+COPY packages/channel-expo/package.json ./packages/channel-expo/
+COPY packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
 COPY packages/checkout/package.json ./packages/checkout/
@@ -25,6 +32,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
@@ -90,6 +98,10 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/channel-apns/package.json ./packages/channel-apns/
+COPY packages/channel-discord/package.json ./packages/channel-discord/
+COPY packages/channel-expo/package.json ./packages/channel-expo/
+COPY packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
 COPY packages/checkout/package.json ./packages/checkout/
@@ -97,6 +109,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
@@ -162,6 +175,9 @@ COPY --from=dev-build /app/packages/search/dist /opt/prebuilt/dist/search
 COPY --from=dev-build /app/packages/scheduler/dist /opt/prebuilt/dist/scheduler
 COPY --from=dev-build /app/packages/ai-assistant/dist /opt/prebuilt/dist/ai-assistant
 COPY --from=dev-build /app/packages/create-app/dist /opt/prebuilt/dist/create-app
+# The documents-collab sidecar runs `dist/server/documents-collab-server.js` out of the shared
+# pkg_documents_dist volume, so this package must be seedable like the rest.
+COPY --from=dev-build /app/packages/documents/dist /opt/prebuilt/dist/documents
 
 # Entrypoint scripts are also bind-mounted at runtime (.:/app); baking them in
 # keeps the image runnable/consistent on its own and matches the runner stage.
@@ -172,23 +188,32 @@ RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
 RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 
-EXPOSE 3000
+EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
 # Production stage
 FROM node:24-alpine AS runner
 
 ARG CONTAINER_PORT=3000
+ARG DOCUMENTS_COLLAB_PORT=4101
+# Chromium backs the Documents PDF export (puppeteer-core). Build with
+# --build-arg INSTALL_CHROMIUM=1 to include it; PDF export otherwise returns 503.
+ARG INSTALL_CHROMIUM=0
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=${CONTAINER_PORT}
+    PORT=${CONTAINER_PORT} \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
 # Install only production system dependencies (Alpine uses apk)
 # sudo: allows non-root user to chown the Railway-mounted volume at startup
-RUN apk add --no-cache ca-certificates openssl sudo
+RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
+      apk add --no-cache ca-certificates chromium openssl sudo; \
+    else \
+      apk add --no-cache ca-certificates openssl sudo; \
+    fi
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -200,6 +225,10 @@ COPY --from=builder /app/.yarn ./.yarn
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 COPY --from=builder /app/packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY --from=builder /app/packages/cache/package.json ./packages/cache/
+COPY --from=builder /app/packages/channel-apns/package.json ./packages/channel-apns/
+COPY --from=builder /app/packages/channel-discord/package.json ./packages/channel-discord/
+COPY --from=builder /app/packages/channel-expo/package.json ./packages/channel-expo/
+COPY --from=builder /app/packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY --from=builder /app/packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY --from=builder /app/packages/channel-imap/package.json ./packages/channel-imap/
 COPY --from=builder /app/packages/checkout/package.json ./packages/checkout/
@@ -207,6 +236,7 @@ COPY --from=builder /app/packages/cli/package.json ./packages/cli/
 COPY --from=builder /app/packages/content/package.json ./packages/content/
 COPY --from=builder /app/packages/core/package.json ./packages/core/
 COPY --from=builder /app/packages/create-app/package.json ./packages/create-app/
+COPY --from=builder /app/packages/documents/package.json ./packages/documents/
 COPY --from=builder /app/packages/enterprise/package.json ./packages/enterprise/
 COPY --from=builder /app/packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY --from=builder /app/packages/events/package.json ./packages/events/
@@ -263,7 +293,7 @@ RUN adduser -D -u 1001 omuser \
 
 USER omuser
 
-EXPOSE ${CONTAINER_PORT}
+EXPOSE ${CONTAINER_PORT} ${DOCUMENTS_COLLAB_PORT}
 
 WORKDIR /app/apps/mercato
 CMD ["yarn", "start"]
