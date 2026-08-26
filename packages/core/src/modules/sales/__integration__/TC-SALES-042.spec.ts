@@ -84,6 +84,12 @@ function addressesSectionHeading(page: Page) {
 
 // TagsSection drops `role="button"` from its container when editing is denied, which is the
 // thing under test; locating on the role is therefore the assertion, not an implementation detail.
+// The addresses section has no banner while the lock has no stated reason, so its own submit is
+// what says whether editing is open.
+function updateAddressesButton(page: Page) {
+  return page.getByRole('button', { name: 'Update addresses' })
+}
+
 function tagsEditTarget(page: Page) {
   return page.getByText('Tags', { exact: true }).locator('xpath=following::*[@role="button"][1]')
 }
@@ -168,6 +174,7 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     // Counterparts to the viewer's absences: without these the zeros below prove nothing.
     await expect(page.getByRole('button', { name: /Edit customer snapshot|Select customer/ })).toHaveCount(2)
     await expect(tagsEditTarget(page)).toHaveCount(1)
+    await expect(updateAddressesButton(page)).toBeEnabled()
   })
 
   test('a user without sales.orders.manage is offered none of them', async ({ page }) => {
@@ -216,8 +223,16 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
       // Prove the page rendered before asserting on absences.
       await expect(addressesSectionHeading(page)).toBeVisible({ timeout: 30_000 })
 
+      // Every surface, not just Delete. `managePermitted` and `!manageDenied` differ exactly here,
+      // and a page that gates some affordances on one and some on the other locks half of itself.
       await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: /Edit customer snapshot|Select customer/ })).toHaveCount(0)
+      await expect(tagsEditTarget(page)).toHaveCount(0)
+      await expect(updateAddressesButton(page)).toBeDisabled()
+
+      // Locked, and silent about why: nobody established that this user lacks anything.
       await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
+      await expect(page.getByText('Addresses cannot be changed for the current status.')).toHaveCount(0)
     })
   }
 })

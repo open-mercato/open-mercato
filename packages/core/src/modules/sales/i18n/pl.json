@@ -694,7 +694,6 @@
   "sales.documents.detail.items.variantSearch": "Szukaj wariantu",
   "sales.documents.detail.loading": "Ładowanie dokumentu…",
   "sales.documents.detail.noEditPermission.addresses": "Nie masz uprawnień do zmiany adresów w tym dokumencie.",
-  "sales.documents.detail.noEditPermission.customer": "Nie masz uprawnień do zmiany klienta w tym dokumencie.",
   "sales.documents.detail.notFound": "Nie znaleziono dokumentu.",
   "sales.documents.detail.number": "Numer dokumentu",
   "sales.documents.detail.numberEditForbidden": "Numer dokumentu nie może być edytowany.",

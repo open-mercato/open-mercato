@@ -59,6 +59,13 @@ export type SalesDocumentAddressesSectionProps = {
    * contradicts itself.
    */
   lockedKind?: 'status' | 'permission'
+  /**
+   * Lock the section without stating why. Defaults to `Boolean(lockedReason)`, which is the usual
+   * case; pass it explicitly when the caller knows editing is unavailable but not yet why — a
+   * permission check still in flight, or one that failed. Withholding the controls is right there;
+   * naming a reason nobody verified is not.
+   */
+  locked?: boolean
   onUpdated?: (patch: {
     shippingAddressId?: string | null
     billingAddressId?: string | null
@@ -217,6 +224,7 @@ export function SalesDocumentAddressesSection({
   billingAddressSnapshot,
   lockedReason,
   lockedKind = 'status',
+  locked: lockedProp,
   onUpdated,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
@@ -262,7 +270,7 @@ export function SalesDocumentAddressesSection({
   const [additionalDraft, setAdditionalDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [additionalSaving, setAdditionalSaving] = React.useState(false)
   const [deletingAddressIds, setDeletingAddressIds] = React.useState<Set<string>>(new Set())
-  const locked = Boolean(lockedReason)
+  const locked = lockedProp ?? Boolean(lockedReason)
   const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
   const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [editingSaving, setEditingSaving] = React.useState(false)

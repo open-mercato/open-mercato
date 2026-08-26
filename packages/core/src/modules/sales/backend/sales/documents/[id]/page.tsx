@@ -345,6 +345,7 @@ function CustomerInlineEditor({
   saving,
   error,
   guardMessage,
+  permissionLocked = false,
   onClearError,
 }: {
   label: string
@@ -361,6 +362,13 @@ function CustomerInlineEditor({
   saving: boolean
   error: string | null
   guardMessage?: string | null
+  /**
+   * The viewer's manage feature denies the edit, so the card offers nothing at all. Distinct from
+   * `guardMessage`, which blocks on the document's *status* and stays clickable to say so — this
+   * card has nowhere to render a reason, and a control that only answers "no" is worse than no
+   * control.
+   */
+  permissionLocked?: boolean
   onClearError: () => void
 }) {
   const t = useT()
@@ -764,8 +772,8 @@ function CustomerInlineEditor({
       email={customerEmail ?? undefined}
       kind={customerSnapshot?.customer?.kind === 'person' ? 'person' : 'company'}
       className="h-full"
-      onEditSnapshot={guardMessage ? undefined : handleSnapshotActivate}
-      onSelectCustomer={guardMessage ? undefined : handleSelectActivate}
+      onEditSnapshot={permissionLocked ? undefined : handleSnapshotActivate}
+      onSelectCustomer={permissionLocked ? undefined : handleSelectActivate}
     />
   )
 }
@@ -2070,6 +2078,9 @@ export default function SalesDocumentDetailPage({
       active = false
     }
   }, [scopeVersion])
+  // The two derived flags are deliberately not each other's negation: an affordance needs a
+  // *granted* answer to appear, while only a *denied* one may be stated as a reason. While the check
+  // is unresolved the page is locked and says nothing.
   const canManage = kind === 'order' ? canManageOrders : canManageQuotes
   const managePermitted = canManage === true
   const manageDenied = canManage === false
@@ -2962,9 +2973,7 @@ export default function SalesDocumentDetailPage({
     kind === 'order' && !guardAllows(editingGuards?.customer ?? null, record?.status ?? null)
   const addressGuardBlocked =
     kind === 'order' && !guardAllows(editingGuards?.addresses ?? null, record?.status ?? null)
-  const customerGuardMessage = manageDenied
-    ? t('sales.documents.detail.noEditPermission.customer', "You do not have permission to change this document's customer.")
-    : customerGuardBlocked
+  const customerGuardMessage = customerGuardBlocked
     ? t('sales.documents.detail.customerBlocked', 'Customer cannot be changed for the current status.')
     : null
   const addressGuardMessage = manageDenied
@@ -2973,6 +2982,7 @@ export default function SalesDocumentDetailPage({
     ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
     : null
   const addressLockKind: 'status' | 'permission' = manageDenied ? 'permission' : 'status'
+  const addressLocked = !managePermitted || addressGuardBlocked
   React.useEffect(() => {
     const id = record?.customerEntityId ?? null
     if (!id) return
@@ -4259,6 +4269,7 @@ export default function SalesDocumentDetailPage({
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
           lockedKind={addressLockKind}
+          locked={addressLocked}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
         />
       )
@@ -4724,6 +4735,7 @@ export default function SalesDocumentDetailPage({
               saving={customerSaving}
               error={customerError}
               guardMessage={customerGuardMessage}
+              permissionLocked={!managePermitted}
               onClearError={clearCustomerError}
             />
           </div>
