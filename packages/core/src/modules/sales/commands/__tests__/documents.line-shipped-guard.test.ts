@@ -265,9 +265,16 @@ describe('sales.orders.lines.upsert accepts corrections on shipped lines', () =>
   })
 
   it('allows a quantity change whatever totals the client sends', async () => {
-    // The totals-consistency check was part of the freeze and is gone with it. Harmless:
-    // core recomputes line totals from quantity × unit price − discount and ignores the
-    // submitted totals, so an inflated value cannot move money — on any line, shipped or not.
+    // The totals-consistency check was part of the freeze and is gone with it.
+    //
+    // Note what that does and does not mean, because it is easy to read the wrong way: core
+    // recomputes the NET subtotal from quantity × unit price − discount, so a submitted
+    // `totalNetAmount` is discarded. It does NOT do the same for gross — `buildBaseLineResult`
+    // takes `line.totalGrossAmount` verbatim when it is present, and that value accumulates into
+    // `grandTotalGrossAmount` and `outstandingAmount`. So a caller CAN move what the customer owes
+    // by submitting a gross total, and this check was the only thing constraining that on a shipped
+    // line. The pass-through itself is pre-existing and applies to every unshipped line already;
+    // narrowing it is a separate change from this one, not a consequence of it.
     shippedWorld()
     const { caught } = await runUpsert(editInput({
       quantity: 10,
