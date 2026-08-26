@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
-import { useParams, usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { RotateCw } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -97,8 +97,7 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
 }
 const DELIVERY_AUTO_REFRESH_INTERVAL_MS = 30000
 
-export default function WebhookDetailPage() {
-  const params = useParams()
+export default function WebhookDetailPage({ params }: { params?: { id?: string } }) {
   const pathname = usePathname()
   const router = useRouter()
   const t = useT()
