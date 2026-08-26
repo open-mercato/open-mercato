@@ -325,7 +325,11 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
         fs.copyFileSync(examplePath, envPath)
-        console.log(`📋 Copied .env.example → .env (edit ${envPath} to customize)`)
+        console.log('')
+        console.log('⚠️  No .env was found, so one was created from .env.example.')
+        console.log(`   ${envPath}`)
+        console.log('   It carries the example placeholders — review DATABASE_URL and secrets before continuing.')
+        console.log('')
       }
     }
     if (fs.existsSync(envPath)) {
@@ -891,14 +895,64 @@ async function buildAllModules(): Promise<Module[]> {
   return all
 }
 
+export function isHelpRequest(args: string[]): boolean {
+  return args.some((arg) => arg === '--help' || arg === '-h')
+}
+
+// Top-level commands that return before the module dispatcher and therefore never reach its
+// generic help branch. Without an entry here, `mercato init --help` runs a full install.
+const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
+  init: [
+    'Usage: mercato init [--reinstall|-r] [--no-examples] [--stresstest [--lite] [--count=<n>]]',
+    'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
+  ],
+  'agentic:init': [
+    'Usage: mercato agentic:init [--force]',
+    'Scaffolds the agentic harness (AGENTS.md, .ai/ config and skills) into this app.',
+  ],
+  'seed:defaults': [
+    'Usage: mercato seed:defaults [--module <moduleId>]',
+    'Runs every enabled module\'s seedDefaults hook, or only the named module\'s.',
+  ],
+  'umes:list': [
+    'Usage: mercato umes:list',
+    'Lists the extension points every enabled module declares.',
+  ],
+  'umes:inspect': [
+    'Usage: mercato umes:inspect --module <moduleId>',
+    'Prints the extension surface a single module declares.',
+  ],
+  'umes:check': [
+    'Usage: mercato umes:check',
+    'Validates declared extension points against the modules that implement them.',
+  ],
+}
+
+// A help invocation must never materialize .env from .env.example — asking what the flags are
+// should not mutate the working tree, least of all with the example's placeholder DATABASE_URL.
+export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: boolean; quiet: boolean } {
+  const first = parts[0]
+  const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
+  const helpRequested = isHelpRequest(parts)
+  return {
+    createIfMissing: !helpRequested && !opaqueEnvCommand,
+    quiet: helpRequested || opaqueEnvCommand,
+  }
+}
+
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
-  await ensureEnvLoaded({
-    createIfMissing: first !== 'deploy' && first !== 'telemetry',
-    quiet: first === 'deploy' || first === 'telemetry',
-  })
-  
+  // Help must never have side effects: it must not create .env, and must not fall through
+  // to the command it is asking about.
+  const helpRequested = isHelpRequest(parts)
+  await ensureEnvLoaded(resolveEnvBootstrapOptions(parts))
+
+  if (helpRequested && first && TOP_LEVEL_COMMAND_HELP[first]) {
+    for (const line of TOP_LEVEL_COMMAND_HELP[first]) console.log(`  ${line}`)
+    return 0
+  }
+
   // Handle init command directly
   if (first === 'init') {
     const { execSync } = await import('child_process')
@@ -1629,6 +1683,8 @@ export async function run(argv = process.argv) {
     cli: [
       {
         command: 'railway',
+        // Parses --help/-h itself and prints railwayDeployHelp() without deploying.
+        handlesHelp: true,
         run: async (args: string[]) => {
           const { runRailwayDeploy } = await import('./lib/deploy/railway/index')
           await runRailwayDeploy(args)
@@ -1978,6 +2034,7 @@ export async function run(argv = process.argv) {
     cli: [
       {
         command: 'generate',
+        help: 'Generates a migration per module from the current ORM entities and refreshes each\nmodule\'s .snapshot-open-mercato.json. Writes files only — nothing is applied.',
         run: async () => {
           const { createResolver } = await import('./lib/resolver')
           const { dbGenerate } = await import('./lib/db')
@@ -1987,6 +2044,7 @@ export async function run(argv = process.argv) {
       },
       {
         command: 'migrate',
+        help: 'Applies every pending migration to the database DATABASE_URL points at.\nThis mutates the database — check .env before running it.',
         run: async () => {
           const { createResolver } = await import('./lib/resolver')
           const { dbMigrate } = await import('./lib/db')
@@ -1996,6 +2054,7 @@ export async function run(argv = process.argv) {
       },
       {
         command: 'greenfield',
+        help: 'Drops and recreates the schema from scratch, then re-applies every migration.\nDestroys all data. Pass --yes (-y) to skip the confirmation prompt.',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
           const { dbGreenfield } = await import('./lib/db')
@@ -2664,10 +2723,29 @@ export async function run(argv = process.argv) {
     console.log(pad(`Commands for "${modName}": ${mod.cli.map((c) => c.command).join(', ')}`))
     return 1
   }
+  // A help flag in the command slot (`mercato db --help`) asks what this module offers.
+  if (isHelpRequest([cmdName])) {
+    console.log(pad(`Usage: ✨ mercato ${modName} <command> [args]`))
+    console.log(pad(`Commands for "${modName}": ${mod.cli.map((c) => c.command).join(', ')}`))
+    return 0
+  }
   const cmd = mod.cli.find((c) => c.command === cmdName)
   if (!cmd) {
     console.error(`🤔 Unknown command "${cmdName}". Available: ${mod.cli.map((c) => c.command).join(', ')}`)
     return 1
+  }
+
+  // `--help` must describe the command, never run it. Commands that parse the flag themselves
+  // opt out via `handlesHelp` so their own richer usage text still wins.
+  if (isHelpRequest(rest) && !cmd.handlesHelp) {
+    console.log(pad(`Usage: ✨ mercato ${modName} ${cmdName} [args]`))
+    if (cmd.help) {
+      console.log('')
+      for (const line of cmd.help.split('\n')) console.log(pad(line))
+    }
+    console.log('')
+    console.log(pad(`Commands for "${modName}": ${mod.cli.map((c) => c.command).join(', ')}`))
+    return 0
   }
 
   console.log('')

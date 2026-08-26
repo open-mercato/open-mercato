@@ -3,7 +3,9 @@ import {
   registerCliModules,
   getCliModules,
   hasCliModules,
+  isHelpRequest,
   padByCodePointWidth,
+  resolveEnvBootstrapOptions,
   run,
 } from '../mercato'
 import { pathIncludes } from '../lib/__tests__/path-helpers'
@@ -184,6 +186,191 @@ describe('padByCodePointWidth', () => {
   it('does not trim or pad when value meets or exceeds target width', () => {
     expect(padByCodePointWidth('1234567890123', 13)).toBe('1234567890123')
     expect(padByCodePointWidth('12345678901234', 13)).toBe('12345678901234')
+  })
+})
+
+describe('--help never triggers side effects (issue #5581)', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  describe('isHelpRequest', () => {
+    it('matches the long and short help flags in any position', () => {
+      expect(isHelpRequest(['db', 'generate', '--help'])).toBe(true)
+      expect(isHelpRequest(['-h'])).toBe(true)
+    })
+
+    it('does not match arguments that merely contain the flag text', () => {
+      expect(isHelpRequest(['db', 'generate'])).toBe(false)
+      expect(isHelpRequest(['--help-me'])).toBe(false)
+      expect(isHelpRequest(['--no-help'])).toBe(false)
+      expect(isHelpRequest([])).toBe(false)
+    })
+  })
+
+  describe('resolveEnvBootstrapOptions', () => {
+    it('refuses to create .env from .env.example for a help invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'generate', '--help'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['-h'])).toEqual({ createIfMissing: false, quiet: true })
+    })
+
+    it('still creates .env for a real command invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'generate'])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+    })
+
+    it('keeps the pre-existing deploy and telemetry opt-outs', () => {
+      expect(resolveEnvBootstrapOptions(['deploy', 'railway'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['telemetry', 'init'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+    })
+  })
+
+  describe('dispatcher help branch', () => {
+    it('prints usage instead of running db:generate when --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGenerate = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [{ command: 'generate', help: 'Writes migrations. Applies nothing.', run: dbGenerate }],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'generate', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).not.toHaveBeenCalled()
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('mercato db generate [args]')
+      expect(printed).toContain('Writes migrations. Applies nothing.')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('prints usage instead of running db:migrate when -h is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbMigrate = jest.fn()
+
+      registerCliModules([
+        { id: 'db', cli: [{ command: 'migrate', run: dbMigrate }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'migrate', '-h'])
+
+      expect(exitCode).toBe(0)
+      expect(dbMigrate).not.toHaveBeenCalled()
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('forwards --help to commands that declare handlesHelp', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const deploy = jest.fn()
+
+      registerCliModules([
+        { id: 'deploy', cli: [{ command: 'railway', handlesHelp: true, run: deploy }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'deploy', 'railway', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(deploy).toHaveBeenCalledWith(['--help'])
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('lists the module commands when the help flag sits in the command slot', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGenerate = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [
+            { command: 'generate', run: dbGenerate },
+            { command: 'migrate', run: jest.fn() },
+          ],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).not.toHaveBeenCalled()
+      expect(consoleErrorSpy).not.toHaveBeenCalled()
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Commands for "db": generate, migrate')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('still runs the command when no help flag is present', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGenerate = jest.fn()
+
+      registerCliModules([
+        { id: 'db', cli: [{ command: 'generate', run: dbGenerate }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'generate'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).toHaveBeenCalled()
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+  })
+
+  describe('top-level command help', () => {
+    it('prints usage instead of initializing the app when init --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'init', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: mercato init')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('prints usage instead of seeding when seed:defaults --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'seed:defaults', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: mercato seed:defaults')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
   })
 })
 
