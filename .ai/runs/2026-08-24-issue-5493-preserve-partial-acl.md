@@ -70,5 +70,5 @@ Make partial user ACL updates preserve omitted dimensions without either widenin
 
 ### Phase 5: Pin merged-snapshot authorization
 
-- [ ] 5.1 Cover partial PUT authorization against the merged ACL snapshot and document the resulting refusal contract.
+- [x] 5.1 Cover partial PUT authorization against the merged ACL snapshot and document the resulting refusal contract. — 1944c0fdc
 - [ ] 5.2 Merge current `develop`, run the configured validation gate, re-review the final diff, and push the revision.
