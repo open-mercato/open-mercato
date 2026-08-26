@@ -698,6 +698,95 @@ the first draft implied: the returns-local mapper duplicate means the implementa
 `commands/returns.ts` as well, and § Proposed Solution 3 recommends extracting the shared mapper
 rather than tagging two copies.
 
+**Answered on 2026-08-26 — see § Decision Record below.** The gate this section holds is released;
+the section is kept as written because it is the question the decisions answer.
+
+## Decision Record
+
+Recorded by @wojciechszyjka on 2026-08-26. The two decisions § Decision Requested reserved for a
+maintainer are approved; four further calls that follow from them are resolved here rather than left
+to be rediscovered at implementation time, because each one changes what the code has to do.
+
+### D1 — the column means a line total — **approved**
+
+§ Proposed Solution 1 stands as written. `sales_order_lines.discount_amount` and
+`sales_quote_lines.discount_amount` hold the discount for the whole line: net, in the line's
+`currency_code`, quantity-inclusive; a derived cache of `discount_percent` when a percentage is set,
+an authoritative override when it is not. `SalesLineCalculationResult.discountAmount` carries the same
+meaning.
+
+This is the meaning the write path and the document rollup already assume and the one every existing
+correct row already holds, so it is the only option that does not require rewriting stored data.
+§ Alternatives B and C are rejected on the grounds the table already gives.
+
+`sales_invoice_lines.discount_amount` stays **outside** this contract — caller-asserted and
+unenforced — exactly as § Proposed Solution 1 states. Nothing in core derives it, recalculates it, or
+validates it, and declaring a contract the platform does not enforce would be decoration.
+
+### D2 — percentage-first precedence — **approved**
+
+§ Proposed Solution 2 stands as written, including treating a stored `0` as absent. The percentage is
+the operator's intent and the amount is its cached result; making intent win is the only rule that is
+stable across a round trip, and the column being `numeric NOT NULL DEFAULT '0'` means a stored `0` can
+never be a reliable presence signal on the read-back path.
+
+**The documented cost is accepted, both shapes of it.** A caller that sends a percent together with a
+deliberately different amount loses the amount; and — the larger population — a caller that sends only
+`discountAmount` on `PUT /api/sales/order-lines`, onto a row that already carries a non-zero
+`discount_percent`, also loses it, because the upsert path inherits the stored percent. The documented
+escape is to send `discountPercent: 0` alongside the explicit amount. § Migration & Backward
+Compatibility carries this to `UPGRADE_NOTES.md`, which is what makes the cost visible to the callers
+who pay it.
+
+### D3 — `discountAmount: 0` alongside a non-zero percent **applies** the percentage
+
+The third question § Decision Requested raises is answered in the direction § Proposed Solution 2
+already implies: the percentage is applied. Today `0` counts as a supplied amount and suppresses the
+discount, so this **inverts** existing behaviour rather than dropping a value, and it is the sharpest
+of the three upgrade cases: an integration that used `discountAmount: 0` to work around this very
+defect — on a unit price it had already discounted itself — starts double-discounting silently.
+
+Two consequences are binding on the implementation. It must be covered by an explicit test rather
+than left as incidental behaviour (acceptance criterion 8), and `UPGRADE_NOTES.md` must call it out
+distinctly from the two "you lose your amount" cases, because gaining a discount you did not ask for
+is a different severity from losing one you did.
+
+### D4 — § Alternatives E is **not** adopted
+
+Ship § Proposed Solution 2's simpler value-only rule. E is the stronger alternative on paper — it
+removes both of D2's cost cases at no migration cost — but it makes precedence key off a field's
+*presence* rather than its value, which is subtler to document and to test, and it turns the § 3
+invariant from tidy into load-bearing.
+
+The deciding factor is that this is reversible in the cheap direction. § 3's two-field type shape is
+identical whichever way this goes — that was deliberate in the 2026-08-21 revision — so E remains
+adoptable later as a **purely additive** change: a caller opts in by sending `discountAmountBasis`,
+and one that never sends it sees no difference either way. Shipping the simpler rule first and adding
+E if the cost proves real is strictly safer than shipping the subtler rule and discovering its guard
+test was the only thing holding it up.
+
+Acceptance criterion 10 is therefore **out of scope** for this implementation. Criterion 9's
+invariant is **in scope** and must be tested — it is what keeps E adoptable.
+
+### D5 — the operator repair CLI is **deferred**
+
+`yarn mercato sales recompute-line-discounts --dry-run [--tenant <id>]`, the opt-in tool for the
+third § Row reconciliation bucket (amount-only, no percent, re-inflated — the one that cannot
+self-heal), does not ship in the implementation of §§ 1–4. It is opt-in, operator-facing, and touches
+no contract surface, so bundling it into an already-large behaviour change adds risk without adding
+correctness. It is filed as its own follow-up issue.
+
+Note what this leaves open: rows in that third bucket stay wrong until an operator runs a repair. That
+is why the implementation PR references #3757 rather than closing it.
+
+### D6 — extract the shared mapper rather than tagging two copies
+
+§ Proposed Solution 3 offers a fallback — keep `documents.ts` and `returns.ts` with their own copies
+of `mapOrderLineEntityToSnapshot` and add a test asserting they produce identical snapshots. That
+fallback is declined. The duplication is the mechanical reason the return flows were missed in this
+spec's own first draft, and an equivalence test preserves the trap while merely alarming on it. One
+shared mapper in module-local `lib/`, imported by both command files, removes it.
+
 ## Changelog
 
 - 2026-08-07 — Initial draft.
