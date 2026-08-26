@@ -145,6 +145,13 @@ type SalesDocumentItemsSectionProps = {
   tenantId?: string | null;
   onActionChange?: (action: SectionAction | null) => void;
   onItemsChange?: (items: SalesLineRecord[]) => void;
+  /**
+   * Whether this scope lets a line be corrected after it has shipped items — the
+   * `orderShippedLineEditable` sales setting. Defaults to false, the behaviour the
+   * command layer enforces when the setting is absent, so a caller that does not
+   * know about it still shows a dialog that matches what the API accepts.
+   */
+  shippedLineEditable?: boolean;
 };
 
 export function SalesDocumentItemsSection({
@@ -156,6 +163,7 @@ export function SalesDocumentItemsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onItemsChange,
+  shippedLineEditable = false,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
   const { organizationId, tenantId } = useOrganizationScopeDetail();
@@ -995,6 +1003,7 @@ export function SalesDocumentItemsSection({
             : 0
         }
         shippedQuantityResolved={shippedTotalsResolved}
+        shippedLineEditable={shippedLineEditable}
         onSaved={async () => {
           await loadItems();
           emitSalesDocumentTotalsRefresh({ documentId, kind });

@@ -1933,6 +1933,7 @@ export default function SalesDocumentDetailPage({
   const [editingGuards, setEditingGuards] = React.useState<{
     customer: string[] | null
     addresses: string[] | null
+    shippedLineEditable: boolean
   } | null>(null)
   const [channelOptions, setChannelOptions] = React.useState<ChannelOption[]>([])
   const [channelLoading, setChannelLoading] = React.useState(false)
@@ -2619,11 +2620,13 @@ export default function SalesDocumentDetailPage({
         const call = await apiCall<{
           orderCustomerEditableStatuses?: unknown
           orderAddressEditableStatuses?: unknown
+          orderShippedLineEditable?: unknown
         }>('/api/sales/settings/order-editing')
         if (!call.ok || cancelled) return
         setEditingGuards({
           customer: normalizeGuardList(call.result?.orderCustomerEditableStatuses ?? null),
           addresses: normalizeGuardList(call.result?.orderAddressEditableStatuses ?? null),
+          shippedLineEditable: call.result?.orderShippedLineEditable === true,
         })
       } catch (err) {
         logger.error('sales.documents.loadGuards', { err })
@@ -4245,6 +4248,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onItemsChange={(items) => setHasItems(items.length > 0)}
+          shippedLineEditable={editingGuards?.shippedLineEditable === true}
         />
       )
     }

@@ -287,6 +287,17 @@ type SalesLineDialogProps = {
    * dialog locks pricing instead of assuming the line is unshipped.
    */
   shippedQuantityResolved?: boolean;
+  /**
+   * Whether this scope lets a line be corrected after it has shipped items — the
+   * `orderShippedLineEditable` sales setting, which the command layer reads for the
+   * same decision. Defaults to `false`, the platform's historical behaviour, so a
+   * caller that does not pass it keeps the lock it has today.
+   *
+   * The two halves have to agree: leaving the lock on while the API accepts the
+   * write means an operator can never send the correction the server would take,
+   * and lifting it while the API refuses hands them a save that 409s.
+   */
+  shippedLineEditable?: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => Promise<void> | void;
   onDraftSaved?: (payload: Record<string, unknown>, lineId: string | null) => Promise<void> | void;
@@ -484,6 +495,7 @@ export function LineItemDialog({
   initialLine,
   shippedQuantity = 0,
   shippedQuantityResolved = true,
+  shippedLineEditable = false,
   onOpenChange,
   onSaved,
   onDraftSaved,
@@ -522,15 +534,21 @@ export function LineItemDialog({
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
     [kind],
   );
-  // A line the caller has not resolved shipment state for is treated as shipped:
-  // the server rejects pricing changes on shipped lines, so guessing "unshipped"
-  // from a pending or failed shipments load hands the user an edit that cannot
-  // be saved. A brand-new line has no shipments by construction.
+  // Where the freeze applies, a line the caller has not resolved shipment state for
+  // is treated as shipped: the server rejects pricing changes on shipped lines, so
+  // guessing "unshipped" from a pending or failed shipments load hands the user an
+  // edit that cannot be saved. A brand-new line has no shipments by construction.
+  //
+  // A scope with `shippedLineEditable` set has no such refusal to mirror, so neither
+  // the unresolved-state fallback nor the lock itself applies: the correction goes
+  // through whatever the shipments read reports.
   const hasExistingLine = Boolean(initialLine);
-  const shipmentStateUnknown = kind === "order" && hasExistingLine && !shippedQuantityResolved;
+  const shipmentStateUnknown =
+    kind === "order" && hasExistingLine && !shippedQuantityResolved && !shippedLineEditable;
   const isShippedOrderLine =
     kind === "order" &&
     hasExistingLine &&
+    !shippedLineEditable &&
     (shipmentStateUnknown || shippedQuantity > 0);
   // While the shipments read is unresolved the shipped quantity is unknown, so the
   // only safe floor for a quantity edit is the quantity already stored on the line:
@@ -538,7 +556,11 @@ export function LineItemDialog({
   // exactly as it is once the state resolves.
   const storedQuantity = Number(initialLine?.quantity ?? 0);
   const safeStoredQuantity = Number.isFinite(storedQuantity) ? storedQuantity : 0;
-  const quantityFloor = shipmentStateUnknown ? safeStoredQuantity : shippedQuantity;
+  const quantityFloor = shippedLineEditable
+    ? 0
+    : shipmentStateUnknown
+      ? safeStoredQuantity
+      : shippedQuantity;
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const customFieldEntityId =
     kind === "order" ? E.sales.sales_order_line : E.sales.sales_quote_line;

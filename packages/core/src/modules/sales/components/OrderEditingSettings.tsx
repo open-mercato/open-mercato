@@ -24,6 +24,7 @@ type OrderStatusOption = {
 type SettingsResponse = {
   orderCustomerEditableStatuses: string[] | null
   orderAddressEditableStatuses: string[] | null
+  orderShippedLineEditable: boolean
   orderStatuses: OrderStatusOption[]
 }
 
@@ -49,6 +50,7 @@ export function OrderEditingSettings() {
   const [options, setOptions] = React.useState<OrderStatusOption[]>([])
   const [customerStatuses, setCustomerStatuses] = React.useState<string[] | null>(null)
   const [addressStatuses, setAddressStatuses] = React.useState<string[] | null>(null)
+  const [shippedLineEditable, setShippedLineEditable] = React.useState(false)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -64,11 +66,23 @@ export function OrderEditingSettings() {
       title: t('sales.config.orderEditing.title', 'Order editing guards'),
       description: t(
         'sales.config.orderEditing.description',
-        'Control when customers and addresses can be changed on an order.'
+        'Control when the customer, the addresses and a dispatched line can be changed on an order.'
       ),
       customerLabel: t('sales.config.orderEditing.customerLabel', 'Edit customer allowed at'),
       addressLabel: t('sales.config.orderEditing.addressLabel', 'Edit addresses allowed at'),
       allowAny: t('sales.config.orderEditing.allowAny', 'Allow at any status'),
+      shippedLineLabel: t(
+        'sales.config.orderEditing.shippedLineLabel',
+        'Correct a line after it has shipped'
+      ),
+      shippedLineOn: t(
+        'sales.config.orderEditing.shippedLineOn',
+        'Price, discount, tax rate, unit and quantity stay editable once the line has shipped items.'
+      ),
+      shippedLineOff: t(
+        'sales.config.orderEditing.shippedLineOff',
+        'A line with shipped items keeps its commercial terms; deleting it stays blocked either way.'
+      ),
       note: t(
         'sales.config.orderEditing.note',
         'Changing the customer clears assigned addresses to avoid mixing contact data.'
@@ -98,6 +112,7 @@ export function OrderEditingSettings() {
       setOptions(Array.isArray(call.result?.orderStatuses) ? call.result.orderStatuses : [])
       setCustomerStatuses(normalizeStatusList(call.result?.orderCustomerEditableStatuses))
       setAddressStatuses(normalizeStatusList(call.result?.orderAddressEditableStatuses))
+      setShippedLineEditable(call.result?.orderShippedLineEditable === true)
     } catch (err) {
       logger.error('sales.order-editing-settings.load failed', { err })
       flash(translations.messages.loadError, 'error')
@@ -135,6 +150,7 @@ export function OrderEditingSettings() {
       const payload = {
         orderCustomerEditableStatuses: customerStatuses,
         orderAddressEditableStatuses: addressStatuses,
+        orderShippedLineEditable: shippedLineEditable,
       }
       const call = await runMutation({
         // optimistic-lock-exempt: single-row tenant order-editing settings blob — no per-record version / concurrent record edit
@@ -158,6 +174,7 @@ export function OrderEditingSettings() {
       })
       setCustomerStatuses(normalizeStatusList(call.result?.orderCustomerEditableStatuses))
       setAddressStatuses(normalizeStatusList(call.result?.orderAddressEditableStatuses))
+      setShippedLineEditable(call.result?.orderShippedLineEditable === true)
       setOptions(Array.isArray(call.result?.orderStatuses) ? call.result.orderStatuses : [])
       flash(translations.messages.saved, 'success')
     } catch (err) {
@@ -166,7 +183,15 @@ export function OrderEditingSettings() {
     } finally {
       setSaving(false)
     }
-  }, [addressStatuses, customerStatuses, retryLastMutation, runMutation, translations.messages.saveError, translations.messages.saved])
+  }, [
+    addressStatuses,
+    customerStatuses,
+    retryLastMutation,
+    runMutation,
+    shippedLineEditable,
+    translations.messages.saveError,
+    translations.messages.saved,
+  ])
 
   const renderStatusList = React.useCallback(
     (kind: 'customer' | 'address', values: string[] | null, label: string) => {
@@ -246,6 +271,22 @@ export function OrderEditingSettings() {
       <div className="space-y-3">
         {renderStatusList('customer', customerStatuses, translations.customerLabel)}
         {renderStatusList('address', addressStatuses, translations.addressLabel)}
+        <div className="space-y-3 rounded-none border bg-card/30 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">{translations.shippedLineLabel}</p>
+              <p className="text-xs text-muted-foreground">
+                {shippedLineEditable ? translations.shippedLineOn : translations.shippedLineOff}
+              </p>
+            </div>
+            <Switch
+              checked={shippedLineEditable}
+              onCheckedChange={(checked) => setShippedLineEditable(checked === true)}
+              disabled={loading || saving}
+              aria-label={translations.shippedLineLabel}
+            />
+          </div>
+        </div>
       </div>
       <div className="flex justify-end gap-2">
         <Button

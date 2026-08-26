@@ -572,6 +572,58 @@ describe('LineItemDialog shipped-line lock (issue #5248)', () => {
     expect(screen.queryByText(PENDING_COPY)).toBeNull()
   })
 
+  describe('when the scope sets orderShippedLineEditable', () => {
+    // The API half of this setting is the shipped-line freeze in `commands/documents.ts`. If the
+    // dialog kept its lock while the command layer accepted the write, an operator could never
+    // send the correction the server would take — the setting would look like it did nothing.
+
+    it('drops the lock copy on a shipped line', async () => {
+      renderDialog({ shippedLineEditable: true })
+      await waitFor(() => getInputIn('priceId'))
+
+      expect(screen.queryByText(LOCKED_COPY)).toBeNull()
+      expect(screen.queryByText(PENDING_COPY)).toBeNull()
+    })
+
+    it('leaves every pricing control live on a shipped line', async () => {
+      renderDialog({ shippedLineEditable: true })
+      await waitFor(() => getInputIn('priceId'))
+
+      expect(getInputIn('unitPrice').disabled).toBe(false)
+      expect(getComboboxIn('unitPrice').disabled).toBe(false)
+      expect(getComboboxIn('taxRateId').disabled).toBe(false)
+      expect(getComboboxIn('quantityUnit').disabled).toBe(false)
+    })
+
+    it('lets the quantity go below what shipped', async () => {
+      renderDialog({ shippedLineEditable: true })
+      await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+      const payload = await submitQuantityEdit('2')
+      expect(payload.quantity).toBe(2)
+    })
+
+    it('submits the pricing fields the locked dialog strips', async () => {
+      renderDialog({ shippedLineEditable: true })
+      await waitFor(() => expect(capturedSubmit).toBeTruthy())
+
+      const payload = await submitQuantityEdit('4')
+      // The locked dialog sends id/orderId/scope/quantity/currency/name and nothing else; these
+      // are the fields it drops, and the whole point of the opt-in is that they travel.
+      expect(payload).toEqual(expect.objectContaining({ taxRate: 23, unitPriceGross: 110.7 }))
+    })
+
+    it('stays unlocked while the shipment state is still unknown', async () => {
+      // With no refusal to mirror there is nothing for the dialog to be cautious about: the
+      // pending-shipments fallback exists only to avoid offering an edit the server would reject.
+      renderDialog({ shippedQuantity: 0, shippedQuantityResolved: false, shippedLineEditable: true })
+      await waitFor(() => getInputIn('priceId'))
+
+      expect(screen.queryByText(PENDING_COPY)).toBeNull()
+      expect(getInputIn('unitPrice').disabled).toBe(false)
+    })
+  })
+
   it('exposes the pricing fields through the form contract the dialog declares', async () => {
     renderDialog()
     await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
