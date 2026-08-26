@@ -40,6 +40,7 @@
   "scheduler.error.invalid_schedule_value": "Valor de programación no válido.",
   "scheduler.error.job_not_found": "Trabajo no encontrado en BullMQ (puede haber sido eliminado)",
   "scheduler.error.load_failed": "Error al cargar la programación",
+  "scheduler.error.missing_schedule_id": "Ningún programa seleccionado.",
   "scheduler.error.not_found": "Programación no encontrada",
   "scheduler.error.queue_param_required": "Se requiere el parámetro queue",
   "scheduler.error.trigger_async_hint": "El historial de ejecución y los disparadores manuales solo están disponibles con BullMQ (estrategia async)",

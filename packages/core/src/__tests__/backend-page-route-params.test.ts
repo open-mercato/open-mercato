@@ -33,6 +33,13 @@ import { join, relative, sep } from 'node:path'
 
 const USE_PARAMS = /\buseParams\b/
 
+/**
+ * The generator treats `page.ts`, `page.tsx`, `page.js`, and `page.jsx` alike
+ * (`MODULE_CODE_EXTENSIONS` in packages/cli/src/lib/generators/scanner.ts), so
+ * scanning only `.tsx` would let a `page.ts` backend page regress unseen.
+ */
+const PAGE_FILE = /^page\.(tsx|ts|jsx|js)$/
+
 const packagesRoot = join(__dirname, '..', '..', '..')
 const repoRoot = join(packagesRoot, '..')
 const appsRoot = join(repoRoot, 'apps')
@@ -55,7 +62,7 @@ function collectBackendPages(dir: string, insideBackend: boolean, acc: string[])
     if (stat.isDirectory()) {
       if (name === 'node_modules' || name === '__tests__' || name === 'dist' || name === 'generated') continue
       collectBackendPages(full, insideBackend || name === 'backend', acc)
-    } else if (insideBackend && (name === 'page.tsx' || name === 'page.jsx')) {
+    } else if (insideBackend && PAGE_FILE.test(name)) {
       acc.push(full)
     }
   }

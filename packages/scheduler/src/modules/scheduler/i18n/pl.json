@@ -40,6 +40,7 @@
   "scheduler.error.invalid_schedule_value": "Nieprawidłowa wartość harmonogramu.",
   "scheduler.error.job_not_found": "Zadanie nie zostało znalezione w BullMQ (mogło zostać usunięte)",
   "scheduler.error.load_failed": "Nie udało się załadować harmonogramu",
+  "scheduler.error.missing_schedule_id": "Nie wybrano harmonogramu.",
   "scheduler.error.not_found": "Harmonogram nie znaleziony",
   "scheduler.error.queue_param_required": "Parametr queue jest wymagany",
   "scheduler.error.trigger_async_hint": "Historia wykonań i ręczne wyzwalanie są dostępne tylko z BullMQ (strategia async)",

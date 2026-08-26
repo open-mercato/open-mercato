@@ -106,10 +106,13 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
   }, [scheduleId, isAsyncStrategy])
 
   React.useEffect(() => {
-    if (scheduleId) {
-      fetchScheduleAndRuns()
+    if (!scheduleId) {
+      setLoading(false)
+      setError(t('scheduler.error.missing_schedule_id', 'No schedule selected.'))
+      return
     }
-  }, [scheduleId, fetchScheduleAndRuns])
+    fetchScheduleAndRuns()
+  }, [scheduleId, fetchScheduleAndRuns, t])
 
   const handleTriggerNow = async () => {
     if (!scheduleId || !schedule) return
