@@ -6,6 +6,7 @@ import {
   createVariantFixture,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
+import { createCompanyFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
   deleteGeneralEntityIfExists,
   getTokenScope,
@@ -20,7 +21,7 @@ import {
 } from './helpers/wmsFixtures'
 
 export const integrationMeta = {
-  dependsOnModules: ['wms', 'catalog'],
+  dependsOnModules: ['wms', 'catalog', 'customers'],
 }
 
 type AsnCreateResponse = {
@@ -126,11 +127,14 @@ test.describe('WMS-P2-INT-01…04 / INT-09: ASN receiving', () => {
     let stagingId: string | null = null
     let profileId: string | null = null
     let asnId: string | null = null
+    let companyId: string | null = null
     let passLineId: string | null = null
     let failLineId: string | null = null
     let overLineId: string | null = null
 
     try {
+      companyId = await createCompanyFixture(request, adminToken, `WMS-P2 Vendor ${suffix}`)
+
       productId = await createProductFixture(request, adminToken, {
         title: `WMS-P2 ASN ${suffix}`,
         sku: `P2ASN-${suffix}`,
@@ -177,6 +181,7 @@ test.describe('WMS-P2-INT-01…04 / INT-09: ASN receiving', () => {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           warehouseId,
+          vendorId: companyId,
           expectedAt: new Date().toISOString(),
           referenceNumber: `ASN-${suffix}`,
           lines: [
@@ -205,7 +210,7 @@ test.describe('WMS-P2-INT-01…04 / INT-09: ASN receiving', () => {
       const asnBody = await readJsonSafe<{
         items?: Array<{ vendor_id?: string | null; status?: string | null; reference_number?: string | null }>
       }>(asnDetail)
-      expect(asnBody?.items?.[0]?.vendor_id == null).toBe(true)
+      expect(asnBody?.items?.[0]?.vendor_id).toBe(companyId)
       expect(asnBody?.items?.[0]?.status).toBe('draft')
       expect(asnBody?.items?.[0]?.reference_number).toBe(`ASN-${suffix}`)
 
@@ -351,6 +356,7 @@ test.describe('WMS-P2-INT-01…04 / INT-09: ASN receiving', () => {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', stagingId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
+      await deleteGeneralEntityIfExists(request, adminToken, '/api/customers/companies', companyId)
       await restoreAdminAcl()
     }
   })

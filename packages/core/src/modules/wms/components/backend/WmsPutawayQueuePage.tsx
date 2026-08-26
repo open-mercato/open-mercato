@@ -554,12 +554,12 @@ export default function WmsPutawayQueuePage() {
                 </div>
                 <div className="space-y-1">
                   <h2 className="text-xl font-semibold">
-                    {t('wms.backend.putaway.title', 'Putaway queue')}
+                    {t('wms.backend.putaway.section.title', 'Tasks')}
                   </h2>
                   <p className="text-sm text-muted-foreground">
                     {t(
-                      'wms.backend.putaway.description',
-                      'Open and in-progress putaway tasks from accepted receipts.',
+                      'wms.backend.putaway.section.description',
+                      'Filter and complete open or in-progress putaway work.',
                     )}
                   </p>
                 </div>
@@ -593,7 +593,6 @@ export default function WmsPutawayQueuePage() {
 
             <DataTable
               embedded
-              title={t('wms.backend.putaway.title', 'Putaway queue')}
               columns={columns}
               data={tasksQuery.data.items}
               isLoading={tasksQuery.isFetching}

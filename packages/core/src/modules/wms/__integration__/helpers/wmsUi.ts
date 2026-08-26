@@ -44,6 +44,9 @@ export async function waitForDialogSubmitReady(dialog: Locator, submitTestId: st
   const submit = dialog.getByTestId(submitTestId)
   await expect(submit).toBeVisible({ timeout: 10_000 })
   await expect(submit).toBeEnabled({ timeout: 10_000 })
+  await expect(dialog.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
+    timeout: 10_000,
+  })
   await expectDialogHasNoFieldErrors(dialog)
 }
 
@@ -126,7 +129,7 @@ export async function fillCombobox(
   const suggestionInDropdown = input
     .locator('xpath=ancestor::div[contains(@class,"relative")][1]')
     .locator('div.absolute')
-    .getByRole('button', { name: suggestionPattern })
+    .getByRole('option', { name: suggestionPattern })
     .first()
 
   const hasDropdownSuggestion = await suggestionInDropdown
@@ -146,13 +149,16 @@ export async function fillCombobox(
     }
     const resolvedValue = await input.inputValue()
     if (resolvedValue.trim().toLowerCase() !== value.trim().toLowerCase()) {
-      const fallbackSuggestion = root.getByRole('button', { name: suggestionPattern }).first()
+      const fallbackSuggestion = root.getByRole('option', { name: suggestionPattern }).first()
       await expect(fallbackSuggestion).toBeVisible({ timeout: 10_000 })
       await fallbackSuggestion.click()
     }
   }
 
   await expect(input).toHaveValue(value, { timeout: 5_000 })
+  if ((await input.getAttribute('aria-expanded')) === 'true') {
+    await input.press('Escape')
+  }
   await input.press('Tab')
 
   if (options?.scope) {
@@ -191,19 +197,19 @@ export async function selectLocationComboboxOption(
 
   await input.fill(locationCode)
   await locationsResponse
-  await page.waitForTimeout(350)
+  await expect(dialog.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
+    timeout: 15_000,
+  })
 
-  const dropdown = input
-    .locator('xpath=ancestor::div[contains(@class,"relative")][1]')
-    .locator('div.absolute')
-  const option = dropdown.getByRole('button', { name: locationCode, exact: true })
-  if (await option.isVisible().catch(() => false)) {
-    await option.click()
-  } else {
-    await page.getByRole('button', { name: locationCode, exact: true }).click()
-  }
+  const option = dialog.getByRole('option', { name: locationCode, exact: true }).first()
+  await expect(option).toBeVisible({ timeout: 10_000 })
+  await option.click()
 
   await expect(input).toHaveValue(locationCode, { timeout: 5_000 })
+  if ((await input.getAttribute('aria-expanded')) === 'true') {
+    await input.press('Escape')
+  }
+  await expect(input).toHaveAttribute('aria-expanded', 'false', { timeout: 5_000 })
   await expectDialogHasNoFieldErrors(dialog)
 }
 

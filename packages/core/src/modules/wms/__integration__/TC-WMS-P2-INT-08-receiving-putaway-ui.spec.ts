@@ -17,7 +17,8 @@ import {
   postAction,
 } from './helpers/wmsFixtures'
 import {
-  fillCombobox,
+  selectLocationComboboxOption,
+  submitInventoryDialog,
   waitForWmsMutationAccess,
 } from './helpers/wmsUi'
 
@@ -159,19 +160,17 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       const receiveDialog = page.getByRole('dialog').filter({ hasText: /Receive ASN line/i }).first()
       await expect(receiveDialog).toBeVisible()
 
-      await fillCombobox(page, 'Select staging or dock', stagingCode, {
-        scope: receiveDialog,
-        suggestionsApiPath: '/api/wms/locations',
-      })
-
-      const receiveResponsePromise = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'POST' &&
-          response.url().includes(`/api/wms/asns/${asnId}/receive`),
-        { timeout: 20_000 },
+      // ASN create already seeds targetStagingLocationId; assert the resolved label
+      // rather than re-typing into ComboboxInput (allowCustomValues=false).
+      await expect(receiveDialog.getByPlaceholder('Select staging or dock')).toHaveValue(
+        stagingCode,
+        { timeout: 10_000 },
       )
-      await receiveDialog.getByTestId('receive-asn-submit').click()
-      const receiveResponse = await receiveResponsePromise
+
+      const receiveResponse = await submitInventoryDialog(page, receiveDialog, {
+        submitTestId: 'receive-asn-submit',
+        apiPath: `/api/wms/asns/${asnId}/receive`,
+      })
       expect(receiveResponse.ok()).toBeTruthy()
 
       await expect(receiveDialog).toBeHidden({ timeout: 10_000 })
@@ -179,30 +178,31 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
 
       await page.goto('/backend/wms/putaway')
       await waitForWmsMutationAccess(page)
-      await expect(page.getByRole('heading', { name: /Putaway queue/i })).toBeVisible({
+      await expect(page.getByRole('heading', { level: 1, name: /Putaway queue/i })).toBeVisible({
         timeout: 15_000,
       })
 
-      await page.getByRole('button', { name: /Open actions|Otwórz akcje/i }).first().click()
+      const putawayRow = page.getByRole('row').filter({ hasText: stagingCode }).first()
+      await expect(putawayRow).toBeVisible({ timeout: 15_000 })
+      await putawayRow.getByRole('button', { name: /Open actions|Otwórz akcje/i }).click()
       await page.getByRole('menuitem', { name: /Complete/i }).click()
 
       const putawayDialog = page.getByRole('dialog').filter({ hasText: /Complete putaway/i }).first()
       await expect(putawayDialog).toBeVisible()
+      await expect(putawayDialog.getByTestId('complete-putaway-qty')).toHaveValue('5')
 
-      await fillCombobox(page, 'Select destination bin', binCode, {
-        scope: putawayDialog,
-        suggestionsApiPath: '/api/wms/locations',
-      })
-
-      const completeResponsePromise = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'POST' &&
-          response.url().includes('/api/wms/putaway-tasks/') &&
-          response.url().includes('/complete'),
-        { timeout: 20_000 },
+      await selectLocationComboboxOption(
+        page,
+        putawayDialog,
+        'Select destination bin',
+        binCode,
       )
-      await putawayDialog.getByTestId('complete-putaway-submit').click()
-      const completeResponse = await completeResponsePromise
+
+      const completeResponse = await submitInventoryDialog(page, putawayDialog, {
+        submitTestId: 'complete-putaway-submit',
+        apiPath: '/api/wms/putaway-tasks/',
+      })
+      expect(completeResponse.url()).toContain('/complete')
       expect(completeResponse.ok()).toBeTruthy()
       await expect(putawayDialog).toBeHidden({ timeout: 10_000 })
     } finally {

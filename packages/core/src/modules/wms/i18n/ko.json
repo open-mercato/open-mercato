@@ -1026,6 +1026,8 @@
   "wms.backend.putaway.complete.form.target": "Target location",
   "wms.backend.putaway.complete.form.targetPlaceholder": "Select destination bin",
   "wms.backend.putaway.description": "Open and in-progress putaway tasks from accepted receipts.",
+  "wms.backend.putaway.section.description": "Filter and complete open or in-progress putaway work.",
+  "wms.backend.putaway.section.title": "Tasks",
   "wms.backend.putaway.empty.description": "Tasks appear after ASN lines are received with QC pass.",
   "wms.backend.putaway.empty.title": "No putaway tasks",
   "wms.backend.putaway.errors.action": "Failed to update putaway task.",

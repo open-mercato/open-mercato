@@ -299,7 +299,11 @@ export function CompletePutawayTaskDialog({
               <Button type="button" variant="outline" onClick={closeDialog} disabled={submitting}>
                 {t('wms.backend.putaway.complete.dialog.cancel', 'Cancel')}
               </Button>
-              <Button type="submit" disabled={submitting} data-testid="complete-putaway-submit">
+              <Button
+                type="submit"
+                disabled={submitting || access.loading || !access.scopeReady}
+                data-testid="complete-putaway-submit"
+              >
                 {t('wms.backend.putaway.complete.dialog.submit', 'Complete putaway')}
               </Button>
             </div>

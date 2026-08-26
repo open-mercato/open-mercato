@@ -452,7 +452,11 @@ export function ReceiveAsnLineDialog({
               <Button type="button" variant="outline" onClick={closeDialog} disabled={submitting}>
                 {t('wms.backend.asns.receive.dialog.cancel', 'Cancel')}
               </Button>
-              <Button type="submit" disabled={submitting} data-testid="receive-asn-submit">
+              <Button
+                type="submit"
+                disabled={submitting || access.loading || !access.scopeReady}
+                data-testid="receive-asn-submit"
+              >
                 {t('wms.backend.asns.receive.dialog.submit', 'Receive line')}
               </Button>
             </div>
