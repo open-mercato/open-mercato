@@ -144,10 +144,11 @@ describe('toDateInputValue', () => {
 // `toDateInputValue` and `toUtcDateInputValue` differ by exactly one day for half the planet, so
 // which one a field gets is a correctness question, not a style one.
 //
-// Honest limitation: in a UTC runner the two are the same function, so these cases cannot fail
-// there — and CI runs in UTC. They bite on any developer machine (every zone but UTC) and in a
-// TZ-pinned job. Verified by regressing `toUtcDateInputValue` to the local reading: 2 failures
-// under `TZ=America/New_York`, none under `TZ=UTC`.
+// In a UTC runner the two are the same function, so these cases cannot fail there — and CI runs
+// in UTC. That is why `yarn test` runs this file a second time under `TZ=America/New_York` (the
+// `test:tz` script): the frame decision is enforced by the same command everywhere, rather than
+// waiting on a runner that happens to sit west of UTC. Setting `process.env.TZ` inside the file
+// does not work — Node resolves the zone once at startup.
 describe('toUtcDateInputValue', () => {
   // The shape that actually arrives from the API for a date-only column: the editor submits a bare
   // `yyyy-MM-dd`, `z.coerce.date()` stores UTC midnight, the route returns it with a `Z`.
