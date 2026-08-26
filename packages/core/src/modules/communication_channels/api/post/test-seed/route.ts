@@ -43,7 +43,9 @@ import {
  *     (delegates to the real connect-credential command so the channel persists
  *     credentials + lands in `status='connected'`). Enables the outbound
  *     compose → deliver → `.sent` chain to complete in CI. `providerFlavor: 'chat'`
- *     connects the non-email stub instead, for tests about sender identity.
+ *     connects the non-email stub instead, for tests about sender identity, and
+ *     `labelAsProviderKey` relabels the connected row so a provider-scoped
+ *     listing has something to list without a live credential probe.
  *   - `ingest-inbound`: run the REAL `ingest_inbound_message` command over an
  *     adapter-normalized chat frame, so the platform compose path — and every
  *     validation rule on it — actually executes. Use this for anything that
@@ -88,6 +90,27 @@ const connectChannelSchema = z.object({
    * without inventing one (#4975).
    */
   providerFlavor: z.enum(['email', 'chat']).optional(),
+  /**
+   * TEST-ONLY: rewrite the connected stub channel's `provider_key` to this value.
+   *
+   * Routes that a provider package owns filter on their own `provider_key`, and
+   * a real channel for those providers cannot be connected in CI — the Discord
+   * adapter's `validateCredentials` performs a live API call against a bot token
+   * no test environment has. Without this, a provider-scoped listing has nothing
+   * to list and can only be asserted against an empty result, which is exactly
+   * the assertion that would have stayed green through #5602.
+   *
+   * It relabels a row; it registers nothing. The stub adapter is still the only
+   * adapter present, so the channel remains network-free — but no test should
+   * drive an outbound send through a relabelled channel, because delivery would
+   * then resolve the real provider's adapter.
+   */
+  labelAsProviderKey: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9_-]+$/)
+    .optional(),
 })
 
 /**
@@ -224,8 +247,27 @@ export async function POST(req: Request): Promise<Response> {
         { status: 500 },
       )
     }
+    if (body.labelAsProviderKey && body.labelAsProviderKey !== input.providerKey) {
+      const seedEm = (container.resolve('em') as EntityManager).fork()
+      const connected = await seedEm.findOne(CommunicationChannel, {
+        id: result.channelId,
+        tenantId,
+      })
+      if (!connected) {
+        return NextResponse.json(
+          { error: '[internal] test-seed could not reload the channel it just connected' },
+          { status: 500 },
+        )
+      }
+      connected.providerKey = body.labelAsProviderKey
+      await seedEm.flush()
+    }
     return NextResponse.json(
-      { channelId: result.channelId, externalIdentifier: result.externalIdentifier },
+      {
+        channelId: result.channelId,
+        externalIdentifier: result.externalIdentifier,
+        providerKey: body.labelAsProviderKey ?? input.providerKey,
+      },
       { status: 201 },
     )
   }
