@@ -1914,7 +1914,11 @@ export default function SalesDocumentDetailPage({
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
-  const [kind, setKind] = React.useState<'order' | 'quote'>(initialKind ?? 'quote')
+  const [kind, setKind] = React.useState<'order' | 'quote'>(() => {
+    const requested = searchParams.get('kind')
+    if (requested === 'order' || requested === 'quote') return requested
+    return initialKind ?? 'quote'
+  })
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<string>('items')
@@ -2038,6 +2042,14 @@ export default function SalesDocumentDetailPage({
           }
         )
         if (!active) return
+        if (!call.ok) {
+          // apiCall resolves non-2xx rather than throwing, so an expired session or a 500 would
+          // otherwise read as an empty `granted` list — i.e. as a decided denial.
+          setCanEditNumber(false)
+          setCanManageOrders(null)
+          setCanManageQuotes(null)
+          return
+        }
         const granted = Array.isArray(call.result?.granted)
           ? call.result?.granted.map((item) => String(item))
           : []

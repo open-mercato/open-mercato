@@ -263,7 +263,6 @@ export function SalesDocumentAddressesSection({
   const [additionalSaving, setAdditionalSaving] = React.useState(false)
   const [deletingAddressIds, setDeletingAddressIds] = React.useState<Set<string>>(new Set())
   const locked = Boolean(lockedReason)
-
   const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
   const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [editingSaving, setEditingSaving] = React.useState(false)

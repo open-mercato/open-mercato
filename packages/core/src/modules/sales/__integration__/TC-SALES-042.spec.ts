@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page, type Route } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
@@ -73,7 +73,19 @@ async function openDocument(page: Page, path: string): Promise<void> {
   // The permission banner lives inside the addresses section, which is only mounted while that
   // tab is active; `items` is the default.
   await page.getByRole('button', { name: 'Addresses' }).click()
-  await expect(page.getByRole('button', { name: 'Shipping address' }).or(page.getByText('Shipping address'))).toBeVisible({ timeout: 30_000 })
+  await expect(addressesSectionHeading(page)).toBeVisible({ timeout: 30_000 })
+}
+
+// `getByText` matches by substring, so a bare 'Shipping address' also catches the
+// "Billing will mirror the shipping address…" caption and trips strict mode.
+function addressesSectionHeading(page: Page) {
+  return page.getByText('Shipping address', { exact: true })
+}
+
+// TagsSection drops `role="button"` from its container when editing is denied, which is the
+// thing under test; locating on the role is therefore the assertion, not an implementation detail.
+function tagsEditTarget(page: Page) {
+  return page.getByText('Tags', { exact: true }).locator('xpath=following::*[@role="button"][1]')
 }
 
 test.describe('TC-SALES-042 — order detail hides edits the viewer may not make', () => {
@@ -153,6 +165,9 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     // so their absence in the viewer case is a decision rather than a rendering failure.
     await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
     await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
+    // Counterparts to the viewer's absences: without these the zeros below prove nothing.
+    await expect(page.getByRole('button', { name: /Edit customer snapshot|Select customer/ })).toHaveCount(2)
+    await expect(tagsEditTarget(page)).toHaveCount(1)
   })
 
   test('a user without sales.orders.manage is offered none of them', async ({ page }) => {
@@ -166,10 +181,10 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     await expect(page.getByText("You do not have permission to change this document's addresses.")).toBeVisible()
     await expect(page.getByText('Addresses cannot be changed for the current status.')).toHaveCount(0)
 
-    // The two affordances that used to render and merely fail on click.
-    await expect(page.getByRole('button', { name: /Edit customer|Change customer/ })).toHaveCount(0)
-    const tags = page.getByText('Tags').locator('xpath=following::*[@role="button"][1]')
-    await expect(tags).toHaveCount(0)
+    // The two affordances that used to render and merely fail on click. Both are asserted as
+    // present in the manager test, so a zero here is a decision rather than an empty page.
+    await expect(page.getByRole('button', { name: /Edit customer snapshot|Select customer/ })).toHaveCount(0)
+    await expect(tagsEditTarget(page)).toHaveCount(0)
   })
 
   test('a quotes manager is not locked out of a quote by the orders feature', async ({ page }) => {
@@ -182,15 +197,27 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
   })
 
-  test('an unanswered permission check locks the affordances without asserting a reason', async ({ page }) => {
-    // Failing closed on the affordances is right; telling a user they lack a permission we never
-    // managed to check is not.
-    await loginWithCredentials(page, managerEmail, password)
-    await page.route('**/api/auth/feature-check', (route) => route.abort())
-    await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId!)}`, { waitUntil: 'commit' })
-    await page.getByRole('button', { name: 'Addresses' }).click()
+  // Failing closed on the affordances is right; telling a user they lack a permission nobody
+  // managed to check is not. The two transports fail differently and only one of them used to
+  // reach the unresolved state: `apiCall` rejects on an aborted fetch, but RESOLVES a non-2xx,
+  // so an expired session or a 500 arrived on the success path with an empty `granted` list.
+  for (const { label, handle } of [
+    { label: 'never answers', handle: (route: Route) => route.abort() },
+    {
+      label: 'answers with an HTTP error',
+      handle: (route: Route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+    },
+  ]) {
+    test(`a permission check that ${label} locks the affordances without asserting a reason`, async ({ page }) => {
+      await loginWithCredentials(page, managerEmail, password)
+      await page.route('**/api/auth/feature-check', handle)
+      await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId!)}`, { waitUntil: 'commit' })
+      await page.getByRole('button', { name: 'Addresses' }).click()
+      // Prove the page rendered before asserting on absences.
+      await expect(addressesSectionHeading(page)).toBeVisible({ timeout: 30_000 })
 
-    await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
-    await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
-  })
+      await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
+      await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
+    })
+  }
 })

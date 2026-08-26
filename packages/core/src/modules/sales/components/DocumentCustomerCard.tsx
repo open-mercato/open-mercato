@@ -79,40 +79,36 @@ export function DocumentCustomerCard({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={(event) => {
-              event.stopPropagation()
-              if (onEditSnapshot) onEditSnapshot()
-            }}
-            className={cn(
-              'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100',
-              !onEditSnapshot ? 'cursor-default opacity-0' : null,
-            )}
-            disabled={!onEditSnapshot}
-          >
-            <Pencil className="h-4 w-4" aria-hidden />
-            <span className="sr-only">{t('sales.documents.detail.customerSnapshot.edit')}</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={(event) => {
-              event.stopPropagation()
-              if (onSelectCustomer) onSelectCustomer()
-            }}
-            className={cn(
-              'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100',
-              !onSelectCustomer ? 'cursor-default opacity-0' : null,
-            )}
-            disabled={!onSelectCustomer}
-          >
-            <MousePointerClick className="h-4 w-4" aria-hidden />
-            <span className="sr-only">{t('sales.documents.detail.customerSnapshot.select')}</span>
-          </Button>
+          {onEditSnapshot ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={(event) => {
+                event.stopPropagation()
+                onEditSnapshot()
+              }}
+              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100"
+            >
+              <Pencil className="h-4 w-4" aria-hidden />
+              <span className="sr-only">{t('sales.documents.detail.customerSnapshot.edit')}</span>
+            </Button>
+          ) : null}
+          {onSelectCustomer ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={(event) => {
+                event.stopPropagation()
+                onSelectCustomer()
+              }}
+              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100"
+            >
+              <MousePointerClick className="h-4 w-4" aria-hidden />
+              <span className="sr-only">{t('sales.documents.detail.customerSnapshot.select')}</span>
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
