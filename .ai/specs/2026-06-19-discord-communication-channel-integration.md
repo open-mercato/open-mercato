@@ -1310,7 +1310,13 @@ restored — in the same change that makes the feature real, not before it.
   argument: an email provider has no default address to fall back to, so `'email'` — the format
   every existing provider resolves to, declared or defaulted — still answers `Recipient is
   required`. An integration case on a seeded connected channel pins this so the optionality
-  cannot be made unconditional by accident.
+  cannot be made unconditional by accident — but it runs only where
+  `OM_ENABLE_TEST_CHANNEL_SEEDING` is enabled, and that flag is set nowhere in the repository
+  today, so it skips in CI. **The everywhere-guarantee is therefore the unit coverage**
+  (`lib/__tests__/outbound-recipient.test.ts` and the `test-send` route test, which assert the
+  email path across all five capability shapes and run in every environment); the integration
+  case is confirmation against a real seeded channel, not the primary guard. Enabling the flag
+  in the integration harness is proposed separately in #5662.
 - Omission is `undefined` only. `null` and `''` stay 422 on **every** provider: a caller that sent
   an explicit empty recipient meant to address someone and got it wrong, and rerouting that to the
   provider default would deliver the message somewhere the caller never named.
