@@ -282,12 +282,30 @@ export function AclEditor({
 
   const hasGlobalWildcard = granted.includes('*')
   const hasOrganizationRestriction = Array.isArray(organizations) && organizations.length > 0
+  // `null` (unrestricted) and `[]` (deny-all, the #4033 semantic) both leave every
+  // checkbox unticked, so the scope has to be reported explicitly instead of being
+  // inferred from checkbox emptiness (#5642).
+  const isDenyAllOrganizations = Array.isArray(organizations) && organizations.length === 0
   const showOrganizationWarning =
     (kind === 'role' || overrideEnabled) &&
     canEditOrganizations &&
     !isSuperAdmin &&
     hasOrganizationRestriction &&
     granted.length === 0
+  const showDenyAllOrganizationsWarning =
+    (kind === 'role' || overrideEnabled) &&
+    canEditOrganizations &&
+    !isSuperAdmin &&
+    isDenyAllOrganizations
+  const organizationScopeSummary = isDenyAllOrganizations
+    ? t('auth.acl.organizationsScopeCurrent.none', 'Current scope: no organizations.')
+    : organizations && organizations.length > 0
+      ? t(
+          'auth.acl.organizationsScopeCurrent.selected',
+          'Current scope: {count} selected organization(s).',
+          { count: organizations.length },
+        )
+      : t('auth.acl.organizationsScopeCurrent.all', 'Current scope: all organizations.')
 
   
   const toggleWildcard = React.useCallback((wildcard: string, enable: boolean) => {
@@ -564,7 +582,10 @@ export function AclEditor({
                 {t('auth.acl.organizationsScope', 'Organizations scope')}
               </div>
               <div className="text-xs text-muted-foreground mb-2">
-                {t('auth.acl.organizationsScopeHint', 'Empty means all organizations. Select one or more to restrict access.')}
+                {t('auth.acl.organizationsScopeHint', 'Select one or more organizations to restrict access to them. Use "Allow all organizations" to lift the restriction — clearing every selection instead denies access to all organizations.')}
+              </div>
+              <div className="text-xs font-medium mb-2" data-testid="acl-organization-scope-summary">
+                {organizationScopeSummary}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {orgOptions.map((o) => {
@@ -589,6 +610,14 @@ export function AclEditor({
               {showOrganizationWarning && (
                 <div className="mt-3 rounded border border-status-warning-border bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text">
                   {t('auth.acl.organizationWarning', 'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.')}
+                </div>
+              )}
+              {showDenyAllOrganizationsWarning && (
+                <div
+                  className="mt-3 rounded border border-status-warning-border bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text"
+                  data-testid="acl-organization-deny-all-warning"
+                >
+                  {t('auth.acl.organizationsDenyAllWarning', 'No organization is selected, so this override denies access in every organization — including the features granted above. Choose at least one organization, or use "Allow all organizations" to leave the scope unrestricted.')}
                 </div>
               )}
             </div>
