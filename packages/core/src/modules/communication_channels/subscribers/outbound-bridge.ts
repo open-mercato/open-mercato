@@ -3,6 +3,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, CommunicationChannel, MessageChannelLink } from '../data/entities'
 import { Message } from '../../messages/data/entities'
 import { isIngestedInboundMessage } from '../lib/inbound-message-origin'
+import { isOutboundDeliveryIntended } from '../lib/outbound-delivery-intent'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 
@@ -39,6 +40,12 @@ type MessageSentPayload = {
   recipientUserIds?: string[]
   sendViaEmail?: boolean
   externalEmail?: string | null
+  /**
+   * Set by `messages.messages.forward` to the message the forward was built
+   * from. The only place an operator's delivery intent is recorded — see
+   * `lib/outbound-delivery-intent`.
+   */
+  forwardedFrom?: string | null
   tenantId: string
   organizationId?: string | null
 }
@@ -87,6 +94,15 @@ export default async function handler(
   )
   if (!message) return
   if (message.sourceEntityType === 'communication_channels.send_as_user') {
+    return
+  }
+  // (a1) Intent gate. The origin test at (c1) answers "did the ingest command
+  // compose this?"; this one answers "did an operator mean this to leave the
+  // platform?". Between them sits every internal message that shares the channel
+  // thread — most importantly a forward, whose body is the quoted conversation
+  // plus the operator's own commentary about the correspondent. Free (no query),
+  // so it runs before the mapping lookup.
+  if (!isOutboundDeliveryIntended({ message, forwardedFromMessageId: payload.forwardedFrom })) {
     return
   }
   if (!message.threadId) return // Internal-only; no channel routing.
