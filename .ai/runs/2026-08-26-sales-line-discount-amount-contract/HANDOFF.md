@@ -1,10 +1,10 @@
 # Handoff — 2026-08-26-sales-line-discount-amount-contract
 
-**Last updated:** 2026-08-26T07:25:00Z
+**Last updated:** 2026-08-26T07:52:00Z
 **Branch:** `fix/sales-line-discount-amount-contract`
 **PR:** https://github.com/open-mercato/open-mercato/pull/5640 — **ready for review**, not merge-ready
-**Current phase/step:** run complete; bounded CI follow-up in progress
-**Last commit:** `f4320a7da` — test(sales): cover the line-delete rebuild against discount re-inflation
+**Current phase/step:** run complete — CI verified green on the final head; nothing outstanding
+**Last commit:** `85b265670` — docs(runs): record the false CI settle and the corrected waiter
 
 ## What just happened
 - All 26 Tasks rows are `done` (24 planned plus `3.4-fix` and two review-fix Steps). The full configured validation gate ran in order with nothing skipped and came out green end to end; the test step covered 34/34 workspaces with 0 failures.
@@ -13,7 +13,8 @@
 - #5550 was closed as superseded, with a comment recording what was salvaged from it and crediting @pkarw's review.
 
 ## Next concrete action
-- Nothing on the implementation. The bounded CI follow-up (40-minute budget, `/tmp/autopilot/ci-wait.sh`) is watching the checks on head `f4320a7da`; when it settles, post the `🤖 om-auto-review-pr — CI result` comment and drop `ci-monitoring`.
+- **None.** The CI follow-up is complete: `CI for Develop&Main` and `Mutation tests` are both completed/success on the final head `85b265670` — 14 checks pass, 5 skipped, 0 failing. The CI-result comment is posted and `ci-monitoring` is removed.
+- The one gap the review disclosed is closed: `ephemeral-integration` executed `TC-SALES-5019-line-discount-idempotency.spec.ts` and all four tests **ran** (verified in the job log, not inferred from a green job — the spec self-skips without `sales.orders.manage`, so a green job alone would not have proved it).
 
 ## Blockers / open questions
 - **Three gates remain, all external to this run:** an independent approving review (self-approval is impossible), the required checks going green, and `qa-approved` — while `needs-qa` is set and the repo's QA gate is on, this PR MUST NOT merge without it.

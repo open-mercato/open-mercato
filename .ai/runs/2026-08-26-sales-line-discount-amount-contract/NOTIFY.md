@@ -63,3 +63,8 @@
 - The flaw was in the waiter's own heuristic (no pending + a stable check count), which is unsafe in the window right after a push. Replaced with one keyed on the terminal conclusion of the `CI for Develop&Main` run for the current head, which cannot be satisfied by jobs that have not been created.
 - **No CI-result comment was posted on the false signal.** Reporting green off it would have been exactly the "silence is not success" failure — and on a money-math PR with a hard QA gate, a fabricated green is worse than no report at all.
 - Also visible from the run list: the successive pushes in this run cancelled several in-flight CI runs. The last fully green `CI for Develop&Main` is on `85ea256e4`, which predates the two review-fix commits, so it is not evidence for the current head.
+
+## 2026-08-26T07:52:00Z — CI green, and verified rather than inferred
+- `CI for Develop&Main` and `Mutation tests` both completed/success on `22235018d` and again on the final head `85b265670`: 14 checks pass, 5 skipped, 0 failing.
+- `ephemeral-integration` ran `TC-SALES-5019-line-discount-idempotency.spec.ts`. The job log was read directly rather than trusting the green, because the spec self-skips when the tenant lacks `sales.orders.manage` and four skipped tests would produce an identical green. All four **executed** (370ms / 289ms / 258ms / 408ms), including the return create → delete round trip that the unit harness could only cover partially. That closes the one coverage gap the review disclosed.
+- The CI-result comment was updated in place rather than followed by a second one, so the PR carries a single accurate record instead of a stale "no further follow-up" caveat beside a fresher fact.
