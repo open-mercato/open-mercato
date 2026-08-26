@@ -6,8 +6,41 @@ export type TokenizationResult = {
   hashes: string[]
 }
 
+/**
+ * Latin letters that NFKD leaves intact because they are atomic codepoints rather than a
+ * base letter plus a combining mark. Stripping combining marks therefore never folds them
+ * to ASCII, and `splitTokens` then consumes them as separators \u2014 truncating `\u0141ukasz` to
+ * `ukasz` and cutting `Za\u017c\u00f3\u0142\u0107` down to `zazo`. Because the same tokenizer runs at index
+ * time and at query time, such a record becomes unreachable from every spelling. Only
+ * characters with a single unambiguous ASCII fold belong here; anything language-dependent
+ * must stay out.
+ */
+const NON_DECOMPOSING_FOLDS: Record<string, string | undefined> = {
+  '\u0142': 'l',
+  '\u0141': 'L',
+  '\u00f8': 'o',
+  '\u00d8': 'O',
+  '\u0111': 'd',
+  '\u0110': 'D',
+  '\u0127': 'h',
+  '\u0126': 'H',
+  '\u0131': 'i',
+  '\u00e6': 'ae',
+  '\u00c6': 'AE',
+  '\u0153': 'oe',
+  '\u0152': 'OE',
+  '\u00df': 'ss',
+  '\u1e9e': 'SS',
+}
+
+const NON_DECOMPOSING_PATTERN = new RegExp(`[${Object.keys(NON_DECOMPOSING_FOLDS).join('')}]`, 'g')
+
+function foldNonDecomposingLetters(text: string): string {
+  return text.replace(NON_DECOMPOSING_PATTERN, (char) => NON_DECOMPOSING_FOLDS[char] ?? char)
+}
+
 function normalizeText(text: string): string {
-  return text
+  return foldNonDecomposingLetters(text)
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[%_]/g, ' ')

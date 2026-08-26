@@ -10,6 +10,60 @@ const baseConfig: SearchConfig = {
   blocklistedFields: [],
 }
 
+describe('tokenizeText diacritic folding', () => {
+  const wholeWordConfig: SearchConfig = { ...baseConfig, enablePartials: false }
+
+  test.each([
+    ['Łukasz', ['lukasz']],
+    ['lukasz', ['lukasz']],
+    ['Zażółć', ['zazolc']],
+    ['Łódź', ['lodz']],
+    ['Lodz', ['lodz']],
+  ])('folds non-decomposing Polish letters in %s', (input, expected) => {
+    const { tokens } = tokenizeText(input, wholeWordConfig)
+
+    expect(tokens).toEqual(expected)
+  })
+
+  test.each([
+    ['Bąk', ['bak']],
+    ['Wróbel', ['wrobel']],
+    ['Piotr Świątek', ['piotr', 'swiatek']],
+  ])('keeps folding NFKD-decomposable diacritics in %s', (input, expected) => {
+    const { tokens } = tokenizeText(input, wholeWordConfig)
+
+    expect(tokens).toEqual(expected)
+  })
+
+  test.each([
+    ['Jørgensen', ['jorgensen']],
+    ['Đurić', ['duric']],
+    ['Ħamrun', ['hamrun']],
+    ['Işık', ['isik']],
+    ['Æther', ['aether']],
+    ['Œuvre', ['oeuvre']],
+    ['Straße', ['strasse']],
+  ])('folds non-decomposing letters beyond Polish in %s', (input, expected) => {
+    const { tokens } = tokenizeText(input, wholeWordConfig)
+
+    expect(tokens).toEqual(expected)
+  })
+
+  test('produces identical hashes for the diacritic and ASCII spellings of a name', () => {
+    const indexed = tokenizeText('Łukasz Wałęsa', wholeWordConfig)
+    const queried = tokenizeText('lukasz walesa', wholeWordConfig)
+
+    expect(indexed.tokens).toEqual(queried.tokens)
+    expect(indexed.hashes).toEqual(queried.hashes)
+  })
+
+  test('expands prefixes from the folded token rather than the truncated one', () => {
+    const { tokens } = tokenizeText('Łódź', baseConfig)
+
+    expect(tokens).toEqual(['lod', 'lodz'])
+  })
+})
+
 describe('tokenizeText limits', () => {
   test('truncates oversized field text before tokenizing', () => {
     const config = { ...baseConfig, enablePartials: false, maxFieldChars: 10 }

@@ -24,6 +24,23 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Search tokens fold `ł`, `ø`, `đ` and friends — affected records need a reindex (#5666)
+
+The search tokenizer in `@open-mercato/shared/lib/search/tokenize` normalized text with NFKD followed by combining-mark stripping. That folds every diacritic composed of a base letter plus a mark (`ą`, `ó`, `ś`, `ż`, `ć`, `ü`, `é`), but a handful of Latin letters are atomic codepoints with no decomposition at all — `ł`/`Ł`, `ø`/`Ø`, `đ`/`Đ`, `ħ`/`Ħ`, `ı`, the `æ`/`œ` ligatures and `ß`. Those survived normalization and were then eaten by the token splitter, which treats any non-`[a-z0-9]` character as a separator. `Łukasz` indexed as `ukasz`, `Łódź` as `odz`, and `Zażółć` was cut mid-word to `zazo`. Because the same function runs on both sides, an affected record was unreachable from the diacritic spelling *and* from the ASCII one. The tokenizer now applies an explicit fold for those letters before `normalize('NFKD')`, so `Łukasz` and `lukasz` produce the same token — and therefore the same hash — from either side.
+
+No exported signature changes: `tokenizeText`, `hashToken` and `TokenizationResult` are untouched, and the fold is internal to the private `normalizeText`. What changes is the **token value**, and by extension the `token_hash` written to `search_tokens`.
+
+**Action for operators:** this is an index-format change for the affected records only. Rows already written for text containing one of those letters still hold the old truncated hashes, so those records stay unfindable until they are reindexed:
+
+```bash
+yarn mercato search reindex          # query_index projection + search_tokens
+yarn mercato query_index rebuild-all # equivalent when driving query_index directly
+```
+
+Records whose indexed text contains none of these characters produce byte-identical hashes before and after, so a reindex is only required where the bug actually applied — but reindexing everything is harmless and is the simpler operational choice. Installations running Meilisearch may not have noticed the bug in global search (its own normalizer handles `ł` correctly), yet the backend users-list filter routes through the token path regardless, so the reindex still applies.
+
+**Action for module authors:** none, unless you persisted `tokenizeText` output outside `search_tokens`. If you did, recompute it; comparing a stored pre-fix token against a freshly computed one will not match for affected text.
+
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 
 `AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
