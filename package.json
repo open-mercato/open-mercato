@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "private": true,
   "packageManager": "yarn@4.17.1+sha512.ccbfabf7d7b6b32075088be9386fb9a2e00bb6887ef07fa56effabc890a56d53da1ccc4128d62db245fcbd3961b236d75335bdf7d5320ed6eafb7588b7ad4697",
   "engines": {
@@ -121,6 +121,7 @@
     "check:time-bombs": "node scripts/time-bomb-scanner.mjs",
     "check:time-bombs:fail": "node scripts/time-bomb-scanner.mjs --fail",
     "agents:check-budget": "node scripts/check-agents-md-budget.mjs",
+    "packages:check-peer-deps": "node scripts/check-package-peer-deps.mjs",
     "documents:check-bundles": "node scripts/check-documents-bundle-budgets.mjs",
     "lessons:check": "node packages/create-app/agentic/shared/scripts/check-lessons.mjs --root .",
     "mutation:changed": "node scripts/stryker/mutation-changed.mjs"

@@ -584,6 +584,11 @@ const addressSnapshotSchema = z
   .nullable()
   .optional();
 
+// Mirrors the create schema's `decimal({ min: 0 })` (data/validators.ts). `null`
+// comes first in the union below because the coercion accepts it — `Number(null)`
+// is 0 — and would turn a clear into a written zero.
+const exchangeRateSchema = z.coerce.number().min(0);
+
 export const documentUpdateSchema = z
   .object({
     id: z.string().uuid(),
@@ -602,6 +607,13 @@ export const documentUpdateSchema = z
     orderNumber: z.string().trim().min(1).max(191).optional(),
     quoteNumber: z.string().trim().min(1).max(191).optional(),
     currencyCode: currencyCodeSchema.optional(),
+    // Order-only columns — SalesQuote declares none of them. Declared here
+    // because the create schema declares them and a caller reusing its create
+    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
+    // rejects each with a 400 on a quote rather than dropping it.
+    exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
+    paymentStatusEntryId: z.string().uuid().nullable().optional(),
+    fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
     channelId: z.string().uuid().nullable().optional(),
     statusEntryId: z.string().uuid().nullable().optional(),
     placedAt: z.union([dateOnlySchema, z.null()]).optional(),
@@ -633,6 +645,9 @@ export const documentUpdateSchema = z
       input.expectedDeliveryAt !== undefined ||
       input.channelId !== undefined ||
       input.statusEntryId !== undefined ||
+      input.exchangeRate !== undefined ||
+      input.paymentStatusEntryId !== undefined ||
+      input.fulfillmentStatusEntryId !== undefined ||
       input.shippingAddressId !== undefined ||
       input.billingAddressId !== undefined ||
       input.customerEntityId !== undefined ||
@@ -1198,6 +1213,19 @@ async function applyDocumentUpdate({
   if (typeof input.currencyCode === "string") {
     entity.currencyCode = input.currencyCode;
   }
+  // Orders only — SalesQuote has no exchange_rate column, so the field is
+  // rejected rather than ignored for the same reason as internalNotes above.
+  if (kind === "quote" && input.exchangeRate !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.exchange_rate_unsupported",
+        "Exchange rate is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.exchangeRate !== undefined) {
+    (entity as SalesOrder).exchangeRate = toNumericString(input.exchangeRate);
+  }
   if (input.channelId !== undefined) {
     if (input.channelId === null) {
       entity.channelId = null;
@@ -1241,6 +1269,62 @@ async function applyDocumentUpdate({
     }
     (entity as any).statusEntryId = input.statusEntryId ?? null;
     (entity as any).status = statusValue;
+  }
+  // Orders only — SalesQuote has neither the entry-id nor the derived text
+  // column for payment and fulfillment status, so both are rejected on a quote.
+  if (kind === "quote" && input.paymentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.payment_status_unsupported",
+        "Payment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.paymentStatusEntryId !== undefined) {
+    const paymentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.paymentStatusEntryId,
+      { tenantId },
+    );
+    if (input.paymentStatusEntryId && !paymentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    // Both columns, like the statusEntryId branch above and like order create:
+    // moving the id without its derived text leaves a self-contradicting row.
+    (entity as SalesOrder).paymentStatusEntryId =
+      input.paymentStatusEntryId ?? null;
+    (entity as SalesOrder).paymentStatus = paymentStatusValue;
+  }
+  if (kind === "quote" && input.fulfillmentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.fulfillment_status_unsupported",
+        "Fulfillment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.fulfillmentStatusEntryId !== undefined) {
+    const fulfillmentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.fulfillmentStatusEntryId,
+      { tenantId },
+    );
+    if (input.fulfillmentStatusEntryId && !fulfillmentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    (entity as SalesOrder).fulfillmentStatusEntryId =
+      input.fulfillmentStatusEntryId ?? null;
+    (entity as SalesOrder).fulfillmentStatus = fulfillmentStatusValue;
   }
   if (input.placedAt !== undefined) {
     if (input.placedAt === null) {
@@ -3732,6 +3816,15 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
     if (input.internalNotes !== undefined) keys.add("internalNotes");
     if (input.placedAt !== undefined) keys.add("placedAt");
     if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
+    if (input.exchangeRate !== undefined) keys.add("exchangeRate");
+    if (input.paymentStatusEntryId !== undefined) {
+      keys.add("paymentStatusEntryId");
+      keys.add("paymentStatus");
+    }
+    if (input.fulfillmentStatusEntryId !== undefined) {
+      keys.add("fulfillmentStatusEntryId");
+      keys.add("fulfillmentStatus");
+    }
   }
   if (
     input.shippingAddressId !== undefined ||
