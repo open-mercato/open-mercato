@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -71,21 +72,25 @@ export async function GET(req: Request): Promise<Response> {
   // can be armed.
   //
   // Both fragments can carry an `$or`, so they are nested under `$and` — spread
-  // side by side, the second would silently overwrite the first.
+  // side by side, the second would silently overwrite the first. The ownership
+  // clause is always present; the org fragment drops out for an unrestricted
+  // caller, so `$and` never ends up empty.
   const scopeClauses = [
-    channelOrgScopeWhereFromFilter(orgFilter),
     channelOwnerScopeWhere(auth.sub as string),
-  ].filter((clause) => Object.keys(clause).length > 0)
+    channelOrgScopeWhereFromFilter(orgFilter),
+  ].filter((clause) => Object.keys(clause).length > 0) as FilterQuery<CommunicationChannel>[]
+
+  const where: FilterQuery<CommunicationChannel> = {
+    tenantId: auth.tenantId as string,
+    providerKey: DISCORD_PROVIDER_KEY,
+    $and: scopeClauses,
+    deletedAt: null,
+  }
 
   const channels = await findWithDecryption(
     em,
     CommunicationChannel,
-    {
-      tenantId: auth.tenantId as string,
-      providerKey: DISCORD_PROVIDER_KEY,
-      ...(scopeClauses.length > 0 ? { $and: scopeClauses } : {}),
-      deletedAt: null,
-    },
+    where,
     { limit: MAX_CHANNELS + 1, orderBy: { createdAt: 'desc' } },
     { tenantId: auth.tenantId as string, organizationId: orgFilter.rbacOrganizationId },
   )
