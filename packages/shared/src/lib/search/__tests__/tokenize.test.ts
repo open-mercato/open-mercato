@@ -49,6 +49,17 @@ describe('tokenizeText diacritic folding', () => {
     expect(tokens).toEqual(expected)
   })
 
+  test.each([
+    ['Ǿrnulf', ['ornulf']],
+    ['Ǽlfric', ['aelfric']],
+    ['ǣrest', ['aerest']],
+    ['ℏbar', ['hbar']],
+  ])('folds %s, which NFKD decomposes into a non-decomposing letter', (input, expected) => {
+    const { tokens } = tokenizeText(input, wholeWordConfig)
+
+    expect(tokens).toEqual(expected)
+  })
+
   test('produces identical hashes for the diacritic and ASCII spellings of a name', () => {
     const indexed = tokenizeText('Łukasz Wałęsa', wholeWordConfig)
     const queried = tokenizeText('lukasz walesa', wholeWordConfig)
