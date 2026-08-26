@@ -189,6 +189,82 @@ test.describe('TC-CHANNEL-EMAIL-HUB-001: per-user channel API contract', () => {
     }
   })
 
+  // The other side of the same contract, on a channel that is NOT email-shaped.
+  // `providerFlavor: 'chat'` connects the stub declaring
+  // `recipientFormat: 'provider-native'`, so these cases exercise the branch a
+  // real Discord channel takes — the one that was previously reachable only with
+  // a live bot, and therefore never covered by CI.
+  test('POST test-send on a connected provider-native channel accepts a provider id and an omitted recipient', async ({
+    request,
+  }) => {
+    test.slow()
+    let token: string | null = null
+    let channelId: string | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      const seedingAvailable = await isChannelSeedingAvailable(request, token)
+      test.skip(
+        !seedingAvailable,
+        'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled in this environment; cannot seed a connected channel.',
+      )
+
+      const stamp = Date.now()
+      channelId = await seedConnectedChannel(request, token, {
+        displayName: `TC-CHANNEL-EMAIL-HUB-001 provider-native ${stamp}`,
+        providerFlavor: 'chat',
+      })
+      const path = `/api/communication_channels/channels/${encodeURIComponent(channelId)}/test-send`
+
+      // A provider-issued id: rejected outright on an email channel, accepted here.
+      const withProviderId = await apiRequest(request, 'POST', path, {
+        token,
+        data: { to: '1534331920463433771', body: 'provider-native recipient' },
+      })
+      expect(
+        withProviderId.status(),
+        'a provider-native channel accepts a provider-issued recipient id',
+      ).toBe(200)
+
+      // The case this test exists for: the documented smoke test shape, with no
+      // recipient at all, so the adapter's own configured target applies.
+      const withoutRecipient = await apiRequest(request, 'POST', path, {
+        token,
+        data: { body: 'omitted recipient' },
+      })
+      expect(
+        withoutRecipient.status(),
+        'a provider-native channel accepts a request that names no recipient',
+      ).toBe(200)
+      const sent = await readJsonSafe<{ status?: string }>(withoutRecipient)
+      expect(sent?.status, 'the omitted-recipient send reaches the adapter').toBe('sent')
+
+      // Widening presence must not weaken the transport-safety guards: an
+      // explicit empty or null recipient is a caller that meant to address
+      // someone and got it wrong, and must never fall back to the default.
+      for (const badRecipient of ['', null]) {
+        const response = await apiRequest(request, 'POST', path, {
+          token,
+          data: { to: badRecipient, body: 'x' },
+        })
+        expect(
+          response.status(),
+          `an explicit ${JSON.stringify(badRecipient)} recipient is refused, not treated as omitted`,
+        ).toBe(422)
+      }
+
+      // The path-steering allowlist still applies on this branch.
+      for (const steering of ['C123/messages', 'C123%2Fmessages', '..']) {
+        const response = await apiRequest(request, 'POST', path, {
+          token,
+          data: { to: steering, body: 'x' },
+        })
+        expect(response.status(), `a path-steering recipient (${steering}) is refused`).toBe(422)
+      }
+    } finally {
+      await deleteChannelIfExists(request, token, channelId)
+    }
+  })
+
   test('POST test-send on a connected channel rejects a CR/LF header injection with 422', async ({
     request,
   }) => {
