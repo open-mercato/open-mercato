@@ -360,6 +360,8 @@ const help: ModuleCli = {
 
 const cacheCommand: ModuleCli = {
   command: 'cache',
+  // Prints subcommand-aware help itself, so the dispatcher must forward --help/-h here.
+  handlesHelp: true,
   async run(rest) {
     const [subcommand, ...subRest] = rest
     const args = parseArgs(subRest)

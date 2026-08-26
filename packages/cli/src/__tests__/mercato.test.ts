@@ -324,6 +324,31 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('lets a self-documenting command print its own subcommand help', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      // Mirrors packages/core/src/modules/configs/cli.ts, whose `cache` command routes
+      // --help to its own printCacheHelp() rather than to the dispatcher's generic usage.
+      const cache = jest.fn((rest: string[]) => {
+        if (rest[0] === '--help') console.log('configs cache: stats | purge | structural')
+      })
+
+      registerCliModules([
+        { id: 'configs', cli: [{ command: 'cache', handlesHelp: true, run: cache }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'configs', 'cache', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(cache).toHaveBeenCalledWith(['--help'])
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('configs cache: stats | purge | structural')
+      expect(printed).not.toContain('Usage: ✨ mercato configs cache [args]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
     it('still runs the command when no help flag is present', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
