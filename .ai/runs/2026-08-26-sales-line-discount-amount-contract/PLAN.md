@@ -14,8 +14,8 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 0 | 0.1 | Flip the spec status to approved | inline | done | d9523ecde |
-| 0 | 0.2 | Add the Decision Record section (D1–D6) | inline | done | — |
-| 0 | 0.3 | Add the Implementation Plan section to the spec | inline | todo | — |
+| 0 | 0.2 | Add the Decision Record section (D1–D6) | inline | done | 19be24efc |
+| 0 | 0.3 | Add the Implementation Plan section to the spec | inline | done | — |
 | 0 | 0.4 | Record the D5 deferral and the changelog entry | inline | todo | — |
 | 1 | 1.1 | Add the discount-basis types to `lib/types.ts` | inline | todo | — |
 | 1 | 1.2 | Percentage-first, basis-aware discount in `buildBaseLineResult` | inline | todo | — |

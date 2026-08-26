@@ -787,6 +787,68 @@ fallback is declined. The duplication is the mechanical reason the return flows 
 spec's own first draft, and an equivalence test preserves the trap while merely alarming on it. One
 shared mapper in module-local `lib/`, imported by both command files, removes it.
 
+## Implementation Plan
+
+Added 2026-08-26, when the decisions above released the gate. Until then this spec deliberately had no
+breakdown, which is also why no automation could implement it: the tooling requires this section to
+treat a spec as implementable.
+
+Phases are ordered so that nothing depends on a later phase. Every step is one commit. The live run
+executing it is `.ai/runs/2026-08-26-sales-line-discount-amount-contract/`.
+
+### Phase 1 — types and the calculation engine
+
+1. **The discount-basis types** in `lib/types.ts`: `SalesLineDiscountBasis`, the caller-only
+   `discountAmountBasis`, and the mapper-only `discountAmountFromStoredRow`, per § Proposed Solution 3.
+   Both fields optional, in-memory only, never persisted and never accepted from a request payload.
+2. **Percentage-first, basis-aware resolution** in `buildBaseLineResult`, per § Proposed Solution 2 and
+   D3. Compute the undiscounted subtotal first; take the percent when it is set and non-zero; otherwise
+   take the amount interpreted per its origin; otherwise zero. The existing clamp bounds are preserved
+   and only the unconditional `× quantity` goes away.
+3. **Unit tests** per § Testing Strategy, including the idempotency property table and the D3 case.
+
+### Phase 2 — one shared mapper (D6)
+
+4. **Extract** the order-line entity→snapshot mapper into module-local `lib/`, tagging
+   `discountAmountFromStoredRow: true`.
+5. **Point `commands/documents.ts`** at it and drop its local copy.
+6. **Point `commands/returns.ts`** at it and delete the duplicate — the copy whose three persisting
+   consumers write recomputed order header totals.
+7. **Tag the quote mapper** the same way; it stays a separate function because it maps a different
+   entity type.
+
+### Phase 3 — request schema and the upsert sites
+
+8. **`discountAmountBasis` in the shared `linePricingSchema`** only, per § API Contracts. One edit
+   reaches every order and quote line surface; `invoiceCreateSchema` is deliberately not touched.
+9. **Decompose the coalescing chain** at `sales.orders.lines.upsert` per § Proposed Solution 4 — origin
+   decided per operand, `?? 0` becoming `?? null`.
+10. **The same at `sales.quotes.lines.upsert`.** Both, or the quote path silently keeps the defect.
+11. **Carry the caller basis through `createLineSnapshotFromInput`**, defaulting to `'unit'`.
+
+### Phase 4 — command tests
+
+12. Order and quote upsert idempotency at `quantity > 1`.
+13. Upsert-existing without re-sending the amount — the case that fails if step 9's chain is left
+    merged.
+14. Return create then delete leaves the order header totals byte-identical (acceptance criteria 4–6).
+15. The § 3 producer invariant (acceptance criterion 9).
+
+### Phase 5 — the display site and the upgrade note
+
+16. Resolve the second per-unit reading in `components/documents/SalesOrderDraftLines.tsx`.
+17. The `UPGRADE_NOTES.md` entry covering all three § Migration & Backward Compatibility rows.
+
+### Phase 6 — integration
+
+18. `__integration__/TC-SALES-5019-line-discount-idempotency.spec.ts`, self-contained with API-created
+    fixtures and teardown cleanup.
+
+### Phase 7 — follow-ups
+
+19. The deferred operator repair CLI (D5).
+20. The adjacent `totalNetAmount` finding from § Out of Scope, which has no upstream issue.
+
 ## Changelog
 
 - 2026-08-07 — Initial draft.
