@@ -8,7 +8,7 @@
 
 | ID | Task | Status | Evidence |
 |---|---|---|---|
-| 0.1 | Confirm core scope and audit readiness | done | User confirmed 2026-08-26; compatibility review is additive. |
+| 0.1 | Confirm core scope and audit readiness | done | User confirmed 2026-08-26; compatibility review is additive; `ab31bd533`. |
 | 1.1 | Add contracts, provenance persistence, migration, and fetch selection | pending | Focused service and validator tests. |
 | 2.1 | Implement and register the NBP A/B provider | pending | Deterministic provider unit tests. |
 | 3.1 | Add explicit lookup filtering and UTC fallback semantics | pending | Focused lookup-service tests. |

@@ -4,55 +4,127 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import {
+  bridgeLegacyGuard,
+  runMutationGuards,
+  type MutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
 
+const logger = createLogger('currencies').child({ component: 'api/fetch-rates' })
+
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['currencies.fetch.manage'],
+  POST: { requireAuth: true, requireFeatures: ['currencies.fetch.manage'] },
+}
+
+const fetchRatesRequestSchema = z.object({
+  date: z.string().datetime().optional(),
+  providers: z.array(z.string().trim().min(1).max(50)).min(1).max(20)
+    .refine((providers) => new Set(providers).size === providers.length, 'Providers must be unique')
+    .optional(),
+}).strict()
+
+type FetchRatesRequest = z.infer<typeof fetchRatesRequestSchema>
+
+function userFeatures(auth: unknown): string[] {
+  const features = (auth as { features?: unknown }).features
+  return Array.isArray(features)
+    ? features.filter((feature): feature is string => typeof feature === 'string')
+    : []
+}
+
+async function runAfterSuccessCallbacks(
+  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
+  input: { tenantId: string; organizationId: string; userId: string; requestHeaders: Headers },
+): Promise<void> {
+  for (const callback of callbacks) {
+    if (!callback.guard.afterSuccess) continue
+    try {
+      await callback.guard.afterSuccess({
+        ...input,
+        resourceKind: 'currencies.fetch_rates',
+        resourceId: 'currencies.fetch_rates',
+        operation: 'update',
+        requestMethod: 'POST',
+        metadata: callback.metadata,
+      })
+    } catch (err) {
+      logger.warn('Mutation guard afterSuccess callback failed', { err })
+    }
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const container = await createRequestContainer()
+  const auth = await getAuthFromRequest(req)
+  if (!auth || !auth.tenantId || !auth.orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
+  let body: unknown
   try {
-    const auth = await getAuthFromRequest(req)
-    if (!auth || !auth.tenantId || !auth.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const parsed = fetchRatesRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid fetch-rates request' }, { status: 400 })
+  }
+
+  const container = await createRequestContainer()
+  try {
+    const legacyGuard = bridgeLegacyGuard(container)
+    const guardResult = await runMutationGuards(
+      [...getAllMutationGuardInstances(), ...(legacyGuard ? [legacyGuard] : [])],
+      {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        userId: auth.sub,
+        resourceKind: 'currencies.fetch_rates',
+        resourceId: null,
+        operation: 'update',
+        requestMethod: 'POST',
+        requestHeaders: req.headers,
+        mutationPayload: parsed.data,
+      },
+      { userFeatures: userFeatures(auth) },
+    )
+    if (!guardResult.ok) {
+      return NextResponse.json(guardResult.errorBody, { status: guardResult.errorStatus })
+    }
+    const guardedInput = guardResult.modifiedPayload
+      ? fetchRatesRequestSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
+      : { success: true as const, data: parsed.data }
+    if (!guardedInput.success) {
+      return NextResponse.json({ error: 'Invalid fetch-rates request' }, { status: 400 })
+    }
+    const input: FetchRatesRequest = guardedInput.data
+    const fetchDate = input.date ? new Date(input.date) : new Date()
+    if (!Number.isFinite(fetchDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid fetch-rates request' }, { status: 400 })
     }
 
     const em = container.resolve<EntityManager>('em')
     const fetchService = container.resolve<RateFetchingService>('rateFetchingService')
 
-    let body
-    try {
-      body = await req.json()
-    } catch {
-      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-    }
-
-    const { date, providers } = body
-
-    const fetchDate = date ? new Date(date) : new Date()
-
     const result = await fetchService.fetchRatesForDate(
       fetchDate,
       { tenantId: auth.tenantId, organizationId: auth.orgId },
-      { providers }
+      input.providers ? { providers: input.providers } : {},
     )
 
-    // Update last sync info for each provider
-    const providerSources = providers?.length
-      ? providers
+    const providerSources = input.providers?.length
+      ? input.providers
       : Object.keys(result.byProvider)
 
-    // Fetch all configs at once to avoid N+1 queries
-    const configFilter: Record<string, unknown> = {
+    const allConfigs = providerSources.length > 0 ? await em.find(CurrencyFetchConfig, {
       tenantId: auth.tenantId,
       provider: { $in: providerSources },
       organizationId: auth.orgId,
-    }
-    const allConfigs = await em.find(CurrencyFetchConfig, configFilter)
+    }) : []
     const configMap = new Map(allConfigs.map((c) => [c.provider, c]))
 
     for (const providerSource of providerSources) {
@@ -75,29 +147,29 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Flush all config updates at once
     await em.flush()
-
+    await runAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub,
+      requestHeaders: req.headers,
+    })
     return NextResponse.json(result)
-  } catch (err: any) {
+  } catch (err) {
+    logger.error('Fetch rates request failed', { err })
     return NextResponse.json(
       {
-        error: err.message,
+        error: 'Failed to fetch currency rates',
         totalFetched: 0,
         byProvider: {},
-        errors: [err.message],
+        errors: ['Failed to fetch currency rates'],
       },
       { status: 500 }
     )
   } finally {
-    await (container as any).dispose?.()
+    await (container as unknown as { dispose?: () => Promise<void> }).dispose?.()
   }
 }
-
-const fetchRatesRequestSchema = z.object({
-  date: z.string().datetime().optional(),
-  providers: z.array(z.string()).optional(),
-})
 
 const fetchRatesResponseSchema = z.object({
   totalFetched: z.number(),

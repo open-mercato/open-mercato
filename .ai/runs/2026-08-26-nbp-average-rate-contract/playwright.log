@@ -1,0 +1,4 @@
+2026-08-26T14:50:59Z local ephemeral runner http://127.0.0.1:5001
+Command: OM_INTEGRATION_MODULES=currencies BASE_URL=http://127.0.0.1:5001 DATABASE_URL=<ephemeral> PW_CAPTURE_SCREENSHOTS=1 yarn test:integration
+Result: 44 passed, 1 skipped, 0 failed (45 tests; 47.2s).
+Targeted evidence: TC-CUR-015-nbp-average-rate-contract passed (1 test; 10.9s) and captured provider-card plus average-rate publication-reference UI evidence.

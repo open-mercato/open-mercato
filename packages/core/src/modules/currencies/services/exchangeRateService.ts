@@ -1,26 +1,29 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { FilterQuery } from '@mikro-orm/core'
 import { ExchangeRate } from '../data/entities'
 import { RateFetchingService } from './rateFetchingService'
+import type { RateType } from './providers/base'
+
+export interface RateSelectionOptions {
+  maxDaysBack?: number
+  autoFetch?: boolean
+  provider?: string
+  rateType?: RateType
+}
 
 export interface GetRateParams {
   fromCurrencyCode: string
   toCurrencyCode: string
   date: Date
   scope: { tenantId: string; organizationId: string }
-  options?: {
-    maxDaysBack?: number // Maximum days to look back (default: 30)
-    autoFetch?: boolean // Fetch if not found (default: true)
-  }
+  options?: RateSelectionOptions
 }
 
 export interface GetRatesParams {
   pairs: Array<{ fromCurrencyCode: string; toCurrencyCode: string }>
   date: Date
   scope: { tenantId: string; organizationId: string }
-  options?: {
-    maxDaysBack?: number
-    autoFetch?: boolean
-  }
+  options?: RateSelectionOptions
 }
 
 export interface RateResult {
@@ -48,29 +51,18 @@ export class ExchangeRateService {
    */
   async getRate(params: GetRateParams): Promise<RateResult> {
     const { fromCurrencyCode, toCurrencyCode, date, scope, options } = params
-    const maxDaysBack = options?.maxDaysBack ?? 30
-    const autoFetch = options?.autoFetch ?? true
-
-    // Validate date is not in the future
     this.validateDate(date)
-
-    // Normalize currency codes
     const fromCode = fromCurrencyCode.toUpperCase().trim()
     const toCode = toCurrencyCode.toUpperCase().trim()
+    this.validateCurrencyCodes(fromCode, toCode)
+    const selection = this.normalizeOptions(options)
 
-    // Validate same currency
-    if (fromCode === toCode) {
-      throw new Error('Cannot get exchange rate for the same currency')
-    }
-
-    // Try to find rates recursively, going back day by day
     const result = await this.findRateWithFallback(
       fromCode,
       toCode,
       date,
       scope,
-      maxDaysBack,
-      autoFetch
+      selection,
     )
 
     return result
@@ -122,12 +114,11 @@ export class ExchangeRateService {
     toCode: string,
     date: Date,
     scope: { tenantId: string; organizationId: string },
-    maxDaysBack: number,
-    autoFetch: boolean,
+    selection: Required<Pick<RateSelectionOptions, 'maxDaysBack' | 'autoFetch'>> & Pick<RateSelectionOptions, 'provider' | 'rateType'>,
     daysBack: number = 0
   ): Promise<RateResult> {
     // Stop if we've gone back too far
-    if (daysBack > maxDaysBack) {
+    if (daysBack > selection.maxDaysBack) {
       return {
         rates: [],
         fromCurrencyCode: fromCode,
@@ -146,7 +137,8 @@ export class ExchangeRateService {
       fromCode,
       toCode,
       normalizedDate,
-      scope
+      scope,
+      selection,
     )
 
     // If found, return them
@@ -161,11 +153,10 @@ export class ExchangeRateService {
     }
 
     // If not found and autoFetch is enabled, try fetching
-    if (autoFetch) {
-      const fetchResult = await this.rateFetchingService.fetchRatesForDate(
-        normalizedDate,
-        scope
-      )
+    if (selection.autoFetch) {
+      const fetchResult = selection.provider
+        ? await this.rateFetchingService.fetchRatesForDate(normalizedDate, scope, { providers: [selection.provider] })
+        : await this.rateFetchingService.fetchRatesForDate(normalizedDate, scope)
 
       // If fetch was successful, try to find the rates again
       if (fetchResult.totalFetched > 0) {
@@ -173,7 +164,8 @@ export class ExchangeRateService {
           fromCode,
           toCode,
           normalizedDate,
-          scope
+          scope,
+          selection,
         )
 
         if (fetchedRates.length > 0) {
@@ -194,8 +186,7 @@ export class ExchangeRateService {
       toCode,
       date,
       scope,
-      maxDaysBack,
-      autoFetch,
+      selection,
       daysBack + 1
     )
   }
@@ -208,11 +199,12 @@ export class ExchangeRateService {
     fromCode: string,
     toCode: string,
     date: Date,
-    scope: { tenantId: string; organizationId: string }
+    scope: { tenantId: string; organizationId: string },
+    selection: Pick<RateSelectionOptions, 'provider' | 'rateType'>,
   ): Promise<ExchangeRate[]> {
     const normalizedDate = this.normalizeDate(date)
 
-    return this.em.find(ExchangeRate, {
+    const where: FilterQuery<ExchangeRate> = {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       fromCurrencyCode: fromCode,
@@ -220,7 +212,15 @@ export class ExchangeRateService {
       date: normalizedDate,
       deletedAt: null,
       isActive: true,
-    })
+    }
+    if (selection.provider) {
+      where.source = selection.provider
+    } else {
+      const explicitProviders = this.rateFetchingService.getProviderSources('explicit')
+      if (explicitProviders.length > 0) where.source = { $nin: explicitProviders }
+    }
+    if (selection.rateType) where.type = selection.rateType
+    return this.em.find(ExchangeRate, where)
   }
 
   /**
@@ -228,6 +228,9 @@ export class ExchangeRateService {
    * Allows today, rejects tomorrow and beyond
    */
   private validateDate(date: Date): void {
+    if (!(date instanceof Date) || !Number.isFinite(date.getTime())) {
+      throw new Error('Exchange rate date must be a valid date')
+    }
     const now = new Date()
     const normalizedNow = new Date(now)
     normalizedNow.setUTCHours(0, 0, 0, 0)
@@ -253,8 +256,37 @@ export class ExchangeRateService {
    * Subtract days from a date
    */
   private subtractDays(date: Date, days: number): Date {
-    const result = new Date(date)
-    result.setDate(result.getDate() - days)
+    const result = this.normalizeDate(date)
+    result.setUTCDate(result.getUTCDate() - days)
     return result
+  }
+
+  private validateCurrencyCodes(fromCode: string, toCode: string): void {
+    if (!/^[A-Z]{3}$/.test(fromCode) || !/^[A-Z]{3}$/.test(toCode)) {
+      throw new Error('Currency codes must be three-letter ISO codes')
+    }
+    if (fromCode === toCode) throw new Error('Cannot get exchange rate for the same currency')
+  }
+
+  private normalizeOptions(
+    options: RateSelectionOptions | undefined,
+  ): Required<Pick<RateSelectionOptions, 'maxDaysBack' | 'autoFetch'>> & Pick<RateSelectionOptions, 'provider' | 'rateType'> {
+    const maxDaysBack = options?.maxDaysBack ?? 30
+    if (!Number.isInteger(maxDaysBack) || maxDaysBack < 0 || maxDaysBack > 366) {
+      throw new Error('maxDaysBack must be an integer from 0 through 366')
+    }
+    const autoFetch = options?.autoFetch ?? true
+    if (typeof autoFetch !== 'boolean') throw new Error('autoFetch must be a boolean')
+
+    const provider = options?.provider
+    const normalizedProvider = provider === undefined ? undefined : provider.trim()
+    if (provider !== undefined && (!normalizedProvider || !this.rateFetchingService.hasProvider(normalizedProvider))) {
+      throw new Error('provider must name a registered rate provider')
+    }
+    const rateType = options?.rateType
+    if (rateType !== undefined && !['buy', 'sell', 'average'].includes(rateType)) {
+      throw new Error('rateType must be buy, sell, or average')
+    }
+    return { maxDaysBack, autoFetch, provider: normalizedProvider, rateType }
   }
 }

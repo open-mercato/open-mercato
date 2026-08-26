@@ -199,6 +199,20 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
+### Currencies adds opt-in official NBP average rates
+
+The `currencies` module now provides the explicit-only `nbp_average` provider for NBP
+tables A and B. It persists official `average` rates as foreign-currency-to-PLN values and
+stores the NBP publication number in the nullable `exchange_rates.external_reference` column.
+The migration is additive and existing `NBP` table-C buy/sell behavior is unchanged.
+
+**Action for consumers:** existing unfiltered `ExchangeRateService` calls retain their
+default-provider behavior. To request an official rate, call it with
+`options: { provider: 'nbp_average', rateType: 'average' }`. Enable the separate
+`nbp_average` fetch configuration only for organizations that should ingest these rates.
+`externalReference` is provider-owned provenance and is deliberately read-only in manual
+exchange-rate create/update payloads.
+
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
 
 The route used to treat every omitted field as a cleared one: an omitted `features`
