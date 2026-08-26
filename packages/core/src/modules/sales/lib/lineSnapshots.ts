@@ -1,6 +1,6 @@
 import type { SalesOrderLine, SalesQuoteLine } from '../data/entities'
 import { cloneJson } from '../commands/shared'
-import type { SalesLineSnapshot } from './types'
+import type { SalesLineDiscountBasis, SalesLineSnapshot } from './types'
 
 function toNumeric(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -61,4 +61,38 @@ export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSna
 
 export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
   return mapPersistedLine(line)
+}
+
+type UpsertDiscountFields = Pick<
+  SalesLineSnapshot,
+  'discountAmount' | 'discountAmountBasis' | 'discountAmountFromStoredRow'
+>
+
+/**
+ * Decide the discount fields of an upsert payload one operand at a time.
+ *
+ * A line upsert can source its amount from two places with opposite meanings: a
+ * caller value, which is per unit unless the caller says otherwise, and the
+ * stored row, which is always a line total. Collapsing them into a single
+ * `caller ?? stored` expression means whichever origin the merged result is
+ * tagged with is wrong half the time — and the half that breaks is the
+ * upsert-existing path, which then re-inflates by a further factor of quantity
+ * while looking perfectly correct.
+ *
+ * Keeping `null` rather than `0` for "nothing supplied" is deliberate too: the
+ * column cannot represent that distinction, but the payload can, and the
+ * calculation engine needs it to tell a suppressing zero from an absent value.
+ */
+export function resolveUpsertDiscountFields(
+  callerAmount: number | null | undefined,
+  callerBasis: SalesLineDiscountBasis | null | undefined,
+  existingSnapshot: Pick<SalesLineSnapshot, 'discountAmount'> | null | undefined,
+): UpsertDiscountFields {
+  if (callerAmount !== null && callerAmount !== undefined) {
+    return { discountAmount: callerAmount, discountAmountBasis: callerBasis ?? 'unit' }
+  }
+  return {
+    discountAmount: existingSnapshot?.discountAmount ?? null,
+    discountAmountFromStoredRow: existingSnapshot != null,
+  }
 }

@@ -24,9 +24,9 @@
 | 2 | 2.2 | Point `commands/documents.ts` at the shared mapper | inline | done | 734810446 |
 | 2 | 2.3 | Point `commands/returns.ts` at it and delete the duplicate | inline | done | 5411e155f |
 | 2 | 2.4 | Tag `mapQuoteLineEntityToSnapshot` as stored-row sourced | inline | done | landed in 2.1 |
-| 3 | 3.1 | Add `discountAmountBasis` to the shared `linePricingSchema` | inline | done | — |
-| 3 | 3.2 | Decompose the coalescing chain at `sales.orders.lines.upsert` | inline | todo | — |
-| 3 | 3.3 | Decompose the coalescing chain at `sales.quotes.lines.upsert` | inline | todo | — |
+| 3 | 3.1 | Add `discountAmountBasis` to the shared `linePricingSchema` | inline | done | d374465c8 |
+| 3 | 3.2 | Decompose the coalescing chain at `sales.orders.lines.upsert` | inline | done | — |
+| 3 | 3.3 | Decompose the coalescing chain at `sales.quotes.lines.upsert` | inline | done | landed with 3.2 |
 | 3 | 3.4 | Carry the caller basis through `createLineSnapshotFromInput` | inline | todo | — |
 | 4 | 4.1 | Command tests — order and quote upsert idempotency | inline | todo | — |
 | 4 | 4.2 | Command test — upsert-existing without re-sending the amount | inline | todo | — |
