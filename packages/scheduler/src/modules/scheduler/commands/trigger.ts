@@ -17,7 +17,10 @@
 // The command exists for the audit trail: manual triggering is an
 // authorised-looking way to make an automated job run at a moment of the actor's
 // choosing, so every authenticated attempt — refusals included — must leave an
-// `ActionLog` row naming the caller.
+// `ActionLog` row naming the caller. The one exception is bus-wide rather than
+// local: `CommandBus.execute` throws `CommandInterceptorError` before `buildLog`
+// and `persistLog` run, so an attempt a `before` interceptor blocks is refused
+// without a row, exactly as it is for `scheduler.jobs.create`/`.update`/`.delete`.
 // =============================================================================
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'

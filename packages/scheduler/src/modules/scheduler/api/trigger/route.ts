@@ -135,12 +135,12 @@ const errorResponseSchema = z.object({
 export const openApi: OpenApiRouteDoc = {
   tag: 'Scheduler',
   summary: 'Manually trigger a schedule',
-  description: 'Execute a schedule immediately by enqueueing it in the scheduler-execution queue. Requires QUEUE_STRATEGY=async. Every authenticated attempt, including refusals, is recorded in the action log against the calling user.',
+  description: 'Execute a schedule immediately by enqueueing it in the scheduler-execution queue. Requires QUEUE_STRATEGY=async. Every authenticated attempt, including refusals, is recorded in the action log against the calling user; the one exception is an attempt a before command interceptor blocks, which is rejected before the command runs and therefore writes no row.',
   methods: {
     POST: {
       operationId: 'triggerScheduledJob',
       summary: 'Manually trigger a schedule',
-      description: 'Executes a scheduled job immediately, bypassing the scheduled time. Only works with async queue strategy. The attempt is audited against the calling user whether it succeeds, is refused, or fails.',
+      description: 'Executes a scheduled job immediately, bypassing the scheduled time. Only works with async queue strategy. The attempt is audited against the calling user whether it succeeds, is refused, or fails, except when a before command interceptor blocks it before the command runs.',
       requestBody: {
         schema: scheduleTriggerSchema,
         contentType: 'application/json',
@@ -157,6 +157,12 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Schedule not found', schema: errorResponseSchema },
+        {
+          status: 409,
+          description:
+            'Trigger deliberately blocked by a before command interceptor. The interceptor chooses the status (any 4xx/5xx) and may replace the body.',
+          schema: errorResponseSchema,
+        },
       ],
     },
   },

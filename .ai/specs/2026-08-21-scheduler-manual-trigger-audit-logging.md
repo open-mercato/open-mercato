@@ -167,6 +167,7 @@ New action-log rows: `commandId: 'scheduler.jobs.trigger'`, `resourceKind: 'sche
 | An unattended command schedule whose creator has since lost the required features now ends as `scheduler.job.failed` instead of being retried | Low | worker RBAC | The retries could never succeed and left no trace but a log line; a failed event is the state an operator has to act on | Deployments watching for retry noise as the signal see a failed event instead |
 | Queue-strategy and enqueue failures now also produce audit rows | Low | audit volume | Bounded by the trigger's own feature gate | Slightly more rows |
 | A refused trigger writes a row naming a schedule id the caller cannot see | Low | `audit_logs` | Only the id is recorded, scoped to the caller's tenant; no attribute of the row is included | None |
+| An attempt a `before` command interceptor blocks leaves **no** audit row — `CommandBus.execute` throws `CommandInterceptorError` before `buildLog`/`persistLog` run, so the "every authenticated attempt is audited" invariant has this one exception | Low | `api/trigger` | Bus-wide behaviour shared with `scheduler.jobs.create`/`.update`/`.delete`, not introduced here; the route surfaces the interceptor's own status and body so the refusal is visible to the caller, and the OpenAPI `errors` list declares it | An interceptor-blocked trigger is traceable only through the interceptor's own logging |
 
 Not changed: database schema, ACL features, event ids, DI keys, response shapes.
 
@@ -213,3 +214,7 @@ scheduler-safe-command gate authorizes — both described under Risks above.
   outcomes rather than throwing, trigger route reduced to an outcome→HTTP mapper, manual runs
   attributed to and authorized as the triggering user, `scheduler.audit.trigger` added to all five
   locales, unit coverage for every outcome plus `TC-SCHED-009`.
+- **2026-08-26** — Review follow-up: the trigger route's OpenAPI `errors` list now declares the
+  interceptor-chosen status a `before` command interceptor can return, and both route descriptions
+  name the one attempt the audit invariant does not cover — an interceptor block, rejected before the
+  command runs — now also recorded in the Risks table.
