@@ -9,7 +9,7 @@ import {
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 
 /**
- * TC-CHANNEL-DISCORD-009 — the AI auto-reply panel lists the Discord channels
+ * TC-CHANNEL-DISCORD-011 — the AI auto-reply panel lists the Discord channels
  * operators actually have.
  * Source: https://github.com/open-mercato/open-mercato/issues/5602
  *
@@ -62,7 +62,7 @@ async function readPanel(
   return body?.items ?? []
 }
 
-test.describe('TC-CHANNEL-DISCORD-009: the AI auto-reply panel listing', () => {
+test.describe('TC-CHANNEL-DISCORD-011: the AI auto-reply panel listing', () => {
   test('lists the caller’s own Discord channel and hides another operator’s', async ({
     request,
   }) => {
@@ -87,7 +87,7 @@ test.describe('TC-CHANNEL-DISCORD-009: the AI auto-reply panel listing', () => {
       // `providerFlavor: 'chat'` gives the row the shape a real Discord channel
       // has (no email-ish credential, so `external_identifier` stays NULL); the
       // relabel is what makes the provider-scoped route see it at all.
-      const displayName = `TC-CHANNEL-DISCORD-009 ${stamp}`
+      const displayName = `TC-CHANNEL-DISCORD-011 ${stamp}`
       channelId = await seedConnectedChannel(request, token, {
         displayName,
         providerFlavor: 'chat',
@@ -111,18 +111,18 @@ test.describe('TC-CHANNEL-DISCORD-009: the AI auto-reply panel listing', () => {
       // `channel_discord.view` grant. Personal channels are owner-only in v1, so
       // no feature grant may reveal one — widening the listing must not have
       // opened that door.
-      const otherEmail = `tc-discord-009-${stamp}@integration.test`
+      const otherEmail = `tc-discord-011-${stamp}@integration.test`
       otherUserId = await createUserFixture(request, token, {
         email: otherEmail,
         password: 'secret123',
         organizationId,
         roles: ['admin'],
-        name: `TC-CHANNEL-DISCORD-009 peer ${stamp}`,
+        name: `TC-CHANNEL-DISCORD-011 peer ${stamp}`,
       })
       otherToken = await getAuthToken(request, otherEmail, 'secret123')
 
       otherChannelId = await seedConnectedChannel(request, otherToken, {
-        displayName: `TC-CHANNEL-DISCORD-009 peer ${stamp}`,
+        displayName: `TC-CHANNEL-DISCORD-011 peer ${stamp}`,
         providerFlavor: 'chat',
         labelAsProviderKey: 'discord',
       })

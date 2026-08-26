@@ -648,13 +648,15 @@ up in teardown, no reliance on seeded/demo data). Discord REST + Gateway are stu
 | TC-CHANNEL-DISCORD-008 | Tenant isolation | The interactions route's candidate fan-out pins the request to the channel whose public key verifies; a second tenant's Discord channel never receives another tenant's interaction. |
 | TC-CHANNEL-DISCORD-009 | AI auto-reply (AI module present) | Easy message → agent draft → `deliver-outbound-message`; complex message → propose-only, no auto-send. |
 | TC-CHANNEL-DISCORD-010 | AI peer absent | With `ai_assistant` disabled, the subscriber no-ops and inbound still ingests (module-decoupling). |
+| TC-CHANNEL-DISCORD-011 | AI auto-reply panel listing | A per-user Discord channel appears in `GET /api/channel_discord/ai-auto-reply/channels` for its owner and for nobody else. |
+| TC-CHANNEL-DISCORD-012 | AI reply send path | An approved reply on a channel whose sender has no address completes through `messages.messages.compose`. |
 
 Unit tests (provider package, jest): `convertOutbound`/`normalizeInbound` mapping, Ed25519 verify,
 gateway identify/resume/backoff state machine, bot-self-message filter.
 
 ### What ships in the implementation PR, and where the ceiling is
 
-TC-CHANNEL-DISCORD-001..008 ship as executable Playwright specs in
+TC-CHANNEL-DISCORD-001..008, 011 and 012 ship as executable Playwright specs in
 `packages/channel-discord/src/modules/channel_discord/__integration__/`.
 
 TC-009 and TC-010 assert AI auto-reply behaviour. The behaviour now exists (#4778), and the halves
@@ -1118,6 +1120,51 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-08-26 — The AI auto-reply works end to end (issues #5599, #5601, #5602, #5603)
+
+Four defects found in one manual-QA round of #4391 on head `7db14ebdd`, all on the feature #4778
+shipped, none of them caught by a test that stayed green throughout.
+
+- **§ AI bot wiring → the send path never sent (#5601).** The subscriber composed a public
+  `channel.discord` message without `sourceChannelType`. `channelTypeRequiresExternalEmail` fails
+  closed on an absent type — deliberately, per § Open decision — hub sender-identity contract — so
+  the hub demanded an `externalEmail` from a Discord sender, who is a snowflake with no address.
+  Every auto-send threw `ZodError`, the subscriber degraded to a no-op, and the user got silence.
+  The proposal-approve command composes the same reply through the same hub command and carried the
+  same defect, so the human-approved send was equally broken. Both now declare the type, from one
+  shared constant the adapter uses too. The tests that passed through this stopped at the
+  command-bus boundary; the new ones validate the composed payload against the hub's real
+  `composeMessageSchema`.
+- **§ New provider-owned surface → the panel could list nothing (#5602).** The one-call listing route
+  filtered `userId: null`, on the assumption that a Discord bot channel is tenant-scoped. Nothing the
+  product exposes creates such a channel: the connect widget posts to the per-user credentials route,
+  which writes `user_id = auth.sub`, and the tenant-wide route refuses Discord outright because the
+  adapter declares no `channelScope`. Since the panel is the only entry point to the per-channel AI
+  settings, the feature had no way in. Ownership is now scoped through a new hub helper,
+  `channelOwnerScopeWhere`, which mirrors `assertCanAccessChannel` at the SQL layer: shared channels
+  plus the caller's own. Who may connect a bot is unchanged — declaring `channelScope: 'tenant'` on
+  the adapter, the other candidate fix, would strand every channel already connected.
+- **§ AI bot wiring → the escape hatch never applied (#5599).** `resolveCommunicationChannelsSystemUserId`
+  matched a plaintext email against `users.email`, which is encrypted at rest with a per-row IV, so
+  the lookup could never hit. Inbound messages were attributed to the sentinel UUID rather than the
+  tenant's channel-bot user, and the documented way to widen or narrow the auto-reply principal — put
+  the channel-bot user in a different role — did nothing, because the branch that reads it was
+  unreachable. The lookup now keys on the deterministic `email_hash`, the column the tenant
+  uniqueness index already uses.
+- **§ A visible failure mode → the banner said `agent <id>: [` (#5603).** `describeAgentFailure` kept
+  a message's first line, and `ZodError.message` is pretty-printed JSON. The banner added to explain
+  a silent channel explained nothing. Validation issues are now described by path and message, other
+  errors are collapsed onto one line rather than truncated after the first, and redaction runs before
+  a new length cap so truncation is never what keeps a credential out of the column.
+- **§ Integration coverage.** TC-CHANNEL-DISCORD-011 (the panel lists a per-user Discord channel for
+  its owner and nobody else) and TC-CHANNEL-DISCORD-012 (an approved reply sends on a channel whose
+  sender has no address) ship as Playwright specs. They take 011/012 rather than 009/010, which stay
+  reserved for the live-Discord-application coverage tracked in #4665. Connecting a real Discord
+  channel in CI is impossible — the adapter validates its bot token against the live API — so the
+  panel spec relabels a network-free stub channel through a new env-gated `labelAsProviderKey` knob
+  on the test-seed endpoint. Without it, a provider-scoped listing can only be asserted against an
+  empty result, which is the assertion that would have stayed green through #5602.
 
 ### 2026-08-25 — Arming an auto-reply channel is authorized, and a dormant one says so (re-review of PR #4391)
 

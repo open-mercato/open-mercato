@@ -127,9 +127,9 @@ The two defects that are contained to one function each, and that nothing else i
 
 ### Phase 4: Integration coverage
 
-- [ ] 4.1 Let the test-seed connect action label a stub channel with a provider key
-- [ ] 4.2 TC-CHANNEL-DISCORD-009 — the panel lists per-user Discord channels
-- [ ] 4.3 TC-CHANNEL-DISCORD-010 — the send path composes without an address
+- [x] 4.1 Let the test-seed connect action label a stub channel with a provider key — 72e09e629
+- [x] 4.2 TC-CHANNEL-DISCORD-009 — the panel lists per-user Discord channels — 0d64048ec (shipped as TC-CHANNEL-DISCORD-011; 009/010 stay reserved for #4665's live-Discord coverage)
+- [x] 4.3 TC-CHANNEL-DISCORD-010 — the send path composes without an address — 0d64048ec (shipped as TC-CHANNEL-DISCORD-012)
 
 ### Phase 5: Documentation and the gate
 

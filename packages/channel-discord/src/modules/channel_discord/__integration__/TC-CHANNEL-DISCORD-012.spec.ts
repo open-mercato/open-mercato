@@ -14,7 +14,7 @@ import {
 } from '../message-types'
 
 /**
- * TC-CHANNEL-DISCORD-010 — the AI auto-reply SEND path completes for a sender
+ * TC-CHANNEL-DISCORD-012 — the AI auto-reply SEND path completes for a sender
  * who has no email address.
  * Source: https://github.com/open-mercato/open-mercato/issues/5601
  *
@@ -48,7 +48,7 @@ import {
  * Driven via the env-gated test-seed fixture (`OM_ENABLE_TEST_CHANNEL_SEEDING`);
  * skips when the gate is off.
  */
-test.describe('TC-CHANNEL-DISCORD-010: the AI reply send path', () => {
+test.describe('TC-CHANNEL-DISCORD-012: the AI reply send path', () => {
   test('sends an approved reply on a channel whose sender has no address', async ({ request }) => {
     test.slow()
     let token: string | null = null
@@ -69,7 +69,7 @@ test.describe('TC-CHANNEL-DISCORD-010: the AI reply send path', () => {
       // opaque handle, `external_identifier` is NULL, and the fixture offers no
       // way to pass an address — the shape a real Discord channel has.
       channelId = await seedConnectedChannel(request, token, {
-        displayName: `TC-CHANNEL-DISCORD-010 ${stamp}`,
+        displayName: `TC-CHANNEL-DISCORD-012 ${stamp}`,
         providerFlavor: 'chat',
       })
 
@@ -78,8 +78,8 @@ test.describe('TC-CHANNEL-DISCORD-010: the AI reply send path', () => {
         senderIdentifier: '1499156851487539260',
         senderDisplayName: 'Karol Kapsa',
         body: 'cześć, czy mogę pisać do was po polsku?',
-        externalMessageId: `tc-discord-010-${stamp}`,
-        externalConversationId: `tc-discord-010-conv-${stamp}`,
+        externalMessageId: `tc-discord-012-${stamp}`,
+        externalConversationId: `tc-discord-012-conv-${stamp}`,
       })
       expect(inbound.messageId, 'the inbound message must land before a reply can be proposed').toBeTruthy()
 
