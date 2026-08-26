@@ -378,6 +378,7 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
       .mockResolvedValueOnce({
         id: PARENT_EXTERNAL_ROW,
         externalMessageId: PARENT_SNOWFLAKE,
+        conversationId: 'conv-1',
       } as never) // parent ExternalMessage
     const { ctx, adapter } = makeCtx({ threading: true })
 
@@ -474,6 +475,7 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
       .mockResolvedValueOnce({
         id: PARENT_EXTERNAL_ROW,
         externalMessageId: PARENT_SNOWFLAKE,
+        conversationId: 'conv-1',
       } as never)
     const { ctx, adapter } = makeCtx({ threading: true })
 

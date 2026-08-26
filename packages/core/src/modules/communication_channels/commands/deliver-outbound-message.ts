@@ -371,6 +371,18 @@ const deliverOutboundMessageCommand: CommandHandler<
         err: replyRefErr,
       })
     }
+    if (!replyToExternalId && message.parentMessageId && adapter.capabilities?.threading === true) {
+      // The provider threads and the caller asked for a reply, yet nothing
+      // resolved — the parent never reached this channel, or it belongs to
+      // another conversation. Delivery is unaffected, but say so: an unthreaded
+      // reply is otherwise indistinguishable from a non-reply, which is exactly
+      // the silent-unreachability shape #5541 was filed about.
+      moduleLogger.debug('reply parent has no external id on this channel, sending unthreaded', {
+        messageId: message.id,
+        parentMessageId: message.parentMessageId,
+        conversationId: mapping.externalConversationId,
+      })
+    }
 
     // (5) + (6) Convert + send.
     try {

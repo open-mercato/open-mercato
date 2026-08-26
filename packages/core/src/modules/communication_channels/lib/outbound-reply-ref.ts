@@ -82,6 +82,13 @@ export async function resolveOutboundReplyExternalId(
     dscope,
   )
 
-  const externalId = parentExternal?.externalMessageId
+  if (!parentExternal) return null
+  // Re-assert the conversation invariant on the row that actually carries the
+  // provider id. Both producers write the link and the external message together,
+  // so these cannot disagree today — checking here keeps the guard correct even if
+  // that coupling is ever relaxed, rather than trusting a second table's field.
+  if (parentExternal.conversationId !== input.externalConversationId) return null
+
+  const externalId = parentExternal.externalMessageId
   return typeof externalId === 'string' && externalId.length > 0 ? externalId : null
 }

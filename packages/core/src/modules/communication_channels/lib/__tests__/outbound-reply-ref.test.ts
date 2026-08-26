@@ -123,6 +123,16 @@ describe('resolveOutboundReplyExternalId', () => {
     expect(mockFindOne).toHaveBeenCalledTimes(1)
   })
 
+  it('re-checks the conversation on the row that carries the provider id', async () => {
+    // The link and the ExternalMessage are written together, so they cannot
+    // disagree today; the guard holds independently of that coupling.
+    mockFindOne
+      .mockResolvedValueOnce(parentLink())
+      .mockResolvedValueOnce(parentExternalMessage({ conversationId: OTHER_CONVERSATION }))
+
+    await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBeNull()
+  })
+
   it('returns null when the external row carries no usable provider id', async () => {
     mockFindOne
       .mockResolvedValueOnce(parentLink())
