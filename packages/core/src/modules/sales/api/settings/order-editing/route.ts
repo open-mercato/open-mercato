@@ -104,6 +104,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       orderCustomerEditableStatuses: record?.orderCustomerEditableStatuses ?? null,
       orderAddressEditableStatuses: record?.orderAddressEditableStatuses ?? null,
+      orderShippedLineEditable: record?.orderShippedLineEditable === true,
       orderStatuses,
     })
   } catch (err) {
@@ -152,7 +153,15 @@ export async function PUT(req: Request) {
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const response = await commandBus.execute('sales.settings.save', { input: commandInput, ctx })
-    const result = (response as { result?: { orderCustomerEditableStatuses?: string[] | null; orderAddressEditableStatuses?: string[] | null } }).result
+    const result = (
+      response as {
+        result?: {
+          orderCustomerEditableStatuses?: string[] | null
+          orderAddressEditableStatuses?: string[] | null
+          orderShippedLineEditable?: boolean
+        }
+      }
+    ).result
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(ctx.container, {
@@ -173,6 +182,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({
       orderCustomerEditableStatuses: result?.orderCustomerEditableStatuses ?? null,
       orderAddressEditableStatuses: result?.orderAddressEditableStatuses ?? null,
+      orderShippedLineEditable: result?.orderShippedLineEditable === true,
       orderStatuses,
     })
   } catch (err) {
@@ -197,6 +207,7 @@ const orderStatusOptionSchema = z.object({
 const settingsResponseSchema = z.object({
   orderCustomerEditableStatuses: z.array(z.string()).nullable(),
   orderAddressEditableStatuses: z.array(z.string()).nullable(),
+  orderShippedLineEditable: z.boolean(),
   orderStatuses: z.array(orderStatusOptionSchema),
 })
 

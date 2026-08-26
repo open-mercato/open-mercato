@@ -1,24 +1,32 @@
 /** @jest-environment node */
 
 /**
- * Shipped order lines accept corrections (supersedes the issue #3993 command-layer guard).
+ * The shipped-line freeze, on both sides of its setting.
  *
- * The invariant #3993 asked for — never *create* an over-shipment — is enforced where the
- * over-shipment would be created: `sales.shipments.create` rejects shipping more than the
- * remaining quantity, and the line dialog floors the editable quantity at what shipped.
- * The command layer no longer duplicates it: a caller correcting an order after dispatch
- * (a price fixed by accounting, a quantity lowered by a return) must be able to record the
- * correction. These tests pin the ALLOWED behavior so the freeze cannot quietly return.
+ * `orderShippedLineEditable` decides whether an order line that already has shipment items
+ * accepts changes to its commercial terms. Unset — no `sales_settings` row, or a row that
+ * never touched it — the freeze applies, which is the behaviour every deployment upgrades
+ * from. Set, a caller correcting an order after dispatch (a price fixed by accounting, a
+ * quantity lowered by a return) can record the correction.
  *
- * One command-layer check is kept deliberately: deleting a line that has shipment items is
- * still a clean 409, because the `sales_shipment_items.order_line_id` foreign key makes the
- * delete impossible anyway — the guard turns a raw DB error into an explained refusal.
+ * Both branches are pinned here, in one harness over the same edits, because either taking
+ * the other's behaviour is the failure worth catching: a freeze that returns for a scope
+ * that opted out, or a freeze that quietly stops applying for everyone else.
+ *
+ * Neither branch touches the invariant issue #3993 asked for — never *create* an
+ * over-shipment. That is enforced where the over-shipment would be created, by
+ * `sales.shipments.create` rejecting more than the remaining quantity.
+ *
+ * One command-layer check ignores the setting entirely: deleting a line that has shipment
+ * items is a 409 either way, because the `sales_shipment_items.order_line_id` foreign key
+ * makes the delete impossible regardless — the guard turns a raw DB error into an explained
+ * refusal, and no setting can make it succeed.
  */
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { SalesOrder, SalesShipment, SalesShipmentItem } from '../../data/entities'
+import { SalesOrder, SalesSettings, SalesShipment, SalesShipmentItem } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -46,10 +54,24 @@ const ORDERED_QUANTITY = 4
 
 type ShipmentItem = { shipment: { id: string }; orderLine: { id: string }; quantity: string }
 
+type ScopeSettings = { orderShippedLineEditable: boolean } | undefined
+
+/**
+ * The `sales_settings` row every `setWorld` in the current describe block gets, so each
+ * block states its branch once instead of threading it through every case.
+ */
+let scopeSettings: ScopeSettings
+
 function setWorld(options: {
   shipments: Array<{ id: string }>
   shipmentItems: ShipmentItem[]
   quantityUnit?: string | null
+  /**
+   * The scope's `sales_settings` row. `undefined` means the scope has no row at all — the
+   * state a database is in until someone opens the settings screen — and has to resolve to
+   * the same enforced freeze as a row that leaves the flag off.
+   */
+  settings?: { orderShippedLineEditable: boolean }
 }) {
   const order = {
     id: ORDER_ID,
@@ -87,6 +109,7 @@ function setWorld(options: {
     orderLine,
     shipments: options.shipments,
     shipmentItems: options.shipmentItems,
+    settings: 'settings' in options ? options.settings : scopeSettings,
   }
   return { order, orderLine }
 }
@@ -117,7 +140,10 @@ function makeEm() {
       if (entityName === 'SalesOrderLine') return [world().orderLine]
       return []
     }),
-    findOne: jest.fn(async () => null),
+    findOne: jest.fn(async (entityClass: unknown) => {
+      if (entityClass === SalesSettings) return world().settings ?? null
+      return null
+    }),
     count: jest.fn(async () => 0),
     create: jest.fn((_entity: unknown, data: unknown) => data),
     persist: jest.fn(),
@@ -178,25 +204,90 @@ async function runUpsert(input: ReturnType<typeof editInput>) {
   return { caught, em }
 }
 
+/**
+ * The undo path into the same guard: `sales.orders.update`'s undo replays a whole order graph
+ * through `restoreOrderGraph`, which asks the freeze about every line it is about to rewrite.
+ * The snapshot below restores a lower unit price onto the shipped line.
+ */
+async function runRestoreUndo() {
+  const handler = commandRegistry.get('sales.orders.update')!
+  const em = makeEm()
+  let caught: unknown
+  try {
+    await handler.undo?.({
+      logEntry: {
+        commandPayload: {
+          undo: {
+            before: {
+              order: {
+                id: ORDER_ID,
+                organizationId: ORG_ID,
+                tenantId: TENANT_ID,
+              },
+              lines: [{
+                id: LINE_ID,
+                kind: 'product',
+                quantity: ORDERED_QUANTITY,
+                quantityUnit: null,
+                currencyCode: 'USD',
+                unitPriceNet: 50,
+                unitPriceGross: 61.5,
+                discountAmount: 0,
+                discountPercent: 0,
+                taxRate: TAX_RATE,
+                totalNetAmount: 400,
+                totalGrossAmount: 492,
+              }],
+            },
+          },
+        },
+      },
+      ctx: makeCtx(em),
+      input: {},
+    } as never)
+  } catch (err) {
+    caught = err
+  }
+  return { caught, em }
+}
+
+const SHIPPED_QUANTITY = 2
+
 const shippedWorld = () =>
   setWorld({
     shipments: [{ id: SHIPMENT_ID }],
-    shipmentItems: [{ shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: '2' }],
+    shipmentItems: [
+      { shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: String(SHIPPED_QUANTITY) },
+    ],
   })
 
 const expectAllowed = (caught: unknown) => {
-  // Not a 409: the freeze is gone. Any other error here would be a harness artifact, so pin
-  // specifically that the command layer no longer refuses the edit.
+  // Not a 409: the freeze did not apply. Any other error here would be a harness artifact, so
+  // pin specifically that the command layer did not refuse the edit.
   expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
 }
 
-describe('sales.orders.lines.upsert accepts corrections on shipped lines', () => {
+const expectRefused = (caught: unknown, messageFragment: string) => {
+  expect(isCrudHttpError(caught)).toBe(true)
+  expect((caught as CrudHttpError).status).toBe(409)
+  // The two refusals say different things — one names the shipped quantity, the other the
+  // price and unit — and a caller reads them to know which correction to retry, so assert the
+  // message rather than the status alone.
+  expect(String((caught as CrudHttpError).body?.error ?? '')).toContain(messageFragment)
+}
+
+describe('sales.orders.lines.upsert accepts corrections on shipped lines when the scope allows it', () => {
   beforeAll(async () => {
     commandRegistry.clear?.()
     await import('../documents')
   })
 
+  beforeEach(() => {
+    scopeSettings = { orderShippedLineEditable: true }
+  })
+
   afterEach(() => {
+    scopeSettings = undefined
     delete (globalThis as any).__lineGuardWorld
   })
 
@@ -291,54 +382,20 @@ describe('sales.orders.lines.upsert accepts corrections on shipped lines', () =>
   })
 
   it('allows undo to restore older prices onto a shipped line', async () => {
-    // Undo replays a snapshot the same way a mirror replays its source: refusing it here would
-    // make the restore path the one place the freeze survived.
+    // Undo replays a snapshot the same way a mirror replays its source, so the restore path
+    // has to answer the setting the same way the upsert path does — otherwise it becomes the
+    // one place the freeze survives an opt-out.
     shippedWorld()
-    const handler = commandRegistry.get('sales.orders.update')!
-    const em = makeEm()
-    let caught: unknown
-    try {
-      await handler.undo?.({
-        logEntry: {
-          commandPayload: {
-            undo: {
-              before: {
-                order: {
-                  id: ORDER_ID,
-                  organizationId: ORG_ID,
-                  tenantId: TENANT_ID,
-                },
-                lines: [{
-                  id: LINE_ID,
-                  kind: 'product',
-                  quantity: ORDERED_QUANTITY,
-                  quantityUnit: null,
-                  currencyCode: 'USD',
-                  unitPriceNet: 50,
-                  unitPriceGross: 61.5,
-                  discountAmount: 0,
-                  discountPercent: 0,
-                  taxRate: TAX_RATE,
-                  totalNetAmount: 400,
-                  totalGrossAmount: 492,
-                }],
-              },
-            },
-          },
-        },
-        ctx: makeCtx(em),
-        input: {},
-      } as never)
-    } catch (err) {
-      caught = err
-    }
+    const { caught } = await runRestoreUndo()
     expectAllowed(caught)
   })
 
   it('still rejects deleting a line that has shipment items, with an explained 409', async () => {
-    // The one command-layer check that stays. It fronts a real constraint — the
-    // sales_shipment_items.order_line_id foreign key makes the delete impossible regardless —
-    // so removing it would only swap this message for a raw database error.
+    // The one command-layer check the setting does not reach, asserted here — inside the block
+    // where the scope HAS opted in — precisely because that is where it would go wrong. It
+    // fronts a real constraint: the sales_shipment_items.order_line_id foreign key makes the
+    // delete impossible whatever the setting says, so letting it through would swap this
+    // message for a raw database error rather than grant anything.
     shippedWorld()
     const handler = commandRegistry.get('sales.orders.lines.delete')!
     const em = makeEm()
@@ -356,5 +413,113 @@ describe('sales.orders.lines.upsert accepts corrections on shipped lines', () =>
     expect((caught as CrudHttpError).status).toBe(409)
     expect(String((caught as CrudHttpError).body?.error ?? '')).toContain('shipped items')
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('the shipped-line freeze applies unless the scope opts out', () => {
+  // No `beforeAll` re-import here on purpose: `../documents` registers its commands as a side
+  // effect of being loaded, and the module cache makes a second import a no-op — so clearing
+  // the registry again would empty it for good and every handler lookup below would come back
+  // undefined. The block above loads it once for the file.
+  beforeEach(() => {
+    // No `sales_settings` row at all — what a database looks like before anyone opens the
+    // settings screen, and the state every upgrade lands in.
+    scopeSettings = undefined
+  })
+
+  afterEach(() => {
+    scopeSettings = undefined
+    delete (globalThis as any).__lineGuardWorld
+  })
+
+  it('refuses to lower the quantity below what shipped', async () => {
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({ quantity: 1 }))
+    expectRefused(caught, 'lower the quantity')
+  })
+
+  it('refuses a unit price change on a shipped line', async () => {
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({ unitPriceNet: 50, unitPriceGross: 61.5 }))
+    expectRefused(caught, 'price or unit')
+  })
+
+  it('refuses a tax rate change on a shipped line', async () => {
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({ taxRate: 8 }))
+    expectRefused(caught, 'price or unit')
+  })
+
+  it.each([
+    ['discount amount', { discountAmount: 25 }],
+    ['discount percent', { discountPercent: 25 }],
+    ['net total', { totalNetAmount: 300 }],
+    ['gross total', { totalGrossAmount: 369 }],
+  ])('refuses a %s change on a shipped line', async (_label, overrides) => {
+    shippedWorld()
+    const { caught } = await runUpsert(editInput(overrides))
+    expectRefused(caught, 'price or unit')
+  })
+
+  it('refuses a quantity unit change on a shipped line', async () => {
+    setWorld({
+      shipments: [{ id: SHIPMENT_ID }],
+      shipmentItems: [
+        { shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: String(SHIPPED_QUANTITY) },
+      ],
+      quantityUnit: 'pcs',
+    })
+    const { caught } = await runUpsert(editInput({ quantityUnit: 'box' }))
+    expectRefused(caught, 'price or unit')
+  })
+
+  it('refuses an undo that would restore older prices onto a shipped line', async () => {
+    shippedWorld()
+    const { caught } = await runRestoreUndo()
+    expectRefused(caught, 'price or unit')
+  })
+
+  it('refuses just the same when the scope has a settings row with the flag off', async () => {
+    // Absence and an explicit `false` have to agree. They arrive by different routes — one
+    // scope never saved settings, the other saved them and left this one alone — and a
+    // resolver that only handled the missing row would let the second scope drift.
+    setWorld({
+      shipments: [{ id: SHIPMENT_ID }],
+      shipmentItems: [
+        { shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: String(SHIPPED_QUANTITY) },
+      ],
+      settings: { orderShippedLineEditable: false },
+    })
+    const { caught } = await runUpsert(editInput({ unitPriceNet: 50, unitPriceGross: 61.5 }))
+    expectRefused(caught, 'price or unit')
+  })
+
+  // The controls. Without these the block above would pass just as well against a guard that
+  // refused every edit, which is not the contract either.
+
+  it('still allows raising the quantity on a shipped line', async () => {
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({ quantity: 10 }))
+    expectAllowed(caught)
+  })
+
+  it('still allows lowering the quantity down to exactly what shipped', async () => {
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({ quantity: SHIPPED_QUANTITY }))
+    expectAllowed(caught)
+  })
+
+  it('still allows any correction on a line with no shipments', async () => {
+    setWorld({ shipments: [], shipmentItems: [] })
+    const { caught } = await runUpsert(editInput({ quantity: 1, unitPriceNet: 5, unitPriceGross: 6 }))
+    expectAllowed(caught)
+  })
+
+  it('still allows a resolved unit to be sent when the line has no stored unit', async () => {
+    // Not a unit *change*: the line never carried one, so a client echoing the resolved unit
+    // back is not moving anything. The freeze has always let this through and still must.
+    shippedWorld()
+    const { caught } = await runUpsert(editInput({ quantity: 5, quantityUnit: 'pcs' }))
+    expectAllowed(caught)
   })
 })

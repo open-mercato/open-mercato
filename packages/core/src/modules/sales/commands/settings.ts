@@ -16,6 +16,27 @@ export async function loadSalesSettings(
   })
 }
 
+/**
+ * Whether the shipped-line freeze applies to this scope.
+ *
+ * The freeze refuses changes to the commercial terms of an order line that already
+ * has shipment items — unit price, discount, tax rate, unit, derived totals, and a
+ * quantity below what shipped. It is the platform's historical behaviour and stays
+ * on unless a scope opts out through `orderShippedLineEditable`, so a scope with no
+ * `sales_settings` row resolves to enforced, exactly like a scope that has one and
+ * never touched the setting.
+ *
+ * This is the single place the freeze asks whether it applies; the command layer and
+ * the settings API both read the answer from here.
+ */
+export async function isShippedLineFreezeEnforced(
+  em: EntityManager,
+  params: { tenantId: string; organizationId: string }
+): Promise<boolean> {
+  const settings = await loadSalesSettings(em, params)
+  return settings?.orderShippedLineEditable !== true
+}
+
 const saveSalesSettingsCommand: CommandHandler<
   SalesSettingsUpsertInput,
   {
@@ -26,6 +47,7 @@ const saveSalesSettingsCommand: CommandHandler<
     nextQuoteNumber: number
     orderCustomerEditableStatuses: string[] | null
     orderAddressEditableStatuses: string[] | null
+    orderShippedLineEditable: boolean
   }
 > = {
   id: 'sales.settings.save',
@@ -51,6 +73,7 @@ const saveSalesSettingsCommand: CommandHandler<
         quoteNumberFormat: quoteFormat,
         orderCustomerEditableStatuses: input.orderCustomerEditableStatuses ?? null,
         orderAddressEditableStatuses: input.orderAddressEditableStatuses ?? null,
+        orderShippedLineEditable: input.orderShippedLineEditable ?? false,
       })
       em.persist(settings)
     } else {
@@ -61,6 +84,9 @@ const saveSalesSettingsCommand: CommandHandler<
       }
       if (input.orderAddressEditableStatuses !== undefined) {
         settings.orderAddressEditableStatuses = input.orderAddressEditableStatuses ?? null
+      }
+      if (input.orderShippedLineEditable !== undefined) {
+        settings.orderShippedLineEditable = input.orderShippedLineEditable
       }
       settings.updatedAt = new Date()
     }
@@ -84,6 +110,7 @@ const saveSalesSettingsCommand: CommandHandler<
       nextQuoteNumber: sequences.quote,
       orderCustomerEditableStatuses: settings.orderCustomerEditableStatuses ?? null,
       orderAddressEditableStatuses: settings.orderAddressEditableStatuses ?? null,
+      orderShippedLineEditable: settings.orderShippedLineEditable === true,
     }
   },
 }

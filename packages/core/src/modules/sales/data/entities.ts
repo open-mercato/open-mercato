@@ -753,7 +753,7 @@ export class SalesOrderAdjustment {
 @Entity({ tableName: 'sales_settings' })
 @Unique({ name: 'sales_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
 export class SalesSettings {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'orderShippedLineEditable'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -775,6 +775,23 @@ export class SalesSettings {
 
   @Property({ name: 'order_address_editable_statuses', type: 'jsonb', nullable: true })
   orderAddressEditableStatuses?: string[] | null
+
+  /**
+   * Whether an order line that already has shipment items accepts changes to its
+   * commercial terms — unit price, discount, tax rate, unit, derived totals, and a
+   * quantity below what shipped.
+   *
+   * `false` (the default) is the platform's historical behaviour: those edits are
+   * refused with a 409 whatever the caller. `true` lets them through, for the
+   * deployment that mirrors an external system of record and has to record the
+   * corrections that system makes after dispatch — a re-rated VAT line, a price
+   * fixed by accounting, a quantity restated after a return.
+   *
+   * Deleting a line that has shipment items stays refused either way: that guard
+   * fronts the `sales_shipment_items.order_line_id` foreign key.
+   */
+  @Property({ name: 'order_shipped_line_editable', type: 'boolean', default: false })
+  orderShippedLineEditable: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

@@ -92,6 +92,7 @@ export const salesSettingsUpsertSchema = scoped.extend({
   quoteNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
   orderCustomerEditableStatuses: statusListSchema,
   orderAddressEditableStatuses: statusListSchema,
+  orderShippedLineEditable: z.boolean().optional(),
 })
 
 export type SalesSettingsUpsertInput = z.infer<typeof salesSettingsUpsertSchema>
@@ -101,6 +102,7 @@ export const salesEditingSettingsSchema = scoped.extend({
   quoteNumberFormat: numberFormatSchema.optional(),
   orderCustomerEditableStatuses: statusListSchema,
   orderAddressEditableStatuses: statusListSchema,
+  orderShippedLineEditable: z.boolean().optional(),
 })
 
 export type SalesEditingSettingsInput = z.infer<typeof salesEditingSettingsSchema>
