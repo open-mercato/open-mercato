@@ -26,6 +26,7 @@ import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -516,8 +517,14 @@ export async function POST(req: Request) {
       { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
     )
     if (!channelThread) {
+      const { translate } = await resolveTranslations()
       return Response.json(
-        { error: 'Conversation has no channel thread to deliver into' },
+        {
+          error: translate(
+            'messages.errors.conversationHasNoChannelThread',
+            'Conversation has no channel thread to deliver into',
+          ),
+        },
         { status: 409 },
       )
     }

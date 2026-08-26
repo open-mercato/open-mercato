@@ -60,7 +60,15 @@ function tryResolveChannelThreadAccessService(
   }
 }
 
-/** Granted features of the acting user, read defensively off the command context. */
+/**
+ * Granted features of the acting user, read defensively off the command context.
+ *
+ * These are **passed through** to `assertCanAccessChannel`, which currently
+ * discards them (`void userFeatures`) and keeps them on its signature only for
+ * the v2 admin-oversight rule. Nothing here authorizes anything: a route or
+ * command that needs a feature gate before widening its own participant test
+ * MUST apply {@link CHANNEL_THREAD_FALLBACK_FEATURE} itself.
+ */
 export function resolveActorFeatures(auth: unknown): string[] {
   const features = (auth as { features?: unknown } | null | undefined)?.features
   if (!Array.isArray(features)) return []
@@ -74,6 +82,9 @@ export function resolveActorFeatures(auth: unknown): string[] {
  * Returns `null` for an internal thread, for a thread outside the caller's
  * tenant/organization scope, and when the hub module is not installed — every
  * caller treats `null` as "the pre-existing rule applies".
+ *
+ * `actor.features` is a pass-through to the hub's own access rule, not an
+ * authorization input — see {@link resolveActorFeatures}.
  */
 export async function resolveMessageChannelThreadAccess(
   container: ContainerLike,
