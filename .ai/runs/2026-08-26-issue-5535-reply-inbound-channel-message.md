@@ -70,4 +70,4 @@
 ### Phase 5: Validation, review and hand-back
 
 - [x] 5.1 Run the full configured validation gate — all eight commands green locally on `b82bc962` (plus `yarn lint`: 0 errors, 10 pre-existing warnings in untouched files)
-- [ ] 5.2 Run `om-auto-review-pr 5645 --autofix`, push, and re-request review from @pkarw
+- [x] 5.2 Run `om-auto-review-pr 5645 --autofix`, push, and re-request review from @pkarw — re-review of `3e62eb24` found no blocker or major in the follow-up work and recorded all four inherited findings as fixed; autofix had nothing to apply. `changes-requested` → `review`, review re-requested from @pkarw.
