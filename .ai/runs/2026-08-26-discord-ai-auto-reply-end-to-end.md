@@ -112,8 +112,8 @@ The two defects that are contained to one function each, and that nothing else i
 
 ### Phase 1: Hub identity and failure reason
 
-- [ ] 1.1 Resolve the channel-bot user by email_hash instead of the encrypted email column (#5599)
-- [ ] 1.2 Make describeAgentFailure informative for ZodError and multi-line errors (#5603)
+- [x] 1.1 Resolve the channel-bot user by email_hash instead of the encrypted email column (#5599) — 16a109d6f
+- [x] 1.2 Make describeAgentFailure informative for ZodError and multi-line errors (#5603) — 74f3ee942
 
 ### Phase 2: Send path
 
