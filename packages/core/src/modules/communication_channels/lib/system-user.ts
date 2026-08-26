@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 
 /**
  * Sentinel UUID — used as a last-resort `senderUserId` for inbound channel
@@ -58,9 +59,23 @@ export async function resolveCommunicationChannelsSystemUserId(
     const qb = (
       em as unknown as { createQueryBuilder: (table: string, alias: string) => RawQueryBuilder }
     ).createQueryBuilder('auth.users', 'u')
+    // Match on `email_hash`, never on `email` (#5599). `users.email` is
+    // encrypted at rest with a per-row IV, so its ciphertext is
+    // non-deterministic and an equality filter against the plaintext can never
+    // hit — which is exactly why the tenant uniqueness index keys on
+    // `email_hash` instead (see `auth/data/entities.ts`). The candidate list
+    // covers both the keyed `v2:` digest and the legacy unkeyed one, so a
+    // deployment that has not yet backfilled still matches.
+    //
+    // The digests must be computed the same way `auth` writes them
+    // (`auth/lib/emailHash.ts` → `hashForLookup(email)`), i.e. with NO hash
+    // context. Reusing the shared primitive rather than importing the auth
+    // helper keeps this module free of a cross-module code dependency; the two
+    // must stay aligned if `auth` ever adopts a context.
+    const emailHashes = lookupHashCandidates(expectedEmail)
     const row = await qb
       .select(['u.id'])
-      .where({ email: expectedEmail, tenant_id: tenantId })
+      .where({ email_hash: { $in: emailHashes }, tenant_id: tenantId, deleted_at: null })
       .limit(1)
       .execute('get')
       .catch(() => null)
