@@ -59,13 +59,13 @@
 
 ### Phase 3: Blocker 2 — gate and filter the detail-route channel fallback
 
-- [ ] 3.1 Gate the channel fallback on an explicit feature and filter internal-visibility thread messages to participants
-- [ ] 3.2 Regression test exercising the detail route as a caller holding no features
+- [x] 3.1 Gate the channel fallback on an explicit feature and filter internal-visibility thread messages to participants — 7f3f89e7
+- [x] 3.2 Regression test exercising the detail route as a caller holding no features — 7f3f89e7
 
 ### Phase 4: Review minor and nit
 
-- [ ] 4.1 Translate the new 409 refusal string across all locales
-- [ ] 4.2 Document the `features` plumbing as a pass-through, not an authorization input
+- [x] 4.1 Translate the new 409 refusal string across all locales — b82bc962
+- [x] 4.2 Document the `features` plumbing as a pass-through, not an authorization input — b82bc962
 
 ### Phase 5: Validation, review and hand-back
 
