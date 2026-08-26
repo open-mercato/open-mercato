@@ -17,8 +17,8 @@
 | 0 | 0.2 | Add the Decision Record section (D1–D6) | inline | done | 19be24efc |
 | 0 | 0.3 | Add the Implementation Plan section to the spec | inline | done | 152b47448 |
 | 0 | 0.4 | Record the D5 deferral and the changelog entry | inline | done | 91a2e4d13 |
-| 1 | 1.1 | Add the discount-basis types to `lib/types.ts` | inline | done | — |
-| 1 | 1.2 | Percentage-first, basis-aware discount in `buildBaseLineResult` | inline | todo | — |
+| 1 | 1.1 | Add the discount-basis types to `lib/types.ts` | inline | done | 6d2a702fe |
+| 1 | 1.2 | Percentage-first, basis-aware discount in `buildBaseLineResult` | inline | done | — |
 | 1 | 1.3 | Unit tests for the calculation engine | inline | todo | — |
 | 2 | 2.1 | Extract the shared order-line entity→snapshot mapper | inline | todo | — |
 | 2 | 2.2 | Point `commands/documents.ts` at the shared mapper | inline | todo | — |
