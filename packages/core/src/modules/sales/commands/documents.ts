@@ -3030,6 +3030,13 @@ async function emitTotalsCalculated(
   await eventBus.emitEvent("sales.document.totals.calculated", payload);
 }
 
+function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
+  return (
+    (line as Pick<SalesLineSnapshot, "discountAmountFromStoredRow">)
+      .discountAmountFromStoredRow === true
+  );
+}
+
 function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number,
@@ -3061,7 +3068,16 @@ function createLineSnapshotFromInput(
     unitPriceNet: line.unitPriceNet ?? null,
     unitPriceGross: line.unitPriceGross ?? null,
     discountAmount: line.discountAmount ?? null,
-    discountAmountBasis: line.discountAmountBasis ?? "unit",
+    // Several callers re-run an already-mapped snapshot through here — the line
+    // upsert and delete paths rebuild every line of the document, not just the
+    // one being edited. Those inputs already carry a line total from a stored
+    // row, so their origin must survive rather than be overwritten with the
+    // caller default, or the untouched lines get re-inflated by quantity on
+    // every write. Exactly one of the two origin fields is ever set, which is
+    // the invariant the calculation engine relies on.
+    ...(isStoredRowSourcedLine(line)
+      ? { discountAmountFromStoredRow: true }
+      : { discountAmountBasis: line.discountAmountBasis ?? "unit" }),
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,

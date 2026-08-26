@@ -27,9 +27,10 @@
 | 3 | 3.1 | Add `discountAmountBasis` to the shared `linePricingSchema` | inline | done | d374465c8 |
 | 3 | 3.2 | Decompose the coalescing chain at `sales.orders.lines.upsert` | inline | done | 721b8df24 |
 | 3 | 3.3 | Decompose the coalescing chain at `sales.quotes.lines.upsert` | inline | done | landed with 3.2 |
-| 3 | 3.4 | Carry the caller basis through `createLineSnapshotFromInput` | inline | done | — |
-| 4 | 4.1 | Command tests — order and quote upsert idempotency | inline | todo | — |
-| 4 | 4.2 | Command test — upsert-existing without re-sending the amount | inline | todo | — |
+| 3 | 3.4 | Carry the caller basis through `createLineSnapshotFromInput` | inline | done | c12d509ed |
+| 3 | 3.4-fix | Preserve stored-row origin when re-mapping a snapshot | inline | done | — |
+| 4 | 4.1 | Command tests — order and quote upsert idempotency | inline | done | — |
+| 4 | 4.2 | Command test — upsert-existing without re-sending the amount | inline | done | landed with 4.1 |
 | 4 | 4.3 | Command test — return create/delete leaves header totals identical | inline | todo | — |
 | 4 | 4.4 | Command test — the § 3 producer invariant (criterion 9) | inline | todo | — |
 | 5 | 5.1 | Resolve the per-unit reading in `SalesOrderDraftLines.tsx` | inline | todo | — |
