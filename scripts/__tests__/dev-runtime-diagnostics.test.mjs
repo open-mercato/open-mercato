@@ -185,6 +185,28 @@ test('sink recovers when the file is rotated underneath the reader', () => {
   })
 })
 
+// The rotation test above only exercises inode reuse when the filesystem
+// happens to recycle the number (ext4 does, APFS does not), so it passed
+// locally and failed in CI. Rewriting the file in place pins the same-inode
+// case on every platform: the cursor must restart from a record boundary
+// instead of slicing into the middle of the replacement line.
+test('sink restarts its cursor when the file is replaced under the same inode', () => {
+  withTempSink((filePath) => {
+    const writer = createDiagnosticsSink({ filePath })
+    const reader = createDiagnosticsSink({ filePath })
+    writer.append({ kind: 'global-error', message: 'first' })
+    assert.deepEqual(reader.drain().map((report) => report.message), ['first'])
+
+    const inodeBefore = fs.statSync(filePath).ino
+    // Truncate-and-rewrite keeps the inode by construction, and the longer
+    // replacement leaves the stale cursor inside the new line.
+    fs.writeFileSync(filePath, `${JSON.stringify({ kind: 'global-error', message: 'after-rotation' })}\n`, 'utf8')
+    assert.equal(fs.statSync(filePath).ino, inodeBefore)
+
+    assert.deepEqual(reader.drain().map((report) => report.message), ['after-rotation'])
+  })
+})
+
 test('sink returns no reports when the file does not exist', () => {
   withTempSink((filePath) => {
     const sink = createDiagnosticsSink({ filePath })

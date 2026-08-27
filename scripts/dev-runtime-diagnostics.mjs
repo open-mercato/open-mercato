@@ -171,6 +171,15 @@ export function validateActionRequest(input) {
   return { ok: true, request }
 }
 
+// A cursor is only meaningful while the bytes it already consumed are still the
+// same records. Every line the sink writes ends in a newline, so the byte before
+// the cursor must be one; when it is not, the file underneath the reader was
+// replaced and the cursor has to restart.
+function endsOnRecordBoundary(handle, cursor) {
+  const probe = Buffer.alloc(1)
+  return fs.readSync(handle, probe, 0, 1, cursor - 1) === 1 && probe[0] === 0x0a
+}
+
 // Append-only NDJSON hand-off between the dev-only app route (writer) and the
 // supervisor (reader). The reader tracks a byte offset so it never re-ingests a
 // line, and the file is rotated rather than growing without bound. Used for both
@@ -228,15 +237,20 @@ export function createDiagnosticsSink(options = {}) {
         return []
       }
 
+      // A changed inode proves rotation, but an unchanged one proves nothing:
+      // inode numbers are recycled as soon as they are freed, so a rotated file
+      // routinely reappears under the inode the reader already recorded. The
+      // record-boundary check below is what actually catches that.
       if (inode !== null && stats.ino !== inode) offset = 0
       inode = stats.ino
       if (stats.size < offset) offset = 0
-      if (stats.size === offset) return []
 
       let chunk = ''
       try {
         const handle = fs.openSync(filePath, 'r')
         try {
+          if (offset > 0 && !endsOnRecordBoundary(handle, offset)) offset = 0
+          if (stats.size === offset) return []
           const length = stats.size - offset
           const buffer = Buffer.alloc(length)
           fs.readSync(handle, buffer, 0, length, offset)
