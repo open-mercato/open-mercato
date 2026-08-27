@@ -4,11 +4,23 @@ import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import ExistingAccountEmail, { type ExistingAccountEmailCopy } from '../emails/ExistingAccountEmail'
 
 /**
- * Mirrors the ten-minute window `OnboardingService.createOrUpdateRequest` enforces on
- * verification emails. Both onboarding branches must throttle identically, otherwise the
- * throttled/not-throttled difference re-creates the account-enumeration oracle the uniform
- * response shape closes (#5505), and an address that already has an account could be
- * mail-bombed at the endpoint's per-IP rate instead of once per ten minutes.
+ * Best-effort ten-minute anti-spam window on the notice, backed by `rateLimiterService`.
+ *
+ * The duration matches the window `OnboardingService.createOrUpdateRequest` enforces on
+ * verification emails, but the mechanism is deliberately weaker and must not be read as
+ * equivalent: that window is a database column (`OnboardingRequest.lastEmailSentAt`), which is
+ * authoritative, shared by every process and independent of the rate-limiting configuration.
+ * This one is a limiter counter, so it is per-process under the default `memory` strategy
+ * (`RATE_LIMIT_STRATEGY=redis` restores a shared window across replicas) and absent entirely
+ * when rate limiting is switched off — `RateLimiterService.consume()` returns `allowed: true`
+ * unconditionally while `RATE_LIMIT_ENABLED=false`. An instance exposing self-service
+ * onboarding should therefore keep rate limiting enabled, or the address owner can be mailed
+ * once per accepted submission instead of once per window.
+ *
+ * Failing closed when the limiter is unavailable is not an option here: skipping the send would
+ * make the has-account branch answer 200 while the no-account branch still answers 502 on an
+ * instance with broken mail delivery, which re-opens the enumeration oracle (#5505) the uniform
+ * response shape closes. The window is a spam brake, never a disclosure control.
  */
 const NOTICE_WINDOW_SECONDS = 10 * 60
 
@@ -40,6 +52,11 @@ export type SendExistingAccountNoticeArgs = {
  * The limiter is registered only when rate limiting is configured, so an unregistered token
  * is a normal deployment state rather than an error. Resolved from the request container
  * instead of the core bootstrap singleton so this route keeps its lean module graph.
+ *
+ * Returning `null` means the notice is sent unthrottled — the fail-open half of the trade-off
+ * documented on `NOTICE_WINDOW_SECONDS`, chosen because a skipped send would answer differently
+ * from the no-account branch and re-open the enumeration oracle. The same reasoning is why
+ * `consume()`'s `degraded` flag is not read: a degraded limiter still has to send.
  */
 function resolveRateLimiter(container: ContainerLike): RateLimiterLike | null {
   try {
