@@ -1,4 +1,4 @@
-# SPEC-072: Customers Write API — Stop Accepting Fields and Discarding Them
+# CRUD Write Payloads: Stop Accepting Fields and Discarding Them
 
 ## Overview
 
@@ -156,7 +156,43 @@ the factory nor `parseScopedCommandInput`; each can adopt the guard with a singl
   of a misleading `200`. This is the point of the change.
 - Responses gain an optional `ignoredFields` array. Absent anything to report, the
   response is byte-identical to today's.
-- No schema, migration or persisted-data changes.
+- No migration or persisted-data changes.
+
+**A previously-succeeding request can now return 400.** The additivity above is a
+statement about FIELDS, not about REQUESTS, and the difference is worth stating
+plainly. An aliased key now reaches `schema.parse`, so a snake_case value that does
+not satisfy the camelCase field's validator fails the whole request where it was
+previously dropped in silence:
+
+```
+PUT /api/customers/deals  {"id":"…","value_amount":"1 234,50"}
+before: 200, value_amount discarded
+after:  400, invalid_type
+```
+
+That is the intended behaviour of this change, not an accident: the endpoint either
+applies the field or refuses it. It is recorded here so the trade-off is a decision
+rather than a surprise. A straight round-trip is unaffected, because the read side
+emits values the write schema accepts.
+
+**`ActivityUpdateInput` is narrowed.** `activityUpdateSchema.omit({ entityId: true })`
+removes a field from an exported type. `BACKWARD_COMPATIBILITY.md` classifies that as
+breaking. Nothing that worked stops working at runtime, since the field was inert on
+this path, but the type is narrower for anyone importing it.
+
+**The programmatic path is not yet covered.** The guard fires on the HTTP route, so
+`customers.activities.update` invoked directly still discards `entityId` — Zod strips
+it now instead of `mapActivityUpdateInput` dropping it. Same outcome as before, so no
+regression, but the "no silent drops" promise does not hold there yet.
+
+**Deal write schemas now accept `null` on nullable columns.** Every `CustomerDeal`
+column that is `nullable: true` accepts `null` in the write schemas, meaning "clear
+it". This fixes a pre-existing defect that the aliasing would otherwise have exposed
+to far more callers: `z.coerce.number()` maps `null` to `0` and `z.coerce.date()` maps
+it to the epoch, so `{"value_amount": null}` from a round-tripped read wrote `0` and
+`1970-01-01` under a `200`. `customers.deals.update` already applied `?? null` for
+these fields; only the schema stood in the way, and `ownerUserId` had already been
+given `.nullable()` for the same reason (TC-CRM-069).
 
 ---
 

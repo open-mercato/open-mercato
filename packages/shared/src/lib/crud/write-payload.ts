@@ -24,8 +24,14 @@ import { CrudHttpError } from './errors'
 /** A key the caller sent that the schema does not declare. */
 export type UnwritableKey = {
   key: string
-  /** `unknown` — no such field. `immutable` — a real field that cannot be changed after creation. */
-  reason: 'unknown' | 'immutable'
+  /**
+   * `unknown` — no such field.
+   * `immutable` — a real field that cannot be changed after creation.
+   * `misspelled` — the snake_case spelling of a field the schema declares in
+   *   camelCase, reported only when aliasing is switched off. With aliasing on
+   *   these are applied instead, so this reason never appears.
+   */
+  reason: 'unknown' | 'immutable' | 'misspelled'
 }
 
 export type WritePayloadInspection = {
@@ -79,6 +85,53 @@ export function isCustomFieldKey(key: string): boolean {
   return CUSTOM_FIELD_CONTAINER_KEYS.has(key) || key.startsWith('cf_') || key.startsWith('cf:')
 }
 
+/**
+ * Tenant and organization scope, in both spellings.
+ *
+ * These are derived from trusted context, not from the body: `.ai/review-checklist.md`
+ * §4 requires handlers to ignore same-named payload fields. Two reasons they must
+ * sit outside the guard entirely:
+ *
+ *  - `withScopedPayload` injects `organizationId` BEFORE the guard runs, so a
+ *    round-tripped record carrying the `organization_id` a list endpoint emitted
+ *    arrives with both spellings present. Inspecting them raised an ambiguity 400
+ *    on a request that used to succeed, and did so on the "all organizations"
+ *    selection where the injected value legitimately differs from the record's.
+ *  - Aliasing them would be worse than the 400: it would let a caller steer scope
+ *    through the snake_case spelling, which today is ignored.
+ *
+ * Dropping them silently is the documented contract here, not a silent drop of
+ * data the caller was entitled to write.
+ */
+const SCOPE_KEYS = new Set(['tenantId', 'organizationId', 'tenant_id', 'organization_id'])
+
+export function isScopeKey(key: string): boolean {
+  return SCOPE_KEYS.has(key)
+}
+
+/**
+ * Are the two spellings carrying the same value?
+ *
+ * Reference equality alone reports a conflict for structurally identical arrays or
+ * objects (`tagIds: ['a']` and `tag_ids: ['a']` are `!==`), which would answer 400
+ * telling the caller their values differ when they do not. Shallow structural
+ * comparison covers the shapes that actually travel in a write payload.
+ */
+function sameWriteValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, index) => item === b[index])
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const left = a as Record<string, unknown>
+    const right = b as Record<string, unknown>
+    const leftKeys = Object.keys(left)
+    if (leftKeys.length !== Object.keys(right).length) return false
+    return leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key])
+  }
+  return false
+}
+
 function snakeToCamel(key: string): string {
   return key.replace(/_([a-z0-9])/g, (_match, char: string) => char.toUpperCase())
 }
@@ -124,7 +177,7 @@ export function inspectWritePayload(
     if (camel === key) continue
     if (!writableKeys.has(camel) && !immutable.has(camel)) continue
     if (Object.prototype.hasOwnProperty.call(source, camel)) {
-      if (source[camel] !== source[key]) conflicts.push({ camel, snake: key })
+      if (!sameWriteValue(source[camel], source[key])) conflicts.push({ camel, snake: key })
       delete source[key]
       continue
     }
@@ -145,6 +198,17 @@ export function inspectWritePayload(
 }
 
 /**
+ * Where the guard's findings ride on a parsed command input.
+ *
+ * A Symbol rather than a string key because that input reaches `commandBus.execute`,
+ * the mutation guard's `mutationPayload`, sync-event payloads and action-log
+ * snapshots. A string key would show up in all of them as a field no command schema
+ * declares; a Symbol is skipped by `JSON.stringify` and `Object.keys`, so the report
+ * travels to the route's `response` callback and nowhere else.
+ */
+export const IGNORED_FIELDS = Symbol.for('openMercato.crud.ignoredFields')
+
+/**
  * Attach the write guard's findings to a command response.
  *
  * Turns `{ ok: true }` into `{ ok: true, ignoredFields: [...] }` whenever the
@@ -156,7 +220,9 @@ export function withIgnoredFieldsReport<T extends Record<string, unknown>>(
   payload: T,
   input: unknown
 ): T & { ignoredFields?: UnwritableKey[] } {
-  const ignored = (input as { ignoredFields?: UnwritableKey[] } | null | undefined)?.ignoredFields
+  if (!input || typeof input !== 'object') return payload
+  const carrier = input as Record<string | symbol, unknown>
+  const ignored = (carrier[IGNORED_FIELDS] ?? carrier.ignoredFields) as UnwritableKey[] | undefined
   if (!Array.isArray(ignored) || ignored.length === 0) return payload
   return { ...payload, ignoredFields: ignored }
 }
@@ -188,8 +254,40 @@ export type CrudWriteGuardConfig = {
    * payload end-to-end can opt in.
    */
   rejectUnknownFields?: boolean
-  /** Optional i18n hook. Without it the English fallbacks below are used verbatim. */
+  /**
+   * Optional i18n hook plus the message keys to look up.
+   *
+   * `@open-mercato/shared` ships no locale files, so passing a literal key argument
+   * to the translate function here would name a key no dictionary can declare, and
+   * `yarn i18n:check-usage` fails on exactly that. Callers that want translated messages pass their own
+   * module-namespaced keys (`customers.errors.immutable_field`), which is the same
+   * shape `ScopedPayloadOptions.messages` already uses. Without them the English
+   * fallbacks are returned verbatim, which is what every caller does today.
+   */
   translate?: (key: string, fallback?: string) => string
+  messages?: {
+    conflictingField?: { key: string; fallback?: string }
+    immutableField?: { key: string; fallback?: string }
+    unknownField?: { key: string; fallback?: string }
+  }
+}
+
+const WRITE_GUARD_FALLBACKS = {
+  conflictingField: 'This field was sent twice with different values.',
+  immutableField: 'This field cannot be changed after creation.',
+  unknownField: 'This field is not writable on this endpoint.',
+} as const
+
+function resolveGuardMessage(
+  config: CrudWriteGuardConfig | undefined,
+  name: keyof typeof WRITE_GUARD_FALLBACKS
+): string {
+  const fallback = WRITE_GUARD_FALLBACKS[name]
+  const override = config?.messages?.[name]
+  if (!override) return fallback
+  const translate = config?.translate
+  if (!translate) return override.fallback ?? fallback
+  return translate(override.key, override.fallback ?? fallback)
 }
 
 /**
@@ -207,12 +305,11 @@ export function guardWriteBody(
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { body, ignoredFields: [], aliased: [] }
   }
-  const t = config?.translate ?? ((_key: string, fallback?: string) => fallback ?? _key)
   const source = body as Record<string, unknown>
   const declarable: Record<string, unknown> = {}
   const passthrough: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(source)) {
-    if (isCustomFieldKey(key)) passthrough[key] = value
+    if (isCustomFieldKey(key) || isScopeKey(key)) passthrough[key] = value
     else declarable[key] = value
   }
   const inspection = inspectWritePayload(declarable, collectWritableKeys(schema), {
@@ -222,7 +319,7 @@ export function guardWriteBody(
   if (inspection.conflicts.length > 0) {
     const first = inspection.conflicts[0]!
     throw new CrudHttpError(400, {
-      error: t('errors.conflicting_field', 'This field was sent twice with different values.'),
+      error: resolveGuardMessage(config, 'conflictingField'),
       fields: inspection.conflicts.map((entry) => entry.snake),
       details: `${first.snake} and ${first.camel} were both sent with different values.`,
     })
@@ -231,7 +328,7 @@ export function guardWriteBody(
   const immutable = inspection.unwritable.filter((entry) => entry.reason === 'immutable')
   if (immutable.length > 0) {
     throw new CrudHttpError(400, {
-      error: t('errors.immutable_field', 'This field cannot be changed after creation.'),
+      error: resolveGuardMessage(config, 'immutableField'),
       fields: immutable.map((entry) => entry.key),
     })
   }
@@ -239,15 +336,21 @@ export function guardWriteBody(
   const unknown = inspection.unwritable.filter((entry) => entry.reason === 'unknown')
   if (config?.rejectUnknownFields && unknown.length > 0) {
     throw new CrudHttpError(400, {
-      error: t('errors.unknown_field', 'This field is not writable on this endpoint.'),
+      error: resolveGuardMessage(config, 'unknownField'),
       fields: unknown.map((entry) => entry.key),
     })
   }
 
   const aliasing = config?.aliasSnakeCaseKeys !== false
+  // With aliasing off the original body still spells the key snake_case, so Zod
+  // strips it. Report it, or switching the flag off would reintroduce exactly the
+  // silent drop this guard exists to remove.
+  const reported: UnwritableKey[] = aliasing
+    ? unknown
+    : [...unknown, ...inspection.aliased.map((entry) => ({ key: entry.from, reason: 'misspelled' as const }))]
   return {
     body: aliasing ? { ...inspection.payload, ...passthrough } : body,
-    ignoredFields: unknown,
+    ignoredFields: reported,
     // Returned so a caller holding keys the guard never saw (custom fields, say)
     // can apply the same renames to its own copy of the body.
     aliased: aliasing ? inspection.aliased : [],

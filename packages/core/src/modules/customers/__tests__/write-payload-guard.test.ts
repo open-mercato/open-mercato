@@ -1,5 +1,5 @@
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
-import { collectWritableKeys, inspectWritePayload } from '@open-mercato/shared/lib/crud/write-payload'
+import { collectWritableKeys, IGNORED_FIELDS, inspectWritePayload } from '@open-mercato/shared/lib/crud/write-payload'
 import { activityUpdateSchema, dealUpdateSchema } from '../data/validators'
 
 const translate = (_key: string, fallback?: string) => fallback ?? _key
@@ -33,7 +33,7 @@ describe('deal update accepts the spelling the read endpoints emit', () => {
     expect(parsed.status).toBe('closed')
     expect(parsed.closureOutcome).toBe('lost')
     expect(parsed.lossNotes).toBe('client went with an incumbent vendor')
-    expect(parsed.ignoredFields).toBeUndefined()
+    expect((parsed as any)[IGNORED_FIELDS]).toBeUndefined()
   })
 
   it('aliases owner_user_id, which the list endpoint also emits', () => {
@@ -56,7 +56,63 @@ describe('deal update accepts the spelling the read endpoints emit', () => {
     ) as Record<string, unknown>
 
     expect(parsed.status).toBe('closed')
-    expect(parsed.ignoredFields).toEqual([{ key: 'not_a_deal_field', reason: 'unknown' }])
+    expect((parsed as any)[IGNORED_FIELDS]).toEqual([{ key: 'not_a_deal_field', reason: 'unknown' }])
+  })
+})
+
+// Scope keys are derived from context, and `withScopedPayload` injects
+// `organizationId` before the guard runs. A record round-tripped from a list that
+// emitted `organization_id` therefore arrives with both spellings present, and on
+// the "all organizations" selection the injected value legitimately differs from
+// the record's. Inspecting them turned a working request into a 400.
+describe('scope keys survive a round trip', () => {
+  it('accepts a body carrying the organization_id and tenant_id a list emitted', () => {
+    const allOrgs = {
+      auth: { tenantId: '11111111-1111-4111-8111-111111111111', orgId: '22222222-2222-4222-8222-222222222222' },
+      selectedOrganizationId: null,
+    } as any
+    const parsed = parseScopedCommandInput(
+      dealUpdateSchema,
+      {
+        id: DEAL_ID,
+        status: 'open',
+        organization_id: '33333333-3333-4333-8333-333333333333',
+        tenant_id: '11111111-1111-4111-8111-111111111111',
+      },
+      allOrgs,
+      translate
+    ) as Record<string, unknown>
+
+    expect(parsed.status).toBe('open')
+    // Scope still comes from context, never from the body's snake_case spelling.
+    expect(parsed.organizationId).toBe('22222222-2222-4222-8222-222222222222')
+    expect((parsed as any)[IGNORED_FIELDS]).toBeUndefined()
+  })
+})
+
+// `z.coerce.number()` maps null to 0 and `z.coerce.date()` maps it to the epoch,
+// so before the schemas accepted null a client that read a deal with no value set
+// and wrote it straight back zeroed the amount and backdated the close date.
+describe('a null from the read side clears rather than fabricating a value', () => {
+  it.each([
+    ['valueAmount'],
+    ['expectedCloseAt'],
+    ['probability'],
+    ['description'],
+    ['closureOutcome'],
+    ['lossNotes'],
+  ])('%s: null stays null', (field) => {
+    const parsed = parseScopedCommandInput(
+      dealUpdateSchema,
+      { id: DEAL_ID, [field]: null },
+      ctx,
+      translate
+    ) as Record<string, unknown>
+    expect(parsed[field]).toBeNull()
+  })
+
+  it('still rejects null for status, whose column is not nullable', () => {
+    expect(() => parseScopedCommandInput(dealUpdateSchema, { id: DEAL_ID, status: null }, ctx, translate)).toThrow()
   })
 })
 

@@ -1,7 +1,7 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
-import { guardWriteBody, type UnwritableKey } from '@open-mercato/shared/lib/crud/write-payload'
+import { guardWriteBody, IGNORED_FIELDS, type UnwritableKey } from '@open-mercato/shared/lib/crud/write-payload'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { z } from 'zod'
 
@@ -173,8 +173,10 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
   // Anything still unwritable is surfaced on the parsed input so the route can
   // report it back to the caller. A 200 that lists what it ignored is the
   // minimum a caller needs to assert on; silently dropping it is the bug.
+  // Rides on a Symbol so it does not become a stray field in command inputs,
+  // mutation-guard payloads, sync events or action-log snapshots.
   const withReport = unknownHits.length > 0
-    ? Object.assign({}, parsedWithCustom, { ignoredFields: unknownHits })
+    ? Object.assign({}, parsedWithCustom, { [IGNORED_FIELDS]: unknownHits })
     : parsedWithCustom
 
   return withReport as z.infer<TSchema> & {

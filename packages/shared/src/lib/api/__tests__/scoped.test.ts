@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { parseScopedCommandInput } from '../scoped'
+import { IGNORED_FIELDS } from '../../crud/write-payload'
 
 const translate = (_key: string, fallback?: string) => fallback ?? _key
 
@@ -115,7 +116,7 @@ describe('parseScopedCommandInput write guard', () => {
     expect(result.status).toBe('closed')
     expect(result.closureOutcome).toBe('lost')
     expect(result.lossNotes).toBe('undercut on price')
-    expect(result.ignoredFields).toBeUndefined()
+    expect((result as any)[IGNORED_FIELDS]).toBeUndefined()
   })
 
   it('reports a key it cannot write rather than answering a bare ok', () => {
@@ -127,7 +128,9 @@ describe('parseScopedCommandInput write guard', () => {
     ) as Record<string, unknown>
 
     expect(result.status).toBe('closed')
-    expect(result.ignoredFields).toEqual([{ key: 'totally_made_up', reason: 'unknown' }])
+    // Carried on a Symbol so it never lands in a command input or an audit snapshot.
+    expect(result.ignoredFields).toBeUndefined()
+    expect((result as any)[IGNORED_FIELDS]).toEqual([{ key: 'totally_made_up', reason: 'unknown' }])
   })
 
   it('rejects an unknown key outright when the caller opts into strictness', () => {
@@ -174,6 +177,6 @@ describe('parseScopedCommandInput write guard', () => {
     ) as Record<string, unknown>
 
     expect(result.customFields).toEqual({ foo: 'bar', extra: '123' })
-    expect(result.ignoredFields).toBeUndefined()
+    expect((result as any)[IGNORED_FIELDS]).toBeUndefined()
   })
 })

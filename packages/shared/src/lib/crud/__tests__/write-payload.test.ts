@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { collectWritableKeys, inspectWritePayload, withIgnoredFieldsReport } from '../write-payload'
+import { collectWritableKeys, guardWriteBody, inspectWritePayload, withIgnoredFieldsReport } from '../write-payload'
 
 describe('collectWritableKeys', () => {
   it('reads the keys of a plain object schema', () => {
@@ -81,6 +81,35 @@ describe('inspectWritePayload', () => {
     })
     expect(result.unwritable).toEqual([{ key: 'entityId', reason: 'immutable' }])
     expect(result.payload).toEqual({ id: 'act-1', entityId: 'entity-2' })
+  })
+})
+
+describe('guardWriteBody', () => {
+  const schema = z.object({ id: z.string(), isDone: z.boolean().optional(), organizationId: z.string().optional() })
+
+  it('reports a misspelled key when aliasing is switched off, rather than dropping it', () => {
+    const r = guardWriteBody(schema, { id: 'x', is_done: true }, { aliasSnakeCaseKeys: false })
+    expect(r.body).toEqual({ id: 'x', is_done: true })
+    expect(r.ignoredFields).toEqual([{ key: 'is_done', reason: 'misspelled' }])
+  })
+
+  it('applies it instead when aliasing is on, so misspelled never appears', () => {
+    const r = guardWriteBody(schema, { id: 'x', is_done: true }, undefined)
+    expect(r.body).toEqual({ id: 'x', isDone: true })
+    expect(r.ignoredFields).toEqual([])
+  })
+
+  // Scope is derived from trusted context, so a round-tripped record carrying the
+  // snake_case spelling a list emitted must not raise the ambiguity 400, and must
+  // not be aliased into a way of steering scope.
+  it('leaves tenant and organization scope keys alone in both spellings', () => {
+    const r = guardWriteBody(
+      schema,
+      { id: 'x', organizationId: 'org-a', organization_id: 'org-b', tenant_id: 't-1' },
+      undefined
+    )
+    expect(r.ignoredFields).toEqual([])
+    expect(r.body).toMatchObject({ organizationId: 'org-a', organization_id: 'org-b', tenant_id: 't-1' })
   })
 })
 
