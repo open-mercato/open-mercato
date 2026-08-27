@@ -39,12 +39,18 @@ export async function resolveOutboundReplyExternalId(
   em: EntityManager,
   input: OutboundReplyRefInput,
 ): Promise<string | null> {
-  // Gate on the adapter's own declaration first: handing a non-threading
-  // provider a key it silently drops is exactly the mismatch `ChannelCapabilities`
-  // exists to prevent. This also keeps the lookups below off the hot path for
-  // every provider that threads by headers instead.
-  if (input.capabilities?.threading !== true) return null
+  // A non-reply can never produce a reference, so check that before anything
+  // that costs a query.
   if (!input.parentMessageId) return null
+  // Gate on the adapter's own declaration: handing a non-threading provider a key
+  // it silently drops is exactly the mismatch `ChannelCapabilities` exists to
+  // prevent. Note this gate does NOT spare header-threading providers — the
+  // shared email profile declares `threading: true` (`email-capabilities.ts`), so
+  // an email reply pays for both lookups below and its converter then ignores the
+  // result in favor of `inReplyTo` / `references`. Correct but wasteful;
+  // distinguishing id-threading from header-threading needs a capability the
+  // contract does not have yet (#5691).
+  if (input.capabilities?.threading !== true) return null
 
   const dscope = {
     tenantId: input.scope.tenantId,

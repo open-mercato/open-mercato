@@ -1134,16 +1134,35 @@ rule 3), and no variant should be considered done without it.
   `threading`, so no provider is handed a key it silently drops — the same mismatch the capability list
   exists to prevent. It also returns `null` for a non-reply, an unlinked parent, or a parent in another
   conversation (Discord answers `400 Unknown message` for a cross-channel reference), and the caller
-  swallows lookup errors: an unthreaded delivery always beats a failed one.
+  swallows lookup errors: an unthreaded delivery always beats a failed one. The gate does **not** spare
+  providers that thread by RFC 5322 headers: `email-capabilities.ts` declares `threading: true` for the
+  shared email profile, so an email reply pays for both lookups and its converter then ignores the
+  result in favor of `inReplyTo` / `references`. Narrowing that needs a capability distinguishing
+  id-threading from header-threading, which the contract does not have yet — tracked in #5691.
+- **The reference survives the hub's convert→send double-conversion.** `deliver-outbound-message.ts`
+  calls `convertOutbound` and then hands `converted.metadata` straight to `sendMessage`, which
+  re-converts it. Discord's converter renames `replyToExternalId` → `messageReferenceId`, so the second
+  pass saw neither key and emitted `messageReferenceId: undefined`, dropping the reference before the
+  REST body — the first cut of this change was green in unit tests and still shipped nothing. The
+  converter now accepts its own already-converted key on the second pass, matching the precedent
+  `channel-gmail/lib/convert-outbound.ts` documents for `threadId`.
+- **A deleted parent degrades instead of failing.** `discord-rest.createMessage` sends
+  `message_reference` with `fail_if_not_exists: false`. Discord defaults that to `true` and rejects the
+  send with a 400 when the referenced message is gone — non-transient, so the hub would mark the link
+  `failed` and never deliver the reply. Users delete messages routinely, and the AI producers reference
+  the thread ROOT, the likeliest-deleted message in a conversation.
 - **Ordering is a security property.** The resolved id is merged *after* the link's stored metadata, so
   the caller-supplied `channelMetadata` that `send-as-user` passes through cannot point a reply at an
   arbitrary provider message id. Pinned by a test.
 - **Coverage.** `communication_channels/lib/__tests__/outbound-reply-ref.test.ts` (resolution, the four
   `null` paths, scoping assertions), five cases in
   `commands/__tests__/deliver-outbound-message.test.ts` (threading adapter, non-threading adapter,
-  non-reply, lookup failure, caller-override), and the rewritten
-  `channel_discord/lib/__tests__/capabilities.test.ts` threading case, which now drives the whole path
-  down to the REST body instead of asserting the flag.
+  non-reply, lookup failure, caller-override), the double-conversion round-trip and precedence cases in
+  `channel_discord/lib/__tests__/convert-outbound.test.ts`, and the rewritten
+  `channel_discord/lib/__tests__/capabilities.test.ts` threading case, which drives the hub's own call
+  order — `convertOutbound`, then the real `adapter.sendMessage` fed with `converted.metadata` — down to
+  the REST body, with `restClient.request` as the only seam. Driving `createMessage` directly instead
+  would skip `sendMessage`, which is precisely where the reference was being lost.
 - Supersedes the `threading` demotion recorded on 2026-08-24, which explicitly reserved the flip for
   "the same change that gives the hub an outbound reply producer".
 

@@ -1,4 +1,5 @@
 import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
+import { getDiscordChannelAdapter } from '../adapter'
 import { discordCapabilities, DISCORD_MAX_BODY_LENGTH } from '../capabilities'
 import { getDiscordRestClient } from '../discord-rest'
 import { convertOutboundForDiscord } from '../convert-outbound'
@@ -13,6 +14,28 @@ function makeSigner() {
     publicKeyHex: spki.subarray(spki.length - 32).toString('hex'),
     sign: (message: string) => cryptoSign(null, Buffer.from(message, 'utf-8'), privateKey).toString('hex'),
   }
+}
+
+/**
+ * Run `send` with the REST transport as the ONLY seam and return the JSON bodies
+ * Discord would have received. Spying on `request` rather than swapping in a fake
+ * client keeps the real `createMessage` in the path, so the body under assertion
+ * is the one production builds.
+ */
+async function captureSentBodies(send: () => Promise<void>): Promise<Array<Record<string, unknown>>> {
+  const sentBodies: Array<Record<string, unknown>> = []
+  const request = jest
+    .spyOn(getDiscordRestClient() as unknown as { request: (...args: unknown[]) => Promise<unknown> }, 'request')
+    .mockImplementation(async (..._args: unknown[]) => {
+      sentBodies.push(_args[3] as Record<string, unknown>)
+      return { id: 'sent-1', channel_id: '999' }
+    })
+  try {
+    await send()
+  } finally {
+    request.mockRestore()
+  }
+  return sentBodies
 }
 
 /**
@@ -62,40 +85,47 @@ describe('discordCapabilities honesty', () => {
     // shape, and the hub's outbound producers wrote the email-shaped `inReplyTo` /
     // `references` instead. `communication_channels/lib/outbound-reply-ref.ts` is
     // the producer that closed the gap, so the flag may claim threading again.
-    // Assert the whole path, not the flag: the conversion, the adapter hand-off,
-    // and the JSON body Discord actually receives.
+    //
+    // Assert the whole path, not the flag, and drive it in the ORDER THE HUB
+    // DRIVES IT (`deliver-outbound-message.ts`): `convertOutbound`, then
+    // `sendMessage` fed with `converted.metadata`. That second call re-converts
+    // the already-converted metadata, and the first version of this PR lost the
+    // reference exactly there — a green test that skipped `sendMessage` and
+    // hand-wired `createMessage` reproduced the #5541 blind spot it was written
+    // to close. Keep `restClient.request` as the only seam so the real converter,
+    // the real adapter and the real `createMessage` all stay in the path.
     expect(discordCapabilities.threading).toBe(true)
 
-    const withReplyId = await convertOutboundForDiscord({
+    const converted = await convertOutboundForDiscord({
       body: 'hello',
       bodyFormat: 'text',
       channelMetadata: { replyToExternalId: 'parent-snowflake' },
     } as Parameters<typeof convertOutboundForDiscord>[0])
-    expect(withReplyId.metadata?.messageReferenceId).toBe('parent-snowflake')
+    expect(converted.metadata?.messageReferenceId).toBe('parent-snowflake')
 
-    const restClient = getDiscordRestClient()
-    // Intercept at the transport boundary so the real `createMessage` still
-    // builds the body — a hand-rolled fake client would only assert itself.
-    const sentBodies: Array<Record<string, unknown>> = []
-    const request = jest
-      .spyOn(restClient as unknown as { request: (...args: unknown[]) => Promise<unknown> }, 'request')
-      .mockImplementation(async (..._args: unknown[]) => {
-        sentBodies.push(_args[3] as Record<string, unknown>)
-        return { id: 'sent-1', channel_id: '999' }
-      })
-    try {
-      await restClient.createMessage(
-        { botToken: 'bot-token' },
-        {
-          channelId: '999',
-          content: withReplyId.content.text ?? '',
-          messageReferenceId: withReplyId.metadata?.messageReferenceId as string,
+    const sentBodies = await captureSentBodies(async () => {
+      const result = await getDiscordChannelAdapter().sendMessage({
+        conversationId: '999',
+        content: converted.content,
+        credentials: {
+          botToken: 'bot-token',
+          applicationId: 'app-1',
+          publicKey: 'a'.repeat(64),
+          defaultChannelId: '999',
         },
-      )
-    } finally {
-      request.mockRestore()
-    }
-    expect(sentBodies[0]?.message_reference).toEqual({ message_id: 'parent-snowflake' })
+        scope: { tenantId: 't', organizationId: 'o' },
+        // Exactly what `deliver-outbound-message.ts` hands the adapter.
+        metadata: converted.metadata,
+      })
+      expect(result.status).toBe('sent')
+    })
+    expect(sentBodies[0]?.message_reference).toEqual({
+      message_id: 'parent-snowflake',
+      // A deleted parent must degrade to a plain channel message, not fail the
+      // delivery: Discord defaults this to `true` and answers 400, which the hub
+      // classifies as non-transient and marks the link `failed`.
+      fail_if_not_exists: false,
+    })
 
     // A non-reply still sends a plain channel message — no dangling reference.
     const withoutReplyId = await convertOutboundForDiscord({
@@ -104,6 +134,22 @@ describe('discordCapabilities honesty', () => {
       channelMetadata: { inReplyTo: 'some-parent-id', references: ['some-parent-id'] },
     } as Parameters<typeof convertOutboundForDiscord>[0])
     expect(withoutReplyId.metadata?.messageReferenceId).toBeUndefined()
+
+    const plainBodies = await captureSentBodies(async () => {
+      await getDiscordChannelAdapter().sendMessage({
+        conversationId: '999',
+        content: withoutReplyId.content,
+        credentials: {
+          botToken: 'bot-token',
+          applicationId: 'app-1',
+          publicKey: 'a'.repeat(64),
+          defaultChannelId: '999',
+        },
+        scope: { tenantId: 't', organizationId: 'o' },
+        metadata: withoutReplyId.metadata,
+      })
+    })
+    expect(plainBodies[0]?.message_reference).toBeUndefined()
   })
 
   it('does not advertise rich blocks — outbound is plain markdown, no embeds are built', () => {

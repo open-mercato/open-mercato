@@ -75,14 +75,34 @@ export async function convertOutboundForDiscord(input: ConvertOutboundInput): Pr
     metadata: {
       allowedMentions,
       droppedAttachmentCount,
-      // Reply threading: the hub writes `replyToExternalId` on the outbound path
-      // (`communication_channels/lib/outbound-reply-ref.ts`) when the message
-      // being delivered answers one that already reached this channel. Absent on
-      // a non-reply, which sends a plain channel message.
-      messageReferenceId:
-        typeof input.channelMetadata?.replyToExternalId === 'string'
-          ? (input.channelMetadata.replyToExternalId as string)
-          : undefined,
+      messageReferenceId: resolveMessageReferenceId(input.channelMetadata),
     },
   }
+}
+
+/**
+ * Resolve the id of the message an outbound reply attaches to. Order of
+ * precedence:
+ *   1. `replyToExternalId` — what the hub writes on the outbound path
+ *      (`communication_channels/lib/outbound-reply-ref.ts`) when the message
+ *      being delivered answers one that already reached this channel.
+ *   2. `messageReferenceId` — our own already-converted key, which survives the
+ *      hub's convert→send double-conversion: `deliver-outbound-message` calls
+ *      `convertOutbound` and then hands `converted.metadata` to `sendMessage`,
+ *      which re-converts it. Without accepting the converted key on that second
+ *      pass the rename `replyToExternalId` → `messageReferenceId` is one-way and
+ *      the reference is silently dropped before it reaches Discord (#5541).
+ *      `channel-gmail/lib/convert-outbound.ts` keeps `threadId` stable across
+ *      the same seam for the same reason.
+ *
+ * Both are absent on a non-reply, which sends a plain channel message.
+ */
+function resolveMessageReferenceId(
+  channelMetadata: ConvertOutboundInput['channelMetadata'],
+): string | undefined {
+  const fromHub = channelMetadata?.replyToExternalId
+  if (typeof fromHub === 'string' && fromHub.length > 0) return fromHub
+  const alreadyConverted = channelMetadata?.messageReferenceId
+  if (typeof alreadyConverted === 'string' && alreadyConverted.length > 0) return alreadyConverted
+  return undefined
 }
