@@ -228,6 +228,32 @@ function stripTemplateDisabledModules(content: string, rel: string): string {
   return stripped
 }
 
+// `channel_discord` stays commented out (not stripped) in the template: enabling it pushes the
+// generated root close to its byte budget, so the template keeps a maintainer-facing explanation
+// instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
+const CHANNEL_DISCORD_SOURCE_COMMENT = `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },`
+const CHANNEL_DISCORD_TEMPLATE_COMMENT = `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
+  // but stays disabled by default. #4989 removed the hard overflow this used to
+  // cause (the generated root now sheds its module-fact index instead), but the
+  // headroom is still gone: enabling it puts the generated root at 12,275 of the
+  // 12,288-byte target, so the next module enabled after it drops the inline
+  // index to pointer form. Enabling is therefore a maintainer call about that
+  // budget, not a one-line edit — see
+  // packages/create-app/src/lib/agent-instruction-budget.test.ts
+  // ('one more template module still fits the root budget with its inline index
+  // intact'), and #4983 for the discussion.
+  // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`
+
+function disableChannelDiscordModule(content: string, rel: string): string {
+  if (!content.includes(CHANNEL_DISCORD_SOURCE_COMMENT)) {
+    failTemplateTransform(rel, 'expected the channel_discord enabledModules entry with its source comment')
+  }
+  return content.replace(CHANNEL_DISCORD_SOURCE_COMMENT, CHANNEL_DISCORD_TEMPLATE_COMMENT)
+}
+
 export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
@@ -237,8 +263,9 @@ export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => st
       "import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'\n",
       "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
     ),
-  // Scaffolds ship the example and design-system source but keep both runtime-disabled.
-  'modules.ts': (content) => stripTemplateDisabledModules(content, 'modules.ts'),
+  // Scaffolds ship the example and design-system source but keep both runtime-disabled;
+  // channel_discord stays commented out with a byte-budget explanation instead.
+  'modules.ts': (content) => disableChannelDiscordModule(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
       .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
