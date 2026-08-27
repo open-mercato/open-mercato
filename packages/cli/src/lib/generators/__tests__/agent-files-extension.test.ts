@@ -410,4 +410,68 @@ describe('createAgentFilesExtension', () => {
       extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
     ).toThrow(/missing\/unsupported "type"/)
   })
+
+  it('keeps committed agent artifacts when neither the orchestrator nor an agent module is enabled', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const manifestPath = path.join(
+      repoRoot,
+      'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts',
+    )
+    const dockerFile = path.join(repoRoot, 'docker/opencode/agents/deals_health_check.md')
+    const skillFile = path.join(repoRoot, 'docker/opencode/skills/stage-playbook/SKILL.md')
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
+    fs.mkdirSync(path.dirname(dockerFile), { recursive: true })
+    fs.mkdirSync(path.dirname(skillFile), { recursive: true })
+    fs.writeFileSync(manifestPath, 'committed manifest', 'utf8')
+    fs.writeFileSync(dockerFile, 'committed agent file', 'utf8')
+    fs.writeFileSync(skillFile, 'committed skill file', 'utf8')
+
+    const extension = createAgentFilesExtension()
+    // A module with no `agents/` tree, standing in for a run with the
+    // enterprise agents flag off.
+    const otherBase = path.join(repoRoot, 'packages', 'core', 'src', 'modules', 'customers')
+    fs.mkdirSync(otherBase, { recursive: true })
+    extension.scanModule(createScanContext('customers', otherBase, otherBase))
+    extension.generateOutput()
+
+    expect(fs.readFileSync(manifestPath, 'utf8')).toBe('committed manifest')
+    expect(fs.readFileSync(dockerFile, 'utf8')).toBe('committed agent file')
+    expect(fs.readFileSync(skillFile, 'utf8')).toBe('committed skill file')
+  })
+
+  it('still prunes stale artifacts when the orchestrator is enabled without any agent', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const dockerFile = path.join(repoRoot, 'docker/opencode/agents/deals_health_check.md')
+    const skillDir = path.join(repoRoot, 'docker/opencode/skills/stage-playbook')
+    fs.mkdirSync(path.dirname(dockerFile), { recursive: true })
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(dockerFile, 'stale agent file', 'utf8')
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), 'stale skill file', 'utf8')
+
+    const extension = createAgentFilesExtension()
+    const orchestratorBase = path.join(
+      repoRoot,
+      'packages',
+      'enterprise',
+      'src',
+      'modules',
+      'agent_orchestrator',
+    )
+    fs.mkdirSync(orchestratorBase, { recursive: true })
+    extension.scanModule(createScanContext('agent_orchestrator', orchestratorBase, orchestratorBase))
+    extension.generateOutput()
+
+    expect(fs.existsSync(dockerFile)).toBe(false)
+    expect(fs.existsSync(skillDir)).toBe(false)
+    const manifest = fs.readFileSync(
+      path.join(
+        repoRoot,
+        'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts',
+      ),
+      'utf8',
+    )
+    expect(manifest).toContain('export const fileAgentDescriptors: FileAgentDescriptor[] = []')
+  })
 })

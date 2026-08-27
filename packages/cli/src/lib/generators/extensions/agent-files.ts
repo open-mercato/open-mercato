@@ -842,6 +842,7 @@ function renderToolPermissionLine(toolName: string): string {
   return `  ${JSON.stringify(toolName)}: true`
 }
 
+const ORCHESTRATOR_MODULE_ID = 'agent_orchestrator'
 // OpenCode names every MCP tool `<serverKey>_<toolName with dots→underscores>`
 // (verified against the running image). Keep in sync with
 // `lib/sdk/defineFileAgent.ts`.
@@ -1099,6 +1100,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
   const discovered: DiscoveredAgent[] = []
   const seenIds = new Set<string>()
   let repoRoot: string | null = null
+  let sawOrchestratorModule = false
 
   function scanAgentsTree(moduleId: string, baseDir: string): void {
     for (const dir of listAgentDirs(baseDir)) {
@@ -1196,6 +1198,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
     id: 'registry.agent-files',
     outputFiles: [],
     scanModule(ctx: ModuleScanContext) {
+      if (ctx.moduleId === ORCHESTRATOR_MODULE_ID) sawOrchestratorModule = true
       if (!repoRoot) {
         repoRoot = findRepoRoot(ctx.roots.pkgBase) ?? findRepoRoot(ctx.roots.appBase)
       }
@@ -1209,6 +1212,15 @@ export function createAgentFilesExtension(): GeneratorExtension {
       if (!repoRoot) {
         // No module roots resolved to a repo (e.g. an isolated unit test). Skip
         // the fs side effect; the empty-Map return keeps the contract intact.
+        return new Map<string, string>()
+      }
+
+      if (!sawOrchestratorModule && sorted.length === 0) {
+        // Neither the orchestrator (the manifest's only consumer) nor any agent
+        // module is part of this run — the enterprise agents flag is off. The
+        // committed manifest and `docker/opencode/**` files belong to modules
+        // that are merely switched off, so pruning them here would delete
+        // tracked artifacts on every `yarn generate`. Leave the tree untouched.
         return new Map<string, string>()
       }
 
