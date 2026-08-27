@@ -62,6 +62,23 @@ describe('rebuildAggregateSearchField', () => {
     expect(stored.search_text).toBe(CIPHERTEXT_NAME)
   })
 
+  it('keeps a blocklisted field out of the rebuilt aggregate', () => {
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'secret_note'
+
+    const rebuilt = rebuildAggregateSearchField(
+      {
+        id: 'rec-1',
+        display_name: PLAINTEXT_NAME,
+        secret_note: 'Confidential decrypted note',
+        search_text: CIPHERTEXT_NAME,
+      },
+      { entityType: PERSON },
+    )
+
+    expect(rebuilt.search_text).toContain(PLAINTEXT_NAME)
+    expect(rebuilt.search_text).not.toContain('Confidential decrypted note')
+  })
+
   it('drops a stale aggregate when every remaining field is blocklisted', () => {
     process.env.OM_SEARCH_FIELD_BLOCKLIST = 'display_name'
 
