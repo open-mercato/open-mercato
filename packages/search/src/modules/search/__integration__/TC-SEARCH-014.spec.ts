@@ -59,12 +59,21 @@ async function writeEnabledStrategies(
 }
 
 /**
- * Waits until global search returns exactly one result for `title` and that result is the
- * customer's profile row. Polling the API first keeps the browser assertions below from
- * racing the indexer — a palette that renders zero rows because indexing has not caught up
- * is indistinguishable, at the DOM level, from a palette that correctly renders one.
+ * Waits until global search has indexed the customer's profile row for `title`.
+ *
+ * The wait exists for one reason only: to keep the browser assertions below from racing the
+ * indexer. A palette that renders zero rows because indexing has not caught up is
+ * indistinguishable, at the DOM level, from a palette that correctly renders one.
+ *
+ * It therefore polls for the PRESENCE of the expected profile and never for a row count.
+ * Requiring exactly one match here would be the palette's own assertion moved to the API — and
+ * moved in front of the browser, where it short-circuits the run: on a pre-#5073 build the
+ * global-search API returns two rows for the title, so a count-based poll would spin for its
+ * full timeout and fail here, before `login()` and before the palette was ever opened. The
+ * duplicate has to flow through to the DOM `toHaveCount(1)`, which is precisely what this spec
+ * adds over the API-level TC-SEARCH-006.
  */
-async function waitForSingleIndexedProfile(
+async function waitForIndexedProfile(
   request: APIRequestContext,
   token: string,
   title: string,
@@ -84,8 +93,9 @@ async function waitForSingleIndexedProfile(
         const body = (await readJsonSafe<GlobalSearchResponse>(response)) ?? {}
         const results = Array.isArray(body.results) ? body.results : []
         const matches = results.filter((result) => presenterTitle(result) === title)
-        if (matches.length !== 1) return `matches:${matches.length}`
-        if (matches[0]?.entityId !== expectedEntityId) return `entity:${matches[0]?.entityId ?? 'missing'}`
+        if (!matches.some((match) => match.entityId === expectedEntityId)) {
+          return `awaiting ${expectedEntityId} (titles matched: ${matches.length})`
+        }
         return 'ready'
       },
       { timeout: 30_000 },
@@ -150,7 +160,9 @@ async function openPaletteWithQuery(page: Page, query: string): Promise<void> {
  *      The count also stays honest if a future strategy, enricher or injected result
  *      re-introduces a second row by some path other than the token strategy.
  *   2. It signs in as `superadmin`, and that is essential. `resolveReadableEntityTypes`
- *      (`packages/search/src/modules/search/lib/entity-access.ts`) returns the caller's
+ *      (`packages/shared/src/lib/search/entityAccess.ts:90` — note that the `packages/search`
+ *      `lib/entity-access.ts` path, which #5547 cites, is a six-line re-export shim, so the
+ *      reasoning below is only readable at the shared implementation) returns the caller's
  *      requested entity types unchanged for a superadmin and narrows every other principal to
  *      entity types a module registered in its `search.ts`. No module registers
  *      `customers:customer_entity`, so the duplicate was only ever visible to a superadmin —
@@ -163,7 +175,6 @@ async function openPaletteWithQuery(page: Page, query: string): Promise<void> {
  */
 test.describe('TC-SEARCH-014: a customer appears once in the global search palette', () => {
   test('the palette renders exactly one navigable row per customer', async ({ page, request }) => {
-    test.slow()
     test.setTimeout(180_000)
 
     const stamp = Date.now()
@@ -210,7 +221,7 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
       // Poll as `superadmin` — the same principal the palette queries as — so an entity-access
       // difference between the two accounts surfaces here rather than as an empty palette.
       for (const fixture of fixtures) {
-        await waitForSingleIndexedProfile(request, superToken, fixture.title, fixture.entityId)
+        await waitForIndexedProfile(request, superToken, fixture.title, fixture.entityId)
       }
 
       await login(page, 'superadmin')
@@ -223,14 +234,29 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
         const panel = page.locator('#topbar-search-results')
         await expect(panel).toBeVisible()
 
-        // The palette debounces by 220ms and renders a "no results" placeholder until the
-        // response lands, so wait for the row itself rather than asserting on an empty list.
-        const matchingOptions = panel.getByRole('option').filter({ hasText: fixture.title })
-        await expect(matchingOptions).toHaveCount(1, { timeout: 20_000 })
+        // -- The duplicate guard, and the reason it counts EVERY option rather than only the
+        //    ones whose text matches the title. Pre-#5073 a superadmin saw two rows here: the
+        //    person/company profile plus a navigation-less `customers:customer_entity` row.
+        //    Filtering by `hasText: title` first would make the assertion depend on the
+        //    duplicate carrying the same title — true today, because `customer_entity`
+        //    registers no `formatResult` and the fallback resolver picks `display_name`, but
+        //    not a property this spec controls. Since the query is a `Date.now()`-stamped
+        //    token that matches nothing else in the tenant, the honest assertion is that the
+        //    palette holds exactly one row, whatever it is titled. `role="option"` is rendered
+        //    once per result and nowhere else in the listbox (`TopbarSearchInline.tsx`), so
+        //    the count is exactly the result rows.
+        //
+        //    The palette also debounces by 220ms and renders a "no results" placeholder until
+        //    the response lands, so this waits for the row rather than asserting on an empty
+        //    list.
+        const options = panel.getByRole('option')
+        await expect(options).toHaveCount(1, { timeout: 20_000 })
 
-        // -- The duplicate guard. Pre-#5073 this was 2 for a superadmin: the person/company
-        //    profile row plus a navigation-less `customers:customer_entity` row.
-        const option = matchingOptions.first()
+        const option = options.first()
+        await expect(
+          option,
+          `the single ${fixture.label} row must be the seeded customer, not an unrelated result`,
+        ).toContainText(fixture.title)
         const optionClass = (await option.getAttribute('class')) ?? ''
         expect(
           optionClass,
@@ -252,14 +278,42 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
   })
 
   /**
-   * Regression arm for the deliberate read-side-only decision behind #5073: the base
-   * `customers:customer_entity` rows must STAY in `search_tokens`, because
-   * `findEntityIdsBySearchTokens` — which backs the People/Companies list search — resolves
-   * ids through them. A future "cleanup" that drops those rows write-side fails here instead
-   * of silently breaking list search.
+   * End-to-end sanity arm for the deliberate read-side-only decision behind #5073: #5073 stopped
+   * the token strategy from OFFERING base `customers:customer_entity` rows, but deliberately kept
+   * writing them, because the People/Companies list search resolves ids through them. This arm
+   * asserts that a customer is still findable through the list search boxes.
+   *
+   * On exactly how much that pins — because the honest answer is "it depends", and a future
+   * engineer weighing a `search_tokens` cleanup should not over-read a green run here.
+   * Searching by `displayName` can be served by three different paths:
+   *
+   *   1. The `customers:customer_entity` token source — the one the read-side-only decision is
+   *      about.
+   *   2. The `customers:customer_person_profile` / `customer_company_profile` token source. Both
+   *      list routes pass TWO sources to `findMatchingEntityIdsBySearchTokensAcrossSources`
+   *      (`api/people/route.ts`, `api/companies/route.ts`), the profile source also indexes
+   *      `display_name`, and `api/utils.ts` UNIONS the per-source ids.
+   *   3. The `$or` ILIKE fallback both routes take when the token lookup yields nothing.
+   *
+   * Path 3 is the subtle one, and it is why this arm is not simply toothless. `display_name`,
+   * `primary_email`, `primary_phone`, `description` and `next_interaction_name` are ALL declared
+   * encrypted for `customers:customer_entity` (`packages/core/src/modules/customers/encryption.ts`)
+   * and `TENANT_DATA_ENCRYPTION` defaults to on. Against a known-encrypted column the query engine
+   * either rewrites the ILIKE back into a `search_tokens` EXISTS subquery or, once the availability
+   * probe finds no tokens at all, runs a literal ILIKE against ciphertext that matches nothing
+   * (`query_index/lib/engine.ts`). So under the DEFAULT encrypted configuration, dropping the base
+   * rows write-side does break list search on these fields, and this arm does fail.
+   *
+   * What it cannot do is prove that on its own, because it neither controls nor asserts the
+   * encryption state it depends on. With `TENANT_DATA_ENCRYPTION` off the columns are plaintext,
+   * the ILIKE fallback matches directly, and this arm would stay green through exactly the
+   * cleanup it is meant to catch. Pinning the property unconditionally is not reachable from the
+   * HTTP surface: every field the base source indexes is also covered by either the profile source
+   * or the ILIKE fallback, so no query discriminates between them by construction.
+   *
+   * Treat a failure here as a real signal and a pass as a partial one.
    */
   test('the People and Companies list search still finds the customer', async ({ page, request }) => {
-    test.slow()
     test.setTimeout(180_000)
 
     const stamp = Date.now()
@@ -319,7 +373,7 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
 
         await expect(
           page.getByText(arm.title, { exact: true }).first(),
-          `${arm.label} list search must still resolve ids through the base customer search tokens`,
+          `${arm.label} list search must still return the customer after #5073 stopped offering base customer rows as search results`,
         ).toBeVisible({ timeout: 20_000 })
       }
     } finally {
