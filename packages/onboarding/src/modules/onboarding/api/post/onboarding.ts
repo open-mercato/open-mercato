@@ -144,6 +144,12 @@ export async function POST(req: Request) {
       ],
     })
     if (existingUser) {
+      // The notice goes to the account owner, not to the submitter, so it is rendered in the
+      // instance default locale rather than the one this request carried — the submitter must
+      // not get to choose which language lands in someone else's inbox.
+      const noticeTranslate = locale === defaultLocale
+        ? translate
+        : createFallbackTranslator(await loadDictionary(defaultLocale))
       // Never create an onboarding request for an address that already has an account —
       // the submitter's name and organization must not reach the account owner's inbox.
       // The neutral notice below is the only, out-of-band acknowledgement of the account.
@@ -152,24 +158,24 @@ export async function POST(req: Request) {
           container,
           email: parsed.data.email,
           loginUrl: `${baseUrl}/login`,
-          subject: translate('onboarding.existingAccountEmail.subject', 'About your Open Mercato account'),
+          subject: noticeTranslate('onboarding.existingAccountEmail.subject', 'About your Open Mercato account'),
           copy: {
-            preview: translate(
+            preview: noticeTranslate(
               'onboarding.existingAccountEmail.preview',
               'Someone tried to create an Open Mercato workspace with this email address.',
             ),
-            heading: translate('onboarding.existingAccountEmail.heading', 'You already have an account'),
-            greeting: translate('onboarding.existingAccountEmail.greeting', 'Hello,'),
-            body: translate(
+            heading: noticeTranslate('onboarding.existingAccountEmail.heading', 'You already have an account'),
+            greeting: noticeTranslate('onboarding.existingAccountEmail.greeting', 'Hello,'),
+            body: noticeTranslate(
               'onboarding.existingAccountEmail.body',
               'Someone just used this email address to start creating an Open Mercato workspace. This address already has an account, so we did not create a new one.',
             ),
-            cta: translate('onboarding.existingAccountEmail.cta', 'Sign in'),
-            ignore: translate(
+            cta: noticeTranslate('onboarding.existingAccountEmail.cta', 'Sign in'),
+            ignore: noticeTranslate(
               'onboarding.existingAccountEmail.ignore',
               "If this was you, sign in or reset your password. If it wasn't, you can safely ignore this message — nothing about your account has changed.",
             ),
-            footer: translate('onboarding.existingAccountEmail.footer', 'Open Mercato · Onboarding service'),
+            footer: noticeTranslate('onboarding.existingAccountEmail.footer', 'Open Mercato · Onboarding service'),
           },
         })
       } catch (err) {
@@ -282,7 +288,7 @@ const onboardingErrorSchema = z.object({
 
 const onboardingPostDoc: OpenApiMethodDoc = {
   summary: 'Submit onboarding request',
-  description: 'Accepts a self-service onboarding form submission and triggers email verification. The response never reveals whether the submitted address already has an account: an address that does receives an out-of-band notice email instead of a verification link, and the caller sees the same accepted response either way.',
+  description: 'Accepts a self-service onboarding form submission and triggers email verification. The response never reveals whether the submitted address already has an account: an address that does receives an out-of-band notice email instead of a verification link, and the caller sees the same accepted response either way. The guarantee covers the response status and body, not response latency — the new-address branch hashes a password and sends two emails where the existing-account branch sends one, so a caller that measures timing can still tell them apart. Deployments should also keep rate limiting enabled (and use the redis strategy when running more than one replica): the per-address window on the existing-account notice is backed by the rate limiter, so with rate limiting disabled the address owner receives one notice per accepted submission instead of one per ten minutes.',
   tags: [onboardingTag],
   requestBody: {
     contentType: 'application/json',
