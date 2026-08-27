@@ -16,6 +16,19 @@
  * screens gating render on the resulting `isLoading` blanked while it ran.
  *
  * The invariant asserted here is "initialisation is not a change, a real switch is".
+ *
+ * The seed runs ONCE at module initialisation rather than lazily from the readers,
+ * and the `describe` block headed "a cookie rewritten just before the announcement"
+ * is why: `OrganizationSwitcher.persistSelection()` writes both cookies and only
+ * THEN emits, so a lazy seed reading on the first call into the module could adopt
+ * the cookie the switcher had just written and swallow a genuine version bump. Two
+ * of the three cases in that block report version 0 on the lazy shape; the third is
+ * the baseline that passed under it, which is the point — the same page produced
+ * different versions depending on mount order.
+ *
+ * The server half of the same invariant — no `document`, so no seed, and no
+ * `window`, so no mutation — is in `organizationEvents.server.test.ts`, which needs
+ * jest's `node` environment and therefore its own file.
  */
 import type * as OrganizationEvents from '../organizationEvents'
 
@@ -107,6 +120,59 @@ describe('organization scope version: initialisation is not a change', () => {
     expect(seen).toEqual([{ organizationId: ORG, tenantId: TENANT }])
     expect(scope.getCurrentOrganizationScopeVersion()).toBe(0)
     unsubscribe()
+  })
+
+  describe('a cookie rewritten just before the announcement', () => {
+    // `persistSelection()` writes both cookies and only then emits, and `load()`
+    // reaches it whenever the stored cookie disagrees with the organization the
+    // server resolved — an organization the user has lost access to, or one the
+    // resolver rejected as non-existent. Every scope-keyed query on the page has
+    // already fetched under the STALE cookie, so this announcement MUST bump:
+    // without it nothing re-keys and the previous organization's rows stay on
+    // screen under the new one's name.
+    //
+    // These cases are the whole reason the seed runs at module initialisation. The
+    // first and third report 0 under a lazy seed; the second is the baseline they
+    // are contrasted with, and it passed under it.
+
+    it('bumps even though nothing read the scope first', () => {
+      const scope = loadWithCookies({ om_selected_org: ORG, om_selected_tenant: TENANT })
+      // Deliberately NO read here: the emission below is the first thing in this
+      // tick to touch the module. A lazy seed would fire from inside it and adopt
+      // the cookie the switcher had just written, hiding the change.
+      document.cookie = `om_selected_org=${encodeURIComponent(OTHER_ORG)}; path=/`
+
+      scope.emitOrganizationScopeChanged({ organizationId: OTHER_ORG, tenantId: TENANT })
+
+      expect(scope.getCurrentOrganizationScopeVersion()).toBe(1)
+      expect(scope.getCurrentOrganizationScope()).toEqual({ organizationId: OTHER_ORG, tenantId: TENANT })
+    })
+
+    it('bumps the same way when a component happened to read the scope first', () => {
+      // The baseline the case above is contrasted with. It passed under the lazy
+      // seed too — which is exactly the problem: the same page produced different
+      // versions depending on mount order.
+      const scope = loadWithCookies({ om_selected_org: ORG, om_selected_tenant: TENANT })
+      expect(scope.getCurrentOrganizationScope()).toEqual({ organizationId: ORG, tenantId: TENANT })
+      document.cookie = `om_selected_org=${encodeURIComponent(OTHER_ORG)}; path=/`
+
+      scope.emitOrganizationScopeChanged({ organizationId: OTHER_ORG, tenantId: TENANT })
+
+      expect(scope.getCurrentOrganizationScopeVersion()).toBe(1)
+    })
+
+    it('bumps when the tenant cookie is written on the way to the announcement', () => {
+      // The subtler instance: with an org cookie but no tenant cookie, `load()`
+      // calls `persistTenant(resolvedTenantId, { refresh: false })` — which writes
+      // `om_selected_tenant` — before it emits. A lazy seed then reads a tenant the
+      // server never resolved from.
+      const scope = loadWithCookies({ om_selected_org: ORG })
+      document.cookie = `om_selected_tenant=${encodeURIComponent(TENANT)}; path=/`
+
+      scope.emitOrganizationScopeChanged({ organizationId: ORG, tenantId: TENANT })
+
+      expect(scope.getCurrentOrganizationScopeVersion()).toBe(1)
+    })
   })
 
   describe('an unreadable cookie falls back to the old, invalidating behaviour', () => {
