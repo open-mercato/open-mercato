@@ -97,9 +97,21 @@ One implementation, in `packages/shared/src/lib/crud/write-payload.ts`:
   an unknown key when the route opted into strictness.
 - `withIgnoredFieldsReport(payload, input)`: attaches `ignoredFields` to a response.
 
-Custom-field keys (`customFields`, `customValues`, `cf_*`, `cf:*`) are excluded
-before inspection. No write schema declares them, so without that a legitimate
-`cf_priority` would be reported as a field the endpoint ignored.
+Three classes of key are excluded before inspection, because no write schema
+declares them and reporting them would be noise rather than signal:
+
+- **Custom fields** (`customFields`, `customValues`, `cf_*`, `cf:*`), routed by
+  `splitCustomFieldPayload` further down. Without this a legitimate `cf_priority`
+  would be reported as ignored.
+- **Tenant and organization scope**, in both spellings. These come from trusted
+  context per `.ai/review-checklist.md` §4. Aliasing them would additionally let a
+  caller steer scope through the snake_case spelling that is ignored today.
+- **Server-maintained timestamps** (`created_at`, `updated_at`, `deleted_at` and
+  their camelCase spellings). List projections emit them, so without this every
+  round-trip write would report two ignored fields.
+
+`immutableFields` is enforced on update only. Those fields cannot change *after*
+creation, so the create path must accept exactly them.
 
 ### Four outcomes, none of them silent
 

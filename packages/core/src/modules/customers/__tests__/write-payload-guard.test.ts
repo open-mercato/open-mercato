@@ -94,6 +94,9 @@ describe('scope keys survive a round trip', () => {
 // so before the schemas accepted null a client that read a deal with no value set
 // and wrote it straight back zeroed the amount and backdated the close date.
 describe('a null from the read side clears rather than fabricating a value', () => {
+  // Every `CustomerDeal` column that is `nullable: true`. `pipelineId` and
+  // `pipelineStageId` matter beyond the coercion: they are the two that reach
+  // `resolvePipelineAssignment` rather than a straight `?? null` assignment.
   it.each([
     ['valueAmount'],
     ['expectedCloseAt'],
@@ -101,6 +104,12 @@ describe('a null from the read side clears rather than fabricating a value', () 
     ['description'],
     ['closureOutcome'],
     ['lossNotes'],
+    ['pipelineStage'],
+    ['pipelineId'],
+    ['pipelineStageId'],
+    ['valueCurrency'],
+    ['source'],
+    ['lossReasonId'],
   ])('%s: null stays null', (field) => {
     const parsed = parseScopedCommandInput(
       dealUpdateSchema,
@@ -113,6 +122,21 @@ describe('a null from the read side clears rather than fabricating a value', () 
 
   it('still rejects null for status, whose column is not nullable', () => {
     expect(() => parseScopedCommandInput(dealUpdateSchema, { id: DEAL_ID, status: null }, ctx, translate)).toThrow()
+  })
+})
+
+// The list projection emits `created_at` and `updated_at`, which no write schema
+// declares. Reporting them would put two ignored fields on every round-trip write.
+describe('server-maintained timestamps are not reported as ignored', () => {
+  it('a body carrying created_at and updated_at reports nothing', () => {
+    const parsed = parseScopedCommandInput(
+      dealUpdateSchema,
+      { id: DEAL_ID, status: 'open', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-02-02T00:00:00.000Z' },
+      ctx,
+      translate
+    ) as Record<string, unknown>
+    expect(parsed.status).toBe('open')
+    expect((parsed as any)[IGNORED_FIELDS]).toBeUndefined()
   })
 })
 

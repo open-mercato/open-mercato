@@ -1,7 +1,7 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
-import { guardWriteBody, IGNORED_FIELDS, type UnwritableKey } from '@open-mercato/shared/lib/crud/write-payload'
+import { guardWriteBody, IGNORED_FIELDS, type CrudWriteGuardConfig, type UnwritableKey } from '@open-mercato/shared/lib/crud/write-payload'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { z } from 'zod'
 
@@ -51,6 +51,13 @@ export type ScopedPayloadOptions = {
    * that own their payload end-to-end can opt in.
    */
   rejectUnknownFields?: boolean
+  /**
+   * Per-caller message keys for the write guard's 400s. Defaults live in
+   * `write-payload.ts` and are translated through the `translate` argument, so this
+   * is only needed by a module that would rather namespace them into its own
+   * dictionary.
+   */
+  writeGuardMessages?: CrudWriteGuardConfig['messages']
 }
 
 const DEFAULT_MESSAGES: Required<ScopedPayloadMessages> = {
@@ -141,6 +148,7 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
     aliasSnakeCaseKeys: options.aliasSnakeCaseKeys,
     immutableFields: options.immutableFields,
     rejectUnknownFields: options.rejectUnknownFields,
+    messages: options.writeGuardMessages,
     translate,
   })
   const base = guarded.body as Record<string, unknown>

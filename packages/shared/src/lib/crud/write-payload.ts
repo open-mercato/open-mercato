@@ -110,6 +110,20 @@ export function isScopeKey(key: string): boolean {
 }
 
 /**
+ * Server-maintained timestamps, in both spellings.
+ *
+ * List projections emit `created_at` and `updated_at`, no write schema declares
+ * them, and no endpoint would honour them if it did. Without this, the round trip
+ * this guard exists to enable would report two ignored fields on every single
+ * write, which is noise that would teach callers to stop reading the report.
+ */
+const READ_ONLY_TIMESTAMP_KEYS = new Set(['createdAt', 'updatedAt', 'deletedAt', 'created_at', 'updated_at', 'deleted_at'])
+
+export function isReadOnlyTimestampKey(key: string): boolean {
+  return READ_ONLY_TIMESTAMP_KEYS.has(key)
+}
+
+/**
  * Are the two spellings carrying the same value?
  *
  * Reference equality alone reports a conflict for structurally identical arrays or
@@ -222,6 +236,9 @@ export function withIgnoredFieldsReport<T extends Record<string, unknown>>(
 ): T & { ignoredFields?: UnwritableKey[] } {
   if (!input || typeof input !== 'object') return payload
   const carrier = input as Record<string | symbol, unknown>
+  // The string key is the hand-written-caller path: a route that computed the
+  // report itself passes `{ ignoredFields }` directly. Everything that goes
+  // through `parseScopedCommandInput` or the factory uses the Symbol.
   const ignored = (carrier[IGNORED_FIELDS] ?? carrier.ignoredFields) as UnwritableKey[] | undefined
   if (!Array.isArray(ignored) || ignored.length === 0) return payload
   return { ...payload, ignoredFields: ignored }
@@ -272,22 +289,42 @@ export type CrudWriteGuardConfig = {
   }
 }
 
-const WRITE_GUARD_FALLBACKS = {
-  conflictingField: 'This field was sent twice with different values.',
-  immutableField: 'This field cannot be changed after creation.',
-  unknownField: 'This field is not writable on this endpoint.',
+/**
+ * Default message keys and their English text.
+ *
+ * `{ key, fallback }` pairs in a plain object literal, the same shape
+ * `ScopedPayloadOptions`' own `DEFAULT_MESSAGES` uses. That shape is what lets the
+ * messages be translatable without tripping `i18n:check-usage`: the scanner
+ * matches literal arguments to the translate function, and an object-literal
+ * property is not one, which is why the existing `errors.*` keys were never
+ * flagged. A caller supplies its own module-namespaced key through
+ * `CrudWriteGuardConfig.messages` when it has a dictionary to back it.
+ */
+const WRITE_GUARD_MESSAGES = {
+  conflictingField: {
+    key: 'errors.write_guard.conflicting_field',
+    fallback: 'This field was sent twice with different values.',
+  },
+  immutableField: {
+    key: 'errors.write_guard.immutable_field',
+    fallback: 'This field cannot be changed after creation.',
+  },
+  unknownField: {
+    key: 'errors.write_guard.unknown_field',
+    fallback: 'This field is not writable on this endpoint.',
+  },
 } as const
 
 function resolveGuardMessage(
   config: CrudWriteGuardConfig | undefined,
-  name: keyof typeof WRITE_GUARD_FALLBACKS
+  name: keyof typeof WRITE_GUARD_MESSAGES
 ): string {
-  const fallback = WRITE_GUARD_FALLBACKS[name]
+  const base = WRITE_GUARD_MESSAGES[name]
   const override = config?.messages?.[name]
-  if (!override) return fallback
+  const key = override?.key ?? base.key
+  const fallback = override?.fallback ?? base.fallback
   const translate = config?.translate
-  if (!translate) return override.fallback ?? fallback
-  return translate(override.key, override.fallback ?? fallback)
+  return translate ? translate(key, fallback) : fallback
 }
 
 /**
@@ -309,7 +346,7 @@ export function guardWriteBody(
   const declarable: Record<string, unknown> = {}
   const passthrough: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(source)) {
-    if (isCustomFieldKey(key) || isScopeKey(key)) passthrough[key] = value
+    if (isCustomFieldKey(key) || isScopeKey(key) || isReadOnlyTimestampKey(key)) passthrough[key] = value
     else declarable[key] = value
   }
   const inspection = inspectWritePayload(declarable, collectWritableKeys(schema), {

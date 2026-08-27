@@ -1394,6 +1394,28 @@ describe('CRUD Factory', () => {
       expect(await res.json()).toMatchObject({ fields: ['no_such_field'] })
     })
 
+    // `immutableFields` means "cannot change AFTER creation", so creation itself
+    // must accept the field. Enforcing it on POST would reject the request that
+    // sets it in the first place.
+    it('still accepts an immutable field on create', async () => {
+      const route = makeCrudRoute({
+        metadata: { POST: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        writeGuard: { immutableFields: ['title'] },
+        create: {
+          schema: z.object({ title: z.string() }),
+          mapToEntity: (input) => ({ title: (input as any).title }),
+        },
+      })
+      const res = await route.POST(new Request('http://x/api/example/todos', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'set at creation' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+      expect(res.status).toBe(201)
+    })
+
     it('rejects a field the route declares immutable', async () => {
       const res = await put(guardedRoute({ immutableFields: ['title'] }), { id: todo.id, title: 'nope' })
       expect(res.status).toBe(400)

@@ -113,6 +113,40 @@ describe('guardWriteBody', () => {
   })
 })
 
+describe('guard messages', () => {
+  const schema = z.object({ id: z.string(), entityId: z.string().optional() })
+  const throwing = (config: any) => {
+    try { guardWriteBody(schema, { id: 'x', entityId: 'y' }, config); return null }
+    catch (e: any) { return e.body }
+  }
+
+  it('translates the default key when a translate hook is supplied', () => {
+    const seen: string[] = []
+    const body = throwing({
+      immutableFields: ['entityId'],
+      translate: (key: string, fallback?: string) => { seen.push(key); return `PL:${fallback}` },
+    })
+    expect(seen).toContain('errors.write_guard.immutable_field')
+    expect(body.error).toBe('PL:This field cannot be changed after creation.')
+  })
+
+  it('lets a caller override the key with its own namespaced one', () => {
+    const seen: string[] = []
+    const body = throwing({
+      immutableFields: ['entityId'],
+      messages: { immutableField: { key: 'customers.errors.immutable_field' } },
+      translate: (key: string, fallback?: string) => { seen.push(key); return `PL:${fallback}` },
+    })
+    expect(seen).toContain('customers.errors.immutable_field')
+    expect(body.error).toBe('PL:This field cannot be changed after creation.')
+  })
+
+  it('returns the English fallback when no translate hook is supplied', () => {
+    const body = throwing({ immutableFields: ['entityId'] })
+    expect(body.error).toBe('This field cannot be changed after creation.')
+  })
+})
+
 describe('withIgnoredFieldsReport', () => {
   it('leaves a clean response byte-identical', () => {
     expect(withIgnoredFieldsReport({ ok: true }, { ignoredFields: [] })).toEqual({ ok: true })

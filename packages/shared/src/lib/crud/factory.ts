@@ -44,6 +44,19 @@ import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureCo
 import { CrudHttpError, isCrudHttpError } from './errors'
 import { guardWriteBody, type CrudWriteGuardConfig } from './write-payload'
 export type { CrudWriteGuardConfig } from './write-payload'
+
+/**
+ * The write-guard config as the CREATE path should see it.
+ *
+ * Everything carries over except `immutableFields`. Those name fields that cannot
+ * change after creation, which by definition are fields creation must accept, so
+ * enforcing them on POST would reject the request that sets them.
+ */
+function createWriteGuardConfig(config: CrudWriteGuardConfig | undefined): CrudWriteGuardConfig | undefined {
+  if (!config?.immutableFields) return config
+  const { immutableFields: _ignored, ...rest } = config
+  return rest
+}
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -2355,7 +2368,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const createConfig = opts.create
       if (!createConfig) throw new Error('Create configuration missing')
 
-      const createGuard = guardWriteBody(createConfig.schema, body, opts.writeGuard)
+      // `immutableFields` names fields that cannot change AFTER creation, so the
+      // create path must accept exactly those. Passing the option through here
+      // would answer 400 to the POST that sets the field in the first place.
+      const createGuard = guardWriteBody(createConfig.schema, body, createWriteGuardConfig(opts.writeGuard))
       const createIgnoredFields = createGuard.ignoredFields
       let input = createConfig.schema.parse(createGuard.body)
       const beforeInterceptors = await applyInterceptorsBefore({
@@ -2370,7 +2386,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (interceptorRequestPayload.body) {
         // See the update path: the report describes the caller's body, not the
         // post-parse one an interceptor handed back.
-        const rewritten = guardWriteBody(createConfig.schema, interceptorRequestPayload.body, opts.writeGuard)
+        const rewritten = guardWriteBody(createConfig.schema, interceptorRequestPayload.body, createWriteGuardConfig(opts.writeGuard))
         input = createConfig.schema.parse(rewritten.body)
       }
 
