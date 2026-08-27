@@ -948,7 +948,10 @@ export async function run(argv = process.argv) {
   const helpRequested = isHelpRequest(parts)
   await ensureEnvLoaded(resolveEnvBootstrapOptions(parts))
 
-  if (helpRequested && first && TOP_LEVEL_COMMAND_HELP[first]) {
+  // Object.hasOwn, not a truthiness check: the map is indexed with raw user input, and an
+  // inherited Object.prototype member (`constructor`, `toString`, …) would otherwise pass the
+  // guard and then fail to iterate instead of reporting the module as not found.
+  if (helpRequested && first && Object.hasOwn(TOP_LEVEL_COMMAND_HELP, first)) {
     for (const line of TOP_LEVEL_COMMAND_HELP[first]) console.log(`  ${line}`)
     return 0
   }

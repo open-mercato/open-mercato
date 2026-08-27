@@ -396,6 +396,27 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleLogSpy.mockRestore()
       consoleErrorSpy.mockRestore()
     })
+
+    it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+      'reports %s as an unknown module instead of matching an inherited prototype key',
+      async (inheritedKey) => {
+        const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+        registerCliModules([
+          { id: 'db', cli: [{ command: 'generate', run: jest.fn() }] } as any,
+        ])
+
+        const exitCode = await run(['node', 'mercato', inheritedKey, '--help'])
+
+        expect(exitCode).toBe(1)
+        const errors = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+        expect(errors).toContain(`Module not found: "${inheritedKey}"`)
+
+        consoleLogSpy.mockRestore()
+        consoleErrorSpy.mockRestore()
+      },
+    )
   })
 })
 

@@ -24,6 +24,29 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### The CLI dispatcher answers `--help`/`-h` for module commands (#5581)
+
+Asking the `mercato` CLI what a command's flags are used to run the command. `mercato db generate --help` performed a full migration generation, `mercato db migrate --help` applied every pending migration, and in a checkout without `.env` any invocation — help included — silently materialized `.env` from `.env.example` against that file's placeholder `DATABASE_URL`. Help is now a no-op that prints usage: the dispatcher intercepts `--help`/`-h` before calling a command's `run()`, and the `.env` bootstrap is skipped for any help invocation.
+
+For a first-party command this is invisible, and no command or flag was renamed or removed. The actionable change is for **out-of-tree modules**: a `ModuleCli` whose `run()` parses `-h` or `--help` itself — a `-h` host shorthand is the obvious case — no longer receives that flag, because the dispatcher answers it first. `-h` meaning help is the overwhelming CLI convention, so it is the new default, but a command that means something else by it needs to say so.
+
+**Action for module authors:** if one of your CLI descriptors parses `-h`/`--help` in its own `run()`, set `handlesHelp: true` on that descriptor and the dispatcher will forward the flag through unchanged:
+
+```typescript
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+
+const cli: ModuleCli[] = [
+  {
+    command: 'sync',
+    // The dispatcher forwards --help/-h to run() instead of intercepting it.
+    handlesHelp: true,
+    run: async (argv) => { /* parses -h itself */ },
+  },
+]
+```
+
+Every other descriptor needs no change. Two optional fields were added to `ModuleCli` (`packages/shared/src/modules/registry.ts`), so existing descriptors still typecheck untouched — an ADDITIVE-ONLY change under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) § 13. The companion field `help?: string` is purely opt-in: set it to the usage text the dispatcher should print under `Usage: mercato <module> <command> [args]`, and omit it to get the generic usage line plus the module's command list.
+
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 
 `AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
