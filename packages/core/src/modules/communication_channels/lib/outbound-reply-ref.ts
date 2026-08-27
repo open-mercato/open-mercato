@@ -98,3 +98,41 @@ export async function resolveOutboundReplyExternalId(
   const externalId = parentExternal.externalMessageId
   return typeof externalId === 'string' && externalId.length > 0 ? externalId : null
 }
+
+/**
+ * Outbound `channelMetadata` keys that decide which provider message a reply
+ * attaches to.
+ *
+ * - `replyToExternalId` — the hub's own key, produced by
+ *   `resolveOutboundReplyExternalId` above.
+ * - `messageReferenceId` — Discord's already-converted equivalent. Its converter
+ *   has to accept that key so the value survives the hub's convert→send double
+ *   conversion (#5541), and the converter cannot tell the two passes apart, so
+ *   the key is equally accepted on the first, caller-controlled pass.
+ */
+const REPLY_TARGETING_METADATA_KEYS = ['replyToExternalId', 'messageReferenceId'] as const
+
+/**
+ * Drop every reply-targeting key from stored link metadata, so reply targeting
+ * on the outbound path is hub-resolved only.
+ *
+ * `send-as-user` merges caller-supplied `channelMetadata` onto the
+ * `MessageChannelLink`, and `deliver-outbound-message` reads that row back as
+ * the converter's base metadata. Merge order alone only settles the contest when
+ * the hub actually resolved a parent; the uncontested case — a message with no
+ * `parentMessageId`, or one whose parent legitimately fails to resolve — is
+ * exactly the one a caller controls, and there nothing would overwrite a
+ * smuggled key. Without this, a `communication_channels.manage` caller could aim
+ * a reply at an arbitrary provider message id and have the bot's message render
+ * as a reply to a message the hub never resolved and never validated.
+ *
+ * Stripping is safe on a retry: the reference is re-resolved from
+ * `parentMessageId` on every delivery attempt, never read back from the link.
+ */
+export function stripCallerReplyTargeting(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  const cleaned = { ...metadata }
+  for (const key of REPLY_TARGETING_METADATA_KEYS) delete cleaned[key]
+  return cleaned
+}

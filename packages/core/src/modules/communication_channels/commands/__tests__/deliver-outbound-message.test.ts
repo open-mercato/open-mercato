@@ -330,7 +330,10 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
     return { ctx, adapter }
   }
 
-  function primeFinds(parentMessageId: string | null) {
+  function primeFinds(
+    parentMessageId: string | null,
+    linkChannelMetadata: Record<string, unknown> | null = null,
+  ) {
     mockFindOne.mockReset()
     mockFindOne
       .mockResolvedValueOnce({
@@ -359,7 +362,7 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
         id: 'link-1',
         deliveryStatus: 'pending',
         channelPayload: null,
-        channelMetadata: null,
+        channelMetadata: linkChannelMetadata,
       } as never) // this message's own link
   }
 
@@ -486,5 +489,69 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
 
     const converted = adapter.convertOutbound.mock.calls[0][0] as { channelMetadata: Record<string, unknown> }
     expect(converted.channelMetadata.replyToExternalId).toBe(PARENT_SNOWFLAKE)
+  })
+
+  // The uncontested half of the case above. Merge order only settles the contest
+  // when the hub actually resolved a parent; when it resolved nothing there is no
+  // hub value to out-rank a caller-supplied key, so both reply-targeting keys are
+  // stripped off the link metadata instead. Discord's converter accepts
+  // `messageReferenceId` (it has to, to survive the convert→send double
+  // conversion) and has always accepted `replyToExternalId`, so either one would
+  // otherwise reach `body.message_reference` unvalidated.
+  it.each([['messageReferenceId'], ['replyToExternalId']])(
+    'strips a caller-supplied %s when the message is not a reply',
+    async (key) => {
+      primeFinds(null, { [key]: 'attacker-controlled-snowflake' })
+      const { ctx, adapter } = makeCtx({ threading: true })
+
+      await deliverOutboundMessageCommand.execute(
+        { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+        ctx,
+      )
+
+      const converted = adapter.convertOutbound.mock.calls[0][0] as {
+        channelMetadata: Record<string, unknown>
+      }
+      expect(converted.channelMetadata).not.toHaveProperty('messageReferenceId')
+      expect(converted.channelMetadata).not.toHaveProperty('replyToExternalId')
+    },
+  )
+
+  it('strips caller-supplied reply targeting when the parent does not resolve', async () => {
+    // A real reply whose parent never reached this channel. The hub produces
+    // nothing, so without stripping the caller's key would fill the gap.
+    primeFinds(PARENT_MSG, { messageReferenceId: 'attacker-controlled-snowflake' })
+    mockFindOne.mockResolvedValueOnce(null as never) // parent link — not on this channel
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const converted = adapter.convertOutbound.mock.calls[0][0] as {
+      channelMetadata: Record<string, unknown>
+    }
+    expect(converted.channelMetadata).not.toHaveProperty('messageReferenceId')
+    expect(converted.channelMetadata).not.toHaveProperty('replyToExternalId')
+  })
+
+  it('leaves unrelated caller metadata untouched while stripping reply targeting', async () => {
+    // The strip is surgical: it removes the two reply-targeting keys and nothing
+    // else, so `send-as-user`'s legitimate pass-through metadata still reaches
+    // the adapter.
+    primeFinds(null, { messageReferenceId: 'attacker-controlled-snowflake', allowedMentions: { parse: ['users'] } })
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const converted = adapter.convertOutbound.mock.calls[0][0] as {
+      channelMetadata: Record<string, unknown>
+    }
+    expect(converted.channelMetadata).not.toHaveProperty('messageReferenceId')
+    expect(converted.channelMetadata.allowedMentions).toEqual({ parse: ['users'] })
   })
 })

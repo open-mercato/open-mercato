@@ -13,7 +13,7 @@ import {
   getOrCreateThreadToken,
 } from '../lib/thread-token'
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
-import { resolveOutboundReplyExternalId } from '../lib/outbound-reply-ref'
+import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
@@ -428,12 +428,16 @@ const deliverOutboundMessageCommand: CommandHandler<
         bodyFormat: outboundBodyFormat,
         channelMetadata: {
           thread_id: mapping.externalThreadRef,
-          ...baseMetadata,
+          // Reply targeting is hub-resolved only. `send-as-user` merges
+          // caller-supplied metadata onto the link, so every reply-targeting key
+          // is stripped off the stored metadata here rather than merely
+          // out-ranked below: merge order settles the contest only when the hub
+          // resolved a parent, and the uncontested case — no `parentMessageId`,
+          // or a parent that does not resolve — is exactly the one a caller
+          // controls.
+          ...stripCallerReplyTargeting(baseMetadata),
           references: mergedReferences,
           ...(threadToken ? { omThreadToken: threadToken } : {}),
-          // AFTER `baseMetadata` on purpose: `send-as-user` merges caller-supplied
-          // metadata into the link, and a caller must not be able to point a reply
-          // at an arbitrary provider message id. The hub-resolved value wins.
           ...(replyToExternalId ? { replyToExternalId } : {}),
         },
       })

@@ -1151,13 +1151,23 @@ rule 3), and no variant should be considered done without it.
   send with a 400 when the referenced message is gone — non-transient, so the hub would mark the link
   `failed` and never deliver the reply. Users delete messages routinely, and the AI producers reference
   the thread ROOT, the likeliest-deleted message in a conversation.
-- **Ordering is a security property.** The resolved id is merged *after* the link's stored metadata, so
-  the caller-supplied `channelMetadata` that `send-as-user` passes through cannot point a reply at an
-  arbitrary provider message id. Pinned by a test.
+- **Reply targeting is hub-resolved only.** `send-as-user` merges caller-supplied `channelMetadata` onto
+  the `MessageChannelLink`, which `deliver-outbound-message` reads back as the converter's base metadata,
+  so a caller must not be able to point a reply at an arbitrary provider message id. Merge order alone
+  does not achieve that: it settles the contest only when the hub actually resolved a parent, and the
+  uncontested case — no `parentMessageId`, or a parent that legitimately fails to resolve — is exactly
+  the one a caller controls. Both reply-targeting keys (`replyToExternalId`, and Discord's
+  already-converted `messageReferenceId`, which its converter must accept to survive the double
+  conversion) are therefore *stripped* off the stored metadata by
+  `stripCallerReplyTargeting` before the hub's own value is merged, rather than merely out-ranked.
+  Stripping at the hub seam covers every producer of `link.channelMetadata`, not just `send-as-user`, and
+  is safe on retry because the reference is re-resolved from `parentMessageId` on each attempt.
 - **Coverage.** `communication_channels/lib/__tests__/outbound-reply-ref.test.ts` (resolution, the four
-  `null` paths, scoping assertions), five cases in
+  `null` paths, scoping assertions, and the strip helper's key set and non-mutation), nine cases in
   `commands/__tests__/deliver-outbound-message.test.ts` (threading adapter, non-threading adapter,
-  non-reply, lookup failure, caller-override), the double-conversion round-trip and precedence cases in
+  non-reply, lookup failure, caller-override on the contested path, plus the uncontested path: each
+  reply-targeting key stripped on a non-reply, both stripped when the parent does not resolve, and
+  unrelated caller metadata left intact), the double-conversion round-trip and precedence cases in
   `channel_discord/lib/__tests__/convert-outbound.test.ts`, and the rewritten
   `channel_discord/lib/__tests__/capabilities.test.ts` threading case, which drives the hub's own call
   order — `convertOutbound`, then the real `adapter.sendMessage` fed with `converted.metadata` — down to

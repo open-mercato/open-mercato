@@ -4,7 +4,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolveOutboundReplyExternalId } from '../outbound-reply-ref'
+import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../outbound-reply-ref'
 import { ExternalMessage, MessageChannelLink } from '../../data/entities'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
@@ -139,5 +139,28 @@ describe('resolveOutboundReplyExternalId', () => {
       .mockResolvedValueOnce(parentExternalMessage({ externalMessageId: '' }))
 
     await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBeNull()
+  })
+})
+
+describe('stripCallerReplyTargeting', () => {
+  it('removes both reply-targeting keys and keeps everything else', () => {
+    const cleaned = stripCallerReplyTargeting({
+      replyToExternalId: 'caller-1',
+      messageReferenceId: 'caller-2',
+      to: ['someone@example.com'],
+      subject: 'hi',
+    })
+
+    expect(cleaned).toEqual({ to: ['someone@example.com'], subject: 'hi' })
+  })
+
+  it('does not mutate the caller-supplied object', () => {
+    // The input is the live `MessageChannelLink.channelMetadata` row value, which
+    // the delivery command still persists to on the success path.
+    const stored = { messageReferenceId: 'caller-2', subject: 'hi' }
+
+    stripCallerReplyTargeting(stored)
+
+    expect(stored).toEqual({ messageReferenceId: 'caller-2', subject: 'hi' })
   })
 })
