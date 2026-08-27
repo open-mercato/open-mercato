@@ -55,7 +55,6 @@
   "onboarding.existingAccountEmail.subject": "W sprawie Twojego konta Open Mercato",
   "onboarding.form.confirmPassword": "Potwierdź hasło",
   "onboarding.form.email": "Służbowy email",
-  "onboarding.form.emailExists": "Mamy już konto z tym adresem email. Spróbuj się zalogować lub zresetować hasło.",
   "onboarding.form.firstName": "Imię",
   "onboarding.form.genericError": "Coś poszło nie tak. Spróbuj ponownie lub skontaktuj się z pomocą techniczną.",
   "onboarding.form.lastName": "Nazwisko",

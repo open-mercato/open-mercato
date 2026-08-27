@@ -55,7 +55,6 @@
   "onboarding.existingAccountEmail.subject": "Sobre su cuenta de Open Mercato",
   "onboarding.form.confirmPassword": "Confirmar contraseña",
   "onboarding.form.email": "Correo electrónico de trabajo",
-  "onboarding.form.emailExists": "Ya tenemos una cuenta con este correo electrónico. Intente iniciar sesión o restablecer su contraseña.",
   "onboarding.form.firstName": "Nombre",
   "onboarding.form.genericError": "Algo salió mal. Intente de nuevo o comuníquese con soporte.",
   "onboarding.form.lastName": "Apellido",

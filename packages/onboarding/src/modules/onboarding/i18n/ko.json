@@ -55,7 +55,6 @@
   "onboarding.existingAccountEmail.subject": "Open Mercato 계정 안내",
   "onboarding.form.confirmPassword": "비밀번호 확인",
   "onboarding.form.email": "업무용 이메일",
-  "onboarding.form.emailExists": "이미 이 이메일로 등록된 계정이 있습니다. 로그인하거나 비밀번호를 재설정해 보세요.",
   "onboarding.form.firstName": "이름",
   "onboarding.form.genericError": "문제가 발생했습니다. 다시 시도하거나 지원팀에 문의하세요.",
   "onboarding.form.lastName": "성",

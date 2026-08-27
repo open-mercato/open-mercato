@@ -55,7 +55,6 @@
   "onboarding.existingAccountEmail.subject": "Zu Ihrem Open Mercato-Konto",
   "onboarding.form.confirmPassword": "Passwort bestätigen",
   "onboarding.form.email": "Geschäftliche E-Mail",
-  "onboarding.form.emailExists": "Es existiert bereits ein Konto mit dieser E-Mail-Adresse. Versuchen Sie, sich anzumelden oder Ihr Passwort zurückzusetzen.",
   "onboarding.form.firstName": "Vorname",
   "onboarding.form.genericError": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut oder kontaktieren Sie den Support.",
   "onboarding.form.lastName": "Nachname",
