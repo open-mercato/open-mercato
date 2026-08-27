@@ -43,10 +43,24 @@ describe('tokenizeText diacritic folding', () => {
     ['Æther', ['aether']],
     ['Œuvre', ['oeuvre']],
     ['Straße', ['strasse']],
+    ['Þórsdóttir', ['thorsdottir']],
+    ['Guðmundsdóttir', ['gudmundsdottir']],
+    ['Sæþór', ['saethor']],
+    ['Ŋoma', ['noma']],
+    ['Ŧorvald', ['torvald']],
   ])('folds non-decomposing letters beyond Polish in %s', (input, expected) => {
     const { tokens } = tokenizeText(input, wholeWordConfig)
 
     expect(tokens).toEqual(expected)
+  })
+
+  test('folds Eth and D-with-stroke identically, since the two are visually indistinguishable', () => {
+    const dWithStroke = tokenizeText('Đurić', wholeWordConfig)
+    const eth = tokenizeText('Ðurić', wholeWordConfig)
+
+    expect(dWithStroke.tokens).toEqual(['duric'])
+    expect(eth.tokens).toEqual(['duric'])
+    expect(eth.hashes).toEqual(dWithStroke.hashes)
   })
 
   test.each([
@@ -72,6 +86,35 @@ describe('tokenizeText diacritic folding', () => {
     const { tokens } = tokenizeText('Łódź', baseConfig)
 
     expect(tokens).toEqual(['lod', 'lodz'])
+  })
+
+  // The property NON_DECOMPOSING_FOLDS actually exists to guarantee: no letter in the two
+  // blocks it draws from may split or truncate the word it sits in. Asserting the range
+  // directly is what catches a gap; enumerating characters by hand is what let nine of them
+  // through in the first place.
+  //
+  // The three exclusions are a different defect class, not missing table rows. NFKD *does*
+  // decompose them — into a base letter plus a non-combining separator (U+00B7 middle dot
+  // for the two L-with-middle-dot letters, U+02BC modifier apostrophe for U+0149) — which
+  // `splitTokens` then cuts the word at. A table entry for them would be dead code, because
+  // the fold runs after NFKD and the codepoint no longer exists by then. Fixing them means
+  // deciding whether that separator residue should survive tokenization at all, which also
+  // governs the far commoner ASCII spelling (`Paral·lel` normalizes identically to
+  // `Paraŀlel`), so it is tracked as its own change rather than smuggled in here.
+  const SEPARATOR_RESIDUE_LETTERS = ['U+013F Ŀ', 'U+0140 ŀ', 'U+0149 ŉ']
+
+  test('keeps every Latin-1 Supplement and Latin Extended-A letter inside a single token', () => {
+    const lost: string[] = []
+
+    for (let codePoint = 0xc0; codePoint <= 0x17f; codePoint += 1) {
+      const char = String.fromCodePoint(codePoint)
+      if (!/\p{L}/u.test(char)) continue
+      if (tokenizeText(`a${char}b`, wholeWordConfig).tokens.length !== 1) {
+        lost.push(`U+${codePoint.toString(16).toUpperCase().padStart(4, '0')} ${char}`)
+      }
+    }
+
+    expect(lost).toEqual(SEPARATOR_RESIDUE_LETTERS)
   })
 })
 
