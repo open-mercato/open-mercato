@@ -2611,7 +2611,7 @@ export function LineItemDialog({
               "ui.lookupSelect.startTyping",
               "Start typing to search.",
             )}
-            minQuery={0}
+            minQuery={1}
           />
         ),
       } satisfies CrudField,
