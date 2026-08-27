@@ -20,6 +20,7 @@ Use Sales settings to standardize how orders and quotes behave. Access requires 
 
 - Decide when **customers** and **addresses** can change (any status vs only draft).
 - Changing customer clears addresses to prevent data mix-ups.
+- **Correct a line after it has shipped** — off by default, which keeps a line's price, discount, tax rate, unit and quantity locked once it has shipped items. Turn it on where an external system of record owns the order and posts corrections after dispatch (a re-rated VAT line, a price fixed by accounting, a quantity restated after a return); the line dialog unlocks with it, so what an operator can send matches what the API accepts. Deleting a line that has shipped items stays blocked either way.
 
 ## Payment methods and statuses
 
