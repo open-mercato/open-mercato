@@ -370,6 +370,15 @@ Changes take effect for documents built after the change — **reindex the affec
 (`yarn mercato query_index reindex --entity <entityType>`) to drop tokens that are already
 stored.
 
+### `search_text` and encrypted fields
+
+The document persisted in `entity_indexes` stays encrypted at rest, so the aggregate stored
+alongside it concatenates ciphertext for every field an encryption map covers. Search tokens
+are therefore built from a **decrypted** copy of the document, with `search_text` recomposed
+from those plaintext values — otherwise the aggregate would be tokenized from ciphertext and
+could never match what a user types. Indexes written before this behavior shipped keep their
+ciphertext-derived `search_text` tokens until the entity is reindexed.
+
 ## Adding Custom Strategies
 
 Third-party packages can register custom strategies via DI:
