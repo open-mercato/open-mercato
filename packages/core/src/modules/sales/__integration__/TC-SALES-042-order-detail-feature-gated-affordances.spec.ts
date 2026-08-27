@@ -84,6 +84,22 @@ function addressesSectionHeading(page: Page) {
 
 // TagsSection drops `role="button"` from its container when editing is denied, which is the
 // thing under test; locating on the role is therefore the assertion, not an implementation detail.
+// The two icon buttons on the customer card, located individually and by EXACT name.
+//
+// A regex `name` cannot be used here. `DocumentCustomerCard` puts `role="button"` on the card
+// CONTAINER whenever `onSelectCustomer` is supplied, and `role="button"` takes its accessible name
+// from content — so the container's name concatenates both buttons' `sr-only` labels
+// ("Customer ACME a@b.c Edit customer snapshot Select customer"). Playwright substring-matches a
+// RegExp `name` but exact-matches a string, so `/Edit customer snapshot|Select customer/` counts the
+// container as a third match while these two do not.
+function customerCardEditButton(page: Page) {
+  return page.getByRole('button', { name: 'Edit customer snapshot', exact: true })
+}
+
+function customerCardSelectButton(page: Page) {
+  return page.getByRole('button', { name: 'Select customer', exact: true })
+}
+
 // The addresses section has no banner while the lock has no stated reason, so its own submit is
 // what says whether editing is open.
 function updateAddressesButton(page: Page) {
@@ -172,7 +188,8 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
     await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
     // Counterparts to the viewer's absences: without these the zeros below prove nothing.
-    await expect(page.getByRole('button', { name: /Edit customer snapshot|Select customer/ })).toHaveCount(2)
+    await expect(customerCardEditButton(page)).toHaveCount(1)
+    await expect(customerCardSelectButton(page)).toHaveCount(1)
     await expect(tagsEditTarget(page)).toHaveCount(1)
     await expect(updateAddressesButton(page)).toBeEnabled()
   })
@@ -190,7 +207,8 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
 
     // The two affordances that used to render and merely fail on click. Both are asserted as
     // present in the manager test, so a zero here is a decision rather than an empty page.
-    await expect(page.getByRole('button', { name: /Edit customer snapshot|Select customer/ })).toHaveCount(0)
+    await expect(customerCardEditButton(page)).toHaveCount(0)
+    await expect(customerCardSelectButton(page)).toHaveCount(0)
     await expect(tagsEditTarget(page)).toHaveCount(0)
   })
 
@@ -226,7 +244,8 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
       // Every surface, not just Delete. `managePermitted` and `!manageDenied` differ exactly here,
       // and a page that gates some affordances on one and some on the other locks half of itself.
       await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
-      await expect(page.getByRole('button', { name: /Edit customer snapshot|Select customer/ })).toHaveCount(0)
+      await expect(customerCardEditButton(page)).toHaveCount(0)
+      await expect(customerCardSelectButton(page)).toHaveCount(0)
       await expect(tagsEditTarget(page)).toHaveCount(0)
       await expect(updateAddressesButton(page)).toBeDisabled()
 
