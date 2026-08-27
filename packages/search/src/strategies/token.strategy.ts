@@ -49,6 +49,12 @@ const CF_CANONICAL_PREFIX = 'cf:'
  * Deliberately scoped to the rows this strategy writes rather than applied to
  * `IndexableRecord.fields` upstream: the same object is handed to the fulltext driver, and
  * Meilisearch rejects an attribute name containing `:`.
+ *
+ * The reversal assumes word-character keys. The engine's alias sanitizer is
+ * `[^a-zA-Z0-9_] -> _` and a custom-field key is an unconstrained `z.string()`, so a key named
+ * `order-ref` arrives as `cf_order_ref` and is rewritten to `cf:order_ref` — a name nothing reads,
+ * which leaves that one field's double-write unfixed. Inverting the sanitizer would need the
+ * field-definition key list, which this strategy has not got.
  */
 function normalizeCustomFieldKeys(
   fields: Record<string, unknown> | null | undefined,
