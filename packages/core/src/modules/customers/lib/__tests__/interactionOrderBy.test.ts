@@ -28,7 +28,7 @@ describe('buildInteractionOccurredAtOrderBy', () => {
         .orderBy(buildInteractionOccurredAtOrderBy('desc'))
         .getQuery()
 
-      expect(query).toContain('order by "c0"."occurred_at" desc nulls last')
+      expect(query).toContain('order by occurred_at desc nulls last')
       expect(query).toContain('"c0"."created_at" desc')
     } finally {
       await orm.close(true)
