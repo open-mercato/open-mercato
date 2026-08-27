@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Pencil, Plus, Trash2, Truck } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -42,8 +43,6 @@ type SalesShipmentsSectionProps = {
 }
 
 // One date formatter for this page rather than three with incompatible semantics.
-import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
-
 export { formatDisplayDate }
 
 const formatShipmentAddress = (metadata?: Record<string, unknown> | null): string | null => {

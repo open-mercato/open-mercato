@@ -52,28 +52,43 @@ describe('display value helpers', () => {
   // Local midnight is `00:00` in every zone, so asserting the time pins the parse without the
   // runner being in a particular zone. A UTC parse reads `02:00` in Europe/Warsaw.
   it('parses a date-only value as local midnight, so the stored day survives the viewer timezone', () => {
-    expect(formatDisplayDateTime('2026-07-01', 'pl')).toBe('1 lip 2026 00:00')
+    expect(formatDisplayDateTime('2026-07-01', 'pl')).toBe('1 lip 2026, 00:00')
     expect(formatDisplayDate('2026-07-01', 'pl')).toBe('1 lip 2026')
   })
 
   // With no env override the display pattern is the locale's own, and the month name comes from
   // the resolved date-fns locale — so this agrees with `ReturnsSection` / `ShipmentsSection`,
   // which render `9 cze 2026` beside it. A bare string locale is enough; callers hold one.
-  it('derives the pattern and the month name from the locale', () => {
-    expect(deriveDateDisplayFormat('pl')).toBe('d MMM yyyy')
-    expect(formatDisplayDate('2026-07-01', 'pl')).toBe('1 lip 2026')
-    expect(formatDisplayDate('2026-07-01', 'en')).toBe('Jul 1, 2026')
+  // Formatting through `Intl` rather than a derived pattern, because a two-branch "day first or
+  // not" heuristic cannot express either of these: `ko` writes the year first, `de` is numeric and
+  // dotted. Both are locales this repo ships, and this path feeds every backend table.
+  it.each([
+    ['en', 'Jul 1, 2026'],
+    ['pl', '1 lip 2026'],
+    ['es', '1 jul 2026'],
+    ['de', '01.07.2026'],
+    ['ko', '2026. 7. 1.'],
+  ])('renders %s correctly, including the locales a pattern heuristic gets wrong', (locale, expected) => {
+    expect(formatDisplayDate('2026-07-01', locale)).toBe(expected)
+  })
+
+  it('lets an env pattern override the locale, so a deployment can pin one shape', () => {
+    process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'yyyy-MM-dd'
+    expect(formatDisplayDate('2026-07-01', 'ko')).toBe('2026-07-01')
+    expect(formatDisplayDate('2026-07-01', 'de')).toBe('2026-07-01')
   })
 
   it('keeps the instant for an offset-carrying value', () => {
     expect(formatDisplayDateTime('2026-07-01T09:30:00Z', 'pl')).toBe(
-      formatWithPublicDateFormat(new Date('2026-07-01T09:30:00Z'), 'd MMM yyyy HH:mm', pl),
+      new Intl.DateTimeFormat('pl', { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date('2026-07-01T09:30:00Z'),
+      ),
     )
   })
 
   it('accepts a Date as well as a string', () => {
     expect(formatDisplayDate(new Date(2026, 6, 1), 'pl')).toBe('1 lip 2026')
-    expect(formatDisplayDateTime(new Date(2026, 6, 1, 9, 30), 'pl')).toBe('1 lip 2026 09:30')
+    expect(formatDisplayDateTime(new Date(2026, 6, 1, 9, 30), 'pl')).toBe('1 lip 2026, 09:30')
     expect(formatDisplayDate(new Date('not-a-date'), 'pl')).toBeNull()
   })
 
@@ -116,9 +131,8 @@ describe('resolveDisplayDateTimeFormat', () => {
     expect(resolveDisplayDateTimeFormat()).toBe('dd.MM.yyyy HH:mm')
   })
 
-  it('ends at the locale pattern with a time', () => {
-    expect(resolveDisplayDateTimeFormat('pl')).toBe('d MMM yyyy HH:mm')
-    expect(resolveDisplayDateTimeFormat('en')).toBe('MMM d, yyyy HH:mm')
+  it('reports no override when nothing is configured, so the caller falls to Intl', () => {
+    expect(resolveDisplayDateTimeFormat()).toBeNull()
   })
 })
 

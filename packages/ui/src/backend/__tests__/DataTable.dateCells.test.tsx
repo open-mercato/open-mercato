@@ -23,7 +23,7 @@ afterEach(() => {
   process.env = { ...ORIGINAL_ENV }
 })
 
-function renderTable(data: Row[]) {
+function renderTable(data: Row[], locale = 'pl') {
   const columns: ColumnDef<Row>[] = [{ accessorKey: 'created_at', header: 'Created' }]
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
   return render(
@@ -32,7 +32,7 @@ function renderTable(data: Row[]) {
       { client: queryClient },
       React.createElement(
         I18nProvider as any,
-        { locale: 'en', dict: {} },
+        { locale, dict: {} },
         React.createElement(DataTable as any, { columns, data, title: 'Test' }),
       ),
     ),
@@ -46,10 +46,14 @@ describe('DataTable date cells', () => {
   it('renders a date-only value as local midnight of the stored day', () => {
     renderTable([{ id: '1', created_at: '2026-07-01' }])
 
-    // `en` is the locale this harness provides; with no env override the pattern is that locale's.
+    // `pl`, not `en`: under `en` a component that never reads the locale renders the same string as
+    // one that does, so the assertion would hold either way — the corollary in
+    // `.ai/lessons/tests-asserting-intl-output-must-pin-locale-and-date.md`. Mutation-checked:
+    // dropping the locale from `DataTable`'s formatter call fails this case.
+    //
     // The time is asserted too: a UTC parse reads `02:00` in Europe/Warsaw and 30 June further west,
     // while local midnight is `00:00` everywhere.
-    expect(screen.getByText('Jul 1, 2026 00:00')).toBeInTheDocument()
+    expect(screen.getByText('1 lip 2026, 00:00')).toBeInTheDocument()
   })
 
   // One env chain with the detail-page helpers: a table cell and a detail field must not disagree.

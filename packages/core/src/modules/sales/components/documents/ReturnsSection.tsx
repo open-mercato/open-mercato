@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Undo2, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -41,11 +42,7 @@ type SalesReturnsSectionProps = {
   documentUpdatedAt?: string | null
 }
 
-// One date formatter for this page rather than three with incompatible semantics. Unchanged for
-// these call sites: with no env override the shared helper derives its pattern from the same
-// locale this used to pass to `Intl`.
-import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
-
+// One date formatter for this page rather than three with incompatible semantics.
 export { formatDisplayDate }
 
 export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
@@ -329,7 +326,11 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
                 </div>
               </div>
               <div className="whitespace-nowrap text-right text-sm text-muted-foreground">
-                {formatDisplayDate(ret.returnedAt, locale) ?? t('sales.returns.notSet', 'Not set')}
+                {/* `returnedAt` is submitted as a bare `yyyy-MM-dd` by `ReturnEditDialog`, coerced by
+                    `z.coerce.date()` and returned via `.toISOString()`, and that dialog seeds itself
+                    back from the UTC day — unconditionally, however the row was written. Matching the
+                    dialog is the invariant, so the row cannot contradict itself west of UTC. */}
+                {formatDisplayDate(toUtcDateInputValue(ret.returnedAt), locale) ?? t('sales.returns.notSet', 'Not set')}
               </div>
               <div className="whitespace-nowrap text-right text-sm font-medium">
                 {formatMoney(ret.total, currencyCode ?? null, locale)}
