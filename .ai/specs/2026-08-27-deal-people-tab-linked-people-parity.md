@@ -13,6 +13,7 @@
 |---------|------|---------|
 | 1.0 | 2026-08-27 | Initial spec: share the company linked-people section with the deal People tab. |
 | 1.1 | 2026-08-27 | Spec review: the deal write path is now in scope. `syncDealPeople` becomes set-diffing **and** stamps the deal's `updated_at`, because neither change alone fixes both the lost-update race and the `linkedAt` reset. Corrected the integration-test location, the validation gate, the `CreatedPersonSummary` BC row, the overstated Goals list; added the deal refresh-event decision and the sibling-tab asymmetry. |
+| 1.2 | 2026-08-27 | Recorded the blast radius of the `syncDealPeople` change: five call sites across three commands, both execute and undo, all inside an existing flush phase. |
 
 ## TLDR
 
@@ -114,6 +115,17 @@ Set-diffing alone does **not** close this. Two users open a deal holding `{Ada, 
 So `syncDealPeople` must also mark the deal dirty whenever it actually adds or removes a link, so the next writer's stale header fails the version check and raises the 409 the UI already knows how to surface. A no-op write (identical set) must **not** bump the token, or every idle save would invalidate other sessions.
 
 The same reasoning applies to `syncDealCompanies`, which shares the delete-and-recreate shape. Bringing it along is optional for this change's UI but keeps the two paths honest; if it is deferred, say so in the implementation PR rather than leaving the asymmetry silent.
+
+#### Blast radius of the change
+
+`syncDealPeople` has five call sites across three commands, in both directions: `createDealCommand` execute and undo, `updateDealCommand` execute and undo, and `deleteDealCommand`'s undo restore. All five run inside a `withAtomicFlush` phase list (or the `runCrudCommandWrite` phases on the update path), so the set-diff inherits the existing flush boundary and introduces no new mutate→read interleave.
+
+Two of them deserve explicit thought during implementation:
+
+- **Undo / restore paths** replay a snapshot rather than a user edit. Set-diffing reaches the same final membership as delete-and-recreate, so the restored set is unchanged; the only difference is that rows which happen to survive keep their `created_at`. That is the desired behaviour — an undo should not re-date links it did not touch.
+- **The create path** runs against a deal with no existing links, so the diff degenerates to all-inserts and the `updated_at` stamp is irrelevant there.
+
+The command tests below must therefore cover the update path directly and assert that create and the undo directions still produce the exact sets they produce today.
 
 #### Alternative considered — delta payload
 
@@ -239,6 +251,7 @@ Required in the same PR as the implementation.
 - **lock-token advance**: a `{ id, personIds }` update that changes membership advances `customer_deals.updated_at`; an identical-set update does **not**.
 - **interleaved writes**: two updates from the same base version, changing disjoint members — the second is rejected with the optimistic-lock conflict rather than silently reinstating the first one's removal.
 - `isPrimary` reconciliation and the `400` primary-must-be-linked guard still hold across a set-diffing update.
+- create and both undo directions still produce the exact link sets they produce today (see § Blast radius).
 
 ### API
 
