@@ -10,7 +10,11 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
-export const metadata = {}
+const FEATURE = 'customer_accounts.view'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: [FEATURE] },
+}
 
 /**
  * Reports which of the `seedExamples` portal accounts actually exist in the
@@ -26,7 +30,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const rbacService = container.resolve('rbacService') as RbacService
-  const hasAccess = await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.view'], { tenantId: auth.tenantId, organizationId: auth.orgId })
+  const hasAccess = await rbacService.userHasAllFeatures(auth.sub, [FEATURE], { tenantId: auth.tenantId, organizationId: auth.orgId })
   if (!hasAccess) {
     return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
