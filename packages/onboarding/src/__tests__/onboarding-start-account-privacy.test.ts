@@ -5,6 +5,7 @@ const getSecurityEmailBaseUrl = jest.fn()
 const consume = jest.fn()
 const deleteRateLimitKey = jest.fn()
 const resolveRateLimiterService = jest.fn()
+const loadDictionary = jest.fn(async (_locale: string) => ({} as Record<string, string>))
 
 const originalSelfServiceOnboardingEnabled = process.env.SELF_SERVICE_ONBOARDING_ENABLED
 
@@ -42,7 +43,7 @@ jest.mock('@open-mercato/shared/lib/email/send', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  loadDictionary: jest.fn(async () => ({})),
+  loadDictionary: (locale: string) => loadDictionary(locale),
 }))
 
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
@@ -64,8 +65,9 @@ const BASE_URL = 'https://app.example.com'
 
 type ProbeResult = { status: number; body: unknown }
 
-function submission(email: string) {
+function submission(email: string, locale?: string) {
   return {
+    ...(locale ? { locale } : {}),
     email,
     firstName: 'Mallory',
     lastName: 'Prober',
@@ -77,11 +79,11 @@ function submission(email: string) {
   }
 }
 
-async function probe(email: string): Promise<ProbeResult> {
+async function probe(email: string, locale?: string): Promise<ProbeResult> {
   const response = await POST(new Request(`${BASE_URL}/api/onboarding/onboarding`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(submission(email)),
+    body: JSON.stringify(submission(email, locale)),
   }))
   return { status: response.status, body: await response.json() }
 }
@@ -117,6 +119,7 @@ function verificationEmailCall() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  loadDictionary.mockImplementation(async () => ({}))
   process.env.SELF_SERVICE_ONBOARDING_ENABLED = 'true'
   getSecurityEmailBaseUrl.mockReturnValue(BASE_URL)
   sendEmail.mockResolvedValue(undefined)
@@ -235,6 +238,30 @@ describe('onboarding start handles the existing account out of band', () => {
     await probe(EXISTING_EMAIL)
 
     expect(deleteRateLimitKey).toHaveBeenCalledWith(`hash:${EXISTING_EMAIL}`, expect.objectContaining({ points: 1, duration: 600 }))
+  })
+
+  it('writes the notice in the instance default locale, not the one the submitter asked for', async () => {
+    loadDictionary.mockImplementation(async (requested: string) => ({
+      'onboarding.existingAccountEmail.heading': requested === 'en' ? 'Default locale heading' : 'Submitter locale heading',
+      'onboarding.email.heading': requested === 'en' ? 'Default locale welcome' : 'Submitter locale welcome',
+    }))
+
+    await probe(EXISTING_EMAIL, 'pl')
+
+    const rendered = collectStrings(noticeEmailCall()?.[0].react)
+    expect(rendered).toContain('Default locale heading')
+    expect(rendered).not.toContain('Submitter locale heading')
+  })
+
+  it('still writes the verification email in the locale the submitter asked for', async () => {
+    loadDictionary.mockImplementation(async (requested: string) => ({
+      'onboarding.email.heading': requested === 'en' ? 'Default locale welcome' : 'Submitter locale welcome',
+    }))
+
+    await probe(NEW_EMAIL, 'pl')
+
+    const rendered = collectStrings(verificationEmailCall()?.[0].react)
+    expect(rendered).toContain('Submitter locale welcome')
   })
 
   it('sends the notice when no rate limiter is registered', async () => {
