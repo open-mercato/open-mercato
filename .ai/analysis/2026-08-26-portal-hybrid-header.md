@@ -100,10 +100,17 @@ the org lookup) and use it only where it belongs:
 ```ts
 const isPortalRoot = /^\/[^/]+\/portal\/?$/.test(pathname)
 ...
-authenticated={customerAuthMatchesUrlOrg && (!isPublic || isPortalRoot)}
+const authenticatedChrome = customerAuthMatchesUrlOrg && (!isPublic || isPortalRoot)
+authenticated={authenticatedChrome}
+customerAuth={authenticatedChrome ? customerAuth : null}
 ```
 
-Login/signup/verify/reset keep the public chrome; the root follows the session.
+The session prop must move with the chrome, not just the flag. With fix B below,
+`PortalShell` lets a context user upgrade the shell — so leaving `customerAuth`
+ungated (as it was) would hand the provider a session on `/portal/login` and
+render the authenticated shell over the login form: the same prop/context
+disagreement, mirrored. Gated together, login/signup/verify/reset/invite keep the
+public chrome and the root follows the session.
 
 **B — defense in depth (client).** Let the context upgrade the shell, so a stale
 layout prop can never contradict the rendered content:

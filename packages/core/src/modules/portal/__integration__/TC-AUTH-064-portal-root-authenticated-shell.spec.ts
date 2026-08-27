@@ -3,7 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
- * TC-AUTH-063: Entering the portal at its root never paints the logged-out shell
+ * TC-AUTH-064: Entering the portal at its root never paints the logged-out shell
  *
  * Regression coverage for #5678 — the portal root was treated as a public route,
  * so a matching customer session rendered the public header (Log In / Sign Up,
@@ -14,10 +14,12 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
  * This is the path the admin "Open Portal" action links to, and the one a custom
  * domain's `/` rewrites to.
  */
-test.describe('TC-AUTH-063: portal root keeps the authenticated shell', () => {
+test.describe('TC-AUTH-064: portal root keeps the authenticated shell', () => {
   test('landing on /{orgSlug}/portal with a session redirects to the dashboard under the authenticated header', async ({ page, request }) => {
-    const stamp = Date.now()
-    const customerEmail = `qa-auth-063-${stamp}@test.local`
+    // Sharded runs can start within the same millisecond, so the timestamp
+    // alone is not a unique fixture key.
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    const customerEmail = `qa-auth-064-${stamp}@test.local`
     const password = `Password${stamp}!`
 
     let adminToken: string | null = null
@@ -47,7 +49,7 @@ test.describe('TC-AUTH-063: portal root keeps the authenticated shell', () => {
         data: {
           email: customerEmail,
           password,
-          displayName: `QA Auth 063 ${stamp}`,
+          displayName: `QA Auth 064 ${stamp}`,
         },
       })
       expect(createRes.status(), 'customer user should be created').toBe(201)

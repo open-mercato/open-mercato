@@ -228,9 +228,16 @@ describe('frontend customer portal org binding', () => {
       const element = await FrontendLayout({ children: <div>child</div> })
       renderToStaticMarkup(element as React.ReactElement)
 
+      // The session must be withheld too, not just the `authenticated` flag:
+      // PortalShell lets a context user upgrade the chrome, so handing the
+      // provider a session here would render the authenticated shell on the
+      // login page.
       expect(portalShellMock).toHaveBeenCalledWith(expect.objectContaining({
         orgSlug: 'org-a',
         authenticated: false,
+        customerAuth: null,
+        userName: null,
+        userEmail: null,
       }))
     },
   )

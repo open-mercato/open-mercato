@@ -157,16 +157,22 @@ export default async function FrontendLayout({ children }: LayoutProps) {
     )
   }
 
+  // The chrome and the session travel together. PortalShell lets a context user
+  // upgrade a stale `authenticated` prop, so handing the session to the provider
+  // on a route that renders the public chrome would put the authenticated shell
+  // on the login and signup pages.
+  const authenticatedChrome = customerAuthMatchesUrlOrg && (!isPublic || isPortalRoot)
+
   return (
     <PortalLayoutShell
       orgSlug={orgSlug}
       organizationName={orgName}
       tenantId={tenantId}
       organizationId={organizationId}
-      authenticated={customerAuthMatchesUrlOrg && (!isPublic || isPortalRoot)}
-      userName={userName}
-      userEmail={userEmail}
-      customerAuth={customerAuthMatchesUrlOrg ? customerAuth : null}
+      authenticated={authenticatedChrome}
+      userName={authenticatedChrome ? userName : null}
+      userEmail={authenticatedChrome ? userEmail : null}
+      customerAuth={authenticatedChrome ? customerAuth : null}
     >
       {children}
     </PortalLayoutShell>
