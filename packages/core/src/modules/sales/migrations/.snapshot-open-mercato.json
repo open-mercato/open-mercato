@@ -9507,6 +9507,22 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "order_shipped_line_editable": {
+          "name": "order_shipped_line_editable",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
