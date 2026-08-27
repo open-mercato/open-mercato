@@ -26,6 +26,11 @@ export type QueryParamValue = string | string[]
  * parser. Use `readQueryParamList` / `toQueryValueList` where a field's contract
  * says a comma separates values.
  *
+ * Repeated values are treated as a set by the list response cache: its key
+ * serializer sorts them, so `?k=a&k=b` and `?k=b&k=a` share one entry even
+ * though the schema now receives `['a','b']` and `['b','a']` respectively. Do
+ * not declare a repeated param whose order carries meaning.
+ *
  * The result is assembled with `Object.fromEntries`, which defines own data
  * properties. Assigning into an object literal instead would run the
  * `__proto__` setter, so `?__proto__=a&__proto__=b` would replace the returned
