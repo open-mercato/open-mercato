@@ -102,4 +102,30 @@ describe('<AiAssistantLauncher>', () => {
     expect(screen.queryByRole('dialog', { name: 'AI assistants' })).toBeNull()
     expect(apiCallMock).not.toHaveBeenCalled()
   })
+
+  // The gate is fail-closed until the backend chrome payload arrives, so on an
+  // enabled install the launcher always mounts unavailable first and only then
+  // flips. The probes must fire on that transition, and only once.
+  it('probes exactly once when the gate opens after mount', async () => {
+    aiAvailableMock.mockReturnValue(false)
+
+    const { rerender } = renderWithProviders(<AiAssistantLauncher />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(apiCallMock).not.toHaveBeenCalled()
+
+    aiAvailableMock.mockReturnValue(true)
+    rerender(<AiAssistantLauncher />)
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Open AI assistant' }).length).toBeGreaterThan(0)
+    })
+
+    const agentsCalls = apiCallMock.mock.calls.filter(
+      ([url]) => url === '/api/ai_assistant/ai/agents',
+    )
+    expect(agentsCalls).toHaveLength(1)
+  }, 60_000)
 })

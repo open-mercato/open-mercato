@@ -345,4 +345,27 @@ describe('<AiChatSessionsProvider> — ai_assistant availability gate', () => {
     })
     expect(listMock).toHaveBeenCalledWith({ limit: 100 })
   })
+
+  // The gate is fail-closed while the backend chrome payload is still null,
+  // which is the state at mount on every install. So on an enabled install the
+  // sync only ever happens on the re-run triggered by `aiAvailable` flipping
+  // true — this pins that dependency.
+  it('syncs once the availability gate opens after mount', async () => {
+    aiAvailableMock.mockReturnValue(false)
+
+    const { rerender } = renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-count').textContent).toBe('0')
+    })
+    expect(listMock).not.toHaveBeenCalled()
+
+    aiAvailableMock.mockReturnValue(true)
+    rerender(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(listMock).toHaveBeenCalledTimes(1)
+    })
+    expect(listMock).toHaveBeenCalledWith({ limit: 100 })
+  })
 })
