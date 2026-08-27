@@ -200,26 +200,69 @@ test.describe('TC-SALES-4056: shipped order-line corrections', () => {
       // One assertion per field, and each one reads the line back: a 200 alone would not
       // distinguish "the correction was applied" from "the command accepted the payload and
       // dropped it" — which is exactly how a half-wired setting would look.
-      const corrections: Array<[string, Record<string, number>, string, string]> = [
-        ['unit price net', { unitPriceNet: 5, unitPriceGross: 6 }, 'unit_price_net', 'unitPriceNet'],
-        ['discount amount', { discountAmount: 25 }, 'discount_amount', 'discountAmount'],
-        ['discount percent', { discountPercent: 25 }, 'discount_percent', 'discountPercent'],
-        ['tax rate', { taxRate: 8 }, 'tax_rate', 'taxRate'],
-      ]
-      for (const [label, fields, snakeCase, camelCase] of corrections) {
-        const update = await apiRequest(request, 'PUT', '/api/sales/order-lines', {
+      //
+      // Each case restores the baseline first, so the corrections stay independent. Without that
+      // they compound: the unit-price case leaves the line at 5, which silently changes what a
+      // later discount can even mean (see `expected` below). Whoever adds a fifth correction should
+      // not have to know what the fourth left behind.
+      // Both discount fields are named explicitly: the upsert merges an omitted field with the
+      // line's current value, so a reset that just left them out would carry the previous case's
+      // discount forward and the independence above would be a comment rather than a fact.
+      const BASELINE = {
+        quantity: 4,
+        unitPriceNet: 100,
+        unitPriceGross: 120,
+        taxRate: 20,
+        discountAmount: 0,
+        discountPercent: 0,
+      }
+      const put = async (label: string, fields: Record<string, number>) => {
+        const response = await apiRequest(request, 'PUT', '/api/sales/order-lines', {
           token,
-          data: { id: lineId, orderId, currencyCode: 'USD', quantity: 4, ...fields },
+          data: { id: lineId, orderId, currencyCode: 'USD', ...BASELINE, ...fields },
         })
-        expect(update.status(), `${label} correction should be accepted`).toBe(200)
+        expect(response.status(), `${label} should be accepted`).toBe(200)
+      }
+
+      const corrections: Array<{
+        label: string
+        fields: Record<string, number>
+        column: [string, string]
+        /**
+         * What the line must hold afterwards. Usually the submitted value — but `discountAmount` is
+         * not a round-trip field: `buildBaseLineResult` reads it as a PER-UNIT discount, stores
+         * `perUnit × quantity`, and clamps that to the line's net subtotal. Asserting the submitted
+         * number there would be asserting a contract core does not have.
+         */
+        expected: number
+      }> = [
+        { label: 'unit price net', fields: { unitPriceNet: 5, unitPriceGross: 6 }, column: ['unit_price_net', 'unitPriceNet'], expected: 5 },
+        {
+          label: 'discount amount',
+          fields: { discountAmount: 25 },
+          column: ['discount_amount', 'discountAmount'],
+          // 25 per unit × 4 units = 100, under the 100 × 4 = 400 subtotal, so no clamp applies here.
+          expected: Math.min(25 * BASELINE.quantity, BASELINE.unitPriceNet * BASELINE.quantity),
+        },
+        { label: 'discount percent', fields: { discountPercent: 25 }, column: ['discount_percent', 'discountPercent'], expected: 25 },
+        { label: 'tax rate', fields: { taxRate: 8 }, column: ['tax_rate', 'taxRate'], expected: 8 },
+      ]
+
+      for (const { label, fields, column, expected } of corrections) {
+        await put(`${label} baseline reset`, {})
+        await put(`${label} correction`, fields)
 
         const after = await readLine()
-        const submitted = Object.values(fields)[0]
+        const [snakeCase, camelCase] = column
         expect(
           readNumber(after?.[snakeCase] ?? after?.[camelCase]),
           `${label} should have been written, not silently dropped`,
-        ).toBe(submitted)
+        ).toBe(expected)
       }
+
+      // Back to the baseline once more, so the quantity case below starts from a known line rather
+      // than from whatever the last correction left.
+      await put('final baseline reset', {})
 
       // The quantity floor travels with the same setting: "shipped 1 of 0" is a true statement
       // about a line whose single unit came back, and the source system is the one that decides so.
