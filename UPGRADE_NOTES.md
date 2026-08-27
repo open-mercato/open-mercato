@@ -81,20 +81,49 @@ No API route, method, request field, or response field was removed; the aggregat
 
 **Action for module authors:** if you filtered deals with raw status spellings outside the shared helpers, prefer `lib/dealStatus.ts` (`expandDealStatusAliases`, `isClosedDealStatus`) so your reads stay consistent with the platform views.
 
-### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+### `makeCrudRoute` list routes keep every value of a repeated query parameter (#5548)
 
-`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+Every handler built by `makeCrudRoute` assembled its query object with `Object.fromEntries(url.searchParams.entries())`. `URLSearchParams.entries()` yields one pair per occurrence, so each repeated key overwrote the previous one and `?status=win&status=loose` reached the route schema as the bare string `'loose'` — every earlier selection was discarded before validation ran. Any schema declaring `z.union([z.string(), z.array(z.string())])` advertised an array branch this path could never deliver, and the CRUD response cache made it worse: it keys repeated values order-insensitively, so `?status=win&status=loose` and `?status=loose&status=win` shared one cache entry while resolving to *different* filters, and whichever ordering warmed the cache first decided the answer for that entry's lifetime.
 
-The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+The query object is now built by `buildQueryParams` from `@open-mercato/shared/lib/crud/query-params`, applied at the list handler and at the three non-`GET` handlers that assembled `raw.query` the same way. The grouping rule is deliberately narrow:
 
-- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
-- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+- A key that occurs **once** still reaches the schema as a **string**, exactly as before. Existing `z.string()` filter params are unaffected.
+- A key that occurs **twice or more** reaches the schema as a **`string[]`**, which is the branch its schema already advertised.
+- Values are **never split on commas** at this layer. `?ids=a,b` and `?search=Smith, John` keep their literal string value, so the comma-separated `?ids=` contract from SPEC-042 and every free-text filter are untouched. Where a field's own contract says a comma separates values, use `readQueryParamList` / `toQueryValueList` from the same module — they treat the repeated and comma forms as equivalent.
 
-**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
+`parseIdsParam` and `isIdsParamProvided` in `@open-mercato/shared/lib/crud/ids` now accept the repeated form too. Without that, a repeated `?ids=` would have arrived as an array, read as "no ids filter supplied", and silently widened the response to the full list — the record-count side channel #4143 closed.
 
----
+**One behavior change worth planning for.** A list route whose schema types a filter param as a plain `z.string()` (no array branch) now returns **400** when a client sends that param twice, where it previously accepted the request and silently used the last value. That is the correct failure mode — quietly discarding a caller's filter is the defect this fixes — but a lenient client may be relying on the old behavior. Callers using the comma form, or sending each param once, are unaffected; a caller sending repeats starts receiving the values it already asked for, which is strictly a widening.
 
-## 0.6.7 → 0.7.0 (2026-08-12)
+**Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
+
+## 0.6.7 → 0.7.0 (2026-08-26)
+
+### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
+
+The route used to treat every omitted field as a cleared one: an omitted `features`
+became `[]` and an omitted `organizations` became `null`. A request carrying only
+`organizations` was therefore classified as an empty override, so the route **deleted the
+user's ACL row** and answered `200 {"ok":true}`. Because a per-user ACL is how a role gets
+*narrowed*, deleting it dropped the user back to their full role — the failure direction
+was fail-open, triggered by an ordinary administrative scope edit.
+
+Omitted `features`, `organizations`, and `isSuperAdmin` now keep their stored values, so a
+single-dimension edit no longer clears the dimensions it did not touch. Two consequences
+for callers that relied on the old shape:
+
+- **Removing an override now needs every dimension cleared explicitly.** Send
+  `{ userId, features: [], organizations: null }`. A bare `{ userId, features: [] }` against
+  a row that carries an organization restriction is now rejected (see below) rather than
+  deleting the row.
+- **An organization-scoped override with no feature grant returns `400`.** A `UserAcl` is an
+  absolute override, so persisting that state would revoke every role-granted feature
+  instead of narrowing the role. Restate the grant alongside the scope —
+  `{ userId, organizations: [orgId], features: ['module.*'] }`. Test fixtures and scripts
+  that set a scope with an organizations-only call need the same restatement; previously
+  such a call reported success while storing nothing.
+
+`PUT /api/auth/roles/acl` already behaved this way and is unchanged.
 
 ### Passkey MFA verification requires a real WebAuthn assertion (#3852)
 
@@ -554,6 +583,16 @@ The record-scoped attachments list was the only paged endpoint that clamped a re
 **Action for API consumers:** none, unless you relied on the clamp. The route, method, and response shape are unchanged — `items`, `total`, `page`, `pageSize`, and `totalPages` are all still returned, and `page` is still an integer of at least `1`. Two patterns are worth checking. A loop that pages while the returned page is full previously never terminated on this endpoint and now does, which is the point of the change. A caller that used a deliberately large page number as a shorthand for "give me the last page" now receives an empty page instead, and must compute the last page from `totalPages` itself.
 
 **For module authors:** a client-side workaround that treated an echoed page lower than the requested one as the end of the list — the pattern `AttachmentsSection` adopted in #5274 — remains correct; it simply never triggers now. You can drop it when convenient, but nothing forces you to.
+### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+
+The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+
+- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
+- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+
+**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
 
 ## 0.6.6 → 0.6.7 (2026-08-05)
 
