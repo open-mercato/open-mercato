@@ -34,7 +34,9 @@ export function register(container: AppContainer) {
       attachmentQuarantineStore,
       resolveAttachmentScanPolicy(),
       resolveAttachmentScanTimeoutMs(),
-    )).scoped(),
+    ))
+      .scoped()
+      .proxy(),
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
     attachmentQuotaService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
       createAttachmentQuotaService(em),

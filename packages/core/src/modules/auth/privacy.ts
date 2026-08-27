@@ -91,7 +91,6 @@ export class AuthUsersPrivacyHandler implements PrivacyDataClassHandler {
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId,
         deletedAt: null,
-        kind: 'human',
         emailHash: { $in: emailHashLookupValues(input.identifier.value) },
       },
       { limit: 100, orderBy: { id: 'asc' } },
@@ -116,7 +115,6 @@ export class AuthUsersPrivacyHandler implements PrivacyDataClassHandler {
         id: user.id,
         email: user.email,
         name: user.name ?? null,
-        kind: user.kind,
         isConfirmed: user.isConfirmed,
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -308,7 +306,6 @@ export function buildAuthUserRetentionFilter(input: PrivacyRetentionInput): Filt
     tenantId: input.scope.tenantId,
     organizationId: input.scope.organizationId,
     deletedAt: null,
-    kind: 'human',
     createdAt: { $lt: cutoff },
     ...(excludedIds.size > 0 ? { id: { $nin: Array.from(excludedIds) } } : {}),
     $and: [

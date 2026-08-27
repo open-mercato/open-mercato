@@ -38,12 +38,11 @@ describe('AuthUsersPrivacyHandler retention', () => {
     jest.clearAllMocks()
   })
 
-  it('targets only stale human users and excludes the actor and legal-held users', () => {
+  it('targets stale users and excludes the actor and legal-held users', () => {
     expect(buildAuthUserRetentionFilter(retentionInput())).toEqual({
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
-      kind: 'human',
       createdAt: { $lt: new Date('2025-08-24T12:00:00.000Z') },
       id: { $nin: ['held-user', 'actor-user'] },
       $and: [

@@ -120,6 +120,8 @@
   "auth.acl.features.dashboards.admin.assign-widgets": "Manage dashboard widget availability",
   "auth.acl.features.dashboards.configure": "Customize dashboard layout",
   "auth.acl.features.dashboards.view": "View dashboard",
+  "auth.acl.features.data_erasure.manage": "Datenschutzvorgänge verwalten",
+  "auth.acl.features.data_erasure.view": "Datenschutzvorgänge anzeigen",
   "auth.acl.features.data_sync.configure": "Configure sync mappings and schedules",
   "auth.acl.features.data_sync.run": "Run sync operations",
   "auth.acl.features.data_sync.view": "View sync runs",

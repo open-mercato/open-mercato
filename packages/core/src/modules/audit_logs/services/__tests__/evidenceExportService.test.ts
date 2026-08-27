@@ -44,13 +44,13 @@ function records(): AuditEvidenceRecordInput[] {
       payload: { resourceId: 'customer-1' },
     },
     {
-      source: 'agent.run',
+      source: 'external.record',
       type: 'ok',
-      id: 'run-1',
-      correlationId: 'run-1',
+      id: 'external-1',
+      correlationId: 'external-1',
       occurredAt: '2026-08-21T10:00:02.000Z',
       ...SCOPE,
-      payload: { model: 'provider/model' },
+      payload: { integration: 'example' },
     },
   ]
 }

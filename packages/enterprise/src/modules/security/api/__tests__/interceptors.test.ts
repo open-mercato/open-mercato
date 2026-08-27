@@ -124,7 +124,7 @@ describe('security auth/login api interceptor', () => {
       throw new Error('db unavailable')
     }) as CreateChallengeMock
 
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
       { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
@@ -164,7 +164,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
@@ -184,7 +184,7 @@ describe('security auth/login api interceptor', () => {
     )
   })
 
-  test('does not emit warning when bypass is enabled but token is invalid', async () => {
+  test('fails closed without warning when bypass is enabled but token is invalid', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
@@ -199,16 +199,22 @@ describe('security auth/login api interceptor', () => {
       buildContext(createChallenge),
     )
 
-    expect(result).toEqual({})
+    expect(result).toEqual({
+      replace: {
+        ok: false,
+        code: 'MFA_UNAVAILABLE',
+        error: 'Multi-factor authentication is temporarily unavailable. Please try again.',
+      },
+    })
     expect(createChallenge).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
-  test('does not emit warning when bypass is enabled but verification service is unavailable', async () => {
+  test('fails closed without warning when bypass is enabled but verification service is unavailable', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
     const context = {
       userId: '',
       organizationId: '',
@@ -227,7 +233,13 @@ describe('security auth/login api interceptor', () => {
       context,
     )
 
-    expect(result).toEqual({})
+    expect(result).toEqual({
+      replace: {
+        ok: false,
+        code: 'MFA_UNAVAILABLE',
+        error: 'Multi-factor authentication is temporarily unavailable. Please try again.',
+      },
+    })
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -239,7 +251,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },

@@ -190,7 +190,7 @@ export function normalizeTenantExportValue(value: unknown, seen = new Set<object
   if (seen.has(value)) throw new Error('[internal] Tenant export contains a circular value')
   seen.add(value)
   const normalized: Record<string, unknown> = {}
-  for (const key of Object.keys(value).sort()) {
+  for (const key of Object.keys(value).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
     if (value[key] !== undefined) normalized[key] = normalizeTenantExportValue(value[key], seen)
   }
   seen.delete(value)
@@ -459,7 +459,7 @@ export class TenantExitExportService {
     const attachmentRows: AttachmentRow[] = []
     const exportedTables: ExportedTable[] = []
 
-    for (const tableName of Array.from(schemas.keys()).sort()) {
+    for (const tableName of Array.from(schemas.keys()).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
       if (EXCLUDED_SECURITY_TABLES.has(tableName)) continue
       const schema = schemas.get(tableName)
       if (!schema) continue
@@ -501,7 +501,8 @@ export class TenantExitExportService {
         entityId,
         name: tableName,
         path: relativeExportPath(packageRoot, tablePath),
-        redactedColumns: Array.from(redactedColumns).sort(),
+        redactedColumns: Array.from(redactedColumns)
+          .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
         rows: outputRows.length,
         sha256: file.sha256,
       })

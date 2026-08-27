@@ -120,13 +120,11 @@ describe('bootstrap once-guard cache', () => {
     else process.env.OM_BOOTSTRAP_CACHE = ORIGINAL_FLAG
   })
 
-  it('resetBootstrapCache clears the process-scoped bootstrap cache and encryption flag', () => {
+  it('resetBootstrapCache clears the process-scoped bootstrap cache', () => {
     const g = globalThis as Record<string, unknown>
     g.__openMercatoBootstrapCache__ = { cache: { tag: 'memo' } }
-    g.__openMercatoEncryptionEnabledCache__ = true
     resetBootstrapCache()
     expect(g.__openMercatoBootstrapCache__).toBeNull()
-    expect(g.__openMercatoEncryptionEnabledCache__).toBeUndefined()
   })
 
   it('runs bootstrap() on the first createRequestContainer() and replays cached services on the second when OM_BOOTSTRAP_CACHE=1', async () => {
@@ -210,7 +208,7 @@ describe('bootstrap once-guard cache', () => {
     expect(bootstrapMock).toHaveBeenCalledTimes(2)
   })
 
-  it('memoizes tenantEncryptionService.isEnabled() across requests', async () => {
+  it('registers the encryption subscriber without caching KMS health across requests', async () => {
     process.env.OM_BOOTSTRAP_CACHE = '1'
     let isEnabledCalls = 0
     bootstrapMock.mockImplementationOnce(async (container: any) => {
@@ -229,8 +227,7 @@ describe('bootstrap once-guard cache', () => {
     await createRequestContainer()
     await createRequestContainer()
     await createRequestContainer()
-    // Called once during the first bootstrap, then cached on globalThis.
-    expect(isEnabledCalls).toBe(1)
+    expect(isEnabledCalls).toBe(0)
     expect(subscriberRegistered).toHaveBeenCalledTimes(3)
   })
 })

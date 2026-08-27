@@ -122,7 +122,9 @@ export function register(container: AppContainer) {
           return null
         }
       })
-    )).scoped(),
+    ))
+      .scoped()
+      .proxy(),
   })
   // Override queryEngine with hybrid that prefers JSONB index when available
   try {

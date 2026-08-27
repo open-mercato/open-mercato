@@ -32,7 +32,8 @@ export class QueryIndexEnvironmentPrivacyHandler implements PrivacyDataClassHand
   async sanitizeEnvironment(input: PrivacyEnvironmentSanitizationInput) {
     const rows = await this.findRows(input)
     if (input.dryRun || rows.length === 0) return { matched: rows.length, affected: 0 }
-    const entityTypes = Array.from(new Set(rows.map((row) => row.entityType))).sort()
+    const entityTypes = Array.from(new Set(rows.map((row) => row.entityType)))
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
     const searchIndexer = this.resolveSearchIndexer()
     if (!searchIndexer) {
       throw new Error('[internal] Search index sanitization requires the searchIndexer service')

@@ -469,7 +469,7 @@ export class BackupService {
         migrations.push(`${tableName}:${migrationName}`)
       }
     }
-    const ordered = migrations.sort()
+    const ordered = migrations.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
     return {
       version: ordered.at(-1) ?? 'unversioned',
       fingerprintSha256: createHash('sha256').update(ordered.join('\n')).digest('hex'),

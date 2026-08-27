@@ -73,7 +73,7 @@ export class IntegrationEnvironmentPrivacyHandler implements PrivacyDataClassHan
     return Array.from(new Set([
       ...getAllIntegrations().map((definition) => definition.id),
       ...getAllBundles().map((bundle) => bundle.id),
-    ])).sort()
+    ])).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
   }
 
   private async findUnsafeIntegrationIds(input: PrivacyEnvironmentSanitizationInput): Promise<string[]> {
@@ -101,6 +101,6 @@ export class IntegrationEnvironmentPrivacyHandler implements PrivacyDataClassHan
     return Array.from(new Set([
       ...this.registeredIntegrationIds(),
       ...persisted.map((state) => state.integrationId),
-    ])).sort()
+    ])).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
   }
 }

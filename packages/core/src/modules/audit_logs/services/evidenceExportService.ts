@@ -104,7 +104,7 @@ function normalizeCanonicalValue(value: unknown, seen = new Set<object>()): unkn
   if (seen.has(value)) throw new Error('[internal] Audit evidence payload contains a circular reference')
   seen.add(value)
   const normalized: Record<string, unknown> = {}
-  for (const key of Object.keys(value).sort()) {
+  for (const key of Object.keys(value).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
     const item = value[key]
     if (item !== undefined) normalized[key] = normalizeCanonicalValue(item, seen)
   }
@@ -438,7 +438,6 @@ export class AuditEvidenceExportService {
           actionLabel: entry.actionLabel,
           actionType: entry.actionType,
           sourceKey: entry.sourceKey,
-          onBehalfOfUserId: entry.onBehalfOfUserId,
           resourceKind: entry.resourceKind,
           resourceId: entry.resourceId,
           parentResourceKind: entry.parentResourceKind,

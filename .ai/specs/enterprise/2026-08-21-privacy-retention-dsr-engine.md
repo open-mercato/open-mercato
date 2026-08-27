@@ -45,7 +45,7 @@ Separate cleanup commands cannot provide a consistent report or enforce legal ho
 Owning modules register handlers:
 
 - `audit_logs.access_logs`: retention with delete action, default 90 days, plus subject discovery and export for an `auth:user` actor; audit records are not erased or anonymized through DSR because their evidentiary integrity is retained under the configured log-retention policy;
-- `auth.users`: discover, export, erase, and anonymize `auth:user`; retention targets only human users whose creation, last update, and last login are all older than the configured cutoff;
+- `auth.users`: discover, export, erase, and anonymize `auth:user`; retention targets users whose creation, last update, and last login are all older than the configured cutoff;
 - `customers.people`: discover, export, erase, and anonymize `customers:person`; retention targets only inactive people whose last update is older than the configured cutoff.
 
 Both subject data classes support `delete` and `anonymize` retention actions with a 365-day default. No policy is created automatically. The operator must create and enable a policy explicitly. The authenticated actor running retention is always excluded from `auth.users`, in addition to subjects excluded by legal holds.
@@ -127,7 +127,7 @@ Every route requires authentication and stable `data_erasure.view` or `data_eras
 
 - registry rejects malformed definitions and keeps one definition per id;
 - access-log retention supports dry-run and bounded delete batches;
-- user retention excludes the current actor, service/agent principals, recent users, and legal-held subjects;
+- user retention excludes the current actor, recent users, and legal-held subjects;
 - person retention includes only inactive, stale people and respects legal holds;
 - email resolution returns tenant-scoped auth/customer subject references and does not persist the submitted email;
 - policy and legal-hold APIs refuse cross-tenant records;

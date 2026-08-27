@@ -25,7 +25,10 @@ export class ErasureManifestService implements ErasureManifestServiceContract {
       subjectKind: requireValue(input.subjectKind, 'subjectKind'),
       subjectId: requireValue(input.subjectId, 'subjectId'),
       ...(input.dataClassIds
-        ? { dataClassIds: Array.from(new Set(input.dataClassIds.map((id) => requireValue(id, 'dataClassId')))).sort() }
+        ? {
+            dataClassIds: Array.from(new Set(input.dataClassIds.map((id) => requireValue(id, 'dataClassId'))))
+              .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+          }
         : {}),
       executedAt: input.executedAt.toISOString(),
     }
