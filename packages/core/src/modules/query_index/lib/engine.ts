@@ -356,15 +356,15 @@ export class HybridQueryEngine implements QueryEngine {
       // sort-only custom-field query depends on the index just as much as a cf
       // filter does — without this disjunct it would skip the coverage guards
       // below and silently order by a NULL expression on an empty index (#5521).
-      const cfSorts = (opts.sort || []).filter((sort) => {
-        const field = String(sort.field)
-        return field.startsWith('cf:') || field.startsWith('l10n:')
-      })
+      // Only `cf:` qualifies: neither engine ever applies an `l10n:` ordering —
+      // both drop it while resolving sorts — so counting it here would pay the
+      // coverage probes and the ORM diversion for an ordering that is discarded.
+      const hasCfSort = (opts.sort || []).some((sort) => String(sort.field).startsWith('cf:'))
       const coverageScope = this.resolveCoverageSnapshotScope(opts)
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && (field.startsWith('cf:') || field.startsWith('l10n:'))) ||
         cfFilters.length > 0 ||
-        cfSorts.length > 0 ||
+        hasCfSort ||
         (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
       )
 

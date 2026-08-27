@@ -420,6 +420,26 @@ describe('HybridQueryEngine', () => {
     expect((mockLogger.warn.mock.calls[0] || [])[0]).toContain('Partial index coverage')
   })
 
+  test('keeps l10n-only sorts off the custom-field branch', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    // Neither engine ever applies an `l10n:` ordering — both drop it while
+    // resolving sorts — so it must not pay the coverage probes or divert the
+    // query to the ORM engine for an ordering that is thrown away.
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'l10n:title', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+  })
+
   test('keeps base-column-only sorts off the custom-field branch', async () => {
     const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
     const em = buildEm(db)
