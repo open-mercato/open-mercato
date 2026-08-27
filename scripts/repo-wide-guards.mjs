@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/modules/auth/__tests__/acl-feature-catalog.i18n.test.ts',
+        scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },
@@ -88,6 +92,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/design_system/gallery/__tests__/gallery-coverage.test.ts',
         scans: 'packages/ui/src/primitives — design-system gallery coverage',
       },
+      {
+        path: 'src/modules/design_system/gallery/__tests__/inventory-parity.test.ts',
+        scans: 'packages/create-app/scripts/design-system-sources.mjs and its derived inventory asset — the only guard that compares the runtime gallery registry against the statically derived inventory, so a reader change that silently under-reports a family is caught here and nowhere else. It lives in core while the reader lives in create-app, and core is a dependency of create-app rather than a dependent, so the turbo filter never selects it for a reader-only PR (#4991).',
+      },
     ],
   },
   {
@@ -112,6 +120,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
       },
       {
+        path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
+        scans: 'live packages/core/src/modules sources — module-facts local-reference resolution',
+      },
+      {
         path: 'src/lib/generators/__tests__/example-public-route-safety.test.ts',
         scans: 'apps/mercato and packages/create-app/template — example route safety (#3864)',
       },
@@ -122,6 +134,14 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/__tests__/release-notes-retired.test.ts',
         scans: 'repo-root docs — RELEASE_NOTES.md retirement (#4024)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.example-fact-coverage.test.ts',
+        scans: 'live apps/mercato/src/modules/example sources — the enum-derived factCoverage ledger, which fails both ways (a fact value with no row, and a row for a value the enum dropped), so a module change that adds an unledgered fact must fail its own PR (#4991)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
+        scans: 'live apps/mercato/src/modules/example sources — local-reference fact discovery, projection and source fingerprints (#4991)',
       },
     ],
   },
@@ -137,6 +157,17 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/modules/__tests__/cli-registry-boundary.test.ts',
         scans: 'packages/ and apps/ — runtime files reading the CLI-only module registry',
+      },
+    ],
+  },
+  {
+    workspace: '@open-mercato/cache',
+    workspaceDir: 'packages/cache',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/cache-di-contract-docs.test.ts',
+        scans: 'packages/core/src/bootstrap.ts, packages/cache/AGENTS.md and .ai/review-checklist.md — cache DI token and CacheStrategy method names quoted by the docs',
       },
     ],
   },
@@ -189,6 +220,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/enterprise',
+    workspaceDir: 'packages/enterprise',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-taxonomy-rename.test.ts',
+        scans: 'packages/core/src/modules/workflows plus the orchestrator module — retired `informative`/`actionable` wire values after the taxonomy rename',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/app',
     workspaceDir: 'apps/mercato',
     jestConfig: 'jest.config.cjs',
@@ -223,6 +265,10 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
+    reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
@@ -239,6 +285,18 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/template-example-module-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-i18n-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
     path: 'packages/create-app/src/lib/standalone-portal-email-env-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
@@ -249,6 +307,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/agent-harness-release.test.ts',
     reason: 'Already unfiltered — the same create-app parity step (#3779); its process.cwd() anchor sits inside a fixture script string, not a repository read.',
+  },
+  {
+    path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
+    reason: 'Already unfiltered — the same create-app parity step (#3779) runs the whole create-mercato-app suite. It also drives the real scaffolder and generator suite against a generated app, so it costs minutes rather than the seconds this runner budgets for the common PR path.',
   },
   {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',

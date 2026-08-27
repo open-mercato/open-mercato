@@ -83,6 +83,9 @@ export class Role {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
+  @Property({ name: 'min_active_holders', type: 'integer', default: 0 })
+  minActiveHolders: number = 0
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -287,7 +290,10 @@ export class RoleAcl {
   @Property({ name: 'is_super_admin', type: 'boolean', default: false })
   isSuperAdmin: boolean = false
 
-  // Visible organizations within the tenant; null/empty means all organizations
+  // Visible organizations within the tenant. `null` or the `__all__` sentinel means every
+  // organization. An EMPTY array is a deny-all scope for human principals — it projects to an
+  // empty accessible set so scoped reads and deletes fail closed (#4033). API-key principals
+  // read an empty list as "inherit the key's own organization binding" instead.
   @Property({ name: 'organizations_json', type: 'json', nullable: true })
   organizationsJson?: string[] | null
 

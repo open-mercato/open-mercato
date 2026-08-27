@@ -104,6 +104,7 @@ const listRecordsResponseSchema = z.object({
   page: z.number(),
   pageSize: z.number(),
   totalPages: z.number(),
+  totalIsCapped: z.boolean().optional(),
 })
 
 export async function GET(req: Request) {
@@ -284,6 +285,7 @@ export async function GET(req: Request) {
       page: res.page || page,
       pageSize: effectivePageSize,
       totalPages: Math.ceil(total / (effectivePageSize || 1)),
+      ...(res.meta?.listCountCapWarning ? { totalIsCapped: true } : {}),
     }
 
     if (requestedExport) {

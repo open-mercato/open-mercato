@@ -2,8 +2,8 @@
  * Events registry API — returns declared events from module `events.ts` files.
  *
  * Uses the globally registered event configs (populated during bootstrap). Data
- * leaked here (event ids, module ids, entity ids, clientBroadcast/portalBroadcast
- * flags) is recon-grade and MUST NOT be served to anonymous callers; the route
+ * leaked here (event ids, module ids, entity ids, broadcast flags) is
+ * recon-grade and MUST NOT be served to anonymous callers; the route
  * is protected by the standard `[...slug]` dispatcher with `requireAuth: true`.
  * Consumer: `packages/ui/src/backend/inputs/EventSelect.tsx` (workflow triggers,
  * business rules, webhook config).
@@ -38,6 +38,7 @@ const eventDefinitionSchema = z.object({
   entity: z.string().optional(),
   excludeFromTriggers: z.boolean().optional(),
   clientBroadcast: z.boolean().optional(),
+  crossProcessBroadcast: z.boolean().optional(),
   portalBroadcast: z.boolean().optional(),
   payloadSchema: eventPayloadSchemaSchema.optional(),
 })

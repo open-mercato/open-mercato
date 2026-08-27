@@ -318,7 +318,7 @@ export function createInstaller({
       const candidate = join(agentsDir, name)
       if (isLink(candidate) && resolvesIntoSkillsDir(candidate)) installed.push(name)
     }
-    return installed.sort()
+    return installed.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   }
 
   function installedExternalCount() {

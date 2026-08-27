@@ -75,10 +75,12 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'Exempt — proposal dispose guards the HUMAN dispose path on updated_at only (the auto/threshold path holds no client token and cannot race a stale modal); pending→terminal is a one-shot transition with an idempotent same-verdict re-dispose. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/commands/grants.ts':
     'Exempt — delegation-grant revoke guards updated_at against the caller-supplied expectedUpdatedAt (re-revoke is idempotent, gone-record maps to structured 409); a one-shot revocation, not a collaborative edit surface. record_locks seam migration deferred.',
-  'packages/enterprise/src/modules/agent_orchestrator/api/tasks/[id]/event-triggers/[triggerId]/route.ts':
-    'Exempt — agentic-task event-trigger PUT/DELETE guards the trigger row on its own updated_at (child version, not the parent task header); an admin config sub-resource, not a collaborative merge-dialog surface, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/api/agents/[id]/settings/route.ts':
     'Exempt — per-agent icon setting write guards the AgentSetting row on its own updated_at only when a row already exists (first write has nothing to conflict with); a single-admin cosmetic config surface, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
+  'packages/core/src/modules/devices/api/deviceOps.ts':
+    'OSS-only — user-device rename/deactivate mutates a per-owner device row (devices.user_device), not a shared collaborative-edit surface; the OSS floor covers the same-user two-tab race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/notifications/api/types/route.ts':
+    'OSS-only — per-tenant notification-type override (notifications.settings) is single-admin tenant config edited from the Notification Delivery settings table, not a collaborative merge-dialog target; the OSS floor 409s the concurrent admin two-tab race (the PATCH replaces the whole channels array). Enterprise record_locks migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.

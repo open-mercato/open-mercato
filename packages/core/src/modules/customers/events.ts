@@ -96,6 +96,11 @@ const events = [
   { id: 'customers.person_company_link.created', label: 'Person Linked To Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
   { id: 'customers.person_company_link.updated', label: 'Person-Company Link Updated', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
   { id: 'customers.person_company_link.deleted', label: 'Person Unlinked From Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
+  // Legacy profile-only company assignments (`customer_person_profiles.company_id` set with no
+  // backing link row, #5114) have no link entity, so detaching one cannot honestly emit
+  // `customers.person_company_link.deleted` — that event's payload promises a link id that never
+  // existed. This sibling carries the same live-refresh signal for that shape instead.
+  { id: 'customers.person.company_assignment.detached', label: 'Legacy Company Assignment Detached', entity: 'person_company_link', category: 'lifecycle', clientBroadcast: true },
 
   // ── Email integration (2026-05-27) ────────────────────────────────────────
   { id: 'customers.email.linked', label: 'Email Linked To Person', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },

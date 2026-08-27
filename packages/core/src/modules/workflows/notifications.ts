@@ -13,6 +13,8 @@ const viewTaskAction = {
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'workflows.task.assigned',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'workflows',
     titleKey: 'workflows.notifications.task.assigned.title',
     bodyKey: 'workflows.notifications.task.assigned.body',

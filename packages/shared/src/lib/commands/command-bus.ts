@@ -267,6 +267,30 @@ export class CommandBus {
     const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
     const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)
     let mergedMeta = this.mergeMetadata(effectiveOptions.metadata, logMeta)
+    // Interceptors opt into audit-log enrichment with a reserved `logContext` key rather
+    // than the generic `context` one, so the metadata an interceptor already passes to its
+    // own afterExecute hook is never silently promoted into audit storage.
+    // Map iteration order is interceptor priority order (see collectMatching), so a
+    // later-priority interceptor overrides an earlier one on key collisions.
+    let interceptorContextMerged: Record<string, unknown> = {}
+    for (const meta of interceptorMetadata.values()) {
+      const logContextRecord = asRecord(asRecord(meta)?.logContext)
+      if (!logContextRecord) continue
+      interceptorContextMerged = {
+        ...interceptorContextMerged,
+        ...logContextRecord,
+      }
+    }
+    const baseContext = asRecord(effectiveOptions.metadata?.context) ?? {}
+    const logMetaContext = asRecord(logMeta?.context) ?? {}
+    if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
+      mergedMeta = mergedMeta ?? {}
+      mergedMeta.context = {
+        ...baseContext,
+        ...interceptorContextMerged,
+        ...logMetaContext,
+      }
+    }
     const undoable = this.isUndoable(handler)
     if (undoable) {
       mergedMeta = mergedMeta ?? {}
@@ -566,6 +590,9 @@ export class CommandBus {
     const runAs = options.ctx.runAs ?? null
     const actorUserId = runAs?.actorUserId ?? metadata.actorUserId ?? options.ctx.auth?.sub ?? null
     const onBehalfOfUserId = runAs ? (runAs.onBehalfOfUserId ?? null) : (metadata.onBehalfOfUserId ?? null)
+    const systemActorContext = !actorUserId && options.ctx.systemActor === true
+      ? { systemActor: 'system:command' }
+      : null
     const payload: Record<string, unknown> = {
       tenantId: tenantId ?? undefined,
       organizationId: organizationId ?? undefined,
@@ -587,7 +614,11 @@ export class CommandBus {
       if ('snapshotBefore' in metadata && metadata.snapshotBefore !== undefined) payload.snapshotBefore = metadata.snapshotBefore
       if ('snapshotAfter' in metadata && metadata.snapshotAfter !== undefined) payload.snapshotAfter = metadata.snapshotAfter
       if ('changes' in metadata && metadata.changes !== undefined && metadata.changes !== null) payload.changes = metadata.changes
-      if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) payload.context = metadata.context
+      if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) {
+        payload.context = { ...(systemActorContext ?? {}), ...metadata.context }
+      } else if (systemActorContext) {
+        payload.context = systemActorContext
+      }
     }
 
     if (runAs) {

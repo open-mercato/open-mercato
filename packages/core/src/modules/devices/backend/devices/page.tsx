@@ -1,0 +1,258 @@
+"use client"
+import * as React from 'react'
+import Link from 'next/link'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { loadDeviceUserOptions, type DeviceUserOption } from './userOptions'
+import { useDeviceUserLabels } from './useDeviceUserLabels'
+
+type Row = {
+  id: string
+  userId: string
+  deviceId: string
+  platform: string
+  clientAppVersion: string | null
+  osVersion: string | null
+  pushProvider: string | null
+  pushTokenUpdatedAt: string | null
+  lastSeenAt: string | null
+  createdAt: string | null
+}
+
+type ResponsePayload = {
+  items: Row[]
+  total: number
+  page?: number
+  pageSize?: number
+  totalPages: number
+  totalIsCapped?: boolean
+}
+
+function formatDate(value: string | null, t: (key: string) => string) {
+  if (!value) return t('devices.list.noValue')
+  try {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return t('devices.list.noValue')
+    return date.toLocaleString()
+  } catch {
+    return t('devices.list.noValue')
+  }
+}
+
+export default function DevicesAdminListPage() {
+  const [rows, setRows] = React.useState<Row[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const scopeVersion = useOrganizationScopeVersion()
+  const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [userOptions, setUserOptions] = React.useState<DeviceUserOption[]>([])
+
+  const mergeUserOptions = React.useCallback((next: DeviceUserOption[]) => {
+    if (next.length === 0) return
+    setUserOptions((prev) => {
+      const map = new Map(prev.map((opt) => [opt.value, opt]))
+      for (const opt of next) map.set(opt.value, opt)
+      return Array.from(map.values())
+    })
+  }, [])
+
+  // Devices admins may not hold auth.users.list; the helper degrades to no options instead of
+  // redirecting the whole page to /login.
+  const loadUserOptions = React.useCallback(async (query?: string) => {
+    const next = await loadDeviceUserOptions(query)
+    mergeUserOptions(next)
+    return next
+  }, [mergeUserOptions])
+
+  React.useEffect(() => { void loadUserOptions() }, [loadUserOptions, scopeVersion])
+
+  const userLabelById = React.useMemo(
+    () => new Map(userOptions.map((opt) => [opt.value, opt.label])),
+    [userOptions],
+  )
+
+  // The picker only ever caches the users it happened to prefetch, so resolve the owners of the rows
+  // actually on this page. Without it most rows render a bare UUID.
+  const rowUserIds = React.useMemo(() => rows.map((row) => row.userId), [rows])
+  const resolvedUserLabels = useDeviceUserLabels(rowUserIds)
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'platform',
+      label: t('devices.list.columns.platform'),
+      type: 'select',
+      options: [
+        { value: 'ios', label: 'iOS' },
+        { value: 'android', label: 'Android' },
+        { value: 'web', label: 'Web' },
+      ],
+    },
+    {
+      id: 'userId',
+      label: t('devices.list.columns.user'),
+      type: 'combobox',
+      options: userOptions,
+      loadOptions: loadUserOptions,
+    },
+  ], [t, userOptions, loadUserOptions])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('page', String(page))
+        params.set('pageSize', '50')
+        const platform = typeof filterValues.platform === 'string' ? filterValues.platform.trim() : ''
+        const userId = typeof filterValues.userId === 'string' ? filterValues.userId.trim() : ''
+        if (platform) params.set('platform', platform)
+        if (userId) params.set('userId', userId)
+        const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
+        const call = await apiCall<ResponsePayload>(`/api/devices/admin/devices?${params.toString()}`, undefined, { fallback })
+        if (!call.ok) {
+          const errorPayload = call.result as { error?: string } | undefined
+          const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('devices.list.error.loadFailed')
+          flash(message, 'error')
+          return
+        }
+        const payload = call.result ?? fallback
+        if (!cancelled) {
+          setRows(Array.isArray(payload.items) ? payload.items : [])
+          setTotal(payload.total || 0)
+          setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : t('devices.list.error.loadFailed')
+          flash(message, 'error')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [page, reloadToken, scopeVersion, filterValues, t])
+
+  const handleDeactivate = React.useCallback(async (row: Row) => {
+    const confirmed = await confirm({
+      title: t('devices.list.confirmDeactivate'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      // optimistic-lock-exempt: device deactivate is an idempotent soft-delete of a registry row, not a concurrent field edit
+      const call = await apiCall<{ error?: string }>(
+        `/api/devices/admin/devices/${encodeURIComponent(row.id)}`,
+        { method: 'DELETE' },
+        { fallback: null },
+      )
+      if (!call.ok) {
+        const errorPayload = call.result as { error?: string } | undefined
+        const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('devices.list.error.deactivateFailed')
+        flash(message, 'error')
+        return
+      }
+      flash(t('devices.list.success.deactivated'), 'success')
+      setReloadToken((token) => token + 1)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('devices.list.error.deactivateFailed')
+      flash(message, 'error')
+    }
+  }, [confirm, t])
+
+  const columns = React.useMemo<ColumnDef<Row>[]>(() => [
+    {
+      accessorKey: 'deviceId',
+      header: t('devices.list.columns.device'),
+      cell: ({ row }) => <code className="text-xs">{row.original.deviceId}</code>,
+    },
+    { accessorKey: 'platform', header: t('devices.list.columns.platform') },
+    {
+      accessorKey: 'userId',
+      header: t('devices.list.columns.user'),
+      cell: ({ row }) => {
+        const userId = row.original.userId
+        const label = resolvedUserLabels[userId] ?? userLabelById.get(userId)
+        return (
+          // Stop the click bubbling to the row, whose default action navigates to the device edit page.
+          <Link
+            href={`/backend/users/${encodeURIComponent(userId)}/edit`}
+            className="text-primary hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {label ?? <code className="text-xs">{userId}</code>}
+          </Link>
+        )
+      },
+    },
+    {
+      accessorKey: 'clientAppVersion',
+      header: t('devices.list.columns.appVersion'),
+      cell: ({ row }) => row.original.clientAppVersion || t('devices.list.noValue'),
+    },
+    {
+      accessorKey: 'osVersion',
+      header: t('devices.list.columns.osVersion'),
+      cell: ({ row }) => row.original.osVersion || t('devices.list.noValue'),
+    },
+    {
+      accessorKey: 'pushProvider',
+      header: t('devices.list.columns.pushProvider'),
+      cell: ({ row }) => row.original.pushProvider || t('devices.list.noValue'),
+    },
+    {
+      accessorKey: 'lastSeenAt',
+      header: t('devices.list.columns.lastSeen'),
+      cell: ({ row }) => formatDate(row.original.lastSeenAt, t),
+    },
+  ], [t, userLabelById, resolvedUserLabels])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable
+          title={t('devices.list.title')}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/devices/create">{t('devices.list.actions.register')}</Link>
+            </Button>
+          )}
+          columns={columns}
+          data={rows}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          perspective={{ tableId: 'devices.list' }}
+          rowActions={(row) => (
+            <RowActions items={[
+              { id: 'edit', label: t('devices.list.actions.edit'), href: `/backend/devices/${row.id}` },
+              { id: 'deactivate', label: t('devices.list.actions.deactivate'), destructive: true, onSelect: () => { void handleDeactivate(row) } },
+            ]} />
+          )}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          isLoading={isLoading}
+        />
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}

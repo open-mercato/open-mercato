@@ -30,7 +30,7 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   prepare:
     name: Prepare release PR
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Only allow release preparation from main branch
     if: github.ref == 'refs/heads/main'
 
@@ -44,7 +44,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '24.19.0'
 
       - name: Enable Corepack
         run: corepack enable
@@ -100,11 +100,11 @@ jobs:
           if [ "${{ inputs.resume }}" = "true" ]; then
             BODY="**Recovery** release preparation for **v$VERSION**."
             BODY="$BODY"$'\n\n'"\`$VERSION\` is already published on npm — this PR brings the repository back in sync."
-            BODY="$BODY"$'\n\n'"- Bumps every public package and the root manifest to \`$VERSION\`"
+            BODY="$BODY"$'\n\n'"- Bumps every public package, the app workspaces (\`apps/*\`) and the root manifest to \`$VERSION\`"
             BODY="$BODY"$'\n'"- No build or publish happens here"
           else
             BODY="Automated release preparation for **v$VERSION**."
-            BODY="$BODY"$'\n\n'"- Bumps every public package and the root manifest to \`$VERSION\`"
+            BODY="$BODY"$'\n\n'"- Bumps every public package, the app workspaces (\`apps/*\`) and the root manifest to \`$VERSION\`"
             BODY="$BODY"$'\n'"- No build or publish happens here"
           fi
 

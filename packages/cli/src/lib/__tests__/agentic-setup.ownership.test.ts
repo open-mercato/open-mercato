@@ -173,6 +173,25 @@ describe('applyHarnessUpdate', () => {
     expect(manifest.files.map((item) => item.path)).toEqual([modified])
   })
 
+  it('removes retired flat module facts even when their generated copy was modified', () => {
+    const installedFact = '.ai/guides/modules/customers.md'
+    const referenceFact = '.ai/guides/reference-modules/example.md'
+    const unknownFact = '.ai/guides/modules/private.md'
+    write(join(targetDir, installedFact), 'locally modified generated facts\n')
+    write(join(targetDir, referenceFact), 'locally modified reference facts\n')
+    write(join(targetDir, unknownFact), 'unknown local file\n')
+    writeManifest(targetDir, [
+      entry(installedFact, 'old installed facts\n'),
+      entry(referenceFact, 'old reference facts\n'),
+    ])
+    writeManifest(stagingDir, [])
+
+    expect(applyHarnessUpdate(targetDir, stagingDir)).toEqual([])
+    expect(existsSync(join(targetDir, installedFact))).toBe(false)
+    expect(existsSync(join(targetDir, referenceFact))).toBe(false)
+    expect(readFileSync(join(targetDir, unknownFact), 'utf8')).toBe('unknown local file\n')
+  })
+
   it('leaves the prior manifest and app files untouched when candidate validation fails', () => {
     write(join(targetDir, '.ai', 'owned.md'), 'old\n')
     const oldManifestPath = writeManifest(targetDir, [entry('.ai/owned.md', 'old\n')])

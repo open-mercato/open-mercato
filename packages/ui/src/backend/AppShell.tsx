@@ -411,6 +411,19 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   return item.href
 }
 
+// Horizontal padding lives on each sidebar block rather than on the <aside>, so the scroll
+// container never needs a negative-margin bleed to reach the panel edges. The transition keeps the
+// compact/expanded padding step in sync with the aside's width animation.
+function sidebarBlockPadding(compact: boolean): string {
+  return `${compact ? 'px-2' : 'px-3'} transition-[padding] duration-200 ease-out`
+}
+
+// An InjectionSpot renders nothing when no widget is registered, so its wrapper must collapse
+// instead of surviving as an empty flex child that still costs a full `gap-3`.
+function sidebarInjectionWrapper(compact: boolean): string {
+  return `${sidebarBlockPadding(compact)} empty:hidden`
+}
+
 function SerializedIcon({ markup }: { markup: string }) {
   return <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: markup }} />
 }
@@ -835,17 +848,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     setOpenGroups((prev) => (prev[key] === false ? { ...prev, [key]: true } : prev))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, navGroups])
-  // Keep header state in sync with props (server-side updates)
-  React.useEffect(() => {
-    setHeaderTitle(currentTitle)
-    setHeaderBreadcrumb(breadcrumb)
-  }, [currentTitle, breadcrumb])
-  // Clear breadcrumb on client-side navigation so stale state doesn't persist;
-  // the new page's ApplyBreadcrumb (if any) will set the correct values.
-  // Must be a layout effect: when a prefetched navigation commits the new
-  // pathname and the new page together, child passive effects (ApplyBreadcrumb)
-  // run before parent ones, so a passive clear here would wipe the value the
-  // incoming page just set.
+  // Reset stale header state before applying server props and before the new
+  // page's passive ApplyBreadcrumb effect. The ordering matters for layouts
+  // that persist across client-side navigation.
   const prevPathname = React.useRef(pathname)
   useIsomorphicLayoutEffect(() => {
     if (pathname !== prevPathname.current) {
@@ -854,6 +859,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       setHeaderBreadcrumb(undefined)
     }
   }, [pathname])
+  // Keep header state in sync with props (server-side updates). A child page's
+  // ApplyBreadcrumb effect runs afterward and may refine this static trail.
+  useIsomorphicLayoutEffect(() => {
+    setHeaderTitle(currentTitle)
+    setHeaderBreadcrumb(breadcrumb)
+  }, [currentTitle, breadcrumb])
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
@@ -869,11 +880,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   ) {
     const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     const lastVisibleIndex = sortedSections.length - 1
+    const blockPadding = sidebarBlockPadding(compact)
 
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className="mb-2">
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
@@ -885,16 +897,18 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         )}
         {!compact && !hideSearch && (
-          <SearchInput
-            value={navQuery}
-            onChange={setNavQuery}
-            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
-            aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            clearLabel={t('appShell.searchNavClear', 'Clear search')}
-            className="mb-2"
-          />
+          <div className={blockPadding}>
+            <SearchInput
+              value={navQuery}
+              onChange={setNavQuery}
+              placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+              aria-label={t('appShell.searchNavAria', 'Search navigation')}
+              clearLabel={t('appShell.searchNavClear', 'Clear search')}
+              className="mb-2"
+            />
+          </div>
         )}
-        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
+        <div data-sidebar-scroll="true" className="flex flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto scrollbar-hide">
           <nav className="flex flex-col gap-2">
           {sortedSections.map((section, sectionIndex) => {
             const sectionNavQueryActive = hideSearch ? false : navQueryActive
@@ -974,7 +988,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
             }
 
             return (
-              <div key={section.id}>
+              <div
+                key={section.id}
+                className={`${blockPadding} ${sectionIndex !== lastVisibleIndex ? 'border-b pb-2' : ''}`}
+                data-sidebar-group="true"
+              >
                 {!compact && (
                   <Button
                     variant="muted"
@@ -991,7 +1009,6 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                     {sortedItems.map((item) => renderSectionItem(item))}
                   </div>
                 )}
-                {sectionIndex !== lastVisibleIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
               </div>
             )
           })}
@@ -1002,9 +1019,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
+    const blockPadding = sidebarBlockPadding(compact)
+    const injectionWrapper = sidebarInjectionWrapper(compact)
+
     if (!isChromeReady && isChromeLoading) {
       return (
-        <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
+        <div className={`flex min-h-full flex-col gap-3 ${blockPadding}`} data-testid="backend-chrome-loading">
           {!hideHeader ? (
             <div className="mb-2">
               <Link
@@ -1017,7 +1037,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               </Link>
             </div>
           ) : null}
-          <div className="flex flex-1 flex-col gap-3 pr-1">
+          <div className="flex flex-1 flex-col gap-3">
             <div className="space-y-3">
               <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
@@ -1072,7 +1092,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className="mb-2">
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
@@ -1084,22 +1104,26 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         )}
         {shouldRenderSidebarInjectionSpots ? (
-          <InjectionSpot
-            spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
-            context={injectionContext}
-          />
+          <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
+            <InjectionSpot
+              spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          </div>
         ) : null}
         {!compact && (
-          <SearchInput
-            value={navQuery}
-            onChange={setNavQuery}
-            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
-            aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            clearLabel={t('appShell.searchNavClear', 'Clear search')}
-            className="mb-2"
-          />
+          <div className={blockPadding}>
+            <SearchInput
+              value={navQuery}
+              onChange={setNavQuery}
+              placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+              aria-label={t('appShell.searchNavAria', 'Search navigation')}
+              clearLabel={t('appShell.searchNavClear', 'Clear search')}
+              className="mb-2"
+            />
+          </div>
         )}
-        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
+        <div data-sidebar-scroll="true" className="flex flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto scrollbar-hide">
           {(() => {
               const isSettingsPath = (href: string) => {
                 if (href === '/backend/settings') return true
@@ -1128,10 +1152,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 <>
                   <nav className="flex flex-col gap-2" data-testid="sidebar">
                     {shouldRenderSidebarInjectionSpots ? (
-                      <InjectionSpot
-                        spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
-                        context={injectionContext}
-                      />
+                      <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
+                        <InjectionSpot
+                          spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
+                          context={injectionContext}
+                        />
+                      </div>
                     ) : null}
                     {mainGroups.map((g, gi) => {
                       const groupId = resolveGroupKey(g)
@@ -1145,7 +1171,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       })
                       if (visibleItems.length === 0) return null
                       return (
-                        <div key={groupId}>
+                        <div
+                          className={`${blockPadding} ${gi !== mainLastVisibleGroupIndex ? 'border-b pb-2' : ''}`}
+                          key={groupId}
+                          data-sidebar-group="true"
+                        >
                           {!compact && (
                             <Button
                               variant="muted"
@@ -1238,7 +1268,6 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                               })}
                             </div>
                           )}
-                          {gi !== mainLastVisibleGroupIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
                         </div>
                       )
                     })}
@@ -1247,7 +1276,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               )
             })()}
         </div>
-        <div className="sticky bottom-0 bg-background pb-1">
+        <div className={`sticky bottom-0 bg-background pb-1 ${injectionWrapper}`} data-sidebar-injection-wrapper="true">
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
@@ -1292,15 +1321,17 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     if (!sections) return null
     return (
       <div className="flex h-full flex-col gap-2">
-        <Link
-          href="/backend"
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
-          data-testid="appshell-section-back-to-main"
-          aria-label={t('backend.nav.backToMain', 'Back to Main')}
-        >
-          <ChevronLeft className="size-4 shrink-0" aria-hidden />
-          <span className="truncate">{title}</span>
-        </Link>
+        <div className={sidebarBlockPadding(false)}>
+          <Link
+            href="/backend"
+            className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+            data-testid="appshell-section-back-to-main"
+            aria-label={t('backend.nav.backToMain', 'Back to Main')}
+          >
+            <ChevronLeft className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{title}</span>
+          </Link>
+        </div>
         <div className="min-h-0 flex-1">
           {renderSectionSidebar(sections, title, false, true, true)}
         </div>
@@ -1379,7 +1410,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
         {effectiveCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
       </button>
       {/* Desktop main sidebar */}
-      <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
+      <aside ref={sidebarAsideRef} className={`${asideClassesBase} px-0 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width] duration-200 ease-out`} style={{ width: asideWidth }}>
         {renderSidebar(effectiveCollapsed, false, isSectionView)}
         {/* Scroll affordance — gradient fade + clickable chevron that flips up when
             the user reaches the bottom and disappears when nothing is scrollable
@@ -1424,7 +1455,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           original swap behavior to fit the narrow width. */}
       {isSectionView ? (
         <aside
-          className={`${asideClassesBase} px-3 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
+          className={`${asideClassesBase} px-0 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
           style={{ width: '240px' }}
           data-testid="appshell-section-sidebar"
         >
@@ -1646,7 +1677,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   ? `mobile-drawer-tab-${mobileDrawerView === 'main' ? 'main' : 'section'}`
                   : undefined
               }
-              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3"
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-3"
             >
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
               {renderSidebar(false, true, mobileDrawerView === 'main')}

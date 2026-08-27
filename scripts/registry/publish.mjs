@@ -29,7 +29,7 @@ export function registryAuthKey(registryUrl) {
 export function listPublishablePackages(rootDir) {
   const packagesDir = join(rootDir, 'packages')
   const packages = []
-  for (const name of readdirSync(packagesDir).sort()) {
+  for (const name of readdirSync(packagesDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const packageDir = join(packagesDir, name)
     const manifestPath = join(packageDir, 'package.json')
     if (!existsSync(manifestPath)) continue
@@ -87,13 +87,15 @@ export async function publishToVerdaccio({ rootDir, env = process.env, log = con
 
   try {
     log(`Bootstrapping Verdaccio at ${registryUrl}...`)
-    runDocker(['compose', 'rm', '-sf', 'verdaccio'], { cwd: rootDir, quiet: true, allowFailure: true })
-    runDocker(['volume', 'rm', '-f', 'mercato-verdaccio-storage', 'mercato-verdaccio-plugins'], {
-      cwd: rootDir,
-      quiet: true,
-      allowFailure: true,
-    })
-    runDocker(['compose', 'up', '-d', 'verdaccio'], { cwd: rootDir })
+    if (env.OM_SKIP_VERDACCIO_BOOTSTRAP !== '1') {
+      runDocker(['compose', 'rm', '-sf', 'verdaccio'], { cwd: rootDir, quiet: true, allowFailure: true })
+      runDocker(['volume', 'rm', '-f', 'mercato-verdaccio-storage', 'mercato-verdaccio-plugins'], {
+        cwd: rootDir,
+        quiet: true,
+        allowFailure: true,
+      })
+      runDocker(['compose', 'up', '-d', 'verdaccio'], { cwd: rootDir })
+    }
     await waitForVerdaccio(registryUrl)
 
     const packages = listPublishablePackages(rootDir)

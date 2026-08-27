@@ -95,7 +95,7 @@ export async function provisionAgentPrincipal(
       { tenantId, organizationId: null },
     )
     if (!role) {
-      role = tem.create(auth.Role, { name: roleName, tenantId, createdAt: new Date() })
+      role = tem.create(auth.Role, { name: roleName, tenantId, minActiveHolders: 0, createdAt: new Date() })
       tem.persist(role)
       await tem.flush()
     }

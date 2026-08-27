@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/starter",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "description": "One-command, cross-platform bootstrap for Open Mercato dev environments: prerequisite doctor, corporate TLS trust, idempotent setup steps, and a supervised hybrid or fully containerized stack.",
   "license": "MIT",
   "type": "module",

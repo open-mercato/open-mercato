@@ -144,7 +144,7 @@ export async function GET(req: Request) {
 
     let fresh = new Map<string, CachedProbe>()
     if (probeTargets.length > 0) {
-      const flightKey = `${tenantId ?? 'global'}:${probeTargets.slice().sort().join(',')}`
+      const flightKey = `${tenantId ?? 'global'}:${probeTargets.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}`
       const existing = inFlightProbes.get(flightKey)
       if (existing) {
         fresh = await existing

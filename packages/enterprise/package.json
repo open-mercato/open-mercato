@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "main": "./dist/index.js",
@@ -86,9 +86,11 @@
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {
+    "@mikro-orm/core": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zod": ">=3.23.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",

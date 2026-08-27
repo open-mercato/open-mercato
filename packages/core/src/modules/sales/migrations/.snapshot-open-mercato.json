@@ -1962,6 +1962,36 @@
           "keyName": "sales_document_addresses_scope_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [
+            "document_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_document_addresses_document_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "order_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_document_addresses_order_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "quote_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_document_addresses_quote_idx",
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],
@@ -2338,6 +2368,16 @@
           "composite": true,
           "constraint": false,
           "keyName": "sales_document_tag_assignments_scope_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "document_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_document_tag_assignments_document_idx",
           "primary": false,
           "unique": false
         },
@@ -3738,6 +3778,36 @@
           "composite": true,
           "constraint": false,
           "keyName": "sales_notes_scope_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "context_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_notes_context_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "order_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_notes_order_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "quote_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_notes_quote_idx",
           "primary": false,
           "unique": false
         }

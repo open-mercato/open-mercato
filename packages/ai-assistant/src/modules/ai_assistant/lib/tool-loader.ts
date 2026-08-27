@@ -18,6 +18,8 @@ import {
 
 const logger = createLogger('ai_assistant').child({ component: 'tools' })
 
+let allModuleToolsLoad: Promise<void> | null = null
+
 /**
  * Module tool definition as exported from ai-tools.ts files.
  */
@@ -239,7 +241,7 @@ export async function loadGeneratedModuleAiTools(): Promise<number> {
  * Dynamically load tools from known module paths.
  * This is called during MCP server startup.
  */
-export async function loadAllModuleTools(): Promise<void> {
+async function loadAllModuleToolsUncached(): Promise<void> {
   // 1. Register built-in tools
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
   logger.debug('Registered built-in context_whoami tool')
@@ -279,12 +281,20 @@ export async function loadAllModuleTools(): Promise<void> {
   }
 }
 
-/**
- * Process-lifetime memo for {@link ensureModuleToolsLoaded}. Holds the in-flight
- * promise, not a boolean, so concurrent callers await the same load instead of
- * racing four dynamic imports.
- */
-let moduleToolsLoad: Promise<void> | null = null
+export function loadAllModuleTools(): Promise<void> {
+  if (!allModuleToolsLoad) {
+    allModuleToolsLoad = loadAllModuleToolsUncached().catch((error) => {
+      allModuleToolsLoad = null
+      throw error
+    })
+  }
+  return allModuleToolsLoad
+}
+
+/** @__internal Test-only hook — reset the process-wide loader memo. */
+export function resetAllModuleToolsLoadForTests(): void {
+  allModuleToolsLoad = null
+}
 
 /**
  * Guarantee the tool registry is populated, at most once per process.
@@ -302,18 +312,12 @@ let moduleToolsLoad: Promise<void> | null = null
  *
  * Repeat calls are free. `loadAllModuleTools` itself is idempotent — it
  * re-registers into a keyed map — but it also re-runs four dynamic imports and
- * an OpenAPI spec load, so the memo is about cost, not correctness.
+ * an OpenAPI spec load, so its own memo is about cost, not correctness. This
+ * function holds no second memo of its own: stacking one over that memo made a
+ * reset at either layer insufficient to observe a reload.
  */
 export async function ensureModuleToolsLoaded(): Promise<void> {
-  if (!moduleToolsLoad) {
-    moduleToolsLoad = loadAllModuleTools().catch((error) => {
-      // A failed load must not be cached as success, or the process is stuck
-      // toolless until restart.
-      moduleToolsLoad = null
-      throw error
-    })
-  }
-  await moduleToolsLoad
+  await loadAllModuleTools()
 }
 
 /**
@@ -321,7 +325,7 @@ export async function ensureModuleToolsLoaded(): Promise<void> {
  * Test-only hook — drops the memo so a suite can observe the load again.
  */
 export function resetModuleToolsLoadedForTests(): void {
-  moduleToolsLoad = null
+  resetAllModuleToolsLoadForTests()
 }
 
 /**

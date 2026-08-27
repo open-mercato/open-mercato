@@ -584,6 +584,11 @@ const addressSnapshotSchema = z
   .nullable()
   .optional();
 
+// Mirrors the create schema's `decimal({ min: 0 })` (data/validators.ts). `null`
+// comes first in the union below because the coercion accepts it — `Number(null)`
+// is 0 — and would turn a clear into a written zero.
+const exchangeRateSchema = z.coerce.number().min(0);
+
 export const documentUpdateSchema = z
   .object({
     id: z.string().uuid(),
@@ -594,9 +599,21 @@ export const documentUpdateSchema = z
     customerReference: z.string().nullable().optional(),
     externalReference: z.string().nullable().optional(),
     comment: z.string().nullable().optional(),
+    // Same names and limits as the create schema (data/validators.ts), so a
+    // caller can send one payload shape to create and update. Nullable here
+    // because an update — unlike a create — has an existing value to clear.
+    comments: z.string().trim().max(4000).nullable().optional(),
+    internalNotes: z.string().trim().max(4000).nullable().optional(),
     orderNumber: z.string().trim().min(1).max(191).optional(),
     quoteNumber: z.string().trim().min(1).max(191).optional(),
     currencyCode: currencyCodeSchema.optional(),
+    // Order-only columns — SalesQuote declares none of them. Declared here
+    // because the create schema declares them and a caller reusing its create
+    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
+    // rejects each with a 400 on a quote rather than dropping it.
+    exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
+    paymentStatusEntryId: z.string().uuid().nullable().optional(),
+    fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
     channelId: z.string().uuid().nullable().optional(),
     statusEntryId: z.string().uuid().nullable().optional(),
     placedAt: z.union([dateOnlySchema, z.null()]).optional(),
@@ -628,6 +645,9 @@ export const documentUpdateSchema = z
       input.expectedDeliveryAt !== undefined ||
       input.channelId !== undefined ||
       input.statusEntryId !== undefined ||
+      input.exchangeRate !== undefined ||
+      input.paymentStatusEntryId !== undefined ||
+      input.fulfillmentStatusEntryId !== undefined ||
       input.shippingAddressId !== undefined ||
       input.billingAddressId !== undefined ||
       input.customerEntityId !== undefined ||
@@ -637,6 +657,8 @@ export const documentUpdateSchema = z
       input.customerReference !== undefined ||
       input.externalReference !== undefined ||
       input.comment !== undefined ||
+      input.comments !== undefined ||
+      input.internalNotes !== undefined ||
       input.orderNumber !== undefined ||
       input.quoteNumber !== undefined ||
       input.shippingAddressSnapshot !== undefined ||
@@ -1162,8 +1184,47 @@ async function applyDocumentUpdate({
       typeof input.comment === "string" ? input.comment.trim() : "";
     entity.comments = normalized.length ? normalized : null;
   }
+  // After `comment`, so the canonical name wins when a payload carries both.
+  if (input.comments !== undefined) {
+    const normalized =
+      typeof input.comments === "string" ? input.comments.trim() : "";
+    entity.comments = normalized.length ? normalized : null;
+  }
+  // Orders only — SalesQuote has no internalNotes column. Reject rather than
+  // ignore it on a quote: the field now satisfies the schema's refine on its
+  // own, so silently dropping it would let an otherwise-empty payload run the
+  // update, and a quote in `sent` status loses its acceptance token and reverts
+  // to draft on any update that reaches execution.
+  if (kind === "quote" && input.internalNotes !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.internal_notes_unsupported",
+        "Internal notes are not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.internalNotes !== undefined) {
+    const normalized =
+      typeof input.internalNotes === "string" ? input.internalNotes.trim() : "";
+    (entity as SalesOrder).internalNotes = normalized.length
+      ? normalized
+      : null;
+  }
   if (typeof input.currencyCode === "string") {
     entity.currencyCode = input.currencyCode;
+  }
+  // Orders only — SalesQuote has no exchange_rate column, so the field is
+  // rejected rather than ignored for the same reason as internalNotes above.
+  if (kind === "quote" && input.exchangeRate !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.exchange_rate_unsupported",
+        "Exchange rate is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.exchangeRate !== undefined) {
+    (entity as SalesOrder).exchangeRate = toNumericString(input.exchangeRate);
   }
   if (input.channelId !== undefined) {
     if (input.channelId === null) {
@@ -1208,6 +1269,62 @@ async function applyDocumentUpdate({
     }
     (entity as any).statusEntryId = input.statusEntryId ?? null;
     (entity as any).status = statusValue;
+  }
+  // Orders only — SalesQuote has neither the entry-id nor the derived text
+  // column for payment and fulfillment status, so both are rejected on a quote.
+  if (kind === "quote" && input.paymentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.payment_status_unsupported",
+        "Payment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.paymentStatusEntryId !== undefined) {
+    const paymentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.paymentStatusEntryId,
+      { tenantId },
+    );
+    if (input.paymentStatusEntryId && !paymentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    // Both columns, like the statusEntryId branch above and like order create:
+    // moving the id without its derived text leaves a self-contradicting row.
+    (entity as SalesOrder).paymentStatusEntryId =
+      input.paymentStatusEntryId ?? null;
+    (entity as SalesOrder).paymentStatus = paymentStatusValue;
+  }
+  if (kind === "quote" && input.fulfillmentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.fulfillment_status_unsupported",
+        "Fulfillment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.fulfillmentStatusEntryId !== undefined) {
+    const fulfillmentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.fulfillmentStatusEntryId,
+      { tenantId },
+    );
+    if (input.fulfillmentStatusEntryId && !fulfillmentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    (entity as SalesOrder).fulfillmentStatusEntryId =
+      input.fulfillmentStatusEntryId ?? null;
+    (entity as SalesOrder).fulfillmentStatus = fulfillmentStatusValue;
   }
   if (input.placedAt !== undefined) {
     if (input.placedAt === null) {
@@ -2079,8 +2196,8 @@ async function loadCreditMemoSnapshot(
       organizationId: creditMemo.organizationId,
       tenantId: creditMemo.tenantId,
       creditMemoNumber: creditMemo.creditMemoNumber,
-      orderId: creditMemo.orderId ?? null,
-      invoiceId: creditMemo.invoiceId ?? null,
+      orderId: creditMemo.order?.id ?? null,
+      invoiceId: creditMemo.invoice?.id ?? null,
       statusEntryId: creditMemo.statusEntryId ?? null,
       status: creditMemo.status ?? null,
       reason: creditMemo.reason ?? null,
@@ -3632,6 +3749,22 @@ function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   return Array.from(set);
 }
 
+// A loaded assignment exposes its tag as an entity, an unwrapped id or the raw
+// column depending on how it was fetched; the snapshot loaders read it the same
+// defensive way. Returns null when the id cannot be determined, which callers
+// must treat as "unrecognised" rather than as a match.
+function readAssignmentTagId(assignment: {
+  tag?: unknown;
+}): string | null {
+  const tag = (assignment as { tag?: unknown }).tag;
+  if (typeof tag === "string") return tag;
+  return (
+    (tag as { id?: string } | null | undefined)?.id ??
+    (assignment as { tag_id?: string }).tag_id ??
+    null
+  );
+}
+
 function buildTagChange(
   beforeTags: TagAssignmentSnapshot[] | undefined,
   afterTags: TagAssignmentSnapshot[] | undefined,
@@ -3676,11 +3809,22 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
   if (input.customerSnapshot !== undefined) keys.add("customerSnapshot");
   if (input.metadata !== undefined) keys.add("metadata");
   if (input.comment !== undefined) keys.add("comments");
+  if (input.comments !== undefined) keys.add("comments");
   if (input.currencyCode !== undefined) keys.add("currencyCode");
   if (input.channelId !== undefined) keys.add("channelId");
   if (kind === "order") {
+    if (input.internalNotes !== undefined) keys.add("internalNotes");
     if (input.placedAt !== undefined) keys.add("placedAt");
     if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
+    if (input.exchangeRate !== undefined) keys.add("exchangeRate");
+    if (input.paymentStatusEntryId !== undefined) {
+      keys.add("paymentStatusEntryId");
+      keys.add("paymentStatus");
+    }
+    if (input.fulfillmentStatusEntryId !== undefined) {
+      keys.add("fulfillmentStatusEntryId");
+      keys.add("fulfillmentStatus");
+    }
   }
   if (
     input.shippingAddressId !== undefined ||
@@ -3719,6 +3863,28 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
   return Array.from(keys);
 }
 
+// Writes only the difference between the stored and the incoming tag set, and
+// no-ops when they are equal. The previous delete-all-then-reinsert rewrote an
+// unchanged set on every save that carried `tags`: on a large
+// sales_document_tag_assignments that delete was the dominant cost of a bulk
+// import, and it also reset each assignment's id/created_at, churned the unique
+// index and left two dead tuples per document per save.
+//
+// Semantics are unchanged — a tag removed out of band still differs from the
+// incoming set and is still restored. Removals go through the UnitOfWork rather
+// than nativeDelete because the assignments are loaded (managed) here; a native
+// delete would leave stale identities behind. The add and remove sets are
+// disjoint by construction, so MikroORM's insert-before-delete commit order can
+// never transiently violate the unique (tag_id, document_id, document_kind).
+//
+// The assignment read below is deliberately scoped by document only, with no
+// organization/tenant predicate — unlike the display reads in
+// api/documents/factory.ts, and unlike the tag-scope check above. It has to
+// match the scope of the unique constraint it reconciles against, which spans
+// (tag_id, document_id, document_kind) and no scope columns. Narrowing the read
+// would hide a mis-scoped row from the diff, put its tag in the add set, and
+// turn the insert into a unique-constraint violation. The document itself is
+// already scope-checked by the caller before this runs.
 async function syncSalesDocumentTags(
   em: EntityManager,
   params: {
@@ -3731,29 +3897,38 @@ async function syncSalesDocumentTags(
 ) {
   if (params.tagIds === undefined) return;
   const tagIds = normalizeTagIds(params.tagIds);
-  if (tagIds.length === 0) {
-    await em.nativeDelete(SalesDocumentTagAssignment, {
-      documentId: params.documentId,
-      documentKind: params.kind,
+  const byId = new Map<string, SalesDocumentTag>();
+  if (tagIds.length > 0) {
+    const tagsInScope = await em.find(SalesDocumentTag, {
+      id: { $in: tagIds },
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
     });
-    return;
+    if (tagsInScope.length !== tagIds.length) {
+      throw new CrudHttpError(400, {
+        error: "One or more tags not found for this scope",
+      });
+    }
+    tagsInScope.forEach((tag) => byId.set(tag.id, tag));
   }
-  const tagsInScope = await em.find(SalesDocumentTag, {
-    id: { $in: tagIds },
-    organizationId: params.organizationId,
-    tenantId: params.tenantId,
-  });
-  if (tagsInScope.length !== tagIds.length) {
-    throw new CrudHttpError(400, {
-      error: "One or more tags not found for this scope",
-    });
-  }
-  const byId = new Map(tagsInScope.map((tag) => [tag.id, tag]));
-  await em.nativeDelete(SalesDocumentTagAssignment, {
+  const existing = await em.find(SalesDocumentTagAssignment, {
     documentId: params.documentId,
     documentKind: params.kind,
   });
-  for (const tagId of tagIds) {
+  const existingByTagId = new Map<string, (typeof existing)[number]>();
+  existing.forEach((assignment) => {
+    const tagId = readAssignmentTagId(assignment);
+    if (tagId) existingByTagId.set(tagId, assignment);
+  });
+  const wanted = new Set(tagIds);
+  const toRemove = existing.filter((assignment) => {
+    const tagId = readAssignmentTagId(assignment);
+    return tagId === null || !wanted.has(tagId);
+  });
+  const toAdd = tagIds.filter((tagId) => !existingByTagId.has(tagId));
+  if (toRemove.length === 0 && toAdd.length === 0) return;
+  toRemove.forEach((assignment) => em.remove(assignment));
+  for (const tagId of toAdd) {
     const tag = byId.get(tagId);
     if (!tag) continue;
     const assignment = em.create(SalesDocumentTagAssignment, {
@@ -5112,10 +5287,6 @@ const updateQuoteCommand: CommandHandler<
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
-    if (shouldInvalidateSentToken) {
-      quote.acceptanceToken = null;
-      quote.sentAt = null;
-    }
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -5138,7 +5309,12 @@ const updateQuoteCommand: CommandHandler<
             input: parsed,
             em,
           });
+          // After applyDocumentUpdate, not before it: the reset must not happen
+          // for an update that turns out to be invalid, or a rejected payload
+          // still strips a sent quote of its acceptance link.
           if (shouldInvalidateSentToken) {
+            quote.acceptanceToken = null;
+            quote.sentAt = null;
             quote.status = "draft";
             quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
               tenantId: quote.tenantId,
@@ -9434,8 +9610,8 @@ const createCreditMemoCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       creditMemoNumber: ensuredCreditMemoNumber,
-      orderId: parsed.orderId ?? null,
-      invoiceId: parsed.invoiceId ?? null,
+      order: parsed.orderId ? em.getReference(SalesOrder, parsed.orderId) : null,
+      invoice: parsed.invoiceId ? em.getReference(SalesInvoice, parsed.invoiceId) : null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       reason: parsed.reason ?? null,
@@ -9685,8 +9861,12 @@ const updateCreditMemoCommand: CommandHandler<
     ensureOrganizationScope(ctx, creditMemo.organizationId);
     ensureTenantScope(ctx, creditMemo.tenantId);
     creditMemo.creditMemoNumber = before.creditMemo.creditMemoNumber;
-    creditMemo.orderId = before.creditMemo.orderId;
-    creditMemo.invoiceId = before.creditMemo.invoiceId;
+    creditMemo.order = before.creditMemo.orderId
+      ? em.getReference(SalesOrder, before.creditMemo.orderId)
+      : null;
+    creditMemo.invoice = before.creditMemo.invoiceId
+      ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+      : null;
     creditMemo.statusEntryId = before.creditMemo.statusEntryId;
     creditMemo.status = before.creditMemo.status;
     creditMemo.reason = before.creditMemo.reason;
@@ -9789,8 +9969,12 @@ const deleteCreditMemoCommand: CommandHandler<
       organizationId: before.creditMemo.organizationId,
       tenantId: before.creditMemo.tenantId,
       creditMemoNumber: before.creditMemo.creditMemoNumber,
-      orderId: before.creditMemo.orderId,
-      invoiceId: before.creditMemo.invoiceId,
+      order: before.creditMemo.orderId
+        ? em.getReference(SalesOrder, before.creditMemo.orderId)
+        : null,
+      invoice: before.creditMemo.invoiceId
+        ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+        : null,
       statusEntryId: before.creditMemo.statusEntryId,
       status: before.creditMemo.status,
       reason: before.creditMemo.reason,

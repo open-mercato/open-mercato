@@ -27,7 +27,7 @@ function skillFoldersOnDisk(skillsDir) {
     if (!entry?.isDirectory()) continue
     if (existsSync(join(candidate, 'SKILL.md'))) folders.push(name)
   }
-  return folders.sort()
+  return folders.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 export function validateSkillsTiers(rootDir) {
@@ -62,8 +62,8 @@ export function validateSkillsTiers(rootDir) {
   }
 
   const assigned = tierNames.flatMap((tier) => (Array.isArray(tiers[tier]?.skills) ? tiers[tier].skills : []))
-  const uniqueAssigned = [...new Set(assigned)].sort()
-  const multiAssigned = [...new Set(assigned.filter((skill, index) => assigned.indexOf(skill) !== index))].sort()
+  const uniqueAssigned = [...new Set(assigned)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  const multiAssigned = [...new Set(assigned.filter((skill, index) => assigned.indexOf(skill) !== index))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   const externalSkills = new Set(Array.isArray(manifest.external?.skills) ? manifest.external.skills : [])
 
   const externalAndTiered = uniqueAssigned.filter((skill) => externalSkills.has(skill))

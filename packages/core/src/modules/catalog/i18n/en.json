@@ -90,6 +90,7 @@
   "catalog.merchandising_assistant.agents.merchandising.label": "Merchandising Assistant",
   "catalog.merchandising_assistant.context.filteredByCategory": "Filtered by category",
   "catalog.merchandising_assistant.context.matchingProducts": "{count} products in view",
+  "catalog.merchandising_assistant.context.matchingProductsCapped": "{count}+ products in view",
   "catalog.merchandising_assistant.context.selectedProducts": "{count} products selected",
   "catalog.merchandising_assistant.context.tags": "{count} tags",
   "catalog.merchandising_assistant.dock.subtitle": "Catalog",
@@ -720,5 +721,6 @@
   "customers~catalog.errors.id_required": "Record identifier is required.",
   "customers~catalog.errors.organization_required": "Organization context is required.",
   "customers~catalog.errors.tenant_required": "Tenant context is required.",
-  "customers~catalog.nav.group": "Catalog"
+  "customers~catalog.nav.group": "Catalog",
+  "notifications.categories.catalog": "Catalog"
 }

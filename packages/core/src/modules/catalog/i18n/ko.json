@@ -90,6 +90,7 @@
   "catalog.merchandising_assistant.agents.merchandising.label": "머천다이징 어시스턴트",
   "catalog.merchandising_assistant.context.filteredByCategory": "카테고리로 필터링됨",
   "catalog.merchandising_assistant.context.matchingProducts": "{count} 제품 보기",
+  "catalog.merchandising_assistant.context.matchingProductsCapped": "조회 중 {count}+개 제품",
   "catalog.merchandising_assistant.context.selectedProducts": "{count} 제품 선택됨",
   "catalog.merchandising_assistant.context.tags": "태그 {count}개",
   "catalog.merchandising_assistant.dock.subtitle": "카탈로그",
@@ -720,5 +721,6 @@
   "customers~catalog.errors.id_required": "레코드 식별자가 필요합니다.",
   "customers~catalog.errors.organization_required": "조직 컨텍스트가 필요합니다.",
   "customers~catalog.errors.tenant_required": "테넌트 컨텍스트가 필요합니다.",
-  "customers~catalog.nav.group": "카탈로그"
+  "customers~catalog.nav.group": "카탈로그",
+  "notifications.categories.catalog": "카탈로그"
 }

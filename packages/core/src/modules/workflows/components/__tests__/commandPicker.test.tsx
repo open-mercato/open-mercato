@@ -38,7 +38,7 @@ function renderPicker(value = '') {
 
 /** Focus + type opens the suggestion list and triggers the debounced load. */
 async function openSuggestions() {
-  const input = screen.getByRole('textbox')
+  const input = screen.getByRole('combobox')
   await act(async () => {
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: 'update' } })
@@ -64,9 +64,9 @@ describe('CommandPicker', () => {
     await openSuggestions()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /sales\.orders\.update/ })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: /sales\.orders\.update/ })).toBeInTheDocument()
     })
-    expect(screen.queryByRole('button', { name: /catalog\.products\.update/ })).toBeNull()
+    expect(screen.queryByRole('option', { name: /catalog\.products\.update/ })).toBeNull()
   })
 
   it('still shows the disabled candidates, with the remedy', async () => {
@@ -116,7 +116,7 @@ describe('CommandPicker', () => {
     await openSuggestions()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /sales\.orders\.update/ })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: /sales\.orders\.update/ })).toBeInTheDocument()
     })
     expect(screen.queryByText(UNAVAILABLE_TITLE_KEY)).toBeNull()
     expect(screen.queryByText(SELECTED_DISABLED_KEY)).toBeNull()

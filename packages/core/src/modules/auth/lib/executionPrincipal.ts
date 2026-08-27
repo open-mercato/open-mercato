@@ -125,7 +125,7 @@ export async function provisionExecutionPrincipal(
       { tenantId, organizationId: null },
     )
     if (!role) {
-      role = trx.create(Role, { name: roleName, tenantId, createdAt: new Date() })
+      role = trx.create(Role, { name: roleName, tenantId, minActiveHolders: 0, createdAt: new Date() })
       trx.persist(role)
       await trx.flush()
     }

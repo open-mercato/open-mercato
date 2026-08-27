@@ -91,12 +91,12 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       await patternInput.click()
 
       // At least one event suggestion should appear in the dropdown
-      const firstSuggestion = dialog.getByRole('button').filter({ hasText: /Created|Updated|Deleted/i }).first()
+      const firstSuggestion = dialog.getByRole('option').filter({ hasText: /Created|Updated|Deleted/i }).first()
       await expect(firstSuggestion).toBeVisible()
 
       // --- Filtering: typing narrows suggestions ---
       await patternInput.fill('customers')
-      const customerSuggestion = dialog.getByRole('button').filter({ hasText: /Customer/i }).first()
+      const customerSuggestion = dialog.getByRole('option').filter({ hasText: /Customer/i }).first()
       await expect(customerSuggestion).toBeVisible()
 
       // The description span shows the raw event ID beneath the human-readable label
