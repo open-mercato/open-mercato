@@ -3,7 +3,10 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { invitationAcceptSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import {
+  CustomerInvitationEmailConflictError,
+  CustomerInvitationService,
+} from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
@@ -29,11 +32,19 @@ export async function POST(req: Request) {
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
 
-  const result = await customerInvitationService.acceptInvitation(
-    parsed.data.token,
-    parsed.data.password,
-    parsed.data.displayName,
-  )
+  let result: Awaited<ReturnType<typeof customerInvitationService.acceptInvitation>>
+  try {
+    result = await customerInvitationService.acceptInvitation(
+      parsed.data.token,
+      parsed.data.password,
+      parsed.data.displayName,
+    )
+  } catch (error) {
+    if (error instanceof CustomerInvitationEmailConflictError) {
+      return NextResponse.json({ ok: false, error: 'An account with this email address already exists' }, { status: 409 })
+    }
+    throw error
+  }
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired invitation' }, { status: 400 })
   }
@@ -117,6 +128,7 @@ const methodDoc: OpenApiMethodDoc = {
   ],
   errors: [
     { status: 400, description: 'Invalid or expired invitation', schema: errorSchema },
+    { status: 409, description: 'An account with this email address already exists', schema: errorSchema },
   ],
 }
 

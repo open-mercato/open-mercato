@@ -1,6 +1,9 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import {
+  CustomerInvitationEmailConflictError,
+  CustomerInvitationService,
+} from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import {
   CustomerRole,
   CustomerUser,
@@ -192,6 +195,73 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
     const roleFinds = (mockEm.find as jest.Mock).mock.calls.filter((call) => call[0] === CustomerRole)
     expect(roleFinds).toHaveLength(0)
+  })
+})
+
+describe('CustomerInvitationService.acceptInvitation — soft-deleted email reuse (#5532)', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '22222222-2222-4222-8222-222222222222'
+
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let service: CustomerInvitationService
+
+  const buildInvitation = () => ({
+    id: 'inv-reuse',
+    email: 'reused@example.com',
+    tenantId,
+    organizationId,
+    customerEntityId: null,
+    personEntityId: null,
+    roleIdsJson: [],
+    expiresAt: new Date(Date.now() + 60_000),
+    acceptedAt: null,
+    cancelledAt: null,
+  }) as unknown as CustomerUserInvitation
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEm = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn((_: unknown, data: unknown) => data as any),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+    service = new CustomerInvitationService(mockEm as unknown as EntityManager)
+  })
+
+  it('creates the user when only a soft-deleted CustomerUser row shares the email (the active-row lookup filters it out)', async () => {
+    const invitation = buildInvitation()
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      if (entity === CustomerUser) return null
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+
+    const result = await service.acceptInvitation('raw-token', 'Secret123!', 'Reused User')
+
+    expect(result).not.toBeNull()
+    const userFinds = (mockEm.findOne as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userFinds).toHaveLength(1)
+    expect(userFinds[0][1]).toMatchObject({ tenantId, emailHash: 'email-hash', deletedAt: null })
+    const userCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userCreates).toHaveLength(1)
+  })
+
+  it('throws CustomerInvitationEmailConflictError instead of creating a duplicate when an active CustomerUser already owns the email', async () => {
+    const invitation = buildInvitation()
+    const activeUser = { id: 'existing-user', tenantId, emailHash: 'email-hash', deletedAt: null }
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      if (entity === CustomerUser) return activeUser
+      return null
+    })
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'Reused User'))
+      .rejects.toThrow(CustomerInvitationEmailConflictError)
+    expect(mockEm.create).not.toHaveBeenCalledWith(CustomerUser, expect.anything())
+    expect(mockEm.flush).not.toHaveBeenCalled()
   })
 })
 

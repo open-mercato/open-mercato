@@ -13,6 +13,13 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
 
+export class CustomerInvitationEmailConflictError extends Error {
+  constructor(public readonly email: string) {
+    super(`An account with the email address ${email} already exists`)
+    this.name = 'CustomerInvitationEmailConflictError'
+  }
+}
+
 export type CustomerInvitationRollbackState = {
   email: string
   token: string
@@ -157,8 +164,28 @@ export class CustomerInvitationService {
     const invitation = await this.findByToken(token)
     if (!invitation) return null
 
-    const passwordHash = await hash(password, BCRYPT_COST)
     const emailHash = hashForLookup(invitation.email)
+
+    // A soft-deleted CustomerUser row does not block re-invitation (the unique
+    // index only applies to non-deleted rows), but an active account with the
+    // same email is a genuine conflict — fail with a domain error here instead
+    // of letting the DB unique-constraint violation surface as a raw 500.
+    const existingActiveUser = await findOneWithDecryption(
+      this.em,
+      CustomerUser,
+      {
+        tenantId: invitation.tenantId,
+        emailHash,
+        deletedAt: null,
+      } as any,
+      undefined,
+      { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
+    )
+    if (existingActiveUser) {
+      throw new CustomerInvitationEmailConflictError(invitation.email)
+    }
+
+    const passwordHash = await hash(password, BCRYPT_COST)
 
     // Create user
     const user = this.em.create(CustomerUser, {
