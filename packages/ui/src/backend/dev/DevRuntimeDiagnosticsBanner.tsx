@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { ChevronDown, ChevronUp, Database, RefreshCw, RotateCcw, ScrollText, Wrench, X } from 'lucide-react'
 import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   isDevRuntimeBannerEnabled,
   readDevRuntimeLogsUrl,
@@ -216,7 +217,7 @@ export function DevRuntimeDiagnosticsBanner() {
         cache: 'no-store',
       })
       if (!response.ok) {
-        const payload = await response.json().catch(() => null)
+        const payload = await readJsonSafe<{ error?: { message?: string } }>(response)
         setActionError(payload?.error?.message ?? t('ui.devRuntime.actions.failed', 'The recovery action could not be started.'))
       }
     } catch {

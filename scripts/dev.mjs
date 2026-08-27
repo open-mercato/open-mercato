@@ -309,6 +309,11 @@ let devGateway = null
 let devUpstreamPort = null
 let managedAppChild = null
 let restartRequestedReason = null
+// Gateway mode answers a startup-stage failure by keeping the supervisor alive
+// instead of shutting down, so the startup pipeline has to stop itself. Without
+// this latch the remaining stages — and the app launch — would run against a
+// tree that already failed to build.
+let startupAborted = false
 let splashChildStateFile = null
 let splashLogoSvg = null
 let splashHtmlTemplate = null
@@ -759,6 +764,7 @@ function buildAppDevEnv(options = {}) {
 }
 
 function launchStandaloneDev(options = {}) {
+  if (startupAborted) return
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
     shutdown(1)
@@ -1107,6 +1113,7 @@ async function reportStageFailure(label, commandArgs, capturedLines, code, optio
 // terminal process. Direct mode preserves its existing shutdown behavior.
 function keepSupervisorAliveAfterStageFailure(label) {
   if (!gatewayMode || shuttingDown) return false
+  startupAborted = true
   console.error(`⚠️ "${label}" failed. The dev gateway stays available on ${resolveExpectedAppBaseUrl()} for diagnostics and recovery actions.`)
   return true
 }
@@ -1416,6 +1423,9 @@ function restartManagedRuntime(reason) {
 }
 
 function relaunchManagedRuntime(reason) {
+  // A recovery action is the deliberate answer to the failure that latched the
+  // pipeline, so relaunching clears it.
+  startupAborted = false
   console.log(`🔁 Restarting the app runtime (${reason})`)
   if (isMonorepo) {
     launchMonorepoAppDev()
@@ -1861,6 +1871,7 @@ function classifyStageMarker(commandArgs) {
 }
 
 async function runStage(label, commandArgs, options = {}) {
+  if (startupAborted) return
   const startedAt = Date.now()
   const stageTotal = options.stageTotal ?? (greenfield ? 5 : 3)
   const stageCurrent = options.stageCurrent
@@ -1953,6 +1964,7 @@ async function runStage(label, commandArgs, options = {}) {
 }
 
 async function runPassthroughStage(label, commandArgs, options = {}) {
+  if (startupAborted) return
   const startedAt = Date.now()
   const stageOrder = {
     'build:packages': 1,
@@ -2062,6 +2074,7 @@ function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
 }
 
 function startPackageWatch() {
+  if (startupAborted) return
   const watchScript = resolveWatchPackagesScript()
   const watchCommand = watchScript === 'watch:packages'
     ? { command: process.execPath, args: [monorepoPackageWatchScript] }
@@ -2170,6 +2183,7 @@ function startPackageWatch() {
 }
 
 function launchMonorepoAppDev() {
+  if (startupAborted) return
   const appArgs = [monorepoAppDevScript]
   if (classic) appArgs.push('--classic')
   else if (verbose) appArgs.push('--verbose')

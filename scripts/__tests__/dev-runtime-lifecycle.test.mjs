@@ -33,6 +33,29 @@ for (const relPath of SUPERVISOR_FILES) {
     assert.match(source, /if \(keepSupervisorAliveAfterStageFailure\(label\)\) return\s*\n\s*shutdown\(code \?\? 1\)/)
   })
 
+  // Surviving a stage failure means the gateway keeps serving, NOT that startup
+  // keeps going: `reportStageFailure` returns to its caller, so without a latch
+  // the remaining stages and the app launch would run against a tree that is
+  // already known to be broken.
+  test(`${relPath} stops the startup pipeline when a stage failure spares the supervisor`, () => {
+    const source = read(relPath)
+    assert.match(source, /function keepSupervisorAliveAfterStageFailure\(label\) \{[\s\S]*?startupAborted = true/)
+    for (const guarded of [
+      'async function runStage(label, commandArgs, options = {}) {',
+      'async function runPassthroughStage(label, commandArgs, options = {}) {',
+      'function startPackageWatch() {',
+      'function launchMonorepoAppDev() {',
+      'function launchStandaloneDev(options = {}) {',
+    ]) {
+      const index = source.indexOf(guarded)
+      assert.notEqual(index, -1, `missing ${guarded}`)
+      assert.match(source.slice(index, index + guarded.length + 40), /\n\s*if \(startupAborted\) return/, guarded)
+    }
+    // A recovery action is the deliberate answer to that failure, so it clears
+    // the latch instead of being blocked by it.
+    assert.match(source, /function relaunchManagedRuntime\(reason\) \{[\s\S]*?startupAborted = false/)
+  })
+
   test(`${relPath} keeps the supervisor alive after a managed runtime exit only in gateway mode`, () => {
     const source = read(relPath)
     assert.match(source, /function keepSupervisorAliveAfterFailure\(\) \{\s*\n\s*if \(!gatewayMode \|\| shuttingDown\) return false/)
