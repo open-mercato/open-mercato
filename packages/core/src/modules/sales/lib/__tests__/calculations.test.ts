@@ -1,5 +1,27 @@
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const globalStore = globalThis as typeof globalThis & { __omTestLoggerMock?: Record<string, jest.Mock> }
+  if (!globalStore.__omTestLoggerMock) {
+    const mocked: Record<string, jest.Mock> = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: jest.fn(),
+    }
+    mocked.child.mockImplementation(() => mocked)
+    globalStore.__omTestLoggerMock = mocked
+  }
+  const mocked = globalStore.__omTestLoggerMock
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  warn: jest.Mock
+}
+
 import {
   calculateDocumentTotals,
+  calculateLine,
   rebuildDocumentResult,
   registerSalesTotalsCalculator,
 } from '../calculations'
@@ -574,5 +596,70 @@ describe('calculateDocumentTotals', () => {
     } finally {
       unregister()
     }
+  })
+})
+
+describe('buildBaseLineResult net amount reconciliation (issue #5644)', () => {
+  afterEach(() => {
+    mockLogger.warn.mockClear()
+  })
+
+  it('keeps the computed net amount and warns when a supplied totalNetAmount diverges', async () => {
+    const line: SalesLineSnapshot = {
+      kind: 'product',
+      quantity: 2,
+      currencyCode: 'USD',
+      unitPriceNet: 100,
+      totalNetAmount: 150,
+    }
+
+    const result = await calculateLine({
+      documentKind: 'order',
+      line,
+      context: baseContext,
+    })
+
+    expect(result.netAmount).toBeCloseTo(200, 4)
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Sales line totalNetAmount does not match the computed net amount; the computed value is used',
+      expect.objectContaining({ suppliedTotalNetAmount: 150, computedNetAmount: 200 }),
+    )
+  })
+
+  it('does not warn when the supplied totalNetAmount matches the computed net amount', async () => {
+    const line: SalesLineSnapshot = {
+      kind: 'product',
+      quantity: 2,
+      currencyCode: 'USD',
+      unitPriceNet: 100,
+      totalNetAmount: 200,
+    }
+
+    const result = await calculateLine({
+      documentKind: 'order',
+      line,
+      context: baseContext,
+    })
+
+    expect(result.netAmount).toBeCloseTo(200, 4)
+    expect(mockLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn when totalNetAmount is not supplied', async () => {
+    const line: SalesLineSnapshot = {
+      kind: 'product',
+      quantity: 2,
+      currencyCode: 'USD',
+      unitPriceNet: 100,
+    }
+
+    await calculateLine({
+      documentKind: 'order',
+      line,
+      context: baseContext,
+    })
+
+    expect(mockLogger.warn).not.toHaveBeenCalled()
   })
 })

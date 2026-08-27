@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   type SalesAdjustmentDraft,
   type SalesCalculationContext,
@@ -10,6 +11,8 @@ import {
   type SalesLineSnapshot,
   type SalesTotalsCalculationHook,
 } from './types'
+
+const logger = createLogger('sales')
 
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -94,6 +97,23 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
   const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity
   const discountTotal = Math.min(Math.max(discountPerUnit * quantity, 0), netSubtotalBeforeDiscount)
   const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0)
+  // Unlike totalGrossAmount below, a supplied totalNetAmount is never honoured
+  // verbatim — net always comes from unitPriceNet/discount so it stays
+  // internally consistent with them. A caller-supplied value is still
+  // reconciled against the computed one so a divergence (e.g. a mis-read
+  // discount) surfaces instead of being silently discarded (#5644).
+  if (line.totalNetAmount !== null && line.totalNetAmount !== undefined) {
+    const suppliedNetAmount = round(toNumber(line.totalNetAmount, netSubtotal))
+    const computedNetAmount = round(netSubtotal)
+    if (suppliedNetAmount !== computedNetAmount) {
+      logger.warn('Sales line totalNetAmount does not match the computed net amount; the computed value is used', {
+        lineId: line.id ?? null,
+        productId: line.productId ?? null,
+        suppliedTotalNetAmount: suppliedNetAmount,
+        computedNetAmount,
+      })
+    }
+  }
   const explicitTaxAmount = line.taxAmount !== null && line.taxAmount !== undefined
   let taxAmount = explicitTaxAmount
     ? toNumber(line.taxAmount, 0)
