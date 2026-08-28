@@ -1,15 +1,8 @@
-import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
-import {
-  emitCrudSideEffects,
-  emitCrudUndoSideEffects,
-  buildChanges,
-  requireId,
-} from '@open-mercato/shared/lib/commands/helpers'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { notFound } from '@open-mercato/shared/lib/crud/errors'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import { makeCommentCommandSet } from '@open-mercato/shared/lib/commands/timeline'
 import { E } from '#generated/entities.ids.generated'
 import {
   SalesNote,
@@ -25,9 +18,8 @@ import {
   type NoteCreateInput,
   type NoteUpdateInput,
 } from '../data/validators'
-import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload } from './shared'
+import { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from './shared'
 
 type NoteSnapshot = {
   id: string
@@ -41,11 +33,6 @@ type NoteSnapshot = {
   authorUserId: string | null
   appearanceIcon: string | null
   appearanceColor: string | null
-}
-
-type NoteUndoPayload = {
-  before?: NoteSnapshot | null
-  after?: NoteSnapshot | null
 }
 
 const noteCrudIndexer = {
@@ -81,6 +68,11 @@ async function loadNoteSnapshot(em: EntityManager, id: string): Promise<NoteSnap
   }
 }
 
+/**
+ * Resolves the document a note hangs off. Notes are the only timeline family with a
+ * polymorphic parent: four document kinds, of which only orders and quotes are also
+ * denormalized onto the row as FK columns.
+ */
 async function requireContext(
   em: EntityManager,
   contextType: SalesDocumentKind,
@@ -95,33 +87,15 @@ async function requireContext(
 }> {
   if (contextType === 'order') {
     const order = await findOneWithDecryption(em, SalesOrder, { id: contextId }, {}, { tenantId, organizationId })
-    if (!order) {
-      throw notFound('sales.notes.context_not_found')
-    }
-    if (organizationId && tenantId) {
-      ensureSameScope(order, organizationId, tenantId)
-    }
-    return {
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      order,
-      quote: null,
-    }
+    if (!order) throw notFound('sales.notes.context_not_found')
+    if (organizationId && tenantId) ensureSameScope(order, organizationId, tenantId)
+    return { organizationId: order.organizationId, tenantId: order.tenantId, order, quote: null }
   }
   if (contextType === 'quote') {
     const quote = await findOneWithDecryption(em, SalesQuote, { id: contextId }, {}, { tenantId, organizationId })
-    if (!quote) {
-      throw notFound('sales.notes.context_not_found')
-    }
-    if (organizationId && tenantId) {
-      ensureSameScope(quote, organizationId, tenantId)
-    }
-    return {
-      organizationId: quote.organizationId,
-      tenantId: quote.tenantId,
-      order: null,
-      quote,
-    }
+    if (!quote) throw notFound('sales.notes.context_not_found')
+    if (organizationId && tenantId) ensureSameScope(quote, organizationId, tenantId)
+    return { organizationId: quote.organizationId, tenantId: quote.tenantId, order: null, quote }
   }
   const repo = contextType === 'invoice' ? SalesInvoice : SalesCreditMemo
   const entity = await findOneWithDecryption(
@@ -131,20 +105,12 @@ async function requireContext(
     {},
     { tenantId, organizationId },
   ) as (SalesInvoice | SalesCreditMemo) | null
-  if (!entity) {
-    throw notFound('sales.notes.context_not_found')
-  }
-  if (organizationId && tenantId) {
-    ensureSameScope(entity, organizationId, tenantId)
-  }
-  return {
-    organizationId: entity.organizationId,
-    tenantId: entity.tenantId,
-    order: null,
-    quote: null,
-  }
+  if (!entity) throw notFound('sales.notes.context_not_found')
+  if (organizationId && tenantId) ensureSameScope(entity, organizationId, tenantId)
+  return { organizationId: entity.organizationId, tenantId: entity.tenantId, order: null, quote: null }
 }
 
+/** #3998: a note's author is always the authenticated actor, never request input. */
 function resolveAuthor(authSub: string | null): string | null {
   const sub = authSub?.trim()
   if (!sub) return null
@@ -152,363 +118,125 @@ function resolveAuthor(authSub: string | null): string | null {
   return uuidRegex.test(sub) ? sub : null
 }
 
-const createNoteCommand: CommandHandler<NoteCreateInput, { noteId: string; authorUserId: string | null }> = {
-  id: 'sales.notes.create',
-  async execute(rawInput, ctx) {
-    const parsed = noteCreateSchema.parse(rawInput ?? {})
+/** Only the denormalized FK the snapshot actually carried is reattached. */
+function relationsFor(snapshot: NoteSnapshot, context: { order?: SalesOrder | null; quote?: SalesQuote | null }) {
+  return {
+    order: snapshot.orderId ? context.order ?? null : null,
+    quote: snapshot.quoteId ? context.quote ?? null : null,
+  }
+}
+
+const noteCommands = makeCommentCommandSet<SalesNote, NoteSnapshot, NoteCreateInput, NoteUpdateInput>({
+  commandIds: {
+    create: 'sales.notes.create',
+    update: 'sales.notes.update',
+    delete: 'sales.notes.delete',
+  },
+  resourceKind: 'sales.note',
+  auditLabels: {
+    create: ['sales.audit.notes.create', 'Create note'],
+    update: ['sales.audit.notes.update', 'Update note'],
+    delete: ['sales.audit.notes.delete', 'Delete note'],
+  },
+  // Deliberately narrow: context and denormalized relation columns are not audited.
+  changeKeys: ['body', 'authorUserId', 'appearanceIcon', 'appearanceColor'],
+  messages: { notFound: 'sales.notes.not_found', idRequired: 'Note id required' },
+  entityClass: SalesNote,
+  indexer: noteCrudIndexer,
+  events: noteCrudEvents,
+  schemas: { create: noteCreateSchema, update: noteUpdateSchema },
+
+  loadSnapshot: (em, id) => loadNoteSnapshot(em, id),
+  findRowForWrite: (em, id) => findOneWithDecryption(em, SalesNote, { id }, {}),
+  findRowForRestore: ({ em, id, snapshot }) =>
+    findOneWithDecryption(em, SalesNote, { id }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId }),
+
+  seedFromSnapshot: (snapshot) => ({
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    contextType: snapshot.contextType,
+    contextId: snapshot.contextId,
+    body: snapshot.body,
+    authorUserId: snapshot.authorUserId,
+    appearanceIcon: snapshot.appearanceIcon,
+    appearanceColor: snapshot.appearanceColor,
+  }),
+  assignFromSnapshot: (note, snapshot) => {
+    note.organizationId = snapshot.organizationId
+    note.tenantId = snapshot.tenantId
+    note.contextType = snapshot.contextType
+    note.contextId = snapshot.contextId
+    note.body = snapshot.body
+    note.authorUserId = snapshot.authorUserId
+    note.appearanceIcon = snapshot.appearanceIcon
+    note.appearanceColor = snapshot.appearanceColor
+    note.updatedAt = new Date()
+  },
+
+  resolveParentForCreate: async ({ em, parsed, ctx }) => {
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const context = await requireContext(em, parsed.contextType, parsed.contextId, parsed.organizationId, parsed.tenantId)
-    const authorUserId = resolveAuthor(ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null)
-
-    const note = em.create(SalesNote, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      contextType: parsed.contextType,
-      contextId: parsed.contextId,
-      order: context.order ?? null,
-      quote: context.quote ?? null,
-      authorUserId,
-      appearanceIcon: parsed.appearanceIcon ?? null,
-      appearanceColor: parsed.appearanceColor ?? null,
-      body: parsed.body,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(note)
-    await em.flush()
-
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudSideEffects({
-      dataEngine,
-      action: 'created',
-      entity: note,
-      identifiers: {
-        id: note.id,
-        organizationId: note.organizationId,
-        tenantId: note.tenantId,
-      },
-      indexer: noteCrudIndexer,
-      events: noteCrudEvents,
-    })
-
-    return { noteId: note.id, authorUserId: note.authorUserId ?? null }
-  },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadNoteSnapshot(em, result.noteId)
-  },
-  buildLog: async ({ result, snapshots }) => {
-    const { translate } = await resolveTranslations()
-    const snapshot = snapshots.after as NoteSnapshot | undefined
     return {
-      actionLabel: translate('sales.audit.notes.create', 'Create note'),
-      resourceKind: 'sales.note',
-      resourceId: result.noteId,
-      parentResourceKind: snapshot?.contextType ? `sales.${snapshot.contextType}` : null,
-      parentResourceId: snapshot?.contextId ?? null,
-      tenantId: snapshot?.tenantId ?? null,
-      organizationId: snapshot?.organizationId ?? null,
-      snapshotAfter: snapshot ?? null,
-      payload: {
-        undo: {
-          after: snapshot ?? null,
-        } satisfies NoteUndoPayload,
-      },
+      relations: { order: context.order ?? null, quote: context.quote ?? null },
+      scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
-    const noteId = logEntry?.resourceId ?? null
-    if (!noteId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await findOneWithDecryption(em, SalesNote, { id: noteId }, {})
-    if (existing) {
-      em.remove(existing)
-      await em.flush()
+  // A redo whose document no longer resolves fails loudly; an undo bails silently, since
+  // the delete it reverses is moot once the parent document is gone.
+  resolveParentForRestore: async ({ em, snapshot, kind }) => {
+    const context = await requireContext(em, snapshot.contextType, snapshot.contextId).catch(() => null)
+    if (!context) {
+      if (kind === 'redo') throw notFound('sales.notes.context_not_found')
+      return null
     }
+    return relationsFor(snapshot, context)
   },
-  redo: makeCreateRedo<SalesNote, NoteSnapshot, NoteCreateInput, { noteId: string; authorUserId: string | null }>({
-    entityClass: SalesNote,
-    indexer: noteCrudIndexer,
-    events: noteCrudEvents,
-    findRow: ({ em, id, snapshot }) =>
-      findOneWithDecryption(
-        em,
-        SalesNote,
-        { id },
-        undefined,
-        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
-      ),
-    seedFromSnapshot: (snapshot) => ({
-      id: snapshot.id,
-      organizationId: snapshot.organizationId,
-      tenantId: snapshot.tenantId,
-      contextType: snapshot.contextType,
-      contextId: snapshot.contextId,
-      body: snapshot.body,
-      authorUserId: snapshot.authorUserId,
-      appearanceIcon: snapshot.appearanceIcon,
-      appearanceColor: snapshot.appearanceColor,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }),
-    beforeRestore: async ({ em, snapshot }) => {
-      const context = await requireContext(em, snapshot.contextType, snapshot.contextId).catch(() => null)
-      if (!context) {
-        throw notFound('sales.notes.context_not_found')
-      }
-      return {
-        order: snapshot.orderId ? context.order ?? null : null,
-        quote: snapshot.quoteId ? context.quote ?? null : null,
-      }
-    },
-    buildResult: (entity) => ({ noteId: entity.id, authorUserId: entity.authorUserId ?? null }),
-  }),
-}
+  resolveAuthorForCreate: ({ ctx }) => resolveAuthor(ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null),
 
-const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
-  id: 'sales.notes.update',
-  async prepare(rawInput, ctx) {
-    const parsed = noteUpdateSchema.parse(rawInput ?? {})
-    const em = ctx.container.resolve('em') as EntityManager
-    const snapshot = await loadNoteSnapshot(em, parsed.id)
-    return snapshot ? { before: snapshot } : {}
+  buildCreateData: ({ parsed, relations, authorUserId }) => ({
+    organizationId: parsed.organizationId,
+    tenantId: parsed.tenantId,
+    contextType: parsed.contextType,
+    contextId: parsed.contextId,
+    ...relations,
+    authorUserId,
+    appearanceIcon: parsed.appearanceIcon ?? null,
+    appearanceColor: parsed.appearanceColor ?? null,
+    body: parsed.body,
+  }),
+  // #3998: supplying `authorUserId` re-derives the author from the caller's identity
+  // rather than honouring the submitted value.
+  applyUpdateFields: ({ entity, parsed, ctx }) => {
+    if (parsed.body !== undefined) entity.body = parsed.body
+    if (parsed.authorUserId !== undefined) {
+      entity.authorUserId = resolveAuthor(ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null)
+    }
+    if (parsed.appearanceIcon !== undefined) entity.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) entity.appearanceColor = parsed.appearanceColor ?? null
+    entity.updatedAt = new Date()
   },
-  async execute(rawInput, ctx) {
-    const parsed = noteUpdateSchema.parse(rawInput ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const note = await findOneWithDecryption(em, SalesNote, { id: parsed.id }, {})
-    if (!note) throw notFound('sales.notes.not_found')
+
+  logMeta: ({ before, after }) => {
+    const source = before ?? after
+    return {
+      parentResourceKind: source?.contextType ? `sales.${source.contextType}` : null,
+      parentResourceId: source?.contextId ?? null,
+    }
+  },
+  ensureRowInScope: (ctx, note) => {
     ensureTenantScope(ctx, note.tenantId)
     ensureOrganizationScope(ctx, note.organizationId)
-
-    if (parsed.body !== undefined) note.body = parsed.body
-    if (parsed.authorUserId !== undefined) {
-      note.authorUserId = resolveAuthor(ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null)
-    }
-    if (parsed.appearanceIcon !== undefined) note.appearanceIcon = parsed.appearanceIcon ?? null
-    if (parsed.appearanceColor !== undefined) note.appearanceColor = parsed.appearanceColor ?? null
-    note.updatedAt = new Date()
-
-    await em.flush()
-
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: note,
-      identifiers: {
-        id: note.id,
-        organizationId: note.organizationId,
-        tenantId: note.tenantId,
-      },
-      indexer: noteCrudIndexer,
-      events: noteCrudEvents,
-    })
-
-    return { noteId: note.id }
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadNoteSnapshot(em, result.noteId)
+  resourceIdOf: (result) => (result as { noteId: string }).noteId,
+  buildResult: {
+    create: (note) => ({ noteId: note.id, authorUserId: note.authorUserId ?? null }),
+    update: (note) => ({ noteId: note.id }),
+    delete: (note) => ({ noteId: note.id }),
   },
-  buildLog: async ({ snapshots }) => {
-    const { translate } = await resolveTranslations()
-    const before = snapshots.before as NoteSnapshot | undefined
-    if (!before) return null
-    const after = snapshots.after as NoteSnapshot | undefined
-    const changes =
-      after && before
-        ? buildChanges(
-            before as unknown as Record<string, unknown>,
-            after as unknown as Record<string, unknown>,
-            ['body', 'authorUserId', 'appearanceIcon', 'appearanceColor']
-          )
-        : {}
-    return {
-      actionLabel: translate('sales.audit.notes.update', 'Update note'),
-      resourceKind: 'sales.note',
-      resourceId: before.id,
-      parentResourceKind: before.contextType ? `sales.${before.contextType}` : null,
-      parentResourceId: before.contextId ?? null,
-      tenantId: before.tenantId,
-      organizationId: before.organizationId,
-      snapshotBefore: before,
-      snapshotAfter: after ?? null,
-      changes,
-      payload: {
-        undo: {
-          before,
-          after: after ?? null,
-        } satisfies NoteUndoPayload,
-      },
-    }
-  },
-  undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<NoteUndoPayload>(logEntry)
-    const before = payload?.before
-    if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const context = await requireContext(em, before.contextType, before.contextId).catch(() => null)
-    if (!context) return
-    let note = await findOneWithDecryption(em, SalesNote, { id: before.id }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
-    if (!note) {
-      note = em.create(SalesNote, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        contextType: before.contextType,
-        contextId: before.contextId,
-        order: before.orderId ? context.order ?? null : null,
-        quote: before.quoteId ? context.quote ?? null : null,
-        body: before.body,
-        authorUserId: before.authorUserId,
-        appearanceIcon: before.appearanceIcon,
-        appearanceColor: before.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(note)
-    }
-    note.organizationId = before.organizationId
-    note.tenantId = before.tenantId
-    note.contextType = before.contextType
-    note.contextId = before.contextId
-    note.order = before.orderId ? context.order ?? null : null
-    note.quote = before.quoteId ? context.quote ?? null : null
-    note.body = before.body
-    note.authorUserId = before.authorUserId
-    note.appearanceIcon = before.appearanceIcon
-    note.appearanceColor = before.appearanceColor
-    note.updatedAt = new Date()
-    await em.flush()
+})
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: note,
-      identifiers: {
-        id: note.id,
-        organizationId: note.organizationId,
-        tenantId: note.tenantId,
-      },
-      indexer: noteCrudIndexer,
-      events: noteCrudEvents,
-    })
-  },
-}
-
-const deleteNoteCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { noteId: string }> =
-  {
-    id: 'sales.notes.delete',
-    async prepare(input, ctx) {
-      const id = requireId(input, 'Note id required')
-      const em = ctx.container.resolve('em') as EntityManager
-      const snapshot = await loadNoteSnapshot(em, id)
-      return snapshot ? { before: snapshot } : {}
-    },
-    async execute(input, ctx) {
-      const id = requireId(input, 'Note id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const note = await findOneWithDecryption(em, SalesNote, { id }, {})
-      if (!note) throw notFound('sales.notes.not_found')
-      ensureTenantScope(ctx, note.tenantId)
-      ensureOrganizationScope(ctx, note.organizationId)
-      em.remove(note)
-      await em.flush()
-
-      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-      await emitCrudSideEffects({
-        dataEngine,
-        action: 'deleted',
-        entity: note,
-        identifiers: {
-          id: note.id,
-          organizationId: note.organizationId,
-          tenantId: note.tenantId,
-        },
-        indexer: noteCrudIndexer,
-        events: noteCrudEvents,
-      })
-      return { noteId: note.id }
-    },
-    buildLog: async ({ snapshots }) => {
-      const before = snapshots.before as NoteSnapshot | undefined
-      if (!before) return null
-      const { translate } = await resolveTranslations()
-      return {
-        actionLabel: translate('sales.audit.notes.delete', 'Delete note'),
-        resourceKind: 'sales.note',
-        resourceId: before.id,
-        parentResourceKind: before.contextType ? `sales.${before.contextType}` : null,
-        parentResourceId: before.contextId ?? null,
-        tenantId: before.tenantId,
-        organizationId: before.organizationId,
-        snapshotBefore: before,
-        payload: {
-          undo: {
-            before,
-          } satisfies NoteUndoPayload,
-        },
-      }
-    },
-    undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<NoteUndoPayload>(logEntry)
-      const before = payload?.before
-      if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const context = await requireContext(em, before.contextType, before.contextId).catch(() => null)
-      if (!context) return
-    let note = await findOneWithDecryption(em, SalesNote, { id: before.id }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
-    if (!note) {
-      note = em.create(SalesNote, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        contextType: before.contextType,
-        contextId: before.contextId,
-        order: before.orderId ? context.order ?? null : null,
-        quote: before.quoteId ? context.quote ?? null : null,
-        body: before.body,
-        authorUserId: before.authorUserId,
-        appearanceIcon: before.appearanceIcon,
-        appearanceColor: before.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(note)
-    }
-      note.organizationId = before.organizationId
-      note.tenantId = before.tenantId
-      note.contextType = before.contextType
-      note.contextId = before.contextId
-      note.order = before.orderId ? context.order ?? null : null
-      note.quote = before.quoteId ? context.quote ?? null : null
-      note.body = before.body
-      note.authorUserId = before.authorUserId
-      note.appearanceIcon = before.appearanceIcon
-      note.appearanceColor = before.appearanceColor
-      note.updatedAt = new Date()
-      await em.flush()
-
-      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-      await emitCrudUndoSideEffects({
-        dataEngine,
-        action: 'created',
-        entity: note,
-        identifiers: {
-          id: note.id,
-          organizationId: note.organizationId,
-          tenantId: note.tenantId,
-        },
-        indexer: noteCrudIndexer,
-        events: noteCrudEvents,
-      })
-    },
-  }
-
-registerCommand(createNoteCommand)
-registerCommand(updateNoteCommand)
-registerCommand(deleteNoteCommand)
+registerCommand(noteCommands.create)
+registerCommand(noteCommands.update)
+registerCommand(noteCommands.delete)
