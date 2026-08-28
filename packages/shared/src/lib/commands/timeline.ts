@@ -12,6 +12,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import { diffCustomFieldChanges } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { makeCreateRedo, resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -143,6 +144,7 @@ export async function restoreTimelineEntityFromSnapshot<TEntity extends object, 
 
   return entity
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // makeCommentCommandSet
 // ─────────────────────────────────────────────────────────────────────────────
@@ -418,6 +420,7 @@ export function makeCommentCommandSet<TEntity extends TimelineEntity, TSnapshot 
 
   return { create, update, delete: del }
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // makeActivityCommandSet
 //
@@ -720,6 +723,285 @@ export function makeActivityCommandSet<
       const before = extractUndoPayload<{ before?: Envelope | null }>(logEntry)?.before
       if (!before) return
       await restore({ ctx, snapshot: before, action: 'created', emitWith: 'undo', kind: 'delete-undo', before })
+    },
+  }
+
+  return { create, update, delete: del }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// makeAddressCommandSet
+//
+// Addresses have no author and no custom fields, but add the primary-address invariant:
+// at most one address per parent may be primary, re-established after every write that
+// can leave the row primary.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TimelineAddressSetConfig<TEntity extends TimelineEntity, TSnapshot extends Scope & { id: string; isPrimary: boolean }, TCreate, TUpdate> = {
+  // ── data: frozen contracts
+  commandIds: { create: string; update: string; delete: string }
+  resourceKind: string
+  auditLabels: { create: readonly [string, string]; update: readonly [string, string]; delete: readonly [string, string] }
+  changeKeys: readonly string[]
+  messages: { notFound: string; idRequired: string; redoUnavailable: string }
+  entityClass: new () => TEntity
+  indexer: CrudIndexerConfig<TEntity>
+  events: CrudEventsConfig
+  schemas: { create: { parse: (raw: unknown) => TCreate }; update: { parse: (raw: unknown) => TUpdate } }
+  /**
+   * Whether the row write and the primary-address demotion commit together, inside
+   * `withAtomicFlush(..., { transaction: true })`.
+   *
+   * `false` means a failure between the two can leave a parent holding two primary
+   * addresses. The flag keeps that difference visible rather than silent; remove it once
+   * every module is transactional.
+   */
+  atomicWrites: boolean
+
+  // ── policies
+  loadSnapshot: (em: EntityManager, id: string, ctx: CommandRuntimeContext) => Promise<TSnapshot | null>
+  findRowForWrite: (em: EntityManager, id: string, ctx: CommandRuntimeContext) => Promise<TEntity | null>
+  findRowForRestore?: (args: { em: EntityManager; id: string; snapshot: TSnapshot }) => Promise<TEntity | null>
+  resolveParentForCreate: (args: { em: EntityManager; parsed: TCreate; ctx: CommandRuntimeContext }) => Promise<{ relations: Record<string, unknown>; parentId: string }>
+  resolveParentForRestore: (args: { em: EntityManager; snapshot: TSnapshot }) => Promise<{ relations: Record<string, unknown>; parentId: string }>
+  buildCreateData: (args: { parsed: TCreate; relations: Record<string, unknown> }) => Record<string, unknown>
+  applyUpdateFields: (args: { em: EntityManager; ctx: CommandRuntimeContext; entity: TEntity; parsed: TUpdate }) => Promise<void> | void
+  seedFromSnapshot: (snapshot: TSnapshot) => Record<string, unknown>
+  assignFromSnapshot: (entity: TEntity, snapshot: TSnapshot) => void
+  /** Parent id of a live row, for the primary-address demotion after an update. */
+  primaryParentIdOfEntity: (entity: TEntity) => string
+  /** Demotes every other primary address of the same parent. */
+  enforcePrimary: (em: EntityManager, parentId: string, addressId: string) => Promise<void>
+  logMeta: (snapshot: TSnapshot) => { parentResourceKind: string | null; parentResourceId: string | null }
+  ensureRowInScope: (ctx: CommandRuntimeContext, entity: TEntity) => void
+  buildResult: {
+    create: (entity: TEntity) => unknown
+    update: (entity: TEntity) => unknown
+    delete: (entity: TEntity) => unknown
+  }
+  /** Row id a create-undo removes: the log entry's resource id, or the snapshot's own. */
+  createUndoTargetId: (args: { logEntryResourceId: string | null; after?: TSnapshot | null }) => string | null
+}
+
+/**
+ * Builds the `{ create, update, delete }` undoable trio for an address timeline
+ * sub-resource.
+ *
+ * The address-specific part is the primary-address invariant: after any write that
+ * leaves the row primary, every sibling primary must be demoted. That happens on five
+ * paths — create, create-redo, update, update-undo and delete-undo — always guarded by
+ * the row's own `isPrimary`, and always inside the module's configured write strategy.
+ */
+export function makeAddressCommandSet<
+  TEntity extends TimelineEntity,
+  TSnapshot extends Scope & { id: string; isPrimary: boolean },
+  TCreate,
+  TUpdate,
+>(cfg: TimelineAddressSetConfig<TEntity, TSnapshot, TCreate, TUpdate>) {
+  /** Both address modules return `{ addressId }`; the key is part of their route contract. */
+  const resourceIdOf = (result: unknown) => (result as { addressId: string }).addressId
+  const entityIds = (entity: TEntity) => idsOf(entity as unknown as Scope & { id: string })
+
+  /** Commits a write and, when the row is primary, demotes its siblings. See `atomicWrites`. */
+  async function commitWithPrimary(em: EntityManager, entity: TEntity, parentId: string, isPrimary: boolean) {
+    const work = async () => {
+      em.persist(entity)
+      await em.flush()
+      if (isPrimary) {
+        await cfg.enforcePrimary(em, parentId, (entity as unknown as { id: string }).id)
+        if (!cfg.atomicWrites) await em.flush()
+      }
+    }
+    if (cfg.atomicWrites) await withAtomicFlush(em, [work], { transaction: true })
+    else await work()
+  }
+
+  async function emit(ctx: CommandRuntimeContext, action: 'created' | 'updated' | 'deleted', entity: TEntity, undoEmitter = false) {
+    const emitter = undoEmitter ? emitCrudUndoSideEffects : emitCrudSideEffects
+    await emitter({
+      dataEngine: engine(ctx),
+      action,
+      entity,
+      identifiers: entityIds(entity),
+      indexer: cfg.indexer,
+      events: cfg.events,
+    })
+  }
+
+  const logEnvelope = (
+    label: readonly [string, string],
+    translate: (key: string, fallback: string) => string,
+    snapshot: TSnapshot,
+    resourceId: string,
+  ) =>
+    timelineLogEnvelope({
+      label,
+      translate,
+      resourceKind: cfg.resourceKind,
+      resourceId,
+      ...cfg.logMeta(snapshot),
+      scope: snapshot,
+    })
+
+  /** Shared by create-redo, update-undo and delete-undo. */
+  async function restore(ctx: CommandRuntimeContext, snapshot: TSnapshot, action: 'updated' | 'created', undoEmitter: boolean) {
+    const em = forkEm(ctx)
+    const { relations, parentId } = await cfg.resolveParentForRestore({ em, snapshot })
+    const found = cfg.findRowForRestore
+      ? await cfg.findRowForRestore({ em, id: snapshot.id, snapshot })
+      : await em.findOne(cfg.entityClass, { id: snapshot.id } as never)
+
+    let entity = found
+    if (!entity) {
+      entity = em.create(cfg.entityClass, {
+        ...cfg.seedFromSnapshot(snapshot),
+        ...relations,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as never) as TEntity
+      em.persist(entity)
+    } else {
+      Object.assign(entity, relations)
+    }
+    cfg.assignFromSnapshot(entity, snapshot)
+
+    await commitWithPrimary(em, entity, parentId, snapshot.isPrimary)
+    await emit(ctx, action, entity, undoEmitter)
+    return entity
+  }
+
+  const create: CommandHandler<TCreate, unknown> = {
+    id: cfg.commandIds.create,
+    async execute(rawInput, ctx) {
+      const parsed = cfg.schemas.create.parse(rawInput)
+      const em = forkEm(ctx)
+      const { relations, parentId } = await cfg.resolveParentForCreate({ em, parsed, ctx })
+      const entity = em.create(cfg.entityClass, {
+        ...cfg.buildCreateData({ parsed, relations }),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as never) as TEntity
+      await commitWithPrimary(em, entity, parentId, Boolean((entity as unknown as { isPrimary?: boolean }).isPrimary))
+      await emit(ctx, 'created', entity)
+      return cfg.buildResult.create(entity)
+    },
+    captureAfter: async (_input, result, ctx) =>
+      cfg.loadSnapshot(forkEm(ctx), resourceIdOf(result), ctx),
+    buildLog: async ({ result, snapshots }) => {
+      const { translate } = await resolveTranslations()
+      const after = snapshots.after as TSnapshot | undefined
+      if (!after) return null
+      return {
+        ...logEnvelope(cfg.auditLabels.create, translate, after, resourceIdOf(result)),
+        snapshotAfter: after,
+        payload: { undo: { after } },
+      }
+    },
+    undo: async ({ logEntry, ctx }) => {
+      const after = extractUndoPayload<{ after?: TSnapshot | null }>(logEntry)?.after
+      const id = cfg.createUndoTargetId({ logEntryResourceId: logEntry?.resourceId ?? null, after })
+      if (!id) return
+      const em = forkEm(ctx)
+      const existing = after && cfg.findRowForRestore
+        ? await cfg.findRowForRestore({ em, id, snapshot: after })
+        : await em.findOne(cfg.entityClass, { id } as never)
+      if (existing) {
+        em.remove(existing)
+        await em.flush()
+      }
+    },
+    redo: async ({ logEntry, ctx }) => {
+      const after = resolveRedoSnapshot<TSnapshot>(logEntry)
+      if (!after) throw new CrudHttpError(400, { error: cfg.messages.redoUnavailable })
+      const entity = await restore(ctx, after, 'created', false)
+      return cfg.buildResult.create(entity)
+    },
+  }
+
+  const update: CommandHandler<TUpdate, unknown> = {
+    id: cfg.commandIds.update,
+    async prepare(rawInput, ctx) {
+      const parsed = cfg.schemas.update.parse(rawInput)
+      const snapshot = await cfg.loadSnapshot(rawEm(ctx), (parsed as { id: string }).id, ctx)
+      return snapshot ? { before: snapshot } : {}
+    },
+    async execute(rawInput, ctx) {
+      const parsed = cfg.schemas.update.parse(rawInput)
+      const em = forkEm(ctx)
+      const entity = await cfg.findRowForWrite(em, (parsed as { id: string }).id, ctx)
+      if (!entity) throw notFound(cfg.messages.notFound)
+      cfg.ensureRowInScope(ctx, entity)
+      await cfg.applyUpdateFields({ em, ctx, entity, parsed })
+      await commitWithPrimary(
+        em,
+        entity,
+        cfg.primaryParentIdOfEntity(entity),
+        Boolean((entity as unknown as { isPrimary?: boolean }).isPrimary),
+      )
+      await emit(ctx, 'updated', entity)
+      return cfg.buildResult.update(entity)
+    },
+    captureAfter: async (_input, result, ctx) =>
+      cfg.loadSnapshot(forkEm(ctx), resourceIdOf(result), ctx),
+    buildLog: async ({ snapshots }) => {
+      const before = snapshots.before as TSnapshot | undefined
+      if (!before) return null
+      const { translate } = await resolveTranslations()
+      const after = snapshots.after as TSnapshot | undefined
+      const changes = after
+        ? buildChanges(
+            before as unknown as Record<string, unknown>,
+            after as unknown as Record<string, unknown>,
+            cfg.changeKeys as string[],
+          )
+        : {}
+      return {
+        ...logEnvelope(cfg.auditLabels.update, translate, before, before.id),
+        snapshotBefore: before,
+        snapshotAfter: after ?? null,
+        changes,
+        payload: { undo: { before, after: after ?? null } },
+      }
+    },
+    undo: async ({ logEntry, ctx }) => {
+      const before = extractUndoPayload<{ before?: TSnapshot | null }>(logEntry)?.before
+      if (!before) return
+      await restore(ctx, before, 'updated', true)
+    },
+  }
+
+  const del: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, unknown> = {
+    id: cfg.commandIds.delete,
+    async prepare(input, ctx) {
+      const id = requireId(input, cfg.messages.idRequired)
+      const snapshot = await cfg.loadSnapshot(rawEm(ctx), id, ctx)
+      return snapshot ? { before: snapshot } : {}
+    },
+    async execute(input, ctx) {
+      const id = requireId(input, cfg.messages.idRequired)
+      const em = forkEm(ctx)
+      const entity = await cfg.findRowForWrite(em, id, ctx)
+      if (!entity) throw notFound(cfg.messages.notFound)
+      cfg.ensureRowInScope(ctx, entity)
+      em.remove(entity)
+      await em.flush()
+      await emit(ctx, 'deleted', entity)
+      return cfg.buildResult.delete(entity)
+    },
+    buildLog: async ({ snapshots }) => {
+      const before = snapshots.before as TSnapshot | undefined
+      if (!before) return null
+      const { translate } = await resolveTranslations()
+      return {
+        ...logEnvelope(cfg.auditLabels.delete, translate, before, before.id),
+        snapshotBefore: before,
+        payload: { undo: { before } },
+      }
+    },
+    undo: async ({ logEntry, ctx }) => {
+      const before = extractUndoPayload<{ before?: TSnapshot | null }>(logEntry)?.before
+      if (!before) return
+      await restore(ctx, before, 'created', true)
     },
   }
 
