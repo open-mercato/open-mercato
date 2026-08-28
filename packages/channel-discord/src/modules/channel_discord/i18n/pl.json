@@ -5,6 +5,7 @@
   "channel_discord.aiAutoReply.errors.aiUnavailable": "Automatyczne odpowiedzi wymagają modułu asystenta AI, którego nie ma w tym wdrożeniu",
   "channel_discord.aiAutoReply.errors.load": "Nie udało się wczytać ustawień automatycznych odpowiedzi AI",
   "channel_discord.aiAutoReply.errors.loadChannels": "Nie udało się wczytać kanałów Discord",
+  "channel_discord.aiAutoReply.errors.missingChannelId": "Nie wybrano kanału.",
   "channel_discord.aiAutoReply.errors.save": "Nie udało się zapisać ustawień automatycznych odpowiedzi AI",
   "channel_discord.aiAutoReply.fields.agent": "Agent",
   "channel_discord.aiAutoReply.fields.agentHelp": "Na kanale mogą odpowiadać tylko agenci zwracający ustrukturyzowany wynik. Zanim wybierzesz agenta z innego modułu, nadaj użytkownikowi-botowi tenanta uprawnienia wymagane przez tego agenta.",

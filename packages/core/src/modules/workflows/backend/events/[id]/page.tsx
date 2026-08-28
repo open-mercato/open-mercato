@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -36,19 +36,10 @@ type WorkflowEvent = {
   } | null
 }
 
-export default function WorkflowEventDetailPage() {
+export default function WorkflowEventDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
-  const params = useParams()
   const t = useT()
-
-  // Handle both {id: '17'} and {slug: ['events', '17']} formats
-  let eventId: string | undefined
-  if (params?.id) {
-    eventId = Array.isArray(params.id) ? params.id[0] : params.id
-  } else if (params?.slug && Array.isArray(params.slug)) {
-    // If slug is ['events', '17'], extract '17'
-    eventId = params.slug[params.slug.length - 1]
-  }
+  const eventId = params?.id
 
   const { data: event, isLoading, error } = useQuery({
     queryKey: ['workflows', 'events', eventId],
