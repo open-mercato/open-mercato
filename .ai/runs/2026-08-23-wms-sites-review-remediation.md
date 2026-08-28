@@ -199,9 +199,9 @@ is additive and, being unreleased, requires no deprecation bridge.
 
 ### Phase 8: PR #5729 review remediation (2026-08-28)
 
-- [ ] 8.1 Reconcile membership as the distinct active-Site warehouse set and test convergence
-- [ ] 8.2 Name the WMS helper and repository-wide lock-family registry
-- [ ] 8.3 Synchronize the review remediation and run documentation validation
+- [x] 8.1 Reconcile membership as the distinct active-Site warehouse set and test convergence — 8b3f50bc1
+- [x] 8.2 Name the WMS helper and repository-wide lock-family registry — 8b3f50bc1
+- [x] 8.3 Synchronize the review remediation and run documentation validation — 8b3f50bc1
 
 ### Resume notes — 2026-08-24
 
