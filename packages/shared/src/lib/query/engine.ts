@@ -863,6 +863,16 @@ export class BasicQueryEngine implements QueryEngine {
       for (const f of cfFilters) {
         if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
       }
+      // A `cf:` sort needs the same joins and value expression as a `cf:` field or
+      // filter: the sort loop below orders by an aggregated alias that only exists
+      // once the key reached `cfKeys`. Without this, a sort-only custom-field query
+      // emitted `ORDER BY "cf_<key>"` against a column it never selected (#5521).
+      // The count shape never sorts, so it stays out of this.
+      if (!isCountProjection) {
+        for (const s of (opts.sort || [])) {
+          if (typeof s.field === 'string' && s.field.startsWith('cf:')) cfKeys.add(s.field.slice(3))
+        }
+      }
       if (projection === 'full' && opts.includeCustomFields === true) {
         if (entityIdToSource.size > 0) {
           const entityIdList = Array.from(entityIdToSource.keys())
@@ -1202,7 +1212,13 @@ export class BasicQueryEngine implements QueryEngine {
               cfSelectedAliases.push(alias)
             }
           }
-          if (!requiresPlaintextSort) q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+          // Only order by an alias the projection actually carries. A key that
+          // resolved to no expression is dropped rather than emitted as an
+          // unselected alias, which is what the base-column branch above already
+          // does when `resolveBaseColumn` returns null.
+          if (!requiresPlaintextSort && cfSelectedAliases.includes(alias)) {
+            q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+          }
         } else {
           if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
         }
