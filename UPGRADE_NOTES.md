@@ -24,6 +24,47 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Platform-wide catalogues are indexed once, under the null tenant
+
+An entity type declared through `registerTenantGlobalEntityTypes()` is a catalogue every
+tenant reads, and its source table has no `tenant_id` column to scope it by. A
+tenant-scoped reindex used to stamp such rows with the caller's tenant. Since
+`entity_indexes` is unique on `(entity_type, entity_id, organization_id_coalesced)` — and
+these tables have no `organization_id` either — there is one row per record for every
+tenant to share, so the last tenant to reindex took the catalogue from the previous one
+and every other tenant's search hits lost their presenter, title and URL.
+
+`reindexEntity()` now writes the projection of a declared catalogue under
+`tenant_id = NULL`, which is already where the event path files it
+(`resolveQueryIndexRecordScope()` resolves a table with neither scope column to a null
+scope and requires the payload to say so). Both readers in `@open-mercato/search` gained
+the matching branch: `tenant_id = <tenant> OR (tenant_id IS NULL AND entity_type IN
+<declared catalogues>)`. The entity-type conjunct is load-bearing — a table with neither
+scope column is stored under the null tenant whether it is a catalogue or private data,
+so an unqualified NULL branch would publish `directory:tenant`, `auth:user_role` and
+their kind to every tenant.
+
+**Action for module authors.** None beyond the declaration the previous note describes.
+An entity type that is not declared is unaffected in both readers and both writers.
+
+**Action for operators.** Reindex each declared catalogue once after upgrading. Two
+residues are worth knowing about, and neither is dangerous:
+
+- `entity_indexes` self-heals. The upsert's conflict target does not include the tenant,
+  so the reindex rewrites the existing row's `tenant_id` to NULL rather than adding one.
+- `search_tokens` does not. Its writer deletes by `tenant_id is not distinct from
+  <tenant>`, so the per-tenant copies written before this release stay behind. They are
+  duplicates of public catalogue text, not a leak, but they can be removed:
+
+  ```sql
+  DELETE FROM search_tokens
+   WHERE entity_type = 'feature_toggles:feature_toggle'
+     AND tenant_id IS NOT NULL;
+  ```
+
+  Run it after the reindex has written the null-tenant copies, and repeat per declared
+  entity type.
+
 ### A tenant-scoped reindex of a table with no `tenant_id` column is refused
 
 `reindexEntity()` applied its tenant predicate only when the source table had a
