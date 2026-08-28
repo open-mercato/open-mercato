@@ -230,9 +230,10 @@ function CreateUserDialog({
 
 export type PortalUsersPageClientProps = {
   portalOrigin: string
+  portalOrgSlug?: string | null
 }
 
-export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientProps) {
+export function PortalUsersPageClient({ portalOrigin, portalOrgSlug = null }: PortalUsersPageClientProps) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = useT()
   const router = useRouter()
@@ -528,17 +529,19 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
                 {t('customer_accounts.admin.portalInfo.openConfiguration', 'Open Configuration')}
               </Link>
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              asChild
-            >
-              <a href={buildPortalRootUrl(portalOrigin)} target="_blank" rel="noopener noreferrer">
-                <Globe className="size-4" />
-                {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
-              </a>
-            </Button>
+            {portalOrgSlug ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <a href={buildPortalRootUrl(portalOrigin, portalOrgSlug)} target="_blank" rel="noopener noreferrer">
+                  <Globe className="size-4" />
+                  {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
+                </a>
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>

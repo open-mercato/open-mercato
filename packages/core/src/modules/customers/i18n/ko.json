@@ -1380,7 +1380,7 @@
   "customers.deals.kanban.quickDeal.probability": "확률",
   "customers.deals.kanban.quickDeal.status": "상태",
   "customers.deals.kanban.quickDeal.status.in_progress": "진행 중",
-  "customers.deals.kanban.quickDeal.status.loose": "정체됨",
+  "customers.deals.kanban.quickDeal.status.lost": "실패",
   "customers.deals.kanban.quickDeal.status.open": "열림",
   "customers.deals.kanban.quickDeal.status.win": "성사",
   "customers.deals.kanban.quickDeal.submit": "거래 추가",
