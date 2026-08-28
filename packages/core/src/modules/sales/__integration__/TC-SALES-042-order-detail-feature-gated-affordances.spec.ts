@@ -82,8 +82,6 @@ function addressesSectionHeading(page: Page) {
   return page.getByText('Shipping address', { exact: true })
 }
 
-// TagsSection drops `role="button"` from its container when editing is denied, which is the
-// thing under test; locating on the role is therefore the assertion, not an implementation detail.
 // The two icon buttons on the customer card, located individually and by EXACT name.
 //
 // A regex `name` cannot be used here. `DocumentCustomerCard` puts `role="button"` on the card
@@ -106,6 +104,10 @@ function updateAddressesButton(page: Page) {
   return page.getByRole('button', { name: 'Update addresses' })
 }
 
+// The tags card carries `role="button"` only while editing is permitted. `TagsSection` keys that on
+// `canEdit` on its own, so this locator pins the page passing `canEdit={managePermitted}` — not the
+// component. TagsSection's own affordances (the header Edit button, the hover pencil) are covered by
+// packages/ui/src/backend/__tests__/TagsSection.canEdit.test.tsx; neither is reachable from here.
 function tagsEditTarget(page: Page) {
   return page.getByText('Tags', { exact: true }).locator('xpath=following::*[@role="button"][1]')
 }
