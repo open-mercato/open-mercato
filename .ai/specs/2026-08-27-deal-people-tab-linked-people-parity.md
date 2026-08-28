@@ -14,6 +14,7 @@
 | 1.0 | 2026-08-27 | Initial spec: share the company linked-people section with the deal People tab. |
 | 1.1 | 2026-08-27 | Spec review: the deal write path is now in scope. `syncDealPeople` becomes set-diffing **and** stamps the deal's `updated_at`, because neither change alone fixes both the lost-update race and the `linkedAt` reset. Corrected the integration-test location, the validation gate, the `CreatedPersonSummary` BC row, the overstated Goals list; added the deal refresh-event decision and the sibling-tab asymmetry. |
 | 1.2 | 2026-08-27 | Recorded the blast radius of the `syncDealPeople` change: five call sites across three commands, both execute and undo, all inside an existing flush phase. |
+| 1.3 | 2026-08-28 | Spec review round 2: set-diffing collides with the `is_primary` partial unique index that delete-and-recreate currently makes unreachable, so the set-diff must clear displaced flags and flush first; the lock stamp is keyed to membership **or** the primary flag and stated as a property of the whole deal write path rather than the people half; corrected the `CustomerDeal.updatedAt` citation. |
 
 ## TLDR
 
@@ -49,7 +50,7 @@ Paging and server-side search are **not** missing — `loadLinkedPeoplePage` (`b
 - Company People tab keeps **exactly** its current behaviour, including roles, decision makers, starred contacts and both refresh events.
 - One shared component backs both tabs.
 - `GET /api/customers/deals/{id}/people` returns the fields `PersonCard` needs, **additively**.
-- `syncDealPeople` preserves `linkedAt` for untouched links and advances the deal's lock token when link membership changes.
+- `syncDealPeople` preserves `linkedAt` for untouched links, orders the `is_primary` reconciliation so the partial unique index is never violated, and advances the deal's lock token whenever link membership or a primary flag changes.
 
 ## Non-Goals
 
@@ -102,19 +103,30 @@ Today the whole-set branch runs `await em.nativeDelete(CustomerDealPersonLink, {
 
 That is invisible today — `DealLinkedEntitiesTab` renders neither a linked date nor a recency sort. This spec makes both visible, so the reset would become a user-facing data-loss bug: unlinking one contact would re-date the other eleven and collapse "recently linked" into an arbitrary label tie-break.
 
-Change the whole-set branch to compute the delta against the existing rows: delete only links whose person is absent from the payload, insert only links whose person is new, and leave untouched rows alone. `isPrimary` is still reconciled across the surviving set exactly as today, so the primary-person invariant and its `400` guard are unchanged.
+Change the whole-set branch to compute the delta against the existing rows: delete only links whose person is absent from the payload, insert only links whose person is new, and leave untouched rows alone.
+
+The `400` primary-must-be-linked guard is unchanged, but **`isPrimary` reconciliation cannot stay as it is**. `customer_deal_people` carries a partial unique *index* — `create unique index "customer_deal_people_primary_uq" on "customer_deal_people" ("deal_id") where "is_primary"` (`data/entities.ts:442-446`). A unique index in PostgreSQL is immediate and cannot be deferred to commit time, so two rows for one deal holding `is_primary` simultaneously is an error even inside a transaction that would end consistent.
+
+Today's delete-everything-first shape makes that state unreachable: every row is gone before any insert happens, so at most one row is ever created with the flag set. Set-diffing removes exactly that protection and makes write ordering load-bearing. Concretely: a deal has Ada linked and primary; a caller sends `personIds: [Ada, Bob]` with `primaryPersonEntityId: Bob`. Nothing is deleted — Bob is *inserted* with `is_primary = true` and Ada is *updated* to `false`. If the insert reaches the database first, which is the order a unit of work normally uses, the index rejects a request that works today.
+
+The set-diff must therefore **clear displaced `is_primary` flags and flush before setting the new primary**, mirroring what the `personIds === undefined` branch already does for exactly this reason (`commands/deals.ts:404-410`, where a mid-function `em.flush()` exists for no other purpose).
 
 #### 2. Stamp the deal's `updated_at` when link membership changes
 
-The optimistic-lock token for a deal is `customer_deals.updated_at`, read by the reader the CRUD factory auto-registers (`di.ts:55-66` hand-wires only the company/person readers, because those share a polymorphic table). `CustomerDeal.updatedAt` is declared `onUpdate`-only (`data/entities.ts:429`), so it is stamped only when the deal entity itself enters the change set.
+The optimistic-lock token for a deal is `customer_deals.updated_at`, read by the reader the CRUD factory auto-registers (`di.ts:55-66` hand-wires only the company/person readers, because those share a polymorphic table). `CustomerDeal.updatedAt` is declared `onUpdate`-only (`data/entities.ts:367`), so it is stamped only when the deal entity itself enters the change set.
 
 A `{ id, personIds }` payload never does that: `updateDealCommand`'s scalar phase assigns only fields the payload carries, and `syncDealPeople` touches link rows exclusively. The lock token therefore does not move on a people-only write.
 
 Set-diffing alone does **not** close this. Two users open a deal holding `{Ada, Bob, Cid}` at version `T`. A unlinks Ada and sends `{Bob, Cid}`; the write succeeds and `updated_at` is still `T`. B unlinks Bob and sends `{Ada, Cid}` — computed from B's stale view. B's header still reads `T`, still matches, and the diff against the current `{Bob, Cid}` **re-adds Ada** and removes Bob. Neither user is told. Set-diffing changes which rows move; it does not stop the stale payload from winning.
 
-So `syncDealPeople` must also mark the deal dirty whenever it actually adds or removes a link, so the next writer's stale header fails the version check and raises the 409 the UI already knows how to surface. A no-op write (identical set) must **not** bump the token, or every idle save would invalidate other sessions.
+So `syncDealPeople` must also mark the deal dirty whenever it actually changes the links — **membership or the primary flag**. Keying the rule to membership alone would leave the adjacent hole open: moving the primary between two already-linked people mutates deal state without changing the set, so two concurrent primary changes would both succeed and the later one would silently win. The same applies to the `personIds === undefined` branch, which mutates link rows and never touches the deal today. A write that changes neither membership nor the primary must **not** bump the token, or every idle save would invalidate other sessions.
 
-The same reasoning applies to `syncDealCompanies`, which shares the delete-and-recreate shape. Bringing it along is optional for this change's UI but keeps the two paths honest; if it is deferred, say so in the implementation PR rather than leaving the asymmetry silent.
+Nothing in the UI sends `primaryPersonEntityId` today — it is API-only, and this spec keeps `isPrimary` read-only on the new tab — so this costs nothing now and makes the guarantee hold for whatever sets the primary next.
+
+The two corrections do not have equal status on the sibling `syncDealCompanies`, which shares the delete-and-recreate shape.
+
+- **The set-diff is deferrable.** Nothing renders a company link date and the Companies tab keeps `DealLinkedEntitiesTab`, so no user-visible value depends on those rows surviving. If it is deferred, say so in the implementation PR rather than leaving the asymmetry silent.
+- **The `updated_at` stamp is not.** A companies-only `{ id, companyIds }` write moves the lock token exactly as little as a people-only write does, so deferring it would leave the lost-update race open on the adjacent field of the same aggregate — with nothing to explain to a later reader why one path is locked and the other is not. State the stamp as a property of the **deal write path**: any change to link membership or a primary flag, people or companies, advances the token.
 
 #### Blast radius of the change
 
@@ -248,9 +260,9 @@ Required in the same PR as the implementation.
 `commands/__tests__/` — the two write-path fixes, both currently uncovered:
 
 - **`linkedAt` preservation**: link three people, then update with one removed; the two survivors keep their original `created_at` and only the removed row disappears.
-- **lock-token advance**: a `{ id, personIds }` update that changes membership advances `customer_deals.updated_at`; an identical-set update does **not**.
+- **lock-token advance**: a `{ id, personIds }` update that changes membership advances `customer_deals.updated_at`, and so does a primary-only change; an update that alters neither membership nor the primary does **not**. The same holds for a companies-only update.
 - **interleaved writes**: two updates from the same base version, changing disjoint members — the second is rejected with the optimistic-lock conflict rather than silently reinstating the first one's removal.
-- `isPrimary` reconciliation and the `400` primary-must-be-linked guard still hold across a set-diffing update.
+- `isPrimary` reconciliation across a set-diffing update, explicitly covering **moving the primary to a newly added person in the same write** — the case the partial unique index rejects if the insert lands before the displaced flag is cleared and flushed. The `400` primary-must-be-linked guard still holds.
 - create and both undo directions still produce the exact link sets they produce today (see § Blast radius).
 
 ### API
@@ -304,8 +316,8 @@ The second `yarn build:packages` rebuilds against what `yarn generate` produced.
 | Scope check retained on every newly linked person | ✅ `requireCustomerEntity` + `ensureSameScope` on inserts |
 | No hardcoded user-facing strings | ✅ all copy routed through `translate(...)` with locale entries |
 | No hardcoded status colors / arbitrary values | ✅ reuses `PersonCard`, already DS-compliant |
-| Optimistic locking on the new write path | ✅ lock token now advances on membership change; pinned by an interleaved-write test |
-| `withAtomicFlush` discipline preserved in `syncDealPeople` | ✅ the set-diff runs inside the existing flush phases; no new mutate→read interleave |
+| Optimistic locking on the deal write path | ✅ token advances on any link membership or primary-flag change, people and companies alike; pinned by an interleaved-write test |
+| `withAtomicFlush` discipline preserved in `syncDealPeople` | ✅ the set-diff runs inside the existing flush phases; the one added flush is the `is_primary` ordering barrier the partial unique index requires |
 | `BACKWARD_COMPATIBILITY.md` contracts preserved | ✅ additive, plus one behavioural fix that removes a silent lost update |
 | No `packages/enterprise/` change | ✅ |
 | Tests ship with the implementation | ✅ unit + command + API + integration |
@@ -315,4 +327,5 @@ The second `yarn build:packages` rebuilds against what `yarn generate` produced.
 | Date | Change |
 |------|--------|
 | 2026-08-27 | Initial specification. |
+| 2026-08-28 | Spec review round 2: added the `is_primary` ordering requirement (partial unique index is immediate, and set-diffing removes the delete-everything-first protection); widened the lock-stamp rule to cover primary-flag changes and both link tables; split the `syncDealCompanies` note into its deferrable and non-deferrable halves; fixed the `data/entities.ts` line citation. |
 | 2026-08-27 | Spec review round 1: added § Deal Write Path (set-diffing `syncDealPeople` + `updated_at` stamp) after review showed the stated optimistic-lock guarantee did not hold and that every people write reset `linkedAt`; rewrote the no-new-endpoint rationale and Risks 2–3; corrected the integration-test path, the validation gate and the `CreatedPersonSummary` BC row; trimmed the Goals list; documented the deal refresh-event decision and the sibling-tab asymmetry. |
