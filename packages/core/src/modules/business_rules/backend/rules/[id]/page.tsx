@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useParams, usePathname } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -25,18 +25,10 @@ import { ConditionBuilder } from '../../../components/ConditionBuilder'
 import { ActionBuilder } from '../../../components/ActionBuilder'
 import { buildRulePayload, parseRuleToFormValues } from '../../../components/utils/formHelpers'
 
-export default function EditBusinessRulePage() {
+export default function EditBusinessRulePage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
-  const params = useParams()
   const pathname = usePathname()
-
-  // Handle catch-all route: params.slug = ['rules', 'uuid']
-  let ruleId: string | undefined
-  if (params?.slug && Array.isArray(params.slug)) {
-    ruleId = params.slug[1] // Second element is the ID
-  } else if (params?.id) {
-    ruleId = Array.isArray(params.id) ? params.id[0] : params.id
-  }
+  const ruleId = params?.id
 
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
