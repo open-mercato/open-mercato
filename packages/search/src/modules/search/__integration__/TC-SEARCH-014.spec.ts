@@ -283,9 +283,9 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
    * writing them, because the People/Companies list search resolves ids through them. This arm
    * asserts that a customer is still findable through the list search boxes.
    *
-   * On exactly how much that pins — because the honest answer is "it depends", and a future
-   * engineer weighing a `search_tokens` cleanup should not over-read a green run here.
-   * Searching by `displayName` can be served by three different paths:
+   * What this arm pins is exactly that — the customer stays findable — and NOT the write-side
+   * decision, so a future engineer weighing a `search_tokens` cleanup should not read a green run
+   * here as clearance. Searching by `displayName` can be served by three different paths:
    *
    *   1. The `customers:customer_entity` token source — the one the read-side-only decision is
    *      about.
@@ -293,25 +293,33 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
    *      list routes pass TWO sources to `findMatchingEntityIdsBySearchTokensAcrossSources`
    *      (`api/people/route.ts`, `api/companies/route.ts`), the profile source also indexes
    *      `display_name`, and `api/utils.ts` UNIONS the per-source ids.
-   *   3. The `$or` ILIKE fallback both routes take when the token lookup yields nothing.
+   *   3. The `$or` ILIKE fallback both routes take when that union comes back null or empty.
    *
-   * Path 3 is the subtle one, and it is why this arm is not simply toothless. `display_name`,
-   * `primary_email`, `primary_phone`, `description` and `next_interaction_name` are ALL declared
-   * encrypted for `customers:customer_entity` (`packages/core/src/modules/customers/encryption.ts`)
-   * and `TENANT_DATA_ENCRYPTION` defaults to on. Against a known-encrypted column the query engine
-   * either rewrites the ILIKE back into a `search_tokens` EXISTS subquery or, once the availability
-   * probe finds no tokens at all, runs a literal ILIKE against ciphertext that matches nothing
-   * (`query_index/lib/engine.ts`). So under the DEFAULT encrypted configuration, dropping the base
-   * rows write-side does break list search on these fields, and this arm does fail.
+   * Path 2 is why a green run here says nothing about path 1, and the mechanism is the union
+   * rather than anything about encryption. A source that queries successfully and matches nothing
+   * returns `[]`, not `null` — `findEntityIdsBySearchTokensCompat` reserves `null` for a blank
+   * query alone (`shared/lib/search/tokenLookup.ts`) — so ONE matching source keeps the union
+   * non-empty, and the route then takes `applyEntityIdRestriction` and never builds the ILIKE
+   * `$or` at all. Drop the base rows write-side and the profile source still resolves
+   * `display_name` by itself, because a profile's index document merges the parent
+   * `customer_entities` row before tokenizing (`query_index/lib/indexer.ts`). The union stays
+   * non-empty, the customer is still found, and this arm stays green — encrypted or not.
    *
-   * What it cannot do is prove that on its own, because it neither controls nor asserts the
-   * encryption state it depends on. With `TENANT_DATA_ENCRYPTION` off the columns are plaintext,
-   * the ILIKE fallback matches directly, and this arm would stay green through exactly the
-   * cleanup it is meant to catch. Pinning the property unconditionally is not reachable from the
-   * HTTP surface: every field the base source indexes is also covered by either the profile source
-   * or the ILIKE fallback, so no query discriminates between them by construction.
+   * Pinning the write-side property IS reachable, just not by this query. `next_interaction_name`
+   * is listed by the base source in BOTH routes and by NEITHER profile source, and the token
+   * lookup restricts its query to the field names its source declares (`tokenLookup.ts`), so no
+   * profile-source token can answer it. It is also declared encrypted for
+   * `customers:customer_entity` (`packages/core/src/modules/customers/encryption.ts`), so the
+   * ILIKE fallback cannot serve it either: against a known-encrypted column the query engine
+   * rewrites the ILIKE back into a `search_tokens` EXISTS subquery, or — once the availability
+   * probe finds no tokens at all — runs a literal ILIKE against ciphertext that matches nothing
+   * (`query_index/lib/engine.ts`). So with the base rows gone both sources return `[]`, the union
+   * empties, the route falls through to ILIKE, and a search on that field finds nothing — failing
+   * exactly when the write-side rows go away. Left for a follow-up rather than written here:
+   * `createPersonFixture` would need to accept the field first.
    *
-   * Treat a failure here as a real signal and a pass as a partial one.
+   * Treat a failure here as a real signal that list search broke, and a pass as saying nothing
+   * about whether the base `customers:customer_entity` rows still exist.
    */
   test('the People and Companies list search still finds the customer', async ({ page, request }) => {
     test.setTimeout(180_000)
