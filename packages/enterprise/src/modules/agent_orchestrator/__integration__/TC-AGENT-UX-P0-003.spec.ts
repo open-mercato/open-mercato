@@ -7,10 +7,13 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * Source: spec .ai/specs/enterprise/agent-orchestrator/2026-07-12-ux-p0-hotfixes.md
  * (§4 delete confirmations, Testing Strategy).
  *
- * Creates a throwaway agentic task + eval assertion over the API, then drives
- * the UI: the task-delete row action must open the shared ConfirmDialog
- * (no DELETE before confirmation), Cancel keeps the row, Confirm removes it;
- * the eval-assertion delete shows the dialog too (cancelled — row stays).
+ * Creates a throwaway process definition + eval assertion over the API, then
+ * drives the UI: the definition-delete row action must open the shared
+ * ConfirmDialog (no DELETE before confirmation), Cancel keeps the row, Confirm
+ * removes it. The eval-assertion leg then asserts the surface that REPLACED the
+ * deleted `/backend/eval-assertions` list — a reversible toggle inside the
+ * owning agent's workspace, with no destructive delete to confirm (see the leg
+ * for why that removal was deliberate).
  */
 
 const ADMIN_EMAIL = 'admin@acme.com'
@@ -35,6 +38,14 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
     const assertionKey = `tc-ux-p0-003-${stamp}`
     let taskId: string | null = null
     let assertionId: string | null = null
+
+    // Assertions are managed inside the owning agent's workspace, so the
+    // second leg needs a registered agent to open. Any one will do — the
+    // seeded assertion applies to all of them.
+    const agentsResponse = await apiRequest(request, 'GET', '/api/agent_orchestrator/agents', { token })
+    expect(agentsResponse.status(), await agentsResponse.text()).toBe(200)
+    const agentId = (await readJsonSafe<{ items?: Array<{ id?: string }> }>(agentsResponse))?.items?.[0]?.id ?? null
+    expect(agentId, 'at least one registered agent is required').toBeTruthy()
 
     try {
       const taskResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
@@ -97,15 +108,33 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
       await expect(page.getByRole('row', { name: new RegExp(taskName) })).toHaveCount(0, { timeout: 10_000 })
       taskId = null
 
-      // --- Eval-assertion delete: dialog appears; cancelled, row stays.
-      await page.goto('/backend/eval-assertions', { waitUntil: 'domcontentloaded' })
-      const assertionRow = page.getByRole('row', { name: new RegExp(assertionKey) })
-      await expect(assertionRow).toBeVisible({ timeout: 10_000 })
-      await assertionRow.getByRole('button').last().click()
-      await page.getByRole('menuitem', { name: /delete/i }).click()
-      await expect(page.getByRole('alertdialog')).toBeVisible()
-      await page.getByRole('alertdialog').getByRole('button', { name: /cancel/i }).click()
-      await expect(assertionRow).toBeVisible()
+      // --- Eval assertions: the per-agent action is a reversible toggle, and
+      // there is deliberately NO destructive delete to confirm.
+      //
+      // This leg used to drive a delete row action on `/backend/eval-assertions`.
+      // That page was folded into the owning agent's workspace by the
+      // 2026-07-24 agent-centric-workspace-and-eval-consolidation, which also
+      // decided NOT to re-expose the delete: an assertion is shared (this one is
+      // `appliesTo: '*'`), so removing it from one agent's page would silently
+      // unscore every other agent. The rule now guarded at the unit level by
+      // `__tests__/p0-honesty-safety.test.ts`. §4's requirement — a destructive
+      // delete must confirm first — is therefore exercised above on the process
+      // definition; here we assert the replacement contract holds in the real
+      // app: the row is present, its control is the enable/disable switch, and
+      // no delete affordance is offered on it.
+      await page.goto(
+        `/backend/agents/${encodeURIComponent(agentId!)}?tab=evaluation&section=assertions`,
+        { waitUntil: 'domcontentloaded' },
+      )
+      const assertionRow = page
+        .locator('[data-slot="accordion-item"]')
+        .filter({ hasText: taskName })
+      await expect(assertionRow).toBeVisible({ timeout: 15_000 })
+      await expect(assertionRow.getByRole('switch', { name: 'Enabled' })).toBeVisible()
+      await expect(
+        assertionRow.getByRole('button', { name: /delete/i }),
+        'a shared assertion must not be deletable from one agent’s workspace',
+      ).toHaveCount(0)
     } finally {
       if (taskId) {
         await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})

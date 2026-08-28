@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { AiModelFactoryError } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { agentRunRequestSchema, baseAgentResultSchema, guardrailKind, guardrailPhase } from '../../../../data/validators'
 import { AgentProposal } from '../../../../data/entities'
@@ -31,6 +32,11 @@ const guardrailBlockedErrorSchema = errorSchema.extend({
   kind: guardrailKind,
   phase: guardrailPhase,
   guardrailSetVersion: z.string().nullable(),
+})
+
+/** 503 body for a deployment whose LLM provider is missing or unusable. */
+const modelUnavailableErrorSchema = errorSchema.extend({
+  code: z.enum(['no_provider_configured', 'api_key_missing']),
 })
 
 type RouteContext = { params: Promise<{ id: string }> }
@@ -135,6 +141,17 @@ export async function POST(req: Request, ctx: RouteContext) {
         { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } },
       )
     }
+    // A deployment with no LLM provider (or a provider whose key never
+    // resolved) is a MIS-PROVISIONED ENVIRONMENT, not a bad request and not a
+    // bad model answer — so it is 503, not one of this route's 422s, which all
+    // mean "the run happened and its outcome is unusable". Mirrors the mapping
+    // the ai_assistant routing endpoint already uses for the same error.
+    if (err instanceof AiModelFactoryError) {
+      return NextResponse.json(
+        { error: 'No LLM provider is configured for this deployment', code: err.code },
+        { status: 503 },
+      )
+    }
     throw err
   }
 
@@ -205,6 +222,12 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.union([errorSchema, guardrailBlockedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
+        {
+          status: 503,
+          description:
+            'The deployment has no usable LLM provider; the body carries `code` (`no_provider_configured` or `api_key_missing`)',
+          schema: modelUnavailableErrorSchema,
+        },
       ],
     },
   },

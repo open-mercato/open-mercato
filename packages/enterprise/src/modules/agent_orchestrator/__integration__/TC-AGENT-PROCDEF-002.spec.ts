@@ -34,7 +34,9 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId } = getTokenScope(adminToken)
     const stamp = Date.now()
-    const password = 'secret'
+    // The default password policy requires a digit, an uppercase letter and a
+    // special character — a fixture user with a weak one never gets created.
+    const password = 'StrongSecret123!'
     const email = `tc-procdef-002-${stamp}@example.com`
     const name = `TC-PROCDEF-002 ${stamp}`
 
@@ -42,17 +44,24 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
     let userId: string | null = null
     let definitionId: string | null = null
 
+    // Hand-starting is opt-in: a definition with no `manual` trigger 403s on
+    // /run regardless of ACL, which would make the processes.run leg below
+    // indistinguishable from a permission failure. Declared on the create AND
+    // the edit body so the manage leg does not strip it before the run leg.
+    const triggers = [{ kind: 'manual' as const }]
+
     const editBody = {
       name: `${name} (edited)`,
       targetType: 'agent' as const,
       targetAgentId: 'deals.health_check',
+      triggers,
       enabled: true,
     }
 
     try {
       const createResponse = await apiRequest(request, 'POST', DEFINITIONS, {
         token: adminToken,
-        data: { name, targetType: 'agent', targetAgentId: 'deals.health_check', enabled: true },
+        data: { name, targetType: 'agent', targetAgentId: 'deals.health_check', triggers, enabled: true },
       })
       expect(createResponse.status(), 'admin seeds the definition').toBe(201)
       definitionId = (await readJsonSafe<{ id?: string }>(createResponse))?.id ?? null

@@ -29,6 +29,7 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../../components/types'
+import { OPTIONAL_REQUEST_INIT } from '../../../../components/optionalRequest'
 import { useCoalescedReload } from '../../../../components/useCoalescedReload'
 import {
   evalSuiteOutcomeVariant,
@@ -183,12 +184,12 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
     const [own, wild] = await Promise.all([
       apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/agent_orchestrator/eval-assertions?appliesTo=${encodeURIComponent(agentId)}&pageSize=100`,
-        undefined,
+        OPTIONAL_REQUEST_INIT,
         { fallback: { items: [] } },
       ),
       apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/agent_orchestrator/eval-assertions?appliesTo=${encodeURIComponent('*')}&pageSize=100`,
-        undefined,
+        OPTIONAL_REQUEST_INIT,
         { fallback: { items: [] } },
       ),
     ])
@@ -209,7 +210,7 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
   const loadCases = React.useCallback(async () => {
     const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
       `/api/agent_orchestrator/eval-cases?agentDefinitionId=${encodeURIComponent(agentId)}&pageSize=100`,
-      undefined,
+      OPTIONAL_REQUEST_INIT,
       { fallback: { items: [] } },
     )
     if (call.status === 403) return { forbidden: true, rows: [] as EvalCaseRow[] }
@@ -222,7 +223,7 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
   const loadRuns = React.useCallback(async () => {
     const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
       `/api/agent_orchestrator/eval-runs?agentDefinitionId=${encodeURIComponent(agentId)}&pageSize=100`,
-      undefined,
+      OPTIONAL_REQUEST_INIT,
       { fallback: { items: [] } },
     )
     if (call.status === 403) return { forbidden: true, rows: [] as EvalRunRow[] }

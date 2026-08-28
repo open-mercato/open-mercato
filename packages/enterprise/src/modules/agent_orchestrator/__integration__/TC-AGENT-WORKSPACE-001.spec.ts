@@ -102,9 +102,25 @@ test.describe('TC-AGENT-WORKSPACE-001: agent-centric evaluation workspace', () =
       await expect(page.getByRole('tab', { name: /Assertions/ })).toHaveAttribute('data-state', 'active')
       await expect(page.getByText(assertionTitle)).toBeVisible({ timeout: 15_000 })
 
-      const enabledSwitch = page.getByRole('switch', { name: 'Enabled' }).first()
+      // Scope to THIS assertion's row: the section merges the agent's own
+      // assertions with every `appliesTo: '*'` one, so `.first()` can be a
+      // different rule entirely.
+      const assertionRow = page
+        .locator('[data-slot="accordion-item"]')
+        .filter({ hasText: assertionTitle })
+      const enabledSwitch = assertionRow.getByRole('switch', { name: 'Enabled' })
       await expect(enabledSwitch).toBeChecked()
+      // The toggle is OPTIMISTIC — local state flips before the PUT resolves —
+      // so reading the API straight after the click races the write. Wait for
+      // the write itself to land.
+      const saved = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/agent_orchestrator/eval-assertions')
+          && response.request().method() === 'PUT',
+        { timeout: 15_000 },
+      )
       await enabledSwitch.click()
+      await saved
       await expect(enabledSwitch).not.toBeChecked()
 
       const assertionList = await apiRequest(

@@ -105,18 +105,24 @@ test.describe('TC-AGENT-UXC-004: run-id prefix search on Traces', () => {
       const searchBox = page.getByPlaceholder(/run id/i)
       await expect(searchBox).toBeVisible({ timeout: 15_000 })
 
+      // `DataTable` renders ONE full-width <tr> for loading, error and empty
+      // alike, so a raw `tbody tr` count can never reach 0 and, mid-load, hits
+      // 1 on the spinner row. Data rows are the ones with more than one cell.
+      const dataRows = page.locator('table tbody tr').filter({ has: page.locator('td:nth-child(2)') })
+
       // Positive leg: prefix finds exactly the target run, across page bounds.
       await searchBox.fill(targetPrefix)
-      const bodyRows = page.locator('table tbody tr')
-      await expect(bodyRows).toHaveCount(1, { timeout: 15_000 })
-      await bodyRows.first().click()
+      await expect(dataRows).toHaveCount(1, { timeout: 15_000 })
+      await dataRows.first().click()
       await expect(page).toHaveURL(new RegExp(`/backend/traces/${targetId}`), { timeout: 10_000 })
 
       // Negative leg: an unrelated prefix yields no rows (server-filtered).
       await page.goto('/backend/traces', { waitUntil: 'domcontentloaded' })
       await expect(page.getByPlaceholder(/run id/i)).toBeVisible({ timeout: 15_000 })
       await page.getByPlaceholder(/run id/i).fill('deadbeefdead')
-      await expect(page.locator('table tbody tr')).toHaveCount(0, { timeout: 15_000 })
+      // Anchor on the settled empty state so the count is not read mid-load.
+      await expect(page.getByText('No results.')).toBeVisible({ timeout: 15_000 })
+      await expect(dataRows).toHaveCount(0)
     } finally {
       await deleteAgentOrchestratorRowsForOrganization(orgId).catch(() => {})
       await deleteUserIfExists(request, superadminToken, userId).catch(() => {})

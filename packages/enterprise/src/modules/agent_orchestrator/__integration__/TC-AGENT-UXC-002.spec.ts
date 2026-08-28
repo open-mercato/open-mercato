@@ -49,6 +49,9 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
           name: taskName,
           targetType: 'agent',
           targetAgentId: 'deals.health_check',
+          // Leg 2 hand-starts this definition; without a declared `manual`
+          // trigger /run 403s and no `task_run.started` is ever broadcast.
+          triggers: [{ kind: 'manual' }],
           enabled: true,
         },
       })

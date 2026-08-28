@@ -120,7 +120,12 @@ test.describe('TC-AGENT-UX-P0-004: inbox pager and disabled process actions', ()
       // --- Inbox range label + page 2 reachability.
       await page.goto('/backend/caseload', { waitUntil: 'domcontentloaded' })
       await expect(page.getByText(`1–20 of ${PENDING_COUNT}`)).toBeVisible({ timeout: 15_000 })
-      await page.getByRole('navigation', { name: /pagination/i }).getByRole('button', { name: '2', exact: true }).click()
+      // The page button's accessible name is its aria-label ("Go to page 2"),
+      // not its visible digit — matching on '2' finds nothing.
+      await page
+        .getByRole('navigation', { name: /pagination/i })
+        .getByRole('button', { name: 'Go to page 2', exact: true })
+        .click()
       await expect(page.getByText(`21–${PENDING_COUNT} of ${PENDING_COUNT}`)).toBeVisible({ timeout: 10_000 })
 
       // --- Process detail stub actions render disabled.

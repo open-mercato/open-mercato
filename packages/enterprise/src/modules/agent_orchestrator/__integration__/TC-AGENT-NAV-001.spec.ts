@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { hasConfiguredLlmProvider, NO_LLM_PROVIDER_SKIP_REASON } from './helpers/llmProvider'
 
 /**
  * TC-AGENT-NAV-001: the playground run response carries `runId` + `proposalId`,
@@ -32,6 +33,9 @@ test.describe('TC-AGENT-NAV-001: playground response ids + deep links', () => {
     test.slow()
 
     const token = await getAuthToken(request, ADMIN_EMAIL, ADMIN_PASSWORD)
+    // The env gate this spec's header promises: without a provider the run route
+    // answers 503 and every assertion below is about an error, not the contract.
+    test.skip(!(await hasConfiguredLlmProvider(request, token)), NO_LLM_PROVIDER_SKIP_REASON)
 
     const agentsRes = await apiRequest(request, 'GET', '/api/agent_orchestrator/agents', { token })
     expect(agentsRes.status(), await agentsRes.text()).toBe(200)

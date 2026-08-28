@@ -20,6 +20,7 @@ import { parseQueueState, serializeQueueState } from '../hooks'
 import { normalizeProposalEnvelope, rankProposalOptions } from '../../../data/proposalEnvelope'
 import { AgentIoDrawer } from '../../../components/AgentIoDrawer'
 import { FactsGrid, ReasoningList } from '../../../components/ProposalFacts'
+import { OPTIONAL_REQUEST_INIT } from '../../../components/optionalRequest'
 import {
   mapAgent,
   mapProposal,
@@ -103,6 +104,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
         try {
           const agentsData = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
             '/api/agent_orchestrator/agents',
+            OPTIONAL_REQUEST_INIT,
           )
           if (!cancelled) {
             const found = (Array.isArray(agentsData.items) ? agentsData.items : [])
@@ -121,6 +123,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
         try {
           const runData = await readApiResultOrThrow<RunsResponse>(
             `/api/agent_orchestrator/runs?id=${encodeURIComponent(mapped.runId)}`,
+            OPTIONAL_REQUEST_INIT,
           )
           if (!cancelled) {
             const runItems = Array.isArray(runData.items) ? runData.items : []

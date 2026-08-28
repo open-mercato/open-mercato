@@ -78,7 +78,7 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
     test.slow()
     await loginAsAdmin(page)
     await page.goto('/backend/processes/definitions', { waitUntil: 'domcontentloaded' })
-    await page.getByRole('button', { name: /new task/i }).click()
+    await page.getByRole('button', { name: /new definition/i }).click()
 
     await page.getByRole('button', { name: /add schedule/i }).click()
     const cronInput = page.getByLabel(/cron expression/i)

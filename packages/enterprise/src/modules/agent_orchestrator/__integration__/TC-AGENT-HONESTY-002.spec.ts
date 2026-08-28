@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteAgentRunsByIds, insertAgentRunFixtures } from './helpers/agentPerfFixtures'
+import { hasConfiguredLlmProvider, NO_LLM_PROVIDER_SKIP_REASON } from './helpers/llmProvider'
 
 /**
  * TC-AGENT-HONESTY-002: native runs stamp confidence and an estimated cost.
@@ -42,6 +43,8 @@ test.describe('TC-AGENT-HONESTY-002: confidence + estimated cost stamping', () =
     test.slow()
 
     const token = await getAuthToken(request, ADMIN_EMAIL, ADMIN_PASSWORD)
+    // Part A's env gate (Part B seeds its row directly and needs no provider).
+    test.skip(!(await hasConfiguredLlmProvider(request, token)), NO_LLM_PROVIDER_SKIP_REASON)
 
     const agentsRes = await apiRequest(request, 'GET', '/api/agent_orchestrator/agents', { token })
     expect(agentsRes.status(), await agentsRes.text()).toBe(200)

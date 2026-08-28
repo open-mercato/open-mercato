@@ -52,7 +52,13 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
     expect(context.organizationId, 'admin token must carry an organization id').toBeTruthy()
 
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
-    const agentId = `qa.nav005_${stamp.replace(/-/g, '_')}`
+    // A REGISTERED agent id, not a synthetic one: the last leg opens this
+    // agent's workspace, and `/backend/agents/:id` 404s for an id that only
+    // ever existed as a string on a seeded run row.
+    const agentsRes = await apiRequest(request, 'GET', '/api/agent_orchestrator/agents', { token: adminToken })
+    expect(agentsRes.status(), await agentsRes.text()).toBe(200)
+    const agentId = (await readJsonSafe<{ items?: Array<{ id?: string }> }>(agentsRes))?.items?.[0]?.id ?? ''
+    expect(agentId, 'at least one registered agent is required').toBeTruthy()
     const seededRunIds: string[] = []
     const createdEvalCaseIds: string[] = []
     let restrictedRoleId: string | null = null

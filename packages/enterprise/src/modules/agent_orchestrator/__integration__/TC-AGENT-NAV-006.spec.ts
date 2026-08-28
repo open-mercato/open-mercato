@@ -9,6 +9,7 @@ import {
   deleteUserIfExists,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
+import { hasConfiguredLlmProvider, NO_LLM_PROVIDER_SKIP_REASON } from './helpers/llmProvider'
 
 /**
  * TC-AGENT-NAV-006: the playground "Tools used" panel renders the run's ACTUAL
@@ -54,10 +55,16 @@ async function runFromPlayground(page: Page, agentId: string): Promise<void> {
 
 test.describe('TC-AGENT-NAV-006: real tool calls vs declared-tools degrade', () => {
   test('admin sees the actual tool calls; a trace-view-less runner sees Declared tools', async ({ page, request }) => {
-    test.slow()
+    // Two REAL LLM runs, each allowed 120s below. `test.slow()` only triples the
+    // 20s default to 60s, which cannot contain even one of them — so the budget
+    // is stated outright rather than left to overrun mid-run.
+    test.setTimeout(320_000)
 
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, ADMIN_EMAIL, ADMIN_PASSWORD)
+    // The env gate this spec's header promises: with no provider the run route
+    // answers 503 and the playground never renders a trace to inspect.
+    test.skip(!(await hasConfiguredLlmProvider(request, adminToken)), NO_LLM_PROVIDER_SKIP_REASON)
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
     const password = 'StrongSecret123!'
 

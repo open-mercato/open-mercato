@@ -21,6 +21,7 @@ import {
   type AgentWindowMetricsView,
 } from '../../../components/types'
 import { SkillDrawer } from '../../../components/SkillDrawer'
+import { OPTIONAL_REQUEST_INIT } from '../../../components/optionalRequest'
 import { normalizeAgentTags } from '../../../data/agentTags'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 import { AgentHeaderCard, ICON_DEFAULT } from './components/AgentHeaderCard'
@@ -39,7 +40,7 @@ type EvalSection = 'assertions' | 'cases' | 'runs'
 const TAB_IDS: WorkspaceTab[] = ['overview', 'activity', 'evaluation', 'configuration', 'files', 'tokens']
 
 async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
-  const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, undefined, { fallback: { items: [] } })
+  const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, OPTIONAL_REQUEST_INIT, { fallback: { items: [] } })
   if (!call.ok || !Array.isArray(call.result?.items)) return []
   return call.result.items
 }
@@ -75,7 +76,13 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     let cancelled = false
     async function load() {
       setState('loading')
-      const call = await apiCall<Record<string, unknown>>(`/api/agent_orchestrator/agents/${encodeURIComponent(agentId)}`)
+      // `load()` has no catch, and a thrown 403 would leave the page spinning
+      // forever — the `forbidden` state below is only reachable when the denial
+      // comes back as a status.
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/agent_orchestrator/agents/${encodeURIComponent(agentId)}`,
+        OPTIONAL_REQUEST_INIT,
+      )
       if (cancelled) return
       if (!call.ok) {
         if (call.status === 404) setState('notFound')
@@ -95,7 +102,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
         fetchItems(`/api/agent_orchestrator/proposals?agentId=${encodeURIComponent(agentId)}&pageSize=100`),
         apiCall<{ items?: Array<Record<string, unknown>> }>(
           `/api/agent_orchestrator/metrics/agents?window=7d&ids=${encodeURIComponent(agentId)}`,
-          undefined,
+          OPTIONAL_REQUEST_INIT,
           { fallback: { items: [] } },
         ),
       ])

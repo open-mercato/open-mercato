@@ -20,6 +20,7 @@ import {
   type HealthState,
   type WebSearchHealthPayload,
 } from '../lib/systemHealth'
+import { OPTIONAL_REQUEST_INIT } from './optionalRequest'
 import { SystemHealthPanel } from './health/SystemHealthPanel'
 import { HealthStateBadge } from './health/HealthStateBadge'
 
@@ -81,9 +82,11 @@ export function SystemHealthTile() {
 
   const load = React.useCallback(async (url: string) => {
     setIsLoading(true)
+    // Both probes opt out of the throwing 403 path: a denial has to reach
+    // `isDenied` as a status, or the panel reports "not permitted" as "broken".
     const [webSearchCall, runtimeCall] = await Promise.all([
-      apiCall<unknown>(url).catch(() => null),
-      apiCall<unknown>('/api/ai_assistant/health').catch(() => null),
+      apiCall<unknown>(url, OPTIONAL_REQUEST_INIT).catch(() => null),
+      apiCall<unknown>('/api/ai_assistant/health', OPTIONAL_REQUEST_INIT).catch(() => null),
     ])
     const webSearchOk = Boolean(webSearchCall?.ok) && isWebSearchHealthPayload(webSearchCall?.result)
     const runtimeOk = Boolean(runtimeCall?.ok) && isAiRuntimeHealthPayload(runtimeCall?.result)

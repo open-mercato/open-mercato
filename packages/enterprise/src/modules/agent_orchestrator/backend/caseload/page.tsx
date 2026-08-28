@@ -41,6 +41,7 @@ import {
   type OverviewMetricsView,
   type ProposalView,
 } from '../../components/types'
+import { OPTIONAL_REQUEST_INIT } from '../../components/optionalRequest'
 import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { summarizeProposalActions } from '../../components/proposalFactsData'
@@ -240,7 +241,7 @@ function matchesFilters(row: QueueRow, agentFilters: string[], proposesFilters: 
   return true
 }
 async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
-  const call = await apiCall<ListResponse>(path, undefined, { fallback: { items: [] } })
+  const call = await apiCall<ListResponse>(path, OPTIONAL_REQUEST_INIT, { fallback: { items: [] } })
   return call.ok && Array.isArray(call.result?.items) ? call.result!.items : []
 }
 
@@ -321,11 +322,15 @@ export default function AgentCaseloadPage() {
         const sort = SORT_PARAMS[sortKey]
         params.set('sortField', sort.field)
         params.set('sortDir', sort.dir)
+        // Only the proposals list is load-bearing here. The lifecycle tiles and
+        // the run enrichment are gated on features a dispose-only operator does
+        // not need (`trace.view`), so they opt out of the throwing 403 path and
+        // degrade to their own empty readings instead of failing the queue.
         const [proposalsCall, overviewCall, agents, runningCall] = await Promise.all([
-          apiCall<ListResponse>(`/api/agent_orchestrator/proposals?${params.toString()}`, undefined, { fallback: { items: [] } }),
-          apiCall<Record<string, unknown>>('/api/agent_orchestrator/metrics/overview?window=7d'),
+          apiCall<ListResponse>(`/api/agent_orchestrator/proposals?${params.toString()}`, OPTIONAL_REQUEST_INIT, { fallback: { items: [] } }),
+          apiCall<Record<string, unknown>>('/api/agent_orchestrator/metrics/overview?window=7d', OPTIONAL_REQUEST_INIT),
           fetchItems('/api/agent_orchestrator/agents'),
-          apiCall<ListResponse>('/api/agent_orchestrator/runs?status=running&pageSize=1', undefined, { fallback: { items: [] } }),
+          apiCall<ListResponse>('/api/agent_orchestrator/runs?status=running&pageSize=1', OPTIONAL_REQUEST_INIT, { fallback: { items: [] } }),
         ])
         if (cancelled) return
         if (!proposalsCall.ok) {

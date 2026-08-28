@@ -26,6 +26,7 @@ import {
   type ProposalView,
   type RunView,
 } from '../../components/types'
+import { OPTIONAL_REQUEST_INIT } from '../../components/optionalRequest'
 import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { agentAvatarIcon } from '../../components/agentChips'
@@ -93,7 +94,7 @@ type ListFetch =
   | { ok: false; status: number }
 
 async function fetchList(path: string): Promise<ListFetch> {
-  const call = await apiCall<ListResponse>(path, undefined, { fallback: { items: [] } })
+  const call = await apiCall<ListResponse>(path, OPTIONAL_REQUEST_INIT, { fallback: { items: [] } })
   if (!call.ok) return { ok: false, status: call.status }
   const items = Array.isArray(call.result?.items) ? call.result!.items : []
   const total = typeof call.result?.total === 'number' ? call.result!.total : items.length
@@ -133,7 +134,7 @@ export default function AgentFleetOverviewPage() {
       setError(null)
       try {
         const [overviewCall, pendingRes, agentsRes] = await Promise.all([
-          apiCall<Record<string, unknown>>(`/api/agent_orchestrator/metrics/overview?window=${windowKey}`),
+          apiCall<Record<string, unknown>>(`/api/agent_orchestrator/metrics/overview?window=${windowKey}`, OPTIONAL_REQUEST_INIT),
           fetchList(
             `/api/agent_orchestrator/proposals?disposition=pending&sortField=createdAt&sortDir=asc&pageSize=${NEEDS_ATTENTION_PAGE_SIZE}`,
           ),
@@ -179,7 +180,7 @@ export default function AgentFleetOverviewPage() {
             metricsChunks.map((chunk) =>
               apiCall<{ items?: Array<Record<string, unknown>> }>(
                 `/api/agent_orchestrator/metrics/agents?window=${windowKey}&ids=${chunk.map((id) => encodeURIComponent(id)).join(',')}`,
-                undefined,
+                OPTIONAL_REQUEST_INIT,
                 { fallback: { items: [] } },
               ),
             ),
@@ -379,10 +380,18 @@ export default function AgentFleetOverviewPage() {
         ) : error ? (
           <ErrorMessage label={error} />
         ) : empty ? (
-          <EmptyState
-            title={t('agent_orchestrator.overview.empty')}
-            description={t('agent_orchestrator.overview.emptyDescription')}
-          />
+          // "Is anything down?" does not depend on this tenant having agent
+          // activity — and is most worth asking when the counts are empty, so
+          // the health tile renders on this side of the gate too.
+          <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <SystemHealthTile />
+            </div>
+            <EmptyState
+              title={t('agent_orchestrator.overview.empty')}
+              description={t('agent_orchestrator.overview.emptyDescription')}
+            />
+          </>
         ) : (
           <>
             <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${previewUi ? 'lg:grid-cols-5' : 'lg:grid-cols-3'}`}>

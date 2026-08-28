@@ -33,15 +33,24 @@ test.describe('TC-AGENT-UX-P0-005: Overview sample labeling', () => {
     await page.goto('/backend/overview', { waitUntil: 'domcontentloaded' })
 
     await expect(page.getByRole('heading', { name: 'Fleet overview' })).toBeVisible({ timeout: 15_000 })
+    // Wait for the load to settle before deciding: the system-health tile is
+    // the one card the Overview renders in every non-error state.
+    await expect(page.getByRole('button', { name: 'Details' })).toBeVisible({ timeout: 15_000 })
 
-    // The interventions section only renders once the tenant has agent
-    // activity; on an active env it MUST carry the shared Sample chip.
+    // The interventions card is behind the default-off `isAgentPreviewUiEnabled`
+    // flag (`NEXT_PUBLIC_OM_AGENT_ORCHESTRATOR_PREVIEW_UI`), which Next inlines
+    // at build time — the Playwright process cannot turn it on for an already
+    // built app, so the rendered page is the only honest way to ask. Its absence
+    // means the preview surface is off, NOT that the tenant has no activity;
+    // asserting the empty-state copy instead is what made this spec fail on a
+    // seeded CI database.
     const sectionTitle = page.getByText('Where humans stepped in')
-    if (await sectionTitle.isVisible().catch(() => false)) {
-      const sectionHeader = page.locator('div', { has: sectionTitle }).first()
-      await expect(sectionHeader.getByText('Sample', { exact: true })).toBeVisible()
-    } else {
-      await expect(page.getByText('No agent activity yet.')).toBeVisible()
-    }
+    test.skip(
+      !(await sectionTitle.isVisible().catch(() => false)),
+      'the preview-UI flag is off in this deployment, so the interventions card does not render',
+    )
+
+    const sectionHeader = page.locator('div', { has: sectionTitle }).first()
+    await expect(sectionHeader.getByText('Sample', { exact: true })).toBeVisible()
   })
 })
