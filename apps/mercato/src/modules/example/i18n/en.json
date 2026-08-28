@@ -220,7 +220,6 @@
   "example.priority.normal": "Normal",
   "example.publicPage": "Public example page.",
   "example.salesTodos.tabLabel": "Todos (example)",
-  "example.search.todo.badge": "Todo",
   "example.search.todo.subtitle.done": "Completed",
   "example.search.todo.subtitle.open": "Open",
   "example.todos.bulk.markDone": "Mark selected todos done",

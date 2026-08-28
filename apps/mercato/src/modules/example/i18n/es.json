@@ -220,7 +220,6 @@
   "example.priority.normal": "Normal",
   "example.publicPage": "Página pública de ejemplo.",
   "example.salesTodos.tabLabel": "Tareas (ejemplo)",
-  "example.search.todo.badge": "Tarea",
   "example.search.todo.subtitle.done": "Completada",
   "example.search.todo.subtitle.open": "Abierta",
   "example.todos.bulk.markDone": "Marcar las tareas seleccionadas como completadas",

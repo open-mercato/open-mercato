@@ -45,11 +45,13 @@ Note that #4886's presenter work is not wasted by this decision: it is what make
 1. `@deprecated` JSDoc on `SearchResultPresenter.badge` naming both replacements and the target removal version (0.9.0).
 2. Rehome the one genuinely per-record badge: `warranty_claims` appends its **localized** status to `subtitle`.
 3. An `UPGRADE_NOTES.md` entry under `0.7.0 → 0.7.1` with the migration paths.
+4. Stop the authoring surfaces teaching `badge` as a rendered field: the `packages/search/AGENTS.md` presenter reference and its two examples, the `hybrid-search.mdx` worked example, and the `example` app module mirrored into the create-app template — otherwise a deprecation that only lives in a JSDoc keeps producing new producers.
+5. A supersede note on `.ai/specs/2026-05-20-search-presenter-i18n.md`, the still-active spec whose flow diagram is the origin of the misunderstanding.
 
 **Explicitly out of scope**
 
 - Removing the field. That is the 0.9.0 step and needs its own change.
-- Stripping `badge` from the other 12 producers. They keep compiling and working; module owners migrate during the deprecation window.
+- Stripping `badge` from the remaining 11 producers (10 core modules plus `documents`). They keep compiling and working; module owners migrate during the deprecation window.
 - Retiring the `result_badge` column, the Meilisearch document field, and the pgvector round-trip. These retire separately once the window closes; dropping the presenter field itself needs **no migration**.
 
 ## Implementation
@@ -60,14 +62,18 @@ Note that #4886's presenter work is not wasted by this decision: it is what make
 | `packages/core/src/modules/warranty_claims/search.ts` | `resolvePresenter` becomes async and resolves translations; localized status appended to `subtitle`; `badge` dropped from this producer |
 | `packages/core/src/modules/warranty_claims/__tests__/search.test.ts` | Regression coverage for the status-in-subtitle behavior |
 | `UPGRADE_NOTES.md` | `0.7.0 → 0.7.1` deprecation entry |
+| `packages/search/AGENTS.md` | Presenter-reference comment rewritten to state the field is deprecated, unrendered and slated for 0.9.0 removal; `badge:` dropped from the `buildSource` and `formatResult` authoring examples |
+| `apps/docs/docs/framework/database/hybrid-search.mdx` | `badge:` dropped from both halves of the worked example |
+| `apps/mercato/src/modules/example/search.ts` + its create-app template mirror | `badge` dropped from the canonical example presenter, so a newly scaffolded app no longer starts life populating a deprecated field; the now-unused `example.search.todo.badge` key removed from all five locales in both copies |
+| `.ai/specs/2026-05-20-search-presenter-i18n.md` | Supersede note marking its `presenter.badge` rendering claims historical |
 
 `resolvePresenter` going async is safe and conventional: `SearchModuleConfig.formatResult` is typed `=> Promise<SearchResultPresenter | null> | SearchResultPresenter | null` (`packages/shared/src/modules/search.ts:278`), every other module already declares `formatResult: async` (warranty_claims was the outlier), `resolveLinks` in this same file already awaits `resolveTranslations()`, and all three consumers await the result inside a `try`/`catch` — `packages/search/src/lib/presenter-enricher.ts:232`, `packages/search/src/vector/services/vector-index.service.ts:757`, `packages/search/src/indexer/search-indexer.ts:235`.
 
-The status is localized through the pre-existing `warranty_claims.status.*` keys, which are already translated in all four locales, and falls back to the raw token for an unrecognized status.
+The status is localized through the pre-existing `warranty_claims.status.*` keys, which are already translated in all five locales (`en`, `pl`, `es`, `de`, `ko`), and falls back to the raw token for an unrecognized status.
 
 ## Migration & Backward Compatibility
 
-**This release (0.7.1) is not a breaking change.** `badge` remains declared, accepted, populated by 12 of the 13 in-repo producers, localized per request and stored. Only its JSDoc changed, so no downstream module breaks and no migration is forced yet.
+**This release (0.7.1) is not a breaking change.** `badge` remains declared, accepted, populated by 11 of the 13 in-repo producers (`warranty_claims` and `example` are the two this change stops), localized per request and stored. Only its JSDoc changed, so no downstream module breaks and no migration is forced yet.
 
 Deprecation protocol compliance (`BACKWARD_COMPATIBILITY.md` § Deprecation Protocol):
 
@@ -90,10 +96,10 @@ Deprecation protocol compliance (`BACKWARD_COMPATIBILITY.md` § Deprecation Prot
 
 ## Removal plan (0.9.0, separate change)
 
-1. Confirm no in-repo producer still sets `badge` (12 remain at the time of writing).
+1. Confirm no in-repo producer still sets `badge` (11 remain at the time of writing).
 2. Delete the field from `SearchResultPresenter`, and the `<module>.search.badge.*` keys left unused.
 3. Retire the `result_badge` column, the Meilisearch document field and the pgvector round-trip — this step *does* need a migration and should be assessed on its own.
-4. Correct the stale rendering claims in [`2026-05-20-search-presenter-i18n.md`](2026-05-20-search-presenter-i18n.md) (`:150`, `:182`).
+4. Correct the stale rendering claims inline in [`2026-05-20-search-presenter-i18n.md`](2026-05-20-search-presenter-i18n.md) (`:150`, `:182`), or retire that spec to `.ai/specs/implemented/`. This change adds a supersede banner at its head so the claims cannot mislead in the meantime, but leaves the flow diagram itself as the historical record.
 
 ## Testing
 

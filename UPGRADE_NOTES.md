@@ -30,7 +30,9 @@ most of the patterns listed below in a user's codebase.
 
 The direction is not to start rendering it. #4886 also added `resolveEntityTypeLabel()` and the `search.entityType.<module>.<entity>` keys, and all three surfaces already render that label next to each result. Nearly every producer's badge holds the same per-entity-**type** string that label now carries — `search.entityType.customers.customer_person_profile` is "Person" against a `customers.search.badge.person` of "Person", `messages.message` is "Message" against a badge of "Message", and the same duplication holds for `resources`, `customer_accounts`, `staff`, `planner`, `documents`, `sales`, `catalog`, `wms` and `eudr`. Rendering `badge` would print the same word twice on nearly every result.
 
-The field is therefore deprecated rather than removed, and is **slated for removal in 0.9.0**. Nothing changes at runtime in this release: `badge` is still accepted, still populated by every existing producer, still localized per request, and still stored. Only the JSDoc changed, so no module breaks and no migration is forced yet.
+The field is therefore deprecated rather than removed, and is **slated for removal in 0.9.0**. Nothing changes at runtime for downstream modules in this release: `badge` is still declared, still accepted, still populated by 11 of the 13 in-repo producers, still localized per request, and still stored. Only the type's JSDoc changed, so no module breaks and no migration is forced yet.
+
+The deprecation is also applied to the surfaces module authors read *before* writing a `search.ts`, so the field stops acquiring new producers: `packages/search/AGENTS.md` no longer describes `badge` as "shown next to title" and no longer sets it in its two authoring examples, the `hybrid-search.mdx` worked example no longer sets it, and the `example` module — which ships in the create-app template, so it seeds every newly scaffolded app — no longer populates it.
 
 **Action for module authors:** stop populating `presenter.badge` in your module's `search.ts` before 0.9.0, and move the value to whichever of the two replacements matches what it holds.
 
@@ -39,7 +41,8 @@ The field is therefore deprecated rather than removed, and is **slated for remov
 
 The `result_badge` column, the Meilisearch document field and the vector round-trip are untouched here and retire separately once the deprecation window closes; dropping the presenter field itself needs no migration. The full rationale, the deprecation-protocol checklist and the 0.9.0 removal plan are in [`.ai/specs/2026-08-28-search-presenter-badge-deprecation.md`](.ai/specs/2026-08-28-search-presenter-badge-deprecation.md).
 
-The one in-repo producer whose badge carried genuine per-record information was `warranty_claims`, which put the claim status there — so claim status was written, stored and never shown. It now appends the **localized** status to the subtitle (`Ada Lovelace — repair — In review`) via the existing `warranty_claims.status.*` keys, which are already translated in all four locales. Warranty-claim search results therefore gain a status segment in their subtitle; no other module's search output changes.
+The one in-repo producer whose badge carried genuine per-record information was `warranty_claims`, which put the claim status there — so claim status was written, stored and never shown. It now appends the **localized** status to the subtitle (`Ada Lovelace — repair — In review`) via the existing `warranty_claims.status.*` keys, which are already translated in all five locales. Warranty-claim search results therefore gain a status segment in their subtitle; no other module's search output changes.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been

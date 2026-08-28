@@ -39,6 +39,27 @@ describe('warranty claims search indexing', () => {
     expect(source?.text).toContain('Line SKU: SKU-101')
   })
 
+  it('writes the awaited localized presenter into the indexed source', async () => {
+    const query = jest.fn(async () => ({ items: [], total: 0, page: 1, pageSize: 100 }))
+    const source = await searchConfig.entities[0].buildSource?.({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      queryEngine: { query } as unknown as QueryEngine,
+      record: {
+        id: 'claim-1',
+        claim_number: 'WTY-1',
+        customer_name: 'Ada Lovelace',
+        claim_type: 'repair',
+        status: 'in_review',
+      },
+      customFields: {},
+    })
+
+    expect(source?.presenter?.subtitle).toBe('Ada Lovelace — repair — W trakcie przeglądu')
+    expect(source?.presenter?.badge).toBeUndefined()
+    expect(source?.links).toEqual([{ href: '/backend/warranty_claims/claim-1', label: 'WTY-1', kind: 'primary' }])
+  })
+
   it('localizes the secondary result action', async () => {
     const links = await searchConfig.entities[0].resolveLinks?.({
       tenantId: 'tenant-1',
