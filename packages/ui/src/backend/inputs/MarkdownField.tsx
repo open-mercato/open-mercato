@@ -5,6 +5,8 @@ import dynamic from 'next/dynamic'
 import type { ComponentType } from 'react'
 
 export type MarkdownFieldProps = {
+  id?: string
+  ariaLabelledBy?: string
   value?: string
   onChange: (markdown: string) => void
 }
@@ -15,8 +17,10 @@ const isTestEnv =
 
 // Lightweight stand-in for unit tests (jsdom): MDXEditor/Lexical pull in ESM + CSS that jest
 // would have to transform, so under test we render a plain controlled textarea instead.
-const MarkdownFieldTestStub: ComponentType<MarkdownFieldProps> = ({ value, onChange }) => (
+const MarkdownFieldTestStub: ComponentType<MarkdownFieldProps> = ({ id, ariaLabelledBy, value, onChange }) => (
   <textarea
+    id={id}
+    aria-labelledby={ariaLabelledBy}
     data-testid="markdown-field"
     className="min-h-[160px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
     value={value ?? ''}

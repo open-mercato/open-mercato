@@ -3241,6 +3241,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           return (
             <FieldControl
               key={f.id}
+              formId={formId}
               field={f}
               value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
               error={errors[f.id]}
@@ -3804,6 +3805,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 return (
                   <FieldControl
                     key={f.id}
+                    formId={formId}
                     field={f}
                     value={values[f.id]}
                     error={errors[f.id]}
@@ -3849,12 +3851,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 }
 
 function RelationSelect({
+  id,
   value,
   onChange,
   options,
   placeholder,
   autoFocus,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   options: CrudFieldOption[]
@@ -3874,6 +3878,7 @@ function RelationSelect({
   return (
     <div className="space-y-1">
       <Input
+        id={id}
         ref={inputRef}
         placeholder={placeholder || t('ui.forms.listbox.searchPlaceholder', 'Search...')}
         value={query}
@@ -3909,6 +3914,7 @@ function RelationSelect({
 }
 // Local-buffer text input to avoid focus loss when parent re-renders
 function TextInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -3919,6 +3925,7 @@ function TextInput({
   suggestions,
   inputType = 'text',
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -3975,6 +3982,7 @@ function TextInput({
   if (inputType === 'password') {
     return (
       <PasswordInput
+        id={id}
         placeholder={placeholder}
         value={local}
         onChange={handleChange}
@@ -3992,6 +4000,7 @@ function TextInput({
   return (
     <>
       <Input
+        id={id}
         type={inputType}
         placeholder={placeholder}
         value={local}
@@ -4019,12 +4028,14 @@ function TextInput({
 
 // Local-buffer number input to avoid focus loss when parent re-renders
 function NumberInput({
+  id,
   value,
   onChange,
   placeholder,
   autoFocus,
   onSubmit,
 }: {
+  id?: string
   value: number | string | null | undefined
   onChange: (v: number | undefined) => void
   placeholder?: string
@@ -4073,6 +4084,7 @@ function NumberInput({
   
   return (
     <Input
+      id={id}
       type="number"
       placeholder={placeholder}
       value={local}
@@ -4088,6 +4100,7 @@ function NumberInput({
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
 function TextAreaInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4098,6 +4111,7 @@ function TextAreaInput({
   disabled,
   readOnly,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4134,6 +4148,7 @@ function TextAreaInput({
 
   return (
     <Textarea
+      id={id}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -4151,10 +4166,10 @@ function TextAreaInput({
 }
 
 // Markdown editor — WYSIWYG MDXEditor (Lexical) wired to the CrudForm value/onChange contract.
-type MDProps = { value?: string; onChange: (md: string) => void }
+type MDProps = { id?: string; ariaLabelledBy?: string; value?: string; onChange: (md: string) => void }
 
-const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
-  return <MarkdownField value={value} onChange={onChange} />
+const MarkdownEditor = React.memo(function MarkdownEditor({ id, ariaLabelledBy, value = '', onChange }: MDProps) {
+  return <MarkdownField id={id} ariaLabelledBy={ariaLabelledBy} value={value} onChange={onChange} />
 }, (prev, next) => prev.value === next.value)
 
 // HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.
@@ -4162,8 +4177,8 @@ const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange
 // `labels` contract and pins the `standard` toolbar variant — heading
 // dropdown + B/I/U + lists + link, matching the legacy behaviour plus
 // the Figma `164611:20259` heading selector.
-type HtmlRichEditorFieldProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange }: HtmlRichEditorFieldProps) {
+type HtmlRichEditorFieldProps = { id?: string; ariaLabelledBy?: string; value?: string; onChange: (html: string) => void }
+const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ id, ariaLabelledBy, value = '', onChange }: HtmlRichEditorFieldProps) {
   const t = useT()
   const labels = React.useMemo<Partial<RichEditorLabels>>(() => ({
     bold: t('ui.forms.richtext.bold'),
@@ -4183,12 +4198,12 @@ const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = ''
     mention: t('ui.forms.richtext.mention', 'Mention'),
     more: t('ui.forms.richtext.more', 'More'),
   }), [t])
-  return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
+  return <RichEditor id={id} aria-labelledby={ariaLabelledBy} value={value} onChange={onChange} variant="full" labels={labels} />
 }, (prev, next) => prev.value === next.value)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
-type SimpleMDProps = { value?: string; onChange: (md: string) => void }
-const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+type SimpleMDProps = { id?: string; value?: string; onChange: (md: string) => void }
+const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ id, value = '', onChange }: SimpleMDProps) {
   const t = useT()
   const boldLabel = t('ui.forms.richtext.bold')
   const italicLabel = t('ui.forms.richtext.italic')
@@ -4235,6 +4250,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
       </div>
       <textarea
+        id={id}
         ref={taRef}
         className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
@@ -4249,6 +4265,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 }, (prev, next) => prev.value === next.value)
 
 type FieldControlProps = {
+  formId: string
   field: CrudField
   value: unknown
   error?: string
@@ -4277,6 +4294,7 @@ function supportsWrapperBlurValidation(field: CrudField): boolean {
 }
 
 type ListboxMultiSelectProps = {
+  id?: string
   options: CrudFieldOption[]
   placeholder?: string
   value: string[]
@@ -4285,6 +4303,7 @@ type ListboxMultiSelectProps = {
 }
 
 const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
+  id,
   options,
   placeholder,
   value,
@@ -4312,6 +4331,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
   return (
     <div className="w-full">
       <Input
+        id={id}
         className="mb-2"
         size="sm"
         placeholder={searchPlaceholder}
@@ -4363,6 +4383,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
 })
 
 const FieldControl = React.memo(function FieldControlImpl({
+  formId,
   field,
   value,
   error,
@@ -4409,6 +4430,17 @@ const FieldControl = React.memo(function FieldControlImpl({
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
+  const controlId = `${formId}-${field.id}`
+  const labelId = `${controlId}-label`
+  const hasVisibleLabel = field.label.trim().length > 0
+  const usesContentEditableRichText =
+    field.type === 'richtext' && field.editor !== 'simple'
+  const usesGroupedCheckboxes =
+    field.type === 'select' && Boolean(field.multiple) && field.listbox !== true
+  const hasLabelableControl =
+    field.type !== 'custom' && !usesContentEditableRichText && !usesGroupedCheckboxes
+  const visibleLabelId = !hasLabelableControl && hasVisibleLabel ? labelId : undefined
+  const labelHtmlFor = hasLabelableControl ? controlId : undefined
   const singleSelectValue = Array.isArray(value)
     ? String(value[0] ?? '')
     : value == null
@@ -4434,14 +4466,24 @@ const FieldControl = React.memo(function FieldControlImpl({
           }
         : undefined}
     >
-      {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <label className="block text-sm font-medium">
+      {field.type !== 'checkbox' && hasVisibleLabel ? (
+        <label
+          id={visibleLabelId}
+          htmlFor={labelHtmlFor}
+          className="block text-sm font-medium"
+          onClick={usesContentEditableRichText
+            ? () => {
+                document.getElementById(controlId)?.focus?.()
+              }
+            : undefined}
+        >
           {field.label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4454,6 +4496,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'password' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4466,6 +4509,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'number' && (
         <NumberInput
+          id={controlId}
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
           placeholder={placeholder}
           onChange={fieldSetValue}
@@ -4475,6 +4519,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'date' && (
         <DatePicker
+          id={controlId}
           value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
           disabled={disabled}
@@ -4489,6 +4534,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'datetime-local' && (
         <DateTimePicker
+          id={controlId}
           value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
           disabled={disabled}
@@ -4503,6 +4549,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'datepicker' && (
         <DatePicker
+          id={controlId}
           value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
           disabled={disabled}
@@ -4517,6 +4564,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'datetime' && (
         <DateTimePicker
+          id={controlId}
           value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
           disabled={disabled}
@@ -4531,6 +4579,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'time' && (
         <TimePicker
+          id={controlId}
           value={typeof value === 'string' ? value : null}
           onChange={(time) => setValue(field.id, time ?? undefined)}
           disabled={disabled}
@@ -4541,6 +4590,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'textarea' && (
         <TextAreaInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4553,16 +4603,27 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
-        <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <SimpleMarkdownEditor id={controlId} value={String(value ?? '')} onChange={fieldSetValue} />
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+        <HtmlRichEditorField
+          id={controlId}
+          ariaLabelledBy={visibleLabelId}
+          value={String(value ?? '')}
+          onChange={fieldSetValue}
+        />
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
-        <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <MarkdownEditor
+          id={controlId}
+          ariaLabelledBy={visibleLabelId}
+          value={String(value ?? '')}
+          onChange={fieldSetValue}
+        />
       )}
       {field.type === 'tags' && (
         <TagsInput
+          id={controlId}
           value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
@@ -4574,6 +4635,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'combobox' && (
         <ComboboxInput
+          id={controlId}
           value={typeof value === 'string' ? value : String(value ?? '')}
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
@@ -4596,8 +4658,9 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
+        <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
           <Checkbox
+            id={controlId}
             checked={value === true}
             onCheckedChange={(next) => setValue(field.id, next === true)}
             data-crud-focus-target=""
@@ -4628,7 +4691,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           }}
           disabled={disabled || readOnly}
         >
-          <SelectTrigger data-crud-focus-target="">
+          <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
               {singleSelectLabel}
             </SelectValue>
@@ -4651,6 +4714,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
         <ListboxMultiSelect
+          id={controlId}
           options={options}
           placeholder={placeholder}
           value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
@@ -4659,7 +4723,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={visibleLabelId}>
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
@@ -4688,6 +4752,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'relation' && (
         <RelationSelect
+          id={controlId}
           options={options}
           placeholder={placeholder}
           value={

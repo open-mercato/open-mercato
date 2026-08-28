@@ -12,6 +12,7 @@ export type TagsInputOption = {
 }
 
 export type TagsInputProps = {
+  id?: string
   value: string[]
   onChange: (next: string[]) => void
   placeholder?: string
@@ -48,6 +49,7 @@ function normalizeOptions(input?: Array<string | TagsInputOption>): TagsInputOpt
 }
 
 export function TagsInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -226,6 +228,7 @@ export function TagsInput({
           )
         })}
         <input
+          id={id}
           className="flex-1 min-w-[80px] sm:min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
           value={input}
           placeholder={placeholder || t('ui.inputs.tagsInput.placeholder', 'Add tag and press Enter')}
