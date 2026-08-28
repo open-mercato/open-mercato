@@ -85,6 +85,7 @@ export default function ProfileCommunicationChannelsPage() {
   const [reloadKey, setReloadKey] = React.useState(0)
   const [importChannel, setImportChannel] = React.useState<ChannelRow | null>(null)
   const [disconnectChannel, setDisconnectChannel] = React.useState<ChannelRow | null>(null)
+  const [connectOpen, setConnectOpen] = React.useState(false)
   const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
     contextId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
@@ -591,20 +592,21 @@ export default function ProfileCommunicationChannelsPage() {
               )}
             </p>
           </div>
-          {/* Provider connect entry points injected by each channel-* package
-              (channel-gmail, channel-imap) via UMES. Each package contributes a
-              bare <Button>, so the spacing has to live on this container —
-              otherwise the buttons render edge to edge with no gap. Matches the
-              `actions` slot in `Page` and the header button rows elsewhere in
-              the backend; `flex-wrap` lets them stack instead of overflowing
-              once a third provider is connected. */}
-          <div className="flex flex-wrap items-center gap-2">
-            <InjectionSpot
-              spotId={extensionPoints.hosts.profileConnect.spotId}
-              context={{ reload: () => setReloadKey((k) => k + 1) }}
-              data={{}}
-            />
-          </div>
+          {/* One entry point instead of one button per provider.
+              
+              The provider list is open-ended — channel-gmail and channel-imap
+              inject here in this repo, but any channel-* package (Discord, and
+              third-party ones) can too — so the header grew a button per
+              installed provider and eventually overflowed. Collecting them
+              behind a single "Connect" keeps the header fixed-width however many
+              providers are installed.
+              
+              The injected widgets are rendered unchanged inside the dialog, so
+              the UMES contract is untouched and no provider package needs to
+              know about this. */}
+          <Button type="button" onClick={() => setConnectOpen(true)}>
+            {t('communication_channels.profile.connect.button', 'Connect')}
+          </Button>
         </header>
 
         {reauthRows.length > 0 ? (
@@ -647,6 +649,44 @@ export default function ProfileCommunicationChannelsPage() {
             setReloadKey((k) => k + 1)
           }}
         />
+        <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {t('communication_channels.profile.connect.dialogTitle', 'Connect a channel')}
+              </DialogTitle>
+              <DialogDescription>
+                {t(
+                  'communication_channels.profile.connect.dialogDescription',
+                  'Choose a provider. Outbound messages will come from your own account, and inbound messages land in your unified inbox.',
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Each channel-* package contributes its own control here. They are
+                rendered as-is: `items-stretch` makes them fill the dialog width
+                so they read as a provider list rather than a button cluster.
+                
+                Note: a provider whose control opens its own dialog (IMAP asks for
+                credentials) stacks that dialog above this one. Radix layers them
+                correctly, but the tidier end state is for providers to expose a
+                headless "begin connect" action instead of a self-contained
+                button+dialog — that is a change to the widget contract in every
+                channel-* package, not to this host. */}
+            <div className="flex flex-col items-stretch gap-2 py-2">
+              <InjectionSpot
+                spotId={extensionPoints.hosts.profileConnect.spotId}
+                context={{
+                  reload: () => {
+                    setConnectOpen(false)
+                    setReloadKey((k) => k + 1)
+                  },
+                }}
+                data={{}}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
         {ConfirmDialogElement}
       </PageBody>
     </Page>
