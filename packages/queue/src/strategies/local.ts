@@ -132,7 +132,11 @@ export function createLocalQueue<T = unknown>(
   // Worker state for continuous polling
   let pollingTimer: ReturnType<typeof setInterval> | null = null
   let queuedPollTimer: ReturnType<typeof setTimeout> | null = null
+  let watcherRetryTimer: ReturnType<typeof setTimeout> | null = null
+  let watcherRetryAttempts = 0
   let queueWatcher: fs.FSWatcher | null = null
+  let queueDirectoryState: -1 | 0 = 0
+  let queueDirectoryProbe: ReturnType<typeof setInterval> | null = null
   let queueWatcherIdentity: QueueFileIdentity | null = null
   let watcherRefreshChain: Promise<void> = Promise.resolve()
   let hasQueuedJobs = false
@@ -587,7 +591,16 @@ export function createLocalQueue<T = unknown>(
     queueWatcherIdentity = null
   }
 
-  function refreshQueueWatcher(): Promise<void> {
+  function scheduleWatcherRetry(): void {
+    if (watcherRetryTimer || !activeHandler || watcherRetryAttempts >= 3) return
+    watcherRetryAttempts += 1
+    watcherRetryTimer = setTimeout(() => {
+      watcherRetryTimer = null
+      void refreshQueueWatcher().then(() => pollAndProcess()).catch(() => undefined)
+    }, 100)
+  }
+
+  function refreshQueueWatcher(force = false): Promise<void> {
     const refresh = watcherRefreshChain.then(async () => {
       if (!activeHandler) return
       try {
@@ -595,7 +608,7 @@ export function createLocalQueue<T = unknown>(
         const stats = await fsp.stat(queueFile)
         const nextIdentity = { device: stats.dev, inode: stats.ino }
         if (
-          queueWatcher
+          !force && queueWatcher
           && queueWatcherIdentity?.device === nextIdentity.device
           && queueWatcherIdentity.inode === nextIdentity.inode
         ) {
@@ -615,6 +628,11 @@ export function createLocalQueue<T = unknown>(
           if (queueWatcher === watcher) {
             closeQueueWatcher()
           }
+          // Do not wait for the idle safety interval after an OS watcher limit
+          // or transient filesystem error. Keep the normal idle path quiet, but
+          // retry quickly while the watcher is unavailable so delivery latency
+          // remains bounded on the polling fallback.
+          scheduleWatcherRetry()
         })
         if (!activeHandler) {
           watcher.close()
@@ -622,8 +640,10 @@ export function createLocalQueue<T = unknown>(
         }
         queueWatcher = watcher
         queueWatcherIdentity = nextIdentity
+        watcherRetryAttempts = 0
       } catch (err) {
         logger.error('Failed to watch queue file; fallback polling remains active', { err })
+        scheduleWatcherRetry()
       }
     })
     watcherRefreshChain = refresh.catch(() => undefined)
@@ -647,6 +667,20 @@ export function createLocalQueue<T = unknown>(
     activeHandler = handler
 
     try {
+      await ensureDir()
+      queueDirectoryState = 0
+      queueDirectoryProbe = setInterval(() => {
+        void fsp.stat(queueDir).then(() => {
+          if (queueDirectoryState === -1) {
+            queueDirectoryState = 0
+            void refreshQueueWatcher(true).then(() => pollAndProcess()).catch(() => undefined)
+          }
+        }).catch(() => {
+          queueDirectoryState = -1
+        })
+      }, 100)
+      const unrefProbe = queueDirectoryProbe as unknown as { unref?: () => void }
+      unrefProbe.unref?.()
       await refreshQueueWatcher()
       await pollAndProcess(true)
     } catch (error) {
@@ -703,7 +737,15 @@ export function createLocalQueue<T = unknown>(
       clearTimeout(queuedPollTimer)
       queuedPollTimer = null
     }
+    if (watcherRetryTimer) {
+      clearTimeout(watcherRetryTimer)
+      watcherRetryTimer = null
+    }
     closeQueueWatcher()
+    if (queueDirectoryProbe) {
+      clearInterval(queueDirectoryProbe)
+      queueDirectoryProbe = null
+    }
 
     // Stop polling timer
     if (pollingTimer) {

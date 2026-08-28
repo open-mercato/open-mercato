@@ -727,7 +727,6 @@ describe('Queue - local strategy', () => {
   })
 
   test('continuous workers re-arm filesystem wake-ups after the queue directory is recreated', async () => {
-    jest.useFakeTimers()
     const baseDir = path.join(tmp, 'recreated-queue')
     const movedDir = path.join(tmp, 'moved-queue')
     const consumer = createQueue<{ value: number }>('recreated-queue', 'local', { baseDir })
@@ -754,10 +753,8 @@ describe('Queue - local strategy', () => {
       try {
         await producer.enqueue({ value: 7 })
         const recoveredWithinFallback = within(recovered, 5500)
-        await jest.advanceTimersByTimeAsync(5000)
         await expect(recoveredWithinFallback).resolves.toBe(7)
 
-        jest.useRealTimers()
         await within((async () => {
           while (true) {
             const counts = await consumer.getJobCounts()
@@ -774,7 +771,7 @@ describe('Queue - local strategy', () => {
       jest.useRealTimers()
       await consumer.close()
     }
-  })
+  }, 10_000)
 
   test('clear cancels queued-work polling after draining the queue', async () => {
     jest.useFakeTimers()
