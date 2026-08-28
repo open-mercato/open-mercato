@@ -378,8 +378,12 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
   labelKey: 'auth.audit.roleAcl.update',
   labelFallback: 'Change role permissions',
   resourceId: (input) => input.roleId,
+  // `deletedAt: null` so the editor loads the row `RbacService` reads, never a
+  // superseded one. The two must agree: this read decides which row a save
+  // edits, and a partial unique index on the live rows
+  // (`role_acls_active_unique_idx`) guarantees there is at most one.
   loadAcl: (em, input) =>
-    em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId }),
+    em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId, deletedAt: null }),
   persist: async ({ em, input, existing }) => {
     const acl =
       (existing as RoleAcl | null) ??
@@ -427,8 +431,9 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
   labelKey: 'auth.audit.userAcl.update',
   labelFallback: 'Change user permissions',
   resourceId: (input) => input.userId,
+  // Same reasoning as the role command above — see `user_acls_active_unique_idx`.
   loadAcl: (em, input) =>
-    em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId }),
+    em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId, deletedAt: null }),
   persist: async ({ em, input, existing }) => {
     if (input.clear) {
       if (!existing) return

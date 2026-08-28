@@ -1677,6 +1677,67 @@ describe('RbacService', () => {
         .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
     })
 
+    it('ignores a soft-deleted user-level super-admin grant', async () => {
+      seed(new Map<any, Row[]>([
+        [User, [user]],
+        [UserAcl, [{
+          user, tenantId: 'tenant-home', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null,
+          createdAt: new Date('2026-01-01'), deletedAt: new Date('2026-02-01'),
+        }]],
+        [UserRole, []],
+        [RoleAcl, []],
+      ]))
+
+      // Neither the global path nor the scoped per-user read may answer from a
+      // revoked override, so the user falls through to their (empty) roles.
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
+    it('ignores a soft-deleted role-level super-admin grant', async () => {
+      const role: Row = { id: 'role-a', tenantId: 'tenant-home', deletedAt: null }
+      seed(new Map<any, Row[]>([
+        [User, [user]],
+        [UserAcl, []],
+        [UserRole, [{ user, role, deletedAt: null }]],
+        [RoleAcl, [{
+          role, tenantId: 'tenant-home', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null,
+          createdAt: new Date('2026-01-01'), deletedAt: new Date('2026-02-01'),
+        }]],
+      ]))
+
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
+    it('resolves the per-user ACL with an explicit ordering', async () => {
+      // A shape assertion, deliberately: the ordering is applied by Postgres, so
+      // a mocked EntityManager cannot demonstrate WHICH row wins. What it can
+      // demonstrate is that the service asks for an order at all — the absence
+      // of one is the defect, and it is invisible in any single-row fixture.
+      seed(new Map<any, Row[]>([
+        [User, [user]],
+        [UserAcl, [{
+          user, tenantId: 'tenant-home', isSuperAdmin: false,
+          featuresJson: ['documents.view'], organizationsJson: null,
+          createdAt: new Date('2026-01-01'), deletedAt: null,
+        }]],
+        [UserRole, []],
+        [RoleAcl, []],
+      ]))
+
+      await service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' })
+
+      const scopedRead = em.findOne.mock.calls.find(([entity, where]: any[]) => (
+        entity === UserAcl && where && where.isSuperAdmin === undefined
+      ))
+      expect(scopedRead).toBeDefined()
+      expect(scopedRead![1]).toMatchObject({ tenantId: 'tenant-home', deletedAt: null })
+      expect(scopedRead![2]).toMatchObject({ orderBy: { createdAt: 'desc', id: 'desc' } })
+    })
+
     it('grants nothing to a user with no tenant of their own', async () => {
       const tenantless: Row = { id: 'user-2', tenantId: null, organizationId: null, deletedAt: null }
       seed(new Map<any, Row[]>([

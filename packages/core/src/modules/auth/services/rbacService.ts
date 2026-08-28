@@ -222,6 +222,7 @@ export class RbacService {
       user: userId as any,
       tenantId: userTenantId,
       isSuperAdmin: true,
+      deletedAt: null,
     } as any)
     if (userSuper && (userSuper as any).isSuperAdmin) {
       this.globalSuperAdminCache.set(userId, true)
@@ -254,6 +255,7 @@ export class RbacService {
     const roleSupers = await em.find(RoleAcl, {
       isSuperAdmin: true,
       tenantId: userTenantId,
+      deletedAt: null,
       role: { $in: roleIds as any },
     } as any)
     const result = roleSupers.some((roleAcl) => (
@@ -407,8 +409,25 @@ export class RbacService {
       return result
     }
 
-    // Per-user ACL first
-    const uacl = await em.findOne(UserAcl, { user: userId as any, tenantId })
+    // Per-user ACL first. This row REPLACES the role ACLs rather than merging
+    // with them, so which row is returned decides the whole feature set. A
+    // partial unique index now makes a second live row impossible
+    // (`user_acls_active_unique_idx`, Migration20260828120000_auth), but the
+    // ordering is stated anyway: an index can be dropped by an operator, and an
+    // unordered `findOne` over a table that used to allow duplicates is exactly
+    // the read this pairs with. Soft-deleted rows are excluded — a revoked
+    // override must not keep answering.
+    const uacl = await em.findOne(
+      UserAcl,
+      { user: userId as any, tenantId, deletedAt: null } as any,
+      // `createdAt`/`id`, not `updatedAt`: `updated_at` is nullable and Postgres
+      // sorts NULLs FIRST under DESC, so ordering by it would prefer a row that
+      // was never updated. The migration's one-time collapse uses
+      // `coalesce(updated_at, created_at)` because there it is picking the row
+      // an operator would call current; here the only requirement is that the
+      // answer not vary between requests.
+      { orderBy: { createdAt: 'desc', id: 'desc' } } as any,
+    )
     if (uacl) {
       const result = {
         isSuperAdmin: !!uacl.isSuperAdmin,
@@ -439,7 +458,7 @@ export class RbacService {
         tenantId,
         scope.organizationId,
       )
-      const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any, {})
+      const racls = await em.find(RoleAcl, { tenantId, deletedAt: null, role: { $in: roleIds as any } } as any, {})
       const roleAcls = Array.isArray(racls) ? racls : []
       for (const r of roleAcls) {
         if (roleAclAllowsOrganization(r, roleOrganizationScope)) {
