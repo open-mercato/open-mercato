@@ -208,6 +208,9 @@ export function buildProfileSections(
  * `/backend/profile/change-password` never reaches `buildAdminNav`'s output — so it wins on
  * conflicts and keeps its declared position, while discovered items extend the matching section or
  * append a new one.
+ *
+ * The baseline is never mutated: sections, their item arrays and any nested `children` are copied
+ * before sorting, because callers pass module-level constants that outlive a single request.
  */
 export function mergeSectionsWithDiscovered(
   baseline: SettingsSection[],
@@ -231,14 +234,13 @@ export function mergeSectionsWithDiscovered(
     merged.push(added)
   }
 
-  const sortItems = (items: SettingsSectionItem[]) => {
-    items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    for (const item of items) {
-      if (item.children?.length) sortItems(item.children)
-    }
-  }
+  const sortItems = (items: SettingsSectionItem[]): SettingsSectionItem[] =>
+    [...items]
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((item) => (item.children?.length ? { ...item, children: sortItems(item.children) } : item))
+
   merged.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  for (const section of merged) sortItems(section.items)
+  for (const section of merged) section.items = sortItems(section.items)
 
   return merged
 }

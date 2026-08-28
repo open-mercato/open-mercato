@@ -35,7 +35,10 @@ describe('security profile sidebar entry', () => {
     expect(sections[0].items.map((item) => item.href)).toEqual(['/backend/profile/security'])
   })
 
-  it('points at the same route as the profile dropdown item, under the same feature', async () => {
+  // No injection table maps this widget to `menu:topbar:profile-dropdown`, so the dropdown does not
+  // render the entry today. The assertion pins that the two declarations agree on route and feature,
+  // which is what would break first if the spot is ever wired.
+  it('declares the same route and feature as the profile dropdown widget', async () => {
     const dropdownItem = securityDropdownWidget.menuItems?.[0]
 
     expect(dropdownItem?.href).toBe('/backend/profile/security')

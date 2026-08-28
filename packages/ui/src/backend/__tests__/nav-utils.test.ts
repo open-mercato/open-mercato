@@ -490,4 +490,35 @@ describe('profile navigation helpers', () => {
     expect(merged).toEqual(baseline)
     expect(merged[0]).not.toBe(baseline[0])
   })
+
+  // The baseline is a module-level constant (`profileSections`) reused across every request, so
+  // sorting a nested `children` array in place would permanently reorder shared state.
+  it('sorts nested children into a copy rather than reordering the baseline array', () => {
+    const children = [
+      { id: 'mfa', label: 'MFA', href: '/backend/profile/security/mfa', order: 20 },
+      { id: 'sessions', label: 'Sessions', href: '/backend/profile/security/sessions', order: 10 },
+    ]
+    const baseline: SettingsSection[] = [
+      {
+        id: 'profile.sections.account',
+        label: 'Account',
+        labelKey: 'profile.sections.account',
+        order: 1,
+        items: [
+          {
+            id: 'security',
+            label: 'Security',
+            href: '/backend/profile/security',
+            order: 1,
+            children,
+          },
+        ],
+      },
+    ]
+
+    const merged = mergeSectionsWithDiscovered(baseline, [])
+
+    expect(merged[0].items[0].children?.map((child) => child.id)).toEqual(['sessions', 'mfa'])
+    expect(children.map((child) => child.id)).toEqual(['mfa', 'sessions'])
+  })
 })
