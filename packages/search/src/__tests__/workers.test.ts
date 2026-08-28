@@ -19,6 +19,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 
 
 const searchLoggerWarn = createLogger('search').warn as jest.Mock
+const searchLoggerError = createLogger('search').error as jest.Mock
 
 // Mock dependencies before importing workers
 jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
@@ -60,6 +61,7 @@ import { handleFulltextIndexJob } from '../modules/search/workers/fulltext-index
 import { updateReindexProgress, clearReindexLock } from '../modules/search/lib/reindex-lock'
 import { hasActiveReindexProgress, incrementReindexProgress } from '../modules/search/lib/reindex-progress'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 
 /**
  * Create a mock job context
@@ -661,6 +663,92 @@ describe('Fulltext Index Worker', () => {
     await handleFulltextIndexJob(job, ctx, containerWithoutStrategy)
 
     expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
+  })
+
+  // A job that indexes nothing used to report success with no trace anywhere:
+  // the bare `return` left BullMQ reporting `completed` with zero failures, and
+  // the only log went through `searchDebugWarn`, which prints solely under
+  // OM_SEARCH_DEBUG=1. "Fulltext is not configured" and "everything indexed
+  // fine" were therefore indistinguishable from both signals an operator has.
+  it('records a status-log row when the fulltext strategy is unregistered, and still completes', async () => {
+    const containerWithoutStrategy: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return []
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+    })
+
+    // Must NOT throw: a deployment may legitimately run without Meilisearch,
+    // and retrying forever would turn a config choice into a queue backlog.
+    await expect(
+      handleFulltextIndexJob(job, createMockJobContext(), containerWithoutStrategy),
+    ).resolves.toBeUndefined()
+    expect(mockSearchIndexer.indexRecordsById).not.toHaveBeenCalled()
+
+    // ...but it must leave a trace in the table an operator consults to answer
+    // "did indexing run?".
+    expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({
+        source: 'fulltext',
+        handler: 'worker:fulltext:batch-index',
+        level: 'warn',
+        message: expect.stringContaining('job skipped without indexing'),
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+
+    // ...and the log line must be readable without OM_SEARCH_DEBUG=1.
+    expect(searchLoggerError).toHaveBeenCalledTimes(1)
+    expect(String(searchLoggerError.mock.calls[0][0])).toContain(
+      'Fulltext strategy not configured',
+    )
+  })
+
+  it('records a status-log row when searchStrategies cannot be resolved, and still completes', async () => {
+    const containerWithoutStrategies: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-123',
+      organizationId: null,
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+
+    await expect(
+      handleFulltextIndexJob(job, createMockJobContext(), containerWithoutStrategies),
+    ).resolves.toBeUndefined()
+
+    expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({
+        source: 'fulltext',
+        handler: 'worker:fulltext:index',
+        level: 'warn',
+        message: expect.stringContaining('searchStrategies not available'),
+        tenantId: 'tenant-123',
+        organizationId: null,
+      }),
+    )
+    expect(searchLoggerError).toHaveBeenCalledTimes(1)
   })
 
   it('should throw when fulltext search is not available', async () => {

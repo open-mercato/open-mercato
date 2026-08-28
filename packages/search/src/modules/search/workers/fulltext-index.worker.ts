@@ -1,6 +1,10 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import type { Kysely } from 'kysely'
-import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
+import {
+  FULLTEXT_INDEXING_QUEUE_NAME,
+  type FulltextIndexJobPayload,
+  type FulltextIndexJobType,
+} from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -9,7 +13,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
-import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
+import { searchDebug, searchDebugWarn, searchError, searchWarn } from '../../../lib/debug'
 import { clearReindexLock, updateReindexProgress } from '../lib/reindex-lock'
 import { hasActiveReindexProgress, incrementReindexProgress } from '../lib/reindex-progress'
 
@@ -73,6 +77,56 @@ async function advanceFulltextReindexProgress(params: {
 }
 
 /**
+ * Report a job that returned without indexing anything.
+ *
+ * A fulltext strategy that was never registered (no `MEILISEARCH_HOST`, so
+ * `createFulltextDriver()` returns null and `di.ts` pushes no strategy) makes
+ * every job a no-op. The bare `return` that follows leaves BullMQ reporting
+ * `completed` with zero failures and writes no `indexer_status_logs` row, so
+ * "fulltext is not configured" and "everything indexed fine" are
+ * indistinguishable from both signals an operator has. Absence of a row is the
+ * only trace, and absence is what a healthy never-ran system looks like too.
+ *
+ * So: write a `warn` row into the same table that answers "did indexing run?",
+ * and log through `searchError` rather than `searchDebugWarn` — a
+ * misconfiguration that voids every indexing job should not need
+ * `OM_SEARCH_DEBUG=1` to be readable.
+ *
+ * Deliberately does NOT throw. A deployment may legitimately run without
+ * Meilisearch, and throwing would retry these jobs forever, turning a
+ * configuration choice into a queue backlog. The `isAvailable()` check further
+ * down throws precisely because a registered-but-unreachable Meili is expected
+ * to recover; an unregistered strategy is not.
+ */
+async function reportSkippedWithoutIndexing(params: {
+  em: EntityManager | null
+  jobType: FulltextIndexJobType
+  tenantId: string
+  organizationId: string | null
+  jobId: string
+  reason: string
+}): Promise<void> {
+  const message = `${params.reason}; job skipped without indexing`
+  searchError('fulltext-index.worker', message, {
+    jobId: params.jobId,
+    tenantId: params.tenantId,
+    jobType: params.jobType,
+  })
+  await recordIndexerLog(
+    { em: params.em ?? undefined },
+    {
+      source: 'fulltext',
+      handler: `worker:fulltext:${params.jobType}`,
+      level: 'warn',
+      message,
+      tenantId: params.tenantId,
+      organizationId: params.organizationId,
+      details: { jobId: params.jobId, jobType: params.jobType, skippedWithoutIndexing: true },
+    },
+  )
+}
+
+/**
  * Process a fulltext indexing job.
  *
  * This handler processes single record indexing, batch indexing, deletion, and purge
@@ -92,6 +146,8 @@ export async function handleFulltextIndexJob(
   ctx: HandlerContext,
 ): Promise<void> {
   const { jobType, tenantId } = job.payload
+  const payloadOrganizationId =
+    'organizationId' in job.payload ? job.payload.organizationId ?? null : null
 
   if (!tenantId) {
     searchDebugWarn('fulltext-index.worker', 'Skipping job with missing tenantId', {
@@ -118,7 +174,10 @@ export async function handleFulltextIndexJob(
   try {
     searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
   } catch {
-    searchDebugWarn('fulltext-index.worker', 'searchIndexer not available')
+    // Not a skip on its own: delete/purge never touch the indexer, and the
+    // index/batch-index branches throw explicitly when they need it. Still
+    // worth reading without OM_SEARCH_DEBUG, because it precedes those throws.
+    searchWarn('fulltext-index.worker', 'searchIndexer not available')
   }
 
   // Resolve fulltext strategy
@@ -129,12 +188,26 @@ export async function handleFulltextIndexJob(
       (s: unknown) => (s as { id?: string })?.id === 'fulltext',
     ) as FullTextSearchStrategy | undefined
   } catch {
-    searchDebugWarn('fulltext-index.worker', 'searchStrategies not available')
+    await reportSkippedWithoutIndexing({
+      em,
+      jobType,
+      tenantId,
+      organizationId: payloadOrganizationId,
+      jobId: jobCtx.jobId,
+      reason: 'searchStrategies not available',
+    })
     return
   }
 
   if (!fulltextStrategy) {
-    searchDebugWarn('fulltext-index.worker', 'Fulltext strategy not configured')
+    await reportSkippedWithoutIndexing({
+      em,
+      jobType,
+      tenantId,
+      organizationId: payloadOrganizationId,
+      jobId: jobCtx.jobId,
+      reason: 'Fulltext strategy not configured (MEILISEARCH_HOST unset?)',
+    })
     return
   }
 
