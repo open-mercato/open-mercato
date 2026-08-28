@@ -1,8 +1,13 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
+const translations: Record<string, string> = {
+  'warranty_claims.search.openClaim': 'Localized open claim',
+  'warranty_claims.status.in_review': 'W trakcie przeglądu',
+}
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
-    t: (key: string, fallback: string) => key === 'warranty_claims.search.openClaim' ? 'Localized open claim' : fallback,
+    t: (key: string, fallback: string) => translations[key] ?? fallback,
   })),
 }))
 
@@ -43,5 +48,34 @@ describe('warranty claims search indexing', () => {
     })
 
     expect(links).toEqual([{ href: '/backend/warranty_claims/claim-1', label: 'Localized open claim', kind: 'secondary' }])
+  })
+
+  it('renders the localized claim status in the subtitle rather than the unrendered badge', async () => {
+    const presenter = await searchConfig.entities[0].formatResult?.({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      record: {
+        id: 'claim-1',
+        claim_number: 'WTY-1',
+        customer_name: 'Ada Lovelace',
+        claim_type: 'repair',
+        status: 'in_review',
+      },
+      customFields: {},
+    })
+
+    expect(presenter?.subtitle).toBe('Ada Lovelace — repair — W trakcie przeglądu')
+    expect(presenter?.badge).toBeUndefined()
+  })
+
+  it('omits the status segment when a claim has no status', async () => {
+    const presenter = await searchConfig.entities[0].formatResult?.({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      record: { id: 'claim-1', claim_number: 'WTY-1', customer_name: 'Ada Lovelace' },
+      customFields: {},
+    })
+
+    expect(presenter?.subtitle).toBe('Ada Lovelace')
   })
 })

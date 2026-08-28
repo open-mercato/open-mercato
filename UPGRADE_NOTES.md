@@ -24,6 +24,23 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `SearchResultPresenter.badge` is deprecated — no search UI renders it (#5716)
+
+`SearchResultPresenter.badge` from `@open-mercato/shared/modules/search` has never been rendered. Thirteen modules populate it, #4886 taught the presenter enricher to re-translate it per request, and the vector index writes it to the `result_badge` column and reads it back — but the Cmd+K dialog, the topbar inline results and `/backend/search` all render only `title`, `subtitle` and `icon`. `git log -S"presenter.badge" -- packages/search/src/modules/search/frontend` is empty across the project's whole history. The spec that introduced the request-time re-render described the dialog as rendering the badge, which is what made the field read like a display seam; that description was aspirational and never matched the renderers.
+
+The direction is not to start rendering it. #4886 also added `resolveEntityTypeLabel()` and the `search.entityType.<module>.<entity>` keys, and all three surfaces already render that label next to each result. Nearly every producer's badge holds the same per-entity-**type** string that label now carries — `search.entityType.customers.customer_person_profile` is "Person" against a `customers.search.badge.person` of "Person", `messages.message` is "Message" against a badge of "Message", and the same duplication holds for `resources`, `customer_accounts`, `staff`, `planner`, `documents`, `sales`, `catalog`, `wms` and `eudr`. Rendering `badge` would print the same word twice on nearly every result.
+
+The field is therefore deprecated rather than removed, and is **slated for removal in 0.9.0**. Nothing changes at runtime in this release: `badge` is still accepted, still populated by every existing producer, still localized per request, and still stored. Only the JSDoc changed, so no module breaks and no migration is forced yet.
+
+**Action for module authors:** stop populating `presenter.badge` in your module's `search.ts` before 0.9.0, and move the value to whichever of the two replacements matches what it holds.
+
+- **An entity-type label** (the common case — a constant like `'Document'` or one string per record kind): delete the `badge` and add a `search.entityType.<module>.<entity>` translation key instead. Every search surface already renders that label, so this is usually a pure deletion plus one key per entity; without the key the label falls back to a humanized `entityId` such as `Warranty Claims · Warranty Claim`.
+- **Per-record detail** (a status, a counterparty, a date): append it to `subtitle`, which is rendered on all three surfaces.
+
+The `result_badge` column, the Meilisearch document field and the vector round-trip are untouched here and retire separately once the deprecation window closes; dropping the presenter field itself needs no migration.
+
+The one in-repo producer whose badge carried genuine per-record information was `warranty_claims`, which put the claim status there — so claim status was written, stored and never shown. It now appends the **localized** status to the subtitle (`Ada Lovelace — repair — In review`) via the existing `warranty_claims.status.*` keys, which are already translated in all four locales. Warranty-claim search results therefore gain a status segment in their subtitle; no other module's search output changes.
+
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 
 `AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.

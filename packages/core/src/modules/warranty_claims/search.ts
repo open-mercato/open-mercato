@@ -41,17 +41,20 @@ function resolveClaimId(record: Record<string, unknown>): string | null {
   return readString(record, 'id', 'id')
 }
 
-function resolvePresenter(record: Record<string, unknown>): SearchResultPresenter {
+async function resolvePresenter(record: Record<string, unknown>): Promise<SearchResultPresenter> {
+  const { t } = await resolveTranslations()
   const claimNumber = readString(record, 'claim_number', 'claimNumber') ?? 'Warranty claim'
   const customerName = readString(record, 'customer_name', 'customerName')
   const claimType = readString(record, 'claim_type', 'claimType')
   const status = readString(record, 'status', 'status')
-  const subtitle = [customerName, claimType].filter((value): value is string => Boolean(value)).join(' — ')
+  const statusLabel = status ? t(`warranty_claims.status.${status}`, status) : null
+  const subtitle = [customerName, claimType, statusLabel]
+    .filter((value): value is string => Boolean(value))
+    .join(' — ')
   return {
     title: claimNumber,
     subtitle: subtitle || undefined,
     icon: 'shield-check',
-    badge: status ?? undefined,
   }
 }
 
@@ -138,7 +141,7 @@ export const searchConfig: SearchModuleConfig = {
         appendLineRows(lines, lineRows)
         if (!lines.length) return null
 
-        const presenter = resolvePresenter(record)
+        const presenter = await resolvePresenter(record)
         const url = buildClaimUrl(record)
         const links: SearchResultLink[] = url ? [{ href: url, label: presenter.title, kind: 'primary' }] : []
         return {
@@ -153,7 +156,7 @@ export const searchConfig: SearchModuleConfig = {
         }
       },
 
-      formatResult: (ctx: SearchBuildContext): SearchResultPresenter | null => {
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
         return resolvePresenter(ctx.record)
       },
