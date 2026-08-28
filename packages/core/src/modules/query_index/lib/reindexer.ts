@@ -16,6 +16,7 @@ import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './job
 import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
+import { isTenantGlobalEntityType } from './tenant-global'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('query_index').child({ component: 'reindexer' })
@@ -184,6 +185,44 @@ export async function reindexEntity(
   const hasOrgCol = columns.has('organization_id')
   const hasTenantCol = columns.has('tenant_id')
   const hasDeletedCol = columns.has('deleted_at')
+
+  // `applyBaseWhere()` below can only apply the tenant predicate when the source
+  // table HAS a `tenant_id` column; when it does not, it silently drops the
+  // predicate the caller asked for. `scopeOverrides.tenantId` further down then
+  // stamps every swept row with the caller's tenant anyway. A tenant-scoped
+  // reindex of a tenant-less table therefore does two wrong things at once: it
+  // reads every tenant's rows, and it files them under whichever tenant happened
+  // to run it. Nothing downstream corrects that, because both readers ask for an
+  // exact tenant match with no NULL branch, so the rows become searchable and
+  // readable as that tenant's own.
+  //
+  // The condition is derived, not enumerated: it is exactly the set of inputs
+  // where a predicate is dropped AND an override is stamped. A `tenantId` of
+  // `undefined` or `null` sets no override, so those rows land under
+  // `tenant_id = NULL` — invisible to both readers, but filed under nobody — and
+  // are deliberately left alone here.
+  //
+  // Indexing every tenant-less table under NULL was considered as the general
+  // fix and rejected: with no NULL branch in either reader it would take
+  // genuinely global reference data out of search entirely. Teaching the readers
+  // that NULL means global was rejected too — it overloads a value that today
+  // also means "written by an unscoped reindex", so every mis-scoped row would
+  // become globally visible, which is fail-open in a fix whose whole value is
+  // failing closed. `isTenantGlobalEntityType` is the narrow allowlist for the
+  // catalogue case instead; see its comment in ./tenant-global.
+  if (!hasTenantCol && tenantId != null && !isTenantGlobalEntityType(entityType)) {
+    logger.warn('Refusing tenant-scoped reindex of a table with no tenant_id column', {
+      entityType,
+      table,
+      tenantId,
+    })
+    return {
+      processed: 0,
+      total: 0,
+      tenantScopes: [],
+      scopes: [],
+    }
+  }
 
   const jobScope: JobScope = {
     entityType,
