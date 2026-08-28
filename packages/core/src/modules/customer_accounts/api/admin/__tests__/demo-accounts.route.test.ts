@@ -7,8 +7,13 @@
  * still showed logins that do not exist. This endpoint is the data source that
  * replaced the constant, so it must report emptiness truthfully and stay scoped
  * to the caller's tenant and organization.
+ *
+ * The surfaces it feeds claim the credentials *work*, so existence alone is not
+ * the predicate: an account that was deactivated, left unverified, or had its
+ * password changed since seeding must drop out too.
  */
 
+import { hashSync } from 'bcryptjs'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { EXAMPLE_PORTAL_ACCOUNTS } from '@open-mercato/core/modules/customer_accounts/lib/exampleAccounts'
 
@@ -50,14 +55,22 @@ function makeRequest(): Request {
   return new Request('http://localhost/api/customer_accounts/admin/demo-accounts')
 }
 
-function makeSeededUser(email: string, id: string) {
-  return { id, email, emailHash: hashForLookup(email), displayName: 'Seeded User' }
+// A low bcrypt cost keeps the suite fast; the route only ever compares, never hashes.
+function makeSeededUser(email: string, id: string, storedPassword?: string) {
+  const account = EXAMPLE_PORTAL_ACCOUNTS.find((entry) => entry.email === email)
+  return {
+    id,
+    email,
+    emailHash: hashForLookup(email),
+    displayName: 'Seeded User',
+    passwordHash: hashSync(storedPassword ?? account!.password, 4),
+  }
 }
 
-function makeRoleLink(userId: string) {
+function makeRoleLink(userId: string, deletedAt: Date | null = null) {
   return {
     user: { id: userId },
-    role: { id: portalAdminRoleId, name: 'Portal Admin', slug: 'portal_admin' },
+    role: { id: portalAdminRoleId, name: 'Portal Admin', slug: 'portal_admin', deletedAt },
   }
 }
 
@@ -135,6 +148,50 @@ describe('admin demo portal accounts route', () => {
     const json = await response.json()
 
     expect(json.items.map((item: { email: string }) => item.email)).toEqual([alice.email, bob.email])
+  })
+
+  it('does not advertise deactivated or unverified seeded accounts', async () => {
+    mockFindWithDecryption.mockResolvedValueOnce([])
+    const { GET } = await import('../demo-accounts')
+
+    await GET(makeRequest())
+
+    // Both are hard login guards in api/login.ts, so an account failing either one
+    // cannot be logged into and must not be advertised as a working credential.
+    const [, , where] = mockFindWithDecryption.mock.calls[0]
+    expect(where.isActive).toBe(true)
+    expect(where.emailVerifiedAt).toEqual({ $ne: null })
+  })
+
+  it('drops a seeded account whose password no longer matches the seeded credential', async () => {
+    const aliceUser = makeSeededUser(alice.email, '66666666-6666-4666-8666-666666666666', 'ChangedByTheUser1!')
+    mockFindWithDecryption.mockResolvedValueOnce([aliceUser])
+    const { GET } = await import('../demo-accounts')
+
+    const response = await GET(makeRequest())
+    const json = await response.json()
+
+    expect(json).toEqual({ ok: true, items: [] })
+    // A self-service password change makes the advertised credential a lie; the
+    // row disappears instead of asserting a login that fails.
+    expect(JSON.stringify(json)).not.toContain(alice.password)
+    // No surviving account means the role lookup never runs.
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits a soft-deleted role from the reported role names', async () => {
+    const aliceUser = makeSeededUser(alice.email, '66666666-6666-4666-8666-666666666666')
+    mockFindWithDecryption
+      .mockResolvedValueOnce([aliceUser])
+      .mockResolvedValueOnce([makeRoleLink(aliceUser.id, new Date())])
+    const { GET } = await import('../demo-accounts')
+
+    const response = await GET(makeRequest())
+    const json = await response.json()
+
+    expect(json.items).toEqual([
+      { email: alice.email, password: alice.password, roles: [] },
+    ])
   })
 
   it('scopes the lookup to the caller tenant and organization and skips soft-deleted rows', async () => {

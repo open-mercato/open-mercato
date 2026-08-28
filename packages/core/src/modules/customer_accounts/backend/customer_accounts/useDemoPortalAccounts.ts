@@ -19,9 +19,8 @@ type DemoAccountsResponse = {
  * started with `--no-examples` shows nothing at all (#5669). A failed lookup
  * resolves to an empty list — never to a hardcoded fallback.
  */
-export function useDemoPortalAccounts(): { accounts: DemoPortalAccount[]; isLoading: boolean } {
+export function useDemoPortalAccounts(): { accounts: DemoPortalAccount[] } {
   const [accounts, setAccounts] = React.useState<DemoPortalAccount[]>([])
-  const [isLoading, setIsLoading] = React.useState(true)
 
   React.useEffect(() => {
     let cancelled = false
@@ -33,13 +32,11 @@ export function useDemoPortalAccounts(): { accounts: DemoPortalAccount[]; isLoad
         setAccounts(items)
       } catch {
         if (!cancelled) setAccounts([])
-      } finally {
-        if (!cancelled) setIsLoading(false)
       }
     }
     load()
     return () => { cancelled = true }
   }, [])
 
-  return { accounts, isLoading }
+  return { accounts }
 }

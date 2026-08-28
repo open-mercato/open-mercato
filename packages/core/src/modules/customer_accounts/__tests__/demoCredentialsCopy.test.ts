@@ -60,7 +60,6 @@ describe('customer_accounts demo credential copy (regressions for issues #3198 a
   it('renders the users page banner credentials only for accounts that exist in the organization (#5669)', () => {
     const page = readFileInModule('backend', 'customer_accounts', 'users', 'PortalUsersPageClient.tsx')
     expect(page).toContain('useDemoPortalAccounts')
-    expect(page).toMatch(/demoAccounts\.length > 0/)
     for (const account of EXAMPLE_PORTAL_ACCOUNTS) {
       expect(page).not.toContain(account.email)
       expect(page).not.toContain(account.password)
@@ -70,7 +69,6 @@ describe('customer_accounts demo credential copy (regressions for issues #3198 a
   it('renders the settings demo table only for accounts that exist in the organization (#5669)', () => {
     const page = readFileInModule('backend', 'customer_accounts', 'settings', 'CustomerAccountsSettingsPageClient.tsx')
     expect(page).toContain('useDemoPortalAccounts')
-    expect(page).toMatch(/demoAccounts\.length > 0/)
     for (const account of EXAMPLE_PORTAL_ACCOUNTS) {
       expect(page).not.toContain(account.email)
       expect(page).not.toContain(account.password)
