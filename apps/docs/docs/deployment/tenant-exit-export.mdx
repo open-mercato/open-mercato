@@ -1,0 +1,19 @@
+---
+title: Tenant exit export
+description: Create a portable data and attachment package for one tenant.
+---
+
+Use the MIT Core `tenant_exports` command when an operator needs to return a tenant's data in a portable format:
+
+```bash
+yarn mercato tenant_exports export \
+  --tenant 00000000-0000-4000-8000-000000000000 \
+  --actor operator@example.com \
+  --out ./tenant-exit.tar.gz
+```
+
+The archive contains JSON Lines files under `tables/`, attachment binaries under `attachments/`, a human-readable handling note, and `manifest.json` with counts, exclusions, redactions, exceptions, and SHA-256 checksums.
+
+The command reads the database in a repeatable-read transaction. It aborts when application-level encrypted fields cannot be decrypted, when a relational row crosses the requested tenant boundary, or when an attachment binary is missing. Use `--allow-missing-attachments` only when the operator has accepted an explicit exception in the manifest.
+
+The archive is not encrypted by Open Mercato. It is written with owner-only permissions and must be stored and transferred through operator-controlled encrypted channels. Authentication sessions, reset tokens, and similar runtime secrets are not included. Credential-shaped columns are present as `null` and listed in the table manifest.

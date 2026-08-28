@@ -2,7 +2,7 @@ import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
-import { isTenantDataEncryptionEnabled } from './toggles'
+import { isTenantDataEncryptionEnabled, isTenantDataEncryptionRequired } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { createLogger } from '../logger'
@@ -206,7 +206,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     em?: { getMetadata?: () => any; getComparator?: () => any },
     changeSet?: { payload?: Record<string, unknown> },
   ) {
-    if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
+    if (!isTenantDataEncryptionEnabled() && !isTenantDataEncryptionRequired()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
       return
     }

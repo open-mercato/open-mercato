@@ -5,6 +5,9 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -12,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 
 type Tab = 'general' | 'domains' | 'roles' | 'scim' | 'activity'
 
@@ -29,6 +33,8 @@ interface SsoConfigDetail {
   autoLinkByEmail: boolean
   isActive: boolean
   ssoRequired: boolean
+  requiredAcrValues: string[]
+  requiredAmrValues: string[]
   appRoleMappings: Record<string, string>
   hasActiveScimTokens: boolean
   createdAt: string
@@ -86,6 +92,9 @@ export default function SsoConfigDetailPage() {
   const [showSecretField, setShowSecretField] = React.useState(false)
   const [jitEnabled, setJitEnabled] = React.useState(true)
   const [autoLinkByEmail, setAutoLinkByEmail] = React.useState(true)
+  const [ssoRequired, setSsoRequired] = React.useState(false)
+  const [requiredAcrInput, setRequiredAcrInput] = React.useState('')
+  const [requiredAmrInput, setRequiredAmrInput] = React.useState('')
   const [isSaving, setIsSaving] = React.useState(false)
 
   // Domains tab state
@@ -104,6 +113,9 @@ export default function SsoConfigDetailPage() {
       setClientId(c.clientId ?? '')
       setJitEnabled(c.jitEnabled)
       setAutoLinkByEmail(c.autoLinkByEmail)
+      setSsoRequired(c.ssoRequired)
+      setRequiredAcrInput(c.requiredAcrValues.join(', '))
+      setRequiredAmrInput(c.requiredAmrValues.join(', '))
       setError(null)
     } else if (call.status === 404) {
       setIsNotFound(true)
@@ -118,7 +130,16 @@ export default function SsoConfigDetailPage() {
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      const payload: Record<string, unknown> = { name, issuer, clientId, jitEnabled, autoLinkByEmail }
+      const payload: Record<string, unknown> = {
+        name,
+        issuer,
+        clientId,
+        jitEnabled,
+        autoLinkByEmail,
+        ssoRequired,
+        requiredAcrValues: parseCommaSeparatedList(requiredAcrInput),
+        requiredAmrValues: parseCommaSeparatedList(requiredAmrInput),
+      }
       if (newClientSecret) payload.clientSecret = newClientSecret
 
       await runMutationWithContext(
@@ -435,37 +456,45 @@ export default function SsoConfigDetailPage() {
                   )}
                 </div>
                 <div className="space-y-3 pt-2">
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={jitEnabled}
-                      onChange={(e) => setJitEnabled(e.target.checked)}
-                      disabled={config.hasActiveScimTokens}
-                      className="accent-primary"
+                  <CheckboxField
+                    checked={jitEnabled}
+                    onCheckedChange={(checked) => setJitEnabled(checked === true)}
+                    disabled={config.hasActiveScimTokens}
+                    label={t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}
+                    description={config.hasActiveScimTokens
+                      ? t('sso.admin.field.jitDisabledByScim', 'Unavailable — SCIM directory sync is active. Revoke SCIM tokens to enable JIT.')
+                      : t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
+                  />
+                  <CheckboxField
+                    checked={autoLinkByEmail}
+                    onCheckedChange={(checked) => setAutoLinkByEmail(checked === true)}
+                    label={t('sso.admin.field.autoLinkByEmail', 'Auto-link by Email')}
+                    description={t('sso.admin.field.autoLinkByEmailDesc', 'Automatically link existing users by matching email address')}
+                  />
+                  <CheckboxField
+                    checked={ssoRequired}
+                    onCheckedChange={(checked) => setSsoRequired(checked === true)}
+                    label={t('sso.admin.field.ssoRequired', 'Require SSO for password login')}
+                    description={t('sso.admin.field.ssoRequiredDesc', 'Block password login for organization users while this active configuration is enabled. Superadmin break-glass remains available.')}
+                  />
+                  <FormField
+                    label={t('sso.admin.field.requiredAcrValues', 'Required ACR values')}
+                    description={t('sso.admin.field.requiredAcrValuesDesc', 'Comma-separated OIDC authentication context values. Login is accepted when the identity provider returns one of them.')}
+                  >
+                    <Input
+                      value={requiredAcrInput}
+                      onChange={(event) => setRequiredAcrInput(event.target.value)}
                     />
-                    <div>
-                      <span className="text-sm font-medium">{t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}</span>
-                      <span className="text-xs text-muted-foreground ml-2">
-                        {config.hasActiveScimTokens
-                          ? t('sso.admin.field.jitDisabledByScim', 'Unavailable — SCIM directory sync is active. Revoke SCIM tokens to enable JIT.')
-                          : t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
-                      </span>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={autoLinkByEmail}
-                      onChange={(e) => setAutoLinkByEmail(e.target.checked)}
-                      className="accent-primary"
+                  </FormField>
+                  <FormField
+                    label={t('sso.admin.field.requiredAmrValues', 'Required AMR values')}
+                    description={t('sso.admin.field.requiredAmrValuesDesc', 'Comma-separated authentication method values. Login is accepted only when the identity provider returns all of them.')}
+                  >
+                    <Input
+                      value={requiredAmrInput}
+                      onChange={(event) => setRequiredAmrInput(event.target.value)}
                     />
-                    <div>
-                      <span className="text-sm font-medium">{t('sso.admin.field.autoLinkByEmail', 'Auto-link by Email')}</span>
-                      <span className="text-xs text-muted-foreground ml-2">
-                        {t('sso.admin.field.autoLinkByEmailDesc', 'Automatically link existing users by matching email address')}
-                      </span>
-                    </div>
-                  </label>
+                  </FormField>
                 </div>
                 <div className="pt-4">
                   <Button onClick={handleSave} disabled={isSaving}>

@@ -34,14 +34,12 @@ test.describe('TC-AGENT-UX-P0-005: Overview sample labeling', () => {
 
     await expect(page.getByRole('heading', { name: 'Fleet overview' })).toBeVisible({ timeout: 15_000 })
 
-    // The interventions section only renders once the tenant has agent
-    // activity; on an active env it MUST carry the shared Sample chip.
+    // The interventions section is preview-only. When enabled, it must carry
+    // the shared Sample chip regardless of how much other activity exists.
     const sectionTitle = page.getByText('Where humans stepped in')
     if (await sectionTitle.isVisible().catch(() => false)) {
       const sectionHeader = page.locator('div', { has: sectionTitle }).first()
       await expect(sectionHeader.getByText('Sample', { exact: true })).toBeVisible()
-    } else {
-      await expect(page.getByText('No agent activity yet.')).toBeVisible()
     }
   })
 })

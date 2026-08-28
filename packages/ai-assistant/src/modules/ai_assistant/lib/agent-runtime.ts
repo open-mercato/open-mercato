@@ -43,6 +43,8 @@ import {
   shouldFailClosed,
 } from './moderation-policy'
 import { recordModerationFlag } from './moderation-flag-recorder'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
+import { enforceAiContentSafety } from './content-safety'
 import type {
   AiAgentDefinition,
   AiAgentLoopConfig,
@@ -1106,11 +1108,16 @@ export async function runInputModerationGate(params: InputModerationGateParams):
     env: params.env,
   })
   if (!isModerationActive(policy)) return
-  // The resolved chat provider has no moderation endpoint — rely on its own
-  // server-side filtering and skip the gate.
-  if (!params.supportsInputModeration) return
   const text = params.userText.trim()
   if (!text) return
+  if (!params.supportsInputModeration) {
+    if (shouldFailClosed(policy)) {
+      throw new AiModerationUnavailableError(
+        'the resolved provider does not support the required moderation check',
+      )
+    }
+    return
+  }
 
   const failClosed = shouldFailClosed(policy)
   const failOpenOrThrow = (reason: string, error?: unknown): void => {
@@ -1720,8 +1727,15 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // Read tenant overrides only when the provider can moderate and the agent is
   // not already enforced (untrustedInput short-circuits to enforced) — avoids a
   // DB round-trip on the common skip paths.
+  const hardenedProfile = isHardenedAiRuntimeProfile()
+  if (hardenedProfile) {
+    await enforceAiContentSafety(input.container, {
+      phase: 'input',
+      content: extractLatestUserText(normalizedMessages),
+    })
+  }
   const moderationOverrides =
-    resolvedModel.supportsInputModeration && agent.untrustedInput !== true
+    resolvedModel.supportsInputModeration && agent.untrustedInput !== true && !hardenedProfile
       ? await resolveModerationOverrideValues(
           input.container,
           input.authContext.tenantId,
@@ -1730,7 +1744,9 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         )
       : { perAgentOverride: null, tenantWideOverride: null }
   await runInputModerationGate({
-    untrustedInput: agent.untrustedInput,
+    untrustedInput:
+      agent.untrustedInput === true ||
+      (hardenedProfile && resolvedModel.supportsInputModeration),
     supportsInputModeration: resolvedModel.supportsInputModeration,
     perAgentOverride: moderationOverrides.perAgentOverride,
     tenantWideOverride: moderationOverrides.tenantWideOverride,
@@ -2074,11 +2090,14 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   generateObject?: (
     options: PreparedAiSdkObjectOptions,
   ) => Promise<GenerateObjectResult<unknown> | StreamObjectResult<unknown, unknown, unknown>>
+  onModelResolved?: (resolution: { providerId: string; modelId: string }) => void | Promise<void>
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
   mode: 'generate'
   object: TSchema
+  providerId: string
+  modelId: string
   finishReason?: string
   usage?: { inputTokens?: number; outputTokens?: number }
   /**
@@ -2094,6 +2113,8 @@ export type RunAiAgentObjectGenerateResult<TSchema> = {
 
 export type RunAiAgentObjectStreamResult<TSchema> = {
   mode: 'stream'
+  providerId: string
+  modelId: string
   /** Full parsed object once the stream completes. */
   object: Promise<TSchema>
   /** Async iterator of partial (progressively hydrated) objects. */
@@ -2214,7 +2235,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     mutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(
+  const resolvedModel = resolveAgentModel(
     agent,
     input.modelOverride,
     input.providerOverride,
@@ -2224,7 +2245,68 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.requestOverride,
     tenantAllowlistSnapshot,
   )
+  const { model } = resolvedModel
+  if (input.onModelResolved) {
+    await input.onModelResolved({
+      providerId: resolvedModel.providerId,
+      modelId: resolvedModel.modelId,
+    })
+  }
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
+  let moderationService: ModerationService | null = null
+  try {
+    moderationService = input.container?.resolve<ModerationService>('moderationService') ?? null
+  } catch {
+    moderationService = null
+  }
+  const hardenedProfile = isHardenedAiRuntimeProfile()
+  if (hardenedProfile) {
+    await enforceAiContentSafety(input.container, {
+      phase: 'input',
+      content: extractLatestUserText(normalizedMessages),
+    })
+    if (resolvedOutput.mode === 'stream') {
+      throw new AgentPolicyError(
+        'execution_mode_not_supported',
+        '[internal] Hardened structured output must be buffered and scanned before delivery.',
+      )
+    }
+  }
+  const moderationOverrides =
+    resolvedModel.supportsInputModeration && agent.untrustedInput !== true && !hardenedProfile
+      ? await resolveModerationOverrideValues(
+          input.container,
+          input.authContext.tenantId,
+          input.authContext.organizationId,
+          agent.id,
+        )
+      : { perAgentOverride: null, tenantWideOverride: null }
+  await runInputModerationGate({
+    untrustedInput:
+      agent.untrustedInput === true ||
+      (hardenedProfile && resolvedModel.supportsInputModeration),
+    supportsInputModeration: resolvedModel.supportsInputModeration,
+    perAgentOverride: moderationOverrides.perAgentOverride,
+    tenantWideOverride: moderationOverrides.tenantWideOverride,
+    userText: extractLatestUserText(normalizedMessages),
+    service: moderationService,
+    resolveApiKey: () => llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
+    baseURL: resolvedModel.baseURL,
+    moderationModel: process.env.OM_AI_MODERATION_MODEL,
+    onFlagged: (categories) =>
+      recordModerationFlag(
+        {
+          tenantId: input.authContext.tenantId,
+          organizationId: input.authContext.organizationId,
+          agentId: agent.id,
+          userId: input.authContext.userId,
+          providerId: resolvedModel.providerId,
+          modelId: resolvedModel.modelId,
+          categories,
+        },
+        input.container,
+      ),
+  })
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
     resolvedAttachments,
@@ -2240,6 +2322,12 @@ export async function runAiAgentObject<TSchema = unknown>(
   void objectTurnId
 
   const abortController = new AbortController()
+  const enforceOutputSafety = async (value: TSchema): Promise<TSchema> => {
+    if (hardenedProfile) {
+      await enforceAiContentSafety(input.container, { phase: 'output', content: value })
+    }
+    return value
+  }
 
   // Read-only tool-loop path (opt-in via `enableTools`). When the agent resolves
   // tools, run a `generateText` loop that finalizes into the output schema via
@@ -2287,9 +2375,12 @@ export async function runAiAgentObject<TSchema = unknown>(
       output: Output.object({ schema: resolvedOutput.schema as never }),
       abortSignal: abortController.signal,
     })
+    const object = await enforceOutputSafety((toolResult as unknown as { output: TSchema }).output)
     return {
       mode: 'generate',
-      object: (toolResult as unknown as { output: TSchema }).output,
+      object,
+      providerId: resolvedModel.providerId,
+      modelId: resolvedModel.modelId,
       finishReason: (toolResult as { finishReason?: string }).finishReason,
       usage: {
         inputTokens: toolResult.usage?.inputTokens,
@@ -2329,7 +2420,9 @@ export async function runAiAgentObject<TSchema = unknown>(
       }
       return {
         mode: 'stream',
-        object: streamResult.object,
+        object: streamResult.object.then(enforceOutputSafety),
+        providerId: resolvedModel.providerId,
+        modelId: resolvedModel.modelId,
         partialObjectStream: streamResult.partialObjectStream,
         textStream: streamResult.textStream,
         finishReason: streamResult.finishReason,
@@ -2337,9 +2430,12 @@ export async function runAiAgentObject<TSchema = unknown>(
       }
     }
     const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
+    const object = await enforceOutputSafety(genResult.object as TSchema)
     return {
       mode: 'generate',
-      object: genResult.object as TSchema,
+      object,
+      providerId: resolvedModel.providerId,
+      modelId: resolvedModel.modelId,
       finishReason: genResult.finishReason,
       usage: genResult.usage,
     }
@@ -2366,7 +2462,9 @@ export async function runAiAgentObject<TSchema = unknown>(
     }
     return {
       mode: 'stream',
-      object: result.object,
+      object: result.object.then(enforceOutputSafety),
+      providerId: resolvedModel.providerId,
+      modelId: resolvedModel.modelId,
       partialObjectStream: result.partialObjectStream,
       textStream: result.textStream,
       finishReason: result.finishReason,
@@ -2387,9 +2485,12 @@ export async function runAiAgentObject<TSchema = unknown>(
   } as Parameters<typeof generateObject>[0]
 
   const result = await generateObject(generateArgs)
+  const object = await enforceOutputSafety((result as { object: unknown }).object as TSchema)
   return {
     mode: 'generate',
-    object: (result as { object: unknown }).object as TSchema,
+    object,
+    providerId: resolvedModel.providerId,
+    modelId: resolvedModel.modelId,
     finishReason: (result as { finishReason?: string }).finishReason,
     usage: (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage,
   }

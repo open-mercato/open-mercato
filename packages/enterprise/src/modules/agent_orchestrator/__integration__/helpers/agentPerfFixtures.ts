@@ -45,7 +45,16 @@ export type AgentProposalSeed = {
   createdAt: Date
 }
 
-const SEED_PAYLOAD = JSON.stringify({ seededBy: 'TC-AGENT-PERF' })
+const SEED_PAYLOAD = JSON.stringify({
+  seededBy: 'TC-AGENT-PERF',
+  options: [
+    {
+      id: 'seed-option',
+      label: 'Seed option',
+      actions: [{ type: 'seed.action', payload: {} }],
+    },
+  ],
+})
 const INSERT_CHUNK_SIZE = 50
 
 /** Inserts agent_runs rows with explicit timestamps; returns the new ids (input order). */

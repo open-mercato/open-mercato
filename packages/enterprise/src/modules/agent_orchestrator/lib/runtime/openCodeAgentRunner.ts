@@ -11,7 +11,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import { emitAgentOrchestratorEvent } from '../../events'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
-import { type AgentResult } from '../../data/validators'
+import { type AgentResult, type AttemptedTool, type GuardResults } from '../../data/validators'
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import {
   type AgentRunCtx,
@@ -33,6 +33,13 @@ import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceSpanIngest } from '../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
+import { enforceAiContentSafety } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/content-safety'
+import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
+import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
+import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
+import { AgentGuardrailBlockedError } from './errors'
+import type { AgentModelUsageService } from '../compliance/modelUsageService'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'opencode-agent-runner' })
 
@@ -63,6 +70,11 @@ type CapturedTransition = {
   phase: 'started' | 'finished'
   status: 'ok' | 'error'
   input?: unknown
+}
+
+type CapturedModelUsage = {
+  providerId?: string
+  modelId?: string
 }
 
 /**
@@ -156,6 +168,7 @@ export class OpenCodeAgentRunner {
 
   async run(entry: AgentRegistryEntry, input: unknown, ctx: AgentRunCtx): Promise<AgentResult> {
     const agentId = entry.id
+    const hardenedProfile = isHardenedAiRuntimeProfile()
     const openCodeAgentName = agentId.replace(/[^a-z0-9_-]/gi, '_')
     const commandCtx = buildCommandContext(this.container, ctx)
 
@@ -278,8 +291,23 @@ export class OpenCodeAgentRunner {
     // leaving the debugger with no duration, no spans and no tool calls — the
     // exact evidence needed to see WHERE it broke.
     let startedAtMs: number | null = null
+    let tracePersisted = false
+    const capturedModelUsage: CapturedModelUsage = {}
 
     try {
+      startedAtMs = Date.now()
+      if (hardenedProfile) {
+        try {
+          await enforceAiContentSafety(this.container, { phase: 'input', content: businessInput })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          await failRun(this.commandBus, commandCtx, {
+            runId,
+            errorMessage: `[internal] input content safety failed: ${message}`,
+          })
+          throw error
+        }
+      }
       if (filesEnabled) {
         try {
           const workspaceManager = this.container.resolve<AgentWorkspaceManager>('agentWorkspaceManager')
@@ -316,7 +344,6 @@ export class OpenCodeAgentRunner {
 
       const message = this.buildMessage(sessionToken, businessInput, workspace, stagedInputs)
 
-      startedAtMs = Date.now()
       const capturedOutcome = await this.driveSession({
         sessionId: session.id,
         message,
@@ -324,9 +351,27 @@ export class OpenCodeAgentRunner {
         sessionToken,
         store,
         toolCallSink: capturedToolCalls,
+        modelUsageSink: capturedModelUsage,
         onProgress: emitProgress,
         runTimeoutMs: resolveRunTimeoutMs(ctx.runTimeoutMs),
       })
+
+      try {
+        await this.recordModelUsage(entry, ctx, runId, capturedModelUsage)
+      } catch (error) {
+        if (hardenedProfile) {
+          const message = error instanceof Error ? error.message : String(error)
+          await failRun(this.commandBus, commandCtx, {
+            runId,
+            errorMessage: `[internal] required model usage evidence failed: ${message}`,
+          })
+          throw error
+        }
+        logger.warn('model usage evidence could not be recorded', {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
 
       if (capturedOutcome === NO_OUTCOME) {
         await failRun(this.commandBus, commandCtx, {
@@ -334,6 +379,27 @@ export class OpenCodeAgentRunner {
           errorMessage: 'agent finished without calling submit_outcome',
         })
         throw new OpenCodeRunFailedError(agentId, 'no outcome submitted')
+      }
+
+      if (hardenedProfile) {
+        try {
+          for (const toolCall of capturedToolCalls) {
+            if (toolCall.result !== undefined) {
+              await enforceAiContentSafety(this.container, {
+                phase: 'tool_result',
+                content: toolCall.result,
+              })
+            }
+          }
+          await enforceAiContentSafety(this.container, { phase: 'output', content: capturedOutcome })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          await failRun(this.commandBus, commandCtx, {
+            runId,
+            errorMessage: `[internal] output content safety failed: ${message}`,
+          })
+          throw error
+        }
       }
 
       // Defense in depth: re-validate the captured outcome against the schema
@@ -346,6 +412,53 @@ export class OpenCodeAgentRunner {
       }
 
       const result = shapeResult(entry.resultKind, parsed.data, agentId)
+
+      let guardResults: GuardResults = []
+      if (hardenedProfile) {
+        const guardrailService = new GuardrailService(this.container)
+        const toolScope = this.resolveOpenCodeToolScope(entry, capturedToolCalls)
+        const verdict = await guardrailService.checkOutput({
+          capability: agentId,
+          schema: entry.schema,
+          output: parsed.data,
+          allowedTools: toolScope.allowedTools,
+          attemptedTools: toolScope.attemptedTools,
+        })
+        const guardEm = (this.container.resolve('em') as EntityManager).fork()
+        guardResults = await persistVerdict(
+          { em: guardEm },
+          { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId },
+          { verdict, capability: agentId, phase: 'output', proposalId: null },
+        )
+        if (verdict.result === 'block') {
+          const detail = '[internal] OpenCode output guardrail block'
+          await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+          const blocked = verdict.blockedReason
+          throw new AgentGuardrailBlockedError(agentId, detail, {
+            phase: blocked?.phase ?? 'output',
+            kind: blocked?.kind ?? 'tool_scope',
+            guardrailSetVersion: GUARDRAIL_SET_VERSION,
+          })
+        }
+
+        try {
+          tracePersisted = await this.ingestSessionTrace(commandCtx, {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            agentId,
+            externalRunId: session.id,
+            toolCalls: capturedToolCalls,
+            latencyMs: Math.max(0, Math.round(Date.now() - (startedAtMs ?? Date.now()))),
+          }, true)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          await failRun(this.commandBus, commandCtx, {
+            runId,
+            errorMessage: `[internal] required OpenCode trace persistence failed: ${message}`,
+          })
+          throw error
+        }
+      }
 
       await completeRun(this.commandBus, commandCtx, {
         runId,
@@ -367,6 +480,7 @@ export class OpenCodeAgentRunner {
           confidence: deriveEnvelopeConfidence(result.proposal),
           processId: ctx.processId ?? null,
           stepId: ctx.stepId ?? null,
+          guardResults,
         })
       }
 
@@ -405,7 +519,7 @@ export class OpenCodeAgentRunner {
       // debugging material, and it is already in `capturedToolCalls`; skipping the
       // ingest on failure discarded it. Best-effort by contract (see the method),
       // so this can never turn a completed run into a failed one.
-      if (startedAtMs != null) {
+      if (startedAtMs != null && !tracePersisted) {
         await this.ingestSessionTrace(commandCtx, {
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
@@ -413,7 +527,7 @@ export class OpenCodeAgentRunner {
           externalRunId: session.id,
           toolCalls: capturedToolCalls,
           latencyMs: Math.max(0, Math.round(Date.now() - startedAtMs)),
-        })
+        }, false)
       }
 
       // Wipe + release the sandbox lease first (frees the pooled container slot),
@@ -448,6 +562,77 @@ export class OpenCodeAgentRunner {
     }
   }
 
+  private async recordModelUsage(
+    entry: AgentRegistryEntry,
+    ctx: AgentRunCtx,
+    runId: string,
+    captured: CapturedModelUsage,
+  ): Promise<void> {
+    let providerId = captured.providerId
+      ?? entry.defaultProvider
+      ?? process.env.OPENCODE_PROVIDER
+      ?? process.env.OM_AI_PROVIDER
+    let modelId = captured.modelId
+      ?? entry.defaultModel
+      ?? process.env.OPENCODE_MODEL
+      ?? process.env.OM_AI_MODEL
+    if (!captured.modelId && modelId?.includes('/')) {
+      const separator = modelId.indexOf('/')
+      providerId = providerId ?? modelId.slice(0, separator)
+      modelId = modelId.slice(separator + 1)
+    }
+    const service = this.container.resolve<AgentModelUsageService>('agentModelUsageService')
+    await service.record({
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      agentRunId: runId,
+      agentId: entry.id,
+      runtime: 'opencode',
+      providerId: providerId?.trim() || 'not_configured',
+      modelId: modelId?.trim() || 'not_configured',
+    })
+  }
+
+  private resolveOpenCodeToolScope(
+    entry: AgentRegistryEntry,
+    toolCalls: CapturedToolCall[],
+  ): { allowedTools: string[]; attemptedTools: AttemptedTool[] } {
+    const coreTools = [
+      'agent_orchestrator.submit_outcome',
+      'agent_orchestrator.load_skill',
+      'agent_orchestrator.run_skill_script',
+      ...(entry.subAgents.length > 0 ? ['agent_orchestrator.delegate_agent'] : []),
+    ]
+    const sandboxTools = entry.files?.enabled
+      ? ['read', 'write', 'edit', ...(entry.files.bash ? ['bash'] : [])]
+      : []
+    const allowedTools = Array.from(new Set([...entry.tools, ...coreTools, ...sandboxTools]))
+    const registry = getToolRegistry()
+    const attemptedTools = toolCalls.map((toolCall) => {
+      const matched = allowedTools.find((toolName) => this.openCodeToolAliases(toolName).has(toolCall.toolName))
+      const normalizedName = matched ?? toolCall.toolName
+      const registered = matched
+        ? registry.getTool(matched) as AiToolDefinition | undefined
+        : undefined
+      return {
+        name: normalizedName,
+        ...(registered?.isMutation === true ? { isMutation: true } : {}),
+      }
+    })
+    return { allowedTools, attemptedTools }
+  }
+
+  private openCodeToolAliases(toolName: string): Set<string> {
+    const shortName = toolName.includes('.') ? toolName.slice(toolName.lastIndexOf('.') + 1) : toolName
+    const underscoreName = toolName.replace(/\./g, '_')
+    return new Set([
+      toolName,
+      shortName,
+      underscoreName,
+      `open-mercato_${underscoreName}`,
+    ])
+  }
+
   /**
    * Persist the tool/skill calls observed during the run as trace spans + tool
    * calls, correlating on `(runtime='opencode', externalRunId=session.id)` so the
@@ -455,8 +640,9 @@ export class OpenCodeAgentRunner {
    * without clobbering the run's status/output). Goes through the audited
    * `trace.ingest` command — the same path the HMAC webhook uses — so inline
    * deterministic eval assertions (and LLM-judge sampling) run for OpenCode runs
-   * exactly like for externally-ingested ones. Best-effort: a trace-ingest
-   * failure must never fail an otherwise-successful run.
+   * exactly like for externally-ingested ones. Standard runs keep best-effort
+   * persistence; hardened runs pass `required=true` and fail before proposal
+   * creation when the trace cannot be written.
    */
   private async ingestSessionTrace(
     commandCtx: ReturnType<typeof buildCommandContext>,
@@ -468,8 +654,9 @@ export class OpenCodeAgentRunner {
       toolCalls: CapturedToolCall[]
       latencyMs?: number | null
     },
-  ): Promise<void> {
-    if (args.toolCalls.length === 0 && args.latencyMs == null) return
+    required: boolean,
+  ): Promise<boolean> {
+    if (args.toolCalls.length === 0 && args.latencyMs == null) return true
     try {
       const spans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
         externalSpanId: `${toolCall.id}-${index}`,
@@ -507,11 +694,14 @@ export class OpenCodeAgentRunner {
           },
         ),
       )
+      return true
     } catch (err) {
       logger.warn('failed to ingest OpenCode trace', {
         agentId: args.agentId,
         error: err instanceof Error ? err.message : String(err),
       })
+      if (required) throw err
+      return false
     }
   }
 
@@ -561,11 +751,17 @@ export class OpenCodeAgentRunner {
     sessionToken: string
     store: AgentRunSessionStore
     toolCallSink: CapturedToolCall[]
+    modelUsageSink: CapturedModelUsage
     onProgress?: (transition: CapturedTransition) => void
     /** Wall-clock budget for this run (already resolved by the caller). */
     runTimeoutMs: number
   }): Promise<unknown | typeof NO_OUTCOME> {
-    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress)
+    const idleSignal = this.subscribeSession(
+      args.sessionId,
+      args.toolCallSink,
+      args.modelUsageSink,
+      args.onProgress,
+    )
     const deadline = createDeadline(args.runTimeoutMs)
     // The send is synchronous server-side (holds until the loop finishes), so use
     // the long run deadline as its timeout — aborting at the 30s chat default
@@ -576,6 +772,7 @@ export class OpenCodeAgentRunner {
     try {
       this.client
         .sendMessage(args.sessionId, args.message, { agent: args.openCodeAgentName, timeoutMs: sendTimeoutMs })
+        .then((response) => captureModelUsageFromMessage(args.modelUsageSink, response))
         .catch((err) =>
           logger.error('send error (store/SSE will resolve)', {
             error: err instanceof Error ? err.message : String(err),
@@ -648,6 +845,7 @@ export class OpenCodeAgentRunner {
   private subscribeSession(
     sessionId: string,
     toolCallSink: CapturedToolCall[],
+    modelUsageSink: CapturedModelUsage,
     onTransition?: (transition: CapturedTransition) => void,
   ): {
     nextIdle: () => Promise<void>
@@ -688,6 +886,10 @@ export class OpenCodeAgentRunner {
         if (type === 'message.part.updated') {
           const transition = captureToolPart(toolCallSink, properties.part)
           if (transition && onTransition) onTransition(transition)
+          return
+        }
+        if (type === 'message.updated') {
+          captureModelUsageFromInfo(modelUsageSink, properties.info)
           return
         }
         if (type !== 'session.status') return
@@ -755,6 +957,23 @@ export class OpenCodeAgentRunner {
 }
 
 const NO_OUTCOME = Symbol('no-outcome')
+
+function captureModelUsageFromMessage(target: CapturedModelUsage, value: unknown): void {
+  if (!value || typeof value !== 'object') return
+  captureModelUsageFromInfo(target, (value as { info?: unknown }).info)
+}
+
+function captureModelUsageFromInfo(target: CapturedModelUsage, value: unknown): void {
+  if (!value || typeof value !== 'object') return
+  const info = value as { role?: unknown; providerID?: unknown; modelID?: unknown }
+  if (info.role !== undefined && info.role !== 'assistant') return
+  if (typeof info.providerID === 'string' && info.providerID.trim()) {
+    target.providerId = info.providerID.trim()
+  }
+  if (typeof info.modelID === 'string' && info.modelID.trim()) {
+    target.modelId = info.modelID.trim()
+  }
+}
 
 /**
  * Extract a tool invocation from an OpenCode `message.part.updated` part and fold

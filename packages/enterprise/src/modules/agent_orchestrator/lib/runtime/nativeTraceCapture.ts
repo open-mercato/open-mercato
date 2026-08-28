@@ -4,6 +4,7 @@ import { ingestTrace } from '../trace/traceIngestionService'
 import { createArtifactOffloader } from '../trace/artifactStore'
 import { evaluateRun } from '../eval/evalRuntimeService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
 
@@ -60,6 +61,7 @@ export type NativeTraceInput = {
 
 /** Escape hatch: `OM_AGENT_TRACE_CAPTURE=off` disables native span capture. */
 export function isNativeTraceCaptureEnabled(): boolean {
+  if (isHardenedAiRuntimeProfile()) return true
   return (process.env.OM_AGENT_TRACE_CAPTURE ?? 'on').toLowerCase() !== 'off'
 }
 
@@ -189,22 +191,32 @@ export async function captureNativeRunTrace(
   container: MinimalContainer,
   scope: { tenantId: string; organizationId: string },
   input: NativeTraceInput,
+  options: { required?: boolean } = {},
 ): Promise<void> {
   if (!isNativeTraceCaptureEnabled()) return
+  let em: EntityManager
+  let runId: string
   try {
-    const em = (container.resolve('em') as EntityManager).fork()
+    em = (container.resolve('em') as EntityManager).fork()
     const result = await ingestTrace(em, scope, buildNativeTracePayload(input), {
-      offloadArtifact: createArtifactOffloader(container, scope),
+      offloadArtifact: createArtifactOffloader(container, scope, {
+        required: options.required === true,
+      }),
     })
-    // Parity with the `trace.ingest` command (used by the OpenCode/HMAC path):
-    // score the run online (deterministic assertions + the golden-match plane) on
-    // the same EM. Without this, native runs never get an eval verdict or a golden
-    // comparison — only OpenCode runs did. The async llm_judge tier stays on the
-    // command path. Best-effort: wrapped by the outer try so it never fails the run.
-    await evaluateRun(em, scope, result.runId)
+    runId = result.runId
   } catch (err) {
+    if (options.required) throw err
     logger.warn('native trace capture failed for run', {
       runId: input.runId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return
+  }
+  try {
+    await evaluateRun(em, scope, runId)
+  } catch (err) {
+    logger.warn('native trace evaluation failed for run', {
+      runId,
       error: err instanceof Error ? err.message : String(err),
     })
   }

@@ -2,7 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
-import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
+import {
+  isTenantDataEncryptionEnabled,
+  isTenantDataEncryptionRequired,
+  isEncryptionDebugEnabled,
+} from './toggles'
 import { createLogger } from '../logger'
 import type { EncryptionKeyScope, ModuleEncryptionMap } from '../../modules/encryption'
 
@@ -17,6 +21,22 @@ export type EncryptionMapRecord = {
   entityId: string
   keyScope?: EncryptionKeyScope
   fields: EncryptedFieldRule[]
+}
+
+export class TenantDataEncryptionUnavailableError extends Error {
+  readonly code = 'TENANT_DATA_ENCRYPTION_UNAVAILABLE'
+
+  constructor(readonly entityId: string, reason: 'disabled' | 'kms-unhealthy' | 'dek-unavailable') {
+    super(`Tenant data encryption is unavailable for ${entityId}: ${reason}`)
+    this.name = 'TenantDataEncryptionUnavailableError'
+  }
+}
+
+export type TenantDataEncryptionReadiness = {
+  enabled: boolean
+  kmsHealthy: boolean
+  ready: boolean
+  required: boolean
 }
 
 type MapCacheKey = {
@@ -177,6 +197,18 @@ export class TenantDataEncryptionService {
 
   isEnabled(): boolean {
     return isTenantDataEncryptionEnabled() && this.kms.isHealthy()
+  }
+
+  getReadiness(): TenantDataEncryptionReadiness {
+    const enabled = isTenantDataEncryptionEnabled()
+    const kmsHealthy = this.kms.isHealthy()
+    const required = isTenantDataEncryptionRequired()
+    return {
+      enabled,
+      kmsHealthy,
+      ready: !required || (enabled && kmsHealthy),
+      required,
+    }
   }
 
   private isDekExpired(dek: TenantDek): boolean {
@@ -461,18 +493,43 @@ export class TenantDataEncryptionService {
     tenantId: string | null | undefined,
     organizationId?: string | null
   ): Promise<Record<string, unknown>> {
-    if (!this.isEnabled()) {
+    const encryptionEnabled = isTenantDataEncryptionEnabled()
+    const encryptionRequired = isTenantDataEncryptionRequired()
+    if (!encryptionEnabled && !encryptionRequired) {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
+
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
     if (!map || !map.fields?.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
       return payload
     }
+    const hasProtectedValue = map.fields.some((rule) => {
+      const key = findKey(payload, rule.field)
+      return key !== null && payload[key] !== null && payload[key] !== undefined
+    })
+    if (!hasProtectedValue) return payload
+    if (!encryptionEnabled) {
+      if (encryptionRequired) {
+        throw new TenantDataEncryptionUnavailableError(entityId, 'disabled')
+      }
+      debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
+      return payload
+    }
+    if (!this.kms.isHealthy()) {
+      if (encryptionRequired) {
+        throw new TenantDataEncryptionUnavailableError(entityId, 'kms-unhealthy')
+      }
+      debug('⚪️ encrypt.skip.kms_unhealthy', { entityId, tenantId })
+      return payload
+    }
     const keyId = map.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
     const dek = await this.resolveDekForEncrypt(keyId)
     if (!dek) {
+      if (encryptionRequired) {
+        throw new TenantDataEncryptionUnavailableError(entityId, 'dek-unavailable')
+      }
       debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId, keyScope: map.keyScope ?? 'tenant' })
       return payload
     }

@@ -139,10 +139,17 @@ const promoteArtifactCommand: CommandHandler<PromoteArtifactInput, { attachmentI
     } catch {
       dataEngine = undefined
     }
+    let attachmentScanGate: CreateAttachmentFromBufferInput['attachmentScanGate']
+    try {
+      attachmentScanGate = ctx.container.resolve<CreateAttachmentFromBufferInput['attachmentScanGate']>('attachmentScanGate')
+    } catch {
+      attachmentScanGate = undefined
+    }
 
     const created = await createAttachmentFromBuffer({
       em,
       dataEngine,
+      attachmentScanGate,
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       entityId: input.entityId,

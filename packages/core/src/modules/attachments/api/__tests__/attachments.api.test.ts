@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import { createHash } from 'node:crypto'
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
     attachments: { attachment: 'attachments:attachment' },
@@ -58,6 +59,9 @@ const mockDataEngine = {
 
 let mockAttachmentQuotaService: any = null
 const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
+const mockAttachmentScanGate = {
+  scan: jest.fn(),
+}
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -66,6 +70,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (k === 'dataEngine') return mockDataEngine
       if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
       if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
+      if (k === 'attachmentScanGate') return mockAttachmentScanGate
       return null
     },
   }),
@@ -107,6 +112,7 @@ jest.mock('@open-mercato/core/modules/attachments/lib/ocrQueue', () => ({
 }))
 const mockRequestOcrProcessing = jest.requireMock('@open-mercato/core/modules/attachments/lib/ocrQueue')
   .requestOcrProcessing as jest.Mock
+import { AttachmentScanError, type AttachmentScanReceipt } from '../../lib/scanning'
 
 // Avoid loading MikroORM decorators in tests
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
@@ -149,10 +155,22 @@ describe('attachments API', () => {
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockAttachmentQuotaService = null
     mockAttachmentQuotaRecoveryScheduler.mockClear()
+    mockAttachmentScanGate.scan.mockReset()
+    mockAttachmentScanGate.scan.mockImplementation(async ({ buffer }: { buffer: Buffer }) => ({
+      status: 'clean',
+      scanner: 'test-scanner',
+      policy: 'required',
+      checkedAt: '2026-08-21T12:00:00.000Z',
+      contentSha256: createHash('sha256').update(buffer).digest('hex'),
+      reasonCode: null,
+    }))
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENAI_API_KEY
+    delete process.env.OM_ATTACHMENT_SCAN_POLICY
+    delete process.env.OM_ATTACHMENT_SCAN_TIMEOUT_MS
+    delete process.env.OM_ATTACHMENT_QUARANTINE_DIR
   })
 
   it('rejects disallowed extension', async () => {
@@ -213,6 +231,10 @@ describe('attachments API', () => {
     expect(j?.item?.customFields).toEqual({ altText: 'Product spec' })
     const payload = mockEm.create.mock.calls[mockEm.create.mock.calls.length - 1]?.[1]
     expect(payload?.storageMetadata?.assignments).toEqual([{ type: 'example:todo', id: 'r1' }])
+    expect(payload?.storageMetadata?.securityScan).toEqual(expect.objectContaining({
+      status: 'clean',
+      scanner: 'test-scanner',
+    }))
     expect(mockDataEngine.setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
         entityId: expect.any(String),
@@ -220,6 +242,64 @@ describe('attachments API', () => {
         values: { altText: 'Product spec' },
       }),
     )
+  })
+
+  it('quarantines an EICAR verdict before normal attachment storage', async () => {
+    const receipt: AttachmentScanReceipt = {
+      status: 'quarantined',
+      scanner: 'test-scanner',
+      policy: 'required',
+      checkedAt: '2026-08-21T12:00:00.000Z',
+      contentSha256: 'a'.repeat(64),
+      reasonCode: 'malware_detected',
+    }
+    mockAttachmentScanGate.scan.mockRejectedValueOnce(
+      new AttachmentScanError('quarantined', receipt, 'quarantine-1'),
+    )
+    const { POST: upload } = await loadHandlers()
+    const file = new File(
+      [Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')],
+      'eicar.txt',
+      { type: 'text/plain' },
+    )
+
+    const response = await upload(new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(file, { fieldKey: '' }) as any,
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Attachment was isolated by the configured security scanner.',
+    })
+    expect(fsp.writeFile).not.toHaveBeenCalled()
+    expect(mockEm.create).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with 503 when required scanning is unavailable', async () => {
+    const receipt: AttachmentScanReceipt = {
+      status: 'scanner_unavailable',
+      scanner: 'test-scanner',
+      policy: 'required',
+      checkedAt: '2026-08-21T12:00:00.000Z',
+      contentSha256: 'b'.repeat(64),
+      reasonCode: 'scanner_timeout',
+    }
+    mockAttachmentScanGate.scan.mockRejectedValueOnce(
+      new AttachmentScanError('scanner_unavailable', receipt, 'quarantine-2'),
+    )
+    const { POST: upload } = await loadHandlers()
+    const file = new File([Buffer.from('clean content')], 'clean.txt', { type: 'text/plain' })
+
+    const response = await upload(new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(file, { fieldKey: '' }) as any,
+    }))
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ error: 'Attachment scanning is temporarily unavailable.' })
+    expect(fsp.writeFile).not.toHaveBeenCalled()
+    expect(mockEm.create).not.toHaveBeenCalled()
   })
 
   it('fails with 500 and skips side effects when custom-field persistence throws', async () => {

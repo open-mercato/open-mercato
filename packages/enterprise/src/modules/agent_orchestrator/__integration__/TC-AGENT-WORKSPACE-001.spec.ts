@@ -55,9 +55,10 @@ test.describe('TC-AGENT-WORKSPACE-001: agent-centric evaluation workspace', () =
         token,
         data: {
           key: assertionKey,
+          scorerKey: 'output_present',
           title: assertionTitle,
           type: 'deterministic',
-          config: { path: '$.ok', expected: true },
+          config: {},
           severity: 'warn',
           appliesTo: agent!.id,
           enabled: true,
@@ -99,9 +100,15 @@ test.describe('TC-AGENT-WORKSPACE-001: agent-centric evaluation workspace', () =
       await expect(page.getByRole('tab', { name: /Assertions/ })).toHaveAttribute('data-state', 'active')
       await expect(page.getByText(assertionTitle)).toBeVisible({ timeout: 15_000 })
 
-      const enabledSwitch = page.getByRole('switch', { name: 'Enabled' }).first()
+      const assertionHeading = page.getByRole('heading', { name: new RegExp(assertionTitle) })
+      const enabledSwitch = assertionHeading.locator('..').getByRole('switch', { name: 'Enabled' })
       await expect(enabledSwitch).toBeChecked()
+      const updateResponse = page.waitForResponse((response) =>
+        response.url().includes('/api/agent_orchestrator/eval-assertions') &&
+        response.request().method() !== 'GET',
+      )
       await enabledSwitch.click()
+      expect((await updateResponse).ok()).toBe(true)
       await expect(enabledSwitch).not.toBeChecked()
 
       const assertionList = await apiRequest(

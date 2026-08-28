@@ -1,10 +1,13 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { asFunction } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
 import { markDeleted } from './lib/indexer'
 import type { EventBus } from '@open-mercato/events'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
+import { QueryIndexEnvironmentPrivacyHandler } from './privacy'
 
 function toEntityTypeFromEvent(event: string): string | null {
   // Expect '<module>.<entity>.<action>'
@@ -15,6 +18,17 @@ function toEntityTypeFromEvent(event: string): string | null {
 }
 
 export function register(container: AppContainer) {
+  container.register({
+    queryIndexEnvironmentPrivacyHandler: asFunction(({ em }: { em: EntityManager }) => (
+      new QueryIndexEnvironmentPrivacyHandler(em, () => {
+        try {
+          return container.resolve('searchIndexer')
+        } catch {
+          return null
+        }
+      })
+    )).scoped(),
+  })
   // Override queryEngine with hybrid that prefers JSONB index when available
   try {
     const em = (container.resolve('em') as any)

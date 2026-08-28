@@ -67,7 +67,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/railway", "deployment/agent-orchestration-scaling"],
+      items: ["deployment/railway", "deployment/backups", "deployment/agent-orchestration-scaling"],
     },
     {
       type: "category",
@@ -497,6 +497,7 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Security",
           items: [
+            "framework/security/audit-evidence",
             "framework/security/rate-limiting",
           ],
         },

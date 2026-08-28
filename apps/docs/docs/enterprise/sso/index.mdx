@@ -84,6 +84,12 @@ JIT and SCIM cannot be enabled simultaneously on the same SSO config:
 | `/api/sso/scim/v2/Users/:id` | GET | SCIM: Get user |
 | `/api/sso/scim/v2/Users/:id` | PATCH | SCIM: Update user |
 | `/api/sso/scim/v2/Users/:id` | DELETE | SCIM: Delete user |
+| `/api/sso/scim/v2/Groups` | GET/POST | SCIM: List or create groups |
+| `/api/sso/scim/v2/Groups/:id` | GET/PATCH/DELETE | SCIM: Read, update, or delete a group |
+| `/api/sso/scim/v2/Bulk` | POST | SCIM: Run up to 100 user or group operations |
+| `/api/sso/scim/v2/ServiceProviderConfig` | GET | SCIM: Read supported capabilities |
+| `/api/sso/scim/v2/Schemas` | GET | SCIM: Read User and Group schemas |
+| `/api/sso/scim/v2/ResourceTypes` | GET | SCIM: Read supported resource types |
 
 ## Security
 
@@ -157,14 +163,21 @@ When SCIM is configured:
 - `GET /Users/:id` — Get user
 - `PATCH /Users/:id` — Update user (replace operations on `displayName`, `active`, `name.*`, `emails`)
 - `DELETE /Users/:id` — Delete user (soft-delete + deactivation)
+- `POST /Groups` — Create a group with optional members
+- `GET /Groups` — List groups with `displayName`, `externalId`, or `members.value` filters
+- `GET /Groups/:id` — Get a group and its members
+- `PATCH /Groups/:id` — Update the group or add, replace, and remove members
+- `DELETE /Groups/:id` — Delete a group and remove its SSO-sourced role grants
+- `POST /Bulk` — Execute up to 100 user or group operations with per-operation results
 
 ## Role Mapping
 
 SSO configs support IdP group-to-application role mapping:
 
 1. Configure `appRoleMappings` on the SSO config (map IdP group names to app role names)
-2. When the IdP sends group claims in the ID token, roles are automatically assigned
-3. If no mappings are configured, role sync is skipped (user retains existing roles)
+2. Roles are synchronized from OIDC group claims or SCIM group memberships
+3. Only grants created by the same SSO configuration are removed when membership changes
+4. If no mappings are configured, no SSO-sourced roles are assigned
 
 :::info Google Workspace
 Google does not send group claims by default. Role mapping is not available for Google OIDC without additional configuration.

@@ -62,5 +62,9 @@
   "audit_logs.version_history.status.failed": "Niepowodzenie",
   "audit_logs.version_history.status.redone": "Ponowiono",
   "audit_logs.version_history.status.undone": "Cofnięto",
-  "audit_logs.version_history.title": "Historia wersji"
+  "audit_logs.version_history.title": "Historia wersji",
+  "audit_logs.upgradeActions.accessLogRetention.cta": "Zaplanuj retencję logów dostępu",
+  "audit_logs.upgradeActions.accessLogRetention.loading": "Planowanie retencji logów dostępu…",
+  "audit_logs.upgradeActions.accessLogRetention.message": "Zarejestruj codzienne, ograniczone do tenanta czyszczenie logów dostępu po upływie skonfigurowanego okresu retencji.",
+  "audit_logs.upgradeActions.accessLogRetention.success": "Retencja logów dostępu została zaplanowana."
 }

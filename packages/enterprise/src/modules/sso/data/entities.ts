@@ -42,6 +42,12 @@ export class SsoConfig {
   @Property({ name: 'sso_required', type: 'boolean', default: false })
   ssoRequired: boolean = false
 
+  @Property({ name: 'required_acr_values', type: 'jsonb', default: '[]' })
+  requiredAcrValues: string[] = []
+
+  @Property({ name: 'required_amr_values', type: 'jsonb', default: '[]' })
+  requiredAmrValues: string[] = []
+
   @Property({ name: 'app_role_mappings', type: 'jsonb', default: '{}' })
   appRoleMappings: Record<string, string> = {}
 
@@ -145,6 +151,65 @@ export class ScimToken {
 
   @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'scim_groups' })
+@Index({ name: 'scim_groups_config_created_idx', properties: ['ssoConfigId', 'createdAt'] })
+@Unique({ properties: ['ssoConfigId', 'externalId'], name: 'scim_groups_config_external_unique' })
+export class ScimGroup {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'sso_config_id', type: 'uuid' })
+  ssoConfigId!: string
+
+  @Property({ name: 'external_id', type: 'text', nullable: true })
+  externalId?: string | null
+
+  @Property({ name: 'display_name', type: 'text' })
+  displayName!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'scim_group_members' })
+@Index({ name: 'scim_group_members_group_idx', properties: ['groupId'] })
+@Index({ name: 'scim_group_members_identity_idx', properties: ['identityId'] })
+@Unique({ properties: ['groupId', 'identityId'], name: 'scim_group_members_group_identity_unique' })
+export class ScimGroupMember {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'sso_config_id', type: 'uuid' })
+  ssoConfigId!: string
+
+  @Property({ name: 'group_id', type: 'uuid' })
+  groupId!: string
+
+  @Property({ name: 'identity_id', type: 'uuid' })
+  identityId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }
 
 @Entity({ tableName: 'sso_user_deactivations' })

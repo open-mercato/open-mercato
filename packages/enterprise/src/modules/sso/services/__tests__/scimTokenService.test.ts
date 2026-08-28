@@ -37,6 +37,7 @@ describe('ScimTokenService.generateToken', () => {
     isSuperAdmin: false,
     organizationId: 'org-1',
     tenantId: 'tenant-1',
+    actorId: 'user-1',
   }
 
   it('scopes non-superadmin config lookup to the caller organization', async () => {
@@ -60,6 +61,7 @@ describe('ScimTokenService.generateToken', () => {
       ssoConfigId: 'sso-config-1',
       organizationId: 'org-1',
       tenantId: 'tenant-1',
+      createdBy: 'user-1',
     }))
     expect(flush).toHaveBeenCalledTimes(1)
   })

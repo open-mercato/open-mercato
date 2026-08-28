@@ -1,5 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  TenantDataEncryptionUnavailableError,
+  type TenantDataEncryptionService,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
 import type { MfaProviderInterface } from '../../lib/mfa-provider-interface'
@@ -8,6 +13,7 @@ import {
   type SecurityModuleConfig,
 } from '../../lib/security-config'
 import { MfaService } from '../MfaService'
+import { UserMfaMethod } from '../../data/entities'
 
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(async (value: string, hashed: string | null) => hashed === `hashed:${value}`),
@@ -30,6 +36,7 @@ type MockMethod = {
   type: string
   label?: string | null
   secret?: string | null
+  secretHash?: string | null
   providerMetadata?: Record<string, unknown> | null
   isActive: boolean
   createdAt: Date
@@ -99,6 +106,7 @@ function createServiceContext(
         type: String(data.type),
         label: (data.label as string | null | undefined) ?? null,
         secret: (data.secret as string | null | undefined) ?? null,
+        secretHash: (data.secretHash as string | null | undefined) ?? null,
         providerMetadata: (data.providerMetadata as Record<string, unknown> | null | undefined) ?? null,
         isActive: Boolean(data.isActive),
         createdAt: new Date(),
@@ -160,8 +168,44 @@ function createServiceContext(
   const provider = createProvider()
   registry.register(provider)
 
-  const service = new MfaService(em as unknown as EntityManager, registry, securityConfig)
-  return { service, em, registry, provider, methods, recoveryCodes, enforcementPolicies }
+  const tenantEncryptionService = {
+    encryptEntityPayload: jest.fn(async (_entityId: string, payload: Record<string, unknown>) => {
+      const secret = typeof payload.secret === 'string' ? payload.secret : null
+      return secret
+        ? { secret: `encrypted:${secret}`, secretHash: `hash:${secret}` }
+        : { secret: null, secretHash: null }
+    }),
+  }
+
+  mockedFindOneWithDecryption.mockImplementation(async (_em, entity, query) => {
+    if (entity === User) {
+      return {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        deletedAt: null,
+      } as never
+    }
+    if (entity !== UserMfaMethod) return null
+    const where = query as Record<string, unknown>
+    return (methods.find((item) => {
+      if (where.id !== undefined && item.id !== where.id) return false
+      if (where.userId !== undefined && item.userId !== where.userId) return false
+      if (where.isActive !== undefined && item.isActive !== where.isActive) return false
+      if (where.deletedAt !== undefined && item.deletedAt !== where.deletedAt) return false
+      if (where.type !== undefined && item.type !== where.type) return false
+      if (where.label !== undefined && item.label !== where.label) return false
+      return true
+    }) ?? null) as never
+  })
+
+  const service = new MfaService(
+    em as unknown as EntityManager,
+    registry,
+    securityConfig,
+    tenantEncryptionService as unknown as TenantDataEncryptionService,
+  )
+  return { service, em, registry, provider, methods, recoveryCodes, enforcementPolicies, tenantEncryptionService }
 }
 
 const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
@@ -186,7 +230,20 @@ describe('MfaService', () => {
     expect(result.setupId).toBe('setup-1')
     expect(methods).toHaveLength(1)
     expect(methods[0].isActive).toBe(false)
-    expect(methods[0].secret).toBe('setup-1')
+    expect(methods[0].secret).toBe('encrypted:setup-1')
+    expect(methods[0].secretHash).toBe('hash:setup-1')
+  })
+
+  test('setupMethod reports required encryption outages as unavailable', async () => {
+    const { service, tenantEncryptionService } = createServiceContext()
+    tenantEncryptionService.encryptEntityPayload.mockRejectedValueOnce(
+      new TenantDataEncryptionUnavailableError('security:user_mfa_method', 'kms-unhealthy'),
+    )
+
+    await expect(service.setupMethod('user-1', 'totp', {})).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 503,
+    })
   })
 
   test('confirmMethod activates the first method without generating recovery codes', async () => {
@@ -198,7 +255,8 @@ describe('MfaService', () => {
 
     expect(result).toEqual({})
     expect(methods[0].isActive).toBe(true)
-    expect(methods[0].secret).toBe('SECRET')
+    expect(methods[0].secret).toBe('encrypted:SECRET')
+    expect(methods[0].secretHash).toBe('hash:SECRET')
     expect(methods[0].providerMetadata).toEqual({ label: 'Phone Authenticator' })
     expect(generateSpy).not.toHaveBeenCalled()
     expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.enrolled', expect.objectContaining({
@@ -279,13 +337,6 @@ describe('MfaService', () => {
 
   test('confirmMethod rejects duplicate label for allowMultiple provider', async () => {
     const { service } = createServiceContext()
-
-    mockedFindOneWithDecryption.mockResolvedValue({
-      id: 'user-1',
-      tenantId: 'tenant-1',
-      organizationId: null,
-      email: 'user@example.com',
-    } as never)
 
     await service.setupMethod('user-1', 'totp', {})
     await service.confirmMethod('user-1', 'setup-1', { code: '123456' })

@@ -60,6 +60,7 @@ registerCommand({
     const { translate } = await resolveTranslations()
     const typedInput = input as CommandInput
     return {
+      sensitiveInput: true,
       actionLabel: translate('security.audit.password.change', 'Change password'),
       resourceKind: 'security.profile',
       resourceId: ctx.auth?.sub ?? null,

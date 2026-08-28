@@ -47,6 +47,7 @@ type StorageServiceLike = {
     scope: StorageTenantScope
   }): Promise<{ key: string }>
   download(input: { key: string; scope: StorageTenantScope }): Promise<{ buffer: Buffer; contentType?: string }>
+  delete(input: { key: string; scope: StorageTenantScope }): Promise<void>
 }
 
 type StorageProxyLike = {
@@ -186,4 +187,14 @@ export async function getArtifactBytes(
     })
     return null
   }
+}
+
+export async function deleteArtifactBytes(
+  container: MinimalContainer,
+  scope: ArtifactFileScope,
+  storageKey: string,
+): Promise<void> {
+  const service = await resolveStorageService(container, scope)
+  if (!service) throw new Error('[internal] artifact storage is unavailable for sanitization')
+  await service.delete({ key: storageKey, scope })
 }

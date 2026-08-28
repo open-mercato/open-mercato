@@ -62,5 +62,9 @@
   "audit_logs.version_history.status.failed": "Fehlgeschlagen",
   "audit_logs.version_history.status.redone": "Erneut ausgeführt",
   "audit_logs.version_history.status.undone": "Rückgängig",
-  "audit_logs.version_history.title": "Versionsverlauf"
+  "audit_logs.version_history.title": "Versionsverlauf",
+  "audit_logs.upgradeActions.accessLogRetention.cta": "Aufbewahrung von Zugriffsprotokollen planen",
+  "audit_logs.upgradeActions.accessLogRetention.loading": "Aufbewahrung von Zugriffsprotokollen wird geplant…",
+  "audit_logs.upgradeActions.accessLogRetention.message": "Registriert eine tägliche mandantenbezogene Bereinigung der Zugriffsprotokolle nach Ablauf der konfigurierten Aufbewahrungsfrist.",
+  "audit_logs.upgradeActions.accessLogRetention.success": "Die Aufbewahrung von Zugriffsprotokollen ist geplant."
 }

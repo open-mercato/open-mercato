@@ -72,6 +72,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'dashboards', from: '@open-mercato/core' },
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
+  { id: 'tenant_exports', from: '@open-mercato/core' },
   { id: 'customers', from: '@open-mercato/core' },
   { id: 'perspectives', from: '@open-mercato/core' },
   { id: 'entities', from: '@open-mercato/core' },
@@ -176,11 +177,13 @@ const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_E
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
 const enterpriseAgentsEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_AGENTS, false)
+const enterpriseDataErasureEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_DATA_ERASURE, false)
 
 if (enterpriseModulesEnabled) {
   enabledModules.push(
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
+    { id: 'backups', from: '@open-mercato/enterprise' },
   )
 }
 
@@ -190,6 +193,10 @@ if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
 
 if (enterpriseModulesEnabled && enterpriseSecurityEnabled) {
   enabledModules.push({ id: 'security', from: '@open-mercato/enterprise' })
+}
+
+if (enterpriseModulesEnabled && enterpriseDataErasureEnabled) {
+  enabledModules.push({ id: 'data_erasure', from: '@open-mercato/enterprise' })
 }
 
 if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {

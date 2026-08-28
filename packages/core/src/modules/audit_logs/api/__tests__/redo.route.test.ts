@@ -168,6 +168,40 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     })
   })
 
+  it('rejects redo when sensitive history was redacted', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'log-sensitive',
+      commandId: 'auth.users.update',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'undone',
+      commandPayload: {
+        __redoUnavailable: 'sensitive-data-redacted',
+        undo: { before: { id: 'user-42' } },
+      },
+      changesJson: { name: { from: 'Before', to: 'After' } },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+
+    const res = await POST(makeRequest({ logId: 'log-sensitive' }))
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Redo data unavailable for this action' })
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    expect(mockLogs.markRedone).not.toHaveBeenCalled()
+  })
+
   // Regression for issue #2931 — a caller with a null tenantId (tenant-less global
   // account or unscoped API key) must NOT redo a tenant-scoped row. The old guard
   // (`log.tenantId && auth.tenantId && ...`) short-circuited to "allow" whenever

@@ -17,7 +17,8 @@ public widgets):
    through the provider's moderation endpoint **before** the model call.
 
 Both are additive: existing tenants see no behavior change until an agent declares
-`untrustedInput` or a tenant/env enables moderation.
+`untrustedInput`, a tenant/env enables moderation, or the deployment enables the
+[`hardened` runtime security profile](./runtime-security-profile.mdx).
 
 ## Safety identifiers
 
@@ -65,9 +66,9 @@ runAiAgentText
   └─ streamText(...)
 ```
 
-Moderation runs **only when the resolved chat provider supports it** (initially the OpenAI
-adapter, via OpenAI's free `/v1/moderations` endpoint). Tenants on Anthropic/Google rely on
-those providers' own server-side filtering.
+Moderation runs through the resolved chat provider when it supports a moderation endpoint.
+In the standard profile, unsupported providers keep the existing provider-side filtering
+behavior. In the hardened profile, unsupported providers are rejected before the model call.
 
 ### Policy precedence
 
@@ -100,6 +101,7 @@ quantify false-positive rates and identify repeat abusers before widening enforc
 |----------|---------|---------|
 | `OM_AI_INPUT_MODERATION` | unset (off) | Env default for step 4 of the policy precedence (parsed with `parseBooleanWithDefault`). |
 | `OM_AI_MODERATION_MODEL` | `omni-moderation-latest` | Moderation model id passed to `/v1/moderations`. |
+| `OM_AI_RUNTIME_SECURITY_PROFILE` | `standard` | Set to `hardened` to enforce moderation for every typed agent input and fail closed when the check cannot run. |
 
 The safety-identifier HMAC secret is derived from `JWT_SECRET` — there is no dedicated env var,
 and it is never logged.

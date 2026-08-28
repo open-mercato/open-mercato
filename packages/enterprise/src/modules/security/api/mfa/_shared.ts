@@ -4,11 +4,14 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 import type { MfaService, MfaServiceError } from '../../services/MfaService'
 import type { MfaVerificationService, MfaVerificationServiceError } from '../../services/MfaVerificationService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { verifyPendingMfaToken } from '../../lib/mfa-pending-token'
 
 const logger = createLogger('security').child({ component: 'mfa' })
 const MFA_MANAGE_FEATURE = 'security.mfa.manage'
@@ -38,13 +41,64 @@ type MfaEnrollmentEnforcementService = {
   }>
 }
 
-export async function resolveMfaRequestContext(req: Request): Promise<MfaRequestContext | NextResponse> {
-  const auth = await getAuthFromRequest(req)
+function readRequestToken(req: Request): string | null {
+  const authorization = req.headers.get('authorization')?.trim() ?? ''
+  if (authorization.toLowerCase().startsWith('bearer ')) {
+    const token = authorization.slice(7).trim()
+    if (token) return token
+  }
+  const cookie = req.headers.get('cookie') ?? ''
+  const match = cookie.match(/(?:^|;\s*)auth_token=([^;]+)/)
+  if (!match?.[1]) return null
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
+async function resolvePendingAuth(
+  req: Request,
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+): Promise<AuthContext> {
+  const token = readRequestToken(req)
+  if (!token) return null
+  const pending = verifyPendingMfaToken(token)
+  if (!pending) return null
+  const em = container.resolve('em')
+  const pendingAuth: NonNullable<AuthContext> = {
+    sub: pending.sub,
+    sid: pending.sid,
+    tenantId: pending.tenantId,
+    orgId: pending.orgId,
+    roles: pending.roles,
+    mfa_pending: true,
+    mfa_verified: false,
+    ...(pending.email ? { email: pending.email } : {}),
+  }
+  return resolveCanonicalStaffAuthContext(em, pendingAuth)
+}
+
+export async function resolveMfaRequestContext(
+  req: Request,
+  options: { allowPending?: boolean } = {},
+): Promise<MfaRequestContext | NextResponse> {
+  let auth = await getAuthFromRequest(req)
+  let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
+  if (!auth?.sub && options.allowPending === true) {
+    container = await createRequestContainer()
+    try {
+      auth = await resolvePendingAuth(req, container)
+    } catch (error) {
+      logger.error('Unable to validate pending MFA session', { err: error })
+      return securityApiError(503, 'MFA verification is temporarily unavailable.')
+    }
+  }
   if (!auth?.sub) {
     return securityApiError(401, 'Unauthorized')
   }
 
-  const container = await createRequestContainer()
+  container ??= await createRequestContainer()
   return {
     auth,
     container,

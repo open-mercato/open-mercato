@@ -7,10 +7,10 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * Source: spec .ai/specs/enterprise/agent-orchestrator/2026-07-12-ux-p0-hotfixes.md
  * (§4 delete confirmations, Testing Strategy).
  *
- * Creates a throwaway agentic task + eval assertion over the API, then drives
- * the UI: the task-delete row action must open the shared ConfirmDialog
- * (no DELETE before confirmation), Cancel keeps the row, Confirm removes it;
- * the eval-assertion delete shows the dialog too (cancelled — row stays).
+ * Creates a throwaway process definition over the API, then drives the UI: the
+ * delete row action must open the shared ConfirmDialog (no DELETE before
+ * confirmation), Cancel keeps the row, and Confirm removes it. Eval assertions
+ * no longer expose destructive list actions after their agent-workspace move.
  */
 
 const ADMIN_EMAIL = 'admin@acme.com'
@@ -26,15 +26,13 @@ async function loginAsAdmin(page: Page): Promise<void> {
 }
 
 test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
-  test('task delete confirms (cancel keeps, confirm removes); assertion delete confirms', async ({ page, request }) => {
+  test('process definition delete confirms; cancel keeps and confirm removes', async ({ page, request }) => {
     test.slow()
 
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const taskName = `TC-UX-P0-003 task ${stamp}`
-    const assertionKey = `tc-ux-p0-003-${stamp}`
     let taskId: string | null = null
-    let assertionId: string | null = null
 
     try {
       const taskResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
@@ -49,21 +47,6 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
       expect(taskResponse.ok(), 'seed task create must succeed').toBeTruthy()
       taskId = (await readJsonSafe<{ id?: string }>(taskResponse))?.id ?? null
       expect(taskId).toBeTruthy()
-
-      const assertionResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/eval-assertions', {
-        token,
-        data: {
-          key: assertionKey,
-          title: taskName,
-          type: 'deterministic',
-          config: { path: '$.ok', expected: true },
-          severity: 'warn',
-          appliesTo: '*',
-          enabled: false,
-        },
-      })
-      expect(assertionResponse.ok(), 'seed assertion create must succeed').toBeTruthy()
-      assertionId = (await readJsonSafe<{ id?: string }>(assertionResponse))?.id ?? null
 
       await loginAsAdmin(page)
 
@@ -93,22 +76,9 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
       await dialog.getByRole('button', { name: /confirm/i }).click()
       await expect(page.getByRole('row', { name: new RegExp(taskName) })).toHaveCount(0, { timeout: 10_000 })
       taskId = null
-
-      // --- Eval-assertion delete: dialog appears; cancelled, row stays.
-      await page.goto('/backend/eval-assertions', { waitUntil: 'domcontentloaded' })
-      const assertionRow = page.getByRole('row', { name: new RegExp(assertionKey) })
-      await expect(assertionRow).toBeVisible({ timeout: 10_000 })
-      await assertionRow.getByRole('button').last().click()
-      await page.getByRole('menuitem', { name: /delete/i }).click()
-      await expect(page.getByRole('alertdialog')).toBeVisible()
-      await page.getByRole('alertdialog').getByRole('button', { name: /cancel/i }).click()
-      await expect(assertionRow).toBeVisible()
     } finally {
       if (taskId) {
         await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
-      }
-      if (assertionId) {
-        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/eval-assertions?id=${encodeURIComponent(assertionId)}`, { token }).catch(() => {})
       }
     }
   })

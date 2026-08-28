@@ -1,5 +1,5 @@
 export const integrationMeta = {
-  description: 'Agent orchestrator enterprise integration coverage',
+  description: 'Agent orchestrator runtime, compliance export, trace, caseload and process integration coverage',
   dependsOnModules: ['agent_orchestrator'],
   // The module is registered only when BOTH OM_ENABLE_ENTERPRISE_MODULES and
   // OM_ENABLE_ENTERPRISE_MODULES_AGENTS are set (apps/mercato/src/modules.ts).

@@ -4,8 +4,10 @@ import { AccessLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   accessLogCreateSchema,
   accessLogListSchema,
+  accessLogRetentionSchema,
   type AccessLogCreateInput,
   type AccessLogListQuery,
+  type AccessLogRetentionInput,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -14,32 +16,10 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'access-log-service' })
 
-const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
-
-function toPositiveNumber(value: string | undefined, fallback: number): number {
-  if (!value) return fallback
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
-  return parsed
-}
-
-function toNonNegativeNumber(value: string | undefined, fallback: number): number {
-  if (value === undefined || value === '') return fallback
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < 0) return fallback
-  return parsed
-}
-
-const CORE_RETENTION_DAYS = toPositiveNumber(process.env.AUDIT_LOGS_CORE_RETENTION_DAYS, 7)
-const NON_CORE_RETENTION_HOURS = toPositiveNumber(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS, 8)
-const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
-const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
-// Rotation runs after every successful write; without a gate that means two
-// DELETE statements per CRUD GET. Amortize to one rotation per interval per
-// process — `0` opts back into rotate-on-every-write (test harnesses).
-const ROTATE_INTERVAL_MS = toNonNegativeNumber(process.env.AUDIT_LOGS_ROTATE_INTERVAL_MS, 60_000)
-
-let lastRotatedAt: number | null = null
+export const ACCESS_LOG_RETENTION_QUEUE = 'audit-logs-retention'
+export const MIN_ACCESS_LOG_RETENTION_DAYS = 90
+export const DEFAULT_ACCESS_LOG_RETENTION_BATCH_SIZE = 1000
+const CORE_RESOURCE_KINDS = ['auth.user', 'auth.role'] as const
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 // Postgres has a hard limit of 65k bind parameters per statement. Each access
 // log row uses 10 bind values (see INSERT below), so 500 rows × 10 = 5 000
@@ -49,13 +29,52 @@ const MAX_BATCH_ROWS = 500
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
 
+export type AccessLogRetentionResult = {
+  accessClass: 'all' | 'core' | 'non_core'
+  batchSize: number
+  cutoff: Date
+  deleted: number
+  dryRun: boolean
+  matched: number
+  retentionDays: number
+}
+
+function parsePositiveInteger(value: string | undefined): number | null {
+  if (!value) return null
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+export function resolveAccessLogRetentionDays(
+  accessClass: 'all' | 'core' | 'non_core' = 'all',
+): number {
+  const configured = parsePositiveInteger(process.env.AUDIT_LOGS_RETENTION_DAYS)
+  if (configured !== null) return Math.max(configured, MIN_ACCESS_LOG_RETENTION_DAYS)
+
+  if (accessClass === 'core') {
+    const legacyDays = parsePositiveInteger(process.env.AUDIT_LOGS_CORE_RETENTION_DAYS)
+    if (legacyDays !== null) return Math.max(legacyDays, MIN_ACCESS_LOG_RETENTION_DAYS)
+  }
+  if (accessClass === 'non_core') {
+    const legacyHours = parsePositiveInteger(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS)
+    if (legacyHours !== null) {
+      return Math.max(Math.ceil(legacyHours / 24), MIN_ACCESS_LOG_RETENTION_DAYS)
+    }
+  }
+  return MIN_ACCESS_LOG_RETENTION_DAYS
+}
+
+export function resolveAccessLogRetentionBatchSize(): number {
+  const configured = parsePositiveInteger(process.env.AUDIT_LOGS_RETENTION_BATCH_SIZE)
+  return Math.min(configured ?? DEFAULT_ACCESS_LOG_RETENTION_BATCH_SIZE, 10_000)
+}
+
 // Module-level registry of in-flight access-log writes. Both `log` and
 // `logMany` opt every promise they kick off into this set so that
 // `flushAccessLog()` can drain them. This is what makes the new
-// fire-and-forget CRUD path safe for test code that asserts on `access_logs`
-// rows immediately after a response — the integration harness defaults to
-// blocking via `OM_CRUD_ACCESS_LOG_BLOCKING=1`, and direct callers can opt
-// in to draining explicitly via `flushAccessLog()`.
+// asynchronous compatibility path drainable for process shutdown and tests.
+// Secure CRUD logging is blocking by default; direct asynchronous callers can
+// opt in to draining explicitly via `flushAccessLog()`.
 const pendingAccessLogWrites = new Set<Promise<unknown>>()
 
 function trackPendingAccessLogWrite<T>(promise: Promise<T>): Promise<T> {
@@ -136,10 +155,6 @@ export class AccessLogService {
     for (let offset = 0; offset < normalized.length; offset += MAX_BATCH_ROWS) {
       const chunk = normalized.slice(offset, offset + MAX_BATCH_ROWS)
       written += await this.writeChunk(chunk)
-    }
-    if (written > 0) {
-      const fork = this.em.fork({ useContext: true })
-      await this.rotate(fork)
     }
     return written
   }
@@ -287,7 +302,6 @@ export class AccessLogService {
         null,
       ],
     )
-    await this.rotate(fork)
     const id = Array.isArray(rows) && rows.length > 0 ? rows[0]?.id ?? null : null
     if (!id) return null
     const entry = fork.create(AccessLog, {
@@ -352,6 +366,7 @@ export class AccessLogService {
     if (parsed.organizationId) where.organizationId = parsed.organizationId
     if (parsed.actorUserId) where.actorUserId = parsed.actorUserId
     if (parsed.resourceKind) where.resourceKind = parsed.resourceKind
+    if (parsed.resourceId) where.resourceId = parsed.resourceId
     if (parsed.accessType) where.accessType = parsed.accessType
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any
@@ -393,25 +408,72 @@ export class AccessLogService {
     return { items, total, page, pageSize, totalPages }
   }
 
-  private async rotate(fork: EntityManager) {
-    const now = Date.now()
-    if (ROTATE_INTERVAL_MS > 0 && lastRotatedAt !== null && now - lastRotatedAt < ROTATE_INTERVAL_MS) return
-    lastRotatedAt = now
-    const coreCutoff = new Date(now - CORE_RETENTION_MS)
-    const nonCoreCutoff = new Date(now - NON_CORE_RETENTION_MS)
-    try {
-      if (CORE_RESOURCE_KINDS.size > 0) {
-        await fork.nativeDelete(AccessLog, {
-          resourceKind: { $in: Array.from(CORE_RESOURCE_KINDS) },
-          createdAt: { $lt: coreCutoff },
-        })
+  async applyRetention(input: AccessLogRetentionInput): Promise<AccessLogRetentionResult> {
+    const options = accessLogRetentionSchema.parse(input)
+    const cutoff = new Date((options.now ?? new Date()).getTime() - options.retentionDays * 24 * 60 * 60 * 1000)
+    const clauses = ['"deleted_at" is null', '"created_at" < ?']
+    const params: unknown[] = [cutoff]
+
+    if (options.tenantId) {
+      clauses.push('"tenant_id" = ?')
+      params.push(options.tenantId)
+    }
+    if (options.organizationId) {
+      clauses.push('"organization_id" = ?')
+      params.push(options.organizationId)
+    }
+    if (options.accessClass === 'core') {
+      clauses.push('"resource_kind" in (?, ?)')
+      params.push(...CORE_RESOURCE_KINDS)
+    } else if (options.accessClass === 'non_core') {
+      clauses.push('"resource_kind" not in (?, ?)')
+      params.push(...CORE_RESOURCE_KINDS)
+    }
+
+    const whereSql = clauses.join(' and ')
+    const fork = this.em.fork({ useContext: true })
+    const connection = fork.getConnection()
+
+    if (options.dryRun) {
+      const rows = await connection.execute(
+        `select count(*)::bigint as "matched" from "access_logs" where ${whereSql}`,
+        params,
+      )
+      const matchedRaw = Array.isArray(rows) ? rows[0]?.matched : 0
+      const matched = Number.parseInt(String(matchedRaw ?? 0), 10)
+      return {
+        accessClass: options.accessClass,
+        batchSize: options.batchSize,
+        cutoff,
+        deleted: 0,
+        dryRun: true,
+        matched: Number.isFinite(matched) ? matched : 0,
+        retentionDays: options.retentionDays,
       }
-      await fork.nativeDelete(AccessLog, {
-        resourceKind: { $nin: Array.from(CORE_RESOURCE_KINDS) },
-        createdAt: { $lt: nonCoreCutoff },
-      })
-    } catch (err) {
-      logger.warn('Failed to rotate access logs', { err })
+    }
+
+    const rows = await connection.execute(
+      `with candidates as (
+        select "id"
+        from "access_logs"
+        where ${whereSql}
+        order by "created_at" asc, "id" asc
+        limit ?
+      )
+      delete from "access_logs"
+      where "id" in (select "id" from candidates)
+      returning "id"`,
+      [...params, options.batchSize],
+    )
+    const deleted = Array.isArray(rows) ? rows.length : 0
+    return {
+      accessClass: options.accessClass,
+      batchSize: options.batchSize,
+      cutoff,
+      deleted,
+      dryRun: false,
+      matched: deleted,
+      retentionDays: options.retentionDays,
     }
   }
 }

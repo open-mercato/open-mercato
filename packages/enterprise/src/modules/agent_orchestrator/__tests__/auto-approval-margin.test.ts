@@ -146,7 +146,25 @@ describe('DispositionService applies the rule', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    delete process.env.OM_AI_RUNTIME_SECURITY_PROFILE
     createAgentDispositionTask.mockResolvedValue({ userTaskId: 'task-1' })
+  })
+
+  test('the hardened profile always routes a proposal to human review', async () => {
+    const { service, execute } = makeService()
+    process.env.OM_AI_RUNTIME_SECURITY_PROFILE = 'hardened'
+
+    try {
+      const outcome = await service.dispose(
+        makeProposal({ options: [option('a', 1)] }),
+        { autoApproveThreshold: 0 },
+        ctx,
+      )
+      expect(outcome.kind).toBe('user_task')
+      expect(execute).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.OM_AI_RUNTIME_SECURITY_PROFILE
+    }
   })
 
   test('a near-tie raises the review task AND records the machine reason on its own column', async () => {

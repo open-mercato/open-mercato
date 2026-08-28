@@ -12,6 +12,8 @@ module.exports = {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
     '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',
+    '^@open-mercato/scheduler$': '<rootDir>/../scheduler/src/index.ts',
+    '^@open-mercato/scheduler/(.*)$': '<rootDir>/../scheduler/src/$1',
     '^@open-mercato/web-research$': '<rootDir>/../web-research/src/index.ts',
     '^@open-mercato/web-research/(.*)$': '<rootDir>/../web-research/src/$1',
     '^(\\.{1,2}/.*)\\.js$': '$1',

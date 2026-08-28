@@ -30,6 +30,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
   },
   indexer: { entityType: ENTITY_TYPE },
   list: {
+    disableListCache: true,
     schema: proposalListQuerySchema,
     entityId: ENTITY_TYPE,
     fields: [

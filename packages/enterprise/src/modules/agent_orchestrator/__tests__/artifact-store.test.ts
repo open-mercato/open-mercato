@@ -77,6 +77,14 @@ describe('artifactStore — putArtifact fail-open', () => {
     })
     expect(await putArtifact(container, SCOPE, ARTIFACT_REFS.toolRequest, { a: 1 })).toBeNull()
   })
+
+  it('fails closed when encrypted offload is required', async () => {
+    const { proxy } = makeStorage()
+    const container = makeContainer({ storageService: proxy })
+    await expect(
+      putArtifact(container, SCOPE, ARTIFACT_REFS.runOutput, { a: 1 }, { required: true }),
+    ).rejects.toThrow('trace artifact encryption is unavailable')
+  })
 })
 
 describe('artifactStore — encrypt → upload → download → decrypt round-trip', () => {

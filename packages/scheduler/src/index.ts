@@ -7,6 +7,12 @@
 export { ScheduledJob } from './modules/scheduler/data/entities.js'
 export { SchedulerService } from './modules/scheduler/services/schedulerService.js'
 export type { ScheduleRegistration } from './modules/scheduler/services/schedulerService.js'
+export {
+  getSchedulerSafeCommand,
+  listSchedulerSafeCommands,
+  registerSchedulerSafeCommands,
+} from './modules/scheduler/lib/scheduler-safe-commands.js'
+export type { SchedulerSafeCommandDefinition } from './modules/scheduler/lib/scheduler-safe-commands.js'
 
 // Parsers and utilities
 export { parseCronExpression, validateCron, validateCronExpression } from './modules/scheduler/lib/cronParser.js'

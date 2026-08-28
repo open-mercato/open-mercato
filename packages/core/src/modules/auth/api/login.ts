@@ -197,13 +197,26 @@ export async function POST(req: Request) {
     },
   })
   if (!interceptedResponse.ok) {
+    await auth.deleteSessionById(String(loginSession.id))
     return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode })
   }
 
   const interceptedBody = interceptedResponse.body
-  const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0
+  const authTokenForCookie = interceptedBody.ok === true
+    && typeof interceptedBody.token === 'string'
+    && interceptedBody.token.length > 0
     ? interceptedBody.token
-    : token
+    : null
+  if (!authTokenForCookie) {
+    await auth.deleteSessionById(String(loginSession.id))
+    if (interceptedBody.ok === true) {
+      return NextResponse.json(
+        { ok: false, error: translate('auth.login.errors.generic', 'An error occurred. Please try again.') },
+        { status: 500 },
+      )
+    }
+    return NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
+  }
   const refreshTokenForCookie = typeof interceptedBody.refreshToken === 'string'
     ? interceptedBody.refreshToken
     : undefined

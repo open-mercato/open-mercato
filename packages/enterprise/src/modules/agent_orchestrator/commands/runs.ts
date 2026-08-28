@@ -9,6 +9,7 @@ import { emitAgentOrchestratorEvent } from '../events'
 import { getRerunOfRunId } from '../lib/runtime/rerunContext'
 
 const createAgentRunSchema = z.object({
+  id: z.string().uuid().optional(),
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
   agentId: z.string().min(1),
@@ -94,8 +95,8 @@ export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId:
   async execute(rawInput, ctx) {
     const input = createAgentRunSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const selfStampedId =
-      input.stampExternalRunIdFromId && !input.externalRunId ? randomUUID() : null
+    const selfStampedId = input.id
+      ?? (input.stampExternalRunIdFromId && !input.externalRunId ? randomUUID() : null)
     const run = em.create(AgentRun, {
       source: input.source ?? 'runtime',
       ...(selfStampedId ? { id: selfStampedId } : {}),
@@ -109,7 +110,9 @@ export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId:
       // stamped; nested delegations carry parentRunId and skip it.
       rerunOfRunId: input.parentRunId ? null : getRerunOfRunId() ?? null,
       runtime: input.runtime ?? null,
-      externalRunId: selfStampedId ?? input.externalRunId ?? null,
+      externalRunId: input.stampExternalRunIdFromId
+        ? selfStampedId ?? input.externalRunId ?? null
+        : input.externalRunId ?? null,
       model: input.model ?? null,
       processId: input.processId ?? null,
       stepId: input.stepId ?? null,

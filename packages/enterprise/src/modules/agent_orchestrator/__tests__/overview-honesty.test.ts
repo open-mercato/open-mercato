@@ -83,10 +83,16 @@ describe('agent_orchestrator overview honesty invariants (spec 3 phase 4)', () =
     expect(overviewSource).toContain('<PanelNote state={pendingState}')
     expect(overviewSource).toContain('<PanelNote state={trustState}')
     expect(overviewSource).toContain('overview.panel.retry')
+    expect(overviewSource).toContain("const OPTIONAL_READ_HEADERS = { 'x-om-forbidden-redirect': '0' }")
+    expect(overviewSource).toContain('path, { headers: OPTIONAL_READ_HEADERS }')
   })
 
   it('captions windowed vs current-state tiles distinctly', () => {
     expect(overviewSource).toContain('caption={windowLabel}')
     expect(overviewSource).toContain("caption={t('agent_orchestrator.overview.window.now'")
+  })
+
+  it('keeps system health available before the first agent run', () => {
+    expect(overviewSource).toMatch(/empty \? \(\s*<div[\s\S]*?<SystemHealthTile \/>[\s\S]*?<EmptyState/)
   })
 })

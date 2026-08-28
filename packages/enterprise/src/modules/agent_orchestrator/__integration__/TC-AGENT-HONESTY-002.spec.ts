@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteAgentRunsByIds, insertAgentRunFixtures } from './helpers/agentPerfFixtures'
+import { resolveModelPrice } from '../lib/runtime/modelPricing'
 
 /**
  * TC-AGENT-HONESTY-002: native runs stamp confidence and an estimated cost.
@@ -10,9 +11,9 @@ import { deleteAgentRunsByIds, insertAgentRunFixtures } from './helpers/agentPer
  *
  * Part A executes a REAL agent run (LLM provider key required — env-gated, same
  * expectation as TC-AGENT-NAV-001) and asserts the run row carries token usage,
- * an estimated cost for the priced model, and — for proposal results — the
- * proposal's confidence. Part B asserts a run without a priced model keeps
- * cost null (the UI renders `—`): estimates are never invented.
+ * model-aware cost handling and, for proposal results, the proposal confidence.
+ * Part B asserts a run without a model keeps cost null: estimates are never
+ * invented.
  */
 
 const ADMIN_EMAIL = 'admin@acme.com'
@@ -22,6 +23,7 @@ type RunResponse = { kind?: string; runId?: string | null; proposalId?: string |
 type RunDetail = {
   run?: {
     confidence?: number | null
+    model?: string | null
     input_tokens?: number | null
     inputTokens?: number | null
     output_tokens?: number | null
@@ -38,7 +40,7 @@ function field(run: NonNullable<RunDetail['run']>, snake: string, camel: string)
 }
 
 test.describe('TC-AGENT-HONESTY-002: confidence + estimated cost stamping', () => {
-  test('a live run stamps tokens, estimated cost, and proposal confidence', async ({ request }) => {
+  test('a live run stamps tokens, model-aware cost, and proposal confidence', async ({ request }) => {
     test.slow()
 
     const token = await getAuthToken(request, ADMIN_EMAIL, ADMIN_PASSWORD)
@@ -76,12 +78,16 @@ test.describe('TC-AGENT-HONESTY-002: confidence + estimated cost stamping', () =
     expect(typeof inputTokens, 'a live native run must stamp input tokens').toBe('number')
     expect(typeof outputTokens, 'a live native run must stamp output tokens').toBe('number')
 
-    // The example agents declare priced models (claude-sonnet-4-5 / gpt-5 family
-    // provider defaults) — the estimate must be computed and stamped.
+    const model = field(row, 'model', 'model')
+    expect(typeof model, 'a live run must stamp the resolved model').toBe('string')
     const costMinor = field(row, 'cost_minor', 'costMinor')
-    expect(typeof costMinor, 'the estimated cost must be stamped for a priced model').toBe('number')
-    expect(Number(costMinor)).toBeGreaterThanOrEqual(0)
-    expect(field(row, 'currency', 'currency'), 'the estimate carries its currency').toBeTruthy()
+    if (resolveModelPrice(String(model))) {
+      expect(typeof costMinor, 'the estimated cost must be stamped for a priced model').toBe('number')
+      expect(Number(costMinor)).toBeGreaterThanOrEqual(0)
+      expect(field(row, 'currency', 'currency'), 'the estimate carries its currency').toBeTruthy()
+    } else {
+      expect(costMinor ?? null, 'an unpriced deployment model must not produce a guessed cost').toBeNull()
+    }
 
     if (run.kind === 'proposal') {
       const confidence = field(row, 'confidence', 'confidence')

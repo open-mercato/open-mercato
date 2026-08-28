@@ -890,9 +890,8 @@ Typed pending-action lifecycle events live in `src/modules/ai_assistant/events.t
 
 Guide: [`moderation.mdx`](../../apps/docs/docs/framework/ai-assistant/moderation.mdx) + spec `.ai/specs/2026-06-04-ai-input-moderation-and-safety-identifiers.md`. Envs: `OM_AI_INPUT_MODERATION`, `OM_AI_MODERATION_MODEL`.
 
-- Enforced surfaces (`untrustedInput`) fail **closed**; opt-in surfaces fail **open**.
-- Flagged categories are audit-only — never send them to the client.
-- The audit write is best-effort and MUST NOT block the rejection.
+- Hardened agents scan input, structured output, and tool results through `contentSafetyService`; provider moderation is optional.
+- Scans fail closed; findings contain identifiers only, never raw content.
 
 ## Rules for the OpenCode Client
 

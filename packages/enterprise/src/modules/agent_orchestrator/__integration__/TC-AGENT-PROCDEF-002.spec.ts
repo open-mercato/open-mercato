@@ -34,7 +34,7 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId } = getTokenScope(adminToken)
     const stamp = Date.now()
-    const password = 'secret'
+    const password = 'StrongSecret123!'
     const email = `tc-procdef-002-${stamp}@example.com`
     const name = `TC-PROCDEF-002 ${stamp}`
 
@@ -52,7 +52,13 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
     try {
       const createResponse = await apiRequest(request, 'POST', DEFINITIONS, {
         token: adminToken,
-        data: { name, targetType: 'agent', targetAgentId: 'deals.health_check', enabled: true },
+        data: {
+          name,
+          targetType: 'agent',
+          targetAgentId: 'deals.health_check',
+          triggers: [{ kind: 'manual' }],
+          enabled: true,
+        },
       })
       expect(createResponse.status(), 'admin seeds the definition').toBe(201)
       definitionId = (await readJsonSafe<{ id?: string }>(createResponse))?.id ?? null

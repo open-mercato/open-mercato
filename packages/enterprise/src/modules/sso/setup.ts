@@ -2,6 +2,7 @@ import type { RequiredEntityData } from '@mikro-orm/core'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SsoConfig } from './data/entities'
+import { SSO_CONFIG_ENCRYPTION_ENTITY_ID } from './encryption'
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
@@ -30,7 +31,7 @@ export const setup: ModuleSetupConfig = {
 
     const encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
     const encrypted = await encryptionService.encryptEntityPayload(
-      'SsoConfig',
+      SSO_CONFIG_ENCRYPTION_ENTITY_ID,
       { clientSecretEnc: clientSecret },
       tenantId,
       organizationId,

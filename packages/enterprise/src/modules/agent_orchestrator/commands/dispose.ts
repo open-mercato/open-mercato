@@ -18,6 +18,7 @@ import {
   enforceCommandOptimisticLock,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { AgentProposal, type AgentProposalDisposition } from '../data/entities'
 import { PROPOSAL_OPTION_ID_MAX, disposeProposalSchema } from '../data/validators'
 import { deriveEnvelopeConfidence, listProposalOptionIds } from '../data/proposalEnvelope'
@@ -249,6 +250,18 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
         },
       ],
       { transaction: true, label: 'agent_orchestrator.proposals.dispose' },
+    )
+
+    await invalidateCrudCache(
+      container,
+      AgentProposal.name,
+      {
+        id: proposal.id,
+        tenantId: proposal.tenantId,
+        organizationId: proposal.organizationId,
+      },
+      proposal.tenantId,
+      'command:agent_orchestrator.proposals.dispose',
     )
 
     // 7. Mutation guard (after) — fire audit + index side effects.

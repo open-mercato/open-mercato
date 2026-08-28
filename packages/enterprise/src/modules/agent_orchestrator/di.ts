@@ -3,6 +3,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import {
   AgentRun,
+  AgentModelUsage,
   AgentProposal,
   AgentSpan,
   AgentToolCall,
@@ -53,6 +54,9 @@ import {
   agentDispositionWorkInboxSource,
   AGENT_ORCHESTRATOR_MODULE_ID,
 } from './lib/workInbox/agentDispositionSource'
+import { agentAuditEvidenceContributor } from './lib/evidence/agentAuditEvidenceContributor'
+import { AgentOrchestratorEnvironmentPrivacyHandler } from './privacy'
+import { AgentModelUsageService } from './lib/compliance/modelUsageService'
 
 // Registered at module-DI load time (top-level, like the core `user_task`
 // source) so the queue is present before the first work-inbox request resolves
@@ -72,6 +76,7 @@ registerWorkInboxSources([
 export function register(container: AppContainer) {
   container.register({
     AgentRun: asValue(AgentRun),
+    AgentModelUsage: asValue(AgentModelUsage),
     AgentProposal: asValue(AgentProposal),
     AgentSpan: asValue(AgentSpan),
     AgentToolCall: asValue(AgentToolCall),
@@ -90,6 +95,11 @@ export function register(container: AppContainer) {
     AgentProcessDefinition: asValue(AgentProcessDefinition),
     AgentProcessRun: asValue(AgentProcessRun),
     AgentProcess: asValue(AgentProcess),
+    agentAuditEvidenceContributor: asValue(agentAuditEvidenceContributor),
+    agentModelUsageService: asFunction(({ em }) => new AgentModelUsageService(em)).proxy().scoped(),
+    agentOrchestratorEnvironmentPrivacyHandler: asFunction(({ em }) => (
+      new AgentOrchestratorEnvironmentPrivacyHandler(em, container)
+    )).proxy().scoped(),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
     // attributed to a concrete actor id. Idempotent + org-scoped. The bound

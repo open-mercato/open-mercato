@@ -17,6 +17,7 @@ export type { AgentRunCtx } from './persistence'
 // re-exported so every existing `from './agentRuntime'` import keeps working.
 export {
   AgentNotFoundError,
+  AgentRuntimeProfileError,
   AgentRunTimeoutError,
   AgentOutputInvalidError,
   AgentGuardrailBlockedError,
@@ -52,7 +53,6 @@ export class AgentRuntimeService {
     await ensureAgentsLoaded()
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
-
     // Runtime no-bypass enforcement (Wave 4 Phase 3, layer B-b). When the run is
     // bound to a provisioned agent principal (`ctx.runAs`), bind the async-scoped
     // agent-actor context for the WHOLE run and register the fail-closed flush-time
