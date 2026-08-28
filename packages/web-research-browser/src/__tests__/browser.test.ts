@@ -13,6 +13,7 @@ const SERP_HTML = `
 type FakeChild = SidecarStream & {
   written: string[]
   emitExit(code: number | null): void
+  emitStdinError(error: NodeJS.ErrnoException): void
   killed: NodeJS.Signals[]
 }
 
@@ -28,10 +29,15 @@ function makeFakeSpawn(
     const stdout = new PassThrough({ encoding: 'utf8' })
     const stderr = new PassThrough({ encoding: 'utf8' })
     const exitHandlers: Array<(code: number | null) => void> = []
+    const stdinErrorHandlers: Array<(error: NodeJS.ErrnoException) => void> = []
     const child: FakeChild = {
       written: [],
       killed: [],
       stdin: {
+        on(event: 'error', handler: (error: NodeJS.ErrnoException) => void) {
+          stdinErrorHandlers.push(handler)
+          return child.stdin
+        },
         write(chunk: string) {
           child.written.push(chunk)
           const request = decodeLine(chunk.trim()) as SidecarRequest
@@ -60,6 +66,9 @@ function makeFakeSpawn(
       emitExit(code) {
         for (const handler of exitHandlers.splice(0)) handler(code)
       },
+      emitStdinError(error) {
+        for (const handler of stdinErrorHandlers) handler(error)
+      },
     }
     children.push(child)
     return child
@@ -79,6 +88,20 @@ describe('sidecar client protocol', () => {
   it('surfaces a sidecar error as a typed rejection', async () => {
     const { spawnFn } = makeFakeSpawn(() => new Error('navigation blocked'))
     await expect(sidecarWith(spawnFn).call('render', { url: 'https://x' })).rejects.toThrow('navigation blocked')
+  })
+
+  // A child that has died leaves its stdin pipe broken, and Node reports that
+  // asynchronously on the stream rather than throwing from write(). Unhandled,
+  // it escapes the adapter and the call throws where the contract promises an
+  // outcome — which is exactly how this surfaced on a runner with no browser.
+  it('turns a broken sidecar pipe into a typed rejection, not an unhandled error', async () => {
+    const { spawnFn, children } = makeFakeSpawn(() => 'silent')
+    const sidecar = sidecarWith(spawnFn)
+    const call = sidecar.call('render', { url: 'https://x' })
+    const epipe: NodeJS.ErrnoException = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })
+    children[0].emitStdinError(epipe)
+    children[0].emitExit(1)
+    await expect(call).rejects.toThrow(/exited unexpectedly/)
   })
 
   it('times a silent call out instead of hanging forever', async () => {

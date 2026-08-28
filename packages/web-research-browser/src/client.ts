@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { SidecarError, decodeLine, encodeLine, isReply, type SidecarReply } from './protocol'
 
 export type SidecarStream = {
-  stdin: { write(chunk: string): unknown }
+  stdin: { write(chunk: string): unknown; on?(event: 'error', handler: (error: NodeJS.ErrnoException) => void): unknown }
   stdout: { setEncoding?(encoding: string): unknown; on(event: 'data', handler: (chunk: string) => void): unknown }
   stderr: { setEncoding?(encoding: string): unknown; on(event: 'data', handler: (chunk: string) => void): unknown }
   once(event: 'exit', handler: (code: number | null) => void): unknown
@@ -95,6 +95,17 @@ export class Sidecar {
         this.recentStderr.push(`dropped ${this.buffer.length} bytes of un-delimited sidecar output`)
         this.buffer = ''
       }
+    })
+
+    // A dead child leaves its stdin pipe broken, and Node reports that as an
+    // asynchronous 'error' event (EPIPE) rather than as a throw from write() —
+    // so the try/catch around the write in `call` never sees it. Unhandled, a
+    // stream 'error' escalates past the adapter and the call throws instead of
+    // resolving to an outcome. Recording it keeps the event handled; the 'exit'
+    // handler below is what rejects the calls still in flight.
+    this.child.stdin.on?.('error', (error: NodeJS.ErrnoException) => {
+      this.recentStderr.push(`sidecar stdin ${error.code ?? 'error'}: ${error.message}`)
+      if (this.recentStderr.length > STDERR_RING) this.recentStderr.shift()
     })
 
     this.child.stderr.setEncoding?.('utf8')
