@@ -278,10 +278,12 @@ describe('auth ACL audit commands', () => {
       await roleHandler().captureAfter!(roleInput, result, harness.ctx)
 
       // prepare + execute + captureAfter each look the row up; a handler that
-      // dropped the tenant predicate could cross tenants unnoticed.
+      // dropped the tenant predicate could cross tenants unnoticed. `deletedAt`
+      // is part of the same assertion: the editor must load the row
+      // `RbacService` reads, and that read is live-rows-only.
       expect(harness.findOneFilters).toHaveLength(3)
       for (const filter of harness.findOneFilters) {
-        expect(filter).toEqual({ role: roleId, tenantId })
+        expect(filter).toEqual({ role: roleId, tenantId, deletedAt: null })
       }
     })
 
@@ -490,7 +492,7 @@ describe('auth ACL audit commands', () => {
 
       expect(harness.findOneFilters).toHaveLength(3)
       for (const filter of harness.findOneFilters) {
-        expect(filter).toEqual({ user: userId, tenantId })
+        expect(filter).toEqual({ user: userId, tenantId, deletedAt: null })
       }
     })
 
