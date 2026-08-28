@@ -40,6 +40,7 @@
   "scheduler.error.invalid_schedule_value": "Ungültiger Zeitplanwert.",
   "scheduler.error.job_not_found": "Job in BullMQ nicht gefunden (möglicherweise entfernt)",
   "scheduler.error.load_failed": "Fehler beim Laden des Zeitplans",
+  "scheduler.error.missing_schedule_id": "Kein Zeitplan ausgewählt.",
   "scheduler.error.not_found": "Zeitplan nicht gefunden",
   "scheduler.error.queue_param_required": "Queue-Parameter erforderlich",
   "scheduler.error.trigger_async_hint": "Ausführungsverlauf und manuelle Auslösung sind nur mit BullMQ (Async-Strategie) verfügbar",

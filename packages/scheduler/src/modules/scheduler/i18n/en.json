@@ -40,6 +40,7 @@
   "scheduler.error.invalid_schedule_value": "Invalid schedule value.",
   "scheduler.error.job_not_found": "Job not found in BullMQ (may have been removed)",
   "scheduler.error.load_failed": "Failed to load schedule",
+  "scheduler.error.missing_schedule_id": "No schedule selected.",
   "scheduler.error.not_found": "Schedule not found",
   "scheduler.error.queue_param_required": "queue parameter required",
   "scheduler.error.trigger_async_hint": "Execution history and manual triggers are only available with BullMQ (async strategy)",
