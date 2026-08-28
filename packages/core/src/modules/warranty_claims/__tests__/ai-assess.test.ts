@@ -106,6 +106,13 @@ jest.mock('../lib/settings', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string, fallback?: string) => fallback ?? key,
+    translate: (key: string, fallback?: string) => fallback ?? key,
+  }),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: () => createRequestContainerMock(),
 }))

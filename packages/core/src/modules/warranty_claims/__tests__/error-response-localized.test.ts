@@ -38,6 +38,19 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () =>
   getCustomerAuthFromRequest: (...args: unknown[]) => getCustomerAuthMock(...args),
 }))
 
+const runRouteMutationGuardsMock = jest.fn()
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuardsMock(...args),
+}))
+
+const findOneWithDecryptionMock = jest.fn()
+const findWithDecryptionMock = jest.fn()
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/find'),
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
+  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+}))
+
 import { GET as assigneesGET } from '../api/assignees/route'
 import { GET as portalClaimsGET, POST as portalClaimsPOST } from '../api/portal/claims/route'
 import {
@@ -55,6 +68,9 @@ import { POST as salesReturnPOST } from '../api/sales-return/route'
 import { POST as replacementOrderPOST } from '../api/replacement-order/route'
 import { POST as returnLabelPOST } from '../api/return-label/route'
 import { POST as aiAssessPOST } from '../api/ai/assess/route'
+import { GET as claimEventsGET } from '../api/events/route'
+import { GET as riskGET } from '../api/risk/route'
+import { GET as vendorRecoverySuggestionsGET } from '../api/vendor-recovery-suggestions/route'
 
 const RAW_I18N_KEY = /^warranty_claims\./
 
@@ -87,6 +103,9 @@ describe('warranty_claims error responses are localized, never raw i18n keys (#5
     resolveAssigneeDisplayNamesMock.mockResolvedValue(new Map())
     getCustomerAuthMock.mockResolvedValue(null)
     containerStub.resolve.mockImplementation((token: string) => (token === 'em' ? { fork: () => ({}) } : undefined))
+    runRouteMutationGuardsMock.mockResolvedValue({ ok: true, modifiedPayload: null, runAfterSuccess: jest.fn() })
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    findWithDecryptionMock.mockResolvedValue([])
   })
 
   describe('GET /api/warranty_claims/assignees', () => {
@@ -362,6 +381,35 @@ describe('warranty_claims error responses are localized, never raw i18n keys (#5
       expect(error).not.toMatch(RAW_I18N_KEY)
     })
 
+    it('returns a localized 404 from return-label when the claim is outside the caller scope', async () => {
+      const { status, error } = await readError(
+        await returnLabelPOST(actionRequest('return-label', { claimId: randomUUID() })),
+      )
+      expect(status).toBe(404)
+      expect(error).toBe('Claim not found.')
+    })
+
+    it('returns a localized 404 from ai/assess when the claim is outside the caller scope', async () => {
+      const tenantId = randomUUID()
+      const organizationId = randomUUID()
+      getAuthMock.mockResolvedValue({ sub: 'user-1', tenantId, orgId: organizationId })
+      resolveOrganizationScopeForRequestMock.mockResolvedValue({
+        tenantId,
+        selectedId: organizationId,
+        filterIds: [organizationId],
+        allowedIds: [organizationId],
+      })
+      const { status, error } = await readError(
+        await aiAssessPOST(actionRequest('ai/assess', {
+          claimId: randomUUID(),
+          attachmentId: randomUUID(),
+          kind: 'proof',
+        })),
+      )
+      expect(status).toBe(404)
+      expect(error).toBe('Claim not found.')
+    })
+
     it('translates the keyed zod message the return-label route surfaces (#5287)', async () => {
       const { status, error } = await readError(
         await returnLabelPOST(actionRequest('return-label', {
@@ -373,10 +421,26 @@ describe('warranty_claims error responses are localized, never raw i18n keys (#5
       expect(error).not.toMatch(RAW_I18N_KEY)
     })
   })
+
+  describe('claim-scoped read routes (#5522)', () => {
+    const readRoutes: Array<[string, (req: Request) => Promise<Response>]> = [
+      ['events', claimEventsGET],
+      ['risk', riskGET],
+      ['vendor-recovery-suggestions', vendorRecoverySuggestionsGET],
+    ]
+
+    it.each(readRoutes)('returns a localized 404 from %s when the claim is outside the caller scope', async (path, handler) => {
+      const { status, error } = await readError(
+        await handler(new Request(`http://localhost/api/warranty_claims/${path}?claimId=${randomUUID()}`)),
+      )
+      expect(status).toBe(404)
+      expect(error).toBe('Claim not found.')
+    })
+  })
 })
 
 
-describe('no warranty_claims API route ships a raw i18n key as its error message (#5522)', () => {
+describe('no warranty_claims API route file inlines a raw i18n key in an error payload (#5522)', () => {
   const apiDir = join(__dirname, '..', 'api')
 
   function routeSources(dir: string): string[] {
@@ -388,7 +452,9 @@ describe('no warranty_claims API route ships a raw i18n key as its error message
   }
 
   it('keeps every error payload behind translate()', () => {
-    const offenders = routeSources(apiDir).flatMap((file) =>
+    const files = routeSources(apiDir)
+    expect(files.length).toBeGreaterThan(20)
+    const offenders = files.flatMap((file) =>
       readFileSync(file, 'utf8')
         .split('\n')
         .map((line, index) => ({ line, index }))

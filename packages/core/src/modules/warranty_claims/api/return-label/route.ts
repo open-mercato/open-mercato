@@ -167,7 +167,7 @@ async function loadClaimAndLines(
 ): Promise<{ claim: WarrantyClaim; lines: WarrantyClaimLine[] }> {
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
   const em = (context.ctx.container.resolve('em') as EntityManager).fork()
-  const claim = await requireScopedClaim(em, claimId, scope)
+  const claim = await requireScopedClaim(em, claimId, scope, {}, context.translate('warranty_claims.errors.notFound', 'Claim not found.'))
   const lines = await findWithDecryption(
     em,
     WarrantyClaimLine,

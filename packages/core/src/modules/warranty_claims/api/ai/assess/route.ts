@@ -323,7 +323,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'ok', assessment })
     }
 
-    await requireScopedClaim(context.em, input.claimId, scope)
+    await requireScopedClaim(context.em, input.claimId, scope, {}, translate('warranty_claims.errors.notFound', 'Claim not found.'))
     const line = input.lineId ? await loadScopedLine(context.em, scope, input.claimId, input.lineId, translate) : null
     await verifyAttachmentLinkedToTarget(context, {
       attachmentId: input.attachmentId,

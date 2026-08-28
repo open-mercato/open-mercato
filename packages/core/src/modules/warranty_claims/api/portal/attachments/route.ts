@@ -237,8 +237,11 @@ async function deletePortalAttachment(context: PortalContext, attachment: Attach
   }
 }
 
-async function streamOwnedAttachment(context: PortalContext, attachmentId: string): Promise<Response> {
-  const { translate } = await resolveTranslations()
+async function streamOwnedAttachment(
+  context: PortalContext,
+  attachmentId: string,
+  translate: (key: string, fallback?: string) => string,
+): Promise<Response> {
   const owned = await loadOwnedVisibleAttachment(context, attachmentId)
   if (!owned) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
@@ -285,7 +288,7 @@ export async function GET(req: Request) {
     if (!attachmentIdParsed.success) {
       return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    return streamOwnedAttachment(context, attachmentIdParsed.data)
+    return streamOwnedAttachment(context, attachmentIdParsed.data, translate)
   }
   const parsed = attachmentQuerySchema.safeParse({
     claimId: url.searchParams.get('claimId') ?? undefined,
