@@ -107,17 +107,6 @@ export async function createDocumentSequence(em: EntityManager, registryId: stri
   }
 }
 
-/** Backfills the sequences for every registry row already present in a scope. */
-export async function ensureDocumentSequencesForScope(em: EntityManager, scope: Scope): Promise<void> {
-  const rows = await em.getConnection().execute<{ id: string }[]>(
-    'select id from sales_document_sequences where organization_id = ? and tenant_id = ?',
-    [scope.organizationId, scope.tenantId]
-  )
-  for (const row of rows ?? []) {
-    await createDocumentSequence(em, row.id)
-  }
-}
-
 export class SalesDocumentNumberGenerator {
   constructor(private readonly em: EntityManager) {}
 
@@ -142,7 +131,15 @@ export class SalesDocumentNumberGenerator {
   }
 
   async setNextSequence(kind: SalesDocumentNumberKind, scope: Scope, nextValue: number): Promise<void> {
-    const next = Math.min(Math.max(Math.floor(nextValue), DEFAULT_SEQUENCE_START), MAX_SEQUENCE)
+    const next = Math.floor(nextValue)
+    // Refuse an out-of-range target rather than clamping to it, for the same reason
+    // `tryClaimSequence` refuses to hand out a clamped value: parking the series on the ceiling
+    // makes every later claim collide there, so silently accepting the value is the same "two
+    // documents share a number" hazard one step earlier. `salesSettingsUpsertSchema` already
+    // rejects the range at the API boundary, so this only fires for a direct service caller.
+    if (!Number.isFinite(next) || next < DEFAULT_SEQUENCE_START || next > MAX_SEQUENCE) {
+      throw new Error('[internal] Sales document sequence target is outside the supported range')
+    }
     await this.ensureSequence(kind, scope)
     // Park the sequence on `next - 1` as an already-issued value, so the next `nextval`
     // returns exactly `next`. The `setval(next, false)` form would do that too, but it leaves

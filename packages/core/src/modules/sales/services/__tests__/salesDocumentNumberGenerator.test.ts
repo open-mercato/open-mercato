@@ -199,6 +199,19 @@ describe('SalesDocumentNumberGenerator sequence claiming (#5604)', () => {
     await expect(generator.generate({ kind: 'order', ...scope })).resolves.toMatchObject({ sequence: 950 })
   })
 
+  it('refuses a target outside the supported range instead of clamping to the ceiling', async () => {
+    const { em, statements } = createEm()
+    const generator = new SalesDocumentNumberGenerator(em)
+
+    // Clamping parked the series on the ceiling and let the next claims collide there — the
+    // same "two documents share a number" hazard `tryClaimSequence` already refuses, one step
+    // earlier. Nothing may reach `setval` on a rejected target.
+    await expect(generator.setNextSequence('order', scope, 1_000_000_001)).rejects.toThrow('[internal]')
+    await expect(generator.setNextSequence('order', scope, 0)).rejects.toThrow('[internal]')
+
+    expect(statements.some((statement) => statement.sql.includes('setval('))).toBe(false)
+  })
+
   it('round-trips the start value, which has no predecessor to park the sequence on', async () => {
     const { em } = createEm({ startAt: 40 })
     const generator = new SalesDocumentNumberGenerator(em)
