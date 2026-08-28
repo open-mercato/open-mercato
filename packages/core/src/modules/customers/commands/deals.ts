@@ -120,9 +120,9 @@ function resolveRequestedClosureOutcome(input: DealUpdateInput): DealClosureOutc
   if (input.closureOutcome === 'won' || input.closureOutcome === 'lost') {
     return input.closureOutcome
   }
-  // `win` / `loose` are what the UI closure flows persist; `won` / `lost` are the
-  // spellings the AI stage tool persists. Both must derive the same closure outcome so
-  // every closed deal lands in the pipeline's terminal stage (#5107).
+  // `win` / `lost` are what the UI closure flows persist; `won` / `lost` are the
+  // spellings the AI stage tool persists (`loose` before 0.7.1). Both must derive the same
+  // closure outcome so every closed deal lands in the pipeline's terminal stage (#5107).
   return dealClosureOutcomeFromStatus(input.status)
 }
 
@@ -846,6 +846,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     // subscribers (workflow event triggers, business-rules triggers) drop a
     // null-scoped event before trigger matching.
     const newStatus = record.status
+    // `loose` stays mapped here for deals written before the 0.7.1 rename.
     const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
     if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost')) {
       const closureEvent = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'

@@ -91,6 +91,29 @@ describe('DiscordChannelAdapter.sendMessage', () => {
     expect(captured.createMessage?.channelId).toBe('default-chan')
   })
 
+  it('explains itself to the operator when nothing names a channel', async () => {
+    // Reachable from the product since #4976 made test-send's recipient
+    // optional: an operator smoke-tests a connection whose `Default channel ID`
+    // was left blank. The route hands `result.error` straight back as
+    // `providerError`, so this string is read by a person, not a log.
+    const { captured } = stubRest()
+    const adapter = getDiscordChannelAdapter()
+
+    const result = await adapter.sendMessage({
+      content: { text: 'x' },
+      credentials,
+      scope: { organizationId: 'o', tenantId: 't' },
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe(
+      'No Discord channel to post to — set "Default channel ID" on the connection, or pass a channel id as the recipient.',
+    )
+    expect(result.error).not.toContain('[internal]')
+    // Nothing is posted when there is no target.
+    expect(captured.createMessage).toBeUndefined()
+  })
+
   it('posts to the recipient the hub resolved, instead of silently using the default', async () => {
     // QA of #4391 against a live bot: the hub's test-send route puts the
     // operator's recipient in `metadata.to`, nothing read it, and every send
