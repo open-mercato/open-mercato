@@ -39,7 +39,7 @@ The roadmap is intentionally self-contained. Supporting documents refine deliver
 | This roadmap | Product boundaries, architecture laws, capability landscape, and Wave 0 gates | Accepted normative source for staged Wave 0 delivery |
 | [`2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`](2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Delivery-oriented grouping and dependency order for Wave 0 work | Execution companion |
 | [`2026-08-19-manufacturing-wave-0-specification-backlog.md`](2026-08-19-manufacturing-wave-0-specification-backlog.md) | Specification decomposition, authoring order, readiness evidence and GitHub tracking | Owner-approved planning companion; product implementation remains gated by this roadmap's repository review |
-| [`2026-08-13-wms-sites-and-warehouse-roles.md`](2026-08-13-wms-sites-and-warehouse-roles.md) | P1.2 WMS-owned site identity and warehouse-role assignments | Capability specification |
+| [`2026-08-13-wms-sites-and-warehouse-roles.md`](2026-08-13-wms-sites-and-warehouse-roles.md) | External WMS-owned Site identity and warehouse-role assignments | Capability specification |
 | Dedicated advanced production number-range specification | Configurable order/batch/lot/serial formats, reset and offline allocation | Future necessary capability; not an MVP gate; not yet authored |
 
 Decisions C1-C3, H1-H6, M1-M4, and S1-S3 below consolidate the current architecture proposal into this source-of-truth document. Their rationale is preserved by the surrounding architecture laws, internal model-neutral boundaries, ownership matrix, risks, and validation gates; no unavailable review file is required to interpret the proposal or review a downstream specification.
@@ -275,7 +275,7 @@ Every detailed capability spec must use these meanings:
 | Capability | Owned data | Hard runtime requirements | Soft integrations/providers | Snapshot/fallback when absent | Placement/licensing |
 |---|---|---|---|---|---|
 | Catalog and product master | Products, variants, UoM and conversions | Existing Catalog requirements | Product configuration, compliance | Manufacturing snapshots released values through the public quantity/UoM contract | Existing OSS foundation; no Catalog roadmap task is a Manufacturing runtime dependency |
-| WMS sites | Stable, custom-field-extensible site identity and closed current warehouse-role assignments | Existing WMS requirements; site contract itself adds no Manufacturing requirement | Manufacturing consumers, directory, network planning | Inactive by default; discrete activation requires raw-material and finished-goods defaults; one warehouse belongs to only one active site in MVP | Existing OSS `wms` module per P1.2 spec; setup-once UI remains deliberately minimal |
+| WMS sites | Stable, custom-field-extensible site identity and closed current warehouse-role assignments | Existing WMS requirements; site contract itself adds no Manufacturing requirement | Manufacturing consumers, directory, network planning | Inactive by default; discrete activation requires raw-material and finished-goods defaults; one warehouse belongs to only one active site in MVP | External OSS `wms` capability; setup-once UI remains deliberately minimal |
 | WMS and inventory | Warehouses, locations, stock, lots, serials, reservations and movement ledger | Current code: Catalog, Sales, feature toggles | Sales and Manufacturing consumers | Physical ledger remains usable without manufacturing | Existing OSS foundation; Manufacturing stock execution consumes an accepted WMS public contract |
 | Resources and calendars | Resource identity/capacity and planner availability rules | Current code: `resources` requires `planner` | Assets, workforce, manufacturing extensions | Manual MVP uses active resource references without calendar enforcement | Existing foundations; minimal work-centre boundary freezes before released routing, advanced calendars before scheduling |
 | Attachments, audit and workflows | Generic files, audit evidence and workflow orchestration | Their existing package contracts | Document control, engineering and approvals | Manufacturing remains authoritative when workflow is absent | Existing foundations |
@@ -417,7 +417,7 @@ After this roadmap is accepted and the dedicated P1.4a/P1.4b/P1.5 implementation
 
 Before P1.10 releases an executable order:
 
-1. P1.2 provides inactive-by-default WMS Sites, required raw-material/finished-goods defaults, one-active-site-per-warehouse semantics, scoping, and immutable consumer snapshots.
+1. The external WMS Site contract provides inactive-by-default Sites, required raw-material/finished-goods defaults, one-active-site-per-warehouse semantics, scoping, and immutable consumer snapshots.
 2. The Catalog exact quantity/UoM contract is available for definition and order quantities.
 3. P1.4a/P1.5 provide the accepted BOM/routing definition contracts, and P1.6 defines minimal work centres; P1.4b preview is not a release prerequisite, while calendars and finite scheduling remain optional.
 4. P1.7 defines atomic definition release, child-revision selection, occurrence-preserving immutable definition snapshots, cycle rejection and optional sequential routing.
@@ -450,7 +450,7 @@ The following do not block the first production flow and receive dedicated speci
 
 | Slice | Primary owner | Required evidence | Current document status |
 |---|---|---|---|
-| WMS Site | WMS | Scope, activation roles, one-active-site-per-warehouse, snapshots, migration, setup UI | P1.2 design complete — readiness review pending |
+| WMS Site | WMS | Scope, activation roles, one-active-site-per-warehouse, snapshots, migration, setup UI | External WMS capability; design complete, readiness review pending |
 | Work centres | `resources`, `planner`, Manufacturing | Minimal work-centre/resource boundary and optional sequential routing | Not authored |
 | Released definitions | `manufacturing` | Lifecycle, child selection, immutable definition snapshots, cycle validation, fixed/variable/yield semantics; order release is excluded | Not authored; tracked by #5396 |
 | Minimum fact ledger | `manufacturing` model-neutral boundary | Append-only model-neutral facts, acceptance/correction/idempotency primitives and opaque evidence references | Not authored; tracked by #5399 |
@@ -755,7 +755,7 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - 2026-08-13 (Revision 3): Made WMS the owner of the quality-aware availability projection and the single source of truth for committed stock; planning pegs are proposals.
 - 2026-08-13 (Revision 3): Fixed lot/serial numbering direction (production assigns from a sites/WMS-owned range; WMS records/validates), introduced backflush semantics, a bitemporal time model, an as-of valuation reference, idempotency/dedup retention, the facts-as-module-event-store rule, a minimal demand-signal contract, and the parent/child order-network seam. Later revisions refined backflush into a Manufacturing mode over generic WMS physical lines.
 - 2026-08-13 (Revision 3): Expanded Wave 0 gates (11–14), risks, validation scenarios, ownership matrix, and the dependency diagram (now shows costing and the peg→reservation flow) to match the above.
-- 2026-08-13 (Revision 4): Aligned the roadmap with the completed P1.2 WMS `Site` design: current warehouse-role assignments with one default replace effective-dated mappings in the MVP; consumers preserve history through immutable snapshots; site timezone/effective dating are future capabilities; production number ranges move to a separate mandatory Wave 0 specification.
+- 2026-08-13 (Revision 4): Aligned the roadmap with the WMS `Site` design: current warehouse-role assignments with one default replace effective-dated mappings in the MVP; consumers preserve history through immutable snapshots; site timezone/effective dating are future capabilities; production number ranges move to a separate mandatory Wave 0 specification.
 - 2026-08-13 (Revision 5): Clarified that `Site` uses the full canonical custom-field/CrudForm/undo extension pipeline while warehouse-role assignments remain closed; the setup-once UI keeps stable DataTable injection hosts but deliberately omits CRM-scale search, filters, column chooser, saved views, exports, selection, and bulk actions.
 - 2026-08-19: Made multi-level BOM explosion and occurrence-preserving duplicate component lines mandatory for the first discrete core. Added cycle rejection, deterministic site/date revision selection, exact base-output and fixed/variable/yield line-consumption semantics, and a multi-vendor official-documentation benchmark rule. Deferred alternatives, substitutions, phantom flattening, and unit/serial effectivity to dedicated later specifications.
 - 2026-08-14: Made the roadmap self-contained by consolidating decision provenance, linking the committed Wave 0 document set, identifying the number-range specification as not yet authored, and removing unverifiable references to uncommitted review files.
@@ -774,6 +774,7 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - 2026-08-19: Added owner-approved post-Wave 0 BOM capability trackers P1.4c-h: list workspace, business identity, history/comments, revision comparison/where-used, copy, and extensibility/document control. They are independent decision/specification work and do not delay the Wave 0 gates.
 - 2026-08-20: Accepted the roadmap as the baseline for staged Wave 0 delivery. Initial capability work prioritizes the BOM lane (P1.4a), the Work Center boundary (P1.6), and routing/operation drafts (P1.5), while preserving the prerequisite order: P1.0a and the Catalog public quantity/UoM contract enable P1.4a, and P1.6 precedes P1.5.
 - 2026-08-28: Removed Catalog and WMS delivery tasks from the Manufacturing roadmap. Manufacturing consumes their public contracts without owning their scope, tracking or delivery order.
+- 2026-08-28: Moved the WMS Site and warehouse-role capability out of the Manufacturing work-item sequence; it remains an external WMS-owned public contract for later release and order flows.
 
 ### Review - 2026-08-13
 

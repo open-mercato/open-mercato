@@ -33,12 +33,12 @@ Progress is controlled through three separate states: skeleton-ready, full-spec-
 | Q1 — Manufacturing workspace package/module | Accepted by the roadmap owner on 2026-08-19 | Create one OSS workspace package at `packages/manufacturing`, published as `@open-mercato/manufacturing`, containing one opt-in runtime module `manufacturing`; hard-require `catalog`, keep WMS/Resources/Planner optional, and expose entrypoints only. |
 ## Scope
 
-This backlog covers Manufacturing-owned Wave 0 specification authoring and readiness work for P1.0a, P1.2, P1.4 through P1.12. It also records the owner-approved, non-blocking post-Wave 0 BOM candidates P1.4c through P1.4h and P1.13; neither group is an implementation commitment.
+This backlog covers Manufacturing-owned Wave 0 specification authoring and readiness work for P1.0a and P1.4 through P1.12. It also records the owner-approved, non-blocking post-Wave 0 BOM candidates P1.4c through P1.4h and P1.13; neither group is an implementation commitment. WMS Site remains an external WMS-owned capability, not a Manufacturing work item.
 
 The backlog will define:
 
 - one bootstrap specification for the Manufacturing package and single initial module;
-- readiness reviews for the four existing P1.2/P1.3 specifications;
+- readiness reviews for adopted Manufacturing specifications where required;
 - one specification per independently deployable capability;
 - the order in which skeletons, full specifications, readiness audits, and implementation tasks may be produced;
 - a shared Definition of Ready and Definition of Done;
@@ -52,7 +52,6 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 |---|---|---|---|
 | 1 | P1.0 roadmap acceptance | Repository decision record | Accepted as the staged-delivery baseline on 2026-08-20 |
 | 2 | P1.0a Manufacturing package and module bootstrap | Full specification | Design resolved; scope-cohesion review **KEEP**; accepted for staged implementation |
-| 3 | P1.2 WMS Sites and warehouse roles | Readiness analysis of existing specification | Design complete |
 | 4a | P1.4a BOM draft authoring and integrity | Full specification | Implementation-ready design; fresh-context review **PASS**; upstream gates remain |
 | 4b | P1.4b bounded multi-level BOM draft preview | Full specification | Implementation-ready read-only design; fresh-context review **PASS**; upstream gates remain |
 | Post-W0 1 | P1.4c BOM list workspace | New specification | Decision queue accepted; tracker [#5408](https://github.com/open-mercato/open-mercato/issues/5408) open |
@@ -83,7 +82,7 @@ It will not define the entities, APIs, UI, events, migrations, or implementation
 - P1.4a is reusable definition master data and therefore carries no customer, sales-order, required-date, or planned-date fields. P1.7 owns definition effectivity/Site applicability; P1.10 owns demand source and scheduling dates; a future ETO/order-specific BOM requires a separate snapshot/overlay specification.
 - P1.12 is evidence attached to every capability; it does not own product data or a lifecycle.
 - P1.13, MRP, APS, full MES/QMS, costing, advanced genealogy, automatic numbering, and enterprise packaging do not block the first production flow.
-- Existing P1.2 documentation requires a formal pre-implementation readiness report before it may be marked ready. Catalog and WMS work retains its own owner documentation and tracking.
+- The external WMS Site capability retains its own documentation, readiness review and tracking. Catalog and other WMS work also remain with their owners.
 
 ## Deferred Future Consideration: Collaborative BOM Drafting
 
@@ -144,8 +143,8 @@ P1.7/P1.10 add released/execution semantics to P1.4e, P1.4f and P1.4h; none of P
 P1.0a --> P1.6 Work Centers --> P1.5 routing drafts
 P1.0a --> P1.9 fact ledger
 
-P1.2 + Catalog public quantity/UoM contract + P1.4a + P1.5 + P1.6 --> P1.7 definition release
-P1.2 + Catalog public quantity/UoM contract + P1.7 + P1.9 --> P1.10 order lifecycle + execution snapshot + basic confirmations
+External WMS Site contract + Catalog public quantity/UoM contract + P1.4a + P1.5 + P1.6 --> P1.7 definition release
+External WMS Site contract + Catalog public quantity/UoM contract + P1.7 + P1.9 --> P1.10 order lifecycle + execution snapshot + basic confirmations
 External WMS posting contract + P1.9 + P1.10 --> P1.8b Manufacturing adapter
 External WMS quantity/evidence/posting contracts + P1.8b + P1.10 --> P1.11 stock execution
 
@@ -161,7 +160,6 @@ The lanes describe contract-finalization order, not a ban on earlier skeletons o
 |---|---|---|---|---|
 | P1.0 | Existing roadmap and repository review evidence | Maintainers/community | In progress | PR #5256 is accepted or revised |
 | P1.0a | `2026-08-19-manufacturing-package-module-bootstrap.md` | `@open-mercato/manufacturing` / `manufacturing` | Full spec complete | P1.0 package/module decision is accepted through repository review |
-| P1.2 | `analysis/ANALYSIS-2026-08-19-wms-sites-and-warehouse-roles.md` | WMS | Readiness audit now | P1.0 accepted and all critical findings remediated |
 | P1.4a | `2026-08-19-manufacturing-bom-drafts.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a package contract and Catalog public quantity/UoM contract available |
 | P1.4b | `2026-08-19-manufacturing-bom-draft-preview.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a, Catalog public quantity/UoM contract and P1.4a ready |
 | P1.4c | `manufacturing-bom-list-workspace.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | Search/filter/index/sort/perspective decisions resolved; P1.4a list contract stable |
@@ -172,10 +170,10 @@ The lanes describe contract-finalization order, not a ban on earlier skeletons o
 | P1.4h | `manufacturing-bom-extensibility-and-document-control.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | Field/reference ownership, provider, retention and release behavior resolved |
 | P1.6 | `2026-08-19-manufacturing-work-centres.md` | `manufacturing` with optional `resources` input | Skeleton/code audit now | Ownership, resource cardinality, snapshot and planner-absent behavior resolved |
 | P1.5 | `2026-08-19-manufacturing-routing-drafts.md` | `manufacturing` | Skeleton after P1.6 questions are known | P1.6 Work Center contract ready |
-| P1.7 | `2026-08-19-manufacturing-released-definitions.md` | `manufacturing` | Skeleton after P1.4a/P1.5 release inputs and P1.6 ownership shapes are known | P1.2, Catalog public quantity/UoM contract, P1.4a, P1.5 and P1.6 ready; scope stops before order release; P1.4b is not a release prerequisite |
+| P1.7 | `2026-08-19-manufacturing-released-definitions.md` | `manufacturing` | Skeleton after P1.4a/P1.5 release inputs and P1.6 ownership shapes are known | External WMS Site contract, Catalog public quantity/UoM contract, P1.4a, P1.5 and P1.6 ready; scope stops before order release; P1.4b is not a release prerequisite |
 | P1.8b | `2026-08-19-manufacturing-inventory-posting-adapter.md` | `manufacturing` | Semantic-command research now | External WMS posting contract, P1.9 fact-writer contract and P1.10 execution-snapshot/confirmation contract ready |
 | P1.9 | `2026-08-19-manufacturing-fact-ledger.md` | `manufacturing` | Skeleton/research now | P1.0a ready; neutral fact, correction, idempotency and opaque evidence-reference contracts resolved without WMS vocabulary |
-| P1.10 | `2026-08-19-manufacturing-orders-and-confirmations.md` | `manufacturing` | Use-case preparation after P1.7/P1.9 skeletons | P1.2, Catalog public quantity/UoM contract, P1.7 and P1.9 ready |
+| P1.10 | `2026-08-19-manufacturing-orders-and-confirmations.md` | `manufacturing` | Use-case preparation after P1.7/P1.9 skeletons | External WMS Site contract, Catalog public quantity/UoM contract, P1.7 and P1.9 ready |
 | P1.11 | `2026-08-19-manufacturing-stock-execution.md` | `manufacturing` | Acceptance-scenario preparation only | External WMS quantity, evidence and posting contracts, P1.8b, P1.9 and P1.10 ready; validation spike accepted |
 | P1.12 | No standalone spec; evidence matrix below | Every owner | With each artifact | The related epic cannot be ready without its evidence |
 | P1.13 | No Wave 0 MVP artifact | Future owner | Deferred | Selected as a later capability |
@@ -248,7 +246,6 @@ Every capability specification and implementation epic must record the applicabl
 | Work item | Audit required |
 |---|---|
 | P1.0a | Workspace/package conventions, module auto-discovery, app enablement, generator outputs, public export and test patterns from existing standalone module packages |
-| P1.2 | Existing WMS topology, scope helpers, custom-field hosts, activation concurrency, migration and backend configuration UI |
 | P1.4a | Catalog product/variant/UoM contracts, revision-like entities, commands/undo, locking, CRUD/API/UI extension hosts, ACL/events and disabled-module conventions |
 | P1.4b | Recursive/batched read patterns, exact-decimal explosion, transaction isolation, custom action routes/OpenAPI, bounded tree UI, cache/event and performance conventions |
 | P1.4c | Sales DataTable filters/search/export/perspective patterns, BOM keyset cursor contract, per-user perspective persistence and required list indexes |
@@ -266,8 +263,8 @@ Every capability specification and implementation epic must record the applicabl
 | Phase | Outcome | Exit condition |
 |---|---|---|
 | 0. Backlog approval | Owners accept this decomposition and the documented parent-document alignment | This document is approved; P1.0 remains subject to PR #5256 |
-| 1. Foundations | First authoring batch produces bootstrap/base skeletons and prerequisite readiness evidence | P1.0a, P1.2, P1.4a-b, P1.6 and P1.9 have the evidence required for their next state |
-| 2. Gate A specifications | Draft-definition capabilities become implementation-ready | P1.2, P1.4a, P1.4b, P1.5 and P1.6 pass their individual compliance reviews; Catalog quantity/UoM is consumed as an external public contract |
+| 1. Foundations | First authoring batch produces bootstrap/base skeletons and prerequisite readiness evidence | P1.0a, P1.4a-b, P1.6 and P1.9 have the evidence required for their next state |
+| 2. Gate A specifications | Draft-definition capabilities become implementation-ready | P1.4a, P1.4b, P1.5 and P1.6 pass their individual compliance reviews; Catalog quantity/UoM is consumed as an external public contract |
 | 3. Gate B specifications | Released definitions, fact ledger, order lifecycle and basic stock-free confirmations become implementation-ready | P1.7, P1.9 and P1.10 pass their individual compliance reviews |
 | 4. Gate C specifications | Manufacturing adapter and stock-affecting execution become implementation-ready | External WMS quantity, evidence and posting contracts, P1.8b and P1.11 pass their respective readiness and validation gates |
 | 5. Implementation planning | Approved specs are decomposed into concrete implementation Issues/tasks | Each task links one implementation-ready specification and its required P1.12 evidence |
@@ -279,10 +276,9 @@ Phases express readiness dependencies, not one serial delivery train. Work may p
 The first batch starts only artifacts that can make independent progress without inventing downstream contracts:
 
 1. **P1.0a skeleton** — package manifest, two module boundaries, discovery/testing contract and no domain behavior.
-2. **P1.2 readiness analysis** — formal pre-implementation report for the existing Site specification.
-3. **P1.4a/P1.4b full specifications** — occurrence-preserving direct-level BOM authoring/integrity and its independently bounded read-only multi-level preview; no release or stock behavior.
-4. **P1.6 skeleton** — Work Center ownership over `resources`; no scheduling semantics.
-5. **P1.9 skeleton** — model-neutral append-only fact ledger, correction/idempotency and opaque evidence references; no discrete confirmation UI or order orchestration.
+2. **P1.4a/P1.4b full specifications** — occurrence-preserving direct-level BOM authoring/integrity and its independently bounded read-only multi-level preview; no release or stock behavior.
+3. **P1.6 skeleton** — Work Center ownership over `resources`; no scheduling semantics.
+4. **P1.9 skeleton** — model-neutral append-only fact ledger, correction/idempotency and opaque evidence references; no discrete confirmation UI or order orchestration.
 
 P1.5, P1.7, P1.8b, P1.10 and P1.11 remain preparation-only until the named upstream contracts expose stable shapes.
 
@@ -303,7 +299,6 @@ Tracking was created on 2026-08-19. [Issue #5386](https://github.com/open-mercat
 | Work item | Tracker |
 |---|---|
 | P1.0a | [#5387](https://github.com/open-mercato/open-mercato/issues/5387) |
-| P1.2 | [#5389](https://github.com/open-mercato/open-mercato/issues/5389) |
 | P1.4a | [#5393](https://github.com/open-mercato/open-mercato/issues/5393) |
 | P1.4b | [#5405](https://github.com/open-mercato/open-mercato/issues/5405) |
 | P1.4c | [#5408](https://github.com/open-mercato/open-mercato/issues/5408) |
@@ -414,6 +409,7 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 - 2026-08-19: Fresh-context review split P1.4 into P1.4a direct-level BOM draft authoring/integrity (#5393) and P1.4b bounded read-only multi-level preview (#5405); the roadmap owner accepted the boundary.
 - 2026-08-19: Completed both split specifications, fresh-context reviews (**PASS**), P1.12 mappings and final compliance gates; implementation remains blocked by their named P1.0/P1.0a/Catalog-contract/P1.4a prerequisites.
 - 2026-08-28: Removed Catalog and WMS delivery work from the Manufacturing backlog. Manufacturing consumes public contracts and does not own, track or wait on those tasks as module dependencies.
+- 2026-08-28: Removed WMS Site and warehouse-role assignments from the Manufacturing tracker set; their readiness remains WMS-owned and is recorded only as an external contract for later release and order flows.
 - 2026-08-19: Re-ran the P1.4a pre-implementation audit, remediated framework/data/API/UI/export findings, and recorded that reusable BOMs exclude customer/order/due-date context owned by P1.10.
 - 2026-08-19: Added deferred future consideration for collaborative BOM drafting. P1.4a remains aligned with the standard Sales/platform optimistic-lock pattern; presence, ownership, comparison, merge, and recovery stay outside Wave 0 pending real collaboration evidence.
 - 2026-08-19: Added a post-Wave 0 BOM decision queue for list perspectives/filtering, business identity, history/comments, revision impact analysis, reuse/import/export, extensibility/document control, and alternatives. Each remains an independent candidate rather than an unapproved expansion of P1.4a.

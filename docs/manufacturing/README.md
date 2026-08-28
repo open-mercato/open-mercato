@@ -2,7 +2,7 @@
 
 > A single operational view of the Manufacturing programme. It links the product roadmap, delivery workstreams, capability specifications, and the relevant GitHub Issues and Pull Requests.
 
-**Last reviewed:** 2026-08-20
+**Last reviewed:** 2026-08-28
 **Programme status:** The product roadmap is the accepted baseline for staged Wave 0 delivery. Each slice proceeds only through a dedicated ready specification and its named safety gates.
 
 ## How to use this document
@@ -26,7 +26,6 @@ The opt-in `manufacturing` module owns production intent, semantic commands, der
 |---|---|---|---|---|---|
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Accepted architectural baseline | Yes, as staged-delivery governance | Parent roadmap | Maintain the accepted roadmap laws and evidence as implementation proceeds |
 | P1.0a | Bootstrap `@open-mercato/manufacturing` with one opt-in `manufacturing` module | [Full specification accepted; task #5387](https://github.com/open-mercato/open-mercato/issues/5387) | Yes, implementation may begin | P1.0 accepted | Implement the metadata-only bootstrap: hard `catalog`, optional WMS/Resources/Planner, entrypoint-only exports |
-| P1.2 | Establish the minimal WMS Site and current warehouse-role model | Design complete; [readiness task #5389](https://github.com/open-mercato/open-mercato/issues/5389) open | Readiness audit now; implementation after pass | Tenant and organisation scope invariants | Run the formal readiness audit, then remediate critical findings before implementation |
 | P1.4a | Author direct-level BOM drafts and enforce aggregate integrity | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md); [spec task #5393](https://github.com/open-mercato/open-mercato/issues/5393) | Implementation-ready design; fresh-context review **PASS** | P1.0 acceptance, P1.0a, Catalog exact quantity/UoM contract | Accept upstream gates, then implement versioned families/revisions/occurrences, exact quantities, optimistic locking, commands/undo and cycle-safe CRUD/API/UI |
 | P1.4b | Preview bounded multi-level BOM drafts | [Full specification](../../.ai/specs/2026-08-19-manufacturing-bom-draft-preview.md); [spec task #5405](https://github.com/open-mercato/open-mercato/issues/5405) | Implementation-ready read-only design; fresh-context review **PASS** | P1.0 acceptance, P1.0a, Catalog exact quantity/UoM contract, P1.4a | Accept upstream gates, then implement the occurrence tree, exact fixed/variable/yield explosion, repeatable-read snapshot and hard depth/node bounds |
 | P1.4c | Add a Sales-level BOM list workspace | [Spec task #5408](https://github.com/open-mercato/open-mercato/issues/5408) | Post-Wave 0 decision/specification work | P1.4a | Search, BOM-appropriate filters/sorting and per-user column/filter/sort perspectives; retain keyset pagination and exclude bulk mutation |
@@ -37,30 +36,35 @@ The opt-in `manufacturing` module owns production intent, semantic commands, der
 | P1.4h | Add BOM customisation and document control | [Spec task #5413](https://github.com/open-mercato/open-mercato/issues/5413) | Post-Wave 0 decision/specification work | P1.4a; P1.7 for released-document semantics | Custom fields, optional tags and controlled attachments/links; provider, retention and ownership remain decisions |
 | P1.5 | Author draft routings and operations | [Spec task #5395](https://github.com/open-mercato/open-mercato/issues/5395) open | Preparation after P1.6 questions are known | P1.0a, P1.6 | Author the specification for an optional single-sequence routing draft without scheduling semantics |
 | P1.6 | Establish the work-centre extension boundary | [Spec task #5394](https://github.com/open-mercato/open-mercato/issues/5394) open | Skeleton/current-state audit now | P1.0a | Resolve resource cardinality, snapshot and planner-absent behavior |
-| P1.7 | Define the released-definition lifecycle and immutable definition snapshots | [Spec task #5396](https://github.com/open-mercato/open-mercato/issues/5396) open | Preparation only until upstream shapes stabilize | P1.2, Catalog exact quantity/UoM contract, P1.4a, P1.5, P1.6 | Freeze child revisions and occurrence-preserving definition snapshots; stop before order release; P1.4b preview is not a release prerequisite |
+| P1.7 | Define the released-definition lifecycle and immutable definition snapshots | [Spec task #5396](https://github.com/open-mercato/open-mercato/issues/5396) open | Preparation only until upstream shapes stabilize | External WMS Site contract, Catalog exact quantity/UoM contract, P1.4a, P1.5, P1.6 | Freeze child revisions and occurrence-preserving definition snapshots; stop before order release; P1.4b preview is not a release prerequisite |
 | P1.8b | Define the Manufacturing inventory posting adapter | [Spec task #5398](https://github.com/open-mercato/open-mercato/issues/5398) open | Semantic preparation only | External provider-neutral WMS posting contract, P1.9, P1.10 | Translate issue, return, backflush, output, scrap and reversal intent into the generic WMS contract |
 | P1.9 | Define the minimum Manufacturing fact ledger | [Spec task #5399](https://github.com/open-mercato/open-mercato/issues/5399) open | Skeleton/spike pending baseline acceptance | P1.0a | Define append-only model-neutral facts, correction/idempotency primitives and opaque evidence references; no discrete confirmation UI |
-| P1.10 | Add the first discrete production-order lifecycle, execution snapshot and basic confirmations | [Spec task #5400](https://github.com/open-mercato/open-mercato/issues/5400) open; blocked as a shippable feature | Use-case preparation only | P1.2, Catalog exact quantity/UoM contract, P1.7, P1.9 | Specify top-level definition selection, immutable execution snapshot, lifecycle and stock-free confirmation/correction flow |
+| P1.10 | Add the first discrete production-order lifecycle, execution snapshot and basic confirmations | [Spec task #5400](https://github.com/open-mercato/open-mercato/issues/5400) open; blocked as a shippable feature | Use-case preparation only | External WMS Site contract, Catalog exact quantity/UoM contract, P1.7, P1.9 | Specify top-level definition selection, immutable execution snapshot, lifecycle and stock-free confirmation/correction flow |
 | P1.11 | Add stock-affecting production execution | [Spec task #5401](https://github.com/open-mercato/open-mercato/issues/5401) open; blocked | Acceptance-scenario preparation only | External WMS quantity, evidence and provider-neutral posting contracts; P1.8b, P1.9–P1.10 | Do not begin implementation before exact WMS posting/reversal and adapter contracts are proven safe |
 | P1.12 | Cross-cutting readiness and integration coverage | Ongoing with each epic | Yes | Respective implementation | Add isolation, conflict, reversal, partial-failure, compatibility, and disabled-module coverage |
 | P1.13 | Add advanced production number ranges | Not authored; future necessary capability | Later; not an MVP gate | Basic production identities plus site/type requirements | Specify configurable order/batch/lot/serial formats, resets, block reservation, and offline allocation |
+
+## External capabilities, outside the Manufacturing roadmap
+
+| Capability | Owner and tracking | Relationship to Manufacturing |
+|---|---|---|
+| WMS Site and current warehouse-role assignments | WMS; [readiness task #5389](https://github.com/open-mercato/open-mercato/issues/5389) | A standalone WMS capability. Manufacturing neither installs nor implements it; released definitions and production orders consume its public Site contract only when they require a site. |
 
 ## Delivery sequence
 
 ```text
 Parallel foundation work
   P1.0a Manufacturing package/module bootstrap
-  P1.2 WMS Site
   P1.4a direct BOM draft authoring/integrity → P1.4b bounded multi-level preview
   Post-Wave 0 BOM usability/control lane: P1.4c list workspace, P1.4d identity, P1.4e history/comments,
     P1.4f revision comparison/where-used, P1.4g copy, P1.4h extensibility/document control
   P1.5 optional sequential routing drafts, P1.6 work-centre boundary
 
 Foundation contracts
-  P1.2 + Catalog exact quantity/UoM contract + P1.4a + P1.5 + P1.6 → P1.7 released definitions
+  External WMS Site contract + Catalog exact quantity/UoM contract + P1.4a + P1.5 + P1.6 → P1.7 released definitions
   P1.0a → P1.9 Manufacturing fact ledger
 First shippable production flow
-  P1.2 + Catalog exact quantity/UoM contract + P1.7 + P1.9 → P1.10 lifecycle + execution snapshot + basic confirmations
+  External WMS Site contract + Catalog exact quantity/UoM contract + P1.7 + P1.9 → P1.10 lifecycle + execution snapshot + basic confirmations
   External provider-neutral WMS posting contract + P1.9 + P1.10 → P1.8b Manufacturing inventory adapter
   External WMS quantity/evidence/posting contracts + P1.8b + P1.10 → P1.11 stock-affecting execution
 
@@ -68,7 +72,7 @@ Later capability
   P1.13 configurable order/batch/lot/serial number ranges and offline allocation
 ```
 
-The first staged increment is the P1.0a package/module bootstrap, alongside readiness and specification work on P1.2, the P1.4a BOM lane, the P1.6 Work Center boundary, and then P1.5 routing/operation drafts. P1.4a consumes Catalog only through its public quantity/UoM contract; P1.5 follows P1.6. P1.10 and P1.11 are not implementation work to start now.
+The first staged increment is the P1.0a package/module bootstrap, alongside the P1.4a BOM lane, the P1.6 Work Center boundary, and then P1.5 routing/operation drafts. P1.4a consumes Catalog only through its public quantity/UoM contract; P1.5 follows P1.6. P1.10 and P1.11 are not implementation work to start now. The WMS Site capability is tracked and delivered by WMS; Manufacturing consumes its public contract only when release and order flows need a site.
 
 ## Mandatory BOM rules
 
@@ -134,7 +138,7 @@ Active Manufacturing and foundation trackers are linked from the parent Issue an
 | [`2026-08-19-manufacturing-wave-0-specification-backlog.md`](../../.ai/specs/2026-08-19-manufacturing-wave-0-specification-backlog.md) | Owner-approved specification decomposition, readiness definitions, artifact plan and GitHub tracker structure |
 | [`waves-and-readiness.md`](waves-and-readiness.md) | Business capability waves and the evidence-linked Wave 0 specification-readiness dashboard |
 | [`2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`](../../.ai/specs/2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Workstream order and dependencies |
-| [`2026-08-13-wms-sites-and-warehouse-roles.md`](../../.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md) | P1.2 capability specification |
+| [`2026-08-13-wms-sites-and-warehouse-roles.md`](../../.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md) | External WMS Site capability specification |
 | [`2026-08-19-manufacturing-bom-drafts.md`](../../.ai/specs/2026-08-19-manufacturing-bom-drafts.md) | P1.4a direct-level BOM draft authoring/integrity specification |
 | [`2026-08-19-manufacturing-bom-draft-preview.md`](../../.ai/specs/2026-08-19-manufacturing-bom-draft-preview.md) | P1.4b bounded read-only multi-level preview specification |
 | [`wms-roadmap-and-estimates-en.md`](../wms/wms-roadmap-and-estimates-en.md) | Broader WMS context; not the authoritative Manufacturing delivery plan |
