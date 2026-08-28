@@ -32,6 +32,13 @@ export type SalesLineUomSnapshot = {
   }
 }
 
+/**
+ * How a caller-supplied `discountAmount` should be read: as a rate per unit, or
+ * as the total for the whole line. Persisted rows always hold a line total —
+ * see `discountAmountFromStoredRow`, which is a separate signal on purpose.
+ */
+export type SalesLineDiscountBasis = 'unit' | 'line'
+
 export type SalesLineSnapshot = {
   id?: string
   lineNumber?: number
@@ -50,6 +57,19 @@ export type SalesLineSnapshot = {
   unitPriceNet?: number | null
   unitPriceGross?: number | null
   discountAmount?: number | null
+  /**
+   * Caller-supplied ONLY. How to interpret a supplied `discountAmount`.
+   * Omitted means 'unit', which is the meaning the API has always documented.
+   * Entity-to-snapshot mappers MUST NOT set this: a populated value is what
+   * makes this a reliable *caller* signal.
+   */
+  discountAmountBasis?: SalesLineDiscountBasis | null
+  /**
+   * Set by entity-to-snapshot mappers ONLY. Marks `discountAmount` as
+   * reconstructed from a persisted row, so it is a line total and is NOT a
+   * caller assertion. Never persisted; never accepted from a request.
+   */
+  discountAmountFromStoredRow?: boolean
   discountPercent?: number | null
   taxRate?: number | null
   taxAmount?: number | null

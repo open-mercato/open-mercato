@@ -576,3 +576,186 @@ describe('calculateDocumentTotals', () => {
     }
   })
 })
+
+describe('line discount contract (spec 2026-08-07)', () => {
+  const calcLine = async (line: Omit<SalesLineSnapshot, 'kind' | 'currencyCode'>) => {
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: [{ kind: 'product', currencyCode: 'USD', ...line } as SalesLineSnapshot],
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+    return result.lines[0]
+  }
+
+  it('reads a stored line-total discount as a line total rather than a per-unit rate', async () => {
+    const line = await calcLine({
+      quantity: 3,
+      unitPriceNet: 85,
+      discountAmount: 12.75,
+      discountAmountFromStoredRow: true,
+      taxRate: 0,
+    })
+
+    expect(line.discountAmount).toBeCloseTo(12.75, 4)
+    expect(line.netAmount).toBeCloseTo(242.25, 4)
+  })
+
+  it('multiplies a caller-supplied amount by quantity, preserving the documented API meaning', async () => {
+    const line = await calcLine({ quantity: 60, unitPriceNet: 50, discountAmount: 5, taxRate: 0 })
+
+    expect(line.discountAmount).toBeCloseTo(300, 4)
+    expect(line.netAmount).toBeCloseTo(2700, 4)
+  })
+
+  it('honours an explicit line basis from a caller without multiplying by quantity', async () => {
+    const line = await calcLine({
+      quantity: 60,
+      unitPriceNet: 50,
+      discountAmount: 5,
+      discountAmountBasis: 'line',
+      taxRate: 0,
+    })
+
+    expect(line.discountAmount).toBeCloseTo(5, 4)
+    expect(line.netAmount).toBeCloseTo(2995, 4)
+  })
+
+  it('treats an explicit unit basis the same as an omitted one', async () => {
+    const explicit = await calcLine({
+      quantity: 4,
+      unitPriceNet: 20,
+      discountAmount: 3,
+      discountAmountBasis: 'unit',
+      taxRate: 0,
+    })
+    const omitted = await calcLine({ quantity: 4, unitPriceNet: 20, discountAmount: 3, taxRate: 0 })
+
+    expect(explicit.discountAmount).toBeCloseTo(12, 4)
+    expect(omitted.discountAmount).toBeCloseTo(explicit.discountAmount as number, 4)
+  })
+
+  it('lets the percentage win over a stored amount, so a re-inflated row heals itself', async () => {
+    const line = await calcLine({
+      quantity: 3,
+      unitPriceNet: 85,
+      discountAmount: 255,
+      discountPercent: 5,
+      discountAmountFromStoredRow: true,
+      taxRate: 0,
+    })
+
+    expect(line.discountAmount).toBeCloseTo(12.75, 4)
+    expect(line.netAmount).toBeCloseTo(242.25, 4)
+  })
+
+  it('restores a dropped discount when the stored amount is zero but a percentage remains', async () => {
+    const line = await calcLine({
+      quantity: 60,
+      unitPriceNet: 50,
+      discountAmount: 0,
+      discountPercent: 10,
+      discountAmountFromStoredRow: true,
+      taxRate: 0,
+    })
+
+    expect(line.discountAmount).toBeCloseTo(300, 4)
+    expect(line.netAmount).toBeCloseTo(2700, 4)
+  })
+
+  it('applies the percentage when a caller sends discountAmount 0 alongside it (decision D3)', async () => {
+    const line = await calcLine({ quantity: 5, unitPriceNet: 40, discountAmount: 0, discountPercent: 10, taxRate: 0 })
+
+    expect(line.discountAmount).toBeCloseTo(20, 4)
+    expect(line.netAmount).toBeCloseTo(180, 4)
+  })
+
+  it('applies no discount when neither a percentage nor an amount is supplied', async () => {
+    const line = await calcLine({ quantity: 5, unitPriceNet: 40, discountAmount: 0, discountPercent: 0, taxRate: 0 })
+
+    expect(line.discountAmount).toBeCloseTo(0, 4)
+    expect(line.netAmount).toBeCloseTo(200, 4)
+  })
+
+  it('clamps a stored discount that exceeds the line subtotal instead of driving net negative', async () => {
+    const line = await calcLine({
+      quantity: 2,
+      unitPriceNet: 10,
+      discountAmount: 500,
+      discountAmountFromStoredRow: true,
+      taxRate: 0,
+    })
+
+    expect(line.discountAmount).toBeCloseTo(20, 4)
+    expect(line.netAmount).toBeCloseTo(0, 4)
+  })
+
+  it('stays idempotent when the persisted discount is fed back in five times over', async () => {
+    let storedDiscount = 12.75
+    let storedNet = 242.25
+
+    for (let pass = 0; pass < 5; pass += 1) {
+      const line = await calcLine({
+        quantity: 3,
+        unitPriceNet: 85,
+        discountAmount: storedDiscount,
+        discountAmountFromStoredRow: true,
+        taxRate: 0,
+      })
+      storedDiscount = line.discountAmount as number
+      storedNet = line.netAmount as number
+    }
+
+    expect(storedDiscount).toBeCloseTo(12.75, 4)
+    expect(storedNet).toBeCloseTo(242.25, 4)
+  })
+
+  it.each([
+    { quantity: 1, unitPriceNet: 85, discountPercent: 5, expectedDiscount: 4.25 },
+    { quantity: 3, unitPriceNet: 85, discountPercent: 5, expectedDiscount: 12.75 },
+    { quantity: 4, unitPriceNet: 25, discountPercent: 10, expectedDiscount: 10 },
+    { quantity: 60, unitPriceNet: 50, discountPercent: 10, expectedDiscount: 300 },
+  ])(
+    'recalculating a percentage line ($quantity x $unitPriceNet at $discountPercent%) is idempotent',
+    async ({ quantity, unitPriceNet, discountPercent, expectedDiscount }) => {
+      const first = await calcLine({ quantity, unitPriceNet, discountPercent, taxRate: 0 })
+      const second = await calcLine({
+        quantity,
+        unitPriceNet,
+        discountPercent,
+        discountAmount: first.discountAmount,
+        discountAmountFromStoredRow: true,
+        taxRate: 0,
+      })
+
+      expect(first.discountAmount).toBeCloseTo(expectedDiscount, 4)
+      expect(second.discountAmount).toBeCloseTo(expectedDiscount, 4)
+      expect(second.netAmount).toBeCloseTo(first.netAmount as number, 4)
+    },
+  )
+
+  it('keeps the document subtotal positive when a discounted multi-unit line is recalculated (issue #3757)', async () => {
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines: [
+        {
+          kind: 'product',
+          quantity: 3,
+          currencyCode: 'USD',
+          unitPriceNet: 85,
+          discountAmount: 255,
+          discountPercent: 5,
+          discountAmountFromStoredRow: true,
+          totalGrossAmount: 242.25,
+          taxRate: 0,
+        },
+      ],
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(242.25, 4)
+    expect(result.totals.discountTotalAmount).toBeCloseTo(12.75, 4)
+    expect(result.totals.grandTotalGrossAmount).toBeGreaterThan(0)
+  })
+})

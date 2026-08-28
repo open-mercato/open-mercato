@@ -390,7 +390,7 @@
   "auth.acl.modules.webhooks": "Webhooks",
   "auth.acl.modules.wms": "Warehouse Management System",
   "auth.acl.modules.workflows": "Workflow Engine",
-  "auth.acl.organizationWarning": "조직 제한은 최소 하나의 기능 재정의가 선택된 경우에만 저장됩니다. 저장하기 전에 기능을 추가하거나 모듈 와일드카드를 활성화하세요.",
+  "auth.acl.organizationWarning": "조직 제한에는 하나 이상의 기능 재정의가 필요합니다. 기능이나 모듈 와일드카드를 추가하거나 저장하기 전에 조직 범위를 지우세요.",
   "auth.acl.organizationsScope": "조직 범위",
   "auth.acl.organizationsScopeHint": "Empty means all organizations. Select one or more to restrict access.",
   "auth.acl.restricted": "제한됨",

@@ -162,6 +162,60 @@ function buildFieldPairs(recordId: string, doc?: Record<string, unknown> | null)
   return pairs
 }
 
+type TokenRowLike = { field?: unknown; token_hash?: unknown; token?: unknown }
+
+// NUL, not a printable separator: a field name may itself contain a space, so `a b` + hash `c`
+// would otherwise sign identically to field `a` + hash `b c`.
+const SIGNATURE_SEPARATOR = String.fromCharCode(0)
+
+// Identifies one token row for comparison. `token` is NULL unless `storeRawTokens` is on, and a
+// stored NULL has to sign the same as the `null` a freshly built row carries — otherwise every
+// record compares as changed and the skip never fires.
+function tokenSignature(row: TokenRowLike): string {
+  return [
+    String(row.field ?? ''),
+    String(row.token_hash ?? ''),
+    row.token == null ? '' : String(row.token),
+  ].join(SIGNATURE_SEPARATOR)
+}
+
+// Multiplicities, not sets: #4681 reports token rows duplicated by the concurrent-replacement
+// defect, and a set comparison reads such a record as already correct and preserves the duplicates
+// forever. Counting sends it through a full rewrite, which collapses them.
+function tallyOf(rows: Iterable<TokenRowLike>): Map<string, number> {
+  const tally = new Map<string, number>()
+  for (const row of rows) {
+    const signature = tokenSignature(row)
+    tally.set(signature, (tally.get(signature) ?? 0) + 1)
+  }
+  return tally
+}
+
+function tallyEquals(a: Map<string, number> | undefined, b: Map<string, number> | undefined): boolean {
+  const left = a ?? new Map<string, number>()
+  const right = b ?? new Map<string, number>()
+  if (left.size !== right.size) return false
+  for (const [key, count] of left.entries()) {
+    if (right.get(key) !== count) return false
+  }
+  return true
+}
+
+function tallyTokenRows<TRow extends TokenRowLike>(
+  rows: Iterable<TRow>,
+  keyOf: (row: TRow) => string
+): Map<string, Map<string, number>> {
+  const tallies = new Map<string, Map<string, number>>()
+  for (const row of rows) {
+    const key = keyOf(row)
+    const tally = tallies.get(key) ?? new Map<string, number>()
+    const signature = tokenSignature(row)
+    tally.set(signature, (tally.get(signature) ?? 0) + 1)
+    tallies.set(key, tally)
+  }
+  return tallies
+}
+
 export async function replaceSearchTokensForRecord(
   db: Kysely<any>,
   params: BuildTokenOptions,
@@ -173,6 +227,52 @@ export async function replaceSearchTokensForRecord(
   const organizationId = params.organizationId ?? null
   const tenantId = params.tenantId ?? null
   const fieldPairs = buildFieldPairs(String(params.recordId), params.doc)
+
+  // Same comparison #5402 gave the batch path, over the scope this path actually writes: the
+  // delete below is narrowed to the document's own `(entity_id, field)` pairs, so the comparison
+  // has to be narrowed the same way. Reading wider would let a token row under a field this
+  // document does not carry — the `cf_` twin the search module used to write, say — read as a
+  // difference forever and defeat the skip on every write.
+  const scopeTokenQuery = (query: any): any => {
+    let scoped = query
+      .where('entity_type' as any, '=', params.entityType)
+      .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
+      .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+      .where('entity_id' as any, '=', String(params.recordId))
+    if (fieldPairs.length) {
+      scoped = scoped.where('field' as any, 'in', fieldPairs.map(([, field]) => field))
+    }
+    return scoped
+  }
+
+  // Read through the caller's transaction when there is one. A separate connection cannot see that
+  // transaction's own uncommitted writes, so it could report rows a pending delete has already
+  // removed and talk this call out of re-inserting them.
+  const reader = options?.trx ?? db
+
+  // Count probe first, as in the batch path: it returns one row whatever the table holds, so a
+  // record whose stored rows have run away (#4681) is settled without materializing them.
+  const storedCountRows = await scopeTokenQuery(
+    reader.selectFrom('search_tokens' as any).select(sql<number>`count(*)`.as('token_count') as any),
+  ).execute()
+  const storedCount = Number((storedCountRows as any[])[0]?.token_count ?? 0)
+
+  let unchanged = storedCount === rows.length
+  if (unchanged && rows.length) {
+    const stored = await scopeTokenQuery(
+      reader.selectFrom('search_tokens' as any).select(['field' as any, 'token_hash' as any, 'token' as any]),
+    )
+      // Counts already match, so this cannot truncate. It bounds the read if a concurrent writer
+      // inserts between the probe and here; a truncated read compares as changed, which costs a
+      // rewrite rather than a wrong skip.
+      .limit(rows.length)
+      .execute()
+    unchanged = tallyEquals(tallyOf(rows), tallyOf(stored as any[]))
+  }
+  if (unchanged) {
+    debug('record.skip', { entityType: params.entityType, recordId: params.recordId, tokenCount: rows.length })
+    return
+  }
 
   const writeTokens = async (executor: SearchTokenExecutor): Promise<void> => {
     let deleteQuery = executor
@@ -221,49 +321,6 @@ export async function deleteSearchTokensForRecord(
     .where(sql<boolean>`organization_id is not distinct from ${organizationId}`)
     .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
     .execute()
-}
-
-// NUL, not a printable separator: a field name may itself contain a space, so `a b` + hash `c`
-// would otherwise sign identically to field `a` + hash `b c`.
-const SIGNATURE_SEPARATOR = String.fromCharCode(0)
-
-// Identifies one token row for comparison. `token` is NULL unless `storeRawTokens` is on, and a
-// stored NULL has to sign the same as the `null` a freshly built row carries — otherwise every
-// record compares as changed and the skip never fires.
-function tokenSignature(row: { field?: unknown; token_hash?: unknown; token?: unknown }): string {
-  return [
-    String(row.field ?? ''),
-    String(row.token_hash ?? ''),
-    row.token == null ? '' : String(row.token),
-  ].join(SIGNATURE_SEPARATOR)
-}
-
-// Multiplicities, not sets: #4681 reports token rows duplicated by the concurrent-replacement
-// defect, and a set comparison reads such a record as already correct and preserves the duplicates
-// forever. Counting sends it through a full rewrite, which collapses them.
-function tallyEquals(a: Map<string, number> | undefined, b: Map<string, number> | undefined): boolean {
-  const left = a ?? new Map<string, number>()
-  const right = b ?? new Map<string, number>()
-  if (left.size !== right.size) return false
-  for (const [key, count] of left.entries()) {
-    if (right.get(key) !== count) return false
-  }
-  return true
-}
-
-function tallyTokenRows<TRow extends { field?: unknown; token_hash?: unknown; token?: unknown }>(
-  rows: Iterable<TRow>,
-  keyOf: (row: TRow) => string
-): Map<string, Map<string, number>> {
-  const tallies = new Map<string, Map<string, number>>()
-  for (const row of rows) {
-    const key = keyOf(row)
-    const tally = tallies.get(key) ?? new Map<string, number>()
-    const signature = tokenSignature(row)
-    tally.set(signature, (tally.get(signature) ?? 0) + 1)
-    tallies.set(key, tally)
-  }
-  return tallies
 }
 
 export async function replaceSearchTokensForBatch(
