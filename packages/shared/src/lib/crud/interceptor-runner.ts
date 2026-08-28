@@ -247,6 +247,9 @@ export async function runApiInterceptorsAfter(args: {
       } else if (result.merge && typeof result.merge === 'object') {
         body = { ...body, ...result.merge }
       }
+      if (result.headers && typeof result.headers === 'object') {
+        headers = { ...headers, ...result.headers }
+      }
     } catch (error) {
       if (isTimeoutError(error)) {
         const timeoutBody: Record<string, unknown> = { error: 'Interceptor timeout' }

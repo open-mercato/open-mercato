@@ -95,6 +95,64 @@ describe('runCustomRouteAfterInterceptors', () => {
     })
   })
 
+  test('applies headers returned by a matching after interceptor', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.headers',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { merge: { mfa_required: true }, headers: { 'set-cookie': 'om_example=1; Path=/' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const result = await runCustomRouteAfterInterceptors(buildArgs())
+
+    expect(result.ok).toBe(true)
+    // Seeded headers survive alongside the ones the interceptor added.
+    expect(result.headers).toEqual({ 'x-test': '1', 'set-cookie': 'om_example=1; Path=/' })
+    expect(result.body).toMatchObject({ mfa_required: true })
+  })
+
+  test('lets the last interceptor to run win a header collision, as the body merge does', async () => {
+    // Interceptors run in descending priority, so the priority-1 entry runs last.
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.headers.runs-last',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            priority: 1,
+            async after() {
+              return { headers: { 'x-test': 'runs-last' } }
+            },
+          },
+          {
+            id: 'example.auth.login.headers.runs-first',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            priority: 2,
+            async after() {
+              return { headers: { 'x-test': 'runs-first' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const result = await runCustomRouteAfterInterceptors(buildArgs())
+
+    expect(result.headers['x-test']).toBe('runs-last')
+  })
+
   test('propagates timeout failures from interceptor runner', async () => {
     registerApiInterceptors([
       {

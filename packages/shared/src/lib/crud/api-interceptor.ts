@@ -42,6 +42,13 @@ export type InterceptorBeforeResult = {
 export type InterceptorAfterResult = {
   merge?: Record<string, unknown>
   replace?: Record<string, unknown>
+  /**
+   * Response headers to add or overwrite. Merged over the headers the route seeded, in
+   * execution order, so the LAST interceptor to run wins a collision - the same precedence the
+   * body `merge` already follows. Note interceptors run in descending `priority`, so the
+   * lowest-priority entry is the one that wins.
+   */
+  headers?: Record<string, string>
 }
 
 export type ApiInterceptor = {
