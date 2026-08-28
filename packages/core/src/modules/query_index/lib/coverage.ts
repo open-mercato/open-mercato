@@ -140,13 +140,26 @@ async function pruneDuplicateCoverageRows(
   await query.execute()
 }
 
-// Applies a coverage delta as a single `INSERT … ON CONFLICT DO UPDATE` whose SET clause
-// increments the stored columns in SQL (#5604). The obvious alternative — read the row,
-// add the delta in JavaScript, write the total back — is a read-modify-write: two
-// adjustments for the same scope that overlap both read the same row and both write the
-// same total, so one of them is silently lost. Incrementing in SQL makes overlapping
-// adjustments compose, and drops the `SELECT` (and the window between it and the write)
-// that made the coverage row a contention point in the first place.
+// Applies a coverage delta by incrementing the stored columns in SQL (#5604). The obvious
+// alternative — read the row, add the delta in JavaScript, write the total back — is a
+// read-modify-write: two adjustments for the same scope that overlap both read the same row
+// and both write the same total, so one of them is silently lost. Incrementing in SQL makes
+// overlapping adjustments compose, and drops the `SELECT` (and the window between it and the
+// write) that made the coverage row a contention point in the first place.
+//
+// In steady state that is one statement. The extra statements are recovery paths that do not
+// fire once a scope has settled: the legacy NULL-organization fold below runs only for
+// global-organization scopes, the insert only until the scope's row exists, and the duplicate
+// prune only when the scope somehow holds more than one row.
+//
+// The statement is an `UPDATE` rather than an `INSERT … ON CONFLICT DO UPDATE`, because the
+// conflict target cannot see every scope this table stores: `entity_index_coverage_scope_idx`
+// is a plain `UNIQUE` constraint, and Postgres treats NULLs in one as distinct. For a scope
+// whose tenant is NULL — `resolveQueryIndexRecordScope`'s `global` branch, or any source row
+// with a NULL tenant column — the conflict branch would never fire, so every adjustment would
+// insert a fresh row carrying only its own delta and `pruneDuplicateCoverageRows` would then
+// delete the accumulated one. A NULL-aware `UPDATE` matches those rows, and it still adds the
+// delta to the column's own value, so it composes exactly the way the conflict branch does.
 async function incrementCoverageRow(
   db: CoverageExecutor,
   scope: CoverageScope,
@@ -180,6 +193,37 @@ async function incrementCoverageRow(
     }
   }
 
+  let update = db
+    .updateTable('entity_index_coverage' as any)
+    .set({
+      base_count: sql`greatest(${sql.ref('base_count')} + ${deltaBase}, 0)`,
+      indexed_count: sql`greatest(${sql.ref('indexed_count')} + ${deltaIndex}, 0)`,
+      vector_indexed_count: sql`greatest(${sql.ref('vector_indexed_count')} + ${deltaVector}, 0)`,
+      refreshed_at: sql`now()`,
+    } as any)
+    .where('entity_type' as any, '=', scope.entityType)
+    .where('with_deleted' as any, '=', scope.withDeleted === true)
+  update = scope.tenantId == null
+    ? update.where('tenant_id' as any, 'is', null as any)
+    : update.where('tenant_id' as any, '=', scope.tenantId)
+  update = applyOrganizationCondition(update as any, 'organization_id', scope.organizationId ?? null)
+  const updated = await update
+    .returning(['id' as any])
+    .execute() as Array<{ id: string }>
+
+  if (updated.length > 0) {
+    // In steady state the scope holds exactly the row just incremented, so the adjustment is
+    // the single statement it is described as. Only a scope that somehow accumulated more than
+    // one row — a legacy import, or a concurrent first insert on a NULL-tenant scope, which the
+    // unique constraint cannot prevent — pays for the collapse, and only until it is collapsed.
+    if (updated.length > 1) await pruneDuplicateCoverageRows(db, scope, updated[0]!.id)
+    return
+  }
+
+  // No row for this scope yet. `ON CONFLICT` still closes the insert race for every scope the
+  // unique constraint can actually see; a NULL-tenant scope can still end up with a sibling row
+  // when two first adjustments race, which the prune collapses and the `UPDATE` above keeps
+  // accumulating into from then on.
   const rows = await db
     .insertInto('entity_index_coverage' as any)
     .values({
