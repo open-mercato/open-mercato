@@ -1116,6 +1116,7 @@ export function SalesDocumentAddressesSection({
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
+                disabled={locked}
               />
               <SwitchField
                 label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1183,6 +1184,7 @@ export function SalesDocumentAddressesSection({
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
+                    disabled={locked}
                   />
                   <SwitchField
                     label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1285,6 +1287,7 @@ export function SalesDocumentAddressesSection({
                       t={t as Translator}
                       onChange={(next) => setEditingDraft(next)}
                       hidePrimaryToggle
+                      disabled={editingSaving || locked}
                     />
                     <div className="flex justify-end gap-2">
                       <Button
@@ -1401,6 +1404,7 @@ export function SalesDocumentAddressesSection({
                 t={t as Translator}
                 onChange={(next) => setAdditionalDraft(next)}
                 hidePrimaryToggle
+                disabled={additionalSaving || locked}
               />
             ) : null}
 
