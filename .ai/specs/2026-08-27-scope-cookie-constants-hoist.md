@@ -25,10 +25,12 @@ It is a separate PR at the maintainer's request, because it touches a surface li
   private `readCookieFromHeader` / `decodeCookieValue`),
   `packages/shared/src/lib/crud/factory.ts` (`SELECTED_ORG_COOKIE`),
   `packages/core/src/modules/directory/utils/organizationScope.ts` (two inlined cookie-name
-  literals)
+  literals), `apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx` and its byte-identical
+  `create-app` template mirror (one `om_selected_org` literal read from the Next.js cookie
+  store; mirrored per the root `AGENTS.md` template-sync rule)
 - **Not touched**: `resolveOrganizationScopeForRequest` and everything downstream of it,
-  `applySuperAdminScope`'s decision table, the `create-app` starter's
-  `OrganizationSwitcher` (see *Deliberately out of scope*), every consumer's import path
+  `applySuperAdminScope`'s decision table, both `OrganizationSwitcher` components (see
+  *Deliberately out of scope*), every consumer's import path
 
 ## Problem Statement
 
@@ -130,12 +132,17 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
 
 ## Deliberately out of scope
 
-- **`packages/create-app/template/src/components/OrganizationSwitcher.tsx`** still has its
-  own `readSelectedOrganizationCookie` / `readSelectedTenantCookie`. They return a richer
-  `{ value, hasCookie, raw }` shape with its own `__all__` folding, so collapsing them onto
-  the shared reader is a behaviour-preserving rewrite of starter-template code with its own
-  tests — a different review from a contract-surface bridge. It already imports
-  `ALL_ORGANIZATIONS_COOKIE_VALUE` from `core`, so it carries no constant duplication.
+- **`apps/mercato/src/components/OrganizationSwitcher.tsx` and its byte-identical
+  `packages/create-app/template/src/components/OrganizationSwitcher.tsx` mirror** still have
+  their own `readSelectedOrganizationCookie` / `readSelectedTenantCookie`. Both files inline
+  the two cookie names across seven lines — `om_selected_org` at 77, 78 and 181,
+  `om_selected_tenant` at 107, 108, 155 and 165 — and they import
+  `ALL_ORGANIZATIONS_COOKIE_VALUE` from `core`, so the *sentinel* is not duplicated, but both
+  *names* are, in the one component that **writes** the wire format everything else reads.
+  Collapsing them is deferred not because there is nothing to collapse but because the readers
+  return a richer `{ value, hasCookie, raw }` shape with its own `__all__` folding: replacing
+  them is a behaviour-preserving rewrite of a client component with its own tests, a different
+  review from a contract-surface bridge, and it is the highest-value remaining follow-up.
 - **`lib/frontend/organizationEvents.ts`** is not on `develop`; its copy arrives with
   #5690. Switching it over is a two-line follow-up on that branch and does not conflict
   with this one. It must use `readScopeCookieRaw`/`decodeScopeCookieValue`, not the
@@ -161,3 +168,144 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
 - Non-vacuous: undoing the bridge fails 1 core case; flipping the blank semantic fails 3
   shared and 2 core cases; collapsing absent/blank in the raw reader fails 2 shared cases
   and 1 of the new `server.test.ts` cases.
+
+## Risks & Impact Review
+
+### Data Integrity / Cascading / Tenant / Migration / Operational
+
+- **No runtime behaviour changes.** Every moved function reproduces its predecessor term for
+  term; the bridges re-export the same bindings. No entity, migration, API route, response
+  shape, event name or DI key is touched.
+- **Blast radius if the new module were wrong:** wide but shallow — organization/tenant scope
+  resolution runs on every authenticated backend request. That is precisely why the change is
+  a mechanical move plus tests that pin the wire values, and why the two semantics are written
+  down at the module rather than left implicit.
+- **No migration, no config, no ops step.** `packages/shared`'s existing `./*/*/*` export
+  wildcard already resolves `./lib/scope/cookies`; nothing to add to a deploy.
+
+### Risk Register
+
+#### A caller reaches for the selection parser where the lossless pair is required
+
+- **Scenario**: `applySuperAdminScope` needs `om_selected_org=` (present and blank) to stay
+  distinct from an absent cookie — blank is an *applied* "all organizations" override, absent
+  is *no override at all*. `parseScopeSelectionCookie` deliberately collapses blank into
+  `null`. A future contributor tidying up "two functions that look the same" onto the parser
+  would silently turn an applied all-organizations override into no override, widening or
+  narrowing the effective scope of a superadmin request.
+- **Severity**: High if it happened; Low likelihood.
+- **Affected area**: `packages/shared/src/lib/auth/server.ts` → `applySuperAdminScope`, and any
+  future caller of the raw pair (`lib/frontend/organizationEvents.ts` on #5690 is the second).
+- **Mitigation**: the asymmetry is documented in three places — the module header (which names
+  `lib/auth/server.ts` as the one legitimate caller and tells everyone else to prefer the
+  parsers), this spec, and a comment in the guarding test naming `applySuperAdminScope`;
+  `cookies.test.ts` closes with a case asserting the raw reader and the selection parser agree
+  on a real value and diverge only on a blank one, so the tidy-up fails a test that explains
+  itself; two cases were added to
+  `lib/auth/__tests__/server.test.ts`, which was green before this change even when the reader
+  was mutated to collapse blank into absent.
+- **Residual risk**: Low — a contributor who deletes the guarding test as "redundant" defeats
+  it, which is the normal residual risk of any test-enforced invariant.
+
+#### Something starts writing a blank organization cookie
+
+- **Scenario**: the spec's claim that "no wrong result is reachable today" rests on the fact
+  that `OrganizationSwitcher` writes the `__all__` sentinel, never a blank organization
+  cookie. If any future writer emits `om_selected_org=`, the client seed (blank → "all
+  organizations") and the selection parser (blank → "no selection", falling back to the
+  caller's own organization) disagree, and a user could see a scope they did not select.
+- **Severity**: Medium.
+- **Affected area**: both `OrganizationSwitcher` components (the only writers), the client seed
+  arriving with #5690, and `resolveOrganizationScopeForRequest` downstream.
+- **Mitigation**: the blank-value semantic is now written down once and tested, instead of
+  being an accident of two independent implementations; the writers are named in
+  *Deliberately out of scope* so the next person can find them.
+- **Residual risk**: Medium and pre-existing — this change makes the divergence legible and
+  testable but does not remove it. Removing it means collapsing the two `OrganizationSwitcher`
+  readers onto the shared module, which is the deferred follow-up named above.
+
+#### `shared` still depends on `core` for behaviour
+
+- **Scenario**: `packages/shared/src/lib/crud/factory.ts` imports
+  `resolveOrganizationScopeForRequest` from `@open-mercato/core/modules/directory/utils/organizationScope`,
+  so the "shared must not depend on core" rule stays bent. A reader could take this spec's
+  framing — *the leaf values now live in `shared`* — as a claim that the dependency is gone.
+- **Severity**: Low (documentation/expectation, not runtime).
+- **Affected area**: `packages/shared/src/lib/crud/factory.ts`.
+- **Mitigation**: stated explicitly in *Deliberately out of scope*; this change removes the
+  *value* duplication that the dependency caused, not the dependency.
+- **Residual risk**: Low and unchanged from before this PR.
+
+#### Partial `jest.mock` factories on the bridged path
+
+- **Scenario**: three `auth/lib/__tests__/backendChrome.*.test.ts` files `jest.mock` the
+  `directory/constants` path with a factory supplying only `isAllOrganizationsSelection`.
+  Because `organizationScope.ts` now imports the two cookie names from that same mocked path,
+  those constants read as `undefined` inside those suites.
+- **Severity**: Low — latent, not active.
+- **Affected area**: the three `backendChrome` suites.
+- **Mitigation**: harmless today because all three also mock `organizationScope` wholesale, so
+  the getters never run; core's suite is green.
+- **Residual risk**: Low — a trap for whoever removes the `organizationScope` mock. Widening
+  those factories is a Boy-Scout fix for whenever those files are next touched.
+
+## Final Compliance Report — 2026-08-28
+
+### AGENTS.md Files Reviewed
+
+- Root `AGENTS.md` (contract surfaces, template-sync rule, code-quality rules)
+- `packages/shared/AGENTS.md` (library directory, import strategy)
+- `packages/core/AGENTS.md` (module boundaries)
+- `.ai/specs/AGENTS.md` (spec content checklist)
+- `BACKWARD_COMPATIBILITY.md` §4 (Import Paths)
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|-------------|------|--------|-------|
+| root AGENTS.md | No direct ORM relationships between modules | N/A | No entities touched |
+| root AGENTS.md | Never edit generated files by hand | Compliant | None touched |
+| root AGENTS.md | Editing `apps/mercato/src/app/**` MUST mirror into the create-app template in the same task | Compliant | `[...slug]/page.tsx` and its template mirror changed together; files verified byte-identical |
+| root AGENTS.md | No `any`, no one-letter names, no inline comments on untouched code | Compliant | One import plus one identifier substituted |
+| root AGENTS.md | Prefer package-level imports over deep relative paths | Compliant | `@open-mercato/shared/lib/scope/cookies` everywhere |
+| packages/shared/AGENTS.md | Library directory documents the routing surface | Compliant | `scope/` row added |
+| BACKWARD_COMPATIBILITY.md §4 | A moved implementation keeps its old import path working | Compliant | Both `core` paths are permanent re-export bridges; no export removed or renamed |
+| BACKWARD_COMPATIBILITY.md §4 | `@deprecated` on a re-exported old path | Deviation, declared | See *Migration & Backward Compatibility*: these paths are not being retired, so the annotation would be false. Matches existing practice (`inbox_ops/lib/htmlToPlainText.ts`, `planner/api/helpers.ts`, `registry.ts`'s `resolvePageRouteMetadata`). Raised for the record at the maintainer's request |
+| .ai/specs/AGENTS.md | Risks & Impact Review, Final Compliance Report, Changelog | Compliant | Added in this revision |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Every remaining copy of the wire format is named | Pass | Repository-wide sweep for both literals outside tests and fixtures leaves only the two `OrganizationSwitcher` files, both named |
+| Spec claims match the code | Pass | The "carries no constant duplication" claim about the template switcher was inaccurate and is corrected |
+| Risks cover all write operations | Pass | No writes; the write *of the cookie itself* is covered by the blank-cookie risk |
+| Tests are non-vacuous | Pass | Mutation claims listed under *Testing* |
+
+### Non-Compliant Items
+
+None. One declared deviation (`@deprecated`), reasoned above and awaiting a maintainer's
+note on the record.
+
+## Changelog
+
+### 2026-08-28
+
+- Addressed review feedback on [#5715](https://github.com/open-mercato/open-mercato/pull/5715).
+- Collapsed the remaining plain `om_selected_org` literal in
+  `apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx` onto
+  `SELECTED_ORGANIZATION_COOKIE`, and mirrored it into the `create-app` template as the root
+  `AGENTS.md` template-sync rule requires.
+- Corrected *Deliberately out of scope*: it now names both `OrganizationSwitcher` files rather
+  than only the template one, and no longer claims they carry no constant duplication — they
+  inline the two cookie names across seven lines; only the sentinel is imported.
+- Added the Risks & Impact Review, Final Compliance Report and Changelog sections required by
+  `.ai/specs/AGENTS.md`.
+- Added a `scope/` row to the Library Directory table in `packages/shared/AGENTS.md`.
+
+### 2026-08-27
+
+- Initial implementation: `packages/shared/src/lib/scope/cookies.ts` added; `core`'s
+  `modules/directory/constants` and `modules/directory/utils/scopeCookies` turned into
+  re-export bridges; inlined copies removed from `lib/auth/server.ts`, `lib/crud/factory.ts`
+  and `organizationScope.ts`; three test files added or extended.
