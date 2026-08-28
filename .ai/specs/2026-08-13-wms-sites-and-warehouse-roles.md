@@ -415,6 +415,18 @@ No existing warehouse is reclassified. New event, command, API, ACL, and entity 
 - the base tables render no search, filter, column-chooser, perspective, export, selection, or bulk-action controls while their stable extension hosts still accept injected contributions;
 - list enrichment performs a bounded batch warehouse query rather than one query per row.
 
+### Required integration suites
+
+All three suites use self-contained fixtures created through APIs and clean them in `finally`; they never depend on seeded or demo data.
+
+| Suite | Runner surface | Required evidence |
+|---|---|---|
+| `TC-WMS-SITES-001.spec.ts` | Playwright `request` fixture | Site and mapping CRUD contracts; exact camelCase response shapes; absent Site `DELETE`; scope and ACL denial; first/default promotion and deletion rules; site activation/deactivation; warehouse eligibility; concurrent default and active-Site conflict outcomes; Site custom-field API round trip and undo. |
+| `TC-WMS-SITES-UI-001.spec.ts` | Playwright `page` fixture | Hydration of all three Site routes; list, create, edit, mapping dialog, activation/deactivation, inactive-warehouse warning, `Cmd/Ctrl+Enter`, `Escape`, empty/loading/error states, absence of excluded table controls, and Site/mapping optimistic-lock conflict recovery. |
+| `TC-WMS-SITES-COMPAT-001.spec.ts` | Playwright `request` fixture with Manufacturing absent | WMS Sites API and backend routes remain loadable without Manufacturing; generated registrations resolve; canonical Site custom-field decoration and WMS ACL setup remain available in that composition. |
+
+Database-diff generation and static generated-artifact verification remain command gates rather than browser assertions. The compatibility suite runs after `yarn generate`; it verifies runtime composition, not migration SQL text.
+
 ### Validation commands
 
 Choose local or Docker runner once for the gate and record it:
@@ -424,6 +436,7 @@ yarn db:generate
 yarn generate
 yarn workspace @open-mercato/core test
 yarn workspace @open-mercato/core build
+yarn test:integration
 yarn typecheck
 yarn i18n:check-hardcoded
 ```
@@ -507,6 +520,7 @@ The following are separate capabilities, not unfinished work inside P1.2:
 - 2026-08-19: Made Sites inactive by default; required eligible `raw_material` and `finished_goods` defaults for activation; allowed one warehouse to serve multiple roles in one Site while limiting it to one active Site; moved shared active-Site warehouses to future `manufacturing_network`; and made advanced number ranges non-blocking for the bounded MVP.
 - 2026-08-19: Initially aligned future module references with a base/discrete split; later consolidated them into the single opt-in `manufacturing` module. The design remains pending parent-roadmap acceptance and its own readiness review.
 - 2026-08-28: Aligned Site custom-field writes with the established WMS and Sales command lifecycle, without claiming cross-storage atomicity; specified ordered pessimistic Warehouse locks and re-validation for every mutation that changes active-Site eligibility; and aligned default promotion with the existing WMS primary-warehouse transaction and named-index conflict pattern.
+- 2026-08-28: Defined mandatory API, browser UI, and Manufacturing-absent compatibility integration suites; mapped their evidence to Playwright `request` or `page` fixtures; and added `yarn test:integration` to the validation gate.
 
 ### Review — 2026-08-13
 
