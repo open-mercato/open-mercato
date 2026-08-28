@@ -254,7 +254,7 @@ those conversations, notifications, and (optionally) an AI assistant inside Open
 |-------------------------|------------------------|
 | `providerKey` | `'discord'` |
 | `channelType` | `'discord'` (the contract's `channelType` is `'whatsapp' \| 'slack' \| 'email' \| 'sms' \| string` — `'discord'` is allowed as a string) |
-| `capabilities` | **As shipped.** Declared `true`: `recipientFormat: 'provider-native'` (a Discord recipient is a channel snowflake, never an address), `richText: true` (markdown), `reactions: true`, `editMessage: true`, `deleteMessage: true`, `conversationHistory: true`, `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`, `interactiveComponents: true` (slash commands, buttons, select menus and modal submissions are dispatched into the hub's inbound queue and answered with a real follow-up — see § Interactions dispatch). Declared **`false`**, because the first release does not implement them and the hub would otherwise route work this adapter silently drops — each with its reason recorded in `lib/capabilities.ts`: `threading` (nothing hub-side writes `replyToExternalId` into *outbound* metadata; it exists only on the inbound normalized shape), `fileSharing` / `inlineImages` (`convertOutbound` drops attachments and the REST client has no multipart upload), plus `multiReactionPerUser`, `typingIndicators`, `presence`, `richBlocks`, `stickers`, `readReceipts`, `deliveryReceipts`, `contactCards`, `locationSharing`, `voiceNotes`. A flag flips back to `true` only in the change that implements it, guarded by the parity test in `lib/__tests__/capabilities.test.ts` |
+| `capabilities` | **As shipped.** Declared `true`: `recipientFormat: 'provider-native'` (a Discord recipient is a channel snowflake, never an address), `richText: true` (markdown), `reactions: true`, `editMessage: true`, `deleteMessage: true`, `conversationHistory: true`, `supportedBodyFormats: ['text','markdown']`, `maxBodyLength: 2000`, `realtimePush: true`, `interactiveComponents: true` (slash commands, buttons, select menus and modal submissions are dispatched into the hub's inbound queue and answered with a real follow-up — see § Interactions dispatch), `threading: true` (the hub resolves the parent's Discord snowflake in `communication_channels/lib/outbound-reply-ref.ts` and writes `channelMetadata.replyToExternalId`, which `convertOutbound` turns into `message_reference`; capability-gated and fail-soft, see the 2026-08-26 changelog entry). Declared **`false`**, because the first release does not implement them and the hub would otherwise route work this adapter silently drops — each with its reason recorded in `lib/capabilities.ts`: `fileSharing` / `inlineImages` (`convertOutbound` drops attachments and the REST client has no multipart upload), plus `multiReactionPerUser`, `typingIndicators`, `presence`, `richBlocks`, `stickers`, `readReceipts`, `deliveryReceipts`, `contactCards`, `locationSharing`, `voiceNotes`. A flag flips back to `true` only in the change that implements it, guarded by the parity test in `lib/__tests__/capabilities.test.ts` |
 | `sendMessage` | REST `POST /channels/{id}/messages` (`Authorization: Bot <token>`) |
 | `verifyWebhook` | Ed25519 verify of interactions POST; **throws** on failure (fail-closed). Plain messages do not arrive here — they come via the gateway worker — so for a non-interaction body it returns `eventType: 'other'` (route acks without tenant-scoped work) |
 | `normalizeInbound` | Discord message object → `NormalizedInboundMessage` (sender id/handle, content, attachments, `replyToExternalId` from `message_reference`) |
@@ -1118,6 +1118,63 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-08-26 — Outbound reply threading implemented; `threading` flips back to `true` (issue #5541)
+
+- **§ Adapter method map → `capabilities`.** `threading` moves from the deliberately-disabled list
+  back to the shipped-`true` list, now backed by an implementation rather than by intent.
+- **The missing piece was hub-side, not adapter-side.** `convertOutbound` → `adapter.sendMessage` →
+  `discord-rest.createMessage` already carried `channelMetadata.replyToExternalId` all the way to
+  `body.message_reference`; nothing on the outbound path ever produced that key, so the branch was
+  unreachable in production (#5541, found against a live bot). The new
+  `communication_channels/lib/outbound-reply-ref.ts` is that producer: given the delivered message's
+  `parentMessageId`, it resolves the parent's `MessageChannelLink` → `ExternalMessage` and returns the
+  provider-native id, which `deliver-outbound-message.ts` merges into the outbound `channelMetadata`.
+- **Capability-gated and fail-soft by design.** The resolver returns `null` unless the adapter declares
+  `threading`, so no provider is handed a key it silently drops — the same mismatch the capability list
+  exists to prevent. It also returns `null` for a non-reply, an unlinked parent, or a parent in another
+  conversation (Discord answers `400 Unknown message` for a cross-channel reference), and the caller
+  swallows lookup errors: an unthreaded delivery always beats a failed one. The gate does **not** spare
+  providers that thread by RFC 5322 headers: `email-capabilities.ts` declares `threading: true` for the
+  shared email profile, so an email reply pays for both lookups and its converter then ignores the
+  result in favor of `inReplyTo` / `references`. Narrowing that needs a capability distinguishing
+  id-threading from header-threading, which the contract does not have yet — tracked in #5691.
+- **The reference survives the hub's convert→send double-conversion.** `deliver-outbound-message.ts`
+  calls `convertOutbound` and then hands `converted.metadata` straight to `sendMessage`, which
+  re-converts it. Discord's converter renames `replyToExternalId` → `messageReferenceId`, so the second
+  pass saw neither key and emitted `messageReferenceId: undefined`, dropping the reference before the
+  REST body — the first cut of this change was green in unit tests and still shipped nothing. The
+  converter now accepts its own already-converted key on the second pass, matching the precedent
+  `channel-gmail/lib/convert-outbound.ts` documents for `threadId`.
+- **A deleted parent degrades instead of failing.** `discord-rest.createMessage` sends
+  `message_reference` with `fail_if_not_exists: false`. Discord defaults that to `true` and rejects the
+  send with a 400 when the referenced message is gone — non-transient, so the hub would mark the link
+  `failed` and never deliver the reply. Users delete messages routinely, and the AI producers reference
+  the thread ROOT, the likeliest-deleted message in a conversation.
+- **Reply targeting is hub-resolved only.** `send-as-user` merges caller-supplied `channelMetadata` onto
+  the `MessageChannelLink`, which `deliver-outbound-message` reads back as the converter's base metadata,
+  so a caller must not be able to point a reply at an arbitrary provider message id. Merge order alone
+  does not achieve that: it settles the contest only when the hub actually resolved a parent, and the
+  uncontested case — no `parentMessageId`, or a parent that legitimately fails to resolve — is exactly
+  the one a caller controls. Both reply-targeting keys (`replyToExternalId`, and Discord's
+  already-converted `messageReferenceId`, which its converter must accept to survive the double
+  conversion) are therefore *stripped* off the stored metadata by
+  `stripCallerReplyTargeting` before the hub's own value is merged, rather than merely out-ranked.
+  Stripping at the hub seam covers every producer of `link.channelMetadata`, not just `send-as-user`, and
+  is safe on retry because the reference is re-resolved from `parentMessageId` on each attempt.
+- **Coverage.** `communication_channels/lib/__tests__/outbound-reply-ref.test.ts` (resolution, the four
+  `null` paths, scoping assertions, and the strip helper's key set and non-mutation), nine cases in
+  `commands/__tests__/deliver-outbound-message.test.ts` (threading adapter, non-threading adapter,
+  non-reply, lookup failure, caller-override on the contested path, plus the uncontested path: each
+  reply-targeting key stripped on a non-reply, both stripped when the parent does not resolve, and
+  unrelated caller metadata left intact), the double-conversion round-trip and precedence cases in
+  `channel_discord/lib/__tests__/convert-outbound.test.ts`, and the rewritten
+  `channel_discord/lib/__tests__/capabilities.test.ts` threading case, which drives the hub's own call
+  order — `convertOutbound`, then the real `adapter.sendMessage` fed with `converted.metadata` — down to
+  the REST body, with `restClient.request` as the only seam. Driving `createMessage` directly instead
+  would skip `sendMessage`, which is precisely where the reference was being lost.
+- Supersedes the `threading` demotion recorded on 2026-08-24, which explicitly reserved the flip for
+  "the same change that gives the hub an outbound reply producer".
 
 ### 2026-08-25 — Arming an auto-reply channel is authorized, and a dormant one says so (re-review of PR #4391)
 
