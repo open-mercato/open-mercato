@@ -150,8 +150,43 @@ describe('ConnectChannelMenu (#5595)', () => {
     fireEvent.mouseDown(document.body)
     await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'false'))
   })
+
+  it('stays open while a provider dialog rendered outside the panel is in use', async () => {
+    // channel-imap and channel-discord render their credential Dialog through a
+    // portal at document.body, so it is outside the menu container and every
+    // click in it looks like an outside click. Closing on those would strand the
+    // dialog's focus restore on a button inside a `display: none` panel — the
+    // same tear-down the keep-mounted panel exists to prevent.
+    await renderMenu([makeWidget('channel_imap.injection.connect', 'Connect IMAP')])
+    const trigger = await screen.findByRole('button', { name: /connect channel/i })
+
+    fireEvent.click(trigger)
+    await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'true'))
+
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const field = document.createElement('input')
+    dialog.appendChild(field)
+    document.body.appendChild(dialog)
+
+    try {
+      fireEvent.mouseDown(field)
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+      // Escape belongs to the dialog, which closes itself and restores focus;
+      // the menu must not race it by closing on the same keypress.
+      fireEvent.keyDown(field, { key: 'Escape' })
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    } finally {
+      document.body.removeChild(dialog)
+    }
+  })
 })
 
+// Layout-provenance guards, not behaviour tests: they read page.tsx as text to
+// pin the wiring and the header classes that browser QA drove out on #5735,
+// which jsdom cannot measure. They are expected to need updating alongside any
+// behaviour-preserving refactor of the header — reusing the shared PageHeader,
+// for instance — rather than signalling a regression when they fail.
 describe('profile page connect header (#5595)', () => {
   const pageSource = fs.readFileSync(
     path.join(__dirname, '..', 'backend', 'profile', 'communication-channels', 'page.tsx'),

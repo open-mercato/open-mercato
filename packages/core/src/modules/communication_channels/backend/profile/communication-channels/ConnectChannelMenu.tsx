@@ -41,12 +41,25 @@ export function ConnectChannelMenu({ onConnected }: ConnectChannelMenuProps): Re
 
   React.useEffect(() => {
     if (!open) return
+    // A provider's credential dialog renders through a portal at `document.body`,
+    // so it sits outside `containerRef` and every interaction inside it reads as
+    // an outside click. Dismissing on those would collapse the panel behind the
+    // open dialog, and the dialog's own focus restore would then target a button
+    // inside a `display: none` panel — `.focus()` no-ops and focus falls to
+    // `<body>`. The panel stays mounted precisely so a dialog survives the menu;
+    // dismissal honours the same contract, and Escape is left to the dialog.
+    function isInsideDialog(target: EventTarget | null): boolean {
+      const element = target as Element | null
+      return typeof element?.closest === 'function' && element.closest('[role="dialog"]') !== null
+    }
     function onDocumentMouseDown(event: MouseEvent) {
+      if (isInsideDialog(event.target)) return
       const target = event.target as Node
       if (containerRef.current && !containerRef.current.contains(target)) setOpen(false)
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== 'Escape') return
+      if (isInsideDialog(event.target)) return
       setOpen(false)
       triggerRef.current?.focus()
     }
