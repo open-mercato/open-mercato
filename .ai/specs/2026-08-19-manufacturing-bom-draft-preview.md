@@ -8,7 +8,7 @@ The preview is evaluated from one tenant- and organization-scoped PostgreSQL `RE
 
 P1.4b adds no entity, migration, mutation, command, undo action, ACL feature, public package export, cache, or search projection. It is an independently deployable read capability over P1.4a and is not the release/execution explosion contract.
 
-**Specification status:** Full implementation-ready design. Product implementation remains gated by P1.0 acceptance, P1.0a, ready P1.3a exact arithmetic, and implemented P1.4a draft authoring/integrity.
+**Specification status:** Full implementation-ready design. Product implementation remains gated by P1.0 acceptance, P1.0a, the Catalog exact quantity/UoM contract, and implemented P1.4a draft authoring/integrity.
 
 **Tracker:** [Issue #5405](https://github.com/open-mercato/open-mercato/issues/5405), under [Wave 0 tracker #5386](https://github.com/open-mercato/open-mercato/issues/5386).
 
@@ -112,7 +112,7 @@ The preview therefore needs a separate contract with traversal semantics, exact 
 | Concern | Repository evidence | P1.4b decision |
 |---|---|---|
 | Draft aggregate | P1.4a owns family/revision/line schema, target resolution, scope, ordering, and exact snapshots | Depend on its internal read contracts; add no duplicate persistence or resolver. |
-| Exact arithmetic | P1.3a specifies canonical decimal multiply/divide/round and snapshot rounding | Use shared exact operations; never use JS `number` or re-normalize stored nominal values. |
+| Exact arithmetic | The Catalog quantity/UoM contract supplies canonical decimal multiply/divide/round and snapshot rounding | Use shared exact operations; never use JS `number` or re-normalize stored nominal values. |
 | Scoped reads | Modules use `QueryEngine` for cross-module scalar-ID enrichment | Batch Catalog labels; arithmetic remains possible when enrichment is missing. |
 | Custom routes | Repository custom routes export `metadata`, `openApi`, zod contracts, auth/ACL and scoped queries | Add one custom GET; mutation guards and operation headers do not apply. |
 | Transactions | MikroORM allows explicit isolation and ambient entity managers | Run traversal inside one `REPEATABLE READ` transaction. |
@@ -187,7 +187,7 @@ Rules:
 
 - fixed quantity applies once per occurrence for each invocation of its immediate parent BOM, independent of the parent's required/base-output ratio;
 - both variable and fixed nominal demand are divided by yield;
-- multiplication builds the exact numerator and denominator first; one P1.3a division then produces `gross` at the component line snapshot's explicit mode/scale, never through binary floating point;
+- multiplication builds the exact numerator and denominator first; one Catalog-contract division then produces `gross` at the component line snapshot's explicit mode/scale, never through binary floating point;
 - no intermediate ratio is serialized or rounded, so non-terminating `R / B` values remain deterministic;
 - only final `gross` is rounded once with that component line snapshot's mode/scale;
 - stored normalized values are evidence and are not re-normalized through current Catalog policy;
@@ -519,7 +519,7 @@ The synchronous path is justified only by the hard `2,000`-node/depth-`20` cap. 
 | Work item | Contract |
 |---|---|
 | P1.0a | One opt-in package/runtime module; Catalog only hard dependency; no public domain export. |
-| P1.3a | Blocking exact decimal multiply/divide/round and immutable line/revision evidence. |
+| Catalog exact quantity/UoM contract | Exact decimal multiply/divide/round and immutable line/revision evidence. |
 | P1.4a | Blocking source schema, scoped readers, target resolution, occurrence/order semantics, cycle prevention, ACL/events. |
 | P1.5 | Preview contains no operation/routing reference; a later additive field needs explicit display semantics. |
 | P1.6 | No Work Center/resource/calendar dependency, data, or capacity calculation. |
@@ -616,7 +616,7 @@ P1.4b is useful after P1.4a and remains independent of P1.5/P1.6. P1.7 may be im
 | Limits match traversal/API/tests | Pass | Root/depth/node counting, `remaining+1` sentinel, next-depth probe, precedence and all-or-error behavior agree. |
 | API matches UI | Pass | Lazy panel handles success, unresolved warnings, staleness, limit retry and corruption without edit side effects. |
 | Risks cover read path | Pass | Growth, consistency, quantity, query/render, lifecycle and dependency risks include scenario/detection/mitigation/residual. |
-| Adjacent contracts agree | Pass | P1.0a/P1.3a/P1.4a/P1.5/P1.6/P1.7 gates and non-dependencies are explicit. |
+| Adjacent contracts agree | Pass | P1.0a/P1.4a/P1.5/P1.6/P1.7 gates and non-dependencies are explicit; Catalog quantity/UoM is consumed through its public contract. |
 
 ### Non-compliant items
 
@@ -624,9 +624,9 @@ None.
 
 ### Verdict
 
-**Fully compliant at specification level.** Approved as implementation-ready subject to P1.0 acceptance and ready P1.0a/P1.3a/P1.4a prerequisites.
+**Fully compliant at specification level.** Approved as implementation-ready subject to P1.0 acceptance, ready P1.0a, the Catalog quantity/UoM contract, and P1.4a prerequisites.
 
-Implementation remains gated by P1.0, P1.0a, P1.3a, and P1.4a. No product code is authorized by this documentation task.
+Implementation remains gated by P1.0, P1.0a, the Catalog quantity/UoM contract, and P1.4a. No product code is authorized by this documentation task.
 
 ## Changelog
 

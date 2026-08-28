@@ -4,11 +4,11 @@
 
 P1.4a adds implementation-ready authoring of standalone, versioned bill-of-materials (BOM) drafts inside the opt-in `@open-mercato/manufacturing` package and its single `manufacturing` runtime module. A tenant- and organization-scoped BOM family targets one Catalog product and optionally one variant, owns at most one editable draft revision, and stores ordered direct component occurrences without deduplicating repeated items.
 
-Every quantity is a canonical decimal string normalized through the Catalog-owned P1.3a resolver. Every existing-draft mutation uses the draft revision as its optimistic-lock aggregate root. Every graph-changing write, undo, and redo is serialized by an organization-scoped PostgreSQL transaction advisory lock and validates the complete candidate `produce` dependency graph before commit.
+Every quantity is a canonical decimal string normalized through the Catalog-owned exact quantity/UoM contract. Every existing-draft mutation uses the draft revision as its optimistic-lock aggregate root. Every graph-changing write, undo, and redo is serialized by an organization-scoped PostgreSQL transaction advisory lock and validates the complete candidate `produce` dependency graph before commit.
 
 This slice includes data, migration, direct-level CRUD/API/UI, commands, undo/redo, ordering, ACL, events, exact quantity/UoM evidence, child-resolution warnings, and direct/indirect/concurrent cycle prevention. Bounded recursive draft preview/explosion is the independently deliverable P1.4b capability specified in [`2026-08-19-manufacturing-bom-draft-preview.md`](2026-08-19-manufacturing-bom-draft-preview.md).
 
-**Specification status:** Full implementation-ready design. Product implementation remains gated by acceptance of P1.0, delivery of P1.0a, and a ready/published P1.3a Catalog quantity resolver.
+**Specification status:** Full implementation-ready design. Product implementation remains gated by acceptance of P1.0, delivery of P1.0a, and an available Catalog exact quantity/UoM contract; no Catalog roadmap task is a Manufacturing runtime dependency.
 
 **Tracker:** [Issue #5393](https://github.com/open-mercato/open-mercato/issues/5393), under [Wave 0 tracker #5386](https://github.com/open-mercato/open-mercato/issues/5386).
 
@@ -182,7 +182,7 @@ Standard `makeCrudRoute` writes assume one row-shaped CRUD resource. This aggreg
 | Concern | Repository evidence | P1.4a decision |
 |---|---|---|
 | Catalog pickers | Sales `LineItemDialog` uses `LookupSelect`, `/api/catalog/products`, and product-scoped `/api/catalog/variants` | Reuse interaction and existing APIs; variant remains optional; commands revalidate. |
-| UoM | Catalog conversion rows plus the P1.3a exact resolver/snapshot contract | UI choices are convenience only; commands persist resolver output and never recalculate independently. |
+| UoM | Catalog conversion rows plus its exact resolver/snapshot contract | UI choices are convenience only; commands persist resolver output and never recalculate independently. |
 | Cross-module reads | WMS enrichers use `QueryEngine` with generated Catalog entity IDs | Batch-enrich labels for responses; store scalar IDs only. |
 | Entities/migrations | UUIDs, `timestamptz`, numeric strings, explicit indexes, soft deletion for undo | Follow conventions with composite internal scope FKs and partial unique indexes. |
 | Atomic writes | `withAtomicFlush` supports phased transactions and ambient `transactionalEm` | One command handler owns every aggregate mutation. |
@@ -251,7 +251,7 @@ A target key is `(productId, variantId|null)` inside tenant/organization.
 
 New HTTP contracts accept decimal strings only. JSON numbers, exponent notation, locale separators, whitespace, non-finite, zero/negative, and out-of-envelope values are rejected.
 
-Revision base output and each line store five mutually consistent values: canonical entered quantity, canonical entered unit, normalized base quantity, normalized base-unit code, and immutable `QuantityNormalizationSnapshotV1`. Commands build all five from one P1.3a result. The explicit normalized unit prevents consumers from guessing it from mutable Catalog state or parsing snapshot JSON. Lines additionally store:
+Revision base output and each line store five mutually consistent values: canonical entered quantity, canonical entered unit, normalized base quantity, normalized base-unit code, and immutable `QuantityNormalizationSnapshotV1`. Commands build all five from one Catalog normalization result. The explicit normalized unit prevents consumers from guessing it from mutable Catalog state or parsing snapshot JSON. Lines additionally store:
 
 - `consumptionBasis: variable | fixed`, default `variable`;
 - `yieldFactor` in `(0,1]`, default `1`;
@@ -266,7 +266,7 @@ P1.4a validates and persists these semantics but does not recursively calculate 
 - All files live under `packages/manufacturing/src/modules/manufacturing`.
 - P1.0a exposes the generator-compatible convention-file subpaths needed for source/dist module discovery. P1.4a adds no supported public domain API or domain-specific consumer subpath.
 - Metadata remains `requires:['catalog']` only.
-- Routes resolve CommandBus/QueryEngine and handlers resolve the Catalog P1.3a normalization service through existing Awilix container keys; they never instantiate cross-module services directly. The final Catalog DI key/import is the one frozen by P1.3a. P1.4a introduces no BOM DI service key: its scoped repository, target resolution, graph, quantity, and locking helpers are module-local functions receiving explicit EM/scope dependencies. P1.4b separately owns `manufacturingBomPreviewService`.
+- Routes resolve CommandBus/QueryEngine and handlers resolve the Catalog normalization service through its public Awilix container key; they never instantiate cross-module services directly. P1.4a introduces no BOM DI service key: its scoped repository, target resolution, graph, quantity, and locking helpers are module-local functions receiving explicit EM/scope dependencies. P1.4b separately owns `manufacturingBomPreviewService`.
 - No import from WMS, `resources`, `planner`, or Sales.
 - Internal `lib/structure/graph.ts` contains neutral cycle primitives; BOM-specific adapters live in `lib/bom/`.
 - Cross-module interaction uses Catalog DI normalization, `QueryEngine`, and existing picker APIs; no Catalog ORM entity relation.
@@ -498,7 +498,7 @@ type BomLineDeleteResult = { lineId: string; deletedAt: string; updatedAt: strin
 | `DELETE /api/manufacturing/boms/{bomId}/lines/{lineId}` | manage | UI sends the standard expected-version header; deletes exact occurrence; `200 BomLineDeleteResult`. |
 | `POST /api/manufacturing/boms/{bomId}/lines/{lineId}/reorder` | manage | UI sends the standard expected-version header; `{direction:'up'|'down'}`; `200 {line,adjacentLine,updatedAt}`; boundary no-op returns `200 {line,adjacentLine:null,updatedAt,changed:false}` without operation header/action log. |
 
-Update commands always derive one effective state before validation. A family target change combines the new target with a supplied base output or the stored entered base-output quantity/unit, calls P1.3a exactly once for that effective tuple, and atomically replaces the target plus all normalized scalars and snapshot. A line component or quantity change likewise combines the supplied nested object with the stored effective component/entered quantity, validates the complete product/variant pair, and atomically replaces all normalized scalars and snapshot. When present, `target`, `component`, and `quantity` objects are complete objects rather than field-by-field patches. Label, basis, yield, supply-mode, and reorder-only changes preserve the existing normalization evidence and do not call the resolver.
+Update commands always derive one effective state before validation. A family target change combines the new target with a supplied base output or the stored entered base-output quantity/unit, calls the Catalog resolver exactly once for that effective tuple, and atomically replaces the target plus all normalized scalars and snapshot. A line component or quantity change likewise combines the supplied nested object with the stored effective component/entered quantity, validates the complete product/variant pair, and atomically replaces all normalized scalars and snapshot. When present, `target`, `component`, and `quantity` objects are complete objects rather than field-by-field patches. Label, basis, yield, supply-mode, and reorder-only changes preserve the existing normalization evidence and do not call the resolver.
 
 Each cursor is <=512-byte base64url versioned JSON and is size-checked before decode. The BOM collection cursor contains last `updatedAt`, last `id`, `tenantId`, `organizationId`, page size, and filter digest. The line cursor contains last `position`, last `id`, BOM/revision IDs, revision `updatedAt`, `tenantId`, `organizationId`, and page size. Both are strictly zod-validated and rejected when malformed or replayed across tenant, organization, page size, or filter. A stale line cursor returns `409` plus `domainCode:'bom.version_conflict'`. Page responses always return `nextCursor:string|null` and `hasMore:boolean`. Response decimals are strings. UoM snapshots remain server evidence and are not copied wholesale into list DTOs; detail/write responses return the typed fields required by the editor.
 
@@ -530,7 +530,7 @@ x-om-ext-optimistic-lock-expected-updated-at: <active revision updatedAt>
 | `bom.position_exhausted` | 409 | No next safe position can be allocated; data is never wrapped or renumbered implicitly. |
 | `bom.child_unresolved` | 200 warning | Direct `produce` line has no variant/product child family. |
 
-Other auth/ACL/UUID/body/cursor/not-found errors retain platform behavior. Named check/FK constraint names and partial-unique index names map to domain codes; raw upsert, if used, must use exact conflict-column and predicate inference rather than `ON CONFLICT ON CONSTRAINT` for a partial unique index. P1.3a variant failures map to mismatch, precision/input failures to quantity, and unit/conversion/factor failures to UoM.
+Other auth/ACL/UUID/body/cursor/not-found errors retain platform behavior. Named check/FK constraint names and partial-unique index names map to domain codes; raw upsert, if used, must use exact conflict-column and predicate inference rather than `ON CONFLICT ON CONSTRAINT` for a partial unique index. Catalog variant failures map to mismatch, precision/input failures to quantity, and unit/conversion/factor failures to UoM.
 
 OpenAPI documents all request/response schemas, decimal strings, cursor opacity, warning model, ACL, optional platform expected-version request header, compatibility error shape, and errors. Runtime and integration tests separately assert `x-om-operation` on changed undoable writes because the current shared OpenAPI route type cannot describe response headers without an approved shared-library enhancement. Tests assert `metadata`/`openApi` on every route.
 
@@ -646,7 +646,7 @@ No environment variable is added. Existing platform optimistic-lock configuratio
 ### Phase 1 — Data and integrity utilities
 
 1. Add entities, validators, migration, scope helpers, `setup.ts`, ACL/event declarations, extension hosts, package dependencies/exports, and generator participation.
-2. Add the module-local P1.3a adapter, target resolution, platform optimistic-lock integration, cursor, monotonic version, scoped repository, and neutral graph/cycle utility; do not publish/register a P1.4a BOM DI service.
+2. Add the module-local adapter to the Catalog exact quantity/UoM contract, target resolution, platform optimistic-lock integration, cursor, monotonic version, scoped repository, and neutral graph/cycle utility; do not publish/register a P1.4a BOM DI service.
 3. Prove schema/constraint/decimal/resolution/cycle behavior with unit/database tests.
 
 ### Phase 2 — Commands
@@ -731,7 +731,7 @@ Expected internal paths include `data/*`, one migration, `lib/structure/graph.ts
 | Optimistic concurrency | UI-supplied expected-version header, stale/gone, monotonic versions, semantic stale undo/redo |
 | Transaction failure | Atomic family+revision/line/reorder rollback and post-commit event injection |
 | Domain concurrency | Target/active-draft/allocator races and concurrent cycle |
-| Exact quantity | P1.3a snapshot and decimal/UoM/basis/yield validation corpus |
+| Exact quantity | Catalog snapshot and decimal/UoM/basis/yield validation corpus |
 | Compatibility | Additive migration, generator-compatible exports, no public domain/default/API change |
 | Disabled modules | Optional peers absent, Manufacturing disabled, Catalog-required failure |
 | API/UI | All routes/guards/OpenAPI and critical accessible authoring paths |
@@ -742,7 +742,7 @@ Expected internal paths include `data/*`, one migration, `lib/structure/graph.ts
 | Work item | Contract |
 |---|---|
 | P1.0a | One package/module, Catalog only hard dependency, no public domain export. |
-| P1.3a | Blocking decimal/UoM resolver and snapshot; no local fallback arithmetic. |
+| Catalog exact quantity/UoM contract | Decimal/UoM resolver and snapshot; no local fallback arithmetic. |
 | P1.4b | Read-only recursive draft tree over P1.4a; adds no write/model/lifecycle behavior. |
 | P1.5 | May add optional line-operation reference later; no placeholder here. |
 | P1.6 | No Work Center/resource/calendar dependency or field. |
@@ -782,7 +782,7 @@ Dedicated P1.5/P1.6/P1.7/P1.10 full specs do not yet exist; alignment uses accep
 - **Severity:** High. A target or component change could leave normalized evidence attached to the previous Catalog identity.
 - **Scenario/affected area:** An author changes only product/variant while the stored entered quantity remains; preview, release, and undo would otherwise consume a valid-looking but wrong conversion snapshot.
 - **Detection:** effective-state unit tests cover target-only, component-only, quantity-only, and unrelated-field changes and assert all five quantity fields are mutually consistent.
-- **Mitigation:** target/component changes re-run P1.3a once for the effective entered tuple and atomically replace all normalized scalars/snapshot; unrelated changes preserve all evidence.
+- **Mitigation:** target/component changes re-run the Catalog resolver once for the effective entered tuple and atomically replace all normalized scalars/snapshot; unrelated changes preserve all evidence.
 - **Residual:** current Catalog policy can reject a previously valid entered tuple, in which case the retarget is intentionally rejected.
 
 ### Unsafe undo
@@ -841,7 +841,7 @@ Dedicated P1.5/P1.6/P1.7/P1.10 full specs do not yet exist; alignment uses accep
 |---|---|---|
 | Spec scope | Compliant | Fresh-context verdict **PASS**: one direct-level authoring/integrity capability; recursive preview is P1.4b. |
 | Module placement/naming | Compliant | One `manufacturing` runtime module; singular commands/events/features; convention exports only, with no public domain API. |
-| Cross-module coupling | Compliant | Scalar Catalog IDs, P1.3a DI, QueryEngine enrichment; no Catalog ORM relation or optional-peer import. |
+| Cross-module coupling | Compliant | Scalar Catalog IDs, Catalog DI contract, QueryEngine enrichment; no Catalog ORM relation or optional-peer import. |
 | Tenant/security | Compliant | Tenant+organization columns/FKs and predicates, feature metadata, zod, parameterized queries, non-disclosing errors. |
 | Encryption | N/A compliant | No PII, people-related free text, credential or secret field; no encryption map or hand-rolled crypto; entity reads still use standard decryption-aware helpers. |
 | Data/migration | Compliant | Three scoped entities, explicit entered/normalized quantity+unit fields, exact snapshots, partial uniques/checks/indexes, additive migration and no backfill. |
@@ -862,7 +862,7 @@ Dedicated P1.5/P1.6/P1.7/P1.10 full specs do not yet exist; alignment uses accep
 | Data models match API/commands | Pass | Family/revision/line fields, five-value quantity evidence, aggregate token, occurrence IDs, positions and snapshots map to DTOs and seven writes. |
 | API matches UI | Pass | Create/detail/list/line-page/mutation routes cover list, header form, direct editor, ordering and warnings. |
 | Risks cover writes | Pass | Contention, fallback rebinding, evidence mismatch, Catalog drift, undo, post-commit effects, custom routes, order boundary and optional-peer/client risks are covered. |
-| Adjacent contracts agree | Pass | P1.0a/P1.3a/P1.4b/P1.5/P1.6/P1.7/P1.10 boundaries and gates are explicit. |
+| Adjacent contracts agree | Pass | P1.0a/P1.4b/P1.5/P1.6/P1.7/P1.10 boundaries and gates are explicit; Catalog quantity/UoM is consumed only through its public contract. |
 | Cache/search/PII decisions | Pass | Each is explicitly N/A with a reason; no hidden projection or sensitive field remains. |
 
 ### Non-compliant items
@@ -871,9 +871,9 @@ None.
 
 ### Verdict
 
-**Fully compliant at specification level.** Approved as implementation-ready subject to P1.0 acceptance and ready P1.0a/P1.3a prerequisites.
+**Fully compliant at specification level.** Approved as implementation-ready subject to P1.0 acceptance, ready P1.0a, and an available Catalog exact quantity/UoM contract.
 
-Implementation remains gated by P1.0 acceptance, P1.0a, and ready P1.3a. No product code is authorized by this documentation task.
+Implementation remains gated by P1.0 acceptance, P1.0a, and the Catalog quantity/UoM contract. No product code is authorized by this documentation task.
 
 ## Changelog
 

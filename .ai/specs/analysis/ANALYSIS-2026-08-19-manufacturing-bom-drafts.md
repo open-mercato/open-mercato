@@ -9,13 +9,13 @@
 
 At audit time, the family -> draft revision -> stable line-occurrence model was coherent, additive, and a good basis for P1.4a, with no collisions for its package, tables, routes, event IDs, ACL IDs, or widget IDs. The audited revision was nevertheless **not implementation-ready yet**: target/component changes could leave quantity evidence bound to the wrong Catalog identity; undo/redo and strict optimistic locking contradicted the current framework contracts; and P1.0a's two-entry export map could not expose the convention files that the generators import for a real module. The remediation update below records the current status.
 
-**Initial recommendation: NEEDS SPEC UPDATES FIRST.** Keep the three-entity model, but close the critical contracts below and freeze the corrected field names/payloads before implementation. P1.0a and the published P1.3a resolver remain external delivery gates.
+**Initial recommendation: NEEDS SPEC UPDATES FIRST.** Keep the three-entity model, but close the critical contracts below and freeze the corrected field names/payloads before implementation. P1.0a and the published Catalog exact quantity/UoM contract remain external capability prerequisites.
 
 ### Remediation update — 2026-08-19
 
 The owner approved the recommended reusable-BOM/order boundary and spec remediation. The current P1.4a/P1.0a documents now close the five critical findings: effective-state re-normalization and explicit normalized-unit fields; strict interactive optimistic locking separated from semantic undo/redo; one-handler domain transaction with honest later CommandBus logging; generator-compatible convention exports; and complete setup/scope/guard/event/UI wiring. Important findings on snapshot consistency, FK/index checks, Catalog active-record policy, cursor tenant binding, action-log resource ordering, extension hosts, throwing UI HTTP, runtime-only operation-header evidence, and position overflow are also incorporated.
 
-Fresh-context scope review of the remediated P1.4a returned **PASS — no further split**. The remaining P1.0 acceptance, delivered P1.0a package, and published P1.3a resolver are implementation prerequisites, not missing P1.4a design decisions.
+Fresh-context scope review of the remediated P1.4a returned **PASS — no further split**. The remaining P1.0 acceptance, delivered P1.0a package, and published Catalog exact quantity/UoM contract are implementation prerequisites, not missing P1.4a design decisions.
 
 ---
 
@@ -102,12 +102,12 @@ The skill still refers to 13 categories, while the current `BACKWARD_COMPATIBILI
 | 1 | Auto-discovery conventions | Adds standard module convention files only. However, P1.0a publishes only `.` and `./modules/manufacturing/index`, while generators import discovered API, commands, DI, entities, pages, events, ACL, and locale files through deeper package subpaths. | **Critical dependency contradiction** |
 | 2 | Public types/interfaces | New DTOs and event payload types only; no current type is narrowed. Payload fields must be frozen before publication. | Additive, incomplete |
 | 3 | Function signatures | No existing function signature changes. | OK |
-| 4 | Import paths | No existing path moves. The final P1.3a import/type and generator-visible Manufacturing subpaths are not frozen. | Blocked by dependencies |
+| 4 | Import paths | No existing path moves. The final Catalog public import/type and generator-visible Manufacturing subpaths are not frozen. | Blocked by dependencies |
 | 5 | Event IDs | Seven new IDs are collision-free. Exact required/optional payload fields are not defined. | Additive, incomplete |
 | 6 | Widget spot IDs | Proposed dotted table/form hosts are new and collision-free but are not declared in `extension-points.ts`. Once published they become frozen. | Additive, incomplete |
 | 7 | API routes | Ten new routes are collision-free and do not modify existing routes. | OK, additive |
 | 8 | Database schema | Three new tables/indexes are collision-free and additive. No backfill. | OK after integrity fixes |
-| 9 | DI service names | The Catalog key is intentionally pending P1.3a; the claimed BOM aggregate service has no frozen key or `di.ts` plan. | Incomplete |
+| 9 | DI service names | The Catalog key is intentionally pending its public quantity/UoM contract; the claimed BOM aggregate service has no frozen key or `di.ts` plan. | Incomplete |
 | 10 | ACL feature IDs | Two new singular IDs are collision-free. Their default grants are missing from `setup.ts`. | Additive, incomplete |
 | 11 | Notification type IDs | None. | N/A |
 | 12 | AI agent/tool/UI IDs | None. | N/A |
@@ -219,7 +219,7 @@ The module boundary, scalar Catalog IDs, zod inputs, command-owned writes, mutat
 4. **Package discovery:** correct P1.0a's export map so P1.4 convention files can be imported from source and packed `dist`.
 5. **Framework sequencing:** replace the nonexistent compound-command claim; freeze one-handler/domain-transaction/action-log/event ordering and fail-soft post-commit behavior.
 
-Known external gate: the exact P1.3a resolver/key/type is not implemented or frozen yet. P1.4 must not recreate its arithmetic locally.
+Known external capability prerequisite: the exact Catalog resolver/key/type is not implemented or frozen yet. P1.4 must not recreate its arithmetic locally.
 
 ### Important Gaps (Should Address)
 
@@ -244,7 +244,7 @@ Known external gate: the exact P1.3a resolver/key/type is not implemented or fro
 
 ### Before Implementation (Must Do)
 
-1. Amend P1.0a's package exports/discovery evidence; freeze the P1.3a resolver key/type once that prerequisite lands.
+1. Amend P1.0a's package exports/discovery evidence; consume the Catalog resolver key/type once its public quantity/UoM contract is available.
 2. Amend P1.4a quantity mutation rules using effective target+entered values and atomic complete snapshot replacement.
 3. Freeze the corrected column names, normalized-unit columns, DB checks/FKs/indexes, and Catalog lifecycle policy.
 4. Replace the strict-lock/undo contradiction with separate interactive-write and semantic undo/redo contracts.
@@ -268,4 +268,4 @@ Known external gate: the exact P1.3a resolver/key/type is not implemented or fro
 
 ## Recommendation
 
-**Spec-level remediation complete.** The three-entity model, two normalized-unit scalars, entered-value names, API/UI/command contracts, and package-discovery contract are now frozen in the current specifications. P1.4a is ready at specification level; product implementation must still wait for P1.0 acceptance and delivered P1.0a/P1.3a prerequisites.
+**Spec-level remediation complete.** The three-entity model, two normalized-unit scalars, entered-value names, API/UI/command contracts, and package-discovery contract are now frozen in the current specifications. P1.4a is ready at specification level; product implementation must still wait for P1.0 acceptance, delivered P1.0a, and the Catalog public quantity/UoM contract.

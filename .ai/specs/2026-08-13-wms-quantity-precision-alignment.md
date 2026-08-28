@@ -96,7 +96,7 @@ Legacy mismatches remain readable and are surfaced as degraded configuration. De
 
 ### Cross-module boundary
 
-WMS already requires Catalog; P1.3b does not introduce a new dependency. It consumes a DI-resolved Catalog service or an existing sanctioned scoped query boundary, never a cross-module ORM relationship. P1.1 separately removes the unrelated hard requirement on Sales.
+WMS already requires Catalog; P1.3b does not introduce a new dependency. It consumes a DI-resolved Catalog service or an existing sanctioned scoped query boundary, never a cross-module ORM relationship.
 
 ## Migration and Backward Compatibility
 
@@ -143,7 +143,7 @@ OpenAPI documents exact string additions and legacy numeric compatibility. Exist
 | B5 | Exact ledger arithmetic | Balance/reserve/allocate/release/receive/move/adjust/count tests |
 | B6 | Import and reconciliation convergence | Same exact results as command paths |
 | B7 | Profile Catalog validation | UI and direct API parity, variant ownership, scope tests |
-| B8 | Compatibility/decoupling gate | Existing API regressions plus WMS without Sales after P1.1 |
+| B8 | Compatibility gate | Existing API regressions across supported WMS compositions |
 
 ## Acceptance Tests
 
