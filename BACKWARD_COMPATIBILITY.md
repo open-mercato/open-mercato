@@ -428,3 +428,36 @@ admit an entity type by default that is not a platform-wide catalogue. A `tenant
 tenant-less catalogue table, which registers itself as above. See
 [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.7.0 → 0.7.1` for both the module-author and
 the operator action, including the index residue this change does not clean up.
+
+## Tenant-Global Entity Types in the Search Index (2026-08-28)
+
+[`.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md`](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md)
+aligns the sweep writer with the incremental one on `tenant_id = NULL` for declared
+platform-wide catalogues, and gives both index readers the matching NULL branch.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signatures | `reindexEntity`, `createPresenterEnricher`, `TokenSearchStrategy.search` — all unchanged | ✓ No change |
+| Stored scope | The projection of a **declared** tenant-global entity type is written under `tenant_id = NULL` instead of the caller's tenant | ⚠ Deliberate behaviour change, declared types only |
+| Read scope | Both index readers match `tenant_id = X OR (tenant_id IS NULL AND entity_type IN <declared>)` instead of `tenant_id = X` | ⚠ Deliberate behaviour change, declared types only |
+| Coverage / purge scope | `entity_index_coverage` rows, `purgeOrphans` and the force purge follow the projection to the null tenant for declared types | ⚠ Consequential, same set |
+| Job scope | `entity_index_jobs` keeps the caller's tenant | ✓ No change |
+| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**No migration.** Adding `tenant_id_coalesced` to `entity_indexes_type_entity_org_coalesced_unique`
+was considered and is not needed: a declared catalogue has no tenant-scoped variant to
+coexist with, since its source table has no tenant column and every writer resolves the
+same record to the same null scope.
+
+**Contract commitments**: the widening is gated on `isTenantGlobalEntityType()` and MUST
+NOT be reduced to a bare `tenant_id IS NULL` predicate. A table with neither scope column
+is stored under the null tenant whether it is a catalogue or private data — thirteen of
+the fourteen such entity types in this repository are private — so the entity-type
+conjunct is the only thing separating the two. Reader and writer MUST move together; a
+reader-only change publishes whatever an unscoped reindex left behind, and a writer-only
+change makes catalogues unfindable for everyone.
+
+**Migration path**: reindex each declared catalogue once. `entity_indexes` self-heals
+through the upsert; leftover per-tenant `search_tokens` rows are duplicates of public
+catalogue text and can be deleted. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md)
+`0.7.0 → 0.7.1`.
