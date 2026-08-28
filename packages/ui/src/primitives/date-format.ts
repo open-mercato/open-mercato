@@ -70,6 +70,10 @@ export function formatWithPublicDateFormat(date: Date, format: string, locale?: 
  *
  * ISO stays the contract for machine-facing values — `toDateInputValue`, storage, serialization —
  * never for a label.
+ *
+ * A pattern is a deliberate operator pin: it wins over the locale entirely, and month tokens render
+ * in English on that path — `NEXT_PUBLIC_OM_DATE_FORMAT=d MMM yyyy` gives `1 Jul 2026` to a `pl`
+ * tenant, not `1 lip 2026`. Set a numeric pattern, or leave it unset and let `Intl` localize.
  */
 export function resolveDisplayDateFormat(): string | null {
   return (
@@ -95,6 +99,11 @@ export function resolveDisplayDateTimeFormat(): string | null {
 }
 
 /**
+ * **ISO-8601 input only.** `parseISO` rejects shapes `new Date` would have accepted — `'July 1, 2026'`,
+ * `'2026/07/01'` — so those now return `null` and the caller renders its empty label. Every in-repo
+ * caller passes ISO; `DataTable.tryParseDate` keeps a `new Date` fallback because its input is
+ * arbitrary column data, while these helpers' is not.
+ *
  * `parseISO`, not `new Date`: a bare `yyyy-MM-dd` names a calendar day, and `new Date` reads it as
  * UTC midnight — which `format` then renders as the PREVIOUS day in every zone west of UTC. On a
  * date-only string `parseISO` returns local midnight of the stored day, so the day survives; a value
@@ -114,13 +123,34 @@ function intlLocale(locale?: LocaleLike): string | undefined {
   return typeof locale === 'string' ? locale : locale.code
 }
 
+const DISPLAY_STYLES = {
+  date: { dateStyle: 'medium' },
+  datetime: { dateStyle: 'medium', timeStyle: 'short' },
+} as const satisfies Record<string, Intl.DateTimeFormatOptions>
+
+// Constructing an `Intl.DateTimeFormat` costs ~40x using one (Node 24: ~31 µs vs ~0.8 µs), and these
+// helpers render every date cell AND its tooltip in `DataTable` — two constructions per cell, so a
+// 100-row page with two date columns would pay 400 of them on every sort, filter and keystroke.
+// A formatter is immutable and the key space is the locales a deployment ships, so one instance per
+// (locale, style) is kept for the process. The style name is the key, so the two cannot desync.
+const formatterCache = new Map<string, Intl.DateTimeFormat>()
+
+function getFormatter(locale: string | undefined, style: keyof typeof DISPLAY_STYLES): Intl.DateTimeFormat {
+  const key = `${locale ?? ''}|${style}`
+  const cached = formatterCache.get(key)
+  if (cached) return cached
+  const created = new Intl.DateTimeFormat(locale, DISPLAY_STYLES[style])
+  formatterCache.set(key, created)
+  return created
+}
+
 /** Render a date for display, or `null` when there is nothing valid to show. */
 export function formatDisplayDate(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
   const parsed = parseDisplayValue(value)
   if (!parsed) return null
   const pattern = resolveDisplayDateFormat()
   if (pattern) return formatWithPublicDateFormat(parsed, pattern)
-  return new Intl.DateTimeFormat(intlLocale(locale), { dateStyle: 'medium' }).format(parsed)
+  return getFormatter(intlLocale(locale), 'date').format(parsed)
 }
 
 /** Render a timestamp for display, or `null` when there is nothing valid to show. */
@@ -129,7 +159,7 @@ export function formatDisplayDateTime(value: string | Date | null | undefined, l
   if (!parsed) return null
   const pattern = resolveDisplayDateTimeFormat()
   if (pattern) return formatWithPublicDateFormat(parsed, pattern)
-  return new Intl.DateTimeFormat(intlLocale(locale), { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+  return getFormatter(intlLocale(locale), 'datetime').format(parsed)
 }
 
 /**
