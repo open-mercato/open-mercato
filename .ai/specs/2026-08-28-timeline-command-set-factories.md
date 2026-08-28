@@ -86,6 +86,32 @@ Each module's command file then collapses to a config object plus three `registe
 
 The interceptor seam introduced since the issue was filed (`command-interceptor-runner.ts`, `CommandInterceptor`; PRs #4958, #5067, #5277) operates at **dispatch** time inside `CommandBus`. These factories change only how handlers are **constructed**. Handlers produced by the factories continue to flow through `CommandBus.execute`, so interceptors, `buildLog`, `captureAfter`, audit entries and the system-actor identity fix (#5277) apply unchanged. No interceptor work is in scope; the requirement is simply that the factory must not bypass `CommandBus` or hand-roll audit metadata.
 
+### Phase 1 evidence — the comments family is not a tight match
+
+#3624 calls comments "the tightest match". Measured, it is not. Normalizing away entity and module names, **208 of ~400 lines still differ** between `staff/comments.ts` and `resources/comments.ts`, and the differences are structural rather than cosmetic. Seven independent variation axes exist in this one family:
+
+1. entity class + validators (expected)
+2. parent resolution — `requireTimelineParentEntity` + `requireDealInScope` / `requireTeamMember` / `requireResource`
+3. author resolution — `normalizeAuthorUserId` / `resolveResourceAuthorUserId`
+4. snapshot field set — `entityId`+`entityKind`+`dealId` / `memberId` / `resourceId`
+5. **snapshot-loading scope machinery — `staff` only** (see below)
+6. `parentResourceKind` — derived vs fixed constant
+7. events config source — `../lib/crud` (staff, resources) vs inline (customers)
+
+The fifth is the blocker. PR **#3977 `fix(staff): scope audit snapshot loaders`** gave `staff` a scope-aware loader (`scopedStaffSnapshotWhere`, `staffSnapshotScopeFromContext`, `applyScopeToWhere`, `StaffSnapshotScope`) applied at **every** snapshot load site. `customers` and `resources` still load audit snapshots by bare `{ id }`.
+
+That makes **three** hardenings, each applied to exactly one copy of a duplicated handler:
+
+| Hardening | Applied to | Missing from |
+| --- | --- | --- |
+| #4012 author-spoofing (`resolveResourceAuthorUserId`) | `resources` | customers, staff |
+| #3977 scoped audit snapshot loaders | `staff` | customers, resources |
+| `companyName` restored in delete-undo (per #3624) | update path only | customers delete-undo |
+
+A fourth asymmetry sits inside a single file: `customers/comments.ts` normalizes the author on **create** (`normalizeAuthorUserId(parsed.authorUserId, ctx.auth)`) but assigns it raw on **update** (`comment.authorUserId = parsed.authorUserId ?? null`). Whether that is intentional needs confirmation — it is the same class as #4012 and should be verified before an extraction freezes it in place. Note the update path does still enforce scope via `ensureTenantScope`/`ensureOrganizationScope` on the loaded row, so the unscoped `prepare` load aborts before any log is written.
+
+**Consequence for sequencing.** "Preserve behavior exactly" and "extract a shared factory" now pull against each other: preserving means encoding three *different security postures* behind one abstraction, which makes the divergence less visible rather than more, and shrinks the DRY win because the differing parts are the substantive ones. See Open Question 5.
+
 ## Phasing
 
 Migration is **one family at a time**, per #3624, ordered by tightness of match and blast radius:
@@ -143,6 +169,11 @@ Per `BACKWARD_COMPATIBILITY.md`: adding `@open-mercato/shared/lib/commands/timel
 2. **Scope split** — the four families are independently deployable (each phase functions without the others). Should this remain one spec with four phased PRs, or be split into per-family specs? Per `om-spec-writing`, raising this is mandatory; the recommendation is one spec, four PRs.
 3. **Author-resolution parity** — there are **three** implementations today: `normalizeAuthorUserId` (customers/staff), the #4012-hardened `resolveResourceAuthorUserId` (resources), and `sales`' local `resolveAuthor`. They diverge inside a single family — `staff/activities` and `resources/activities` do not match. Should the factory converge them (and if so, on the hardened variant?), or preserve all three behind the injected hook? Preserving is the behavior-safe default and is what this spec assumes; converging is a security-relevant change that should be its own decision, and arguably its own issue.
 4. **SPEC-051 housekeeping** — #3611 noted SPEC-051 is fully implemented but still sits in `.ai/specs/` root with a stale File Manifest. Fold the `git mv` to `implemented/` into Phase 0, or keep it separate?
+5. **Converge before extracting?** (raised by the Phase 1 evidence above.) Three hardenings each landed on exactly one copy of a duplicated handler, so the families now differ in security posture, not just in naming. Two orders are possible:
+   - **(a) Extract first, preserve all three postures** behind injected hooks — faithful to #3624 and to "preserve behavior exactly", but it encodes three different security behaviors behind one abstraction and yields a config surface nearly as large as the code it replaces.
+   - **(b) Converge first, extract second** — land the missing hardenings as small independent `fix`/`security` PRs (scoped snapshot loaders for customers/resources; author normalization on `customers.comments.update`; the `companyName` delete-undo omission), then extract over code that is genuinely identical.
+   
+   (b) is the recommendation: each fix is individually reviewable and closes a real gap, the extraction afterwards is materially smaller and lower-risk, and it avoids freezing three divergent postures into a shared surface. It does, however, invert the order this spec proposed and should be a maintainer decision.
 
 ## Changelog
 
