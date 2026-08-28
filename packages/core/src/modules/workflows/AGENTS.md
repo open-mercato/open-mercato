@@ -306,6 +306,17 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   a named `aria-label`; every state pairs its token colour with a glyph and a label — never colour
   alone. Clicking it calls `onOpenTriggers` (the Triggers modal); `stopPropagation` keeps the click
   off the step inspector.
+- **The modal it opens is the ONLY trigger-authoring surface, so it may not lose capability.**
+  `TriggersDialog` hosts the inline `components/TriggersEditor.tsx` (a row per trigger, click-to-expand,
+  no nested drawer) and `DefinitionTriggersEditor` — the drawer editor that used to own this — has no
+  live call site left. "Lighter" there is about CHROME: the event field MUST stay the declared-event
+  picker (`EventPatternInput`, #544), because it is now the only place an author can discover which
+  events a module declares, and the roadmap for this area is a RICHER picker (payload-schema-driven
+  filter/mapping fields), not a text box. It takes no `id`, so its `<Label>` names a wrapping
+  `role="group"` via `aria-labelledby` — the same pattern `components/fields/ActivityConfigFields.tsx`
+  uses for its id-less pickers — and it COMMITS on selection / Enter / blur rather than per keystroke,
+  which every driver of that field (`components/__tests__/triggersEditor.test.tsx`, TC-WF-001,
+  TC-WF-008) has to honour.
 - The old overlay-node geometry (`TRIGGER_NODE_*` in `lib/node-geometry.ts`) and helpers
   (`buildTriggerNode`, `buildTriggerEdge`, `TRIGGER_EDGE_DASH_ARRAY`, `WORKFLOW_TRIGGER_NODE_TYPE`)
   remain exported for the deprecated component and its test; they are no longer used by the editor.
@@ -794,6 +805,14 @@ Treat a regression here as a broken feature, not a nit.
   a `data-node-status` hook. Error routes pair red + dashes + a warning icon, completed route labels
   pair green + a check, route chips are labelled buttons and the collapsed semantic-zoom dot row is a
   labelled `role="img"`. `components/__tests__/canvasAccessibility.test.tsx` is the guard.
+- **The `sr-only` status name means a card's TEXT no longer identifies the step**, so a node's own
+  label carries `data-slot="workflow-node-title"` (`WORKFLOW_NODE_TITLE_SLOT`, set by
+  `WorkflowNodeCard` in both variants and by `StartNode`'s trigger-card branch, which renders its own
+  title). In the editor every status name is "Not started", and Playwright's `hasText` is a
+  case-insensitive SUBSTRING match, so a whole-card match for a step called "Start" resolved to EVERY
+  node on the canvas — plus the START card's cap says "manual / API start". Address the title element
+  (`workflowNodeByTitle` in `packages/core/src/helpers/integration/workflowsUi.ts`) rather than the
+  card, and MUST NOT drop the slot from a node component that renders its own title.
 
 ## Step & Route Inspector
 

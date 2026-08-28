@@ -3,7 +3,7 @@
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
 import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
-import { WorkflowNodeCard } from '../WorkflowNodeCard'
+import { WorkflowNodeCard, WORKFLOW_NODE_TITLE_SLOT } from '../WorkflowNodeCard'
 import { STATUS_COLORS, toWorkflowStatus } from '../../lib/status-colors'
 import { NODE_TYPE_COLORS, NODE_TYPE_ICONS } from '../../lib/node-type-icons'
 import { TriggerCap } from './TriggerCap'
@@ -65,7 +65,10 @@ export function StartNode({ id, data, isConnectable, selected }: NodeProps) {
         <div className="relative flex items-center gap-2 px-4 py-2">
           <span className="sr-only">{statusLabel}</span>
           <StartIcon className={`h-4 w-4 shrink-0 ${NODE_TYPE_COLORS.start}`} aria-hidden="true" />
-          <span className={`truncate text-sm font-semibold leading-snug ${colors.text}`}>
+          <span
+            data-slot={WORKFLOW_NODE_TITLE_SLOT}
+            className={`truncate text-sm font-semibold leading-snug ${colors.text}`}
+          >
             {nodeData.label || 'Start'}
           </span>
           {/* Nested in the Start row so React Flow centres it on "Start", not on

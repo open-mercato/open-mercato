@@ -45,6 +45,17 @@ export const NODE_WIDTH = NODE_MIN_WIDTH
 export const WORKFLOW_NODE_DELETE_EVENT = 'workflow-node:delete'
 
 /**
+ * `data-slot` marking the element that carries a node's OWN label.
+ *
+ * Every card also renders an unconditional `sr-only` status name (spec §4.6:
+ * status is never colour-only), which in the editor is always "Not started" —
+ * so a text match for a step called "Start" over the whole card matches every
+ * node on the canvas. Addressing the title element makes "which node is called
+ * X" answerable without depending on the status copy or the locale.
+ */
+export const WORKFLOW_NODE_TITLE_SLOT = 'workflow-node-title'
+
+/**
  * English fallbacks for the per-status label (spec section 4.6: status is never
  * colour-only, so every state has to have a NAME the card can announce).
  */
@@ -314,7 +325,12 @@ export function WorkflowNodeCard({
         <span className="sr-only">{statusLabel}</span>
         <NodeTypeIcon className={`h-3.5 w-3.5 shrink-0 ${nodeTypeIconColor}`} aria-hidden="true" />
         {statusGlyph}
-        <span className={`truncate text-sm font-semibold leading-snug ${colors.text}`}>{title}</span>
+        <span
+          data-slot={WORKFLOW_NODE_TITLE_SLOT}
+          className={`truncate text-sm font-semibold leading-snug ${colors.text}`}
+        >
+          {title}
+        </span>
         {deleteButton}
       </div>
     )
@@ -350,7 +366,10 @@ export function WorkflowNodeCard({
         <span className="sr-only">{statusLabel}</span>
         {statusGlyph ? <div className="mt-0.5">{statusGlyph}</div> : null}
         <div className="min-w-0 flex-1">
-          <h3 className={`break-words text-sm font-semibold leading-snug ${colors.text}`}>
+          <h3
+            data-slot={WORKFLOW_NODE_TITLE_SLOT}
+            className={`break-words text-sm font-semibold leading-snug ${colors.text}`}
+          >
             {title}
           </h3>
           {resolvedSummary && resolvedSummary.length > 0 ? (

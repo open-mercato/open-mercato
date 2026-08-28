@@ -8,6 +8,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Tag } from '@open-mercato/ui/primitives/tag'
+import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
 import {
   Select,
   SelectContent,
@@ -57,6 +58,13 @@ export interface TriggersEditorProps {
  * states the always-available start path. Reuses the existing
  * `workflows.triggers.*` translations. `DefinitionTriggersEditor` (the older
  * drawer-based editor) is retained for the deprecated mobile sheet.
+ *
+ * "Lighter" is about the CHROME, never the capability: the event field keeps
+ * the declared-event picker (`EventPatternInput`, #544) the drawer editor has
+ * always had. This modal is the only trigger-authoring surface the Studio
+ * offers, so a plain text box here would leave no way to discover which events
+ * a module declares — and the roadmap for this area is a RICHER picker
+ * (payload-schema-driven filter and mapping fields), not a text field.
  */
 export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
   const t = useT()
@@ -160,16 +168,25 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
                       onChange={(event) => patch(trigger.triggerId, { name: event.target.value })}
                     />
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor={`trigger-${trigger.triggerId}-event`}>
+                  {/* The event field is a PICKER over the declared-event
+                      registry (#544), not a free-text box: `EventPatternInput`
+                      suggests every event `events.ts` declares and still
+                      accepts a custom wildcard. It takes no `id`, so the label
+                      names a wrapping group instead of pointing at a control
+                      that does not exist — the same pattern the activity
+                      config fields use for their id-less pickers. */}
+                  <div
+                    className="flex flex-col gap-1.5"
+                    role="group"
+                    aria-labelledby={`trigger-${trigger.triggerId}-event-label`}
+                  >
+                    <Label id={`trigger-${trigger.triggerId}-event-label`}>
                       {t('workflows.triggers.fields.eventPattern', 'Event pattern')}
                     </Label>
-                    <Input
-                      id={`trigger-${trigger.triggerId}-event`}
-                      className="font-mono"
+                    <EventPatternInput
                       value={trigger.eventPattern}
+                      onChange={(eventPattern) => patch(trigger.triggerId, { eventPattern })}
                       placeholder={t('workflows.triggers.placeholders.eventPattern', 'module.entity.action')}
-                      onChange={(event) => patch(trigger.triggerId, { eventPattern: event.target.value })}
                     />
                   </div>
                 </div>

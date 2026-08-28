@@ -116,7 +116,14 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await triggerBtn.hover()
       await page.getByRole('menuitem', { name: /^delete$/i }).click()
 
-      const deleteDialog = page.getByRole('dialog', { name: /delete workflow/i })
+      // The definition list no longer hand-rolls its delete confirmation as a
+      // Radix `Dialog`: it goes through the shared `ConfirmDialog`, which is a
+      // native `<dialog role="alertdialog">`. Playwright matches ARIA roles
+      // exactly, so `getByRole('dialog')` never resolves it — every other spec
+      // that drives this component (TC-WF-034, TC-CRM-014, …) uses
+      // `alertdialog`. The confirmation step itself is unchanged: the row is
+      // only removed after the dialog's Delete is clicked.
+      const deleteDialog = page.getByRole('alertdialog', { name: /delete workflow/i })
       await expect(deleteDialog).toBeVisible()
       await deleteDialog.getByRole('button', { name: /^delete$/i }).click()
 

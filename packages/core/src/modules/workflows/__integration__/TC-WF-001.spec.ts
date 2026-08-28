@@ -24,11 +24,16 @@ async function openTriggersEditor(page: Page, definitionId: string): Promise<voi
 /**
  * TC-WF-001: Event Pattern Autocomplete in Trigger Editor
  *
- * Verifies that the EventPatternInput component in the "Create Event Trigger"
- * dialog shows autocomplete suggestions for declared events, that filtering by
+ * Verifies that the EventPatternInput component on a trigger's event field
+ * shows autocomplete suggestions for declared events, that filtering by
  * partial text works, that selecting a suggestion displays the human-readable
  * label (not the raw event ID), and that custom wildcard patterns are also
  * accepted without being reset.
+ *
+ * The field moved but the contract did not: there is no nested "Create Event
+ * Trigger" dialog any more. `TriggersDialog` hosts the inline `TriggersEditor`,
+ * where "Add Trigger" appends a row and expands it IN PLACE, so the pattern
+ * field is reached through the row rather than through a second dialog.
  *
  * Note: trigger creation (POST /api/workflows/triggers) is not tested here —
  * that API route is a separate concern outside the scope of issue #544, which
@@ -39,6 +44,10 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
     page,
     request,
   }) => {
+    // Login + Studio boot + canvas paint before the first assertion — the same
+    // walk the sibling Studio journeys (TC-WF-006/007) budget for; it does not
+    // fit the shared 20s default.
+    test.setTimeout(90_000)
     let token: string | null = null
     let definitionId: string | null = null
     const timestamp = Date.now()
@@ -81,22 +90,28 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       await login(page, 'admin')
       await openTriggersEditor(page, definitionId)
 
-      // --- Open the Create Event Trigger dialog ---
-      await page.getByRole('button', { name: 'Add Trigger' }).click()
-      const dialog = page.getByRole('dialog', { name: 'Create Event Trigger' })
+      // --- Add a trigger row; it expands inline, no nested dialog ---
+      const dialog = page.getByTestId('workflow-triggers-dialog')
       await expect(dialog).toBeVisible()
+      await dialog.getByRole('button', { name: /^add trigger$/i }).click()
+
+      const row = dialog.getByTestId('trigger-row').last()
+      await expect(row).toBeVisible({ timeout: 5_000 })
 
       // --- Event Pattern autocomplete: suggestions appear on focus ---
-      const patternInput = dialog.getByPlaceholder('sales.orders.updated')
+      // `EventPatternInput` renders a `role="combobox"` input; it takes no `id`,
+      // so the row's field ids do not address it.
+      const patternInput = row.getByRole('combobox')
+      await expect(patternInput).toHaveAttribute('placeholder', 'sales.orders.updated')
       await patternInput.click()
 
       // At least one event suggestion should appear in the dropdown
-      const firstSuggestion = dialog.getByRole('option').filter({ hasText: /Created|Updated|Deleted/i }).first()
+      const firstSuggestion = row.getByRole('option').filter({ hasText: /Created|Updated|Deleted/i }).first()
       await expect(firstSuggestion).toBeVisible()
 
       // --- Filtering: typing narrows suggestions ---
       await patternInput.fill('customers')
-      const customerSuggestion = dialog.getByRole('option').filter({ hasText: /Customer/i }).first()
+      const customerSuggestion = row.getByRole('option').filter({ hasText: /Customer/i }).first()
       await expect(customerSuggestion).toBeVisible()
 
       // The description span shows the raw event ID beneath the human-readable label
@@ -125,15 +140,10 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       await patternInput.press('Escape')
       await expect(patternInput).toHaveValue('sales.orders.*')
 
-      // Cancel without saving — trigger creation API is out of scope for this test
-      if (await dialog.isVisible().catch(() => false)) {
-        // Press Escape to dismiss dialog — avoids DOM detachment race from React re-renders
-        await page.keyboard.press('Escape')
-        if (await dialog.isVisible().catch(() => false)) {
-          await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 5_000 }).catch(() => {})
-        }
-      }
-      await expect(dialog).toBeHidden()
+      // Cancel without saving — the dialog edits a working copy, so dismissing
+      // it discards the row. Trigger persistence is TC-WF-008's subject.
+      await dialog.getByRole('button', { name: /^cancel$/i }).click()
+      await expect(dialog).toBeHidden({ timeout: 5_000 })
     } finally {
       await deleteEntityIfExists(request, token, '/api/workflows/definitions', definitionId)
     }

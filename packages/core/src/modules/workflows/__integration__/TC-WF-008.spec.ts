@@ -87,6 +87,11 @@ async function openDefinitionInStudioViaRowAction(
  * expands it in place, so there is no nested create dialog and no `Create`
  * button. The row's field ids are minted at runtime, hence the row-scoped
  * locators.
+ *
+ * The event field is the declared-event picker (`EventPatternInput`, TC-WF-001's
+ * subject): a `role="combobox"` that carries no id and commits on selection /
+ * Enter / blur rather than per keystroke, so the typed pattern is confirmed
+ * with Enter before the editor's working copy holds it.
  */
 async function addEventTriggerViaUi(page: Page, triggerName: string, eventPattern: string): Promise<void> {
   await openWorkflowTriggersDialog(page)
@@ -97,7 +102,10 @@ async function addEventTriggerViaUi(page: Page, triggerName: string, eventPatter
   const row = dialog.getByTestId('trigger-row').last()
   await expect(row).toBeVisible({ timeout: 5_000 })
   await fillText(page, row.locator('input[id$="-name"]'), triggerName)
-  await fillText(page, row.locator('input[id$="-event"]'), eventPattern)
+
+  const patternInput = row.getByRole('combobox')
+  await fillText(page, patternInput, eventPattern)
+  await patternInput.press('Enter')
 
   // The row's collapsed header echoes both values from the editor's committed
   // state, so seeing them there proves `onChange` reached the dialog's working
@@ -247,6 +255,11 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
       // `entityId` is rendered in the Context JSON panel on the instance page.
       // Matching on that id ties this completed instance to our specific
       // person creation rather than any concurrent run.
+      //
+      // The run detail is Flow / Timeline / Context / Raw now (spec §8.3) and
+      // lands on Flow, so the Context panel is not mounted until its tab is
+      // selected — the id is genuinely absent from the landing view, not late.
+      await page.getByRole('tab', { name: /^context$/i }).click()
       await expect(page.getByText(personEntityId!, { exact: false }).first())
         .toBeVisible({ timeout: 10_000 })
     } finally {

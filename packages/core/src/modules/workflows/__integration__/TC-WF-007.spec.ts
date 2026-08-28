@@ -9,6 +9,7 @@ import {
   openWorkflowDetailsDrawer,
   WORKFLOW_TRIGGER_CAP_TESTID,
   workflowInspector,
+  workflowNodeByTitle,
   workflowRouteEdges,
   workflowStepNodes,
 } from '@open-mercato/core/helpers/integration/workflowsUi'
@@ -123,11 +124,15 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       await expect(nodes).toHaveCount(4, { timeout: 15_000 })
 
       // Each node card shows its label — verify the template's steps survived
-      // the save → reload round trip.
-      await expect(nodes.filter({ hasText: 'Start' })).toHaveCount(1)
-      await expect(nodes.filter({ hasText: 'Review Task' })).toHaveCount(1)
-      await expect(nodes.filter({ hasText: 'Notify Escalation' })).toHaveCount(1)
-      await expect(nodes.filter({ hasText: 'Done' })).toHaveCount(1)
+      // the save → reload round trip. Matched on the node's OWN title element
+      // (`workflowNodeByTitle`): a whole-card `hasText` is a case-insensitive
+      // substring match, so it also hits the unconditional `sr-only` status
+      // name ("Not started") every card renders, and "Start" then resolved to
+      // all four nodes.
+      await expect(workflowNodeByTitle(page, 'Start')).toHaveCount(1)
+      await expect(workflowNodeByTitle(page, 'Review Task')).toHaveCount(1)
+      await expect(workflowNodeByTitle(page, 'Notify Escalation')).toHaveCount(1)
+      await expect(workflowNodeByTitle(page, 'Done')).toHaveCount(1)
 
       await expect(workflowRouteEdges(page)).toHaveCount(4, { timeout: 10_000 })
 

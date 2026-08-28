@@ -7,10 +7,32 @@
  * nested-drawer editor's presentation while keeping the same data shape.
  */
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { TriggersEditor } from '../TriggersEditor'
 import type { WorkflowDefinitionTrigger } from '../../data/entities'
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: jest.fn(),
+}))
+
+const apiCallMock = apiCall as jest.Mock
+
+function mockDeclaredEvents(events: Array<{ id: string; label: string }>) {
+  apiCallMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    result: { data: events, total: events.length },
+    response: {},
+    cacheStatus: null,
+  })
+}
+
+beforeEach(() => {
+  apiCallMock.mockReset()
+  mockDeclaredEvents([])
+})
 
 function Harness({ initial }: { initial: WorkflowDefinitionTrigger[] }) {
   const [triggers, setTriggers] = React.useState(initial)
@@ -56,6 +78,40 @@ describe('TriggersEditor', () => {
     const nameInput = screen.getByDisplayValue('Order placed')
     fireEvent.change(nameInput, { target: { value: 'Order created' } })
     expect(parsed()[0].name).toBe('Order created')
+  })
+
+  it('offers the declared events on the expanded row and commits the picked one', async () => {
+    mockDeclaredEvents([
+      { id: 'customers.person.created', label: 'Person Created' },
+      { id: 'sales.orders.updated', label: 'Order Updated' },
+    ])
+    renderWithProviders(<Harness initial={base} />)
+    fireEvent.click(screen.getByText('Order placed'))
+
+    // The event field is the picker, never a free-text box: this modal is the
+    // Studio's only trigger-authoring surface, so losing it would leave no way
+    // to discover which events a module declares (#544).
+    const pickerInput = screen.getByRole('combobox') as HTMLInputElement
+    act(() => pickerInput.focus())
+    fireEvent.change(pickerInput, { target: { value: 'customers' } })
+    await waitFor(() => {
+      expect(screen.getByText('Person Created')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Order Updated')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Person Created'))
+    expect(parsed()[0].eventPattern).toBe('customers.person.created')
+  })
+
+  it('keeps a custom wildcard pattern the registry does not declare', () => {
+    renderWithProviders(<Harness initial={base} />)
+    fireEvent.click(screen.getByText('Order placed'))
+
+    const pickerInput = screen.getByRole('combobox')
+    fireEvent.change(pickerInput, { target: { value: 'sales.orders.*' } })
+    fireEvent.keyDown(pickerInput, { key: 'Enter' })
+
+    expect(parsed()[0].eventPattern).toBe('sales.orders.*')
   })
 
   it('removes a trigger (the built-in row is not a trigger)', () => {

@@ -72,6 +72,36 @@ export function workflowStepNodes(page: Page): Locator {
 }
 
 /**
+ * The element carrying a node's OWN label (`WORKFLOW_NODE_TITLE_SLOT`).
+ *
+ * A whole-card text match is NOT a way to find a node by name: every card also
+ * renders an unconditional `sr-only` status name (spec §4.6 — status is never
+ * colour-only), which in the editor is always "Not started". Playwright's
+ * `hasText` is a case-insensitive SUBSTRING match, so `hasText: 'Start'` over a
+ * card matches "Not started" and therefore matches every node on the canvas.
+ * The START node compounds it: its trigger cap says "manual / API start".
+ */
+export const WORKFLOW_NODE_TITLE_SELECTOR = '[data-slot="workflow-node-title"]'
+
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * The single author step whose label is exactly `title`.
+ *
+ * Scoped to the title element and anchored, so it neither matches the status
+ * copy nor a longer label that merely contains this one.
+ */
+export function workflowNodeByTitle(page: Page, title: string): Locator {
+  return workflowStepNodes(page).filter({
+    has: page.locator(WORKFLOW_NODE_TITLE_SELECTOR, {
+      hasText: new RegExp(`^\\s*${escapeForRegExp(title)}\\s*$`),
+    }),
+  })
+}
+
+/**
  * The author's routes, without the trigger pill's connector.
  */
 export function workflowRouteEdges(page: Page): Locator {
