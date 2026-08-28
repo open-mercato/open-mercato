@@ -7,6 +7,7 @@
   "scheduler.action.view": "Ver",
   "scheduler.audit.create": "Crear programación",
   "scheduler.audit.delete": "Eliminar programación",
+  "scheduler.audit.trigger": "Ejecutar programación",
   "scheduler.audit.update": "Actualizar programación",
   "scheduler.confirm.delete": "¿Está seguro de que desea eliminar esta programación?",
   "scheduler.confirm.trigger": "¿Está seguro de que desea ejecutar \"{name}\" ahora?\n\nEsto ejecutará {targetType} inmediatamente.",

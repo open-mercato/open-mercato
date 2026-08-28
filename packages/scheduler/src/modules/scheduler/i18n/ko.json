@@ -7,6 +7,7 @@
   "scheduler.action.view": "보기",
   "scheduler.audit.create": "일정 생성",
   "scheduler.audit.delete": "일정 삭제",
+  "scheduler.audit.trigger": "일정 실행",
   "scheduler.audit.update": "일정 수정",
   "scheduler.confirm.delete": "이 일정을 삭제하시겠습니까?",
   "scheduler.confirm.trigger": "지금 \"{name}\"을(를) 실행하시겠습니까?\n\n{targetType}이(가) 즉시 실행됩니다.",
