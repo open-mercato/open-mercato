@@ -22,8 +22,8 @@ tracked by issue #5389), so P1.2 implementation is unblocked.
 
 ## Scope
 
-`.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md` only, plus the decision brief that
-records why each option was chosen.
+`.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md`, the decision brief that records why
+each option was chosen, and this execution record when a later review supersedes an earlier step.
 
 ### Maintainer decisions
 
@@ -72,12 +72,13 @@ is additive and, being unreleased, requires no deprecation bridge.
 
 ### Phase 2: Enforceable exclusivity
 
-- 2.1 Add the `ActiveSiteWarehouse` / `wms_active_site_warehouses` data model: columns, the two
-  unique constraints, the scoped cleanup index, its internal-only status, and the four
+- 2.1 Add the `ActiveSiteWarehouse` / `wms_active_site_warehouses` data model: columns, the
+  warehouse-exclusivity unique constraint, the scoped cleanup index, its internal-only status, and the four
   transactional maintenance paths.
 - 2.2 Rewrite invariant 5 so the unique constraint — not a preflight read — is the authority.
-- 2.3 Add invariant 14: the `pg_advisory_xact_lock` key, ascending lexicographic acquisition
-  order, and why the lock gives a deterministic `409` rather than a deadlock abort.
+- 2.3 Add invariant 14: transaction-scoped Site and warehouse advisory keys, their acquisition
+  order, and why the lock gives a deterministic `409` rather than a deadlock abort. The final
+  form uses reserved family IDs and sorts deduplicated physical warehouse hashes; see Phase 7.
 
 ### Phase 3: Consistency fallout
 
@@ -85,7 +86,7 @@ is additive and, being unreleased, requires no deprecation bridge.
   and search are not left with a stale projection after an undo.
 - 3.2 Update the migration steps (new table, no backfill, built-in lock functions) and renumber.
 - 3.3 Update Phase 1 of the spec's own implementation phases to include membership maintenance
-  and the two new command-layer tests.
+  and the new command-layer concurrency tests.
 - 3.4 Rewrite the test expectations: overlapping-transaction activation, single-row membership
   for a dual-role warehouse, soft-delete undo with redo identity, and the `409` refusal case.
 - 3.5 Update the three affected risk-table rows and add the membership-drift risk.
@@ -101,8 +102,9 @@ is additive and, being unreleased, requires no deprecation bridge.
 - 5.1 Add the site-scoped serialization point (invariant 14) so `is_active` — the state that
   decides membership — is covered by a lock, and state the site-key-before-warehouse-keys
   acquisition order.
-- 5.2 State membership behavior for the warehouse-deactivation path and note that `hashtext`
-  collisions are harmless (they only over-serialize; they never miss an exclusion).
+- 5.2 State membership behavior for the warehouse-deactivation path and record the then-current
+  `hashtext` collision assumption; Phase 7 supersedes that assumption with physically ordered,
+  family-separated lock keys.
 - 5.3 Add the activate-vs-add-mapping and deactivate-vs-add-mapping overlapping-transaction
   test cases.
 - 5.4 Name the two same-site interleavings in the membership-drift risk row.
@@ -110,6 +112,26 @@ is additive and, being unreleased, requires no deprecation bridge.
 - 5.6 Correct the Final Compliance Report's stale "creation undo deactivates" row.
 - 5.7 Record the changelog entry and the `Review — 2026-08-24` decision record, and mirror the
   site-lock decision into the decision brief.
+
+### Phase 6: Second re-review remediation (2026-08-28)
+
+- 6.1 Add site create/update undo to invariant 14's Site-lock enumeration and require all
+  create-undo refusal predicates to be read after that lock is acquired.
+- 6.2 Make mapping commands re-read `deleted_at`, keep activation readiness under the same lock,
+  and route an `is_active` update-undo through normal activation/deactivation maintenance.
+- 6.3 Add the two-order create-undo-vs-mapping-create transaction test and update the risk row.
+- 6.4 Remove the unreachable site-scoped membership unique index and mirror all corrections into
+  the decision brief.
+
+### Phase 7: Local candidate self-review remediation (2026-08-28)
+
+- 7.1 Replace the shared one-integer advisory-lock namespace with two reserved `int4` family IDs.
+- 7.2 Compute, deduplicate, and numerically sort the physical signed warehouse hash keys before
+  acquiring any warehouse lock.
+- 7.3 Add a deliberate-collision overlapping-transaction test and name `40P01` in its assertion
+  and in the risk row.
+- 7.4 Update the spec, brief, changelog, review record, and this execution plan together, then run
+  the documentation-only validation and a fresh `om-auto-review-pr` specification review.
 
 ## Progress
 
@@ -151,6 +173,20 @@ is additive and, being unreleased, requires no deprecation bridge.
 - [x] 5.5 Add the create-undo refusal `409` to the error contract — 306cac9c3
 - [x] 5.6 Correct the stale compliance-matrix row — 306cac9c3
 - [x] 5.7 Add the changelog entry, review record, and brief update — 306cac9c3
+
+### Phase 6: Second re-review remediation (2026-08-28)
+
+- [x] 6.1 Serialize site create/update undo on the Site key — 38d9ba6b1
+- [x] 6.2 Re-read parent/activation state and reuse membership paths — 38d9ba6b1
+- [x] 6.3 Add undo-vs-mapping concurrency coverage and update the risk — 38d9ba6b1
+- [x] 6.4 Remove the redundant index and synchronize the brief — 38d9ba6b1
+
+### Phase 7: Local candidate self-review remediation (2026-08-28)
+
+- [x] 7.1 Separate Site and warehouse physical lock families
+- [x] 7.2 Deduplicate and sort physical warehouse keys
+- [x] 7.3 Add deliberate-collision coverage and risk treatment
+- [x] 7.4 Synchronize the spec, brief, changelog, review record, and execution plan
 
 ### Resume notes — 2026-08-24
 

@@ -5,7 +5,7 @@
 - Priority signal: medium — blocks implementation of P1.2; PR #5449 carries `changes-requested` until resolved
 - Risk signal: low — specification-only edits; no runtime code, schema, or existing contract changes in this change
 - Routing: Next: om-auto-continue-pr 5449
-- Status: **Spec edits already applied** to `.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md` in the working tree on 2026-08-23, uncommitted. A resuming agent should review, commit, and push them — not re-author them.
+- Status: **Specification-only corrections applied** to `.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md`; implementation remains pending.
 
 ## Problem
 
@@ -29,6 +29,8 @@ Rejected: declaring site create non-undoable (honest, but inconsistent with ever
 
 **Follow-up (2026-08-28 second re-review): undo shares that same serialization point.** Site create/update undo now acquire the site key before reading the Site. Create-undo evaluates `is_active`, `deleted_at`, the live-mapping count, and the unchanged-since-creation predicate inside it; mapping create also re-reads `deleted_at` there, so an overlap cannot commit both a soft-deleted parent and a live child. Activation's readiness check is inside the same lock and held through its state/membership writes, while site update undo that reverses `is_active` reuses the corresponding activation/deactivation path. The redundant unique `(tenant_id, organization_id, site_id, warehouse_id)` index is omitted in Phase 1 because the stricter warehouse-exclusivity constraint already makes it unreachable; a future capability that relaxes exclusivity must add the site-scoped invariant as part of its redesign.
 
+**Follow-up (2026-08-28 local candidate self-review): logical lock order must also be physical lock order.** The one-integer `pg_advisory_xact_lock(hashtext(...))` form placed Site and warehouse hashes in one physical namespace, so a 32-bit collision could invert the documented family order; sorting warehouse UUIDs likewise did not sort the keys PostgreSQL actually acquires. The design now uses `pg_advisory_xact_lock(familyId, resourceHash)` with centrally owned `WMS_SITE_LOCK_FAMILY_ID = 1464685313` and `WMS_WAREHOUSE_LOCK_FAMILY_ID = 1464685314`. Multi-warehouse commands compute signed `hashtext` values first, deduplicate collisions, and sort those physical keys numerically. A deliberate-collision overlapping-transaction test must prove that no `40P01` escapes and that a real membership conflict still yields one winner and one stable `409`.
+
 Rejected: a plain partial unique index on the existing mapping table. It cannot express this invariant — the spec deliberately allows one warehouse to serve several roles inside the same site, and `is_active` lives on the site row, so the constraint is inherently cross-row. Rejected as insufficient-alone: advisory locks with no database backstop, which protect only the code paths that remember to take the lock.
 
 "Change nothing" lost on both counts: the review blocks implementation, and freezing either rule as written would bake a no-op undo contract and an unenforceable exclusivity rule into the P1.2 implementation.
@@ -40,10 +42,10 @@ Rejected: a plain partial unique index on the existing mapping table. It cannot 
 | Should site create-undo remove the row or deactivate it? | Soft-delete (`deleted_at`) with the site ID preserved in the audit snapshot for redo — matching the platform's canonical create-undo pattern |
 | Does releasing the site code need a schema change? | No — the uniqueness index is already `WHERE deleted_at IS NULL`, so soft-delete releases the code as a side effect |
 | Can a partial unique index alone enforce active-site warehouse exclusivity? | No — one warehouse may legitimately serve several roles within one site, and `is_active` lives on the site row, making the invariant cross-row |
-| What enforces exclusivity instead? | A materialized active-membership relation unique on `(tenant_id, organization_id, warehouse_id)`, plus a `pg_advisory_xact_lock` on the same key acquired in stable sorted order |
+| What enforces exclusivity instead? | A materialized active-membership relation unique on `(tenant_id, organization_id, warehouse_id)`, plus two-integer `pg_advisory_xact_lock(familyId, resourceHash)` keys with reserved Site/warehouse families and warehouse hashes deduplicated and sorted by their signed physical value |
 | Which paths must maintain the membership relation? | Activation, deactivation, mapping create, and mapping update/delete while the parent site is active; site update undo reuses activation/deactivation when reversing `is_active` |
 | What serializes the Site state that decides membership or permits undo? | A site-scoped advisory key taken before any warehouse keys by activation, deactivation, site create/update undo, and every mapping write — including writes on an inactive site — with `is_active` and `deleted_at` re-read inside it |
-| What shape must the concurrency test take? | Two genuinely overlapping transactions proving the chosen constraint or lock, not sequential preflight checks |
+| What shape must the concurrency test take? | Two genuinely overlapping transactions proving the chosen constraint or lock, not sequential preflight checks; deliberate cross-family and within-warehouse hash collisions must complete without `40P01`, while a shared membership still resolves to one commit and one stable `409` |
 | What must the create-undo test assert? | Removal from list results, release of the site code, redo restoring the same site ID, and both commit orders against a concurrent same-Site mapping create without an orphan child |
 | Should the roadmap document change too? | No — the reviewer confirmed the roadmap decomposition is sound and that no split is needed |
 
@@ -57,9 +59,10 @@ Rejected: a plain partial unique index on the existing mapping table. It cannot 
 
 ## Affected areas (if known)
 
-- `.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md`, at six points established during the conversation:
+- `.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md`, at the affected points established during the conversation and subsequent reviews:
   - line ~114 — "No route or normal command sets `deleted_at` on a site" must be narrowed to exclude the undo path
   - lines ~157 and ~165 — invariant 5 and the "activation locks" clause must name the membership constraint, the lock key, and the acquisition order
+  - invariant 14 — use separate physical lock families, deduplicate/sort actual warehouse hash keys, and cover deliberate collisions in an overlapping-transaction test
   - the entity/index section — the new active-membership relation and its unique constraint must be specified
   - line ~265 — the site create-undo audit rule
   - lines ~394–395 — the concurrency and create-undo test expectations
