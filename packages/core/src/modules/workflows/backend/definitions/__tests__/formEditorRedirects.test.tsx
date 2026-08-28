@@ -13,11 +13,9 @@ import * as React from 'react'
 import { render, screen } from '@testing-library/react'
 
 const replaceMock = jest.fn()
-let routeParams: Record<string, string | string[]> = {}
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: replaceMock, push: jest.fn(), refresh: jest.fn() }),
-  useParams: () => routeParams,
   usePathname: () => '/backend/definitions',
 }))
 
@@ -33,7 +31,6 @@ import { metadata as editMetadata } from '../[id]/page.meta'
 describe('retired workflow form editor bridges to the Studio', () => {
   beforeEach(() => {
     replaceMock.mockClear()
-    routeParams = {}
   })
 
   test('the create route forwards to the blank Studio', () => {
@@ -43,20 +40,14 @@ describe('retired workflow form editor bridges to the Studio', () => {
     expect(screen.getByText('Opening the workflow studio…')).toBeTruthy()
   })
 
+  // The id arrives on the params prop the /backend/[...slug] catch-all passes
+  // down (#5600); the positional slug reading this bridge used before is gone.
   test('the edit route forwards to the Studio carrying the definition id', () => {
-    routeParams = { id: '11111111-2222-3333-4444-555555555555' }
-    render(<EditWorkflowDefinitionPage />)
+    render(<EditWorkflowDefinitionPage params={{ id: '11111111-2222-3333-4444-555555555555' }} />)
 
     expect(replaceMock).toHaveBeenCalledWith(
       '/backend/definitions/visual-editor?id=11111111-2222-3333-4444-555555555555',
     )
-  })
-
-  test('the edit route reads the id out of the catch-all slug form too', () => {
-    routeParams = { slug: ['definitions', 'abc-123'] }
-    render(<EditWorkflowDefinitionPage />)
-
-    expect(replaceMock).toHaveBeenCalledWith('/backend/definitions/visual-editor?id=abc-123')
   })
 
   test('an id-less edit route falls back to the blank Studio instead of a broken query', () => {

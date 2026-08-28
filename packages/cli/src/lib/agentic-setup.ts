@@ -836,6 +836,14 @@ const TOOLS = [
 
 const SELECTABLE = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
 
+/**
+ * The agents whose SKILL directories `scripts/install-skills.mjs` manages.
+ * GitHub Copilot is selectable here but reads instruction files under
+ * `.github/`, not a skills directory, so the installer does not know that id —
+ * naming it in `agents.ignore` aborts the install with "unknown agent".
+ */
+const SKILL_MANAGED_AGENT_IDS = ['claude-code', 'codex', 'cursor']
+
 function persistedAgentSelection(targetDir: string): string[] | null {
   const selectableIds = SELECTABLE.map((tool) => tool.id)
   const tiersPath = join(targetDir, '.ai', 'skills', 'tiers.json')
@@ -1020,7 +1028,7 @@ function enforceGeneratedRootBudget(
 function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
   const manifestPath = join(targetDir, '.ai', 'skills', 'tiers.json')
   if (!existsSync(manifestPath)) return
-  const ignore = SELECTABLE.map((tool) => tool.id).filter((id) => !selectedIds.includes(id))
+  const ignore = SKILL_MANAGED_AGENT_IDS.filter((id) => !selectedIds.includes(id))
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
   if (ignore.length > 0) {
     manifest.agents = { ignore }

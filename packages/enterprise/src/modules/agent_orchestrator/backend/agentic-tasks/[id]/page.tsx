@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -13,12 +13,12 @@ import { processDefinitionHref, PROCESS_DEFINITIONS_HREF } from '../../processes
  *
  * @deprecated Link to `/backend/processes/definitions/<id>` instead.
  */
-export default function AgenticTaskDetailBridgePage() {
+export default function AgenticTaskDetailBridgePage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
-  const params = useParams<{ id?: string | string[] }>()
   const t = useT()
-  const rawId = params?.id
-  const id = Array.isArray(rawId) ? rawId[0] : rawId
+  // The id arrives on the params prop the /backend/[...slug] catch-all passes
+  // down, never from the router hook or a positional slug index (#5600).
+  const id = params?.id
 
   React.useEffect(() => {
     router.replace(id ? processDefinitionHref(id) : PROCESS_DEFINITIONS_HREF)

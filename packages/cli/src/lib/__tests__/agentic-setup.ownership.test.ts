@@ -401,9 +401,10 @@ describe('runAgenticSetup ownership modes', () => {
     const tiers = JSON.parse(readFileSync(join(appDir, '.ai', 'skills', 'tiers.json'), 'utf8')) as {
       agents?: { ignore?: string[] }
     }
-    // Every supported tool the app did NOT select is ignored, so the skills
-    // installer skips its links. This list grows with each tool the generator
-    // learns — GitHub Copilot joined `cursor` here.
-    expect(tiers.agents?.ignore).toEqual(['cursor', 'github-copilot'])
+    // Every SKILL-MANAGED tool the app did not select is ignored, so the skills
+    // installer skips its links. GitHub Copilot is deliberately absent: it reads
+    // `.github/` instruction files rather than a skills directory, and the
+    // installer rejects its id as an unknown agent.
+    expect(tiers.agents?.ignore).toEqual(['cursor'])
   })
 })

@@ -26,6 +26,9 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'workflows.task.reminder_due',
+    // Same delivery as `workflows.task.assigned`: an SLA reminder or breach is
+    // about the task the operator already gets assignment mail for.
+    channels: ['in_app', 'email'],
     module: 'workflows',
     titleKey: 'workflows.notifications.task.reminderDue.title',
     bodyKey: 'workflows.notifications.task.reminderDue.body',
@@ -37,6 +40,9 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'workflows.task.deadline_breached',
+    // Same delivery as `workflows.task.assigned`: an SLA reminder or breach is
+    // about the task the operator already gets assignment mail for.
+    channels: ['in_app', 'email'],
     module: 'workflows',
     titleKey: 'workflows.notifications.task.deadlineBreached.title',
     bodyKey: 'workflows.notifications.task.deadlineBreached.body',

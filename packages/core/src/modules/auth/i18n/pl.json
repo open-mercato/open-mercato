@@ -421,7 +421,7 @@
   "auth.acl.modules.webhooks": "Webhooki",
   "auth.acl.modules.wms": "System zarządzania magazynem",
   "auth.acl.modules.workflows": "Mechanizm przepływów pracy",
-  "auth.acl.organizationWarning": "Ograniczenia organizacyjne są zapisywane tylko wtedy, gdy wybrano co najmniej jedno nadpisanie uprawnień. Dodaj uprawnienie lub włącz symbol wieloznaczny modułu przed zapisaniem.",
+  "auth.acl.organizationWarning": "Ograniczenia organizacyjne wymagają co najmniej jednego nadpisania uprawnień. Dodaj uprawnienie lub wildcard modułu albo wyczyść zakres organizacji przed zapisaniem.",
   "auth.acl.organizationsScope": "Zakres organizacji",
   "auth.acl.organizationsScopeHint": "Brak wyboru oznacza wszystkie organizacje. Wybierz co najmniej jedną, aby ograniczyć dostęp.",
   "auth.acl.restricted": "Ograniczone",
