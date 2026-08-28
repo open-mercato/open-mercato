@@ -70,6 +70,9 @@ export class TokenSearchStrategy implements SearchStrategy {
     const { listSearchTokenExcludedEntityTypes } = await import(
       '@open-mercato/core/modules/query_index/lib/search-entity-policy'
     )
+    const { isTenantGlobalEntityType, listTenantGlobalEntityTypes } = await import(
+      '@open-mercato/core/modules/query_index/lib/tenant-global'
+    )
 
     const config = resolveSearchConfig()
     if (!config.enabled) return []
@@ -88,6 +91,21 @@ export class TokenSearchStrategy implements SearchStrategy {
     const minMatches = Math.max(1, Math.ceil(hashes.length * this.minMatchRatio))
     const limit = options.limit ?? this.defaultLimit
 
+    // Entity types declared as platform-wide catalogues are indexed once, under the
+    // null tenant, so an exact tenant match alone would never return them. This is
+    // the same widening `fetchDocsBatch()` in ../lib/presenter-enricher.ts performs
+    // for the projection row, and the two must agree: a hit this predicate returns
+    // and the enricher's does not is a result with no title and no URL.
+    //
+    // Narrowed to the entity types the rest of this query can return, so the widening
+    // never reaches a row the caller was not going to be offered anyway — and gated on
+    // the declaration rather than on `tenant_id IS NULL`, which is also the stored
+    // scope of private tables with neither scope column (`directory:tenant`,
+    // `auth:user_role`).
+    const globalEntityTypes = requestedEntityTypes
+      ? requestedEntityTypes.filter(isTenantGlobalEntityType)
+      : listTenantGlobalEntityTypes().filter((entityType) => !excludedEntityTypes.includes(entityType))
+
     let queryBuilder = this.db
       .selectFrom('search_tokens' as any)
       .select([
@@ -97,7 +115,15 @@ export class TokenSearchStrategy implements SearchStrategy {
         sql<string>`count(*)`.as('match_count'),
       ])
       .where('token_hash' as any, 'in', hashes)
-      .where('tenant_id' as any, '=', options.tenantId)
+      .where((eb) => (globalEntityTypes.length === 0
+        ? eb('tenant_id' as any, '=', options.tenantId)
+        : eb.or([
+          eb('tenant_id' as any, '=', options.tenantId),
+          eb.and([
+            eb('tenant_id' as any, 'is', null),
+            eb('entity_type' as any, 'in', globalEntityTypes),
+          ]),
+        ])))
       .groupBy(['entity_type' as any, 'entity_id' as any, 'organization_id' as any])
       .having(sql<SqlBool>`count(distinct token_hash) >= ${minMatches}`)
       .orderBy(sql`count(distinct token_hash) desc`)

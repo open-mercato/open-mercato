@@ -395,3 +395,69 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+
+## Tenant-Scoped Reindex of Tenant-Less Tables (2026-08-28)
+
+[`.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md`](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md)
+stops `reindexEntity()` filing every tenant's rows under the caller's tenant when the
+source table has no `tenant_id` column.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signatures | New exports `registerTenantGlobalEntityTypes`, `isTenantGlobalEntityType`, `listTenantGlobalEntityTypes`, `resetTenantGlobalEntityTypes` from `@open-mercato/core/modules/query_index/lib/tenant-global` | ✓ ADDITIVE (new module, new functions) |
+| Function signatures | `reindexEntity(em, options)` — signature and return type unchanged | ✓ No change |
+| `reindexEntity` behaviour | A tenant-scoped reindex of a table with no `tenant_id` column returns an empty result and logs a warning, instead of indexing every tenant's rows under the caller's tenant | ⚠ Deliberate behaviour narrowing |
+| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**The Emergency Security Exception is not invoked, and does not need to be.** Nothing
+is removed or renamed, so steps 1-3 have nothing to stage; `reindexEntity` keeps its
+signature and every caller compiles unchanged. What narrows is which inputs it will
+act on, and the refused input's only possible outcome was a cross-tenant write. A flag
+that restored the old behaviour was considered and rejected for the reason the
+exception itself gives: a retained vulnerable branch is the bridge that must not be
+built.
+
+**Contract commitments**: the refusal is derived, not enumerated — it fires exactly
+when the tenant predicate would be dropped AND a tenant override would be stamped, so
+a tenant-less entity type added later fails closed with nobody editing a list. The
+allowlist MAY grow through `registerTenantGlobalEntityTypes()` and MUST NOT come to
+admit an entity type by default that is not a platform-wide catalogue. A `tenantId` of
+`null` or `undefined` is outside the rule and stays outside it.
+
+**Migration path for existing modules**: none required unless a module owns a
+tenant-less catalogue table, which registers itself as above. See
+[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.7.0 → 0.7.1` for both the module-author and
+the operator action, including the index residue this change does not clean up.
+
+## Tenant-Global Entity Types in the Search Index (2026-08-28)
+
+[`.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md`](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md)
+aligns the sweep writer with the incremental one on `tenant_id = NULL` for declared
+platform-wide catalogues, and gives both index readers the matching NULL branch.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signatures | `reindexEntity`, `createPresenterEnricher`, `TokenSearchStrategy.search` — all unchanged | ✓ No change |
+| Stored scope | The projection of a **declared** tenant-global entity type is written under `tenant_id = NULL` instead of the caller's tenant | ⚠ Deliberate behaviour change, declared types only |
+| Read scope | Both index readers match `tenant_id = X OR (tenant_id IS NULL AND entity_type IN <declared>)` instead of `tenant_id = X` | ⚠ Deliberate behaviour change, declared types only |
+| Coverage / purge scope | `entity_index_coverage` rows, `purgeOrphans` and the force purge follow the projection to the null tenant for declared types | ⚠ Consequential, same set |
+| Job scope | `entity_index_jobs` keeps the caller's tenant | ✓ No change |
+| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**No migration.** Adding `tenant_id_coalesced` to `entity_indexes_type_entity_org_coalesced_unique`
+was considered and is not needed: a declared catalogue has no tenant-scoped variant to
+coexist with, since its source table has no tenant column and every writer resolves the
+same record to the same null scope.
+
+**Contract commitments**: the widening is gated on `isTenantGlobalEntityType()` and MUST
+NOT be reduced to a bare `tenant_id IS NULL` predicate. A table with neither scope column
+is stored under the null tenant whether it is a catalogue or private data — thirteen of
+the fourteen such entity types in this repository are private — so the entity-type
+conjunct is the only thing separating the two. Reader and writer MUST move together; a
+reader-only change publishes whatever an unscoped reindex left behind, and a writer-only
+change makes catalogues unfindable for everyone.
+
+**Migration path**: reindex each declared catalogue once. `entity_indexes` self-heals
+through the upsert; leftover per-tenant `search_tokens` rows are duplicates of public
+catalogue text and can be deleted. See [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md)
+`0.7.0 → 0.7.1`.
