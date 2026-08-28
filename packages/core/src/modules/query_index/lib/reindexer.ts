@@ -16,6 +16,7 @@ import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './job
 import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
+import { isIndexableEntityType } from '@open-mercato/shared/lib/entities/system-entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('query_index').child({ component: 'reindexer' })
@@ -167,9 +168,19 @@ export async function reindexEntity(
   // reindexer at arbitrary tables (e.g. `auth_users`, `users`) and read their
   // rows into the index, bypassing tenant scoping and entity-level encryption.
   const table = resolveRegisteredEntityTableName(em, entityType)
-  if (!table || entityType === 'query_index:search_token' || table === 'search_tokens') {
+  // `isIndexableEntityType` subsumes the `query_index:search_token` literal this
+  // condition used to carry and extends the same refusal to every entity type
+  // whose whole purpose is to hold a credential. It has to be checked here as
+  // well as in `upsertIndexBatch`, because a reindex that got past this point
+  // would prepare a job, reset coverage and purge rows for an entity type that
+  // must not be in the index at all.
+  if (!table || !isIndexableEntityType(entityType) || table === 'search_tokens') {
     if (!table) {
       logger.warn('Refusing to reindex unregistered entity type', {
+        entityType,
+      })
+    } else if (!isIndexableEntityType(entityType)) {
+      logger.warn('Refusing to reindex credential-bearing entity type', {
         entityType,
       })
     }

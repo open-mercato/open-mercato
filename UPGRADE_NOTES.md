@@ -42,6 +42,66 @@ yarn mercato query_index rebuild-all # equivalent when driving query_index direc
 Records whose indexed text contains none of these characters produce byte-identical hashes before and after, so a reindex is only required where the bug actually applied — but reindexing everything is harmless and is the simpler operational choice. Installations running Meilisearch may not have noticed the bug in global search (its own normalizer handles `ł` correctly), yet the backend users-list filter routes through the token path regardless, so the reindex still applies.
 
 **Action for module authors:** none, unless you persisted `tokenizeText` output outside `search_tokens`. If you did, recompute it; comparing a stored pre-fix token against a freshly computed one will not match for affected text.
+### Credential-bearing entity types are no longer written to the search index
+
+Nothing gated which entity types the query index would accept. `mercato query_index
+reindex` and `mercato query_index rebuild-all`, invoked without `--entity`, sweep every
+generated entity id, so a stock deployment indexed `auth:session`, `auth:password_reset`,
+the `customer_accounts` session/reset/verification/invitation tables,
+`communication_channels:channel_thread_token`, `messages:message_access_token` and — where
+the `security` module is enabled — `security:sudo_session`, `security:mfa_challenge` and
+`security:mfa_recovery_code`.
+
+The field blocklist did not cover this. `buildIndexDocument()` copies the base row into
+`doc` before any blocklist runs, so the credential was stored in `entity_indexes.doc`
+whatever the blocklist said, and the row's *other* columns — a session's `ip_address` and
+`user_agent`, a sudo session's `target_identifier`, an invitation's `email` — were
+tokenised into `search_tokens` and became searchable.
+
+Those twelve entity types are now refused at every point that writes:
+`buildIndexDoc()` returns null, `upsertIndexBatch()` returns an empty result,
+`buildSearchTokenRows()` returns no rows, and `reindexEntity()` returns an empty result
+and logs *"Refusing to reindex credential-bearing entity type"*.
+
+**Action for module authors.** If your module owns a table whose rows are a bearer
+credential or the verifier for one — a session, a one-time token, a reset or invitation
+code — declare it at module load, before any index write:
+
+```ts
+import { registerNonIndexableEntityTypes } from '@open-mercato/shared/lib/entities/system-entities'
+
+registerNonIndexableEntityTypes('billing:portal_magic_link')
+```
+
+Unlike `registerTenantGlobalEntityTypes()`, forgetting this is **not** safe: an
+undeclared entity type keeps being indexed. Tables that hold a secret column but also
+back a list screen — an API-key list, an integration's credentials, an SSO config — should
+**not** be declared; removing them from the index breaks their own screens, and the field
+blocklist (`OM_SEARCH_FIELD_BLOCKLIST`) is what protects them.
+
+**Action for operators.** Rows written by earlier releases are not migrated. They are
+removed opportunistically — the next `query_index.upsert_one` for such a record deletes
+its projection row and its tokens — so an idle credential row can persist. To clear them
+now, run a full reindex, which purges each entity type before refusing it:
+
+```bash
+mercato query_index reindex
+```
+
+Expect one warning line per refused entity type. If you would rather confirm the residue
+first, count it before and after:
+
+```sql
+SELECT entity_type, count(*) FROM entity_indexes
+ WHERE entity_type IN ('auth:session', 'auth:password_reset', 'security:sudo_session')
+ GROUP BY 1;
+```
+
+**What this does not change.** The stored document still carries blocklisted fields for
+entity types that remain indexed; `isSearchFieldBlocklisted()` governs the `search_text`
+aggregate and the token rows, not `entity_indexes.doc`. Custom-field definitions and the
+entity pickers are untouched — a refused entity type is still enumerable, it is only not
+indexed.
 
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 

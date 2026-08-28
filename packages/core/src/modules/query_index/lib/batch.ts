@@ -5,6 +5,7 @@ import { buildIndexDocument, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { isIndexableEntityType } from '@open-mercato/shared/lib/entities/system-entities'
 
 const logger = createLogger('query_index').child({ component: 'reindex-batch' })
 
@@ -149,6 +150,12 @@ export async function upsertIndexBatch(
   options: IndexBatchOptions = {},
 ): Promise<UpsertIndexBatchResult> {
   if (!rows.length) return createEmptyUpsertIndexBatchResult()
+  // The batch path never goes through `buildIndexDoc`, so it needs its own guard:
+  // `mercato query_index rebuild-all` sweeps every generated entity id and calls
+  // this directly. An empty result rather than a throw, so the CLI's
+  // `assertIndexBatchWritesLanded()` sees 0 written of 0 attempted and the sweep
+  // continues past a refused entity type.
+  if (!isIndexableEntityType(entityType)) return createEmptyUpsertIndexBatchResult()
   const recordIds = rows.map((row) => normalizeId(row.id))
 
   const failedRecordIds: string[] = []

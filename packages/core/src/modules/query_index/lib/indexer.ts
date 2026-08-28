@@ -12,6 +12,7 @@ import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField } from './document'
+import { isIndexableEntityType } from '@open-mercato/shared/lib/entities/system-entities'
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
 
@@ -25,6 +26,10 @@ type BuildDocParams = {
 }
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
+  // Null rather than an early return from `upsertIndexRow`: its null branch already
+  // deletes the projection row AND its search tokens, so an index polluted by an
+  // earlier release cleans itself up the next time the record is touched.
+  if (!isIndexableEntityType(params.entityType)) return null
   const db = (em as any).getKysely()
   const baseTable = resolveEntityTableName(em, params.entityType)
 

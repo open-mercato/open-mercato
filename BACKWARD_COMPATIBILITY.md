@@ -395,3 +395,41 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+
+## Credential-Bearing Entity Types in the Search Index (2026-08-28)
+
+[`.ai/specs/2026-08-28-credential-bearing-entity-types-in-the-search-index.md`](.ai/specs/2026-08-28-credential-bearing-entity-types-in-the-search-index.md)
+stops entity types whose reason to exist is a bearer credential from being written to
+`entity_indexes` and `search_tokens`.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signatures | New exports `isIndexableEntityType`, `registerNonIndexableEntityTypes`, `listNonIndexableEntityTypes`, `resetNonIndexableEntityTypes` from `@open-mercato/shared/lib/entities/system-entities` | ✓ ADDITIVE (new functions in an existing module) |
+| Function signatures | `buildIndexDoc`, `upsertIndexBatch`, `buildSearchTokenRows`, `reindexEntity` — signatures and return types unchanged | ✓ No change |
+| `buildIndexDoc` behaviour | Returns `null` for a refused entity type, which makes `upsertIndexRow()` delete the projection row and its search tokens | ⚠ Deliberate behaviour narrowing |
+| `upsertIndexBatch` behaviour | Returns an empty result (0 written of 0 attempted) for a refused entity type instead of writing rows | ⚠ Deliberate behaviour narrowing |
+| `buildSearchTokenRows` behaviour | Returns `[]` for a refused entity type; the callers' `DELETE` still runs | ⚠ Deliberate behaviour narrowing |
+| `reindexEntity` behaviour | Returns an empty result and logs a warning for a refused entity type, before any job, coverage or purge write. Subsumes the `query_index:search_token` special case | ⚠ Deliberate behaviour narrowing |
+| `RESERVED_SYSTEM_ENTITY_TYPES`, `isSystemEntitySelectable`, `flattenSystemEntityIds` | No change — a refused entity type is still enumerable and still accepts custom-field definitions | ✓ No change |
+| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**The Emergency Security Exception is not invoked, and does not need to be.** Nothing is
+removed or renamed, so steps 1-3 have nothing to stage; every caller compiles unchanged.
+What narrows is which entity types these four functions will act on, and for the refused
+ones the only possible outcome was a credential in a table built to be searched. A flag
+restoring the old behaviour was considered and rejected for the reason the exception
+itself gives: a retained vulnerable branch is the bridge that must not be built.
+
+**Contract commitments**: the built-in list MAY grow as credential tables are added to
+this repository, and MUST NOT come to refuse an entity type that has legitimate display
+content. `registerNonIndexableEntityTypes()` is additive only — it widens the refusal and
+can never narrow it, and `resetNonIndexableEntityTypes()` restores exactly the built-in
+entries, never fewer. Note the asymmetry with `registerTenantGlobalEntityTypes()`, which
+is an allowlist: there an undeclared entity type fails closed, here it fails open, which
+is why the built-in list rather than the seam is the mechanism.
+
+**Migration path for existing modules**: none required unless a module owns a table whose
+rows are a bearer credential, which declares itself with
+`registerNonIndexableEntityTypes()` at module load. See
+[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.7.0 → 0.7.1` for both the module-author and the
+operator action, including the index residue this change does not migrate.

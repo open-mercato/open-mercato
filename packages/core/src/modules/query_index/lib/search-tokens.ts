@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isIndexableEntityType } from '@open-mercato/shared/lib/entities/system-entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('query_index').child({ component: 'search-tokens' })
@@ -86,6 +87,10 @@ function shouldIndexField(
 export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[] {
   const config = params.config ?? resolveSearchConfig()
   if (!config.enabled) return []
+  // An empty row set rather than a short-circuit in the callers, so
+  // `replaceSearchTokensForRecord` / `...ForBatch` still run their DELETE and
+  // tokens written by an earlier release are removed as records are touched.
+  if (!isIndexableEntityType(params.entityType)) return []
   if (!params.doc) return []
   const tokens: SearchTokenRow[] = []
   const capturePairs = isSearchDebugEnabled() && params.entityType === 'customers:customer_deal'
