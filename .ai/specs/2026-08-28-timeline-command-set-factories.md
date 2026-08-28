@@ -8,7 +8,8 @@ This spec covers **the deferred extraction only**. It does not propose a generic
 
 ## Status
 
-Proposed — 2026-08-28 · Scope: OSS
+Implemented — 2026-08-28 · Scope: OSS
+(Proposed and implemented the same day; see *Implementation Evidence* for what the code actually does versus what this spec proposed.)
 Modules: `packages/core/src/modules/{customers,staff,resources,sales}/commands/`
 Issue: [#3624](https://github.com/open-mercato/open-mercato/issues/3624) — DRY: extract shared command-set factories for comments/activities/addresses/notes
 Supersedes: [#3611](https://github.com/open-mercato/open-mercato/issues/3611) (closed `not_planned` 2026-06-25, refiled as #3624 seven minutes later by the same author)
@@ -25,7 +26,7 @@ That follow-up spec was never written. The duplication has since become the larg
 | Divergence | Where | Status |
 | --- | --- | --- |
 | `buildLog` re-loads the snapshot instead of reading `snapshots.after`/`before` | `resources/commands/comments.ts` | Live; costs an extra query per logged write |
-| Delete-undo omits `address.companyName = before.companyName` while update-undo sets it (`:237`) | `customers/commands/addresses.ts` | Live; **user-visible data loss** — restoring a deleted address drops the company name |
+| Delete-undo omits `address.companyName = before.companyName` while update-undo sets it (`:237`) | `customers/commands/addresses.ts` | **Latent** — see the reachability note below |
 | Hardened author resolution (`resolveResourceAuthorUserId`, verifies a super-admin-supplied author against a real `User`) added by security fix #4012 | `resources/commands/shared.ts` only | Live; `customers`/`staff` comments call `normalizeAuthorUserId` directly and did not receive the same hardening |
 
 The first two are named in #3624. The third landed **after** the issue was filed (PR #4012, 2026-07-09) and is the clearest evidence of the cost: a security fix was applied to one copy of a duplicated handler and not the others. Whether `customers`/`staff` need the same hardening is an Open Question below — it is exactly the class of question a parity matrix exists to surface.
@@ -139,6 +140,12 @@ Each phase is an independently reviewable and independently revertable PR. Phase
 
 The three divergences above are folded into the shared path as each family migrates, **except** the `customers/addresses` `companyName` delete-undo omission. That is a user-visible data-loss bug, not a refactor artefact, and should ship as its own small `fix(customers):` PR *before* Phase 3 so the fix is reviewable on its own merits and independently backportable. The `resources` `buildLog` re-load is a pure refactor artefact and is resolved by Phase 1.
 
+> **As implemented:** the `companyName` fold was **not** split out, and the "user-visible data
+> loss" framing above is corrected in *Implementation Evidence*: the omission sits in a branch a
+> hard delete makes unreachable, so it is latent rather than live. Splitting it out would have
+> meant patching code deleted in the same change. It is instead called out as one of the two
+> sanctioned behavior changes, with the unreachable branch pinned by unit coverage.
+
 ## Implementation Plan
 
 **Phase 0 — parity evidence** *(implemented; see `packages/core/src/modules/__tests__/timeline-command-set-parity.test.ts`)*
@@ -175,6 +182,156 @@ Per `BACKWARD_COMPATIBILITY.md`: adding `@open-mercato/shared/lib/commands/timel
    
    (b) is the recommendation: each fix is individually reviewable and closes a real gap, the extraction afterwards is materially smaller and lower-risk, and it avoids freezing three divergent postures into a shared surface. It does, however, invert the order this spec proposed and should be a maintainer decision.
 
+## Implementation Evidence
+
+Everything below is measured against the implemented code, not projected.
+
+### What shipped
+
+Three factories in `packages/shared/src/lib/commands/timeline.ts` (1,025 lines), plus the
+`restoreTimelineEntityFromSnapshot` primitive they share. All eight command files were migrated.
+
+| File | Before | After | of which config |
+| --- | ---: | ---: | ---: |
+| `customers/commands/comments.ts` | 429 | 190 | 118 |
+| `staff/commands/comments.ts` | 437 | 173 | 111 |
+| `resources/commands/comments.ts` | 385 | 146 | 97 |
+| `staff/commands/activities.ts` | 588 | 219 | 134 |
+| `resources/commands/activities.ts` | 537 | 195 | 123 |
+| `customers/commands/addresses.ts` | 596 | 238 | 152 |
+| `staff/commands/addresses.ts` | 603 | 247 | 166 |
+| `sales/commands/notes.ts` | 514 | 243 | 110 |
+| **Module total** | **4,089** | **1,651** | **−60%** |
+| **Net, including the shared file** | **4,089** | **2,676** | **−1,413 (−35%)** |
+
+24 hand-written handlers became 3 factories. **Zero module-name branches** exist in shared code:
+every per-module difference is carried by config, not by an `if (module === …)`.
+
+### The config surface, counted honestly
+
+A data field (a command id, a label) is not equivalent in cost to a behavioral callback, so they
+are reported separately. Open Question 5(a) predicted "a config surface nearly as large as the
+code it replaces"; the measured answer is that config is **35–67% of each migrated file** and the
+callbacks — not the data — are the bulk of it.
+
+| Factory | Fields | Data | Behavioral hooks |
+| --- | ---: | ---: | ---: |
+| `makeCommentCommandSet` | 23 | 9 | 14 |
+| `makeActivityCommandSet` | 26 | 11 | 15 |
+| `makeAddressCommandSet` | 25 | 10 | 15 |
+
+### Answers to the Open Questions
+
+1. **Placement** — resolved to `@open-mercato/shared/lib/commands/timeline`, from the
+   architecture rather than from preference: `packages/core/AGENTS.md` forbids cross-module
+   business-logic imports, and `module-decoupling.test.ts` proves every module here (`sales`
+   included) must stay individually removable. A per-module `commands/shared.ts` cannot satisfy
+   both. `makeCreateRedo` in the same directory is the precedent.
+2. **Scope split** — shipped as one contribution. The families are independently *deployable*
+   but not independently *reviewable*: they share one file, and reviewing family N without the
+   others means reviewing a factory whose remaining consumers are still hypothetical.
+3. **Author-resolution parity** — **preserved, not converged.** All three implementations remain
+   in their own modules behind `resolveAuthorForCreate` and each module's own
+   `applyUpdateFields`. There is deliberately **no author-on-update concept anywhere in the
+   shared API**, so the customers/staff update-path asymmetry (§Phase 1 evidence, item 4) cannot
+   be mistaken for a supported option and cannot be silently propagated to a new consumer.
+   Converging it stays a separate, security-relevant decision.
+4. **SPEC-051 housekeeping** — untouched; out of scope for a refactor PR.
+5. **Converge before extracting?** — neither (a) nor (b) as written. The two divergences #3624
+   itself names are folded; the three security-posture divergences are preserved verbatim. See
+   below.
+
+### Behavior changes: exactly two, both sanctioned by #3624
+
+1. `resources/commands/comments.ts` `buildLog` re-loaded the row instead of reading
+   `snapshots.after`. Folded — the factory reads the snapshot. This also **fixed a latent bug**:
+   that handler had no `captureAfter`, so routing it through the shared path would have produced
+   empty `changes`/`snapshotAfter` had the factory not supplied one. `timeline-comment-parity`
+   now asserts `captureAfter` wiring on every family so the same gap cannot reappear.
+2. `customers/commands/addresses.ts` delete-undo omitted `companyName` while update-undo set it.
+   Folded: the factory has one restore path, so the asymmetry cannot exist.
+
+   **Reachability, stated precisely.** The omission is in the *row-already-exists* branch of
+   `delete.undo`. `customer_addresses` has no soft-delete column and the handler does a hard
+   `em.remove`, so an ordinary delete → undo always takes the *row-is-missing* branch, which did
+   set `companyName`. The bug is therefore **latent, not live**: it is real in the code #3624
+   points at, and it is removed by construction here, but it is not reached by the normal undo
+   path. `timeline-address-parity` drives the existing-row branch directly against a fake
+   EntityManager, which is the only way to exercise it; the integration case below covers the
+   reachable path and would pass on the pre-refactor handler too.
+
+**Corrected from an earlier draft of this spec:** the same delete-undo branch was reported as also
+omitting `addressLine1`/`addressLine2`. It does not. A full re-read of all six restore branches in
+both modules shows every one of them assigns the address lines; only `companyName` was missing. No
+extra hook or seam was added for a drift that did not exist.
+
+### Divergences deliberately preserved
+
+| Divergence | Carried by |
+| --- | --- |
+| #4012 hardened author resolution (`resources` only) | `resolveAuthorForCreate` |
+| #3977 scoped snapshot loaders (`staff` only) | `loadSnapshot` / `findRowForWrite` |
+| Three author-resolution implementations | `resolveAuthorForCreate` |
+| Author accepted on update (customers/staff) vs derived (sales) | module-owned `applyUpdateFields` |
+| Transactional writes (`customers`) vs two flushes (`staff`) for addresses | `atomicWrites: boolean` |
+| Per-module custom-field restore policy | `customFieldRestoreValues` |
+| Create-undo target id resolution | `createUndoTargetId` |
+
+`atomicWrites` is the only behavioral *branch* in any factory and exists solely to preserve an
+existing difference; it should be deleted whenever that difference is fixed.
+
+### `sales` notes and the third factory
+
+#3624 names three factories and does not require a `makeNoteCommandSet`. Notes are comment-shaped —
+one body, one author, one parent, a flat snapshot — and reuse `makeCommentCommandSet`. Making them
+fit required exactly two additions to the shared API, both of which are general rather than
+notes-specific:
+
+- `resolveParentForRestore({ em, snapshot, kind })` — returning `null` aborts a restore without
+  throwing, so a note whose parent document is gone bails on undo while still failing loudly on redo.
+- `resourceIdOf(result)` — removes a hardcoded `result.commentId` assumption. Caught by the parity
+  tests when notes returned `noteId`.
+
+### Test evidence
+
+**Unit / characterization** — 5 suites, 127 assertions, all passing:
+
+| Suite | Pins |
+| --- | --- |
+| `timeline-command-set-parity` | the 24 command ids, handler shape, delete labels, `payload.undo` shape |
+| `timeline-comment-parity` | labels, change keys, parent-from-`before`, `captureAfter` wiring |
+| `timeline-activity-parity` | the nested `{ activity, custom }` envelope, custom-field diff only when changed |
+| `timeline-address-parity` | restore paths against a fake EntityManager, incl. the `companyName` fold and primary demotion |
+| `timeline-note-parity` | per-row `sales.<contextType>`, context/relation columns never audited |
+
+Three of these were written adversarially after earlier drafts of this work produced two wrong
+findings from bounded `grep` windows: fixtures now *move* the fields a hook might read from the
+wrong snapshot, and handler wiring is asserted rather than assumed.
+
+**Integration** — three specs, added only where unit characterization cannot reach:
+
+| Spec | Why it exists |
+| --- | --- |
+| `customers/__integration__/TC-UNDO-010-timeline-command-sets` | comment relation restore (the linked deal survives delete→undo); `companyName` survives the reachable delete→undo path after the fold; the primary-address invariant against real SQL |
+| `staff/__integration__/TC-UNDO-010-timeline-activities` | the activity family had **no** undo integration coverage at all; proves the nested envelope survives a real round-trip |
+| `sales/__integration__/TC-UNDO-010-timeline-notes` | proves the shared comment contract holds for a non-comments consumer; polymorphic context + denormalized `order_id` restore |
+
+The plain CRUD undo/redo contract for comments and addresses is **not** re-tested here — the
+pre-existing `TC-UNDO-001-comments` / `TC-UNDO-001-addresses` specs already cover it and run
+unchanged against the refactored handlers.
+
+Custom-field *value* restore is not covered at integration level: the repo has no custom-field
+definition fixture. The per-module restore policy is pinned by unit coverage instead.
+
+### Follow-ups identified, not taken
+
+Two were found while implementing and are deliberately left alone, since #3624 is a refactor:
+the `customers`/`staff` author-on-update gap (same class as #4012), and the `staff` address write
+atomicity gap that `atomicWrites` preserves. Neither is fixed, filed, or implied by this change.
+
 ## Changelog
 
-- **2026-08-28** — Initial spec proposed. Delivers the follow-up spec deferred by SPEC-051; no implementation yet.
+- **2026-08-28** — Initial spec proposed. Delivers the follow-up spec deferred by SPEC-051.
+- **2026-08-28** — Implemented across all four phases; *Implementation Evidence* added with the
+  measured results, the answers to all five Open Questions, and a correction to the reported
+  `addressLine1`/`addressLine2` drift, which does not exist.
