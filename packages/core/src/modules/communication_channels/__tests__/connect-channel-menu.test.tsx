@@ -94,6 +94,14 @@ describe('ConnectChannelMenu (#5595)', () => {
     expect(menuPanel).toHaveClass('flex-col')
     expect(menuPanel).toHaveClass('gap-2')
     expect(menuPanel).toHaveClass('items-stretch')
+    // The header wraps on a phone and moves the trigger to the left edge, so a
+    // right-anchored panel wider than the trigger runs off-screen and its rows
+    // become unreachable — caught in browser QA on #5735 (panel x was -47px at
+    // 390px wide). Left-anchor below `sm`, right-anchor from `sm` up.
+    expect(menuPanel).toHaveClass('left-0')
+    expect(menuPanel).toHaveClass('sm:left-auto')
+    expect(menuPanel).toHaveClass('sm:right-0')
+    expect(menuPanel).toHaveClass('max-w-[calc(100vw-1rem)]')
     expect(screen.getByTestId('widget-channel_gmail.injection.connect')).toBeInTheDocument()
     expect(screen.getByTestId('widget-channel_imap.injection.connect')).toBeInTheDocument()
   })
@@ -157,6 +165,13 @@ describe('profile page connect header (#5595)', () => {
 
   it('spaces the header so the title and the connect trigger never collide', () => {
     const header = pageSource.slice(pageSource.indexOf('<header'), pageSource.indexOf('</header>'))
-    expect(header).toMatch(/className="[^"]*\bgap-4\b/)
+    // Mirrors the shared PageHeader layout: stacked with a gap on a phone, a
+    // spaced row from `sm` up so the trigger stays top-right instead of wrapping
+    // below the subtitle — the placement browser QA caught on #5735.
+    expect(header).toMatch(/className="[^"]*\bgap-3\b/)
+    expect(header).toMatch(/className="[^"]*\bsm:flex-row\b/)
+    expect(header).toMatch(/className="[^"]*\bsm:justify-between\b/)
+    expect(header).toMatch(/className="[^"]*\bsm:gap-4\b/)
+    expect(header).toMatch(/className="min-w-0"/)
   })
 })

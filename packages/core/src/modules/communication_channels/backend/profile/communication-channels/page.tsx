@@ -502,8 +502,8 @@ export default function ProfileCommunicationChannelsPage() {
   return (
     <Page>
       <PageBody>
-        <header className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
-          <div>
+        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h2 className="text-2xl font-semibold">
               {t('communication_channels.profile.title', 'My communication channels')}
             </h2>

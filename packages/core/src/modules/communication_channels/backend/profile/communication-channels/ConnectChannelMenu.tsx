@@ -84,7 +84,13 @@ export function ConnectChannelMenu({ onConnected }: ConnectChannelMenuProps): Re
         aria-labelledby={CONNECT_MENU_TRIGGER_ID}
         data-testid="connect-channel-menu-panel"
         className={cn(
-          'absolute right-0 top-full z-dropdown mt-2 w-max min-w-56 flex-col items-stretch gap-2 rounded-md border bg-background p-2 shadow-md',
+          // Anchoring flips with the header: the header wraps on a phone, which
+          // moves the trigger to the left edge, and right-anchoring a panel
+          // wider than the trigger then pushes it off-screen. Left-anchor below
+          // `sm`, right-anchor from `sm` up where the trigger sits right. The
+          // `max-w-` clamp (mirroring RowActions) keeps a long provider label
+          // from widening the panel past the viewport either way.
+          'absolute left-0 top-full z-dropdown mt-2 w-max min-w-56 max-w-[calc(100vw-1rem)] flex-col items-stretch gap-2 rounded-md border bg-background p-2 shadow-md sm:left-auto sm:right-0',
           open ? 'flex' : 'hidden',
         )}
       >
