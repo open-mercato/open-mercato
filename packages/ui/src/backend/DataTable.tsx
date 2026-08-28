@@ -2850,10 +2850,10 @@ export function DataTable<T extends RowData>({
     return table.getAllLeafColumns().map((col) => ({
       key: col.id,
       label: resolveColumnLabel(col),
-      group: 'Columns',
+      group: t('ui.columnChooser.defaultGroup', 'Columns'),
       alwaysVisible: !col.getCanHide(),
     }))
-  }, [resolvedColumnChooserFields, table, resolveColumnLabel, columns])
+  }, [resolvedColumnChooserFields, table, resolveColumnLabel, columns, t])
 
   const visibleColumnKeys = React.useMemo(
     () => table.getAllLeafColumns().filter((c) => c.getIsVisible()).map((c) => c.id),
