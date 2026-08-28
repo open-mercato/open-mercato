@@ -1,0 +1,130 @@
+---
+title: Notifications & Push
+description: Turn on mobile push for your tenant, control which notification types use which channels, inspect registered devices, send a test push, and read the delivery log.
+sidebar_label: Notifications & Push
+---
+
+# Notifications & Push
+
+Open Mercato delivers a notification on up to three channels: the in-app bell, email, and mobile push. This guide covers the screens an administrator uses to control that — what to turn on, in which order, and where to look when a message does not arrive.
+
+If you only need the in-app bell and email, nothing here is required; both work out of the box. Push needs the one-time setup in Step 1.
+
+## Prerequisites
+
+- The `devices` and `push_notifications` modules enabled, plus a provider package (`channel-fcm`, `channel-apns` or `channel-expo`).
+- Credentials from your push provider — an FCM service-account JSON, an APNs `.p8` key, or an Expo access token.
+- A mobile or web app that registers its device with the platform. Push cannot be tested from the admin UI alone: there has to be a device with a token.
+- The background queue worker running. Without it, deliveries queue and never send.
+
+## Step 1 — Connect a push provider
+
+Push credentials belong to the whole tenant, not to your personal account, so they are connected as a **tenant channel** rather than from your profile.
+
+1. Open **Settings → Integrations**.
+2. Pick your provider (Firebase Cloud Messaging, Apple Push Notification service, or Expo).
+3. Paste the credentials and connect. They are validated at connect time — a bad service account fails here rather than silently at the first send.
+
+You need the `communication_channels.connect_tenant_channel` permission. If the provider does not appear, its package is not installed.
+
+## Step 2 — Sync permissions
+
+The devices and push permissions are seeded for new tenants automatically. An **existing** tenant needs them applied once:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+This grants `devices.*` and `push_notifications.*` to the default admin roles. Skipping it is the usual reason the Devices and Push screens are missing from the sidebar after an upgrade.
+
+## Step 3 — Decide which types may use push
+
+Open **Settings → Module Configs → Notification Delivery** (`/backend/config/notifications`, permission `notifications.manage`).
+
+This is a matrix of every notification type against every channel. Each row is a kind of message — "Order created", "Account locked" — and each cell says whether that type may use that channel **at all** in your tenant. It sits above user preferences: a channel switched off here is off for everyone, including for messages users cannot normally opt out of.
+
+:::warning A type that ships without an explicit channel list is push-eligible
+Many notification types do not declare which channels they may use, and the platform reads that as "no restriction" rather than "none". The practical effect: the moment you complete Step 1, those types start pushing.
+
+Review this matrix immediately after connecting a provider, and switch push off for anything you do not want on a phone. This default is under discussion upstream ([#5495](https://github.com/open-mercato/open-mercato/issues/5495)).
+:::
+
+You can also mark a type non-opt-out here, for alerts that must always reach the recipient.
+
+## Step 4 — Check that devices are arriving
+
+Open **Settings → Auth → Devices** (`/backend/devices`, permission `devices.admin`). Every device a client app has registered appears here with its owner, platform, app version, push provider and last-seen time.
+
+Filter by user to answer "does this person have a device at all?" — the most common cause of a missing push.
+
+The **Push provider** column matters more than it looks. It must exactly match the provider you connected in Step 1: a device registered as `fcm` receives nothing from an APNs channel, and a device with an empty provider receives nothing at all. Those devices are skipped without any error.
+
+You can register a device manually from this screen for testing, but in normal operation the client app does it.
+
+## Step 5 — Send a test push
+
+Open **Settings → External systems → Push notifications → Send** (`/backend/push_notifications/send`, permission `push_notifications.send_custom`).
+
+1. Search for the recipient by name or email.
+2. Pick one of their devices, or leave it on **All devices**.
+3. Choose **Visible** (a normal banner) or **Silent** (a background wake-up the app handles without showing anything).
+4. Fill in title and body, and optionally a data payload the app reads.
+
+If the device dropdown is empty, that recipient has no push-capable device — go back to Step 4.
+
+A custom send bypasses preferences on purpose: it is an operator tool and writes no in-app notification.
+
+## Step 6 — Read the delivery log
+
+**Settings → External systems → Push notifications** (`/backend/push_notifications`, permission `push_notifications.view_deliveries`) lists every push attempt with its status. Open a row for the payload, the provider's response, and the last 8 characters of the token used.
+
+| Status | Meaning |
+|---|---|
+| `pending` | Queued, not sent yet. If rows stay here, the queue worker is not running. |
+| `sending` | Claimed by a worker right now. |
+| `sent` | Handed to the provider successfully. |
+| `failed` | Gave up after retries — see the error. |
+| `skipped` | Nothing to send to; the device or its token was gone. |
+| `expired` | Aged out before delivery. |
+
+## Step 7 — Let users tune their own notifications
+
+Each user manages their own channels at **Profile → Notification Preferences** — a per-type, per-channel grid. Types marked non-opt-out show as locked, as do channels you disabled in Step 3.
+
+To adjust someone else's, use **Settings → Auth → User Notification Preferences** (permission `notifications.manage_user_preferences`).
+
+## Troubleshooting
+
+### Nothing is in the delivery log at all
+
+The fan-out never produced rows. Either the tenant has no **active** push channel (Step 1), or the recipient has no device whose push provider matches it (Step 4). Neither reports an error anywhere in the UI — this is the case to check first.
+
+### Rows are stuck at `pending`
+
+The `push-deliveries` queue worker is not running. Rows left in `sending` by a crashed worker are recovered automatically within a few minutes.
+
+### `no_adapter`
+
+The channel exists but the provider package is not installed or not registered in this deployment.
+
+### `channel_unavailable`
+
+The channel was disconnected or deactivated between the notification being created and the push being sent.
+
+### `device_unregistered`
+
+The provider reports the token as permanently invalid — the app was uninstalled, or the token rotated. The device is deactivated automatically; the next app launch re-registers it.
+
+### The push arrives but the in-app bell stays empty (or vice versa)
+
+Channels are independent, and both the operator matrix (Step 3) and the user's own preferences (Step 7) can disable one without the other.
+
+### A user insists they get nothing, and everything above looks right
+
+Check their preferences (Step 7) before anything else — a per-type opt-out is invisible from every other screen.
+
+## Related
+
+- [Devices & Push Notifications — Getting Started](../tutorials/devices-and-push-getting-started.mdx) — the developer-facing walkthrough
+- [Notification Delivery](../framework/modules/notification-delivery.mdx) — how the channel decision is actually made
+- [Communication Channels](./communication-channels.mdx)
