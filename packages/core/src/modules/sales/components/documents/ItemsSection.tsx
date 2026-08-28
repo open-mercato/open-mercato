@@ -16,6 +16,7 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
+import { cn } from "@open-mercato/shared/lib/utils";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
@@ -145,6 +146,12 @@ type SalesDocumentItemsSectionProps = {
   tenantId?: string | null;
   onActionChange?: (action: SectionAction | null) => void;
   onItemsChange?: (items: SalesLineRecord[]) => void;
+  /**
+   * Whether the viewer may change line items. `false` removes every edit affordance rather than
+   * disabling it: a control that can only ever answer "no" is worse than no control, and the
+   * denial is stated once per screen by the page instead of once per button.
+   */
+  canEdit?: boolean;
 };
 
 export function SalesDocumentItemsSection({
@@ -156,6 +163,7 @@ export function SalesDocumentItemsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onItemsChange,
+  canEdit = true,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
   const locale = useLocale();
@@ -485,13 +493,17 @@ export function SalesDocumentItemsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return;
+    if (!canEdit) {
+      onActionChange(null);
+      return;
+    }
     onActionChange({
       label: t("sales.documents.items.add", "Add item"),
       onClick: openCreate,
       disabled: false,
     });
     return () => onActionChange(null);
-  }, [onActionChange, openCreate, t]);
+  }, [canEdit, onActionChange, openCreate, t]);
 
   const handleEdit = React.useCallback((line: SalesLineRecord) => {
     setLineForEdit(line);
@@ -677,10 +689,14 @@ export function SalesDocumentItemsSection({
             "sales.documents.items.subtitle",
             "Add products and configure pricing for this document.",
           )}
-          action={{
-            label: t("sales.documents.items.add", "Add item"),
-            onClick: openCreate,
-          }}
+          action={
+            canEdit
+              ? {
+                  label: t("sales.documents.items.add", "Add item"),
+                  onClick: openCreate,
+                }
+              : undefined
+          }
         />
       ) : (
         <div className="overflow-hidden rounded border">
@@ -715,9 +731,11 @@ export function SalesDocumentItemsSection({
                     {col.headerKey ? t(col.headerKey, col.header) : col.header}
                   </th>
                 ))}
-                <th className="px-3 py-2 font-medium sr-only">
-                  {t("sales.documents.items.table.actions", "Actions")}
-                </th>
+                {canEdit ? (
+                  <th className="px-3 py-2 font-medium sr-only">
+                    {t("sales.documents.items.table.actions", "Actions")}
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -762,8 +780,11 @@ export function SalesDocumentItemsSection({
                 return (
                   <tr
                     key={item.id}
-                    className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
-                    onClick={() => handleEdit(item)}
+                    className={cn(
+                      "border-t transition-colors",
+                      canEdit && "hover:bg-muted/50 cursor-pointer",
+                    )}
+                    onClick={canEdit ? () => handleEdit(item) : undefined}
                   >
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-3">
@@ -940,41 +961,43 @@ export function SalesDocumentItemsSection({
                         </td>
                       );
                     })}
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2 justify-end">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          aria-label={t('ui.actions.edit', 'Edit')}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleEdit(item);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <span
-                          title={kind === 'order' && items.length === 1
-                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
-                            : undefined}
-                        >
+                    {canEdit ? (
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2 justify-end">
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 text-destructive"
-                            aria-label={t('ui.actions.delete', 'Delete')}
-                            disabled={kind === 'order' && items.length === 1}
+                            className="h-8 w-8"
+                            aria-label={t('ui.actions.edit', 'Edit')}
                             onClick={(event) => {
                               event.stopPropagation();
-                              void handleDelete(item);
+                              handleEdit(item);
                             }}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Pencil className="h-4 w-4" />
                           </Button>
-                        </span>
-                      </div>
-                    </td>
+                          <span
+                            title={kind === 'order' && items.length === 1
+                              ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                              : undefined}
+                          >
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive"
+                              aria-label={t('ui.actions.delete', 'Delete')}
+                              disabled={kind === 'order' && items.length === 1}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDelete(item);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </span>
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}

@@ -112,6 +112,48 @@ function tagsEditTarget(page: Page) {
   return page.getByText('Tags', { exact: true }).locator('xpath=following::*[@role="button"][1]')
 }
 
+// The order fixture seeds exactly one line, named so it can be located. Scoping to that ROW —
+// rather than to the table — is deliberate: DocumentTotals renders a second `<table>` alongside
+// every tab, so a bare `getByRole('table')` matches two and trips strict mode.
+function lineItemRow(page: Page) {
+  return page.getByRole('row').filter({ hasText: /QA seed line/ })
+}
+
+// The row controls carry the bare accessible names 'Edit' and 'Delete', which also match the
+// header Delete button, so they are only ever located inside the row.
+function lineItemEditButton(page: Page) {
+  return lineItemRow(page).getByRole('button', { name: 'Edit', exact: true })
+}
+
+function lineItemDeleteButton(page: Page) {
+  return lineItemRow(page).getByRole('button', { name: 'Delete', exact: true })
+}
+
+// `items` is the default tab, so this asserts on what a viewer sees first. Unlike openDocument
+// it stays put rather than clicking through to Addresses.
+async function openDocumentOnItems(page: Page, path: string): Promise<void> {
+  const answered = page.waitForResponse(
+    (res) => res.url().includes('/api/auth/feature-check'),
+    { timeout: 30_000 },
+  )
+  await page.goto(path, { waitUntil: 'commit' })
+  await answered
+  await expect(lineItemRow(page)).toHaveCount(1, { timeout: 30_000 })
+}
+
+// Each section publishes its create action up to the page, which renders it in the header; the
+// section's own empty state reuses the same label, so one locator covers both.
+//
+// `mounted` is not decoration. Asserting an absence straight after a tab click passes just as
+// happily against a section that has not finished loading, so each entry names something the
+// section renders regardless of permission, and that is awaited first.
+const SECTION_CREATE_ACTIONS = [
+  { tab: 'Adjustments', label: 'Add adjustment', mounted: 'No adjustments yet.' },
+  { tab: 'Shipments', label: 'Add shipment', mounted: 'No shipments yet.' },
+  { tab: 'Payments', label: 'Add payment', mounted: 'No payments yet.' },
+  { tab: 'Returns', label: 'Create return', mounted: 'No returns yet.' },
+] as const
+
 test.describe('TC-SALES-042 — order detail hides edits the viewer may not make', () => {
   let request: APIRequestContext
   let token: string
@@ -143,12 +185,24 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     managerRoleId = await createRoleFixture(request, token, { name: `tc-sales-042-manager-${stamp}` })
     await setRoleAclFeatures(request, token, {
       roleId: managerRoleId,
-      features: ['sales.orders.view', 'sales.orders.manage'],
+      // Payments, shipments and returns are written through their own features, so a role holding
+      // only sales.orders.manage would see those sections locked and prove nothing about them.
+      features: [
+        'sales.orders.view',
+        'sales.orders.manage',
+        'sales.payments.manage',
+        'sales.shipments.manage',
+        'sales.returns.view',
+        'sales.returns.create',
+        'sales.returns.manage',
+      ],
     })
     viewerRoleId = await createRoleFixture(request, token, { name: `tc-sales-042-viewer-${stamp}` })
     await setRoleAclFeatures(request, token, {
       roleId: viewerRoleId,
-      features: ['sales.orders.view'],
+      // sales.returns.view earns its place: without it the Returns tab renders a load error
+      // instead of its empty state, and an absent create button would prove nothing.
+      features: ['sales.orders.view', 'sales.returns.view'],
     })
 
     managerUserId = await createUserFixture(request, token, {
@@ -212,6 +266,59 @@ test.describe('TC-SALES-042 — order detail hides edits the viewer may not make
     await expect(customerCardEditButton(page)).toHaveCount(0)
     await expect(customerCardSelectButton(page)).toHaveCount(0)
     await expect(tagsEditTarget(page)).toHaveCount(0)
+  })
+
+  test('a manager is offered the line-item edits on the default tab', async ({ page }) => {
+    // Control for the viewer test below. The order fixture seeds exactly one line, and an order
+    // may not drop its last one, so Delete renders disabled here — presence is the assertion.
+    await loginWithCredentials(page, managerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    await expect(page.getByRole('button', { name: 'Add item' })).toBeVisible()
+    await expect(lineItemEditButton(page)).toHaveCount(1)
+    await expect(lineItemDeleteButton(page)).toHaveCount(1)
+  })
+
+  test('a viewer is offered no line-item edits on the default tab', async ({ page }) => {
+    await loginWithCredentials(page, viewerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    // openDocumentOnItems already awaited the row, so the line is readable and only the edits
+    // are gone — the zeros below are a decision, not a table that failed to load.
+    await expect(page.getByRole('button', { name: 'Add item' })).toHaveCount(0)
+    await expect(lineItemEditButton(page)).toHaveCount(0)
+    await expect(lineItemDeleteButton(page)).toHaveCount(0)
+  })
+
+  test('a manager is offered every section create action', async ({ page }) => {
+    // Control for the viewer walk below: each of these renders when its own feature is held.
+    await loginWithCredentials(page, managerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    for (const { tab, label, mounted } of SECTION_CREATE_ACTIONS) {
+      await page.getByRole('button', { name: tab, exact: true }).click()
+      await expect(page.getByText(mounted)).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByRole('button', { name: label }).first()).toBeVisible()
+    }
+  })
+
+  test('a viewer is offered no create action on any document section', async ({ page }) => {
+    // Sections publish their create action to the page header rather than rendering it, so a
+    // page-level gate would also have silenced Comments. Each section decides for itself, and
+    // this walks every tab that has one.
+    await loginWithCredentials(page, viewerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    for (const { tab, label, mounted } of SECTION_CREATE_ACTIONS) {
+      await page.getByRole('button', { name: tab, exact: true }).click()
+      await expect(page.getByText(mounted)).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByRole('button', { name: label })).toHaveCount(0)
+    }
+
+    // Comments is gated by no manage feature, so its action must survive the same pass — proving
+    // the walk above measured a decision rather than a header that renders nothing for anyone.
+    await page.getByRole('button', { name: 'Comments', exact: true }).click()
+    await expect(page.getByRole('button', { name: /Add comment/i })).toHaveCount(1)
   })
 
   test('a quotes manager is not locked out of a quote by the orders feature', async ({ page }) => {

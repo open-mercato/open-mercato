@@ -39,6 +39,14 @@ type SalesReturnsSectionProps = {
   orderId: string
   currencyCode?: string | null
   documentUpdatedAt?: string | null
+  /**
+   * Whether the viewer may create a return (`sales.returns.create`) and whether they may change
+   * an existing one (`sales.returns.manage`). They are separate features, so they are separate
+   * props. `false` removes the affordance rather than disabling it: a control that can only ever
+   * answer "no" is worse than no control, and the denial is stated once per screen by the page.
+   */
+  canCreate?: boolean
+  canEdit?: boolean
 }
 
 export function formatDisplayDate(value: string | null | undefined, locale?: string): string | null {
@@ -48,7 +56,13 @@ export function formatDisplayDate(value: string | null | undefined, locale?: str
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
 }
 
-export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
+export function SalesReturnsSection({
+  orderId,
+  currencyCode,
+  documentUpdatedAt,
+  canCreate = true,
+  canEdit = true,
+}: SalesReturnsSectionProps) {
   const t = useT()
   const locale = useLocale()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
@@ -281,11 +295,15 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
         <TabEmptyState
           title={emptyState.title}
           description={emptyState.description}
-          action={{
-            label: t('sales.returns.create', 'Create return'),
-            icon: <Plus className="mr-2 h-4 w-4" aria-hidden />,
-            onClick: () => setDialogOpen(true),
-          }}
+          action={
+            canCreate
+              ? {
+                  label: t('sales.returns.create', 'Create return'),
+                  icon: <Plus className="mr-2 h-4 w-4" aria-hidden />,
+                  onClick: () => setDialogOpen(true),
+                }
+              : undefined
+          }
         />
         <ReturnDialog
           open={dialogOpen}
@@ -304,12 +322,14 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
-        <Button type="button" onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" aria-hidden />
-          {t('sales.returns.create', 'Create return')}
-        </Button>
-      </div>
+      {canCreate ? (
+        <div className="flex items-center justify-end">
+          <Button type="button" onClick={() => setDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" aria-hidden />
+            {t('sales.returns.create', 'Create return')}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-md border">
         <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
@@ -335,21 +355,23 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
                 {formatMoney(ret.total, currencyCode ?? null, locale)}
               </div>
               <div className="flex justify-end">
-                <RowActions
-                  items={[
-                    {
-                      id: 'edit',
-                      label: t('ui.actions.edit', 'Edit'),
-                      onSelect: () => handleEdit(ret),
-                    },
-                    {
-                      id: 'delete',
-                      label: t('ui.actions.delete', 'Delete'),
-                      destructive: true,
-                      onSelect: () => void handleDelete(ret),
-                    },
-                  ]}
-                />
+                {canEdit ? (
+                  <RowActions
+                    items={[
+                      {
+                        id: 'edit',
+                        label: t('ui.actions.edit', 'Edit'),
+                        onSelect: () => handleEdit(ret),
+                      },
+                      {
+                        id: 'delete',
+                        label: t('ui.actions.delete', 'Delete'),
+                        destructive: true,
+                        onSelect: () => void handleDelete(ret),
+                      },
+                    ]}
+                  />
+                ) : null}
               </div>
             </div>
           ))}

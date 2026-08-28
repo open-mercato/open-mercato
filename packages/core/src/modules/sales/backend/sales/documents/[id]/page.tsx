@@ -1942,6 +1942,13 @@ export default function SalesDocumentDetailPage({
   const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [canManageOrders, setCanManageOrders] = React.useState<boolean | null>(null)
   const [canManageQuotes, setCanManageQuotes] = React.useState<boolean | null>(null)
+  // Payments, shipments and returns are written through their OWN features, not the document's.
+  // A user may hold sales.orders.manage and still be refused a payment, so each section is
+  // resolved separately rather than inheriting `canManage`.
+  const [canManagePayments, setCanManagePayments] = React.useState<boolean | null>(null)
+  const [canManageShipments, setCanManageShipments] = React.useState<boolean | null>(null)
+  const [canCreateReturns, setCanCreateReturns] = React.useState<boolean | null>(null)
+  const [canManageReturns, setCanManageReturns] = React.useState<boolean | null>(null)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2045,7 +2052,15 @@ export default function SalesDocumentDetailPage({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              features: ['sales.documents.number.edit', 'sales.orders.manage', 'sales.quotes.manage'],
+              features: [
+                'sales.documents.number.edit',
+                'sales.orders.manage',
+                'sales.quotes.manage',
+                'sales.payments.manage',
+                'sales.shipments.manage',
+                'sales.returns.create',
+                'sales.returns.manage',
+              ],
             }),
           }
         )
@@ -2056,6 +2071,10 @@ export default function SalesDocumentDetailPage({
           setCanEditNumber(false)
           setCanManageOrders(null)
           setCanManageQuotes(null)
+          setCanManagePayments(null)
+          setCanManageShipments(null)
+          setCanCreateReturns(null)
+          setCanManageReturns(null)
           return
         }
         const granted = Array.isArray(call.result?.granted)
@@ -2065,11 +2084,19 @@ export default function SalesDocumentDetailPage({
         setCanEditNumber(hasFeature('sales.documents.number.edit'))
         setCanManageOrders(hasFeature('sales.orders.manage'))
         setCanManageQuotes(hasFeature('sales.quotes.manage'))
+        setCanManagePayments(hasFeature('sales.payments.manage'))
+        setCanManageShipments(hasFeature('sales.shipments.manage'))
+        setCanCreateReturns(hasFeature('sales.returns.create'))
+        setCanManageReturns(hasFeature('sales.returns.manage'))
       } catch {
         if (active) {
           setCanEditNumber(false)
           setCanManageOrders(null)
           setCanManageQuotes(null)
+          setCanManagePayments(null)
+          setCanManageShipments(null)
+          setCanCreateReturns(null)
+          setCanManageReturns(null)
         }
       }
     }
@@ -2084,6 +2111,10 @@ export default function SalesDocumentDetailPage({
   const canManage = kind === 'order' ? canManageOrders : canManageQuotes
   const managePermitted = canManage === true
   const manageDenied = canManage === false
+  const paymentsPermitted = canManagePayments === true
+  const shipmentsPermitted = canManageShipments === true
+  const returnsCreatePermitted = canCreateReturns === true
+  const returnsManagePermitted = canManageReturns === true
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -4284,6 +4315,7 @@ export default function SalesDocumentDetailPage({
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
+          canEdit={managePermitted}
           onItemsChange={(items) => setHasItems(items.length > 0)}
         />
       )
@@ -4308,6 +4340,7 @@ export default function SalesDocumentDetailPage({
             documentUpdatedAt={record.updatedAt ?? null}
             shippingAddressSnapshot={shippingSnapshot ?? null}
             onActionChange={handleSectionActionChange}
+            canEdit={shipmentsPermitted}
             onAddComment={appendShipmentComment}
           />
           <InjectionSpot
@@ -4329,6 +4362,8 @@ export default function SalesDocumentDetailPage({
           orderId={record.id}
           currencyCode={record.currencyCode ?? null}
           documentUpdatedAt={record.updatedAt}
+          canCreate={returnsCreatePermitted}
+          canEdit={returnsManagePermitted}
         />
       )
     }
@@ -4342,6 +4377,7 @@ export default function SalesDocumentDetailPage({
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
+          canEdit={managePermitted}
           onRowsChange={setAdjustmentRows}
         />
       )
@@ -4364,6 +4400,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           documentUpdatedAt={record.updatedAt ?? null}
           onActionChange={handleSectionActionChange}
+          canEdit={paymentsPermitted}
           onPaymentsChange={(payments) => setHasPayments(payments.length > 0)}
           onTotalsChange={() => {
             void refreshDocumentTotals()
