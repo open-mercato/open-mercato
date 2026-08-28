@@ -395,3 +395,37 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+
+## Blocklisted Fields in the Stored Index Document (2026-08-28)
+
+[`.ai/specs/2026-08-28-blocklisted-fields-in-the-stored-index-document.md`](.ai/specs/2026-08-28-blocklisted-fields-in-the-stored-index-document.md)
+stops fields named by the search blocklist from being stored in `entity_indexes.doc`.
+Previously the blocklist governed only the `search_text` aggregate and the `search_tokens`
+rows, so the value was kept out of the index's searchable surfaces and written into its
+document in full.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signatures | New export `stripBlocklistedDocFields` from `@open-mercato/shared/lib/search/config` | ✓ ADDITIVE (new function in an existing module) |
+| Function signatures | `buildIndexDocument`, `buildIndexDoc`, `attachAggregateSearchField`, `isSearchFieldBlocklisted` — signatures and return types unchanged | ✓ No change |
+| `buildIndexDocument` / `buildIndexDoc` behaviour | A key matching the **global** blocklist is absent from the returned document | ⚠ Deliberate behaviour narrowing |
+| `buildIndexDocument` internals | The search config is resolved once per call instead of once per call and again inside `attachAggregateSearchField` | ✓ No observable change |
+| `search_text` and `search_tokens` | No change — those paths already excluded these fields (#4624) | ✓ No change |
+| Entity-scoped blocklist entries (`<entityType>@<field>`) | No change — still un-tokenise, still stored | ✓ No change |
+| `cf:` and `l10n:` document keys | No change — exempt from the strip | ✓ No change |
+| Encryption rule `hashField` values | No change — re-injected by `encryptIndexDocForStorage()` after the strip | ✓ No change |
+| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, CLI commands, generated files | No change | ✓ n/a |
+
+**The Emergency Security Exception is not invoked, and does not need to be.** Nothing is
+removed or renamed and every caller compiles unchanged. What narrows is the content of a
+document the query engine does not read base columns from; the deprecation protocol's
+bridge would be "keep storing the credential", which is the condition being removed.
+
+**Contract commitments**: the strip MUST keep using `isSearchFieldBlocklisted()` rather
+than a private list — agreement between the aggregate, the token path and the document is
+the invariant, and a fourth list is how the aggregate drifted in the first place (#4624).
+The `cf:`/`l10n:` exemption MUST hold: the document is those keys' only store, so
+stripping them is data loss rather than the removal of a duplicate. The strip MUST run
+before `encryptIndexDocForStorage()`, which re-injects each rule's `hashField`. Scope MAY
+widen to entity-scoped entries only alongside a way for a presenter to keep reading a
+scoped field out of the document.

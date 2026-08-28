@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
+import { stripBlocklistedDocFields } from '@open-mercato/shared/lib/search/config'
 import {
   buildCustomFieldDefinitionIndexFromRows,
   normalizeDefinitionKey,
@@ -61,6 +62,14 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   for (const source of docSources) {
     for (const [k, v] of Object.entries(source)) doc[k] = v
   }
+  // The event path builds its document here rather than through
+  // `buildIndexDocument`, so it needs its own call: stripping only the batch
+  // path would give a reindex that removes the column and an ordinary write
+  // that puts it straight back. Placed before the `cf:`/`l10n:` merges below,
+  // and well before `encryptIndexDocForStorage()` — which re-injects each
+  // encryption rule's `hashField`, so a ruled lookup hash survives the strip
+  // and encrypted exact-match lookup keeps working.
+  stripBlocklistedDocFields(doc)
 
   // Attach custom fields under flat keys 'cf:<key>'
   let cfQuery = db

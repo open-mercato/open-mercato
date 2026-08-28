@@ -169,3 +169,52 @@ export function isSearchFieldBlocklisted(
 export function resolveSearchMinTokenLength(): number {
   return parseNumber(process.env.OM_SEARCH_MIN_LEN, DEFAULT_SEARCH_MIN_TOKEN_LENGTH, 1)
 }
+
+/**
+ * Removes blocklisted fields from an index document before it is stored.
+ *
+ * Why: `isSearchFieldBlocklisted` governs what is TOKENISED — the per-field
+ * token path and the `search_text` aggregate (#4624). Neither of them touches
+ * the document itself, and both `buildIndexDocument()` and `buildIndexDoc()`
+ * copy every base column into it verbatim, so a blocklisted column is still
+ * stored in `entity_indexes.doc` in full. For the default blocklist that means
+ * `doc->>'password_hash'` is the bcrypt verifier and `doc->>'token'` is the
+ * session token, projected into a table whose access controls are not the ones
+ * the source table was given. `packages/search`'s fallback presenter iterates
+ * the document and returns the first short string it finds, so for an entity
+ * with no display field a credential can even reach a search result's title.
+ *
+ * How to apply: call once on the base row, before custom fields and
+ * translations are merged in and before `encryptIndexDocForStorage()` runs.
+ * Reads back are unaffected — the query engine selects a base column from the
+ * base table (`applySelection` guards on `columns.has(field)`) and only reaches
+ * `doc ->> field` when `resolveBaseColumn()` returns null, which a base column
+ * never does.
+ *
+ * Two properties are load-bearing:
+ *
+ *  - Only the GLOBAL blocklist applies, hence the `null` entity type. The
+ *    per-entity entries (`customers:customer_interaction@body`) exist to keep a
+ *    large free-text column out of the token index, not to mark it secret, and
+ *    that same column is read out of `doc` by a presenter — `customers`'
+ *    `formatResult` builds an interaction's subtitle from `record.body`. Honouring
+ *    them here would blank that subtitle in global search for the exact recipe
+ *    this file documents.
+ *  - `cf:` and `l10n:` keys are kept. A base column is re-read from the base
+ *    table on every query, so dropping it from the document costs nothing;
+ *    custom fields and translations are the opposite — the document is their only
+ *    store, and the engine reads them straight back out of it. They are excluded
+ *    from `search_text` and from `search_tokens` either way, which is the
+ *    exposure that matters. The call sites strip before merging those keys in, so
+ *    this guard is what keeps that ordering from being load-bearing.
+ */
+export function stripBlocklistedDocFields(
+  doc: Record<string, unknown>,
+  config: SearchConfig = resolveSearchConfig(),
+): Record<string, unknown> {
+  for (const key of Object.keys(doc)) {
+    if (key.startsWith('cf:') || key.startsWith('l10n:')) continue
+    if (isSearchFieldBlocklisted(key, null, config)) delete doc[key]
+  }
+  return doc
+}
