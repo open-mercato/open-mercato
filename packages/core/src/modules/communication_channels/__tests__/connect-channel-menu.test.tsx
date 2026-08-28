@@ -114,6 +114,20 @@ describe('ConnectChannelMenu (#5595)', () => {
     expect(mountCounts['channel_imap.injection.connect']).toBe(1)
   })
 
+  it('describes the panel as a labelled group, not a menu it cannot populate', async () => {
+    // ARIA only allows `menuitem`-shaped children under `role="menu"`, and the
+    // rows here are provider-owned widgets rendering plain buttons — declaring a
+    // menu would hide them from assistive technology rather than describe them.
+    await renderMenu([makeWidget('channel_gmail.injection.connect', 'Connect Gmail')])
+
+    const trigger = await screen.findByRole('button', { name: /connect channel/i })
+    const menuPanel = panel()
+    expect(menuPanel).toHaveAttribute('role', 'group')
+    expect(menuPanel).toHaveAttribute('aria-labelledby', trigger.id)
+    expect(trigger).toHaveAttribute('aria-controls', menuPanel.id)
+    expect(trigger).not.toHaveAttribute('aria-haspopup')
+  })
+
   it('closes on Escape and on an outside click', async () => {
     await renderMenu([makeWidget('channel_gmail.injection.connect', 'Connect Gmail')])
     const trigger = await screen.findByRole('button', { name: /connect channel/i })

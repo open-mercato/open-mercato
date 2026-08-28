@@ -8,6 +8,7 @@ import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/inj
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
+const CONNECT_MENU_TRIGGER_ID = 'communication-channels-connect-trigger'
 const CONNECT_MENU_PANEL_ID = 'communication-channels-connect-menu'
 
 type ConnectChannelMenuProps = {
@@ -63,9 +64,9 @@ export function ConnectChannelMenu({ onConnected }: ConnectChannelMenuProps): Re
     <div ref={containerRef} className="relative inline-block text-left">
       <Button
         ref={triggerRef}
+        id={CONNECT_MENU_TRIGGER_ID}
         type="button"
         variant="outline"
-        aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={CONNECT_MENU_PANEL_ID}
         onClick={() => setOpen((current) => !current)}
@@ -73,9 +74,14 @@ export function ConnectChannelMenu({ onConnected }: ConnectChannelMenuProps): Re
         {t('communication_channels.profile.connect.menu', 'Connect channel')}
         <ChevronDown className={cn('size-4 transition-transform', open && 'rotate-180')} />
       </Button>
+      {/* A disclosure group, not `role="menu"`: the rows are provider-owned
+          widgets rendering plain buttons, and ARIA only allows `menuitem`-shaped
+          children under a menu — declaring one would hide them from assistive
+          technology instead of describing them. */}
       <div
         id={CONNECT_MENU_PANEL_ID}
-        role="menu"
+        role="group"
+        aria-labelledby={CONNECT_MENU_TRIGGER_ID}
         data-testid="connect-channel-menu-panel"
         className={cn(
           'absolute right-0 top-full z-dropdown mt-2 w-max min-w-56 flex-col items-stretch gap-2 rounded-md border bg-background p-2 shadow-md',
