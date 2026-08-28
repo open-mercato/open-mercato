@@ -390,7 +390,7 @@
   "auth.acl.modules.webhooks": "Webhooks",
   "auth.acl.modules.wms": "Warehouse Management System",
   "auth.acl.modules.workflows": "Workflow Engine",
-  "auth.acl.organizationWarning": "Las restricciones de organización se guardan solo cuando se selecciona al menos una anulación de función. Agrega una función o habilita un comodín de módulo antes de guardar.",
+  "auth.acl.organizationWarning": "Las restricciones de organización requieren al menos una anulación de función. Agrega una función o un comodín de módulo, o borra el ámbito de organización antes de guardar.",
   "auth.acl.organizationsScope": "Alcance de organizaciones",
   "auth.acl.organizationsScopeHint": "Empty means all organizations. Select one or more to restrict access.",
   "auth.acl.restricted": "Restringido",
