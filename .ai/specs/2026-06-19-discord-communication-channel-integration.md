@@ -1017,6 +1017,17 @@ not solved by it**: touch-point 2 is #4976, touch-point 3 is #4977.
   feeds `input.to[0]` into `externalEmail` on `messages.messages.compose`, i.e. straight into the
   touch-point 1 validator this section is still deciding. Widening its schema alone would move the
   422 one layer deeper. It lands with the variant decision — as does the conditional `subject`.
+  **Status (2026-08-26): `test-send` complete.** The 2026-08-13 change fixed the recipient's
+  *format* but left its *presence* mandatory, so the smoke test § 6 actually documents — the one
+  with no recipient, posting to `defaultChannelId` — still had no request shape. `to` is now
+  optional at the schema, and `validateOutboundRecipient` accepts an omitted recipient when (and
+  only when) the adapter declares `'provider-native'`, because those adapters carry their own
+  configured target. The email path is unchanged: no email adapter has a default address, so
+  `'email'` — the format every existing provider resolves to — still requires a recipient.
+  Omission means `undefined` alone; `null` and `''` remain 422 on every provider, so a caller who
+  meant to name a recipient and got it wrong is never silently rerouted to the provider default.
+  The CR/LF and allowlist guards are untouched — an absent value carries no payload to filter.
+  `send-as-user` remains out, now tracked separately as **#5528**.
 - **Channel identity** (`connect-credential-channel.ts:161-169`) — tracked as **#4977** (the measured
   consequence: reconnecting Discord creates a duplicate channel, because the duplicate-mailbox guard
   stops applying once `externalIdentifier` is `NULL`): let the adapter supply its own
@@ -1344,6 +1355,37 @@ restored — in the same change that makes the feature real, not before it.
   (which is what makes a Discord sender resolve to a person rather than a display name) remains
   deliberately deferred.
   
+### 2026-08-26 — Touch-point 2: the `test-send` half completed (#4976)
+
+- The smoke test § 6 "Test it" documents — `POST /channels/{id}/test-send` with **no** recipient,
+  so the bot posts to `defaultChannelId` — now has a request shape. The 2026-08-13 change fixed
+  the recipient's format but left `to` mandatory, so the credential field the connect dialog asks
+  for was still read by no product path unless an inbound thread already existed. `to` is now
+  `.optional()` and `validateOutboundRecipient` accepts an omitted recipient for a
+  `'provider-native'` adapter, whose own `resolveTargetChannelId` fallback then applies.
+- **The optionality is provider-derived, not caller-derived**, and that is the whole safety
+  argument: an email provider has no default address to fall back to, so `'email'` — the format
+  every existing provider resolves to, declared or defaulted — still answers `Recipient is
+  required`. An integration case on a seeded connected channel pins this so the optionality
+  cannot be made unconditional by accident — but it runs only where
+  `OM_ENABLE_TEST_CHANNEL_SEEDING` is enabled, and that flag is set nowhere in the repository
+  today, so it skips in CI. **The everywhere-guarantee is therefore the unit coverage**
+  (`lib/__tests__/outbound-recipient.test.ts` and the `test-send` route test, which assert the
+  email path across all five capability shapes and run in every environment); the integration
+  case is confirmation against a real seeded channel, not the primary guard. Enabling the flag
+  in the integration harness is proposed separately in #5662.
+- Omission is `undefined` only. `null` and `''` stay 422 on **every** provider: a caller that sent
+  an explicit empty recipient meant to address someone and got it wrong, and rerouting that to the
+  provider default would deliver the message somewhere the caller never named.
+- The CR/LF, allowlist and `..` guards § Shared prerequisite marks MUST-survive are untouched —
+  they sit after the omission branch and an absent value carries nothing to filter.
+- Still open on this touch-point: `send-as-user` and the conditional `subject`, now tracked as
+  **#5528**. Also unimplemented, and noted here rather than silently carried: § 6's "(or click
+  *Test send* in the channel detail UI)" — no such control exists in any `.tsx`, so the API is
+  currently the only smoke-test path.
+- Additive under Cat. 7 (a required request field became optional; no caller that sent `to` is
+  affected); no deprecation protocol required.
+
 ### 2026-08-13 — Touch-point 2 partially implemented (#4976)
 
 - The outbound smoke test is reachable again for a non-email provider:
