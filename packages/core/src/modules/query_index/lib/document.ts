@@ -83,6 +83,15 @@ function collectAggregateSearchValues(
   return []
 }
 
+/**
+ * Composes the aggregate search field on `doc`, in place, and returns it.
+ *
+ * When no field survives the blocklist the aggregate key is **removed** rather than left
+ * alone, so a document that already carries one cannot keep a stale value. No entity in
+ * this repository has a `search_text` column, so a freshly built document never reaches
+ * the call with the key already set; the removal only matters on the recomputation path
+ * (`rebuildAggregateSearchField`), where the incoming value was composed from ciphertext.
+ */
 export function attachAggregateSearchField(
   doc: Record<string, unknown>,
   options: AggregateSearchOptions = {},

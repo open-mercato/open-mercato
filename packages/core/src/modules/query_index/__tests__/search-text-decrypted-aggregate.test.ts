@@ -55,11 +55,15 @@ describe('rebuildAggregateSearchField', () => {
   })
 
   it('leaves the caller document untouched so the stored row keeps its encrypted aggregate', () => {
-    const stored = { id: 'rec-1', display_name: CIPHERTEXT_NAME, search_text: CIPHERTEXT_NAME }
+    // The caller's own object goes in, so the case fails if the shallow copy is ever
+    // dropped: a mutating implementation would rewrite `stored.search_text` in place.
+    const stored = { id: 'rec-1', display_name: PLAINTEXT_NAME, search_text: CIPHERTEXT_NAME }
 
-    rebuildAggregateSearchField({ ...stored, display_name: PLAINTEXT_NAME }, { entityType: PERSON })
+    const rebuilt = rebuildAggregateSearchField(stored, { entityType: PERSON })
 
+    expect(rebuilt.search_text).toBe(PLAINTEXT_NAME)
     expect(stored.search_text).toBe(CIPHERTEXT_NAME)
+    expect(rebuilt).not.toBe(stored)
   })
 
   it('keeps a blocklisted field out of the rebuilt aggregate', () => {
@@ -170,5 +174,31 @@ describe('upsertIndexBatch', () => {
     expect(storedDocs).toHaveLength(1)
     expect(storedDocs[0].search_text).toBe(CIPHERTEXT_NAME)
     expect(storedDocs[0].display_name).toBe(CIPHERTEXT_NAME)
+  })
+
+  it('does not tokenize the very object it persists when decryptDoc returns its argument', async () => {
+    // `decryptIndexDocForSearch` returns the document it was given when no encryption
+    // service is available and the row carries no custom-field keys, so `decrypted === doc`
+    // on a reachable configuration — and `doc` is the object serialized into
+    // `entity_indexes`. Recomposing the aggregate in place there would write plaintext at
+    // rest, which is exactly what the shallow copy exists to prevent.
+    const rows: AnyRow[] = [{
+      id: 'rec-1',
+      display_name: PLAINTEXT_NAME,
+      organization_id: 'org-1',
+      tenant_id: 'tenant-1',
+    }]
+    const storedDocs: Array<Record<string, unknown>> = []
+
+    await upsertIndexBatch(createFakeDb(), PERSON, rows, { orgId: 'org-1', tenantId: 'tenant-1' }, {
+      decryptDoc: async (_entityType, doc) => {
+        storedDocs.push(doc)
+        return doc
+      },
+    })
+
+    const payloads = mockReplaceForBatch.mock.calls[0][1] as Array<{ doc: Record<string, unknown> }>
+    expect(storedDocs).toHaveLength(1)
+    expect(payloads[0].doc).not.toBe(storedDocs[0])
   })
 })
