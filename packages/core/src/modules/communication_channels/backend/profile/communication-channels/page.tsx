@@ -592,12 +592,19 @@ export default function ProfileCommunicationChannelsPage() {
             </p>
           </div>
           {/* Provider connect entry points injected by each channel-* package
-              (channel-gmail, channel-imap) via UMES. */}
-          <InjectionSpot
-            spotId={extensionPoints.hosts.profileConnect.spotId}
-            context={{ reload: () => setReloadKey((k) => k + 1) }}
-            data={{}}
-          />
+              (channel-gmail, channel-imap) via UMES. Each package contributes a
+              bare <Button>, so the spacing has to live on this container —
+              otherwise the buttons render edge to edge with no gap. Matches the
+              `actions` slot in `Page` and the header button rows elsewhere in
+              the backend; `flex-wrap` lets them stack instead of overflowing
+              once a third provider is connected. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <InjectionSpot
+              spotId={extensionPoints.hosts.profileConnect.spotId}
+              context={{ reload: () => setReloadKey((k) => k + 1) }}
+              data={{}}
+            />
+          </div>
         </header>
 
         {reauthRows.length > 0 ? (
