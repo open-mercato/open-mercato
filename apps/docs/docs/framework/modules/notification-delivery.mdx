@@ -85,9 +85,9 @@ Declared in `packages/shared/src/modules/notifications/types.ts`.
 | `Renderer` | no | Client-side custom rendering — declared in `notifications.client.ts`, not here. |
 
 :::warning A type that omits `channels` is eligible for every registered channel
-`resolveEligibleChannels` returns `null` for such a type, and `null` means *no restriction* — not *no channels*. Once a tenant connects a push provider, every type without an explicit `channels` list becomes push-eligible. **37 of the 65 types currently in the registry omit it** (see the map below, where they render as `— (all registered)`).
+`resolveEligibleChannels` returns `null` for such a type, and `null` means *no restriction* — not *no channels*. Once a tenant connects a push provider, every type without an explicit `channels` list becomes push-eligible. **2 of the 65 types currently in the registry omit it** (see the map below, where they render as `— (all registered)`).
 
-Whether the platform default should stay opt-out-per-type or become opt-in is an open policy question ([#5495](https://github.com/open-mercato/open-mercato/issues/5495)). Until it is settled, declare `channels` explicitly on every type you add.
+The fallback stays as it is, so a third-party type that omits `channels` keeps working unchanged. What changed with [#5495](https://github.com/open-mercato/open-mercato/issues/5495) is that every built-in type now declares its eligibility explicitly rather than inheriting the fallback; the two that still omit it are `push_notifications`' hidden admin custom-push types, which bypass the catalogue entirely. Declare `channels` explicitly on every type you add — `packages/core/src/__tests__/notification-channel-eligibility.test.ts` enforces that for every first-party module-root catalogue.
 :::
 
 ### Where a type ends up
@@ -157,7 +157,7 @@ Groups marked *(enterprise)* are declared in `packages/enterprise` and are not p
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `ai_assistant.conversation_shared` | info | — (all registered) | — |
+| `ai_assistant.conversation_shared` | info | `in_app`, `email` | — |
 
 #### `auth`
 
@@ -186,9 +186,9 @@ Groups marked *(enterprise)* are declared in `packages/enterprise` and are not p
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `checkout.link.usageLimitReached` | warning | — (all registered) | — |
-| `checkout.transaction.completed` | success | — (all registered) | — |
-| `checkout.transaction.failed` | error | — (all registered) | — |
+| `checkout.link.usageLimitReached` | warning | `in_app`, `email` | — |
+| `checkout.transaction.completed` | success | `in_app`, `email` | — |
+| `checkout.transaction.failed` | error | `in_app`, `email` | — |
 
 #### `communication_channels`
 
@@ -219,27 +219,27 @@ Groups marked *(enterprise)* are declared in `packages/enterprise` and are not p
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `documents.comment.mentioned` | info | — (all registered) | — |
-| `documents.watch.changed` | info | — (all registered) | — |
-| `documents.watch.commented` | info | — (all registered) | — |
+| `documents.comment.mentioned` | info | `in_app`, `email` | — |
+| `documents.watch.changed` | info | `in_app`, `email` | — |
+| `documents.watch.commented` | info | `in_app`, `email` | — |
 
 #### `eudr`
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `eudr.mitigation.completed` | success | — (all registered) | — |
-| `eudr.risk.non_negligible` | warning | — (all registered) | — |
-| `eudr.statement.reference_issued` | success | — (all registered) | — |
-| `eudr.statement.submitted` | info | — (all registered) | — |
-| `eudr.statement.withdrawn` | warning | — (all registered) | — |
+| `eudr.mitigation.completed` | success | `in_app`, `email` | — |
+| `eudr.risk.non_negligible` | warning | `in_app`, `email` | — |
+| `eudr.statement.reference_issued` | success | `in_app`, `email` | — |
+| `eudr.statement.submitted` | info | `in_app`, `email` | — |
+| `eudr.statement.withdrawn` | warning | `in_app`, `email` | — |
 
 #### `example`
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `demo.push_playground` | info | — (all registered) | — |
-| `demo.silent_ping` | info | — (all registered) | silent |
-| `example.umes.actionable` | info | — (all registered) | — |
+| `demo.push_playground` | info | `push` | — |
+| `demo.silent_ping` | info | `push` | silent |
+| `example.umes.actionable` | info | `in_app`, `email` | — |
 
 #### `inbox_ops`
 
@@ -264,14 +264,14 @@ Groups marked *(enterprise)* are declared in `packages/enterprise` and are not p
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `record_locks.conflict.detected` | warning | — (all registered) | — |
-| `record_locks.conflict.resolved` | info | — (all registered) | — |
-| `record_locks.incoming_changes.available` | info | — (all registered) | — |
-| `record_locks.lock.contended` | warning | — (all registered) | — |
-| `record_locks.lock.force_released` | warning | — (all registered) | — |
-| `record_locks.participant.joined` | info | — (all registered) | — |
-| `record_locks.participant.left` | info | — (all registered) | — |
-| `record_locks.record.deleted` | warning | — (all registered) | — |
+| `record_locks.conflict.detected` | warning | `in_app`, `email` | — |
+| `record_locks.conflict.resolved` | info | `in_app`, `email` | — |
+| `record_locks.incoming_changes.available` | info | `in_app`, `email` | — |
+| `record_locks.lock.contended` | warning | `in_app`, `email` | — |
+| `record_locks.lock.force_released` | warning | `in_app`, `email` | — |
+| `record_locks.participant.joined` | info | `in_app`, `email` | — |
+| `record_locks.participant.left` | info | `in_app`, `email` | — |
+| `record_locks.record.deleted` | warning | `in_app`, `email` | — |
 
 #### `sales`
 
@@ -286,10 +286,10 @@ Groups marked *(enterprise)* are declared in `packages/enterprise` and are not p
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `security.mfa.enforcement_deadline` | warning | — (all registered) | — |
-| `security.mfa.enrolled` | success | — (all registered) | — |
-| `security.mfa.reset` | warning | — (all registered) | — |
-| `security.password.changed` | success | — (all registered) | — |
+| `security.mfa.enforcement_deadline` | warning | `in_app`, `email` | — |
+| `security.mfa.enrolled` | success | `in_app`, `email` | — |
+| `security.mfa.reset` | warning | `in_app`, `email` | — |
+| `security.password.changed` | success | `in_app`, `email` | — |
 
 #### `staff`
 
@@ -303,24 +303,24 @@ Groups marked *(enterprise)* are declared in `packages/enterprise` and are not p
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `warranty_claims.claim.assigned` | info | — (all registered) | — |
-| `warranty_claims.claim.customer_replied` | info | — (all registered) | — |
-| `warranty_claims.claim.escalated` | warning | — (all registered) | — |
-| `warranty_claims.claim.status_changed` | info | — (all registered) | — |
-| `warranty_claims.claim.submitted` | info | — (all registered) | — |
+| `warranty_claims.claim.assigned` | info | `in_app`, `email` | — |
+| `warranty_claims.claim.customer_replied` | info | `in_app`, `email` | — |
+| `warranty_claims.claim.escalated` | warning | `in_app`, `email` | — |
+| `warranty_claims.claim.status_changed` | info | `in_app`, `email` | — |
+| `warranty_claims.claim.submitted` | info | `in_app`, `email` | — |
 
 #### `webhooks`
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `webhooks.delivery.failed` | error | — (all registered) | — |
+| `webhooks.delivery.failed` | error | `in_app`, `email` | — |
 
 #### `wms`
 
 | Type | Severity | Declared channels | Flags |
 |---|---|---|---|
-| `wms.inventory.low_stock` | warning | — (all registered) | — |
-| `wms.inventory.reservation_shortfall` | warning | — (all registered) | — |
+| `wms.inventory.low_stock` | warning | `in_app`, `email` | — |
+| `wms.inventory.reservation_shortfall` | warning | `in_app`, `email` | — |
 
 #### `workflows`
 
