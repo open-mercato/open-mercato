@@ -100,7 +100,7 @@ test.describe('TC-AGENT-UXC-005: processes search over q', () => {
       await expect(page.locator('table tbody tr')).toHaveCount(2)
 
       // Facet counts share the filter — the All badge shows the filtered total.
-      const allTab = page.getByRole('button', { name: /all/i }).first()
+      const allTab = page.getByRole('tab', { name: /all/i }).first()
       await expect(allTab).toContainText('2')
 
       // The searchable-scope hint is visible next to the box.

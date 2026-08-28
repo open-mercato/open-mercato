@@ -56,7 +56,10 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
           key: assertionKey,
           title: taskName,
           type: 'deterministic',
-          config: { path: '$.ok', expected: true },
+          // `scorerKey` selects the registry scorer; `key` is this assertion's
+          // own id and resolves to no scorer, which the write boundary rejects.
+          scorerKey: 'json_path_compare',
+          config: { path: '$.ok', operator: 'eq', value: 'true' },
           severity: 'warn',
           appliesTo: '*',
           enabled: false,

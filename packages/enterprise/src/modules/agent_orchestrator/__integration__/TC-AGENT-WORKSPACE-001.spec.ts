@@ -57,7 +57,10 @@ test.describe('TC-AGENT-WORKSPACE-001: agent-centric evaluation workspace', () =
           key: assertionKey,
           title: assertionTitle,
           type: 'deterministic',
-          config: { path: '$.ok', expected: true },
+          // `scorerKey` selects the registry scorer; `key` is this assertion's
+          // own id and resolves to no scorer, which the write boundary rejects.
+          scorerKey: 'json_path_compare',
+          config: { path: '$.ok', operator: 'eq', value: 'true' },
           severity: 'warn',
           appliesTo: agent!.id,
           enabled: true,
