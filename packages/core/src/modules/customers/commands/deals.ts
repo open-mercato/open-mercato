@@ -383,12 +383,49 @@ function toNumericString(value: number | null | undefined): string | null {
   return value.toString()
 }
 
+function sameLinkIdSet(next: Set<string>, current: Set<string>): boolean {
+  if (next.size !== current.size) return false
+  for (const id of next) {
+    if (!current.has(id)) return false
+  }
+  return true
+}
+
+/**
+ * The deal's optimistic-lock token is `customer_deals.updated_at`, and `CustomerDeal.updatedAt`
+ * is declared `onUpdate`-only — it advances only when the deal entity itself enters the change
+ * set. A `{ id, personIds }` or `{ id, companyIds }` payload mutates link rows exclusively, so
+ * without this explicit touch the token never moves: two clients editing the same deal's links
+ * from the same base version both pass the version check and the later stale whole-set payload
+ * silently reinstates what the earlier one removed.
+ *
+ * Assigning the property is what dirties the entity; the `onUpdate` hook then supplies the
+ * committed value, so the two do not fight. Same pattern as the profile-only branch in
+ * `people.ts`, which touches its parent for exactly this reason.
+ *
+ * Callers MUST only invoke this when the links actually changed — stamping on a no-op write
+ * would invalidate every other session's token on an idle save.
+ *
+ * ORDERING: this MUST be the last thing a sync helper does. MikroORM v7 discards a pending
+ * scalar change on a managed entity when a query runs on the same EntityManager before the
+ * flush (SPEC-018) — the same footgun the CRITICAL comment in `updateDealCommand` guards
+ * against, and these helpers are exactly the queries it names. Touching before
+ * `requireCustomerEntity` runs would silently drop the UPDATE and leave the token frozen.
+ */
+function touchDealLockToken(deal: CustomerDeal): void {
+  deal.updatedAt = new Date()
+}
+
 async function syncDealPeople(
   em: EntityManager,
   deal: CustomerDeal,
   personIds: string[] | undefined | null,
-  primaryPersonEntityId?: string | null
+  primaryPersonEntityId?: string | null,
+  options?: { stampLockToken?: boolean }
 ): Promise<void> {
+  // A freshly created deal has no other session holding a token to invalidate, and stamping
+  // there would only make `updated_at` overtake `created_at` on every new deal with links.
+  const stampLockToken = options?.stampLockToken !== false
   if (personIds === undefined) {
     if (primaryPersonEntityId === undefined) return
     const links = await em.find(CustomerDealPersonLink, { deal })
@@ -400,6 +437,12 @@ async function syncDealPeople(
           'Primary person must be linked to the deal',
         ),
       })
+    }
+    const currentPrimaryId = links.find((link) => link.isPrimary)?.person?.id ?? null
+    // Safe here: only assignments and the explicit flush below follow — no query runs
+    // between this touch and the flush that persists it.
+    if (stampLockToken && currentPrimaryId !== primaryPersonEntityId) {
+      touchDealLockToken(deal)
     }
     for (const link of links) {
       link.isPrimary = false
@@ -421,13 +464,30 @@ async function syncDealPeople(
       ),
     })
   }
+  // Read the current links once: this both resolves the inherited primary (as the previous
+  // `findOne(..., { isPrimary: true })` did) and lets us tell a real change from a no-op save,
+  // which the lock stamp below depends on.
+  const existingLinks = await em.find(CustomerDealPersonLink, { deal })
+  const currentPersonIds = new Set(existingLinks.map((link) => link.person.id))
+  const currentPrimaryId = existingLinks.find((link) => link.isPrimary)?.person?.id ?? null
+
   let effectivePrimaryId = primaryPersonEntityId
   if (effectivePrimaryId === undefined) {
-    const existingPrimary = await em.findOne(CustomerDealPersonLink, { deal, isPrimary: true })
-    effectivePrimaryId = existingPrimary?.person?.id ?? null
+    effectivePrimaryId = currentPrimaryId
   }
+  const linksChanged =
+    !sameLinkIdSet(new Set(unique), currentPersonIds) || effectivePrimaryId !== currentPrimaryId
+  // Nothing to do. Returning here also stops a no-op save from deleting and recreating every
+  // row, which would otherwise discard `participant_role`, `created_at` and the link ids while
+  // this function reports the write as a no-op to every other session.
+  //
+  // NOTE: this only covers the pure no-op. A genuine change below still deletes and recreates
+  // every row, so surviving participants do lose those columns — pre-existing behaviour that
+  // the set-diff in PR 3 of the linked-people parity spec removes. It is out of scope here
+  // because the linked date it corrupts is not rendered until that PR.
+  if (!linksChanged) return
+
   await em.nativeDelete(CustomerDealPersonLink, { deal })
-  if (!unique.length) return
   for (const personId of unique) {
     const person = await requireCustomerEntity(em, personId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'person', 'Person not found')
     ensureSameScope(person, deal.organizationId, deal.tenantId)
@@ -438,17 +498,24 @@ async function syncDealPeople(
     })
     em.persist(link)
   }
+  // Last statement on purpose — see the ORDERING note on `touchDealLockToken`.
+  if (stampLockToken) touchDealLockToken(deal)
 }
 
 async function syncDealCompanies(
   em: EntityManager,
   deal: CustomerDeal,
-  companyIds: string[] | undefined | null
+  companyIds: string[] | undefined | null,
+  options?: { stampLockToken?: boolean }
 ): Promise<void> {
   if (companyIds === undefined) return
+  const stampLockToken = options?.stampLockToken !== false
+  const unique = Array.from(new Set(companyIds ?? []))
+  const existingLinks = await em.find(CustomerDealCompanyLink, { deal })
+  const currentCompanyIds = new Set(existingLinks.map((link) => link.company.id))
+  if (sameLinkIdSet(new Set(unique), currentCompanyIds)) return
+
   await em.nativeDelete(CustomerDealCompanyLink, { deal })
-  if (!companyIds || !companyIds.length) return
-  const unique = Array.from(new Set(companyIds))
   for (const companyId of unique) {
     const company = await requireCustomerEntity(em, companyId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'company', 'Company not found')
     ensureSameScope(company, deal.organizationId, deal.tenantId)
@@ -458,6 +525,8 @@ async function syncDealCompanies(
     })
     em.persist(link)
   }
+  // Last statement on purpose — see the ORDERING note on `touchDealLockToken`.
+  if (stampLockToken) touchDealLockToken(deal)
 }
 
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
@@ -530,8 +599,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId),
-      () => syncDealCompanies(em, deal, parsed.companyIds ?? []),
+      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
+      () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
     ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
