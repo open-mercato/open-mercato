@@ -154,15 +154,15 @@ All mutations validate Zod input before persistence and execute through register
 2. Site codes are normalized to uppercase before uniqueness checks and persistence.
 3. A site is created inactive and remains configurable while inactive. Operational consumers reject inactive sites.
 4. Activation succeeds only when `raw_material` and `finished_goods` each have an active default warehouse. The same warehouse may satisfy both roles.
-5. At activation time, every assigned warehouse must be absent from every other active Site. While a Site is active, mapping create/update and reactivation enforce the same rule transactionally. Deactivation releases this active-Site exclusivity without deleting mappings.
+5. At activation time, every assigned warehouse must be absent from every other active Site. While a Site is active, mapping create/update and reactivation enforce the same rule transactionally. Every activation, deactivation, mapping create/update, and mapping undo that can change active-Site eligibility must load its affected warehouse IDs, lock the `Warehouse` rows with `PESSIMISTIC_WRITE` in ascending UUID order, re-query active-Site assignments within that transaction, and only then flush. Every writer uses that order; deactivation releases this active-Site exclusivity without deleting mappings.
 6. Only an active warehouse can be newly assigned or selected by an update.
 7. Later warehouse deactivation retains the assignment for audit/context, but makes the Site operationally ineligible until corrected; the assignment remains visible with a warning.
 8. The first live assignment for `(site, role)` is automatically default.
-9. Promoting an assignment atomically demotes the previous default and promotes the target.
+9. Promoting an assignment atomically demotes the previous default and promotes the target. Follow the existing WMS primary-warehouse ordering: keep the target non-default, demote the sibling default, then promote the target. The partial unique default index remains the database backstop, and its named violation is translated to the same stable `409` contract.
 10. A default cannot be demoted without promoting a replacement in the same transaction.
 11. Deleting a default is blocked while sibling assignments remain. The administrator first promotes a successor; deleting the last assignment in a role is allowed only while the Site is inactive or when the role is not required for activation.
 12. Creating, updating, deleting, promoting, activating, deactivating, and undoing assignments use `withAtomicFlush(..., { transaction: true })` where more than one row can change.
-13. Preflight uniqueness/readiness checks provide field errors; named constraint violations and activation locks handle concurrent races and return the same translated contract.
+13. Preflight uniqueness/readiness checks provide field errors; named default-index violations and the ordered warehouse locks handle concurrent races and return the same translated contract.
 
 ## API Contracts
 
@@ -239,7 +239,7 @@ The warehouse presentation is loaded in one scoped batch for list results; it mu
 
 Update schemas require at least one mutable field in addition to `id`; empty updates fail validation. ORM/query-engine parameters remain parameterized. Constraint translation matches named constraints and never interpolates user input into SQL or exposes database details.
 
-Site command writes use `runCrudCommandWrite` (or the equivalent canonical helper if the implementation proves a module-local constraint requires it) so scalar changes, custom-field values, and CRUD side effects share one logical atomic flow. Form submissions collect custom values with `collectCustomFieldValues()`. Command snapshots store `snapshot.custom` before and after each site mutation and undo restores differences with `buildCustomFieldResetMap`. Mapping commands do not accept, persist, decorate, or restore custom fields.
+Site commands follow the existing WMS configuration-command pipeline: `parseWithCustomFields()` validates and splits input; scalar Site changes use `withAtomicFlush(..., { transaction: true })`; `setCustomFieldsIfAny()` persists normalized tenant-defined values after the entity flush; and the command then marks CRUD side effects. This matches the established WMS and Sales custom-field lifecycle. Custom-field persistence is part of the same command outcome but is not a cross-storage atomic transaction. Form submissions collect custom values with `collectCustomFieldValues()`. Command snapshots store `snapshot.custom` before and after each site mutation and undo restores differences with `buildCustomFieldResetMap`. Mapping commands do not accept, persist, decorate, or restore custom fields.
 
 ## Security and Failure Handling
 
@@ -391,7 +391,7 @@ No existing warehouse is reclassified. New event, command, API, ACL, and entity 
 - inactive site remains configurable;
 - creation always yields an inactive Site; premature activation reports the missing required defaults;
 - activation succeeds with eligible `raw_material` and `finished_goods` defaults, including when one warehouse serves both roles;
-- activation and active-Site mapping changes reject a warehouse used by another active Site, including concurrent races; deactivation releases that exclusivity;
+- activation, deactivation, and active-Site mapping changes lock affected warehouses in ascending UUID order and reject a warehouse used by another active Site, including concurrent races; deactivation releases that exclusivity;
 - site create undo deactivates rather than deletes;
 - mapping undo respects current uniqueness/default invariants;
 - optimistic locking covers site update and mapping update/delete.
@@ -446,7 +446,7 @@ The following are separate capabilities, not unfinished work inside P1.2:
 | Current-only mappings are mistaken for historical truth | High | A report joins old records to the current default | Require immutable snapshots in every future release/order/posting/fact; document audit log as evidence, not an as-of resolver | Scheduled/as-of configuration remains unavailable until its follow-up |
 | Concurrent writes produce zero or two defaults | High | Constraint/command test or production `409` metric | Transactional promotion, partial unique index, named error translation, concurrency tests | Operators may need to retry a raced update |
 | Warehouse deactivation leaves an unusable default | High | Site UI warning and future operational eligibility checks | Preserve assignment, warn visibly, block operational use, require explicit replacement | Configuration remains degraded until an administrator acts |
-| One warehouse is activated under two Sites | High | Activation/mapping concurrency tests and stable conflict telemetry | Scoped transactional checks and locks; one active Site per warehouse while allowing multiple roles in that Site | Shared-site operation requires the later production-network contract |
+| One warehouse is activated under two Sites | High | Activation/mapping concurrency tests and stable conflict telemetry | Every active-Site eligibility writer locks affected Warehouse rows in ascending UUID order, re-checks active mappings inside the transaction, and returns a stable conflict; one active Site per warehouse while allowing multiple roles in that Site | Shared-site operation requires the later production-network contract |
 | Site identity is accidentally deleted through undo | High | Command regression tests and audit review | No DELETE command; create undo deactivates rather than deletes | Erroneous inactive records remain visible to administrators |
 | Parent optimistic-lock version is reused for a mapping | Medium | UI conflict tests | Mapping forms carry their own `updatedAt` | Custom future UI must preserve the rule |
 | Advanced numbering assumptions leak into P1.2 | Medium | Specification and API review | Keep UUID/basic order display numbering in `manufacturing`; defer formats, resets, generated lot/serial values, blocks, and offline allocation | Later capability must remain additive |
@@ -506,6 +506,7 @@ The following are separate capabilities, not unfinished work inside P1.2:
 - 2026-08-13: Added the proportional native UI baseline: complete canonical custom fields and CrudForm field injection for `Site`; closed assignments without custom fields; minimalist paginated DataTables with stable extension hosts but without search/filter/view/export/selection/bulk controls.
 - 2026-08-19: Made Sites inactive by default; required eligible `raw_material` and `finished_goods` defaults for activation; allowed one warehouse to serve multiple roles in one Site while limiting it to one active Site; moved shared active-Site warehouses to future `manufacturing_network`; and made advanced number ranges non-blocking for the bounded MVP.
 - 2026-08-19: Initially aligned future module references with a base/discrete split; later consolidated them into the single opt-in `manufacturing` module. The design remains pending parent-roadmap acceptance and its own readiness review.
+- 2026-08-28: Aligned Site custom-field writes with the established WMS and Sales command lifecycle, without claiming cross-storage atomicity; specified ordered pessimistic Warehouse locks and re-validation for every mutation that changes active-Site eligibility; and aligned default promotion with the existing WMS primary-warehouse transaction and named-index conflict pattern.
 
 ### Review — 2026-08-13
 
