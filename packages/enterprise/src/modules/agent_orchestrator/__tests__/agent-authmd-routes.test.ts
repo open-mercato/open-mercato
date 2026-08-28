@@ -34,6 +34,8 @@ beforeEach(() => {
   verifyIdJagAssertion.mockReset()
   registerAgentViaIdJag.mockReset()
   ;(createRequestContainer as jest.Mock).mockResolvedValue({
+    // No limiter registered in this deployment shape — the ceiling fails open.
+    hasRegistration: () => false,
     resolve: () => {
       throw new Error('[test] unexpected resolve')
     },
@@ -48,6 +50,10 @@ function authRequest(body: unknown) {
   })
 }
 
+function discoveryRequest() {
+  return new Request('http://test/api/agent_orchestrator/identity/well-known')
+}
+
 describe('GET /identity/well-known (Wave 4 Phase 4)', () => {
   const prev = process.env.JWT_SECRET
   beforeAll(() => {
@@ -59,7 +65,7 @@ describe('GET /identity/well-known (Wave 4 Phase 4)', () => {
   })
 
   it('returns the discovery metadata with no secrets', async () => {
-    const res = await discoveryGET()
+    const res = await discoveryGET(discoveryRequest())
     expect(res.status).toBe(200)
     const json = (await res.json()) as Record<string, unknown>
     expect(json.token_endpoint).toBe('/api/agent_orchestrator/identity/token')

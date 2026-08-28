@@ -208,6 +208,19 @@ agents/<agent_id>/
 
 Every route file MUST export `openApi`. Custom write routes MUST wire the mutation-guard contract.
 
+### Public-endpoint rate limits
+
+The three `/identity/*` routes and `/trace/ingest` take no staff session, and three of them spend real CPU per request (bcrypt per candidate client secret, ID-JAG signature verification, trace HMAC + a write). Each therefore enforces a per-client-IP ceiling through `enforcePublicEndpointRateLimit` (`lib/guardrails/publicEndpointRateLimit.ts`), called **before** any credential verification — checking it afterwards leaves the CPU-amplification vector open. An unregistered `rateLimiterService` fails **open** (deployments without a limiter keep working); a registered-but-unusable one fails **closed** with 503, as does a limiter that cannot produce a real decision.
+
+| Route | env prefix | points | duration | blockDuration |
+|---|---|---|---|---|
+| `/identity/token` | `AGENT_ORCH_IDENTITY_TOKEN` | 10 | 60 | 300 |
+| `/identity/agent/auth` | `AGENT_ORCH_IDENTITY_AGENT_AUTH` | 10 | 60 | 300 |
+| `/identity/well-known` | `AGENT_ORCH_IDENTITY_WELL_KNOWN` | 60 | 60 | — |
+| `/trace/ingest` | `AGENT_ORCH_TRACE_INGEST` | 120 | 60 | — |
+
+Override per deployment with `RATE_LIMIT_{PREFIX}_{POINTS,DURATION,BLOCK_DURATION}`.
+
 ## ACL Features (`acl.ts`)
 
 `agents.view`, `agents.run`, `agents.manage`, `proposals.view`, `proposals.dispose`, `trace.view`, `trace.correct`, `eval.manage`, `eval.run`, `eval.export`, `guardrail.read`, `guardrail.manage`, `context.read`, `identity.read`, `identity.manage`, `identity.tokens`, `processes.view`, `processes.manage`, `processes.run`, `web_search`, `web_fetch` (all prefixed `agent_orchestrator.`).

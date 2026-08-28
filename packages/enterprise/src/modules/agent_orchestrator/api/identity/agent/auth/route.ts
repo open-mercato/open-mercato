@@ -3,10 +3,13 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
   idJagTokenRequestSchema,
   oauthTokenResponseSchema,
 } from '../../../../data/validators'
+import { enforcePublicEndpointRateLimit } from '../../../../lib/guardrails/publicEndpointRateLimit'
 import {
   registerAgentViaIdJag,
   verifyIdJagAssertion,
@@ -26,6 +29,11 @@ import { emitAgentOrchestratorEvent } from '../../../../events'
  * grant — never from request input. An invalid/forged/wrong-audience assertion →
  * a single minimal 401 (`invalid_grant`), never revealing whether the issuer or
  * subject exists. The raw assertion is never logged.
+ *
+ * Rate-limited per client IP BEFORE the assertion is verified: signature
+ * verification is per-request CPU and a successful call WRITES (principal +
+ * grant), so an unmetered caller gets both an amplification lever and an
+ * unbounded self-registration surface.
  */
 export const metadata = {
   POST: {},
@@ -33,7 +41,18 @@ export const metadata = {
 
 const oauthErrorSchema = z.object({ error: z.string() })
 
+const identityAgentAuthRateLimitConfig = readEndpointRateLimitConfig('AGENT_ORCH_IDENTITY_AGENT_AUTH', {
+  points: 10,
+  duration: 60,
+  blockDuration: 300,
+  keyPrefix: 'agent_orchestrator:identity_agent_auth',
+})
+
 export async function POST(req: Request) {
+  const container = await createRequestContainer()
+  const rateLimited = await enforcePublicEndpointRateLimit(container, req, identityAgentAuthRateLimitConfig)
+  if (rateLimited) return rateLimited
+
   const body = await readJsonSafe(req, {})
   const parsed = idJagTokenRequestSchema.safeParse(body)
   if (!parsed.success) {
@@ -50,7 +69,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'invalid_grant' }, { status: 401 })
   }
 
-  const container = await createRequestContainer()
   const result = await registerAgentViaIdJag(container, claims, parsed.data.scope)
   if (!result) {
     return NextResponse.json({ error: 'invalid_grant' }, { status: 401 })
@@ -95,6 +113,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Malformed request or unsupported grant_type', schema: oauthErrorSchema },
         { status: 401, description: 'Invalid, forged, or wrong-audience assertion', schema: oauthErrorSchema },
+        { status: 429, description: 'Too many self-registration requests from this client IP', schema: rateLimitErrorSchema },
+        { status: 503, description: 'Rate limiter unavailable — the request is refused rather than left uncounted', schema: rateLimitErrorSchema },
       ],
     },
   },
