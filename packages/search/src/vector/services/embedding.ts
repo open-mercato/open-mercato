@@ -47,10 +47,68 @@ function resolveEmbeddingTimeoutMs(): number {
   return parsed
 }
 
+// The AI SDK retries a failed embedding call on its own schedule (two further
+// attempts, after 2s and then 4s of backoff), while createEmbedding() races the
+// WHOLE retry loop against VECTOR_EMBEDDING_TIMEOUT_MS. Those two budgets are
+// incompatible by construction: exhausting the SDK default needs more than 6s
+// and the deadline defaults to 3s, so the deadline always wins and the caller is
+// handed the fabricated timeoutError() below instead of whatever the provider
+// actually said.
+//
+// Reproduced against a stub provider answering 429 insufficient_quota in 115ms:
+// createEmbedding() rejected after 3006ms with "OpenAI request timed out after
+// 3000ms. Check OPENAI_API_KEY." The key was valid, nothing timed out, and the
+// classification switch further down already knows how to say "usage quota
+// exceeded" - it simply never saw the error.
+//
+// So default the retry budget to 0. Under the default deadline a retry could
+// never have completed anyway; it only spent the budget and hid the diagnosis.
+// Operators who raise VECTOR_EMBEDDING_TIMEOUT_MS can raise this alongside it.
+const DEFAULT_EMBEDDING_MAX_RETRIES = 0
+
+function resolveEmbeddingMaxRetries(): number {
+  const rawValue = process.env.VECTOR_EMBEDDING_MAX_RETRIES
+  if (!rawValue) return DEFAULT_EMBEDDING_MAX_RETRIES
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_EMBEDDING_MAX_RETRIES
+  }
+  return parsed
+}
+
+// With a non-zero retry budget the SDK wraps the provider error in an
+// AI_RetryError whose own statusCode/data are empty, so the classification below
+// falls through to its default branch and loses the provider's code. Unwrap to
+// the last real attempt first.
+//
+// This is not merely defensive about the setting above. Raising
+// VECTOR_EMBEDDING_TIMEOUT_MS is the remedy the timeout message implies, and it
+// lets the retry loop finish - at which point, without this, the same billing
+// failure is reported as "Failed after 3 attempts. ... Check OPENAI_API_KEY."
+// (measured: 6376ms, three attempts, still naming the key). Both halves are
+// needed for the real error to reach the operator.
+function unwrapRetryError(err: unknown): unknown {
+  const candidate = err as { name?: string; lastError?: unknown; errors?: unknown[] } | null
+  if (!candidate || candidate.name !== 'AI_RetryError') return err
+  if (candidate.lastError) return candidate.lastError
+  if (Array.isArray(candidate.errors) && candidate.errors.length > 0) {
+    return candidate.errors[candidate.errors.length - 1]
+  }
+  return err
+}
+
+// Report what was observed. Nothing here knows WHY the deadline elapsed, and
+// naming envKeyRequired asserts a cause with no evidence behind it. The
+// `[vector.embedding] ` prefix makes the default branch of the classification
+// below pass this message through verbatim instead of appending its own
+// "Check <KEY>".
 function timeoutError(providerId: EmbeddingProviderId, timeoutMs: number): Error {
   const providerInfo = EMBEDDING_PROVIDERS[providerId]
   return new Error(
-    `${providerInfo.name} request timed out after ${timeoutMs}ms. Check ${providerInfo.envKeyRequired}.`,
+    `[vector.embedding] ${providerInfo.name} embedding request exceeded the ${timeoutMs}ms ` +
+      `deadline (VECTOR_EMBEDDING_TIMEOUT_MS) before the provider answered. That is a deadline, ` +
+      `not a diagnosis: the provider may be slow, unreachable, or rejecting the request. Raise ` +
+      `VECTOR_EMBEDDING_TIMEOUT_MS to let the underlying error surface.`,
   )
 }
 
@@ -266,6 +324,7 @@ export class EmbeddingService {
           model,
           value: merged,
           abortSignal: abortController.signal,
+          maxRetries: resolveEmbeddingMaxRetries(),
           ...(providerOptions && { providerOptions }),
         }),
         new Promise<never>((_, reject) => {
@@ -287,7 +346,7 @@ export class EmbeddingService {
         : Array.from(result.embedding as ArrayLike<number>)
       return emb.map((n) => Number.isFinite(n) ? Number(n) : 0)
     } catch (err: unknown) {
-      const error = err as { statusCode?: number; status?: number; response?: { status?: number; statusCode?: number; data?: { error?: { message?: string; code?: string }; message?: string } }; data?: { error?: { message?: string; code?: string } }; body?: { error?: { message?: string; code?: string } }; message?: string }
+      const error = unwrapRetryError(err) as { statusCode?: number; status?: number; response?: { status?: number; statusCode?: number; data?: { error?: { message?: string; code?: string }; message?: string } }; data?: { error?: { message?: string; code?: string } }; body?: { error?: { message?: string; code?: string } }; message?: string }
       const statusCandidate =
         error?.statusCode ?? error?.status ?? error?.response?.status ?? error?.response?.statusCode
       const status =
