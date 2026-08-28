@@ -130,6 +130,11 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
+import {
+  mapOrderLineEntityToSnapshot,
+  mapQuoteLineEntityToSnapshot,
+  resolveUpsertDiscountFields,
+} from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
 import type { CacheStrategy } from "@open-mercato/cache";
@@ -2970,68 +2975,6 @@ function buildCalculationContext(params: {
   };
 }
 
-function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  };
-}
-
-function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  };
-}
-
 function mapOrderAdjustmentToDraft(
   adjustment: SalesOrderAdjustment,
 ): SalesAdjustmentDraft {
@@ -3088,6 +3031,13 @@ async function emitTotalsCalculated(
   await eventBus.emitEvent("sales.document.totals.calculated", payload);
 }
 
+function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
+  return (
+    (line as Pick<SalesLineSnapshot, "discountAmountFromStoredRow">)
+      .discountAmountFromStoredRow === true
+  );
+}
+
 function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number,
@@ -3119,6 +3069,16 @@ function createLineSnapshotFromInput(
     unitPriceNet: line.unitPriceNet ?? null,
     unitPriceGross: line.unitPriceGross ?? null,
     discountAmount: line.discountAmount ?? null,
+    // Several callers re-run an already-mapped snapshot through here — the line
+    // upsert and delete paths rebuild every line of the document, not just the
+    // one being edited. Those inputs already carry a line total from a stored
+    // row, so their origin must survive rather than be overwritten with the
+    // caller default, or the untouched lines get re-inflated by quantity on
+    // every write. Exactly one of the two origin fields is ever set, which is
+    // the invariant the calculation engine relies on.
+    ...(isStoredRowSourcedLine(line)
+      ? { discountAmountFromStoredRow: true }
+      : { discountAmountBasis: line.discountAmountBasis ?? "unit" }),
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,
@@ -7267,8 +7227,11 @@ const orderLineUpsertCommand: CommandHandler<
         order.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
@@ -7761,8 +7724,11 @@ const quoteLineUpsertCommand: CommandHandler<
         quote.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
