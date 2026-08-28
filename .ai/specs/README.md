@@ -231,6 +231,7 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-066](implemented/SPEC-066-2026-03-15-official-modules-changesets-release-workflow.md) | 2026-03-15 | Official Modules Changesets Release Workflow | Changesets-based release workflow for official modules |
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
+| [CRM Conversation Shared Visibility](2026-08-25-crm-channel-shared-visibility.md) | 2026-08-25 | CRM Conversation Shared Visibility | Owner-controlled sharing of personal-mailbox email: per-Person conversation grants and a whole-channel team-mailbox flag, both read-time derived so un-sharing is lossless |
 
 ## Specification Structure
 
