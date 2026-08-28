@@ -208,6 +208,15 @@ Response:
 { "ok": true }
 ```
 
+Omitted fields keep their stored value: send only `features` and the organization
+scope is preserved, send only `organizations` and the feature grant is preserved.
+To remove an override entirely, clear every dimension explicitly
+(`{ "userId": "…", "features": [], "organizations": null }`).
+
+A per-user ACL is an absolute override rather than an addition to the role, so an
+organization-scoped override with no feature grant would revoke every role-granted
+feature. That combination is rejected with `400` instead of being persisted.
+
 ## Roles
 
 ### List Roles — `GET /auth/roles`
