@@ -35,7 +35,7 @@ import {
 } from '../../components/serverSort'
 import { normalizeRunIdPrefix } from '../../data/validators'
 
-type RunsResponse = { items?: Array<Record<string, unknown>>; total?: number; totalPages?: number }
+type RunsResponse = { items?: Array<Record<string, unknown>>; total?: number; totalPages?: number; totalIsCapped?: boolean }
 type WindowKey = '24h' | '7d' | '30d'
 type FacetKey = 'all' | 'errors' | 'needs-review'
 type SortKey = 'recentDesc' | 'recentAsc' | 'latencyDesc' | 'confidenceDesc' | 'confidenceAsc' | 'agentAsc'
@@ -108,6 +108,7 @@ export default function AgentTracesPage() {
   const router = useRouter()
   const [runs, setRuns] = React.useState<RunView[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [counts, setCounts] = React.useState<{ all: number; errors: number; needsReview: number }>({ all: 0, errors: 0, needsReview: 0 })
   const [kpis, setKpis] = React.useState<TracesKpiView | null>(null)
   const [kpisForbidden, setKpisForbidden] = React.useState(false)
@@ -181,6 +182,7 @@ export default function AgentTracesPage() {
       const items = Array.isArray(listCall.result?.items) ? listCall.result!.items : []
       setRuns(items.map((item) => mapRun(item as Record<string, unknown>)).filter((row): row is RunView => !!row))
       setTotal(typeof listCall.result?.total === 'number' ? listCall.result.total : items.length)
+      setTotalIsCapped(listCall.result?.totalIsCapped === true)
       setCounts({
         all: (allProbe.ok && allProbe.result?.total) || 0,
         errors: (errorsProbe.ok && errorsProbe.result?.total) || 0,
@@ -425,6 +427,7 @@ export default function AgentTracesPage() {
                 pageSize,
                 total,
                 totalPages,
+                totalIsCapped,
                 onPageChange: setPage,
                 pageSizeOptions: [10, 20, 50],
                 onPageSizeChange: (next) => { setPageSize(next); setPage(1) },

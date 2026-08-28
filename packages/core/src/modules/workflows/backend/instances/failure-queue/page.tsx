@@ -36,7 +36,7 @@ type FailureQueueResponse = {
   data: FailureQueueRow[]
   groups: FailureGroup[]
   grouping: { scannedCount: number; scanLimit: number; truncated: boolean }
-  pagination: { total: number; limit: number; offset: number; hasMore: boolean }
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean; totalIsCapped?: boolean }
 }
 
 type BulkReplayResponse = {
@@ -281,6 +281,7 @@ export default function WorkflowFailureQueuePage() {
               pageSize: PAGE_SIZE,
               total: data?.pagination.total ?? 0,
               totalPages: Math.max(Math.ceil((data?.pagination.total ?? 0) / PAGE_SIZE), 1),
+              totalIsCapped: data?.pagination.totalIsCapped === true,
               onPageChange: setPage,
             }}
             emptyState={t('workflows.failureQueue.empty', 'Nothing is waiting for triage.')}

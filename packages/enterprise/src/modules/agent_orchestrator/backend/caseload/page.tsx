@@ -69,7 +69,7 @@ import {
   type DisposeOutcome,
 } from './hooks'
 
-type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
+type ListResponse = { items?: Array<Record<string, unknown>>; total?: number; totalIsCapped?: boolean }
 // A single status taxonomy drives the tiles, the filter segment, and the table
 // Status column so the operator never has to reconcile two vocabularies.
 // `autoApproved` is a badge-level split of the approved family — the Approved
@@ -271,6 +271,7 @@ export default function AgentCaseloadPage() {
   const [initialQueue] = React.useState(() => parseQueueState(searchParams))
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [metrics, setMetrics] = React.useState<OverviewMetricsView | null>(null)
   const [agentLabels, setAgentLabels] = React.useState<Map<string, string>>(new Map())
   const [agentFacts, setAgentFacts] = React.useState<Map<string, AgentFactView[]>>(new Map())
@@ -343,6 +344,7 @@ export default function AgentCaseloadPage() {
         if (cancelled) return
         setProposals(pageProposals)
         setTotal(typeof proposalsCall.result?.total === 'number' ? proposalsCall.result.total : pageProposals.length)
+        setTotalIsCapped(proposalsCall.result?.totalIsCapped === true)
         setMetrics(overviewCall.ok && overviewCall.result ? mapOverviewMetrics(overviewCall.result) : null)
         setRunningCount(runningCall.ok && typeof runningCall.result?.total === 'number' ? runningCall.result.total : 0)
         const labels = new Map<string, string>()
@@ -1146,6 +1148,7 @@ export default function AgentCaseloadPage() {
                 pageSize,
                 total,
                 totalPages,
+                totalIsCapped,
                 onPageChange: setPage,
                 pageSizeOptions: [10, 20, 50],
                 onPageSizeChange: (next) => { setPageSize(next); setPage(1) },

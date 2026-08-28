@@ -62,7 +62,7 @@ const PAGE_SIZE = 50
 
 type WorkInboxResponse = {
   data: WorkInboxWireRow[]
-  pagination: { total: number; limit: number; offset: number; hasMore: boolean }
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean; totalIsCapped?: boolean }
   meta: { kinds: string[]; degradedKinds: string[] }
   /**
    * Present only for a `workflows.tasks.view_all` holder or a superadmin. It is
@@ -76,6 +76,7 @@ export default function WorkInboxPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [availableKinds, setAvailableKinds] = React.useState<string[]>([])
   const [entityHiddenCount, setEntityHiddenCount] = React.useState(0)
   const [degradedKinds, setDegradedKinds] = React.useState<string[]>([])
@@ -102,6 +103,7 @@ export default function WorkInboxPage() {
       if (response?.pagination) {
         setTotal(response.pagination.total || 0)
         setTotalPages(Math.ceil((response.pagination.total || 0) / PAGE_SIZE) || 1)
+        setTotalIsCapped(response.pagination.totalIsCapped === true)
       }
       setEntityHiddenCount(response?.diagnostics?.entityHiddenCount ?? 0)
       if (response?.meta) {
@@ -495,7 +497,7 @@ export default function WorkInboxPage() {
             </Button>
           }
           perspective={{ tableId: WORK_INBOX_TABLE_ID }}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}

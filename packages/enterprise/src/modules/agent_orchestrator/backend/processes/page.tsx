@@ -47,6 +47,7 @@ type ListResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 function listPath(
@@ -74,6 +75,7 @@ export default function ProcessesListPage() {
   const [pageSize, setPageSize] = React.useState(50)
   const [rows, setRows] = React.useState<ProcessListRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [totalPages, setTotalPages] = React.useState(1)
   const [facetCounts, setFacetCounts] = React.useState<Partial<Record<Facet, number>>>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -109,6 +111,7 @@ export default function ProcessesListPage() {
     const items = Array.isArray(listCall.result?.items) ? listCall.result.items : []
     setRows(items.map(mapProcessListRow).filter((row): row is ProcessListRow => !!row))
     setTotal(typeof listCall.result?.total === 'number' ? listCall.result.total : items.length)
+    setTotalIsCapped(listCall.result?.totalIsCapped === true)
     setTotalPages(typeof listCall.result?.totalPages === 'number' ? listCall.result.totalPages : 1)
     const counts: Partial<Record<Facet, number>> = {}
     FACETS.forEach((tab, index) => {
@@ -297,6 +300,7 @@ export default function ProcessesListPage() {
               pageSize,
               total,
               totalPages,
+              totalIsCapped,
               onPageChange: setPage,
               pageSizeOptions: [20, 50, 100],
               onPageSizeChange: (next) => {

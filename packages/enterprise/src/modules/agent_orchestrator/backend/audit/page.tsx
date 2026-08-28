@@ -62,7 +62,7 @@ function dispositionOf(value: string): Disposition {
     ? (value as Disposition)
     : 'pending'
 }
-type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
+type ListResponse = { items?: Array<Record<string, unknown>>; total?: number; totalIsCapped?: boolean }
 
 export default function AgentAuditPage() {
   const t = useT()
@@ -70,6 +70,7 @@ export default function AgentAuditPage() {
   const router = useRouter()
   const [rows, setRows] = React.useState<AuditRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [metrics, setMetrics] = React.useState<OverviewMetricsView | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -111,6 +112,7 @@ export default function AgentAuditPage() {
       }
       const proposals = Array.isArray(proposalsCall.result?.items) ? proposalsCall.result.items : []
       setTotal(typeof proposalsCall.result?.total === 'number' ? proposalsCall.result.total : proposals.length)
+      setTotalIsCapped(proposalsCall.result?.totalIsCapped === true)
       setMetrics(overviewCall.ok && overviewCall.result ? mapOverviewMetrics(overviewCall.result) : null)
 
       // Per-page run enrichment (caseload precedent) — only the visible rows.
@@ -324,6 +326,7 @@ export default function AgentAuditPage() {
                 pageSize,
                 total,
                 totalPages,
+                totalIsCapped,
                 onPageChange: setPage,
                 pageSizeOptions: [10, 20, 50],
                 onPageSizeChange: (next) => { setPageSize(next); setPage(1) },
