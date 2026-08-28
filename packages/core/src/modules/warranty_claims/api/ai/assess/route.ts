@@ -8,6 +8,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -109,7 +110,7 @@ function isSuperAdmin(auth: CommandRuntimeContext['auth']): boolean {
 function buildAuthContext(context: AssessRouteContext): AiChatRequestContext {
   const userId = context.ctx.auth?.sub
   if (!userId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   return {
     tenantId: context.tenantId,
@@ -123,7 +124,7 @@ function buildAuthContext(context: AssessRouteContext): AiChatRequestContext {
 function buildAttachmentAuthContext(context: AssessRouteContext): Exclude<AuthContext, null> {
   const auth = context.ctx.auth
   if (!auth?.sub) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   return {
     ...auth,
@@ -133,16 +134,19 @@ function buildAttachmentAuthContext(context: AssessRouteContext): Exclude<AuthCo
   }
 }
 
-async function resolveAssessContext(req: Request): Promise<AssessRouteContext> {
+async function resolveAssessContext(
+  req: Request,
+  translate: AssessRouteContext['translate'],
+): Promise<AssessRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   if (!organizationId) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.organization_required' })
+    throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required.') })
   }
   return {
     ctx: {
@@ -157,7 +161,7 @@ async function resolveAssessContext(req: Request): Promise<AssessRouteContext> {
     organizationId,
     container,
     em: container.resolve<EntityManager>('em').fork(),
-    translate: (key: string) => key,
+    translate,
   }
 }
 
@@ -172,7 +176,7 @@ async function runGuard(
 ): Promise<RouteMutationGuardResult> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   return runRouteMutationGuards({
     container: context.ctx.container,
@@ -196,6 +200,7 @@ async function loadScopedLine(
   scope: WarrantyClaimScope,
   claimId: string,
   lineId: string,
+  translate: AssessRouteContext['translate'],
 ): Promise<WarrantyClaimLine> {
   const line = await findOneWithDecryption(
     em,
@@ -211,7 +216,7 @@ async function loadScopedLine(
     scope,
   )
   if (!line) {
-    throw new CrudHttpError(404, { error: 'warranty_claims.errors.notFound' })
+    throw new CrudHttpError(404, { error: translate('warranty_claims.errors.notFound', 'Claim not found.') })
   }
   return line
 }
@@ -237,7 +242,7 @@ async function verifyAttachmentLinkedToTarget(
     ],
   }) : false
   if (!linked) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.attachmentNotLinked' })
+    throw new CrudHttpError(400, { error: context.translate('warranty_claims.errors.attachmentNotLinked', 'The attachment is not linked to this claim.') })
   }
 }
 
@@ -278,12 +283,13 @@ async function persistAssessmentPayload(
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
-    const context = await resolveAssessContext(req)
+    const context = await resolveAssessContext(req, translate)
     const payload = toRecord(await readJsonSafe(req, {}))
     const parsed = toAssessInput(payload, context)
     if (parsed.kind === 'damage' && !parsed.lineId) {
-      throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidInput' })
+      throw new CrudHttpError(400, { error: translate('warranty_claims.errors.invalidInput', 'Invalid input') })
     }
 
     const guarded = parsed.lineId ? await runGuard(req, context, parsed as AssessBodyInput & { lineId: string }) : null
@@ -295,9 +301,9 @@ export async function POST(req: Request) {
 
     if (input.kind === 'damage') {
       if (!input.lineId) {
-        throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidInput' })
+        throw new CrudHttpError(400, { error: translate('warranty_claims.errors.invalidInput', 'Invalid input') })
       }
-      const line = await loadScopedLine(context.em, scope, input.claimId, input.lineId)
+      const line = await loadScopedLine(context.em, scope, input.claimId, input.lineId, translate)
       await verifyAttachmentLinkedToTarget(context, {
         attachmentId: input.attachmentId,
         claimId: input.claimId,
@@ -318,7 +324,7 @@ export async function POST(req: Request) {
     }
 
     await requireScopedClaim(context.em, input.claimId, scope)
-    const line = input.lineId ? await loadScopedLine(context.em, scope, input.claimId, input.lineId) : null
+    const line = input.lineId ? await loadScopedLine(context.em, scope, input.claimId, input.lineId, translate) : null
     await verifyAttachmentLinkedToTarget(context, {
       attachmentId: input.attachmentId,
       claimId: input.claimId,
@@ -345,10 +351,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'aiUnavailable' })
     }
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+      return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
     logger.error('warranty_claims.ai.assess.post failed', { err })
-    return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 500 })
+    return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
   }
 }
 

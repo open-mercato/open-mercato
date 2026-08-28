@@ -6,6 +6,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -54,24 +55,23 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['warranty_claims.claim.manage', 'sales.returns.create'] },
 }
 
-function translateKey(key: string): string {
-  return key
-}
-
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-async function resolveActionContext(req: Request): Promise<ActionRouteContext> {
+async function resolveActionContext(
+  req: Request,
+  translate: ActionRouteContext['translate'],
+): Promise<ActionRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   if (!organizationId) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.organization_required' })
+    throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required.') })
   }
   return {
     ctx: {
@@ -84,7 +84,7 @@ async function resolveActionContext(req: Request): Promise<ActionRouteContext> {
     },
     tenantId: auth.tenantId,
     organizationId,
-    translate: translateKey,
+    translate,
   }
 }
 
@@ -110,7 +110,7 @@ async function runGuard(
 ): Promise<RouteMutationGuardResult> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   return runRouteMutationGuards({
     container: context.ctx.container,
@@ -130,8 +130,9 @@ async function runGuard(
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
-    const context = await resolveActionContext(req)
+    const context = await resolveActionContext(req, translate)
     const requestInput = toSalesReturnRequest(toRecord(await readJsonSafe(req, {})))
     const guarded = await runGuard(req, context, requestInput)
     if (!guarded.ok) {
@@ -143,16 +144,16 @@ export async function POST(req: Request) {
       'warranty_claims.claim.create_sales_return',
       { input: toCommandInput(guardedInput, context), ctx: context.ctx },
     )
-    if (!result) throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
+    if (!result) throw new CrudHttpError(400, { error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') })
     await guarded.runAfterSuccess()
     return NextResponse.json({ salesReturnId: result.salesReturnId, skippedLineIds: result.skippedLineIds })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+      return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
     logger.error('warranty_claims.sales-return.post failed', { err })
-    return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 500 })
+    return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
   }
 }
 

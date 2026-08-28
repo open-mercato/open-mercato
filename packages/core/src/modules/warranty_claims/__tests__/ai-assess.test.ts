@@ -475,7 +475,7 @@ describe('warranty claim AI assessment packet', () => {
     }))
 
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({ error: 'warranty_claims.errors.attachmentNotLinked' })
+    await expect(response.json()).resolves.toEqual({ error: 'The attachment is not linked to this claim.' })
     expect(createModelFactoryMock).not.toHaveBeenCalled()
     expect(generateObjectMock).not.toHaveBeenCalled()
     expect(commandExecuteMock).not.toHaveBeenCalled()
