@@ -151,12 +151,11 @@ describe('ConnectChannelMenu (#5595)', () => {
     await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'false'))
   })
 
-  it('stays open while a provider dialog rendered outside the panel is in use', async () => {
+  it('stays open while a provider dialog rendered outside the panel is clicked', async () => {
     // channel-imap and channel-discord render their credential Dialog through a
-    // portal at document.body, so it is outside the menu container and every
-    // click in it looks like an outside click. Closing on those would strand the
-    // dialog's focus restore on a button inside a `display: none` panel — the
-    // same tear-down the keep-mounted panel exists to prevent.
+    // portal at document.body, so it is outside the menu container and a click in
+    // it looks like an outside click. Closing on those would collapse the panel
+    // behind the open dialog — the tear-down the keep-mounted panel prevents.
     await renderMenu([makeWidget('channel_imap.injection.connect', 'Connect IMAP')])
     const trigger = await screen.findByRole('button', { name: /connect channel/i })
 
@@ -172,10 +171,15 @@ describe('ConnectChannelMenu (#5595)', () => {
     try {
       fireEvent.mouseDown(field)
       expect(trigger).toHaveAttribute('aria-expanded', 'true')
-      // Escape belongs to the dialog, which closes itself and restores focus;
-      // the menu must not race it by closing on the same keypress.
+
+      // Escape is the deliberate exception: the provider dialogs are controlled
+      // and register no Radix trigger, so nothing hands focus back when they
+      // close — Chromium leaves it on <body>. Dismissing both layers and focusing
+      // the trigger is the only path that keeps a keyboard user oriented, so the
+      // menu handles Escape even while a dialog is open.
       fireEvent.keyDown(field, { key: 'Escape' })
-      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+      await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'false'))
+      expect(trigger).toHaveFocus()
     } finally {
       document.body.removeChild(dialog)
     }
