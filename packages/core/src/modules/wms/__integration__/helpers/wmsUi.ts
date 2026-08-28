@@ -108,10 +108,12 @@ export async function fillCombobox(
   const suggestionsResponse = options?.suggestionsApiPath
     ? page
         .waitForResponse(
-          (response) =>
-            response.request().method() === 'GET' &&
-            response.url().includes(options.suggestionsApiPath!) &&
-            response.ok(),
+          (response) => {
+            if (response.request().method() !== 'GET' || !response.ok()) return false
+            if (!response.url().includes(options.suggestionsApiPath!)) return false
+            const haystack = decodeURIComponent(response.url()).replace(/\+/g, ' ').toLowerCase()
+            return haystack.includes(value.trim().toLowerCase())
+          },
           { timeout: 15_000 },
         )
         .catch(() => null)
@@ -123,33 +125,20 @@ export async function fillCombobox(
   }
 
   const suggestionPattern = new RegExp(escapeForRegex(value), 'i')
-  const suggestionInDropdown = input
+  const dropdown = input
     .locator('xpath=ancestor::div[contains(@class,"relative")][1]')
     .locator('div.absolute')
-    .getByRole('button', { name: suggestionPattern })
-    .first()
+  const optionInDropdown = dropdown.getByRole('option', { name: suggestionPattern }).first()
+  const buttonInDropdown = dropdown.getByRole('button', { name: suggestionPattern }).first()
 
-  const hasDropdownSuggestion = await suggestionInDropdown
-    .isVisible({ timeout: 2_000 })
-    .catch(() => false)
-
-  if (hasDropdownSuggestion) {
-    await suggestionInDropdown.click()
+  if (await optionInDropdown.isVisible({ timeout: 8_000 }).catch(() => false)) {
+    await optionInDropdown.click()
+  } else if (await buttonInDropdown.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await buttonInDropdown.click()
   } else {
-    await input.press('ArrowDown')
-    const selectedWithKeyboard = await input
-      .inputValue()
-      .then((current) => current.trim().toLowerCase() === value.trim().toLowerCase())
-      .catch(() => false)
-    if (!selectedWithKeyboard) {
-      await input.press('Enter')
-    }
-    const resolvedValue = await input.inputValue()
-    if (resolvedValue.trim().toLowerCase() !== value.trim().toLowerCase()) {
-      const fallbackSuggestion = root.getByRole('button', { name: suggestionPattern }).first()
-      await expect(fallbackSuggestion).toBeVisible({ timeout: 10_000 })
-      await fallbackSuggestion.click()
-    }
+    const fallbackOption = root.getByRole('option', { name: suggestionPattern }).first()
+    await expect(fallbackOption).toBeVisible({ timeout: 10_000 })
+    await fallbackOption.click()
   }
 
   await expect(input).toHaveValue(value, { timeout: 5_000 })
