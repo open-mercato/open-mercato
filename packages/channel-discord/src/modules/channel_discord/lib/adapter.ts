@@ -80,10 +80,15 @@ class DiscordChannelAdapter implements ChannelAdapter {
 
     const targetChannelId = resolveTargetChannelId(input, credentials.defaultChannelId)
     if (!targetChannelId) {
+      // Operator-facing, not `[internal]`: since #4976 made the hub's test-send
+      // recipient optional, this is the response an operator gets for the first
+      // thing they are told to try — a smoke test on a connection whose
+      // `Default channel ID` was left blank. It surfaces verbatim as
+      // `providerError`, so it names the two ways out rather than the internals.
       return {
         externalMessageId: '',
         status: 'failed',
-        error: '[internal] Discord send requires a target channel id (conversationId or defaultChannelId)',
+        error: 'No Discord channel to post to — set "Default channel ID" on the connection, or pass a channel id as the recipient.',
       }
     }
 

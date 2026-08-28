@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { SortDir, type QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -161,10 +162,8 @@ function toIsoStringOrNull(value: unknown): string | null {
 }
 
 function readArrayParam(searchParams: URLSearchParams, key: string): string[] | null {
-  const all = searchParams.getAll(key)
-  if (!all.length) return null
-  const trimmed = all.flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean)
-  return trimmed.length ? trimmed : null
+  const values = readQueryParamList(searchParams, key)
+  return values.length ? values : null
 }
 
 function collectRefIds(rows: unknown[], key: string): string[] {

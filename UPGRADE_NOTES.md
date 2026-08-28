@@ -24,6 +24,25 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Search tokens fold `ł`, `ø`, `đ` and friends — affected records need a reindex (#5666)
+
+The search tokenizer in `@open-mercato/shared/lib/search/tokenize` normalized text with NFKD followed by combining-mark stripping. That folds every diacritic composed of a base letter plus a mark (`ą`, `ó`, `ś`, `ż`, `ć`, `ü`, `é`), but a number of Latin letters are atomic codepoints with no decomposition at all — `ł`/`Ł`, `ø`/`Ø`, `đ`/`Đ`, `ð`/`Ð`, `þ`/`Þ`, `ħ`/`Ħ`, `ı`, `ĸ`, `ŋ`/`Ŋ`, `ŧ`/`Ŧ`, the `æ`/`œ` ligatures and `ß`. Those survived normalization and were then eaten by the token splitter, which treats any non-`[a-z0-9]` character as a separator. `Łukasz` indexed as `ukasz`, `Łódź` as `odz`, `Zażółć` was cut mid-word to `zazo`, and `Guðmundsdóttir` was split into `gu` and `mundsdottir`. Because the same function runs on both sides, an affected record was unreachable from the diacritic spelling *and* from the ASCII one. The tokenizer now applies an explicit fold for those letters, so `Łukasz` and `lukasz` produce the same token — and therefore the same hash — from either side. The fold runs *after* NFKD and mark stripping, which additionally covers the characters that decompose into one of those letters rather than being one — `ǿ` (U+01FF → `ø` + combining acute), `ǽ`, `ǣ` and `ℏ` among them.
+
+The fold table covers every letter in Latin-1 Supplement and Latin Extended-A that NFKD leaves un-folded, and a range test pins that so a gap cannot silently reopen. Note that `Đ` (U+0110) and `Ð` (U+00D0) are distinct codepoints that render identically in uppercase; both now fold to `d`, so the same rendered name is findable whichever one your data happens to contain.
+
+No exported signature changes: `tokenizeText`, `hashToken` and `TokenizationResult` are untouched, and the fold is internal to the private `normalizeText`. What changes is the **token value**, and by extension the `token_hash` written to `search_tokens`.
+
+**Action for operators:** this is an index-format change for the affected records only. Rows already written for text containing one of those letters still hold the old truncated hashes, so those records stay unfindable until they are reindexed:
+
+```bash
+yarn mercato search reindex          # query_index projection + search_tokens
+yarn mercato query_index rebuild-all # equivalent when driving query_index directly
+```
+
+Records whose indexed text contains none of these characters produce byte-identical hashes before and after, so a reindex is only required where the bug actually applied — but reindexing everything is harmless and is the simpler operational choice. Installations running Meilisearch may not have noticed the bug in global search (its own normalizer handles `ł` correctly), yet the backend users-list filter routes through the token path regardless, so the reindex still applies.
+
+**Action for module authors:** none, unless you persisted `tokenizeText` output outside `search_tokens`. If you did, recompute it; comparing a stored pre-fix token against a freshly computed one will not match for affected text.
+
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 
 `AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
@@ -58,6 +77,17 @@ Nothing changes at runtime beyond the tag name — no prop was added, removed, o
 Request-side contracts are untouched — query parameters, the `sortField` values (`lastSeenAt`, `createdAt`, `updatedAt`, already camelCase), request bodies, and the `POST`/`PUT`/`DELETE` response shapes are unchanged, as are the database columns themselves. The one behavior difference for a caller already reading the snake_case keys is that timestamp columns now always serialize as ISO-8601 strings under both spellings. `push_token` remains absent from every response under either spelling.
 
 **Action for API consumers:** switch to the camelCase keys. A client that keeps reading the snake_case ones works unchanged until the aliases are removed.
+### The lost-deal status is spelled `lost`, not `loose`
+
+`customer_deals.status` used `loose` as its canonical lost-deal spelling, a misspelling of `lost` that no other surface shared: `closure_outcome` stores `lost`, the AI tool `customers.update_deal_stage` writes `lost`, and every operator-facing label reads "Lost". `lost` is now the canonical status. Writers persist it, `canonicalDealStatus` normalizes `loose` to `lost` rather than the reverse, and the seeded `deal_status` and `pipeline_stage` dictionaries ship `{ value: 'lost', label: 'Lost' }`.
+
+Nothing that was previously accepted is now rejected. `loose` remains a read alias in `LOST_DEAL_STATUS_LIST`, `expandDealStatusAliases`, `TERMINAL_PIPELINE_STAGE_LABELS` and the win/loss SQL, so a status filter, a KPI count and a closure-outcome derivation all behave identically whichever spelling a row carries. The deal `status` field was already a free-form `z.string().max(50)`, and the `closureOutcome` enum (`won` / `lost`) is unchanged.
+
+`Migration20260824180000_deal_status_lost` rewrites stored `loose` values in `customer_deals.status` and `customer_deals.pipeline_stage`, renames the `loose` dictionary entry for the `deal_status` and `pipeline_stage` kinds, and replaces the seeded `Loose` stage label with `Lost`. It deletes nothing. A dictionary entry is left alone when the same scope already holds a `lost` entry, because `customer_dictionary_entries_unique` covers (organization, tenant, kind, normalized value), and a label is only corrected when it is still the seeded `Loose`, so a tenant that renamed the option keeps its own wording. Rows the migration deliberately skips keep classifying correctly through the read aliases.
+
+**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.7.1.
+
+**Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
 
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 
@@ -80,6 +110,22 @@ Three behavior changes ship together — additive on the wire, but visible to op
 No API route, method, request field, or response field was removed; the aggregate route's accepted `status` values were widened. On `GET /api/customers/deals/aggregate` an injected `status = 'open'` for `isOverdue=true` is now suppressed when the caller supplies an explicit status filter (matching `GET /api/customers/deals`), so combined overdue+status lane header counts change accordingly. A deal moved into a terminal stage by Kanban drag-and-drop keeps its previous status — it is placed by stage but not matched by status filters until it is closed through a closure flow; recording that gap is deliberate, and automating status on drag is future work. Existing rows closed by the AI tool before this change keep their stored status and lane — they match the corrected filters via spelling expansion but are not retroactively moved to a terminal stage; re-saving such a deal through any closure flow applies the new state. No data backfill runs automatically.
 
 **Action for module authors:** if you filtered deals with raw status spellings outside the shared helpers, prefer `lib/dealStatus.ts` (`expandDealStatusAliases`, `isClosedDealStatus`) so your reads stay consistent with the platform views.
+
+### `makeCrudRoute` list routes keep every value of a repeated query parameter (#5548)
+
+Every handler built by `makeCrudRoute` assembled its query object with `Object.fromEntries(url.searchParams.entries())`. `URLSearchParams.entries()` yields one pair per occurrence, so each repeated key overwrote the previous one and `?status=win&status=loose` reached the route schema as the bare string `'loose'` — every earlier selection was discarded before validation ran. Any schema declaring `z.union([z.string(), z.array(z.string())])` advertised an array branch this path could never deliver, and the CRUD response cache made it worse: it keys repeated values order-insensitively, so `?status=win&status=loose` and `?status=loose&status=win` shared one cache entry while resolving to *different* filters, and whichever ordering warmed the cache first decided the answer for that entry's lifetime.
+
+The query object is now built by `buildQueryParams` from `@open-mercato/shared/lib/crud/query-params`, applied at the list handler and at the three non-`GET` handlers that assembled `raw.query` the same way. The grouping rule is deliberately narrow:
+
+- A key that occurs **once** still reaches the schema as a **string**, exactly as before. Existing `z.string()` filter params are unaffected.
+- A key that occurs **twice or more** reaches the schema as a **`string[]`**, which is the branch its schema already advertised.
+- Values are **never split on commas** at this layer. `?ids=a,b` and `?search=Smith, John` keep their literal string value, so the comma-separated `?ids=` contract from SPEC-042 and every free-text filter are untouched. Where a field's own contract says a comma separates values, use `readQueryParamList` / `toQueryValueList` from the same module — they treat the repeated and comma forms as equivalent.
+
+`parseIdsParam` and `isIdsParamProvided` in `@open-mercato/shared/lib/crud/ids` now accept the repeated form too. Without that, a repeated `?ids=` would have arrived as an array, read as "no ids filter supplied", and silently widened the response to the full list — the record-count side channel #4143 closed.
+
+**One behavior change worth planning for.** A list route whose schema types a filter param as a plain `z.string()` (no array branch) now returns **400** when a client sends that param twice, where it previously accepted the request and silently used the last value. That is the correct failure mode — quietly discarding a caller's filter is the defect this fixes — but a lenient client may be relying on the old behavior. Callers using the comma form, or sending each param once, are unaffected; a caller sending repeats starts receiving the values it already asked for, which is strictly a widening.
+
+**Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
