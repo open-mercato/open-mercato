@@ -56,6 +56,15 @@ describe('DataTable date cells', () => {
     expect(screen.getByText('1 lip 2026, 00:00')).toBeInTheDocument()
   })
 
+  // The `locale` parameter exists for this case. `en` is `defaultLocale`, so a 12-hour clock in
+  // every backend table is what most deployments get from this change; asserting it here means the
+  // most-seen rendering in the product is guarded rather than inferred from the `pl` case above.
+  it('renders the default locale on a 12-hour clock', () => {
+    renderTable([{ id: '1', created_at: '2026-07-01' }], 'en')
+
+    expect(screen.getByText('Jul 1, 2026, 12:00 AM')).toBeInTheDocument()
+  })
+
   // One env chain with the detail-page helpers: a table cell and a detail field must not disagree.
   it('honours the date-time env format', () => {
     process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT = 'dd.MM.yyyy HH:mm'

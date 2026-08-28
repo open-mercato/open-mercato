@@ -72,6 +72,16 @@ describe('display value helpers', () => {
     expect(formatDisplayDate('2026-07-01', locale)).toBe(expected)
   })
 
+  // `en` is `defaultLocale` (`packages/shared/src/lib/i18n/config.ts`), so this is what most
+  // deployments actually render. `timeStyle: 'short'` moves it from the locale-neutral
+  // `2026-07-01 00:00` to a 12-hour clock — the widest-reach consequence of this change, and the
+  // one a reader is most likely to mistake for a bug. Pinned so it is a decision, not a side effect.
+  // Operators who want the old shape set `NEXT_PUBLIC_OM_DATE_TIME_FORMAT=yyyy-MM-dd HH:mm`.
+  it('renders the default locale on a 12-hour clock, not the previous ISO-like shape', () => {
+    expect(formatDisplayDateTime('2026-07-01', 'en')).toBe('Jul 1, 2026, 12:00 AM')
+    expect(formatDisplayDate('2026-07-01', 'en')).toBe('Jul 1, 2026')
+  })
+
   it('lets an env pattern override the locale, so a deployment can pin one shape', () => {
     process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'yyyy-MM-dd'
     expect(formatDisplayDate('2026-07-01', 'ko')).toBe('2026-07-01')
