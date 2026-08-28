@@ -8,6 +8,10 @@ import {
   deleteWorkflowDefinitionIfExists,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import {
+  invokeWorkflowHeaderAction,
+  WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 /**
  * TC-WF-062 [P1] (UI): Code view stage 2 — edit the JSON, the canvas updates,
@@ -42,7 +46,7 @@ test.describe('TC-WF-062: Code view two-way sync', () => {
       await login(page, 'admin')
       await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`)
 
-      await page.getByRole('button', { name: /Show the definition JSON/i }).click()
+      await invokeWorkflowHeaderAction(page, WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL)
       const editor = page.getByTestId('workflow-code-view-json')
       await expect(editor).toBeVisible()
 
@@ -108,7 +112,7 @@ test.describe('TC-WF-062: Code view two-way sync', () => {
       await login(page, 'admin')
       await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`)
 
-      await page.getByRole('button', { name: /Show the definition JSON/i }).click()
+      await invokeWorkflowHeaderAction(page, WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL)
       const editor = page.getByTestId('workflow-code-view-json')
       await expect(editor).toBeVisible()
 

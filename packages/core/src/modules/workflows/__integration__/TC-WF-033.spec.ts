@@ -104,6 +104,16 @@ async function openStudio(page: Page, definitionId: string): Promise<void> {
 async function dragRouteTargetOnto(page: Page, transitionId: string, targetStepId: string): Promise<void> {
   const anchor = page.locator(`.react-flow__edge[data-id="${transitionId}"] .react-flow__edgeupdater-target`)
   await expect(anchor).toHaveCount(1)
+  // Hover first. The anchor is a transparent SVG circle in the edges layer,
+  // which the nodes layer paints over wherever the two overlap, and it sits one
+  // radius off the target card's border — close enough that a card, a route chip
+  // or an outcome-row handle can cover it. Playwright's actionability check then
+  // fails HERE and names the element that intercepted the pointer, instead of
+  // the press silently landing on whatever is on top and the only report being
+  // "the toast never appeared".
+  await anchor.scrollIntoViewIfNeeded()
+  await anchor.hover()
+
   const anchorBox = await anchor.boundingBox()
   const handle = page.locator(`.react-flow__node[data-id="${targetStepId}"] .react-flow__handle.target`).first()
   const handleBox = await handle.boundingBox()
@@ -115,8 +125,16 @@ async function dragRouteTargetOnto(page: Page, transitionId: string, targetStepI
 
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
+  // A short move inside the anchor's own radius before the long one: React Flow
+  // only promotes the press to a reconnect drag once the pointer has moved past
+  // `connectionDragThreshold`, and a single interpolated sweep can deliver its
+  // first `pointermove` already outside the edge's neighbourhood.
+  await page.mouse.move(from.x + anchorBox!.width / 4, from.y, { steps: 4 })
   await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 10 })
   await page.mouse.move(to.x, to.y, { steps: 10 })
+  // Settle on the drop point so the last `pointermove` — the one whose
+  // connection state `pointerup` reads — is evaluated at the target handle.
+  await page.mouse.move(to.x, to.y)
   await page.mouse.up()
 }
 

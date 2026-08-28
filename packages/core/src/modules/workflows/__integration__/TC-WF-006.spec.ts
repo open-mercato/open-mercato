@@ -41,6 +41,12 @@ async function findDefinitionIdByWorkflowId(
  */
 test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
   test('creates a definition in the studio and deletes it via row actions', async ({ page, request }) => {
+    // A full UI round trip — login, list, template gallery, Studio boot, details
+    // drawer, save, back to the list, search, row menu, confirm delete — behind
+    // the shared 20s per-test budget, which several of the individual waits
+    // below are already allowed to consume most of on their own. Matches the
+    // budget the sibling Studio journeys (TC-WF-033/034/036/037) use.
+    test.setTimeout(120_000)
     const timestamp = Date.now()
     const workflowId = `qa-wf-006-${timestamp}`
     const workflowName = `QA TC-WF-006 ${timestamp}`
@@ -87,7 +93,12 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
         await searchBox.press('Enter').catch(() => undefined)
       }
 
-      const row = page.getByRole('row').filter({ hasText: workflowId })
+      // Match on the NAME, not the id: the list dropped its "Workflow ID"
+      // column and moved the id into a portaled hover tooltip on the name, so
+      // the id is never inside the row element. The search box above still
+      // narrows by id (the `search` filter matches workflowId OR workflowName),
+      // so the row this resolves to is still unambiguously ours.
+      const row = page.getByRole('row').filter({ hasText: workflowName })
       await expect(row).toBeVisible({ timeout: 10_000 })
 
       // Delete via row action menu → confirm dialog.
@@ -110,7 +121,7 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await deleteDialog.getByRole('button', { name: /^delete$/i }).click()
 
       // Row should disappear. The flash toast may be transient, so assert on row removal instead.
-      await expect(page.getByRole('row').filter({ hasText: workflowId })).toHaveCount(0, { timeout: 10_000 })
+      await expect(page.getByRole('row').filter({ hasText: workflowName })).toHaveCount(0, { timeout: 10_000 })
     } finally {
       if (token) {
         const leftoverId = await findDefinitionIdByWorkflowId(request, token, workflowId)

@@ -175,21 +175,31 @@ export function InspectorPanel({
           closeAriaLabel={t('workflows.inspector.close', 'Close inspector')}
           className={wide ? 'p-0 w-full max-w-none sm:w-4/5' : 'p-0'}
         >
-          <DrawerHeader className="border-b border-border/70">
-            <InspectorHeading
-              title={title}
-              typeLabel={typeLabel}
-              typeLabelVariant={typeLabelVariant}
-              description={description}
-              recordId={recordId}
-              recordIdLabel={idLabel}
-              headerExtra={headerExtra}
-              titleId={titleId}
-              descriptionId={descriptionId}
-              as="drawer"
-            />
-          </DrawerHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">{children}</div>
+          {/* Both variants carry the same `data-slot` marker: it is how any
+              consumer addresses "the inspector" without knowing which layout it
+              got. It cannot be spread onto `DrawerContent`, whose own
+              `data-slot="drawer-content"` the spread would clobber. */}
+          <div
+            data-slot="workflow-inspector"
+            data-variant="overlay"
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DrawerHeader className="border-b border-border/70">
+              <InspectorHeading
+                title={title}
+                typeLabel={typeLabel}
+                typeLabelVariant={typeLabelVariant}
+                description={description}
+                recordId={recordId}
+                recordIdLabel={idLabel}
+                headerExtra={headerExtra}
+                titleId={titleId}
+                descriptionId={descriptionId}
+                as="drawer"
+              />
+            </DrawerHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">{children}</div>
+          </div>
         </DrawerContent>
       </Drawer>
     )

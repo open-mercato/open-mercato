@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
-import { workflowInspector } from '@open-mercato/core/helpers/integration/workflowsUi'
+import {
+  invokeWorkflowHeaderAction,
+  WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL,
+  workflowInspector,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -86,8 +90,8 @@ test.describe('TC-WF-036: Code view — definition JSON and subgraph paste', () 
 
       // Select a step on the canvas and copy it. The click opens the inspector,
       // so Escape closes it again while leaving the node selected — Cmd+C is
-      // suppressed while an overlay is open, by design. At this viewport
-      // (1440x900) the inspector is the DOCKED rail, not a modal dialog.
+      // suppressed while an overlay is open, by design. `workflowInspector`
+      // matches the inspector's `data-slot`, docked or overlay.
       await page.locator('.react-flow__node[data-id="review"]').click()
       const nodeInspector = workflowInspector(page)
       await expect(nodeInspector).toBeVisible({ timeout: 15_000 })
@@ -96,7 +100,7 @@ test.describe('TC-WF-036: Code view — definition JSON and subgraph paste', () 
       await expect(nodeInspector).toBeHidden({ timeout: 15_000 })
       await page.keyboard.press('ControlOrMeta+c')
 
-      await page.getByRole('button', { name: 'Show the definition JSON' }).click()
+      await invokeWorkflowHeaderAction(page, WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL)
       const drawer = page.getByRole('dialog').filter({ hasText: 'Definition JSON' })
       await expect(drawer).toBeVisible({ timeout: 15_000 })
       await expect(drawer.getByRole('heading', { name: 'Code' })).toBeVisible()

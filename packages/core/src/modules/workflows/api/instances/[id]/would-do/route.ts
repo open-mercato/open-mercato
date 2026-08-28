@@ -136,7 +136,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
     )
 
     const sourceEvents: WouldDoSourceEvent[] = events.map((event: WorkflowEvent) => ({
-      id: event.id,
+      // `WorkflowEvent.id` is a `bigint` column, and MikroORM v7's `BigIntType`
+      // hydrates it as a native JS `bigint` (its default mode) despite the
+      // `string` annotation. Lifting it out of the entity into a plain object
+      // bypasses the ORM serializer that would have stringified it, so
+      // `NextResponse.json` would throw "Do not know how to serialize a BigInt"
+      // and the catch below would report it as a generic 500. Same fix as
+      // `api/events/route.ts`.
+      id: String(event.id),
       eventType: event.eventType,
       stepId: event.stepInstanceId ? stepIdByInstanceId.get(event.stepInstanceId) ?? null : null,
       occurredAt: event.occurredAt,

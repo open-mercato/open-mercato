@@ -303,9 +303,10 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       // Step palette is hidden in read-only mode (no way to add nodes).
       await expect(page.getByRole('heading', { name: 'Step Palette' })).toHaveCount(0)
 
-      // Clicking a node MUST NOT open the step inspector. The inspector is the
-      // DOCKED rail now, so asserting `getByRole('dialog')` has count 0 would be
-      // a false pass — it is never a dialog at this viewport.
+      // Clicking a node MUST NOT open the step inspector. Assert on the
+      // inspector's own `data-slot` rather than on `getByRole('dialog')`: the
+      // editor mounts other dialogs, and the marker is what identifies THIS
+      // surface whichever layout it renders in.
       const firstNode = workflowStepNodes(page).first()
       await expect(firstNode).toBeVisible({ timeout: 10_000 })
       await firstNode.click()

@@ -91,7 +91,7 @@ test.describe('TC-WF-037: keyboard-only authoring loop (a11y smoke)', () => {
       // 3. CONFIGURE — Enter opens the inspector for the selection; the field is
       //    reached by its label and submitted from the keyboard.
       await page.keyboard.press('Enter')
-      // The inspector is the DOCKED rail at the default viewport, not a modal.
+      // `workflowInspector` matches the inspector's `data-slot`, docked or overlay.
       const nodeDialog = workflowInspector(page)
       await expect(nodeDialog).toBeVisible({ timeout: 15_000 })
       await expect(nodeDialog.getByRole('heading', { name: 'Edit Step' })).toBeVisible()

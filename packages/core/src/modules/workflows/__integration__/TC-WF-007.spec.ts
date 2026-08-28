@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 import {
   openWorkflowDetailsDrawer,
+  WORKFLOW_TRIGGER_CAP_TESTID,
   workflowInspector,
   workflowRouteEdges,
   workflowStepNodes,
@@ -105,7 +106,10 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
         await searchBox.press('Enter').catch(() => undefined)
       }
 
-      const row = page.getByRole('row').filter({ hasText: workflowId })
+      // The list's "Workflow ID" column is gone — the id lives in a portaled
+      // hover tooltip on the name, so it is never inside the row. The search
+      // above still narrows by id, so the name resolves to our row alone.
+      const row = page.getByRole('row').filter({ hasText: workflowName })
       await expect(row).toBeVisible({ timeout: 10_000 })
       await row.getByRole('button', { name: /open actions/i }).hover()
       await page.getByRole('menuitem', { name: /^edit$/i }).first().click()
@@ -127,9 +131,11 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
 
       await expect(workflowRouteEdges(page)).toHaveCount(4, { timeout: 10_000 })
 
-      // The trigger pill is part of the Studio now — assert it, rather than
-      // silently tolerating it in the counts above.
-      await expect(page.getByTestId('workflow-trigger-node')).toBeVisible()
+      // The trigger summary is part of the Studio now — assert it, rather than
+      // silently tolerating it in the counts above. It is the cap FOLDED onto
+      // the START node (`TriggerCap`); the separate overlay trigger node it
+      // replaced (`workflow-trigger-node`) is deprecated and unmounted.
+      await expect(page.getByTestId(WORKFLOW_TRIGGER_CAP_TESTID)).toBeVisible()
 
       // Workflow metadata reflects what we created.
       const reopened = await openWorkflowDetailsDrawer(page)
@@ -190,8 +196,9 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       await expect(nodes.filter({ hasText: 'Wait' })).toHaveCount(1)
       await expect(workflowRouteEdges(page)).toHaveCount(2, { timeout: 10_000 })
 
-      // Open the step inspector by clicking the timer node. It is the DOCKED
-      // rail at this viewport, not a modal dialog.
+      // Open the step inspector by clicking the timer node. Both inspectors
+      // open as the wide overlay Drawer now; `workflowInspector` addresses it by
+      // its `data-slot` so the spec does not depend on which layout it got.
       await nodes.filter({ hasText: 'Wait' }).first().click()
       const dialog = workflowInspector(page)
       await expect(dialog).toBeVisible({ timeout: 10_000 })

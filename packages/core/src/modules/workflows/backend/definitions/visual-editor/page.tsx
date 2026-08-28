@@ -7,7 +7,6 @@ import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
-import type { InspectorPanelVariant } from '../../../components/InspectorPanel'
 import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
@@ -396,13 +395,14 @@ export default function VisualEditorPage() {
 
   const crudFormDialogsEnabled = resolveCrudFormDialogsEnabled(process.env.NEXT_PUBLIC_WORKFLOW_CRUDFORM_ENABLED)
 
-  // The step and route inspectors dock beside the canvas when the viewport has
-  // room for a rail (spec §4.1). Below that they stay modal — a 384px rail plus
-  // the palette leaves nothing of the graph, which is the problem the rail
-  // exists to solve, not a smaller version of it. The legacy dialogs keep their
-  // own modal chrome; they are deprecated and are not being redesigned.
+  // Where the inspectors are MOUNTED. Both of them now open as the wide overlay
+  // Drawer (#4708 for the step form, its follow-up for the route form): the
+  // 384px rail could not hold either dense form. What survives of the rail
+  // decision is the mount point — on a roomy viewport the panels live inside the
+  // editor layout row, below it they ride the shared dialog stack — plus the
+  // shortcut ownership that keys off it. The legacy dialogs keep their own modal
+  // chrome; they are deprecated and are not being redesigned.
   const inspectorsDocked = crudFormDialogsEnabled && !isMobile && !isCompactViewport
-  const inspectorVariant: InspectorPanelVariant = inspectorsDocked ? 'docked' : 'overlay'
 
   // Sticky notes and groups (spec 4.5) are canvas nodes with their own tiny
   // inspector — they carry no step configuration, so they never open the step
@@ -2868,10 +2868,11 @@ export default function VisualEditorPage() {
   const inspectorPanels = (
     <>
       {crudFormDialogsEnabled ? (
-        // The step form is dense (Invoke-Agent, timeout, sub-editors) and the 384px
-        // docked rail made it unusable, so it always opens as the wide overlay
-        // Drawer that mirrors the definition metadata drawer. The route inspector
-        // stays on the docked rail (`inspectorVariant`) — its config is light.
+        // Both forms are dense (Invoke-Agent, timeout, sub-editors on the step;
+        // condition, mapping and activities on the route) and the 384px docked
+        // rail made them unusable, so each opens as the wide overlay Drawer that
+        // mirrors the definition metadata drawer, with its ledger in a sticky
+        // side column.
         <NodeEditDialogCrudForm node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} ledgerEntries={nodeDialogLedgerEntries} definitionId={definitionId} samples={editorSamples} onPinSample={handlePinSample} onUnpinSample={handleUnpinSample} branchingRoutes={branchingRoutesValue} onSaveBranchingRoutes={handleSaveBranchingRoutes} routeOrder={routeOrderValue} onSaveRouteOrder={handleSaveRouteOrder} onConvertType={handleConvertNodeType} variant="overlay" wide />
       ) : (
         <NodeEditDialog node={selectedNode} isOpen={showNodeDialog} onClose={() => setShowNodeDialog(false)} onSave={handleSaveNode} onDelete={handleDeleteNode} />
@@ -3360,7 +3361,6 @@ export default function VisualEditorPage() {
                   if (!isCodeOnly) moreActions.push({ id: 'load-example', label: t('workflows.visualEditor.loadExample'), onSelect: handleOpenTemplateGallery, disabled: isSaving })
                   if (!isCodeOnly) moreActions.push({ id: 'auto-arrange', label: t('workflows.visualEditor.autoArrange'), icon: Network, onSelect: handleAutoArrange, disabled: isSaving || nodes.length === 0 })
                   moreActions.push({ id: 'compensation', label: t('workflows.compensation.toggleShort', 'Compensation'), icon: ShieldMinus, onSelect: toggleCompensation })
-                  if (definitionId) moreActions.push({ id: 'last-run', label: t('workflows.lastRun.toggleShort', 'Last run'), icon: History, onSelect: toggleLastRun })
                   if (isCodeOverride) moreActions.push({ id: 'reset-to-code', label: t('workflows.actions.resetToCode'), onSelect: handleResetToCode, disabled: isSaving })
                   if (!isCodeOnly) {
                     moreActions.push({ separator: true, id: 'sep-destructive' })
@@ -3377,6 +3377,32 @@ export default function VisualEditorPage() {
                     />
                   )
                 })()}
+                {/* Execution overlay (spec §8.3): "Show last run" paints node
+                    states with DS status tokens and the taken path. It stays a
+                    toolbar button rather than joining the More menu because it
+                    is a STATEFUL toggle with something to report: a menu entry
+                    can neither announce `aria-pressed` nor keep the "(never
+                    run)" caption visible once the menu closes, and §8.3 requires
+                    a definition that has never run to say so. Read-only —
+                    derived at render time, never part of the document. */}
+                {definitionId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleLastRun}
+                    aria-pressed={showLastRun}
+                    className="h-8 px-2 text-xs"
+                    aria-label={t('workflows.lastRun.toggle', 'Show the last run on the canvas')}
+                  >
+                    <History className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                    {t('workflows.lastRun.toggleShort', 'Last run')}
+                    {showLastRun && lastRunOverlay.isUnavailable ? (
+                      <span className="ml-1.5 text-muted-foreground">
+                        {t('workflows.lastRun.never', '(never run)')}
+                      </span>
+                    ) : null}
+                  </Button>
+                )}
                 {definitionId && (
                   <Button
                     variant="outline"

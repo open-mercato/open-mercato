@@ -83,7 +83,7 @@ async function openStudio(page: Page, definitionId: string): Promise<void> {
 
 async function openStepInspector(page: Page, stepId: string): Promise<void> {
   await page.locator(`.react-flow__node[data-id="${stepId}"]`).click()
-  // The step inspector is the DOCKED rail at this viewport, not a modal dialog.
+  // `workflowInspector` matches the inspector's `data-slot`, docked or overlay.
   await expect(workflowInspector(page)).toBeVisible({ timeout: 15_000 })
   await expect(workflowInspector(page).getByRole('heading', { name: 'Edit Step' })).toBeVisible()
 }

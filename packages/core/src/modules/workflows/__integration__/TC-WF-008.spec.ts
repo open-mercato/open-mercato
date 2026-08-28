@@ -7,8 +7,7 @@ import {
   cancelWorkflowInstanceIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 import {
-  openWorkflowDetailsDrawer,
-  workflowDetailsDrawer,
+  openWorkflowTriggersDialog,
   workflowStepNodes,
 } from '@open-mercato/core/helpers/integration/workflowsUi'
 
@@ -54,9 +53,13 @@ async function findInstanceIdByWorkflowId(
  *
  * The form editor is retired (spec section 10), so `Edit` is the single editor
  * entry and it lands on `/backend/definitions/visual-editor?id=<uuid>`, where
- * the triggers editor lives in the workflow-details panel.
+ * the triggers editor is opened from the START node's trigger cap.
  */
-async function openDefinitionInStudioViaRowAction(page: Page, workflowId: string): Promise<void> {
+async function openDefinitionInStudioViaRowAction(
+  page: Page,
+  workflowId: string,
+  workflowName: string,
+): Promise<void> {
   await page.goto('/backend/definitions')
   const searchBox = page.getByPlaceholder(/search/i).first()
   if (await searchBox.isVisible().catch(() => false)) {
@@ -64,7 +67,10 @@ async function openDefinitionInStudioViaRowAction(page: Page, workflowId: string
     await searchBox.press('Enter').catch(() => undefined)
   }
 
-  const row = page.getByRole('row').filter({ hasText: workflowId })
+  // The list's "Workflow ID" column is gone — the id now lives in a portaled
+  // hover tooltip on the name, so it is never inside the row element. The
+  // search above still narrows by id, so the name identifies our row alone.
+  const row = page.getByRole('row').filter({ hasText: workflowName })
   await expect(row).toBeVisible({ timeout: 10_000 })
   await row.getByRole('button', { name: /open actions/i }).hover()
   await page.getByRole('menuitem', { name: /^edit$/i }).first().click()
@@ -73,44 +79,34 @@ async function openDefinitionInStudioViaRowAction(page: Page, workflowId: string
 }
 
 /**
- * The triggers editor lives in the details Drawer's `inputs` section, so it has
- * to be opened first. That also means "the dialog" is ambiguous while the drawer
- * is open — the trigger dialog is scoped by its own accessible name.
+ * Add one event trigger through the focused Triggers modal.
+ *
+ * Triggers are no longer a section of the definition drawer: the Studio routes
+ * them through `TriggersDialog`, opened from the START node's trigger cap, and
+ * the modal hosts the inline `TriggersEditor` — "Add Trigger" appends a row and
+ * expands it in place, so there is no nested create dialog and no `Create`
+ * button. The row's field ids are minted at runtime, hence the row-scoped
+ * locators.
  */
 async function addEventTriggerViaUi(page: Page, triggerName: string, eventPattern: string): Promise<void> {
-  await openWorkflowDetailsDrawer(page)
-  await page.getByRole('button', { name: /^add trigger$/i }).click()
+  await openWorkflowTriggersDialog(page)
 
-  const dialog = page.getByRole('dialog', { name: /create event trigger/i })
-  await expect(dialog).toBeVisible()
+  const dialog = page.getByTestId('workflow-triggers-dialog')
+  await dialog.getByRole('button', { name: /^add trigger$/i }).click()
 
-  await fillText(page, dialog.locator('#trigger-name'), triggerName)
+  const row = dialog.getByTestId('trigger-row').last()
+  await expect(row).toBeVisible({ timeout: 5_000 })
+  await fillText(page, row.locator('input[id$="-name"]'), triggerName)
+  await fillText(page, row.locator('input[id$="-event"]'), eventPattern)
 
-  // EventPatternInput wraps ComboboxInput, which keeps its own internal state
-  // and only propagates to the parent when confirmSelection runs (synchronously
-  // on Enter; via a 200ms setTimeout on blur). Playwright's fill() + Tab path
-  // is racy against the blur timer in compiled production builds, so type the
-  // value with real keystrokes, press Enter to attempt synchronous commit, and
-  // then click another field to force a real blur — both paths are needed
-  // because Enter alone can fire with a stale `input` closure when keystrokes
-  // arrive faster than React can re-render handleKeyDown.
-  const patternInput = dialog.getByPlaceholder('sales.orders.updated')
-  await patternInput.click()
-  await patternInput.pressSequentially(eventPattern, { delay: 20 })
-  await patternInput.press('Enter')
-  await dialog.locator('#trigger-name').click()
+  // The row's collapsed header echoes both values from the editor's committed
+  // state, so seeing them there proves `onChange` reached the dialog's working
+  // copy before Save reads it.
+  await expect(row.getByText(triggerName, { exact: true }).first()).toBeVisible({ timeout: 5_000 })
+  await expect(row.locator('code', { hasText: eventPattern }).first()).toBeVisible({ timeout: 5_000 })
 
-  const createButton = dialog.getByRole('button', { name: /^create$/i })
-  await expect(createButton).toBeEnabled({ timeout: 5_000 })
-  await createButton.click()
+  await dialog.getByRole('button', { name: /^save triggers$/i }).click()
   await expect(dialog).toBeHidden({ timeout: 5_000 })
-
-  // Wait for the trigger card itself (containing the unique triggerName) to
-  // render. This guarantees the parent's onChange fired and the next page-
-  // level Update Workflow submit will see the trigger in state — without it,
-  // we race the React state update.
-  await expect(page.getByText(triggerName, { exact: true }).first()).toBeVisible({ timeout: 5_000 })
-  await expect(page.locator('code', { hasText: eventPattern }).first()).toBeVisible({ timeout: 5_000 })
 }
 
 /**
@@ -166,16 +162,16 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
       })
 
       await login(page, 'admin')
-      await openDefinitionInStudioViaRowAction(page, workflowId)
+      await openDefinitionInStudioViaRowAction(page, workflowId, workflowName)
 
       await addEventTriggerViaUi(page, triggerName, 'customers.person.created')
 
       // Persist the trigger with the Studio's Save. The editor stays on the
       // canvas after saving, so the confirmation is the success flash rather
       // than a redirect; the server-side assertion below is what actually
-      // proves the PUT landed before we fire the event. Scoped to the drawer:
-      // the header Update and the drawer footer Update share a name.
-      await workflowDetailsDrawer(page).getByRole('button', { name: /^update$/i }).click()
+      // proves the PUT landed before we fire the event. The Triggers modal has
+      // closed by now, so the header's Update is the only one on the page.
+      await page.getByRole('button', { name: 'Update', exact: true }).click()
       await expect(page.getByText(/workflow updated successfully/i).first())
         .toBeVisible({ timeout: 15_000 })
 

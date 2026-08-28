@@ -385,23 +385,39 @@ export async function getWorkflowInstanceSnapshot(
  * Polls instance detail until `predicate` holds or the timeout elapses. Required because
  * `POST /api/workflows/instances` runs execution in a background `setImmediate` callback,
  * so the instance reaches its pause/terminal state asynchronously after the 201 response.
- * Returns the last snapshot seen (so callers can assert on a timeout too).
+ *
+ * An elapsed budget THROWS by default, naming the last status/step it saw. Returning the
+ * last snapshot instead turned every engine timeout in this suite into a downstream value
+ * mismatch ("expected COMPLETED, received PAUSED") that reads like a routing bug, so the
+ * one failure mode a poll actually has was the one it never reported.
+ *
+ * `onTimeout: 'returnLast'` keeps the old behaviour for the callers that use the budget as
+ * a deliberate STALL DETECTOR and have a fallback to run.
  */
 export async function pollWorkflowInstance(
   request: APIRequestContext,
   token: string,
   instanceId: string,
   predicate: (instance: WorkflowInstanceSnapshot) => boolean,
-  options: { timeoutMs?: number; intervalMs?: number } = {},
+  options: { timeoutMs?: number; intervalMs?: number; onTimeout?: 'throw' | 'returnLast' } = {},
 ): Promise<WorkflowInstanceSnapshot | null> {
   const timeoutMs = options.timeoutMs ?? 8_000;
   const intervalMs = options.intervalMs ?? 250;
+  const onTimeout = options.onTimeout ?? 'throw';
   const deadline = Date.now() + timeoutMs;
   let last: WorkflowInstanceSnapshot | null = null;
   for (;;) {
     last = await getWorkflowInstanceSnapshot(request, token, instanceId);
     if (last && predicate(last)) return last;
-    if (Date.now() >= deadline) return last;
+    if (Date.now() >= deadline) {
+      if (onTimeout === 'returnLast') return last;
+      const seen = last
+        ? `status=${last.status} currentStepId=${last.currentStepId ?? 'null'}`
+        : 'the instance was never readable';
+      throw new Error(
+        `[internal] pollWorkflowInstance: instance ${instanceId} did not satisfy the predicate within ${timeoutMs}ms (last seen: ${seen})`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
@@ -845,9 +861,12 @@ export function buildCompletedRunDefinitionPayload(stamp: string, suffix = '') {
 
 /**
  * START -> mid -> boom -> END, where `boom` carries a STEP-level activity that cannot
- * succeed: `EXECUTE_FUNCTION` is validated against `functionName`, so a config declaring
- * `functionId` fails on the first attempt with a stable message and no external
- * dependency. `mid` reaches COMPLETED before it, which is what makes the run a legal
+ * succeed: `EXECUTE_FUNCTION` names a `functionName` that no module registers, so the
+ * activity fails on the first attempt with a stable message (`Workflow function "…" not
+ * registered in DI container`) and no external dependency. The key MUST be `functionName`
+ * — `REQUIRED_ACTIVITY_CONFIG_KEYS` rejects the definition at CREATE time otherwise, so a
+ * config declaring `functionId` never reaches a run at all. `mid` reaches COMPLETED
+ * before it, which is what makes the run a legal
  * rerun target (spec 8.4 eligibility reads the LATEST attempt of the requested step and
  * requires it to be terminal).
  *
@@ -884,7 +903,7 @@ export function buildFailingStepDefinitionPayload(
               activityId: 'boom',
               activityName: 'Boom',
               activityType: 'EXECUTE_FUNCTION',
-              config: { functionId: 'qa-nonexistent-function-do-not-register' },
+              config: { functionName: 'qa-nonexistent-function-do-not-register' },
             },
           ],
         },

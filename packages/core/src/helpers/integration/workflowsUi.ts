@@ -16,16 +16,21 @@ import { expect, type Locator, type Page } from '@playwright/test'
  *    `role="menuitem"`s). They are plain `Input`s with `id=` — there is no
  *    `data-crud-field-id` on definition metadata (that attribute survives only
  *    inside the step/route inspectors, which do use `CrudForm`).
- * 2. **The canvas carries one synthetic node and one synthetic edge.** The
- *    trigger pill (`lib/trigger-node.ts`) is minted at render time whenever the
- *    definition has a START step, so `.react-flow__node` is always
- *    `steps.length + 1`. Count through `workflowStepNodes` / `workflowRouteEdges`.
- * 3. **The step and route inspectors are a DOCKED RAIL, not a modal.** At
- *    >=1280px they render as `<aside role="complementary"
- *    data-slot="workflow-inspector" data-variant="docked">` inside
- *    `[data-testid="workflow-editor-row"]`, so `getByRole('dialog')` matches
- *    nothing. Below 1280px the same content renders in a modal `Drawer`;
- *    `workflowInspector` matches either.
+ * 2. **The trigger summary is FOLDED onto the START node.** `TriggerCap` floats
+ *    above the START pill from inside that node's own render, so it adds no node
+ *    of its own — assert it with `WORKFLOW_TRIGGER_CAP_TESTID`. The separate
+ *    overlay node + dashed connector it replaced (`__workflow_trigger__`,
+ *    `components/nodes/TriggerNode.tsx`) are deprecated and no longer mounted;
+ *    `workflowStepNodes` / `workflowRouteEdges` still filter them out so a spec
+ *    counts the author's steps and routes either way.
+ * 3. **The step and route inspectors are a wide overlay `Drawer`.** Both forms
+ *    outgrew the 384px docked rail, so each now opens as the wide modal Drawer
+ *    that mirrors the definition metadata drawer, whatever the viewport. The
+ *    `docked` variant of `InspectorPanel` (an `<aside role="complementary">` in
+ *    the editor row) is still supported by the component but no longer mounted
+ *    by the Studio. BOTH variants carry `data-slot="workflow-inspector"` plus a
+ *    `data-variant`, so `workflowInspector` matches either and a spec never has
+ *    to know which layout it got.
  */
 
 export const WORKFLOW_TRIGGER_NODE_ID = '__workflow_trigger__'
@@ -37,6 +42,15 @@ export const WORKFLOW_MORE_MENU_LABEL = 'More'
 export const WORKFLOW_DETAILS_MENU_ITEM_LABEL = 'Settings'
 /** The menu entry that drops a customized definition back to its code version. */
 export const WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL = 'Reset to code version'
+/**
+ * The menu entry that opens the read/edit Code view
+ * (`workflows.visualEditor.codeView.title`).
+ *
+ * It used to be a header BUTTON labelled "Show the definition JSON"
+ * (`…codeView.open`); the toolbar declutter moved it into the More menu under
+ * the shorter "Code".
+ */
+export const WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL = 'Code'
 export const WORKFLOW_DETAILS_DRAWER_TITLE = 'Workflow details'
 export const WORKFLOW_INSPECTOR_SELECTOR = '[data-slot="workflow-inspector"]'
 /** The START node's trigger cap — the only affordance that opens `TriggersDialog`. */
@@ -202,6 +216,10 @@ export async function saveWorkflowFromDetailsDrawer(page: Page): Promise<void> {
  * The toggle is off by default and PERSISTED per author
  * (`om:wf-editor-last-run`), and it fetches nothing until it is on — so a spec
  * must click it, and a spec must not assume a previous test left it on.
+ *
+ * It is a header BUTTON rather than a More-menu entry, unlike the other view
+ * toggles: it is stateful (`aria-pressed`) and it reports "(never run)" beside
+ * its label, neither of which a fire-and-forget menu item can carry.
  */
 export const WORKFLOW_LAST_RUN_TOGGLE_LABEL = 'Show the last run on the canvas'
 

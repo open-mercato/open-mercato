@@ -795,19 +795,29 @@ Treat a regression here as a broken feature, not a nit.
   pair green + a check, route chips are labelled buttons and the collapsed semantic-zoom dot row is a
   labelled `role="img"`. `components/__tests__/canvasAccessibility.test.tsx` is the guard.
 
-## Step & Route Inspector (the docked rail)
+## Step & Route Inspector
 
 - **`components/InspectorPanel.tsx` is the ONE shell** both inspectors render
   through (`NodeEditDialogCrudForm`, `EdgeEditDialogCrudForm`). They used to be two
   independent modals that had drifted apart in padding, heading shape and close
   affordance. MUST NOT give either its own chrome again.
-- **`docked` is a layout sibling of the canvas, not an overlay.** The page renders
-  it INSIDE the editor row (`data-testid="workflow-editor-row"`), so opening it
-  narrows the graph and leaves it visible and clickable. `overlay` is the same
-  content in a modal `Drawer` and is what the compact (<1280px) layout uses — that
-  layout is a separate single-column branch with no row to dock into.
-  `inspectorsDocked` in the page owns the decision; both variants are otherwise
-  identical, or a step inspected on a laptop stops being the same surface.
+- **Both inspectors now mount `variant="overlay" wide`, at every viewport.** The
+  384px `docked` rail could not hold either form — the step's Invoke-Agent /
+  timeout / sub-editor sections, nor the route's condition, mapping and activity
+  lists — so each opens as the wide Drawer that mirrors the definition metadata
+  drawer, with its ledger in a sticky side column. `docked` (an `<aside
+  role="complementary">` rendered INSIDE `[data-testid="workflow-editor-row"]`)
+  is still a supported variant of the component and is unit-covered, but the
+  Studio no longer selects it. `inspectorsDocked` in the page survives as the
+  MOUNT-POINT decision (layout row vs. shared dialog stack) and as what the
+  editor's shortcut ownership keys off — it is no longer a variant switch.
+- **Every variant carries `data-slot="workflow-inspector"` plus its
+  `data-variant`.** That marker is the only stable way a consumer addresses "the
+  inspector" without knowing which layout it got, and the integration helper
+  `workflowInspector` is built on it. On the `overlay` branch it MUST live on a
+  wrapper inside `DrawerContent`, never spread onto `DrawerContent` itself —
+  `DrawerContent` sets `data-slot="drawer-content"` before `{...props}`, so a
+  spread would clobber it.
 - **Docking is SPATIAL, never a keyboard change.** An open inspector still owns the
   shortcuts: it holds unsaved form values, and every canvas binding either mutates
   the document under it (undo, delete, paste) or would save a graph that omits the
@@ -821,9 +831,11 @@ Treat a regression here as a broken feature, not a nit.
   late-arriving field definitions, wrong for re-targeting, where it would carry an
   unsaved edit from step A onto step B and save it there. MUST keep `key={node.id}`
   / `key={edge.id}`.
-- **The ledger panel folds by default here** (`InputDataPanel defaultCollapsed`).
-  In the old 1280px modal it sat BESIDE the form and cost nothing; stacked under
-  the form in a 384px column an expanded ledger pushes the form off the top.
+- **The ledger panel's layout follows `wide`.** In the wide Drawer it sits in a
+  STICKY right column beside the form, expanded, so a row stays draggable onto
+  any parameter at any scroll position. Only the narrow (`docked`) layout stacks
+  it under the form and folds it by default (`InputDataPanel defaultCollapsed`) —
+  stacked in a 384px column an expanded ledger pushes the form off the top.
 - **Both inspectors pass `density="compact"` to `CrudForm`** (the prop added for
   this rail). `CrudForm`'s default lays groups out for a full-width page, which is
   airy at 384px; compact steps the between-group and between-field spacing and the
