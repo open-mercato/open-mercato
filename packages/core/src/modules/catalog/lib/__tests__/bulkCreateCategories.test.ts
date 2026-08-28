@@ -23,7 +23,6 @@ function buildContainer(opts: {
   existingJobMeta?: Record<string, unknown> | null
   existingSlugs?: string[]
   existingParentIds?: string[]
-  alreadyCreatedByNaturalKey?: Array<{ slug?: string; name?: string; parentId?: string | null; id: string }>
   execute?: jest.Mock
   isCancellationRequested?: jest.Mock
 }) {
@@ -45,14 +44,9 @@ function buildContainer(opts: {
     return []
   })
 
-  const findOne = jest.fn().mockImplementation(async (_entity: unknown, filter: Record<string, unknown>) => {
-    const rows = opts.alreadyCreatedByNaturalKey ?? []
-    const match = rows.find((r) => {
-      if (filter.slug) return r.slug === filter.slug
-      return r.name === filter.name && (r.parentId ?? null) === (filter.parentId ?? null)
-    })
-    return match ? { id: match.id, slug: match.slug ?? null } : null
-  })
+  // Resume no longer probes row by row; the batch pre-validation query supplies everything it
+  // needs. Kept so tests can assert that no per-row lookup sneaks back in.
+  const findOne = jest.fn().mockResolvedValue(null)
 
   const isCancellationRequested = opts.isCancellationRequested ?? jest.fn().mockResolvedValue(false)
   const updateProgress = jest.fn().mockResolvedValue(undefined)
@@ -152,16 +146,22 @@ describe('createCatalogCategoriesWithProgress', () => {
   })
 
   it('resumes from the checkpointed row and reports a summary covering the whole batch', async () => {
-    const items: Row[] = [row('Alpha'), row('Beta'), row('Gamma'), row('Delta')]
+    const items: Row[] = [
+      row('Alpha', { slug: 'alpha' }),
+      row('Beta', { slug: 'beta' }),
+      row('Gamma', { slug: 'gamma' }),
+      row('Delta', { slug: 'delta' }),
+    ]
     // A prior attempt persisted a checkpoint after row 0 (index 0) carrying the state it had
     // accumulated so far, then crashed after also creating row 1 ("Beta") but before the next
     // checkpoint.
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        checkpointSummary: { createdCount: 1, createdIds: ['created-Alpha'], failedItems: [] },
+        priorNaturalKeys: [],
+        checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
-      alreadyCreatedByNaturalKey: [{ name: 'Beta', parentId: null, id: 'existing-beta' }],
+      existingSlugs: ['alpha', 'beta'],
     })
 
     const summary = await createCatalogCategoriesWithProgress({
@@ -171,8 +171,8 @@ describe('createCatalogCategoriesWithProgress', () => {
       scope: { organizationId: ORG, tenantId: TENANT },
     })
 
-    // Row 0 is not reprocessed, but its result is restored from the checkpoint rather than
-    // dropped. Row 1 ("Beta") is recognized via the natural-key pre-check and NOT re-submitted
+    // Row 0 is not reprocessed, but its count is restored from the checkpoint rather than
+    // dropped. Row 1 ("Beta") is reclaimed as a record this job created and NOT re-submitted
     // to the command. Rows 2-3 are genuinely new. All four rows appear in the summary.
     expect(mocks.execute).toHaveBeenCalledTimes(2)
     expect(mocks.execute).toHaveBeenNthCalledWith(1, 'catalog.categories.create', expect.objectContaining({
@@ -182,8 +182,154 @@ describe('createCatalogCategoriesWithProgress', () => {
       input: expect.objectContaining({ name: 'Delta' }),
     }))
     expect(summary.createdCount).toBe(4)
-    expect(summary.createdIds).toEqual(['created-Alpha', 'existing-beta', 'created-Gamma', 'created-Delta'])
+    expect(summary.createdIds).toEqual(['existing-beta', 'created-Gamma', 'created-Delta'])
     expect(summary.failedItems).toEqual([])
+  })
+
+  it('does not re-create or report conflicts for rows behind a row the interrupted attempt failed', async () => {
+    const items: Row[] = [
+      row('Alpha', { slug: 'alpha' }),
+      row('Beta', { slug: 'beta' }),
+      row('Gamma', { slug: 'gamma' }),
+      row('Delta', { slug: 'delta' }),
+    ]
+    // Row 1 failed inside the command during the interrupted attempt and left nothing behind,
+    // while rows 2-3 were created. A missing row 1 must not be read as "rows 2-3 are new too".
+    const mocks = buildContainer({
+      existingJobMeta: {
+        lastCompletedRowIndex: 0,
+        priorNaturalKeys: [],
+        checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
+      },
+      existingSlugs: ['alpha', 'gamma', 'delta'],
+    })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.execute).toHaveBeenCalledTimes(1)
+    expect(mocks.execute).toHaveBeenCalledWith('catalog.categories.create', expect.objectContaining({
+      input: expect.objectContaining({ name: 'Beta' }),
+    }))
+    expect(summary.createdCount).toBe(4)
+    expect(summary.failedItems).toEqual([])
+    expect(summary.createdIds).toEqual(['created-Beta', 'existing-gamma', 'existing-delta'])
+  })
+
+  it('reclaims rows created by an attempt that died before its first checkpoint landed', async () => {
+    // The slug snapshot persists on the attempt's first progress write, so it can outlive an
+    // attempt that never reached a checkpoint. Resume must still recognize what that attempt
+    // created rather than reporting it as a conflict.
+    const items: Row[] = [row('Alpha', { slug: 'alpha' }), row('Beta', { slug: 'beta' })]
+    const mocks = buildContainer({
+      existingJobMeta: { priorNaturalKeys: [] },
+      existingSlugs: ['alpha'],
+    })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.execute).toHaveBeenCalledTimes(1)
+    expect(mocks.execute).toHaveBeenCalledWith('catalog.categories.create', expect.objectContaining({
+      input: expect.objectContaining({ name: 'Beta' }),
+    }))
+    expect(summary.createdCount).toBe(2)
+    expect(summary.createdIds).toEqual(['existing-alpha', 'created-Beta'])
+    expect(summary.failedItems).toEqual([])
+  })
+
+  it('reports a resumed row whose slug belongs to a pre-existing record as a conflict', async () => {
+    const items: Row[] = [row('Alpha', { slug: 'alpha' }), row('Beta', { slug: 'beta' })]
+    const mocks = buildContainer({
+      existingJobMeta: {
+        lastCompletedRowIndex: 0,
+        priorNaturalKeys: ['slug:beta'],
+        checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
+      },
+      existingSlugs: ['alpha', 'beta'],
+    })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(summary.createdIds).not.toContain('existing-beta')
+    expect(summary.failedItems).toEqual([
+      { index: 1, name: 'Beta', code: 'slug_taken', message: 'Category slug already exists for this organization.' },
+    ])
+  })
+
+  it('creates every slugless row on a resumed batch instead of matching them by name', async () => {
+    const items: Row[] = [row('Duplicate'), row('Duplicate'), row('Duplicate')]
+    const mocks = buildContainer({
+      existingJobMeta: {
+        lastCompletedRowIndex: 0,
+        priorNaturalKeys: [],
+        checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
+      },
+    })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.findOne).not.toHaveBeenCalled()
+    expect(mocks.execute).toHaveBeenCalledTimes(2)
+    expect(summary.createdCount).toBe(3)
+    expect(summary.failedItems).toEqual([])
+  })
+
+  it('accounts for a row whose command resolves without a category id', async () => {
+    const items: Row[] = [row('Alpha'), row('Beta')]
+    const execute = jest.fn()
+      .mockResolvedValueOnce({ result: {} })
+      .mockResolvedValueOnce({ result: { categoryId: 'created-Beta' } })
+    const mocks = buildContainer({ execute })
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(summary.createdCount + summary.failedCount).toBe(items.length)
+    expect(summary.failedItems).toEqual([
+      { index: 0, name: 'Alpha', code: 'command_failed', message: 'Category creation returned no category id.' },
+    ])
+  })
+
+  it('records the pre-existing natural keys on the attempt that starts the batch', async () => {
+    const items: Row[] = [row('Alpha', { slug: 'alpha' }), row('Beta', { slug: 'beta' })]
+    const mocks = buildContainer({ existingSlugs: ['beta'] })
+
+    await createCatalogCategoriesWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.updateProgress.mock.calls[0][1]).toMatchObject({
+      totalCount: 2,
+      processedCount: 0,
+      meta: { priorNaturalKeys: ['slug:beta'] },
+    })
   })
 
   it('restores failures recorded before the checkpoint so a resumed summary keeps them', async () => {
@@ -225,7 +371,7 @@ describe('createCatalogCategoriesWithProgress', () => {
     expect(summary.createdIds).toEqual(['created-Beta'])
   })
 
-  it('persists the accumulated summary alongside lastCompletedRowIndex at each checkpoint', async () => {
+  it('keeps the checkpoint payload bounded by persisting counts rather than every created id', async () => {
     const items: Row[] = [row('Alpha'), row('Beta')]
     const mocks = buildContainer({})
 
@@ -239,16 +385,16 @@ describe('createCatalogCategoriesWithProgress', () => {
     const checkpointCalls = mocks.updateProgress.mock.calls.filter(
       ([, input]) => (input as { meta?: Record<string, unknown> }).meta?.lastCompletedRowIndex !== undefined,
     )
-    expect(checkpointCalls[checkpointCalls.length - 1][1]).toMatchObject({
+    const lastCheckpoint = checkpointCalls[checkpointCalls.length - 1][1] as {
+      meta: { checkpointSummary: Record<string, unknown> }
+    }
+    expect(lastCheckpoint).toMatchObject({
       meta: {
         lastCompletedRowIndex: 1,
-        checkpointSummary: {
-          createdCount: 2,
-          createdIds: ['created-Alpha', 'created-Beta'],
-          failedItems: [],
-        },
+        checkpointSummary: { createdCount: 2, failedCount: 0, failedItems: [] },
       },
     })
+    expect(lastCheckpoint.meta.checkpointSummary).not.toHaveProperty('createdIds')
   })
 
   it('stops the batch and marks the job cancelled when cancellation is requested mid-flight', async () => {

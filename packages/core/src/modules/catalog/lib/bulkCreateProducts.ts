@@ -4,7 +4,13 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { CatalogProduct } from '../data/entities'
 import type { ProductBulkCreateRow } from '../data/validators'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
-import { readCheckpoint, readCheckpointInterval } from './bulkCreateCheckpoint'
+import {
+  MAX_CHECKPOINTED_FAILURES,
+  buildFirstRowIndexByKey,
+  findRecordCreatedByPreviousAttempt,
+  readCheckpoint,
+  readCheckpointInterval,
+} from './bulkCreateCheckpoint'
 
 export const CATALOG_PRODUCT_BULK_CREATE_QUEUE = 'catalog-product-bulk-create'
 
@@ -62,6 +68,27 @@ function normalizeForLookup(value?: string | null): string | null {
   return trimmed.length ? trimmed : null
 }
 
+// Namespaced so a sku can never be confused with a handle that happens to spell the same string.
+function skuKey(sku: string): string {
+  return `sku:${sku}`
+}
+
+function handleKey(handle: string): string {
+  return `handle:${handle}`
+}
+
+/**
+ * The one key that identifies a row well enough to reclaim its record on a resumed attempt.
+ * `title` is deliberately not a fallback: it carries no uniqueness constraint, so matching on it
+ * would let one row claim an unrelated product and silently drop itself from the batch.
+ */
+function naturalKeyOfRow(row: ProductBulkCreateRow): string | null {
+  const sku = normalizeForLookup(row.sku ?? null)
+  if (sku) return skuKey(sku)
+  const handle = normalizeForLookup(row.handle ?? null)
+  return handle ? handleKey(handle) : null
+}
+
 export async function createCatalogProductsWithProgress(params: {
   container: AwilixContainer
   progressJobId: string
@@ -84,30 +111,16 @@ export async function createCatalogProductsWithProgress(params: {
   const startIndex = priorCheckpoint.lastCompletedRowIndex + 1
 
   await progressService.startJob(progressJobId, progressContext)
-  await progressService.updateProgress(
-    progressJobId,
-    { totalCount: items.length, processedCount: startIndex },
-    progressContext,
-  )
 
-  // Batch pre-validation only: fail rows referencing an already-taken sku or handle before
-  // ever calling the command, saving a DB round-trip for rows that are provably invalid up
-  // front.
+  // Batch pre-validation: fail rows referencing an already-taken sku or handle before ever
+  // calling the command, saving a DB round-trip for rows that are provably invalid up front.
+  // The same two queries also produce the key -> id map a resumed attempt uses to reclaim the
+  // records an interrupted attempt already created, so resume costs no extra query.
   //
-  // This does NOT attempt the spec's original "shared identity-map pre-warm" for
-  // reference-data lookups (tax rate / unit defaults / option-schema template). Confirmed
-  // while implementing Phase 1 (see lib/bulkCreateCategories.ts) that `catalog.products.create`
-  // (commands/products.ts) resolves its own EntityManager via
-  // `(ctx.container.resolve('em') as EntityManager).fork()` with no options, and MikroORM v7's
-  // `ForkOptions.clear` defaults to `true` — every row's command call gets a fresh, empty
-  // identity map. A follow-up attempt to work around this by `export`ing
-  // `resolveScopedTaxRate`/`resolveProductUnitDefaults` and memoizing a worker-side copy was
-  // also confirmed non-functional: `execute()`'s own call sites still invoke the original,
-  // unwrapped module-local functions, so a wrapper built around the exported copy is never
-  // consulted by the command. Making the reduction real would require editing `execute()`'s own
-  // call sites in `commands/products.ts` — out of scope per the operator's decision to keep the
-  // create commands entirely unchanged. This pre-fetch only earns its keep as the fail-fast
-  // pre-validation used below.
+  // This is not the spec's original "shared identity-map pre-warm": `catalog.products.create`
+  // forks its own EntityManager with MikroORM's default `clear: true`, so nothing prefetched
+  // here can turn the command's internal lookups into cache hits. See
+  // `.ai/specs/2026-08-25-catalog-bulk-create.md` for the full analysis.
   const distinctSkus = Array.from(new Set(
     items
       .map((item) => normalizeForLookup(item.sku ?? null))
@@ -118,26 +131,57 @@ export async function createCatalogProductsWithProgress(params: {
       .map((item) => normalizeForLookup(item.handle ?? null))
       .filter((value): value is string => value !== null),
   ))
-  const existingSkus = distinctSkus.length
-    ? new Set(
-      (await em.find(CatalogProduct, {
-        sku: { $in: distinctSkus },
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      })).map((product) => product.sku as string),
-    )
-    : new Set<string>()
-  const existingHandles = distinctHandles.length
-    ? new Set(
-      (await em.find(CatalogProduct, {
-        handle: { $in: distinctHandles },
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      })).map((product) => product.handle as string),
-    )
-    : new Set<string>()
+  const existingKeyIds = new Map<string, string>()
+  const existingSkus = new Set<string>()
+  const existingHandles = new Set<string>()
+  if (distinctSkus.length) {
+    const rows = await em.find(CatalogProduct, {
+      sku: { $in: distinctSkus },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    })
+    for (const product of rows) {
+      const sku = product.sku as string
+      existingSkus.add(sku)
+      existingKeyIds.set(skuKey(sku), product.id)
+    }
+  }
+  if (distinctHandles.length) {
+    const rows = await em.find(CatalogProduct, {
+      handle: { $in: distinctHandles },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    })
+    for (const product of rows) {
+      const handle = product.handle as string
+      existingHandles.add(handle)
+      existingKeyIds.set(handleKey(handle), product.id)
+    }
+  }
+
+  // Recorded once, on the attempt that starts from row 0, and read back verbatim by every later
+  // attempt: after rows have been created the database can no longer tell which keys predate the
+  // job. This write rides the attempt's first `updateProgress`, which always persists (a fresh
+  // throttle entry has no last-persisted timestamp to throttle against), so it is durable before
+  // any row is created.
+  const isFirstAttempt = priorCheckpoint.priorNaturalKeys === null
+  await progressService.updateProgress(
+    progressJobId,
+    {
+      totalCount: items.length,
+      processedCount: startIndex,
+      ...(isFirstAttempt ? { meta: { priorNaturalKeys: [...existingKeyIds.keys()] } } : {}),
+    },
+    progressContext,
+  )
+
+  const resumeIndex = {
+    priorNaturalKeys: priorCheckpoint.priorNaturalKeys,
+    existingKeyIds,
+    firstRowIndexByKey: buildFirstRowIndexByKey(items, naturalKeyOfRow),
+  }
 
   const commandContext = buildCommandContext(scope, container)
   // Seeded from the previous attempt's checkpoint so a resumed run's summary covers the whole
@@ -146,16 +190,16 @@ export async function createCatalogProductsWithProgress(params: {
   const createdIds: string[] = [...priorCheckpoint.createdIds]
   const failedItems: CatalogProductBulkCreateFailure[] = [...priorCheckpoint.failedItems]
   let createdCount = priorCheckpoint.createdCount
+  let failedCount = priorCheckpoint.failedCount
 
-  // Same dynamic resume-boundary search as Phase 1 (see lib/bulkCreateCategories.ts) — the
-  // durably-persisted `lastCompletedRowIndex` can lag behind the in-memory processing position,
-  // so every row from `startIndex` is pre-checked against its natural key (sku, or handle, or
-  // title) until the first row confirmed genuinely new.
-  let resumeBoundaryReached = startIndex === 0
+  const recordFailure = (failure: CatalogProductBulkCreateFailure) => {
+    failedItems.push(failure)
+    failedCount += 1
+  }
 
   const buildSummary = (): CatalogProductBulkCreateSummary => ({
     createdCount,
-    failedCount: failedItems.length,
+    failedCount,
     createdIds,
     failedItems,
   })
@@ -169,7 +213,11 @@ export async function createCatalogProductsWithProgress(params: {
           processedCount,
           meta: {
             lastCompletedRowIndex: index,
-            checkpointSummary: { createdCount, createdIds, failedItems },
+            checkpointSummary: {
+              createdCount,
+              failedCount,
+              failedItems: failedItems.slice(0, MAX_CHECKPOINTED_FAILURES),
+            },
           },
         },
         progressContext,
@@ -202,40 +250,19 @@ export async function createCatalogProductsWithProgress(params: {
     const sku = normalizeForLookup(row.sku ?? null)
     const handle = normalizeForLookup(row.handle ?? null)
 
-    if (!resumeBoundaryReached) {
-      const alreadyCreated = sku
-        ? await em.findOne(CatalogProduct, {
-          sku,
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          deletedAt: null,
-        })
-        : handle
-          ? await em.findOne(CatalogProduct, {
-            handle,
-            organizationId: scope.organizationId,
-            tenantId: scope.tenantId,
-            deletedAt: null,
-          })
-          : await em.findOne(CatalogProduct, {
-            title: row.title,
-            organizationId: scope.organizationId,
-            tenantId: scope.tenantId,
-            deletedAt: null,
-          })
-      if (alreadyCreated) {
-        createdIds.push(alreadyCreated.id)
-        createdCount += 1
-        if (sku) existingSkus.add(sku)
-        if (handle) existingHandles.add(handle)
-        await checkpoint(index)
-        continue
-      }
-      resumeBoundaryReached = true
+    // Reclaims a record an interrupted attempt of this job already created for this exact row,
+    // so it is neither duplicated nor reported as a conflict against itself. Every other row
+    // falls through to the normal path, including rows the classifier cannot speak for.
+    const reclaimedId = findRecordCreatedByPreviousAttempt(resumeIndex, index, naturalKeyOfRow(row))
+    if (reclaimedId) {
+      createdIds.push(reclaimedId)
+      createdCount += 1
+      await checkpoint(index)
+      continue
     }
 
     if (sku && existingSkus.has(sku)) {
-      failedItems.push({
+      recordFailure({
         index,
         title: row.title,
         code: 'sku_taken',
@@ -245,7 +272,7 @@ export async function createCatalogProductsWithProgress(params: {
       continue
     }
     if (handle && existingHandles.has(handle)) {
-      failedItems.push({
+      recordFailure({
         index,
         title: row.title,
         code: 'handle_taken',
@@ -268,9 +295,18 @@ export async function createCatalogProductsWithProgress(params: {
         createdCount += 1
         if (sku) existingSkus.add(sku)
         if (handle) existingHandles.add(handle)
+      } else {
+        // Recorded rather than dropped so `createdCount + failedCount` always accounts for
+        // every row in the batch.
+        recordFailure({
+          index,
+          title: row.title,
+          code: 'command_failed',
+          message: 'Product creation returned no product id.',
+        })
       }
     } catch (error) {
-      failedItems.push({
+      recordFailure({
         index,
         title: row.title,
         code: 'command_failed',

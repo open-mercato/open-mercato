@@ -6,6 +6,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import { productsBulkCreateSchema } from '../../../data/validators'
 import { DEFAULT_CHECKPOINT_INTERVAL } from '../../../lib/bulkCreateCheckpoint'
+import { runBulkCreateMutationGuards } from '../../../lib/bulkCreateMutationGuards'
 import {
   CATALOG_PRODUCT_BULK_CREATE_QUEUE,
   getCatalogQueue,
@@ -59,6 +60,21 @@ export async function POST(req: Request) {
 
   const items = parsed.data.items
   const container = await createRequestContainer()
+
+  const guardDecision = await runBulkCreateMutationGuards({
+    container,
+    auth,
+    request: req,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId: auth.sub ?? '',
+    resourceKind: 'catalog.product',
+    itemCount: items.length,
+  })
+  if (!guardDecision.ok) {
+    return NextResponse.json(guardDecision.body, { status: guardDecision.status })
+  }
+
   const progressService = container.resolve('progressService') as ProgressService
 
   const progressJob = await progressService.createJob(
