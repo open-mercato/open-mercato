@@ -89,6 +89,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every packages/*/src/modules and apps/*/src/modules backend page — route ids read from the `params` prop rather than `useParams()`, which the /backend/[...slug] catch-all never populates with an id (#5600)',
       },
       {
+        path: 'src/__tests__/notification-channel-eligibility.test.ts',
+        scans: 'every module-root notification catalogue under packages and apps — explicit delivery-channel eligibility (#5495)',
+      },
+      {
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
         scans: 'packages/ and apps/ — CRUD indexer configuration',
       },
