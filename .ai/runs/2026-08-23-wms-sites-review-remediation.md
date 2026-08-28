@@ -133,6 +133,15 @@ is additive and, being unreleased, requires no deprecation bridge.
 - 7.4 Update the spec, brief, changelog, review record, and this execution plan together, then run
   the documentation-only validation and a fresh `om-auto-review-pr` specification review.
 
+### Phase 8: PR #5729 review remediation (2026-08-28)
+
+- 8.1 Replace the mapping-update unconditional membership insert with reconciliation to the active
+  Site's distinct live-mapping warehouse set, and add the already-active same-Site convergence test.
+- 8.2 Name the WMS lock-key helper path and the repository-wide two-integer family registry that
+  prevents future modules from reusing the reserved values.
+- 8.3 Add the missing Phase 7 landing SHA, synchronize the spec, brief, changelog, review record,
+  and this execution plan, then run the documentation-only validation.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -183,10 +192,16 @@ is additive and, being unreleased, requires no deprecation bridge.
 
 ### Phase 7: Local candidate self-review remediation (2026-08-28)
 
-- [x] 7.1 Separate Site and warehouse physical lock families
-- [x] 7.2 Deduplicate and sort physical warehouse keys
-- [x] 7.3 Add deliberate-collision coverage and risk treatment
-- [x] 7.4 Synchronize the spec, brief, changelog, review record, and execution plan
+- [x] 7.1 Separate Site and warehouse physical lock families — bece57452
+- [x] 7.2 Deduplicate and sort physical warehouse keys — bece57452
+- [x] 7.3 Add deliberate-collision coverage and risk treatment — bece57452
+- [x] 7.4 Synchronize the spec, brief, changelog, review record, and execution plan — bece57452
+
+### Phase 8: PR #5729 review remediation (2026-08-28)
+
+- [ ] 8.1 Reconcile membership as the distinct active-Site warehouse set and test convergence
+- [ ] 8.2 Name the WMS helper and repository-wide lock-family registry
+- [ ] 8.3 Synchronize the review remediation and run documentation validation
 
 ### Resume notes — 2026-08-24
 
