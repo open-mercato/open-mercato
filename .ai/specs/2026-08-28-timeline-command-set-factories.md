@@ -71,7 +71,7 @@ Extract one factory per family returning the `{ create, update, delete }` handle
 - `resolveParent(em, contextRef, scope)` — the largest variation. It must return **scope plus any relation entities the child persists**, not just a parent: `sales` notes store denormalized `order` / `quote` FKs alongside `contextType`/`contextId`, so `requireContext` returns `{ organizationId, tenantId, order, quote }`.
 - `resolveParentResourceKind(snapshot)` — must be a **function, not a constant**. `staff` and `resources` use fixed kinds (`'staff.teamMember'`, `'resources.resource'`); `customers` addresses derives it via `resolveParentResourceKind(entityKind)`; `sales` notes computes `sales.${contextType}` per row.
 - `resolveAuthorUserId(...)` — an injected hook, because **three different implementations exist today** (see the parity table below). Addresses have no author concept, so the hook is optional.
-- `mapSnapshot(entity)` / `seedFromSnapshot(snapshot)`
+- `mapSnapshot(entity)` / `seedFromSnapshot(snapshot)` — and note the **persisted snapshot envelope is not uniform**: comments, addresses and notes store a flat record, while activities nest theirs under `activity` with an optional `custom` sibling for custom-field values. Both shapes already exist in `action_logs`, so the factory must reproduce each family's own envelope rather than normalizing to one. (Discovered by the Phase 0 parity tests; see below.)
 - optional post-steps (`enforcePrimaryAddress` for addresses) and an optional `beforeRestore` hook for undo/redo, which `sales` notes needs to re-resolve the polymorphic context and conditionally reattach `order`/`quote`.
 
 Each module's command file then collapses to a config object plus three `registerCommand(...)` calls.
@@ -115,9 +115,10 @@ The three divergences above are folded into the shared path as each family migra
 
 ## Implementation Plan
 
-**Phase 0 — parity evidence**
+**Phase 0 — parity evidence** *(implemented; see `packages/core/src/modules/__tests__/timeline-command-set-parity.test.ts`)*
 1. Build the behavior-parity matrix across all 8 files: command IDs, audit labels, snapshot field names, `identifiers` shape, event IDs, indexer config, scope checks, undo/redo payload shape, author resolution.
-2. Add characterization tests pinning current behavior per module (unit-level on the handler trio), so any Phase 1-4 divergence fails loudly.
+2. Add characterization tests pinning current behavior per module, so any Phase 1-4 divergence fails loudly. Delivered as one data-driven cross-module suite (41 assertions) following the existing `command-redo-coverage.test.ts` precedent: it pins the exact 24 command IDs, the `redo`-on-create-only / `undo`-on-all-three / `buildLog`-everywhere handler shape, each family's delete audit label and `resourceKind`, and the `payload.undo.before` + `snapshotBefore` persisted shape.
+   - **Finding:** writing these tests surfaced a divergence the inventory above had missed — the activities families nest their snapshot under `activity` (with an optional `custom` sibling for custom fields) while every other family is flat. Four assertions failed until the fixture modelled both envelopes. This is precisely the class of silent breakage Phase 0 exists to catch, and it constrains `mapSnapshot`/`seedFromSnapshot` as noted above.
 3. Add targeted integration coverage for the side effects SPEC-051 called out — deal-linking (`customers`), parent-resource resolution (`staff`/`resources`), dictionary sync — following the existing `TC-*` conventions.
 
 **Phases 1-4 — per family**
