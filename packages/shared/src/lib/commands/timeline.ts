@@ -1,3 +1,4 @@
+import type { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -5,10 +6,13 @@ import {
   buildChanges,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
+  parseWithCustomFields,
   requireId,
+  setCustomFieldsIfAny,
 } from '@open-mercato/shared/lib/commands/helpers'
-import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
-import { notFound } from '@open-mercato/shared/lib/crud/errors'
+import { diffCustomFieldChanges } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo, resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -409,6 +413,313 @@ export function makeCommentCommandSet<TEntity extends TimelineEntity, TSnapshot 
       const before = extractUndoPayload<{ before?: TSnapshot | null }>(logEntry)?.before
       if (!before) return
       await restore(ctx, before, 'created')
+    },
+  }
+
+  return { create, update, delete: del }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// makeActivityCommandSet
+//
+// A separate contract from `makeCommentCommandSet`, not a superset: activities persist a
+// nested `{ activity, custom? }` snapshot and carry custom fields through every write and
+// restore path. The two configs are not interchangeable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The nested envelope activities already persist in `action_logs`. */
+export type ActivitySnapshotEnvelope<TRow> = { activity: TRow; custom?: Record<string, unknown> }
+
+export type TimelineActivitySetConfig<TEntity extends TimelineEntity, TRow extends Scope & { id: string }, TCreate, TUpdate> = {
+  // ── data: frozen contracts
+  commandIds: { create: string; update: string; delete: string }
+  resourceKind: string
+  /** Constant per module; activities never derive it per row. */
+  parentResourceKind: string
+  auditLabels: { create: readonly [string, string]; update: readonly [string, string]; delete: readonly [string, string] }
+  changeKeys: readonly string[]
+  messages: { notFound: string; idRequired: string; redoUnavailable: string }
+  entityClass: new () => TEntity
+  indexer: CrudIndexerConfig<TEntity>
+  events: CrudEventsConfig
+  /**
+   * Zod schemas, not the structural `{ parse }` the other two factories take:
+   * `parseWithCustomFields` splits `cf_*` keys off the payload before parsing.
+   */
+  schemas: { create: z.ZodType<TCreate>; update: z.ZodType<TUpdate> }
+  /** Entity id used for custom-field snapshot/restore. */
+  customFieldEntityId: string
+
+  // ── policies
+  loadSnapshot: (em: EntityManager, id: string, ctx: CommandRuntimeContext) => Promise<ActivitySnapshotEnvelope<TRow> | null>
+  findRowForWrite: (em: EntityManager, id: string, ctx: CommandRuntimeContext) => Promise<TEntity | null>
+  findRowForRestore: (args: { em: EntityManager; id: string; row: TRow }) => Promise<TEntity | null>
+  resolveParentForCreate: (args: { em: EntityManager; parsed: TCreate; ctx: CommandRuntimeContext }) => Promise<{ relations: Record<string, unknown>; scope: Scope }>
+  resolveParentForRestore: (args: { em: EntityManager; row: TRow }) => Promise<Record<string, unknown>>
+  resolveAuthorForCreate?: (args: { em: EntityManager; parsed: TCreate; ctx: CommandRuntimeContext; parentScope: Scope }) => Promise<string | null> | string | null
+  buildCreateData: (args: { parsed: TCreate; relations: Record<string, unknown>; authorUserId: string | null }) => Record<string, unknown>
+  /** The module's own update field mapping, including any parent re-resolution. */
+  applyUpdateFields: (args: { em: EntityManager; ctx: CommandRuntimeContext; entity: TEntity; parsed: TUpdate }) => Promise<void> | void
+  seedFromSnapshot: (row: TRow) => Record<string, unknown>
+  assignFromSnapshot: (entity: TEntity, row: TRow) => void
+  /** Parent id for log metadata, read out of the module's own row shape. */
+  parentIdOf: (row: TRow) => string | null
+  ensureRowInScope: (ctx: CommandRuntimeContext, entity: TEntity) => void
+  buildResult: {
+    create: (entity: TEntity) => unknown
+    update: (entity: TEntity) => unknown
+    delete: (entity: TEntity) => unknown
+  }
+  /** Row id a create-undo removes: the log entry's resource id, or the snapshot's own. */
+  createUndoTargetId: (args: { logEntryResourceId: string | null; after?: ActivitySnapshotEnvelope<TRow> | null }) => string | null
+  /**
+   * Custom-field values to write when replaying a snapshot. `kind` is supplied because
+   * undo and redo need different values and modules rebuild them differently.
+   * Returning `{}` writes nothing.
+   */
+  customFieldRestoreValues: (args: {
+    kind: 'update-undo' | 'delete-undo' | 'create-redo'
+    before?: ActivitySnapshotEnvelope<TRow> | null
+    after?: ActivitySnapshotEnvelope<TRow> | null
+  }) => Record<string, unknown>
+}
+
+/**
+ * Builds the `{ create, update, delete }` undoable trio for an activity timeline
+ * sub-resource.
+ *
+ * Beyond the comment algorithm this owns the custom-field lifecycle: `parseWithCustomFields`
+ * splits them off the request, `setCustomFieldsIfAny` re-applies them after every write and
+ * restore, and `diffCustomFieldChanges` contributes a `custom` entry to the audit `changes`
+ * only when values actually differ.
+ */
+export function makeActivityCommandSet<
+  TEntity extends TimelineEntity,
+  TRow extends Scope & { id: string },
+  TCreate,
+  TUpdate,
+>(cfg: TimelineActivitySetConfig<TEntity, TRow, TCreate, TUpdate>) {
+  type Envelope = ActivitySnapshotEnvelope<TRow>
+
+  /** Both activity modules return `{ activityId }`; the key is part of their route contract. */
+  const resourceIdOf = (result: unknown) => (result as { activityId: string }).activityId
+  const entityIds = (entity: TEntity) => idsOf(entity as unknown as Scope & { id: string })
+
+  async function applyCustomFields(ctx: CommandRuntimeContext, entity: TEntity, values: Record<string, unknown>) {
+    if (!values || !Object.keys(values).length) return
+    const ids = entityIds(entity)
+    await setCustomFieldsIfAny({
+      dataEngine: engine(ctx),
+      entityId: cfg.customFieldEntityId,
+      recordId: ids.id,
+      organizationId: ids.organizationId,
+      tenantId: ids.tenantId,
+      values,
+      notify: false,
+    })
+  }
+
+  async function emit(ctx: CommandRuntimeContext, action: 'created' | 'updated' | 'deleted', entity: TEntity) {
+    await emitCrudSideEffects({
+      dataEngine: engine(ctx),
+      action,
+      entity,
+      identifiers: entityIds(entity),
+      indexer: cfg.indexer,
+      events: cfg.events,
+    })
+  }
+
+  const logEnvelope = (
+    label: readonly [string, string],
+    translate: (key: string, fallback: string) => string,
+    row: TRow,
+    resourceId: string,
+  ) =>
+    timelineLogEnvelope({
+      label,
+      translate,
+      resourceKind: cfg.resourceKind,
+      resourceId,
+      parentResourceKind: cfg.parentResourceKind,
+      parentResourceId: cfg.parentIdOf(row),
+      scope: row,
+    })
+
+  async function restore(args: {
+    ctx: CommandRuntimeContext
+    snapshot: Envelope
+    action: 'updated' | 'created'
+    emitWith: 'undo' | 'crud'
+    kind: 'update-undo' | 'delete-undo' | 'create-redo'
+    before?: Envelope | null
+    after?: Envelope | null
+  }) {
+    const { ctx, snapshot, action, emitWith } = args
+    const em = forkEm(ctx)
+    const relations = await cfg.resolveParentForRestore({ em, row: snapshot.activity })
+    const entity = await restoreTimelineEntityFromSnapshot<TEntity, TRow>({
+      em,
+      dataEngine: engine(ctx),
+      entityClass: cfg.entityClass,
+      snapshot: snapshot.activity,
+      identifiers: {
+        id: snapshot.activity.id,
+        organizationId: snapshot.activity.organizationId,
+        tenantId: snapshot.activity.tenantId,
+      },
+      relations,
+      action,
+      emitWith,
+      indexer: cfg.indexer,
+      events: cfg.events,
+      findRow: ({ em: restoreEm, id, snapshot: row }) => cfg.findRowForRestore({ em: restoreEm, id, row }),
+      seedFromSnapshot: cfg.seedFromSnapshot,
+      assignFromSnapshot: cfg.assignFromSnapshot,
+      afterRestore: (restored) =>
+        applyCustomFields(ctx, restored, cfg.customFieldRestoreValues({ kind: args.kind, before: args.before, after: args.after })),
+    })
+    return entity
+  }
+
+  const create: CommandHandler<TCreate, unknown> = {
+    id: cfg.commandIds.create,
+    async execute(rawInput, ctx) {
+      const { parsed, custom } = parseWithCustomFields(cfg.schemas.create, rawInput)
+      const em = forkEm(ctx)
+      const { relations, scope } = await cfg.resolveParentForCreate({ em, parsed, ctx })
+      const authorUserId = cfg.resolveAuthorForCreate
+        ? await cfg.resolveAuthorForCreate({ em, parsed, ctx, parentScope: scope })
+        : null
+      const entity = em.create(cfg.entityClass, {
+        ...cfg.buildCreateData({ parsed, relations, authorUserId }),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as never) as TEntity
+      em.persist(entity)
+      await em.flush()
+      await applyCustomFields(ctx, entity, custom)
+      await emit(ctx, 'created', entity)
+      return cfg.buildResult.create(entity)
+    },
+    captureAfter: async (_input, result, ctx) =>
+      cfg.loadSnapshot(forkEm(ctx), resourceIdOf(result), ctx),
+    buildLog: async ({ result, snapshots }) => {
+      const { translate } = await resolveTranslations()
+      const after = snapshots.after as Envelope | undefined
+      const resourceId = resourceIdOf(result)
+      if (!after) return null
+      return {
+        ...logEnvelope(cfg.auditLabels.create, translate, after.activity, resourceId),
+        snapshotAfter: after,
+        payload: { undo: { after } },
+      }
+    },
+    undo: async ({ logEntry, ctx }) => {
+      const after = extractUndoPayload<{ after?: Envelope | null }>(logEntry)?.after
+      const id = cfg.createUndoTargetId({ logEntryResourceId: logEntry?.resourceId ?? null, after })
+      if (!id) return
+      const em = forkEm(ctx)
+      const existing = after
+        ? await cfg.findRowForRestore({ em, id, row: after.activity })
+        : await em.findOne(cfg.entityClass, { id } as never)
+      if (existing) {
+        em.remove(existing)
+        await em.flush()
+      }
+    },
+    // Not `makeCreateRedo`: custom-field values must be re-applied after the row is
+    // restored, and the redo is announced as an ordinary creation, not as an undo.
+    redo: async ({ logEntry, ctx }) => {
+      const after = resolveRedoSnapshot<Envelope>(logEntry)
+      if (!after) throw new CrudHttpError(400, { error: cfg.messages.redoUnavailable })
+      const entity = await restore({ ctx, snapshot: after, action: 'created', emitWith: 'crud', kind: 'create-redo', after })
+      return cfg.buildResult.create(entity)
+    },
+  }
+
+  const update: CommandHandler<TUpdate, unknown> = {
+    id: cfg.commandIds.update,
+    async prepare(rawInput, ctx) {
+      const { parsed } = parseWithCustomFields(cfg.schemas.update, rawInput)
+      const snapshot = await cfg.loadSnapshot(rawEm(ctx), (parsed as { id: string }).id, ctx)
+      return snapshot ? { before: snapshot } : {}
+    },
+    async execute(rawInput, ctx) {
+      const { parsed, custom } = parseWithCustomFields(cfg.schemas.update, rawInput)
+      const em = forkEm(ctx)
+      const entity = await cfg.findRowForWrite(em, (parsed as { id: string }).id, ctx)
+      if (!entity) throw notFound(cfg.messages.notFound)
+      cfg.ensureRowInScope(ctx, entity)
+      await cfg.applyUpdateFields({ em, ctx, entity, parsed })
+      await em.flush()
+      await applyCustomFields(ctx, entity, custom)
+      await emit(ctx, 'updated', entity)
+      return cfg.buildResult.update(entity)
+    },
+    captureAfter: async (_input, result, ctx) =>
+      cfg.loadSnapshot(forkEm(ctx), resourceIdOf(result), ctx),
+    buildLog: async ({ snapshots }) => {
+      const before = snapshots.before as Envelope | undefined
+      if (!before) return null
+      const { translate } = await resolveTranslations()
+      const after = snapshots.after as Envelope | undefined
+      const changes: Record<string, unknown> = after
+        ? buildChanges(
+            before.activity as unknown as Record<string, unknown>,
+            after.activity as unknown as Record<string, unknown>,
+            cfg.changeKeys as string[],
+          )
+        : {}
+      const customChanges = diffCustomFieldChanges(before.custom, after?.custom)
+      if (Object.keys(customChanges).length) changes.custom = customChanges
+      return {
+        ...logEnvelope(cfg.auditLabels.update, translate, before.activity, before.activity.id),
+        snapshotBefore: before,
+        snapshotAfter: after ?? null,
+        changes,
+        payload: { undo: { before, after: after ?? null } },
+      }
+    },
+    undo: async ({ logEntry, ctx }) => {
+      const payload = extractUndoPayload<{ before?: Envelope | null; after?: Envelope | null }>(logEntry)
+      const before = payload?.before
+      if (!before) return
+      await restore({ ctx, snapshot: before, action: 'updated', emitWith: 'undo', kind: 'update-undo', before, after: payload?.after })
+    },
+  }
+
+  const del: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, unknown> = {
+    id: cfg.commandIds.delete,
+    async prepare(input, ctx) {
+      const id = requireId(input, cfg.messages.idRequired)
+      const snapshot = await cfg.loadSnapshot(rawEm(ctx), id, ctx)
+      return snapshot ? { before: snapshot } : {}
+    },
+    async execute(input, ctx) {
+      const id = requireId(input, cfg.messages.idRequired)
+      const em = forkEm(ctx)
+      const entity = await cfg.findRowForWrite(em, id, ctx)
+      if (!entity) throw notFound(cfg.messages.notFound)
+      cfg.ensureRowInScope(ctx, entity)
+      em.remove(entity)
+      await em.flush()
+      await emit(ctx, 'deleted', entity)
+      return cfg.buildResult.delete(entity)
+    },
+    buildLog: async ({ snapshots }) => {
+      const before = snapshots.before as Envelope | undefined
+      if (!before) return null
+      const { translate } = await resolveTranslations()
+      return {
+        ...logEnvelope(cfg.auditLabels.delete, translate, before.activity, before.activity.id),
+        snapshotBefore: before,
+        payload: { undo: { before } },
+      }
+    },
+    undo: async ({ logEntry, ctx }) => {
+      const before = extractUndoPayload<{ before?: Envelope | null }>(logEntry)?.before
+      if (!before) return
+      await restore({ ctx, snapshot: before, action: 'created', emitWith: 'undo', kind: 'delete-undo', before })
     },
   }
 
