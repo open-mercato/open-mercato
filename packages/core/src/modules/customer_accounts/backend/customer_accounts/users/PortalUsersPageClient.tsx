@@ -35,6 +35,8 @@ type UserRow = {
   updatedAt?: string | null
   personEntityId: string | null
   customerEntityId: string | null
+  organizationId: string | null
+  organizationName: string | null
 }
 
 type UsersResponse = {
@@ -437,6 +439,15 @@ export function PortalUsersPageClient({ portalOrigin, portalOrgSlug = null }: Po
       {
         accessorKey: 'email',
         header: t('customer_accounts.admin.columns.email', 'Email'),
+      },
+      {
+        accessorKey: 'organizationName',
+        header: t('customer_accounts.admin.columns.organization', 'Organization'),
+        cell: ({ row }) => {
+          const label = row.original.organizationName || row.original.organizationId
+          if (!label) return noValue
+          return <span className="text-sm">{label}</span>
+        },
       },
       {
         accessorKey: 'emailVerified',
