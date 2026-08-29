@@ -75,6 +75,7 @@ import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/inj
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
+import { useSalesDocumentPermissions } from './useSalesDocumentPermissions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -1939,16 +1940,18 @@ export default function SalesDocumentDetailPage({
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
-  const [canEditNumber, setCanEditNumber] = React.useState(false)
-  const [canManageOrders, setCanManageOrders] = React.useState<boolean | null>(null)
-  const [canManageQuotes, setCanManageQuotes] = React.useState<boolean | null>(null)
   // Payments, shipments and returns are written through their OWN features, not the document's.
   // A user may hold sales.orders.manage and still be refused a payment, so each section is
   // resolved separately rather than inheriting `canManage`.
-  const [canManagePayments, setCanManagePayments] = React.useState<boolean | null>(null)
-  const [canManageShipments, setCanManageShipments] = React.useState<boolean | null>(null)
-  const [canCreateReturns, setCanCreateReturns] = React.useState<boolean | null>(null)
-  const [canManageReturns, setCanManageReturns] = React.useState<boolean | null>(null)
+  const {
+    canEditNumber,
+    canManageOrders,
+    canManageQuotes,
+    canManagePayments,
+    canManageShipments,
+    canCreateReturns,
+    canManageReturns,
+  } = useSalesDocumentPermissions()
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2042,72 +2045,10 @@ export default function SalesDocumentDetailPage({
     [t]
   )
 
-  React.useEffect(() => {
-    let active = true
-    async function loadNumberPermission() {
-      try {
-        const call = await apiCall<{ granted?: unknown[] }>(
-          '/api/auth/feature-check',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              features: [
-                'sales.documents.number.edit',
-                'sales.orders.manage',
-                'sales.quotes.manage',
-                'sales.payments.manage',
-                'sales.shipments.manage',
-                'sales.returns.create',
-                'sales.returns.manage',
-              ],
-            }),
-          }
-        )
-        if (!active) return
-        if (!call.ok) {
-          // apiCall resolves non-2xx rather than throwing, so an expired session or a 500 would
-          // otherwise read as an empty `granted` list — i.e. as a decided denial.
-          setCanEditNumber(false)
-          setCanManageOrders(null)
-          setCanManageQuotes(null)
-          setCanManagePayments(null)
-          setCanManageShipments(null)
-          setCanCreateReturns(null)
-          setCanManageReturns(null)
-          return
-        }
-        const granted = Array.isArray(call.result?.granted)
-          ? call.result?.granted.map((item) => String(item))
-          : []
-        const hasFeature = (wanted: string) => granted.includes(wanted)
-        setCanEditNumber(hasFeature('sales.documents.number.edit'))
-        setCanManageOrders(hasFeature('sales.orders.manage'))
-        setCanManageQuotes(hasFeature('sales.quotes.manage'))
-        setCanManagePayments(hasFeature('sales.payments.manage'))
-        setCanManageShipments(hasFeature('sales.shipments.manage'))
-        setCanCreateReturns(hasFeature('sales.returns.create'))
-        setCanManageReturns(hasFeature('sales.returns.manage'))
-      } catch {
-        if (active) {
-          setCanEditNumber(false)
-          setCanManageOrders(null)
-          setCanManageQuotes(null)
-          setCanManagePayments(null)
-          setCanManageShipments(null)
-          setCanCreateReturns(null)
-          setCanManageReturns(null)
-        }
-      }
-    }
-    loadNumberPermission().catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [scopeVersion])
   // The two derived flags are deliberately not each other's negation: an affordance needs a
   // *granted* answer to appear, while only a *denied* one may be stated as a reason. While the check
-  // is unresolved the page is locked and says nothing.
+  // is unresolved the page is locked and says nothing — and the hook treats an answer from a
+  // previous organization scope as unresolved, so a scope switch fails closed for the round trip.
   const canManage = kind === 'order' ? canManageOrders : canManageQuotes
   const managePermitted = canManage === true
   const manageDenied = canManage === false
