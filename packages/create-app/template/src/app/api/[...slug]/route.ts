@@ -211,12 +211,20 @@ export async function checkAuthorization(
     }
     const featureContainer = await ensureContainer()
     const rbac = featureContainer.resolve<RbacService>('rbacService')
-    const featureContext = await resolveFeatureCheckContext({ container: featureContainer, auth, request: req })
-    const { organizationId } = featureContext
-    const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
-      tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
-      organizationId,
+    const featureContext = await resolveFeatureCheckContext({
+      container: featureContainer,
+      auth,
+      request: req,
+      requiredFeatures,
     })
+    const { organizationId } = featureContext
+    const ok = Array.isArray(featureContext.allowedOrganizationIds)
+      && featureContext.allowedOrganizationIds.length === 0
+      ? false
+      : await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+          tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
+          organizationId,
+        })
     if (!ok) {
       try {
         const acl = await rbac.loadAcl(auth.sub, { tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null, organizationId })

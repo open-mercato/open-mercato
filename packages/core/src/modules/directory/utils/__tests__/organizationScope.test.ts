@@ -5,7 +5,11 @@ import type { AwilixContainer } from 'awilix'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
-import { resolveOrganizationScope, resolveOrganizationScopeForRequest } from '../organizationScope'
+import {
+  resolveFeatureCheckContext,
+  resolveOrganizationScope,
+  resolveOrganizationScopeForRequest,
+} from '../organizationScope'
 
 /**
  * Creates a mock EntityManager whose `find` returns Organization-like rows
@@ -14,9 +18,9 @@ import { resolveOrganizationScope, resolveOrganizationScopeForRequest } from '..
 function createMockEm(rows: Array<{ id: string; descendantIds: string[] }>) {
   return {
     find: jest.fn((_entity: unknown, filter: { id?: { $in: string[] }; tenant?: string }) => {
-      const requestedIds = filter?.id?.$in ?? []
+      const requestedIds = filter?.id?.$in
       return Promise.resolve(
-        rows.filter((row) => requestedIds.includes(row.id)),
+        requestedIds ? rows.filter((row) => requestedIds.includes(row.id)) : rows,
       )
     }),
   } as unknown as EntityManager
@@ -457,5 +461,154 @@ describe('resolveOrganizationScopeForRequest', () => {
       allowedIds: null,
       tenantId: 'target-tenant',
     })
+  })
+})
+
+describe('resolveFeatureCheckContext', () => {
+  it('binds a feature-authorized organization subset to an all-organizations request', async () => {
+    const em = createMockEm(ALL_ORGS)
+    const rbac = {
+      loadAcl: jest.fn(async () => ({
+        isSuperAdmin: false,
+        features: ['eudr.statements.view', 'eudr.risk.view'],
+        organizations: null,
+      })),
+      resolveFeatureOrganizationAccess: jest.fn(async () => ({
+        unrestricted: false,
+        filterOrganizationIds: () => ['org-a'],
+      })),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') return rbac
+        throw new Error(`Unexpected dependency: ${name}`)
+      },
+    } as unknown as AwilixContainer
+    const auth = createAuth({ sub: 'user-1' })
+    const request = {
+      headers: {
+        get: (name: string) => name === 'cookie'
+          ? `om_selected_org=${ALL_ORGANIZATIONS_COOKIE_VALUE}`
+          : null,
+      },
+    }
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['eudr.risk.view'],
+    })
+
+    expect(rbac.resolveFeatureOrganizationAccess).toHaveBeenCalledWith(
+      'user-1',
+      ['eudr.risk.view'],
+      { tenantId: 'tenant-1' },
+    )
+    expect((em.find as jest.Mock).mock.calls[1]?.[1]).toMatchObject({ tenant: 'tenant-1', deletedAt: null })
+    expect(featureContext.organizationId).toBe('org-a')
+    expect(featureContext.allowedOrganizationIds).toEqual(['org-a'])
+    expect(featureContext.scope).toEqual({
+      selectedId: null,
+      filterIds: ['org-a'],
+      allowedIds: ['org-a'],
+      tenantId: 'tenant-1',
+    })
+
+    const handlerScope = await resolveOrganizationScopeForRequest({ container, auth, request })
+    expect(handlerScope).toEqual(featureContext.scope)
+
+    const otherRequestScope = await resolveOrganizationScopeForRequest({
+      container,
+      auth,
+      request: {
+        headers: request.headers,
+      },
+    })
+    expect(otherRequestScope.filterIds).toBeNull()
+    expect(otherRequestScope.allowedIds).toBeNull()
+  })
+
+  it('does not enumerate organizations when feature access is unrestricted', async () => {
+    const em = createMockEm(ALL_ORGS)
+    const rbac = {
+      loadAcl: jest.fn(async () => ({
+        isSuperAdmin: false,
+        features: ['eudr.risk.view'],
+        organizations: null,
+      })),
+      resolveFeatureOrganizationAccess: jest.fn(async () => ({
+        unrestricted: true,
+        filterOrganizationIds: () => [],
+      })),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') return rbac
+        throw new Error(`Unexpected dependency: ${name}`)
+      },
+    } as unknown as AwilixContainer
+    const auth = createAuth({ sub: 'user-global' })
+    const request = {
+      headers: {
+        get: (name: string) => name === 'cookie'
+          ? `om_selected_org=${ALL_ORGANIZATIONS_COOKIE_VALUE}`
+          : null,
+      },
+    }
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['eudr.risk.view'],
+    })
+
+    expect(featureContext.scope.filterIds).toBeNull()
+    expect(featureContext.scope.allowedIds).toBeNull()
+    expect(em.find).toHaveBeenCalledTimes(1)
+  })
+
+  it('still narrows an authenticated super-admin flag when RBAC proves only restricted access', async () => {
+    const em = createMockEm(ALL_ORGS)
+    const rbac = {
+      loadAcl: jest.fn(async () => ({
+        isSuperAdmin: true,
+        features: ['*'],
+        organizations: null,
+      })),
+      resolveFeatureOrganizationAccess: jest.fn(async () => ({
+        unrestricted: false,
+        filterOrganizationIds: () => ['org-a'],
+      })),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') return rbac
+        throw new Error(`Unexpected dependency: ${name}`)
+      },
+    } as unknown as AwilixContainer
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth: createAuth({ sub: 'super-user', isSuperAdmin: true }),
+      request: {
+        headers: {
+          get: () => `om_selected_org=${ALL_ORGANIZATIONS_COOKIE_VALUE}`,
+        },
+      },
+      requiredFeatures: ['eudr.risk.view'],
+    })
+
+    expect(featureContext.scope.filterIds).toEqual(['org-a'])
+    expect(featureContext.scope.allowedIds).toEqual(['org-a'])
+    expect(rbac.resolveFeatureOrganizationAccess).toHaveBeenCalledWith(
+      'super-user',
+      ['eudr.risk.view'],
+      { tenantId: 'tenant-1' },
+    )
   })
 })
