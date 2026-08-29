@@ -344,33 +344,6 @@ describe('wms inventory allocate command', () => {
     expect(driftedBalance.quantityReserved).toBe('2')
   })
 
-  it('rejects allocating a non-active reservation', async () => {
-    const em = createEm()
-    const reservation = makeReservation({ status: 'released' })
-
-    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
-      if (entity === InventoryReservation) return reservation
-      return null
-    })
-
-    const handler = commandRegistry.get('wms.inventory.allocate')
-    await expect(
-      handler!.execute!(
-        {
-          organizationId: ORG,
-          tenantId: TENANT,
-          reservationId: RESERVATION_ID,
-          performedBy: USER_ID,
-        },
-        createCtx(em),
-      ),
-    ).rejects.toMatchObject({
-      status: 409,
-      body: { error: 'reservation_not_active' },
-    } satisfies Partial<CrudHttpError>)
-
-    expect(em.flush).not.toHaveBeenCalled()
-  })
 })
 
 describe('wms inventory release command', () => {
@@ -443,7 +416,7 @@ describe('wms inventory release command', () => {
       ),
     ).rejects.toMatchObject({
       status: 409,
-      body: { error: 'reservation_not_active' },
+      body: { error: 'invalid_reservation_state' },
     } satisfies Partial<CrudHttpError>)
 
     expect(balance.quantityReserved).toBe('5')

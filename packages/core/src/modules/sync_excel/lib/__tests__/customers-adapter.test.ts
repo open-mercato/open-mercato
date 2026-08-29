@@ -788,4 +788,48 @@ describe('sync_excel customers adapter', () => {
     expect(mockCommandBus.execute).not.toHaveBeenCalledWith('customers.addresses.create', expect.anything())
     expect(mockCommandBus.execute).not.toHaveBeenCalledWith('customers.addresses.update', expect.anything())
   })
+
+  it('stops the row walk mid-page when the signal aborts, without yielding the partial page', async () => {
+    setUploadCsv([
+      'Record Id,First Name,Last Name,Lead Name,Email,Address Line 1,City,Postal Code,Favorite Color',
+      'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com,123 Main St,Austin,78701,Blue',
+      'ext-2,Alan,Turing,Alan Turing,alan@example.com,55 Bletchley Rd,Milton,MK3,Green',
+      'ext-3,Grace,Hopper,Grace Hopper,grace@example.com,9 Navy Way,Arlington,22204,Red',
+    ])
+    const controller = new AbortController()
+    // Cancel lands while the first row is going through the command bus.
+    mockCommandBus.execute.mockImplementation(async () => {
+      controller.abort()
+      return {
+        result: {
+          entityId: '33333333-3333-4333-8333-333333333333',
+          personId: '44444444-4444-4444-8444-444444444444',
+        },
+      }
+    })
+
+    const batches = []
+    for await (const batch of syncExcelCustomersAdapter.streamImport!({
+      entityType: 'customers.person',
+      batchSize: 50,
+      credentials: {},
+      mapping: mappingRecord.mapping as any,
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      runId: 'run-1',
+      signal: controller.signal,
+    })) {
+      batches.push(batch)
+    }
+
+    // The return sits above the yield, so the abandoned page is never emitted and the engine never
+    // commits a cursor past rows it did not apply.
+    expect(batches).toEqual([])
+    // Row 1 was applied before the abort; rows 2 and 3 were never started. Counted per person
+    // rather than per command, because one row can issue several commands (person, then address).
+    const personCreates = mockCommandBus.execute.mock.calls.filter(([command]) => command === 'customers.people.create')
+    expect(personCreates).toHaveLength(1)
+  })
 })

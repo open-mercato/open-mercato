@@ -223,10 +223,10 @@ export function ReleaseReservationDialog({
                 )
                 return { handled: true as const }
               }
-              if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'reservation_not_active') {
+              if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'invalid_reservation_state') {
                 flash(
                   t(
-                    'wms.backend.inventory.release.errors.reservationNotActive',
+                    'wms.backend.inventory.release.errors.invalidReservationState',
                     'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
                   ),
                   'error',

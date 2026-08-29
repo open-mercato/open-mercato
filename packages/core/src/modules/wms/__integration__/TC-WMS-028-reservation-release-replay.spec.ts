@@ -135,9 +135,24 @@ test.describe('TC-WMS-028: Reservation release replay', () => {
         data: releasePayload,
       })
       expect(replay.status()).toBe(409)
-      await expect(readJsonSafe(replay)).resolves.toMatchObject({ error: 'reservation_not_active' })
+      await expect(readJsonSafe(replay)).resolves.toMatchObject({ error: 'invalid_reservation_state' })
 
       const reserveAgain = await apiRequest(request, 'POST', '/api/wms/inventory/reserve', {
+        token: adminToken,
+        data: {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          warehouseId,
+          catalogVariantId: variantId,
+          quantity: 10,
+          sourceType: 'manual',
+          sourceId: randomUUID(),
+        },
+      })
+      expect(reserveAgain.status()).toBe(409)
+      await expect(readJsonSafe(reserveAgain)).resolves.toMatchObject({ error: 'insufficient_stock' })
+
+      const reserveFreedQuantity = await apiRequest(request, 'POST', '/api/wms/inventory/reserve', {
         token: adminToken,
         data: {
           organizationId: scope.organizationId,
@@ -149,8 +164,7 @@ test.describe('TC-WMS-028: Reservation release replay', () => {
           sourceId: randomUUID(),
         },
       })
-      expect(reserveAgain.status()).toBe(409)
-      await expect(readJsonSafe(reserveAgain)).resolves.toMatchObject({ error: 'insufficient_stock' })
+      expect(reserveFreedQuantity.status()).toBe(200)
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', locationId)

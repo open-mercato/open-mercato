@@ -228,7 +228,7 @@ describe('releaseInventoryForCancelledOrder', () => {
       { id: 'reservation-still-active' } as InventoryReservation,
     ])
     execute
-      .mockRejectedValueOnce(new CrudHttpError(409, { error: 'reservation_not_active' }))
+      .mockRejectedValueOnce(new CrudHttpError(409, { error: 'invalid_reservation_state' }))
       .mockResolvedValueOnce({ result: {} })
 
     const em = { fork: () => ({}) }

@@ -40,12 +40,12 @@ export function parseRequestedIds(raw: string): string[] {
 }
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const url = new URL(req.url)
     const parsedQuery = querySchema.parse(Object.fromEntries(url.searchParams))
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
-    const { translate } = await resolveTranslations()
     if (!auth || !auth.tenantId) {
       throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
     }
@@ -75,10 +75,10 @@ export async function GET(req: Request) {
       return NextResponse.json(error.body, { status: error.status })
     }
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+      return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
     logger.error('[warranty_claims] Failed to resolve assignee display names', { error })
-    return NextResponse.json({ error: 'warranty_claims.errors.load_failed' }, { status: 500 })
+    return NextResponse.json({ error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data.') }, { status: 500 })
   }
 }
 

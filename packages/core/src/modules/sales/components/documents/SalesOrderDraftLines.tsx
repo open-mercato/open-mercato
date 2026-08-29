@@ -7,7 +7,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
@@ -49,6 +49,17 @@ export function createSalesOrderLineDraft(
   const catalogSnapshot = payload.catalogSnapshot && typeof payload.catalogSnapshot === 'object'
     ? payload.catalogSnapshot as Record<string, unknown>
     : null
+  // `payload` is forwarded verbatim to the create API, where a supplied
+  // `discountAmount` is read per unit unless the caller says otherwise, while
+  // `record` below drives the grid, which shows the discount for the whole
+  // line. The multiplication is therefore the conversion between the two, not a
+  // second copy of the per-unit misreading the calculation engine used to hold
+  // — but it has to stop when the caller has explicitly said the amount is
+  // already a line total, or the grid would show the discount quantity times
+  // over while the persisted order shows it once.
+  const draftDiscountAmount = payload.discountAmountBasis === 'line'
+    ? normalizeNumber(payload.discountAmount, 0)
+    : normalizeNumber(payload.discountAmount, 0) * quantity
 
   return {
     id,
@@ -65,7 +76,7 @@ export function createSalesOrderLineDraft(
       currencyCode: typeof payload.currencyCode === 'string' ? payload.currencyCode : null,
       unitPriceNet,
       unitPriceGross,
-      discountAmount: normalizeNumber(payload.discountAmount, 0) * quantity,
+      discountAmount: draftDiscountAmount,
       discountPercent: normalizeNumber(payload.discountPercent, 0),
       taxRate,
       totalNet,
@@ -93,6 +104,7 @@ export function SalesOrderDraftLines({
   onChange,
 }: SalesOrderDraftLinesProps) {
   const t = useT()
+  const locale = useLocale()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<SalesOrderLineDraft | null>(null)
 
@@ -112,14 +124,14 @@ export function SalesOrderDraftLines({
     {
       id: 'unitPrice',
       header: t('sales.documents.items.table.unit', 'Unit price'),
-      cell: ({ row }) => formatMoney(row.original.record.unitPriceGross, row.original.record.currencyCode ?? currencyCode ?? undefined),
+      cell: ({ row }) => formatMoney(row.original.record.unitPriceGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale),
     },
     {
       id: 'total',
       header: t('sales.documents.items.table.total', 'Total'),
-      cell: ({ row }) => formatMoney(row.original.record.totalGross, row.original.record.currencyCode ?? currencyCode ?? undefined),
+      cell: ({ row }) => formatMoney(row.original.record.totalGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale),
     },
-  ], [currencyCode, t])
+  ], [currencyCode, locale, t])
 
   const openCreate = React.useCallback(() => {
     setEditing(null)
@@ -161,7 +173,7 @@ export function SalesOrderDraftLines({
           {t('sales.documents.items.add', 'Add item')}
         </Button>
       </div>
-      {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+      {error ? <p className="text-sm text-status-error-text" role="alert">{error}</p> : null}
       <DataTable
         columns={columns}
         data={lines}
