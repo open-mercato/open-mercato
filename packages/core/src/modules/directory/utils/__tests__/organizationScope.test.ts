@@ -571,6 +571,52 @@ describe('resolveFeatureCheckContext', () => {
     expect(em.find).toHaveBeenCalledTimes(1)
   })
 
+  it('binds an empty scope when the feature is authorized in no visible organization', async () => {
+    const em = createMockEm(ALL_ORGS)
+    const rbac = {
+      loadAcl: jest.fn(async () => ({
+        isSuperAdmin: false,
+        features: ['api_keys.view'],
+        organizations: [],
+      })),
+      resolveFeatureOrganizationAccess: jest.fn(async () => ({
+        unrestricted: false,
+        filterOrganizationIds: () => [],
+      })),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') return rbac
+        throw new Error(`Unexpected dependency: ${name}`)
+      },
+    } as unknown as AwilixContainer
+    const auth = createAuth({ sub: 'user-empty-scope', orgId: null })
+    const request = {
+      headers: {
+        get: () => null,
+      },
+    }
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['api_keys.view'],
+    })
+
+    expect(featureContext.organizationId).toBeNull()
+    expect(featureContext.allowedOrganizationIds).toEqual([])
+    expect(featureContext.scope).toEqual({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 'tenant-1',
+    })
+    await expect(resolveOrganizationScopeForRequest({ container, auth, request }))
+      .resolves.toEqual(featureContext.scope)
+  })
+
   it('still narrows an authenticated super-admin flag when RBAC proves only restricted access', async () => {
     const em = createMockEm(ALL_ORGS)
     const rbac = {

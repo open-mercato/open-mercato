@@ -218,13 +218,10 @@ export async function checkAuthorization(
       requiredFeatures,
     })
     const { organizationId } = featureContext
-    const ok = Array.isArray(featureContext.allowedOrganizationIds)
-      && featureContext.allowedOrganizationIds.length === 0
-      ? false
-      : await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
-          tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
-          organizationId,
-        })
+    const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+      tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
+      organizationId,
+    })
     if (!ok) {
       try {
         const acl = await rbac.loadAcl(auth.sub, { tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null, organizationId })
