@@ -253,7 +253,7 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 
 - `ProgressTopBar` and sync-run detail pages use `progress.job.*` SSE updates for live progress.
 - Create `ProgressJob` in `run`/`retry` endpoints; start/update/complete/fail in `sync-engine`.
-- The engine heartbeats (`touchJobHeartbeat`, forked-EM) on a timer while an adapter batch is being produced, because batches can outlast the 60s stale-job sweep — keep the `withHeartbeat` wrapper around `streamImport`/`streamExport` when touching the batch loops.
+- The engine heartbeats (`touchJobHeartbeat`, forked-EM) on a timer for the whole life of the batch stream — while an adapter batch is being produced AND while the per-batch consumer body commits progress, refreshes coverage snapshots and writes logs — because either side can outlast the 60s stale-job sweep. Keep the `withHeartbeat` wrapper around `streamImport`/`streamExport` when touching the batch loops, and keep its interval armed once per stream rather than restarted per read.
 - On redelivery the progress counter is seeded from the progress job's own `processedCount` (`progressService.getJob`), mirroring how `committedBatches` resumes — never reset it to zero (`updateProgress` writes absolute counts) and never seed it from the run's `created/updated/skipped/failed` columns: those count emitted items, while progress counts source records (`batch.processedCount`), and adapters may emit several items per source record.
 - Include `progressJob` details in run detail response.
 - SSE DOM bridge forwards only events with `clientBroadcast: true`.

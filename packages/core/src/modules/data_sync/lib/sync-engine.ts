@@ -100,9 +100,6 @@ function applyExportCounters(batch: ExportBatch): SyncCounterDelta {
 // the per-interval round-trips for the whole life of a run.
 const HEARTBEAT_TICK_MS = (STALE_JOB_TIMEOUT_SECONDS * 1000) / 4
 
-// Runs `tick` on an interval only while the source iterator is pending, so heartbeats
-// stop the moment the producer dies and genuinely stale jobs still get swept. The outer
-// finally closes the adapter generator on early exits (cancellation, ownership conflict).
 // Our own abort, as opposed to a failure that merely coincided with one. Adapters are told to
 // return rather than throw, but `signal.throwIfAborted()` and an aborted `fetch` both surface as
 // this, and either is a cancellation rather than a fault.
@@ -116,21 +113,25 @@ function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError'
 }
 
+// The interval is armed once and spans the whole iteration, the `yield` included, rather than being
+// restarted around each `next()`. Producing a batch is not the only thing that can outlast the stale
+// sweep: the consumer body between `yield` and the next `next()` commits batch progress, refreshes
+// coverage snapshots, logs item failures and writes the operational log, and a coverage refresh over
+// a large query index is slow enough that a per-read timer left that window unheartbeated (#5370).
+// The generator body does not start until the first `next()`, so a stream nobody consumes still arms
+// nothing, and every way out of the loop — drain, early close, a throwing read, a throwing consumer —
+// runs the `finally` below, so the timer is never left ticking past the stream.
 async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
   const iterator = source[Symbol.asyncIterator]()
+  const timer = setInterval(tick, intervalMs)
   try {
     while (true) {
-      const timer = setInterval(tick, intervalMs)
-      let result: IteratorResult<T>
-      try {
-        result = await iterator.next()
-      } finally {
-        clearInterval(timer)
-      }
+      const result = await iterator.next()
       if (result.done) return
       yield result.value
     }
   } finally {
+    clearInterval(timer)
     await iterator.return?.()
   }
 }
