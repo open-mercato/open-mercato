@@ -16,11 +16,13 @@ Introduces the `communication_channels` hub: a single platform-owned bridge betw
 ### Corrective inbound materialization contract (2026-08-15, #5137)
 
 Inbound channel content is already delivered before it reaches the hub. The hub therefore
-records it through `messages.messages.record_existing`, never through the authored
+records it through `messages.messages.record_ingested`, never through the authored
 `messages.messages.compose` command. The record input carries source identity, a stable
 idempotency key, scope, and `recordedByUserId`; it cannot carry `sendViaEmail`, `isDraft`, or
 another delivery target. Recording still preserves threading, recipients, objects,
-attachments, and query indexing, but it does not emit `messages.message.sent`.
+attachments, and query indexing, but it does not emit `messages.message.sent`; it emits
+`messages.message.ingested` to notify organization-scoped internal recipients without email
+delivery.
 
 Outbound user-authored channel messages continue to use compose with explicit
 `sendViaEmail: false`, followed by exactly one communication-channel delivery job. The

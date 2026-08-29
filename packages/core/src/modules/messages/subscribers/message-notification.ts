@@ -12,7 +12,7 @@ export const metadata = {
   id: 'messages:in-app-notification',
 }
 
-type MessageSentPayload = {
+export type MessageNotificationPayload = {
   messageId: string
   senderUserId: string
   recipientUserIds: string[]
@@ -24,7 +24,15 @@ type ResolverContext = {
   resolve: <T = unknown>(name: string) => T
 }
 
-async function resolveNotificationVariables(payload: MessageSentPayload, ctx: ResolverContext): Promise<{ title: string; from: string }> {
+type NotificationResolverOptions = {
+  preferExternalSender?: boolean
+}
+
+async function resolveNotificationVariables(
+  payload: MessageNotificationPayload,
+  ctx: ResolverContext,
+  options: NotificationResolverOptions,
+): Promise<{ title: string; from: string }> {
   try {
     const em = ctx.resolve<EntityManager>('em')?.fork()
     if (!em) return { title: '', from: '' }
@@ -65,11 +73,15 @@ async function resolveNotificationVariables(payload: MessageSentPayload, ctx: Re
 
     return {
       title: typeof message?.subject === 'string' ? message.subject : '',
-      from: typeof sender?.name === 'string' && sender.name.trim().length > 0
-        ? sender.name
-        : typeof sender?.email === 'string'
-          ? sender.email
-          : '',
+      from: options.preferExternalSender && typeof message?.externalName === 'string' && message.externalName.trim().length > 0
+        ? message.externalName
+        : options.preferExternalSender && typeof message?.externalEmail === 'string' && message.externalEmail.trim().length > 0
+          ? message.externalEmail
+          : typeof sender?.name === 'string' && sender.name.trim().length > 0
+            ? sender.name
+            : typeof sender?.email === 'string'
+              ? sender.email
+              : '',
     }
   } catch {
     return { title: '', from: '' }
@@ -77,12 +89,16 @@ async function resolveNotificationVariables(payload: MessageSentPayload, ctx: Re
 }
 
 
-export default async function handle(payload: MessageSentPayload, ctx: ResolverContext): Promise<void> {
+export async function handleMessageNotification(
+  payload: MessageNotificationPayload,
+  ctx: ResolverContext,
+  options: NotificationResolverOptions = {},
+): Promise<void> {
   const uniqueRecipientUserIds = Array.from(new Set(payload.recipientUserIds))
 
   const typeDef = notificationTypes.find((type) => type.type === 'messages.new')
   if (typeDef && uniqueRecipientUserIds.length > 0) {
-    const variables = await resolveNotificationVariables(payload, ctx)
+    const variables = await resolveNotificationVariables(payload, ctx, options)
     const notificationService = resolveNotificationService(ctx)
     const notificationInput = buildBatchNotificationFromType(typeDef, {
       recipientUserIds: uniqueRecipientUserIds,
@@ -98,3 +114,5 @@ export default async function handle(payload: MessageSentPayload, ctx: ResolverC
     })
   }
 }
+
+export default handleMessageNotification

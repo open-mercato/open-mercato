@@ -43,11 +43,14 @@ Compatibility bridges remain available through 0.7.x: the deprecated
 from `variant` and `visibility`, and remove references to the legacy locale key before 0.8.0.
 
 Code that records a message which already exists in an external channel must use the new
-strict `messages.messages.record_existing` command instead of
+`messages.messages.record_ingested` command instead of
 `messages.messages.compose`. The record command requires source identity, an idempotency
 key, scope, and a technical `recordedByUserId`; it rejects draft and delivery controls and
-does not emit `messages.message.sent`. The existing sent event ID remains unchanged for
-authored sends.
+does not emit `messages.message.sent`. It emits `messages.message.ingested` for in-app
+notifications to organization-scoped internal recipients. Use the lower-level
+`messages.messages.record_existing`
+command only for silent imports that must not notify recipients. The existing sent event ID
+remains unchanged for authored sends.
 
 Email queue workers now re-read persisted message state and fail closed unless the message
 is sent, non-draft, undeleted, and still has `sendViaEmail === true`; external targets must

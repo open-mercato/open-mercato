@@ -1,9 +1,11 @@
 /** @jest-environment node */
 
 const getRecipientUserIdsForFeatureMock = jest.fn(async () => ['admin-1'])
+const getScopedNotificationRecipientUserIdsMock = jest.fn(async () => ['admin-1'])
 
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationRecipients', () => ({
   getRecipientUserIdsForFeature: (...args: unknown[]) => getRecipientUserIdsForFeatureMock(...args),
+  getScopedNotificationRecipientUserIds: (...args: unknown[]) => getScopedNotificationRecipientUserIdsMock(...args),
 }))
 
 import { createMessageRecordForEmail, resolveMessageSenderUserId } from '../messagesIntegration'
@@ -82,6 +84,8 @@ describe('resolveMessageSenderUserId', () => {
 
     expect((em as any)._db.selectFrom).toHaveBeenCalledWith('users')
     expect((em as any)._db._chain.where).toHaveBeenCalledWith('email', '=', 'jane@example.com')
+    expect((em as any)._db._chain.where).toHaveBeenCalledWith('tenant_id', '=', 'tenant-1')
+    expect((em as any)._db._chain.where).toHaveBeenCalledWith('organization_id', '=', 'org-1')
   })
 })
 
@@ -89,6 +93,7 @@ describe('createMessageRecordForEmail', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     getRecipientUserIdsForFeatureMock.mockResolvedValue(['admin-1'])
+    getScopedNotificationRecipientUserIdsMock.mockResolvedValue(['admin-1'])
   })
 
   it('records inbound email without using the authored compose command or delivery fields', async () => {
@@ -122,7 +127,7 @@ describe('createMessageRecordForEmail', () => {
 
     expect(result).toBe('message-1')
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.record_existing',
+      'messages.messages.record_ingested',
       expect.objectContaining({
         input: expect.objectContaining({
           idempotencyKey: 'inbox_ops:11111111-1111-4111-8111-111111111111',
@@ -134,5 +139,51 @@ describe('createMessageRecordForEmail', () => {
     expect(commandInput).not.toHaveProperty('sendViaEmail')
     expect(commandInput).not.toHaveProperty('isDraft')
     expect(commandInput).not.toHaveProperty('userId')
+  })
+
+  it('records recipients only from the current organization', async () => {
+    getRecipientUserIdsForFeatureMock.mockResolvedValue(['admin-1', 'admin-2'])
+    getScopedNotificationRecipientUserIdsMock.mockResolvedValue(['admin-1'])
+    const em = createMockEm(null)
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'message-1' } })),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        throw new Error(`Unknown dependency: ${name}`)
+      },
+    }
+
+    await createMessageRecordForEmail({
+      id: '11111111-1111-4111-8111-111111111111',
+      subject: 'Inbound proposal',
+      forwardedByAddress: 'sender@example.com',
+      status: 'received',
+    }, {
+      container,
+      scope: {
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        organizationId: '33333333-3333-4333-8333-333333333333',
+        userId: '44444444-4444-4444-8444-444444444444',
+      },
+    })
+
+    expect(getScopedNotificationRecipientUserIdsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+      ['admin-1', 'admin-2'],
+    )
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.record_ingested',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          recipients: [{ userId: 'admin-1', type: 'to' }],
+          recordedByUserId: 'admin-1',
+        }),
+      }),
+    )
   })
 })

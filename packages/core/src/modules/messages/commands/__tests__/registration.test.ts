@@ -60,6 +60,10 @@ describe('messages command registration', () => {
       path: '../record-existing',
       expected: ['messages.messages.record_existing'],
     },
+    {
+      path: '../record-ingested',
+      expected: ['messages.messages.record_existing', 'messages.messages.record_ingested'],
+    },
   ]
 
   beforeEach(() => {

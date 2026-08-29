@@ -3,6 +3,12 @@ import { Message } from '@open-mercato/core/modules/messages/data/entities'
 type RegisteredCommand = {
   id: string
   execute: (input: unknown, ctx: unknown) => Promise<unknown>
+  buildLog?: (args: {
+    input: unknown
+    result: unknown
+    ctx: unknown
+    snapshots: Record<string, unknown>
+  }) => unknown
 }
 
 const registeredCommands = new Map<string, RegisteredCommand>()
@@ -83,12 +89,14 @@ function createHarness() {
 describe('messages.messages.record_existing', () => {
   beforeAll(() => {
     require('@open-mercato/core/modules/messages/commands/record-existing')
+    require('@open-mercato/core/modules/messages/commands/record-ingested')
   })
 
   beforeEach(() => {
     jest.clearAllMocks()
     findOneWithDecryptionMock.mockResolvedValue(null)
     findWithDecryptionMock.mockResolvedValue([])
+    emitMessagesEventMock.mockResolvedValue(undefined)
   })
 
   it('records and indexes a non-delivering sent message without emitting the authored event', async () => {
@@ -192,5 +200,76 @@ describe('messages.messages.record_existing', () => {
     expect(result).toEqual(expect.objectContaining({ id: messageId, deduplicated: true }))
     expect(findOneWithDecryptionMock).toHaveBeenCalledTimes(2)
     expect(eventBus.emitEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('messages.messages.record_ingested', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    findWithDecryptionMock.mockResolvedValue([])
+  })
+
+  it('emits an ingested event for a newly materialized message', async () => {
+    const { ctx } = createHarness()
+    const command = registeredCommands.get('messages.messages.record_ingested')
+
+    const result = await command!.execute(input({
+      recipients: [{ userId: recordedByUserId, type: 'to' }],
+    }), ctx)
+
+    expect(result).toEqual(expect.objectContaining({ id: messageId, threadId: messageId }))
+    expect(emitMessagesEventMock).toHaveBeenCalledWith(
+      'messages.message.ingested',
+      {
+        messageId,
+        senderUserId: recordedByUserId,
+        recipientUserIds: [recordedByUserId],
+        tenantId,
+        organizationId,
+      },
+      { persistent: true },
+    )
+  })
+
+  it('does not emit an ingested event for an idempotent replay', async () => {
+    const { ctx } = createHarness()
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: messageId,
+      threadId: messageId,
+      externalEmail: 'sender@example.com',
+      tenantId,
+      organizationId,
+    })
+    const command = registeredCommands.get('messages.messages.record_ingested')
+
+    const result = await command!.execute(input(), ctx)
+
+    expect(result).toEqual(expect.objectContaining({ id: messageId, deduplicated: true }))
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
+  })
+
+  it('preserves action-log metadata for the ingested command', async () => {
+    const command = registeredCommands.get('messages.messages.record_ingested')
+
+    const log = command!.buildLog?.({
+      input: input(),
+      result: {
+        id: messageId,
+        threadId: messageId,
+        externalEmail: 'sender@example.com',
+        recipientUserIds: [],
+      },
+      ctx: {},
+      snapshots: {},
+    })
+
+    expect(log).toEqual({
+      actionLabel: 'Record existing message',
+      resourceKind: 'messages.message',
+      resourceId: messageId,
+      tenantId,
+      organizationId,
+    })
   })
 })

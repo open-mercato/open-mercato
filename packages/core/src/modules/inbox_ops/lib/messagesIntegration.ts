@@ -1,7 +1,10 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { getRecipientUserIdsForFeature } from '../../notifications/lib/notificationRecipients'
+import {
+  getRecipientUserIdsForFeature,
+  getScopedNotificationRecipientUserIds,
+} from '../../notifications/lib/notificationRecipients'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('inbox_ops').child({ component: 'messages' })
@@ -66,6 +69,8 @@ export async function resolveMessageSenderUserId(
         .selectFrom('users')
         .select('id')
         .where('email', '=', normalizedEmail)
+        .where('tenant_id', '=', scope.tenantId)
+        .where('organization_id', '=', scope.organizationId)
         .where('deleted_at', 'is', null)
         .executeTakeFirst() as { id?: string } | undefined
       if (row?.id) return row.id
@@ -89,8 +94,8 @@ function resolveCommandBus(container: ResolverLike): CommandBus | null {
 /**
  * Creates an internal message record for an incoming inbox email.
  *
- * The message is delivered to all users with the `inbox_ops.proposals.view`
- * feature in the tenant — mirroring the same audience that sees proposals
+ * The message is delivered to users with the `inbox_ops.proposals.view`
+ * feature in the current organization — mirroring the same audience that sees proposals
  * in the inbox_ops module. This follows the shared-queue pattern used by
  * all major ERP/CRM systems (Salesforce queues, Dynamics 365 queues,
  * HubSpot shared inboxes, Odoo team followers).
@@ -105,8 +110,14 @@ export async function createMessageRecordForEmail(
 
     const em = ctx.container.resolve('em') as EntityManager
     const db = em.getKysely<any>()
-    const recipientUserIds = await getRecipientUserIdsForFeature(
+    const tenantRecipientUserIds = await getRecipientUserIdsForFeature(
       db, ctx.scope.tenantId, 'inbox_ops.proposals.view',
+    )
+    const recipientUserIds = await getScopedNotificationRecipientUserIds(
+      db,
+      ctx.scope.tenantId,
+      ctx.scope.organizationId,
+      tenantRecipientUserIds,
     )
 
     const recipients = recipientUserIds.map((userId) => ({ userId, type: 'to' as const }))
@@ -121,7 +132,7 @@ export async function createMessageRecordForEmail(
       em, email.forwardedByAddress, recipientUserIds, ctx.scope,
     )
 
-    const { result } = await commandBus.execute('messages.messages.record_existing', {
+    const { result } = await commandBus.execute('messages.messages.record_ingested', {
       input: {
         type: 'inbox_ops.email',
         visibility: recipients.length > 0 ? 'internal' as const : 'public' as const,

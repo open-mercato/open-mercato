@@ -153,7 +153,7 @@ describe('ingestInboundMessageCommand input schema', () => {
 })
 
 describe('ingestInboundMessageCommand message materialization', () => {
-  it('uses record_existing without authored delivery controls', async () => {
+  it('uses record_ingested without authored delivery controls', async () => {
     mockIngestFindOne.mockReset()
     mockIngestFindOne
       .mockResolvedValueOnce(null)
@@ -229,7 +229,7 @@ describe('ingestInboundMessageCommand message materialization', () => {
 
     expect(result.status).toBe('created')
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.record_existing',
+      'messages.messages.record_ingested',
       expect.objectContaining({
         input: expect.objectContaining({
           idempotencyKey: 'cc:550e8400-e29b-41d4-a716-446655440040:ext-1',

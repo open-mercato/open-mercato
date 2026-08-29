@@ -25,6 +25,9 @@ The Messages module provides an internal messaging system with support for:
 - `messages.messages.record_existing` is the strict internal materialization command for
   inbound or imported messages. It requires source identity and idempotency, always records
   a sent, non-draft, non-delivering message, and never emits `messages.message.sent`.
+- `messages.messages.record_ingested` wraps that strict command for newly ingested external
+  messages. It emits `messages.message.ingested`, which creates in-app notifications for
+  internal recipients without entering an email-delivery flow.
 - In-app notification creation and email job creation are separate persistent subscribers.
   The email worker independently revalidates current persisted intent, state, scope, and
   target before calling a provider.

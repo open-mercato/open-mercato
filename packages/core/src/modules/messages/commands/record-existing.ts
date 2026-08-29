@@ -35,9 +35,9 @@ const recordExistingMessageSchema = z.object({
   recordedByUserId: z.string().uuid(),
 }).strict()
 
-type RecordExistingMessageInput = z.infer<typeof recordExistingMessageSchema>
+export type RecordExistingMessageInput = z.infer<typeof recordExistingMessageSchema>
 
-type RecordExistingMessageResult = {
+export type RecordExistingMessageResult = {
   id: string
   threadId: string | null
   externalEmail: string | null

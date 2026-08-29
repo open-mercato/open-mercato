@@ -57,7 +57,7 @@ export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_c
  *   2. Create or load `ExternalConversation` by `(channel_id, external_conversation_id)`.
  *   3. Create or load `ChannelThreadMapping` (1:1 with ExternalConversation).
  *   4. Resolve CRM contact via adapter + QueryEngine (best-effort).
- *   5. Record the platform `Message` via `messages.messages.record_existing` (separate transaction).
+ *   5. Record the platform `Message` via `messages.messages.record_ingested` (separate transaction).
  *   6. Create `ExternalMessage` + `MessageChannelLink`.
  *   7. Emit `communication_channels.message.received` (and `.conversation.created` / `.contact.resolved` when applicable).
  *
@@ -382,7 +382,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const recordExistingResult = await commandBus.execute<typeof recordExistingInput, { id: string; threadId: string | null }>(
-      'messages.messages.record_existing',
+      'messages.messages.record_ingested',
       {
         input: recordExistingInput,
         ctx: passthroughCommandCtx(ctx, input.scope),
@@ -390,7 +390,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     )
     const message = recordExistingResult.result
     if (!message?.id) {
-      throw new Error('messages.messages.record_existing did not return a message id')
+      throw new Error('[internal] messages.messages.record_ingested did not return a message id')
     }
 
     // (3 continued) Create or update ChannelThreadMapping now that we have a threadId.
@@ -542,7 +542,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
 
 
 /**
- * Build a runtime context for the nested `messages.messages.record_existing` call.
+ * Build a runtime context for the nested `messages.messages.record_ingested` call.
  *
  * The record command expects a `CommandRuntimeContext`. For inbound webhook
  * processing there is no platform user; we pass `auth: null` and use the tenant

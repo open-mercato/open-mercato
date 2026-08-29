@@ -1,4 +1,5 @@
 import handle from '../message-notification'
+import handleIngested, { metadata as ingestedMetadata } from '../message-ingested-notification'
 
 const createBatchMock = jest.fn(async () => [])
 const resolveNotificationServiceMock = jest.fn(() => ({ createBatch: createBatchMock }))
@@ -69,5 +70,95 @@ describe('messages sent subscriber', () => {
       expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
     )
 
+  })
+})
+
+describe('messages ingested notification subscriber', () => {
+  const ctx = { resolve: jest.fn(() => ({ fork: () => ({}) })) }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    findOneWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({
+        subject: 'Inbound subject',
+        externalName: 'External Sender',
+        externalEmail: 'external@example.com',
+      })
+      .mockResolvedValueOnce({ name: 'Technical User', email: 'bot@example.com' })
+  })
+
+  it('subscribes to the ingested event with a distinct stable id', () => {
+    expect(ingestedMetadata).toEqual({
+      event: 'messages.message.ingested',
+      persistent: true,
+      id: 'messages:in-app-notification-ingested',
+    })
+  })
+
+  it('creates the same in-app notification without email delivery intent', async () => {
+    await handleIngested({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(createBatchMock).toHaveBeenCalledTimes(1)
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'messages.new' }),
+      expect.objectContaining({
+        titleVariables: { title: 'Inbound subject', from: 'External Sender' },
+        bodyVariables: { title: 'Inbound subject', from: 'External Sender' },
+      }),
+    )
+  })
+
+  it('falls back to the external email when the inbound sender name is missing', async () => {
+    findOneWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({
+        subject: 'Inbound subject',
+        externalEmail: 'external@example.com',
+      })
+      .mockResolvedValueOnce({ name: 'Technical User', email: 'bot@example.com' })
+
+    await handleIngested({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'messages.new' }),
+      expect.objectContaining({
+        bodyVariables: { title: 'Inbound subject', from: 'external@example.com' },
+      }),
+    )
+  })
+
+  it('falls back to the technical user when external sender data is unavailable', async () => {
+    findOneWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({ subject: 'Inbound subject' })
+      .mockResolvedValueOnce({ name: 'Technical User', email: 'bot@example.com' })
+
+    await handleIngested({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'messages.new' }),
+      expect.objectContaining({
+        bodyVariables: { title: 'Inbound subject', from: 'Technical User' },
+      }),
+    )
   })
 })
