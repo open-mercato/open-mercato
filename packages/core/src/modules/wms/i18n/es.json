@@ -584,7 +584,7 @@
   "wms.backend.inventory.release.dialog.title": "Liberar reserva",
   "wms.backend.inventory.release.errors.balanceIntegrityViolation": "Error de integridad de saldo — ejecute \"mercato wms verify-balances --repair\" para diagnosticar y corregir la desviación antes de reintentar.",
   "wms.backend.inventory.release.errors.missingReservation": "Falta el contexto de la reserva. Cierre el cuadro de diálogo e inténtelo de nuevo desde la tabla de reservas.",
-  "wms.backend.inventory.release.errors.invalidReservationState": "Esta reserva ya no está activa; ya fue liberada o completada. Actualice la lista para ver su estado actual.",
+  "wms.backend.inventory.release.errors.reservationNotActive": "Esta reserva ya no está activa; ya fue liberada o completada. Actualice la lista para ver su estado actual.",
   "wms.backend.inventory.release.errors.submit": "No se pudo liberar la reserva.",
   "wms.backend.inventory.release.flash.success": "Reserva liberada",
   "wms.backend.inventory.release.form.notes": "Notas",
