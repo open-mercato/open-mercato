@@ -1,7 +1,8 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { SalesDocumentTag } from '../../data/entities'
 import { salesTagCreateSchema, salesTagUpdateSchema } from '../../data/validators'
 import { buildAggregateSearchFilter, withScopedPayload } from '../utils'
@@ -20,11 +21,48 @@ const listSchema = z
   })
   .passthrough()
 
+type TagAction = 'view' | 'manage'
+
+// Tags are shared between orders and quotes (both document kinds assign from the same pool), so
+// either kind's feature authorizes them. `requireFeatures` metadata is all-of, which cannot say
+// "orders OR quotes" — hence the in-handler check, same as the notes route.
+const tagFeatureAlternatives: Record<TagAction, string[]> = {
+  view: ['sales.orders.view', 'sales.quotes.view'],
+  manage: ['sales.orders.manage', 'sales.quotes.manage'],
+}
+
+export async function ensureTagPermission(
+  ctx: CrudCtx,
+  action: TagAction,
+  translate: (key: string, fallback?: string) => string,
+) {
+  const auth = ctx.auth
+  if (!auth?.sub) {
+    throw new CrudHttpError(401, { error: translate('api.errors.unauthorized', 'Unauthorized') })
+  }
+
+  const alternatives = tagFeatureAlternatives[action]
+  const rbac = ctx.container.resolve<RbacService>('rbacService')
+  const scope = {
+    tenantId: auth.tenantId ?? null,
+    organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
+  }
+  for (const feature of alternatives) {
+    if (await rbac.userHasAllFeatures(auth.sub, [feature], scope)) return
+  }
+
+  // `requiredFeatures` lists the alternatives — holding any one of them is enough.
+  throw new CrudHttpError(403, {
+    error: translate('api.errors.forbidden', 'Forbidden'),
+    requiredFeatures: alternatives,
+  })
+}
+
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.orders.view'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.orders.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.orders.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.orders.manage'] },
+  GET: { requireAuth: true },
+  POST: { requireAuth: true },
+  PUT: { requireAuth: true },
+  DELETE: { requireAuth: true },
 }
 
 export const metadata = routeMetadata
@@ -37,6 +75,12 @@ const crud = makeCrudRoute({
     orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: null,
+  },
+  hooks: {
+    beforeList: async (_query, ctx) => {
+      const { translate } = await resolveTranslations()
+      await ensureTagPermission(ctx, 'view', translate)
+    },
   },
   list: {
     schema: listSchema,
@@ -54,6 +98,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
+        await ensureTagPermission(ctx, 'manage', translate)
         try {
           const scoped = withScopedPayload(raw ?? {}, ctx, translate)
           const slug =
@@ -76,6 +121,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
+        await ensureTagPermission(ctx, 'manage', translate)
         try {
           return salesTagUpdateSchema.parse(raw ?? {})
         } catch {
@@ -89,6 +135,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
+        await ensureTagPermission(ctx, 'manage', translate)
         const id =
           parsed?.body?.id ??
           parsed?.id ??
