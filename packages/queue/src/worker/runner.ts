@@ -24,6 +24,8 @@ export type WorkerRunnerOptions<T = unknown> = {
   lockDuration?: number
   /** Number of stalled-job recoveries BullMQ permits before failing a job. */
   maxStalledCount?: number
+  /** Called when the queue abandons a job without running the handler. */
+  onJobAbandoned?: AsyncQueueOptions['onJobAbandoned']
   /** Whether to set up graceful shutdown handlers */
   gracefulShutdown?: boolean
   /** If true, don't block - return immediately after starting processing (for multi-queue mode) */
@@ -151,6 +153,7 @@ export async function runWorker<T = unknown>(
     concurrency = 1,
     lockDuration,
     maxStalledCount,
+    onJobAbandoned,
     gracefulShutdown = true,
     background = false,
     strategy: strategyOption,
@@ -176,6 +179,7 @@ export async function runWorker<T = unknown>(
     concurrency,
     lockDuration,
     maxStalledCount,
+    onJobAbandoned,
   })
 
   // Set up graceful shutdown

@@ -28,6 +28,7 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { Briefcase, AlertTriangle, X } from 'lucide-react'
+import { isLostDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
@@ -86,7 +87,7 @@ function makeDealsPresets(): FilterPreset[] {
       },
     },
     // The Deal entity has no dedicated "at risk" or health-score field — `customer_deals`
-    // exposes only `status` (open/win/loose/closed/in_progress, dictionary-driven) and
+    // exposes only `status` (open/win/lost/closed/in_progress, dictionary-driven) and
     // `closure_outcome`. Rather than fabricate a mapping, the "At risk" preset is omitted
     // until the data model exposes a first-class signal.
     {
@@ -125,6 +126,7 @@ type DealsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type FilterOption = { value: string; label: string }
@@ -210,6 +212,7 @@ export default function CustomersDealsPage() {
   const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -397,6 +400,7 @@ export default function CustomersDealsPage() {
         setRows(mapped)
         setTotal(typeof payload.total === 'number' ? payload.total : mapped.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -412,10 +416,12 @@ export default function CustomersDealsPage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   React.useEffect(() => {
-    if (totalPages > 0 && page > totalPages) {
+    // A capped totalPages is a floor — pages past it hold reachable rows, so
+    // clamping would bounce a deep-linked user off data that exists.
+    if (!totalIsCapped && totalPages > 0 && page > totalPages) {
       setPage(totalPages)
     }
-  }, [page, totalPages])
+  }, [page, totalPages, totalIsCapped])
 
   const queryRef = React.useRef(searchParams?.toString() ?? '')
   React.useEffect(() => {
@@ -682,8 +688,8 @@ export default function CustomersDealsPage() {
         accessorKey: `cf_${def.key}`,
         header: def.label || def.key,
         meta: {
-          columnChooserGroup: def.group?.title ?? 'Custom Fields',
-          filterGroup: def.group?.title ?? 'Custom Fields',
+          columnChooserGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
+          filterGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
@@ -850,11 +856,11 @@ export default function CustomersDealsPage() {
             subtitle = (
               <span className="text-xs text-status-error-text">{t('customers.deals.list.close.overdue')}</span>
             )
-          } else if (row.original.status === 'win') {
+          } else if (isWonDealStatus(row.original.status)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.won')}</span>
             )
-          } else if (row.original.status === 'loose') {
+          } else if (isLostDealStatus(row.original.status)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
             )
@@ -1136,6 +1142,7 @@ export default function CustomersDealsPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: (nextPage) => setPage(nextPage),
             pageSizeOptions: [10, 25, 50, 100],
             onPageSizeChange: handlePageSizeChange,

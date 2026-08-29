@@ -11,9 +11,11 @@ import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
+import { expandDealStatusAliases } from '../../../lib/dealStatus'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -27,7 +29,7 @@ export const metadata = {
 const querySchema = z.object({
   pipelineId: z.string().uuid().optional(),
   search: z.string().optional(),
-  status: z.array(z.enum(['open', 'closed', 'win', 'loose'])).optional(),
+  status: z.array(z.string().max(50)).max(20).optional(),
   ownerUserId: z.array(z.string().uuid()).optional(),
   personId: z.array(z.string().uuid()).optional(),
   companyId: z.array(z.string().uuid()).optional(),
@@ -121,11 +123,8 @@ export const openApi: OpenApiRouteDoc = {
 }
 
 function readArrayParam(searchParams: URLSearchParams, key: string): string[] | null {
-  const all = searchParams.getAll(key)
-  if (!all.length) return null
-  const flat = all.flatMap((v) => v.split(','))
-  const trimmed = flat.map((s) => s.trim()).filter(Boolean)
-  return trimmed.length ? trimmed : null
+  const values = readQueryParamList(searchParams, key)
+  return values.length ? values : null
 }
 
 function restrictToIds(where: string[], values: Array<string | number | null>, ids: string[]) {
@@ -247,9 +246,11 @@ export async function GET(req: Request) {
     }
   }
   if (parsed.data.status && parsed.data.status.length) {
-    const placeholders = parsed.data.status.map(() => '?').join(',')
+    // Non-empty input always expands to a non-empty set, so this always narrows.
+    const expandedStatuses = expandDealStatusAliases(parsed.data.status)
+    const placeholders = expandedStatuses.map(() => '?').join(',')
     where.push(`status IN (${placeholders})`)
-    values.push(...parsed.data.status)
+    values.push(...expandedStatuses)
   }
   if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
     const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')
@@ -265,7 +266,14 @@ export async function GET(req: Request) {
     values.push(parsed.data.expectedCloseAtTo)
   }
   if (parsed.data.isOverdue) {
-    where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+    // Mirror the list route's precedence: the caller-supplied status filter wins, and
+    // status='open' is injected only when none was provided.
+    const hasCallerStatus = !!parsed.data.status?.length
+    if (hasCallerStatus) {
+      where.push('expected_close_at < CURRENT_DATE')
+    } else {
+      where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+    }
   }
   if (parsed.data.isStuck) {
     // Reuse the list endpoint's stuck-deal lookup so kanban headers, lane counts, and the

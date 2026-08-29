@@ -16,6 +16,7 @@ import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationR
 import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
+import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
 import { loadShippedQuantityByLine } from '../lib/shipments/snapshots'
 import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
 import {
@@ -134,37 +135,6 @@ function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationRes
   order.lineItemCount = lineCount
 }
 
-function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  }
-}
-
 function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
   return {
     id: adjustment.id,
@@ -198,8 +168,10 @@ function buildCalculationContext(order: SalesOrder) {
 }
 
 /**
- * Recalculates order totals (including line-scoped return adjustments) for display.
- * Returns the totals object to merge into an order API response, or null if order not found.
+ * Recalculates order totals (including line-scoped return adjustments) from lines and
+ * adjustments. Do not merge this into GET /api/sales/orders responses: provider
+ * calculators re-emit shipping/payment fees on top of already-persisted adjustments
+ * and make list vs detail totals diverge (#5438). Persist via commands instead.
  */
 export async function recalculateOrderTotalsForDisplay(
   em: EntityManager,

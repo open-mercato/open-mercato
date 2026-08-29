@@ -627,6 +627,24 @@ None blocking. One deferred item: integration tests are specified but not shippe
 
 ## Changelog
 
+### 2026-08-12 — Phase 2 implemented ([#5228](https://github.com/open-mercato/open-mercato/pull/5228))
+
+The count query is rebuilt at all four sites rather than bounded: scope + filters only, cf/doc filters as correlated `EXISTS` semi-joins, projection joins dropped, `SELECT 1 … LIMIT cap + 1` inner and `count(*)` outer — so the `LIMIT` stops the scan instead of being absorbed by a blocking `HashAggregate`. Sites as implemented:
+
+- `BasicQueryEngine` — `packages/shared/src/lib/query/engine.ts`; extension and CF projection joins dropped from the count, CF filters compiled to `EXISTS`.
+- Hybrid optimized path and full-shape path — `packages/core/src/modules/query_index/lib/engine.ts`; the `groupBy(b.id)` is gone, and rowset-dependent predicates evaluate inside one seed-rowed `EXISTS` built from the display query's own join builders, so per-base-row filter semantics are identical by construction.
+- Custom-entity doc storage — same file; `applyCfFilterFromAlias` compiled to `EXISTS`, `distinct` dropped. Dropping the `distinct` is a deliberate value correction beyond capping: across a scope spanning organizations that hold a row for the same record id, `count(distinct entity_id)` under-reported relative to the item list (which returns one row per storage row); `count(*)` matches it. Pinned by a two-organization test against PostgreSQL and called out in `UPGRADE_NOTES.md`.
+
+`resolveListCountCap()` lives in `packages/shared/src/lib/query/count-cap.ts` (default `10000`, `0` = permanent kill switch, no entity parameter). `QueryResult` shape is unchanged; the cap surfaces as `meta.listCountCapWarning` from the engine and `totalIsCapped: true` spread onto CRUD payloads (`crud/factory.ts`, `openapi/crud.ts`).
+
+Decoupled and adjacent work folded in: encrypted-sort truncation now runs its own `cap + 1` probe instead of reading the cappable `total`; the WMS `inventoryMutationLoaders.ts` loops flagged by Phase 1 terminate on a short page rather than on `totalPages`.
+
+**Audit deltas against this spec's `ba2cd5d` line audit.** Three of the five listed direct-payload routes had drifted: attachments, todos and interactions/tasks now derive totals from `em.findAndCount` or in-memory pagination, which the cap never touches, so they were left unchanged — as were the workflows and dictionaries `hasMore` fields. Only `customers/api/deals/map` and `entities/api/records` still consume engine totals and carry the flag.
+
+Test coverage per the mandated plan: compiled-SQL shape assertions per site (`EXISTS` rendering, no `GROUP BY`/`DISTINCT` beneath the probe `LIMIT`, projection joins absent), cap boundary (cap−1/cap/cap+1/0/unparseable), a count-parity matrix at `cap=0` against both ground truth and the display query's own rowset, an encrypted-sort regression, and the `EXPLAIN`-backed plan guard against a live PostgreSQL 16 (gated on `OM_COUNT_CAP_PG_URL`) asserting `Limit → scan` with no blocking node below the `Limit`.
+
+`cf:` clauses inside `$or` (proper OR-group support landed on `develop` via #5039/#5056 while this phase was in review): the count shape compiles an OR-grouped cf leaf to the same correlated `EXISTS` used for ANDed cf filters, gated on key resolution — the count-side mirror of the display query's `cfValueExprByKey` applicability test — so a disjunct is never narrowed by a dropped leaf and count/display parity holds.
+
 ### 2026-08-04 — Phase 1 implemented ([#4942](https://github.com/open-mercato/open-mercato/pull/4942))
 
 All six loops now terminate on a short page with a fail-closed page ceiling that throws (`[internal]`-prefixed), per §Short-page termination. `total`/`totalPages` are no longer loop bounds anywhere in the converted set. Line references as implemented:
