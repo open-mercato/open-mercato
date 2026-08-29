@@ -64,6 +64,19 @@ type QueuedCrudSideEffect = {
   indexer?: CrudIndexerConfig<unknown>
 }
 
+/**
+ * A `makeCrudRoute` route-level `indexer:` declaration, handed to the data engine for the
+ * duration of one command-bus write. Command handlers own the side-effect mark on the
+ * `actions.*` path, and most of them mark `events:` only — without this the route's
+ * declaration would reach no code at all. `entityClass` scopes the default to the route's
+ * own ORM entity so a handler that also marks a sibling entity in the same request (a tag
+ * assignment alongside a tag, say) is never indexed under the route's `entityType`.
+ */
+export type DefaultCrudIndexerConfig = {
+  indexer: CrudIndexerConfig<unknown>
+  entityClass: abstract new (...args: never[]) => object
+}
+
 export interface DataEngine {
   setCustomFields(opts: {
     entityId: string
@@ -149,6 +162,20 @@ export interface DataEngine {
    * is responsible for rebuilding the `query_index` afterwards.
    */
   flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
+
+  /**
+   * Declare the indexer a CRUD route configured, for marks made during one command-bus
+   * write that do not carry an indexer of their own. Pass `null` to clear it. Optional so
+   * third-party `DataEngine` implementations stay valid; callers invoke it with `?.`.
+   */
+  setDefaultIndexerConfig?(config: DefaultCrudIndexerConfig | null): void
+
+  /**
+   * Whether any side effect drained since the current default was declared carried an
+   * indexer for that default's entity class — false means the declared query-index
+   * obligation was discharged by nobody. Optional for the same reason as the setter.
+   */
+  hasIndexedDefaultEntityClass?(): boolean
 }
 
 export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
@@ -188,7 +215,29 @@ export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: s
 
 export class DefaultDataEngine implements DataEngine {
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
+  private defaultIndexer: DefaultCrudIndexerConfig | null = null
+  private indexedDefaultEntityClass = false
   constructor(private em: EntityManager, private container: AwilixContainer) {}
+
+  setDefaultIndexerConfig(config: DefaultCrudIndexerConfig | null): void {
+    this.defaultIndexer = config
+    this.indexedDefaultEntityClass = false
+  }
+
+  hasIndexedDefaultEntityClass(): boolean {
+    return this.indexedDefaultEntityClass
+  }
+
+  private resolveDefaultIndexer(entity: unknown): CrudIndexerConfig<unknown> | undefined {
+    if (!this.defaultIndexer) return undefined
+    if (!(entity instanceof this.defaultIndexer.entityClass)) return undefined
+    return this.defaultIndexer.indexer
+  }
+
+  private matchesDefaultEntityClass(entity: unknown): boolean {
+    if (!this.defaultIndexer) return false
+    return entity instanceof this.defaultIndexer.entityClass
+  }
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
@@ -728,6 +777,10 @@ export class DefaultDataEngine implements DataEngine {
     const { entity, identifiers } = opts
     if (!entity) return
     if (!identifiers?.id) return
+    // A command handler that marks `events:` only still discharges the route's declared
+    // query-index obligation — the route hands its `indexer:` down as the default so the
+    // handler's own entity and identifiers (the accurate ones) drive the projection write.
+    const indexer = opts.indexer ?? this.resolveDefaultIndexer(entity)
     const key = this.buildSideEffectKey(opts.action, identifiers)
     const existing = this.pendingSideEffects.get(key)
     if (existing) {
@@ -740,7 +793,7 @@ export class DefaultDataEngine implements DataEngine {
       existing.syncOrigin = opts.syncOrigin ?? null
       existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
-      if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+      if (indexer) existing.indexer = indexer
       this.pendingSideEffects.set(key, existing)
       return
     }
@@ -756,7 +809,7 @@ export class DefaultDataEngine implements DataEngine {
       actorUserId: opts.actorUserId ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
-    if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
+    if (indexer) entry.indexer = indexer
     this.pendingSideEffects.set(key, entry)
   }
 
@@ -765,6 +818,9 @@ export class DefaultDataEngine implements DataEngine {
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
     for (const entry of entries) {
+      if (entry.indexer && !suppress?.skipReindex && this.matchesDefaultEntityClass(entry.entity)) {
+        this.indexedDefaultEntityClass = true
+      }
       try {
         await this.emitOrmEntityEvent({
           action: entry.action,

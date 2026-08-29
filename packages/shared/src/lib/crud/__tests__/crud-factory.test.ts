@@ -116,6 +116,8 @@ const queryEngine = {
 
 const mockDataEngine = {
   __pendingSideEffects: [] as any[],
+  __defaultIndexer: null as any,
+  __indexedDefaultEntityClass: false,
   createOrmEntity: jest.fn(async ({ entity, data }: any) => {
     const created = em.create(entity, data)
     await em.persist(created as any).flush()
@@ -142,13 +144,28 @@ const mockDataEngine = {
   emitOrmEntityEvent: jest.fn(async (_entry: any) => {}),
   markOrmEntityChange: jest.fn(function (this: any, entry: any) {
     if (!entry || !entry.entity) return
-    this.__pendingSideEffects.push(entry)
+    const defaultIndexer = this.__defaultIndexer
+    const indexer = entry.indexer
+      ?? (defaultIndexer && entry.entity instanceof defaultIndexer.entityClass ? defaultIndexer.indexer : undefined)
+    this.__pendingSideEffects.push(indexer ? { ...entry, indexer } : entry)
   }),
   flushOrmEntityChanges: jest.fn(async function (this: any) {
     while (this.__pendingSideEffects.length > 0) {
       const next = this.__pendingSideEffects.shift()
+      if (next.indexer && this.__defaultIndexer && next.entity instanceof this.__defaultIndexer.entityClass) {
+        this.__indexedDefaultEntityClass = true
+      }
       await this.emitOrmEntityEvent(next)
     }
+  }),
+  // Mirrors DefaultDataEngine's route-declared indexer default (#5741) so the factory's
+  // command path exercises the same contract it does against the real engine.
+  setDefaultIndexerConfig: jest.fn(function (this: any, config: any) {
+    this.__defaultIndexer = config
+    this.__indexedDefaultEntityClass = false
+  }),
+  hasIndexedDefaultEntityClass: jest.fn(function (this: any) {
+    return this.__indexedDefaultEntityClass === true
   }),
 }
 
@@ -207,6 +224,8 @@ describe('CRUD Factory', () => {
     jest.clearAllMocks()
     accessLogService.log.mockClear()
     mockDataEngine.__pendingSideEffects = []
+    mockDataEngine.__defaultIndexer = null
+    mockDataEngine.__indexedDefaultEntityClass = false
     mockOrganizationScopeOverride = null
     commandBus = {
       execute: jest.fn(async () => ({ result: {}, logEntry: { id: 'log-1' } })),
@@ -1048,6 +1067,113 @@ describe('CRUD Factory', () => {
     // CommandBus via flushCrudSideEffects(). The factory itself must NOT emit events
     // to avoid duplicates (see commit 3f999f35).
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  // #5741 — a route whose verbs are all command-backed used to declare `indexer:` that no
+  // code ever read, so `entity_indexes` was never maintained for it and nothing said so.
+  describe('command routes honour the route-declared indexer', () => {
+    const routeIndexer = { entityType: 'example.todo' }
+
+    const buildCommandRoute = () => makeCrudRoute({
+      metadata: { POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: routeIndexer,
+      actions: {
+        create: { commandId: 'example.todo.create', schema: z.any(), response: () => ({ ok: true }) },
+        update: { commandId: 'example.todo.update', schema: z.any(), response: () => ({ ok: true }) },
+        delete: { commandId: 'example.todo.delete', schema: z.any(), response: () => ({ ok: true }) },
+      },
+    })
+
+    // Stands in for every core command handler that ends in `emitCrudSideEffects({ events })`
+    // with no `indexer` of its own — customers/commands/tags.ts, catalog/commands/prices.ts.
+    const markEventsOnly = (action: 'created' | 'updated' | 'deleted', entity: object) => async () => {
+      mockDataEngine.markOrmEntityChange({
+        action,
+        entity,
+        events: { module: 'example', entity: 'todo' },
+        identifiers: { id: 'todo-1', organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+      } as any)
+      await mockDataEngine.flushOrmEntityChanges()
+      return { result: { id: 'todo-1' }, logEntry: { id: 'log-1' } }
+    }
+
+    const flushedEntries = () => mockDataEngine.emitOrmEntityEvent.mock.calls.map(([entry]) => entry as any)
+
+    it.each([
+      ['POST', 'created' as const],
+      ['PUT', 'updated' as const],
+      ['DELETE', 'deleted' as const],
+    ])('%s applies the declaration to the handler\'s events-only mark', async (method, action) => {
+      commandBus.execute.mockImplementation(markEventsOnly(action, new Todo()))
+      const route = buildCommandRoute()
+      const res = await (route as any)[method](new Request('http://x/api/example/todos/command?id=todo-1', {
+        method,
+        body: JSON.stringify({ id: 'todo-1' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBeLessThan(400)
+      expect(flushedEntries()).toEqual([expect.objectContaining({ action, indexer: routeIndexer })])
+      // The declaration is scoped to the command; it must not linger for later writes.
+      expect(mockDataEngine.setDefaultIndexerConfig).toHaveBeenLastCalledWith(null)
+    })
+
+    it('leaves a handler-supplied indexer in place', async () => {
+      const handlerIndexer = { entityType: 'example.todo_handler_owned' }
+      commandBus.execute.mockImplementation(async () => {
+        mockDataEngine.markOrmEntityChange({
+          action: 'created',
+          entity: new Todo(),
+          events: { module: 'example', entity: 'todo' },
+          indexer: handlerIndexer,
+          identifiers: { id: 'todo-1', organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+        } as any)
+        await mockDataEngine.flushOrmEntityChanges()
+        return { result: { id: 'todo-1' }, logEntry: { id: 'log-1' } }
+      })
+      const route = buildCommandRoute()
+      const res = await route.POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({}),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBeLessThan(400)
+      expect(flushedEntries()).toEqual([expect.objectContaining({ indexer: handlerIndexer })])
+    })
+
+    it('never declares an indexer the route did not configure', async () => {
+      commandBus.execute.mockImplementation(markEventsOnly('created', new Todo()))
+      const route = makeCrudRoute({
+        metadata: { POST: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        actions: {
+          create: { commandId: 'example.todo.create', schema: z.any(), response: () => ({ ok: true }) },
+        },
+      })
+      const res = await route.POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({}),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBeLessThan(400)
+      expect(mockDataEngine.setDefaultIndexerConfig).not.toHaveBeenCalled()
+      expect(flushedEntries()).toEqual([expect.not.objectContaining({ indexer: expect.anything() })])
+    })
+
+    it('clears the declaration when the command throws', async () => {
+      commandBus.execute.mockRejectedValue(new Error('boom'))
+      const route = buildCommandRoute()
+      await route.POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({}),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(mockDataEngine.setDefaultIndexerConfig).toHaveBeenLastCalledWith(null)
+    })
   })
 
   it('POST command route runs mutation guards before executing the command', async () => {
