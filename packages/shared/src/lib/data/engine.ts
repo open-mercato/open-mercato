@@ -228,15 +228,13 @@ export class DefaultDataEngine implements DataEngine {
     return this.indexedDefaultEntityClass
   }
 
-  private resolveDefaultIndexer(entity: unknown): CrudIndexerConfig<unknown> | undefined {
-    if (!this.defaultIndexer) return undefined
-    if (!(entity instanceof this.defaultIndexer.entityClass)) return undefined
-    return this.defaultIndexer.indexer
-  }
-
   private matchesDefaultEntityClass(entity: unknown): boolean {
     if (!this.defaultIndexer) return false
     return entity instanceof this.defaultIndexer.entityClass
+  }
+
+  private resolveDefaultIndexer(entity: unknown): CrudIndexerConfig<unknown> | undefined {
+    return this.matchesDefaultEntityClass(entity) ? this.defaultIndexer?.indexer : undefined
   }
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
