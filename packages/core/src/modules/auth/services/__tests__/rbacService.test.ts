@@ -283,6 +283,34 @@ describe('RbacService', () => {
       })
     })
 
+    it('ignores soft-deleted role ACLs for API keys', async () => {
+      const key: Partial<ApiKey> = {
+        id: 'key-revoked-role',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: ['role-a'],
+        deletedAt: null,
+      }
+      const revokedRoleAcl: Partial<RoleAcl> = {
+        role: { id: 'role-a' } as Role,
+        tenantId: 'tenant-1',
+        isSuperAdmin: true,
+        featuresJson: ['documents.manage'],
+        organizationsJson: null,
+        deletedAt: new Date('2026-08-01T00:00:00Z'),
+      }
+
+      em.findOne.mockImplementation(async (entity: unknown) => entity === ApiKey ? key : null)
+      em.find.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => (
+        entity === RoleAcl && where.deletedAt !== null ? [revokedRoleAcl] : []
+      ))
+
+      await expect(service.loadAcl('api_key:key-revoked-role', {
+        tenantId: 'tenant-1',
+        organizationId: null,
+      })).resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
     it('preserves feature and organization correlation for tenant-scoped API-key roles', async () => {
       const key: Partial<ApiKey> = {
         id: 'key-disjoint-roles',
@@ -1568,20 +1596,23 @@ describe('RbacService', () => {
   // than keying a mock on the fields the test already expects — otherwise the
   // test cannot tell a filter that was applied from one that was not.
   describe('super-admin grant tenant binding', () => {
-    type Row = Record<string, any>
+    type Row = Record<string, unknown>
 
-    const idOf = (value: any): string | null => {
+    const idOf = (value: unknown): string | null => {
       if (typeof value === 'string') return value
-      if (value && typeof value === 'object' && typeof value.id === 'string') return value.id
+      if (value && typeof value === 'object') {
+        const id = (value as { id?: unknown }).id
+        if (typeof id === 'string') return id
+      }
       return null
     }
 
-    const matches = (where: any, row: Row): boolean => {
+    const matches = (where: unknown, row: Row): boolean => {
       if (!where || typeof where !== 'object') return true
-      return Object.entries(where).every(([key, expected]) => {
+      return Object.entries(where as Row).every(([key, expected]) => {
         const actual = row[key]
-        if (expected && typeof expected === 'object' && Array.isArray((expected as any).$in)) {
-          const wanted = (expected as any).$in.map((v: any) => idOf(v))
+        if (expected && typeof expected === 'object' && Array.isArray((expected as { $in?: unknown }).$in)) {
+          const wanted = (expected as { $in: unknown[] }).$in.map((value) => idOf(value))
           return wanted.includes(idOf(actual))
         }
         if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
@@ -1597,18 +1628,18 @@ describe('RbacService', () => {
     }
 
     /** Wire `em.findOne` / `em.find` to evaluate the service's real filters. */
-    const seed = (tables: Map<any, Row[]>) => {
-      const rowsFor = (entity: any) => tables.get(entity) ?? []
-      em.findOne.mockImplementation(async (entity: any, where: any) =>
+    const seed = (tables: Map<unknown, Row[]>) => {
+      const rowsFor = (entity: unknown) => tables.get(entity) ?? []
+      em.findOne.mockImplementation(async (entity: unknown, where: unknown) =>
         rowsFor(entity).find((row) => matches(where, row)) ?? null)
-      em.find.mockImplementation(async (entity: any, where: any) =>
+      em.find.mockImplementation(async (entity: unknown, where: unknown) =>
         rowsFor(entity).filter((row) => matches(where, row)))
     }
 
     const user: Row = { id: 'user-1', tenantId: 'tenant-home', organizationId: 'org-1', deletedAt: null }
 
     it('ignores a user-level super-admin grant stamped with a foreign tenant', async () => {
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [user]],
         // The row is real, live and flagged — it simply is not this user's own
         // tenant's grant. Before the tenant binding it conferred `['*']` in
@@ -1629,7 +1660,7 @@ describe('RbacService', () => {
       // The anti-regression half: binding the grant to the user's own tenant
       // must not stop a platform super-admin working inside a customer tenant,
       // which is what the tenant switcher does on every cross-tenant view.
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [user]],
         [UserAcl, [{
           user, tenantId: 'tenant-home', isSuperAdmin: true,
@@ -1645,7 +1676,7 @@ describe('RbacService', () => {
 
     it('ignores a role-level super-admin grant whose ACL row is stamped with a foreign tenant', async () => {
       const role: Row = { id: 'role-a', tenantId: 'tenant-home', deletedAt: null }
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [user]],
         [UserAcl, []],
         [UserRole, [{ user, role, deletedAt: null }]],
@@ -1663,7 +1694,7 @@ describe('RbacService', () => {
 
     it('ignores a super-admin role that belongs to another tenant', async () => {
       const foreignRole: Row = { id: 'role-foreign', tenantId: 'tenant-other', deletedAt: null }
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [user]],
         [UserAcl, []],
         [UserRole, [{ user, role: foreignRole, deletedAt: null }]],
@@ -1678,7 +1709,7 @@ describe('RbacService', () => {
     })
 
     it('ignores a soft-deleted user-level super-admin grant', async () => {
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [user]],
         [UserAcl, [{
           user, tenantId: 'tenant-home', isSuperAdmin: true,
@@ -1697,7 +1728,7 @@ describe('RbacService', () => {
 
     it('ignores a soft-deleted role-level super-admin grant', async () => {
       const role: Row = { id: 'role-a', tenantId: 'tenant-home', deletedAt: null }
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [user]],
         [UserAcl, []],
         [UserRole, [{ user, role, deletedAt: null }]],
@@ -1717,7 +1748,7 @@ describe('RbacService', () => {
       // a mocked EntityManager cannot demonstrate WHICH row wins. What it can
       // demonstrate is that the service asks for an order at all — the absence
       // of one is the defect, and it is invisible in any single-row fixture.
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [user]],
         [UserAcl, [{
           user, tenantId: 'tenant-home', isSuperAdmin: false,
@@ -1730,9 +1761,13 @@ describe('RbacService', () => {
 
       await service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' })
 
-      const scopedRead = em.findOne.mock.calls.find(([entity, where]: any[]) => (
-        entity === UserAcl && where && where.isSuperAdmin === undefined
-      ))
+      const scopedRead = em.findOne.mock.calls.find((call) => {
+        const [entity, where] = call as unknown[]
+        return entity === UserAcl
+          && !!where
+          && typeof where === 'object'
+          && (where as { isSuperAdmin?: unknown }).isSuperAdmin === undefined
+      })
       expect(scopedRead).toBeDefined()
       expect(scopedRead![1]).toMatchObject({ tenantId: 'tenant-home', deletedAt: null })
       expect(scopedRead![2]).toMatchObject({ orderBy: { createdAt: 'desc', id: 'desc' } })
@@ -1740,7 +1775,7 @@ describe('RbacService', () => {
 
     it('grants nothing to a user with no tenant of their own', async () => {
       const tenantless: Row = { id: 'user-2', tenantId: null, organizationId: null, deletedAt: null }
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, [tenantless]],
         [UserAcl, [{
           user: tenantless, tenantId: 'tenant-other', isSuperAdmin: true,
@@ -1757,7 +1792,7 @@ describe('RbacService', () => {
     it('grants nothing when the grant outlives the user row it names', async () => {
       // The check now runs after the user load, so a `user_acls` row left behind
       // by a hard-deleted user no longer confers anything.
-      seed(new Map<any, Row[]>([
+      seed(new Map<unknown, Row[]>([
         [User, []],
         [UserAcl, [{
           user: { id: 'ghost' }, tenantId: 'tenant-home', isSuperAdmin: true,
@@ -1769,6 +1804,36 @@ describe('RbacService', () => {
 
       await expect(service.loadAcl('ghost', { tenantId: 'tenant-home', organizationId: 'org-1' }))
         .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: null })
+    })
+
+    it('ignores a super-admin role reached through a soft-deleted assignment', async () => {
+      const role: Row = { id: 'role-a', tenantId: 'tenant-home', deletedAt: null }
+      seed(new Map<unknown, Row[]>([
+        [User, [user]],
+        [UserAcl, []],
+        [UserRole, [{ user, role, deletedAt: new Date('2026-08-01T00:00:00Z') }]],
+        [RoleAcl, [{ role, tenantId: 'tenant-home', isSuperAdmin: true, deletedAt: null }]],
+      ]))
+
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
+    it('ignores a soft-deleted super-admin role', async () => {
+      const role: Row = {
+        id: 'role-a',
+        tenantId: 'tenant-home',
+        deletedAt: new Date('2026-08-01T00:00:00Z'),
+      }
+      seed(new Map<unknown, Row[]>([
+        [User, [user]],
+        [UserAcl, []],
+        [UserRole, [{ user, role, deletedAt: null }]],
+        [RoleAcl, [{ role, tenantId: 'tenant-home', isSuperAdmin: true, deletedAt: null }]],
+      ]))
+
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
     })
   })
 

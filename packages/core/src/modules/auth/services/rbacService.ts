@@ -1,7 +1,7 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
-import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { UserAcl, RoleAcl, Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
@@ -219,12 +219,12 @@ export class RbacService {
       return false
     }
     const userSuper = await em.findOne(UserAcl, {
-      user: userId as any,
+      user: userId as unknown as User,
       tenantId: userTenantId,
       isSuperAdmin: true,
       deletedAt: null,
-    } as any)
-    if (userSuper && (userSuper as any).isSuperAdmin) {
+    } as FilterQuery<UserAcl>)
+    if (userSuper?.isSuperAdmin) {
       this.globalSuperAdminCache.set(userId, true)
       return true
     }
@@ -235,7 +235,11 @@ export class RbacService {
       // `resolveCanonicalStaffAuthContext` already requires. The encryption
       // scope stays `{ null, null }` as before — this change is about which rows
       // count, not about which key decrypts them.
-      { user: userId as any, role: { tenantId: userTenantId } } as any,
+      {
+        user: userId as unknown as User,
+        deletedAt: null,
+        role: { tenantId: userTenantId, deletedAt: null },
+      } as FilterQuery<UserRole>,
       { populate: ['role'] },
       { tenantId: null, organizationId: null },
     )
@@ -245,7 +249,7 @@ export class RbacService {
       return false
     }
     const roleIds = Array.from(new Set(linkList.map((link) => {
-      const role = link.role as any
+      const role = link.role
       return role?.id ? String(role.id) : null
     }).filter((id): id is string => typeof id === 'string' && id.length > 0)))
     if (!roleIds.length) {
@@ -256,8 +260,8 @@ export class RbacService {
       isSuperAdmin: true,
       tenantId: userTenantId,
       deletedAt: null,
-      role: { $in: roleIds as any },
-    } as any)
+      role: { $in: roleIds as unknown as Role[] },
+    } as FilterQuery<RoleAcl>)
     const result = roleSupers.some((roleAcl) => (
       !!roleAcl.isSuperAdmin && !isRestrictedRoleAcl(roleAcl)
     ))
@@ -320,7 +324,11 @@ export class RbacService {
           tenantId,
           evaluatedOrganizationId,
         )
-        const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any)
+        const racls = await em.find(RoleAcl, {
+          tenantId,
+          deletedAt: null,
+          role: { $in: roleIds as unknown as Role[] },
+        } as FilterQuery<RoleAcl>)
         for (const acl of racls) {
           if (roleAclAllowsOrganization(acl, roleOrganizationScope)) {
             isSuper = isSuper || !!acl.isSuperAdmin
@@ -419,14 +427,14 @@ export class RbacService {
     // override must not keep answering.
     const uacl = await em.findOne(
       UserAcl,
-      { user: userId as any, tenantId, deletedAt: null } as any,
+      { user: userId as unknown as User, tenantId, deletedAt: null } as FilterQuery<UserAcl>,
       // `createdAt`/`id`, not `updatedAt`: `updated_at` is nullable and Postgres
       // sorts NULLs FIRST under DESC, so ordering by it would prefer a row that
       // was never updated. The migration's one-time collapse uses
       // `coalesce(updated_at, created_at)` because there it is picking the row
       // an operator would call current; here the only requirement is that the
       // answer not vary between requests.
-      { orderBy: { createdAt: 'desc', id: 'desc' } } as any,
+      { orderBy: { createdAt: 'desc', id: 'desc' } } as const,
     )
     if (uacl) {
       const result = {
@@ -442,12 +450,18 @@ export class RbacService {
     const links = await findWithDecryption(
       em,
       UserRole,
-      { user: userId as any, role: { tenantId } } as any,
+      {
+        user: userId as unknown as User,
+        deletedAt: null,
+        role: { tenantId, deletedAt: null },
+      } as FilterQuery<UserRole>,
       { populate: ['role'] },
       { tenantId, organizationId: orgId },
     )
     const linkList = Array.isArray(links) ? links : []
-    const roleIds = linkList.map((l) => (l.role as any)?.id).filter(Boolean)
+    const roleIds = linkList
+      .map((link) => link.role?.id ? String(link.role.id) : null)
+      .filter((roleId): roleId is string => roleId !== null)
     let isSuper = false
     const features: string[] = []
     let organizations: string[] | null = []
@@ -458,7 +472,11 @@ export class RbacService {
         tenantId,
         scope.organizationId,
       )
-      const racls = await em.find(RoleAcl, { tenantId, deletedAt: null, role: { $in: roleIds as any } } as any, {})
+      const racls = await em.find(RoleAcl, {
+        tenantId,
+        deletedAt: null,
+        role: { $in: roleIds as unknown as Role[] },
+      } as FilterQuery<RoleAcl>, {})
       const roleAcls = Array.isArray(racls) ? racls : []
       for (const r of roleAcls) {
         if (roleAclAllowsOrganization(r, roleOrganizationScope)) {
@@ -515,7 +533,7 @@ export class RbacService {
       tenantId,
       opts?.organizationId,
     )
-    const roleAcls = await em.find(RoleAcl, { tenantId, deletedAt: null } as any, {})
+    const roleAcls = await em.find(RoleAcl, { tenantId, deletedAt: null } as FilterQuery<RoleAcl>, {})
     const list = Array.isArray(roleAcls) ? roleAcls : []
 
     for (const acl of list) {

@@ -1481,10 +1481,11 @@ describe('GET /api/auth/users', () => {
       features: ['auth.users.edit'],
       organizations: null,
     })
-    mockEm.findOne.mockImplementation(async (entity: unknown) => {
-      // `isUserEffectivelySuperAdmin` resolves the target's own tenant first and
-      // matches the grant against it, so the target row has to exist here.
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === User) return { id: superAdminUserId, tenantId }
+      return null
+    })
+    mockEm.findOne.mockImplementation(async (entity: unknown) => {
       if (entity === UserAcl) return { isSuperAdmin: true }
       return null
     })
@@ -1510,10 +1511,11 @@ describe('GET /api/auth/users', () => {
       features: ['auth.users.delete'],
       organizations: null,
     })
-    mockEm.findOne.mockImplementation(async (entity: unknown) => {
-      // `isUserEffectivelySuperAdmin` resolves the target's own tenant first and
-      // matches the grant against it, so the target row has to exist here.
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === User) return { id: superAdminUserId, tenantId }
+      return null
+    })
+    mockEm.findOne.mockImplementation(async (entity: unknown) => {
       if (entity === UserAcl) return { isSuperAdmin: true }
       return null
     })

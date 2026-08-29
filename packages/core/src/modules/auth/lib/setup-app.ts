@@ -444,7 +444,7 @@ export async function setupInitialTenant(
         await tem.flush()
         for (const roleName of base.roles) {
           const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
-          const existingLink = await findOneWithDecryption(tem, UserRole, { user, role }, {}, { tenantId: tenantId ?? null, organizationId: null })
+          const existingLink = await findOneWithDecryption(tem, UserRole, { user, role, deletedAt: null }, {}, { tenantId: tenantId ?? null, organizationId: null })
           if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
         }
         await tem.flush()
@@ -661,7 +661,7 @@ async function ensureRoleAclFor(
   // so a first init used to store the string twice while the second run silently collapsed it.
   // Same list, two shapes, depending only on how many times setup had run.
   const uniqueFeatures = Array.from(new Set(features))
-  const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
+  const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId, deletedAt: null }, {}, { tenantId, organizationId: null })
   if (!existing) {
     const acl = em.create(RoleAcl, {
       role,

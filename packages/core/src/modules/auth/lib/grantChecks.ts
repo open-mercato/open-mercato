@@ -338,10 +338,13 @@ async function resolveActorIsSuperAdmin(input: GrantCheckContext & { actorIsSupe
  * whose `tenantId` is absent, so no mutation reaches either case.
  */
 export async function isUserEffectivelySuperAdmin(em: EntityManager, userId: string): Promise<boolean> {
-  // Read without decryption on purpose: the only column consulted is
-  // `tenant_id`, which is not encrypted, so decrypting the row would be work
-  // thrown away on a guard that runs on every user write.
-  const target = await em.findOne(User, { id: userId } as FilterQuery<User>)
+  const target = await findOneWithDecryption(
+    em,
+    User,
+    { id: userId } as FilterQuery<User>,
+    {},
+    { tenantId: null, organizationId: null },
+  )
   const tenantId = normalizeNullableString((target as { tenantId?: string | null } | null)?.tenantId)
   if (!tenantId) return false
   const directGrant = await em.findOne(
@@ -355,7 +358,11 @@ export async function isUserEffectivelySuperAdmin(em: EntityManager, userId: str
     // Roles of the user's own tenant, the same restriction `isGlobalSuperAdmin`
     // applies. The encryption scope stays `{ null, null }`: this is about which
     // rows count, not about which key decrypts them.
-    { user: userId as unknown, role: { tenantId } } as FilterQuery<UserRole>,
+    {
+      user: userId as unknown,
+      deletedAt: null,
+      role: { tenantId, deletedAt: null },
+    } as FilterQuery<UserRole>,
     { populate: ['role'] },
     { tenantId: null, organizationId: null },
   )
@@ -388,7 +395,13 @@ export async function isUserEffectivelySuperAdmin(em: EntityManager, userId: str
  * the user side does.
  */
 export async function isRoleEffectivelySuperAdmin(em: EntityManager, roleId: string): Promise<boolean> {
-  const role = await em.findOne(Role, { id: roleId } as FilterQuery<Role>)
+  const role = await findOneWithDecryption(
+    em,
+    Role,
+    { id: roleId } as FilterQuery<Role>,
+    {},
+    { tenantId: null, organizationId: null },
+  )
   const tenantId = normalizeNullableString((role as { tenantId?: string | null } | null)?.tenantId)
   if (!tenantId) return false
   const grant = await em.findOne(
@@ -457,7 +470,10 @@ export async function listSuperAdminUserIds(em: EntityManager, tenantId: string 
     const links = await findWithDecryption(
       em,
       UserRole,
-      { role: { $in: roleIds } as unknown } as FilterQuery<UserRole>,
+      {
+        deletedAt: null,
+        role: { id: { $in: roleIds }, deletedAt: null },
+      } as FilterQuery<UserRole>,
       {},
       { tenantId: null, organizationId: null },
     )

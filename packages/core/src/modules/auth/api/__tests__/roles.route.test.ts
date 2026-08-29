@@ -136,6 +136,12 @@ describe('GET /api/auth/roles', () => {
       { name: { $ne: 'superadmin' } },
       { id: { $nin: ['323e4567-e89b-12d3-a456-426614174050'] } },
     ]))
+    expect(mockEm.find).toHaveBeenNthCalledWith(
+      1,
+      RoleAcl,
+      { tenantId: actorTenantId, isSuperAdmin: true, deletedAt: null },
+      {},
+    )
   })
 
   test('applies requested tenant scope for superadmin actor', async () => {

@@ -10,9 +10,10 @@ import {
 import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 const mockFindWithDecryption = jest.fn()
+const mockFindOneWithDecryption = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(),
+  findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
 }))
 
@@ -89,6 +90,13 @@ function matchesRow(db: Db, row: Row, where: Row): boolean {
       if (Array.isArray(cond.$in)) {
         const id = refId(actual)
         if (!id || !(cond.$in as unknown[]).includes(id)) return false
+        const relationConditions = Object.fromEntries(
+          Object.entries(cond).filter(([conditionKey]) => conditionKey !== '$in'),
+        )
+        if (Object.keys(relationConditions).length > 0) {
+          const related = relatedTable(db, key).find((candidate) => candidate.id === id)
+          if (!related || !matchesRow(db, related, relationConditions)) return false
+        }
         continue
       }
       // Nested filter on a relation: resolve the referenced row and match there.
@@ -120,6 +128,8 @@ function makeEm(db: Db) {
   // into the same tables so its filter is evaluated too.
   mockFindWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Row) =>
     Promise.resolve(tableFor(db, entity).filter((row) => matchesRow(db, row, where ?? {}))))
+  mockFindOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Row) =>
+    Promise.resolve(tableFor(db, entity).find((row) => matchesRow(db, row, where ?? {})) ?? null))
   return em
 }
 
@@ -161,6 +171,8 @@ function dbWithRoleGrant(): Db {
 beforeEach(() => {
   mockFindWithDecryption.mockReset()
   mockFindWithDecryption.mockResolvedValue([])
+  mockFindOneWithDecryption.mockReset()
+  mockFindOneWithDecryption.mockResolvedValue(null)
 })
 
 describe('isUserEffectivelySuperAdmin', () => {
@@ -241,6 +253,20 @@ describe('isUserEffectivelySuperAdmin', () => {
   test('ignores a soft-deleted RoleAcl grant', async () => {
     const db = dbWithRoleGrant()
     db.roleAcls[0]!.deletedAt = new Date('2026-08-01T00:00:00Z')
+
+    expect(await isUserEffectivelySuperAdmin(makeEm(db) as never, targetUserId)).toBe(false)
+  })
+
+  test('ignores a super-admin role reached through a soft-deleted assignment', async () => {
+    const db = dbWithRoleGrant()
+    db.userRoles[0]!.deletedAt = new Date('2026-08-01T00:00:00Z')
+
+    expect(await isUserEffectivelySuperAdmin(makeEm(db) as never, targetUserId)).toBe(false)
+  })
+
+  test('ignores a soft-deleted super-admin role', async () => {
+    const db = dbWithRoleGrant()
+    db.roles[0]!.deletedAt = new Date('2026-08-01T00:00:00Z')
 
     expect(await isUserEffectivelySuperAdmin(makeEm(db) as never, targetUserId)).toBe(false)
   })
@@ -475,6 +501,19 @@ describe('listSuperAdminUserIds', () => {
     const result = await listSuperAdminUserIds(makeEm(db) as never, tenantId)
 
     expect(result.size).toBe(0)
+  })
+
+  test('ignores role-derived users reached through soft-deleted assignments or roles', async () => {
+    const db = dbWithBothHalves()
+    db.userAcls = []
+    db.userRoles[0]!.deletedAt = new Date('2026-08-01T00:00:00Z')
+
+    expect(await listSuperAdminUserIds(makeEm(db) as never, tenantId)).toEqual(new Set())
+
+    db.userRoles[0]!.deletedAt = null
+    db.roles[0]!.deletedAt = new Date('2026-08-01T00:00:00Z')
+
+    expect(await listSuperAdminUserIds(makeEm(db) as never, tenantId)).toEqual(new Set())
   })
 
   test('keeps organization-restricted super admin roles in the exclusion list', async () => {
