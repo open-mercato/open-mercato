@@ -196,13 +196,17 @@ const itemSchema = z.object({
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional(),
 });
+const siteWarehouseRoleCreateOpenApiSchema = siteWarehouseRoleCreateSchema.omit({
+  organizationId: true,
+  tenantId: true,
+});
 export const openApi = createWmsCrudOpenApi({
   resourceName: "Site warehouse role",
   pluralName: "Site warehouse roles",
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(itemSchema),
   create: {
-    schema: siteWarehouseRoleCreateSchema,
+    schema: siteWarehouseRoleCreateOpenApiSchema,
     description: "Assigns an active warehouse to a WMS site role.",
   },
   update: {

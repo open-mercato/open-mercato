@@ -88,4 +88,13 @@ describe('seedWmsDefaultTopology', () => {
     expect(persist).not.toHaveBeenCalled()
     expect(flush).not.toHaveBeenCalled()
   })
+
+  it('treats a unique-constraint race as an idempotent no-op', async () => {
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const { em, flush } = buildEntityManager()
+    flush.mockRejectedValue({ code: '23505' })
+
+    await expect(seedWmsDefaultTopology(em, scope)).resolves.toBe(false)
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
 })

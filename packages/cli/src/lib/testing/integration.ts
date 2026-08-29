@@ -3121,6 +3121,11 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
   await resetDirectory(coveragePaths.rawDirectory)
   await resetDirectory(coveragePaths.reportDirectory)
 
+  const selectedCoveragePaths = resolveIntegrationSpecPaths(
+    await listIntegrationSpecFiles(),
+    options.filter,
+  )
+
   const startOptions: EphemeralRuntimeOptions = {
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
@@ -3140,7 +3145,7 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
     try {
       await runPlaywrightSelection(
         environment,
-        options.filter,
+        selectedCoveragePaths,
         {
           verbose: options.verbose,
           captureScreenshots: options.captureScreenshots,
@@ -3287,6 +3292,18 @@ export function selectIntegrationSpecPaths(
     .map((target) => target.path)
 }
 
+export function resolveIntegrationSpecPaths(
+  targets: readonly IntegrationSpecTarget[],
+  filter: string | null,
+): string[] | null {
+  if (!filter) return null
+  const selectedPaths = selectIntegrationSpecPaths(targets, filter)
+  if (selectedPaths.length === 0) {
+    throw new Error(`No integration tests matched filter "${filter}".`)
+  }
+  return selectedPaths
+}
+
 async function runPlaywrightSelection(
   environment: EphemeralEnvironmentHandle,
   selection: string | string[] | null,
@@ -3327,13 +3344,10 @@ async function runIntegrationTestSuiteOnce(
   const testArgs = ['test:integration']
   let commandEnvironment = environment.commandEnvironment
   if (options.filter) {
-    const selectedPaths = selectIntegrationSpecPaths(
+    const selectedPaths = resolveIntegrationSpecPaths(
       await listIntegrationSpecFiles(),
       options.filter,
     )
-    if (selectedPaths.length === 0) {
-      throw new Error(`No integration tests matched filter "${options.filter}".`)
-    }
     commandEnvironment = buildPlaywrightSelectionEnvironment(
       commandEnvironment,
       selectedPaths,

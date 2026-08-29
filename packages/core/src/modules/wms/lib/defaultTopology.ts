@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import {
   Site,
   SiteWarehouseRole,
@@ -51,6 +52,11 @@ export async function seedWmsDefaultTopology(
   em.persist(site)
   em.persist(warehouse)
   em.persist(role)
-  await em.flush()
-  return true
+  try {
+    await em.flush()
+    return true
+  } catch (error) {
+    if (isUniqueViolation(error)) return false
+    throw error
+  }
 }

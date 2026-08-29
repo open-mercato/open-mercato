@@ -16,6 +16,7 @@ import {
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import { extractUndoPayload } from "@open-mercato/shared/lib/commands/undo";
 import { assertOptimisticLock } from "@open-mercato/shared/lib/crud/optimistic-lock-command";
+import { escapeLikePattern } from "@open-mercato/shared/lib/db/escapeLikePattern";
 import { LockMode } from "@mikro-orm/core";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { E } from "#generated/entities.ids.generated";
@@ -354,7 +355,7 @@ async function ensureCodeUnique(
   const existing = await manager.findOne(Site, {
     tenantId: current.tenantId,
     organizationId: current.organizationId,
-    code: { $ilike: code },
+    code: { $ilike: escapeLikePattern(code) },
     deletedAt: null,
   });
   if (existing && existing.id !== except)

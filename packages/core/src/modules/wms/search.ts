@@ -125,7 +125,10 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         return buildSitePresenter(t, ctx.record)
       },
-      resolveUrl: async () => `${WMS_ROOT_URL}/sites`,
+      resolveUrl: async (ctx) => {
+        const id = pickString(ctx.record.id)
+        return id ? `${WMS_ROOT_URL}/sites/${encodeURIComponent(id)}` : `${WMS_ROOT_URL}/sites`
+      },
       fieldPolicy: { searchable: ['name', 'code'] },
     },
     {

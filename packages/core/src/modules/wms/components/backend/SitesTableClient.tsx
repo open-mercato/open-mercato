@@ -192,6 +192,7 @@ export function SitesTableClient() {
         pageSize: 10,
         total: query.data?.total ?? 0,
         totalPages: query.data?.totalPages ?? 1,
+        totalIsCapped: query.data?.totalIsCapped === true,
         onPageChange: setPage,
       }}
       perspective={{ tableId: extensionPoints.hosts.sitesTable.tableId }}

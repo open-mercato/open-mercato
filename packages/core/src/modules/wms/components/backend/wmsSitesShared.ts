@@ -15,7 +15,12 @@ export type Site = {
   customValues?: Record<string, unknown>;
 };
 
-export type Paged<T> = { items: T[]; total: number; totalPages: number };
+export type Paged<T> = {
+  items: T[];
+  total: number;
+  totalPages: number;
+  totalIsCapped?: boolean;
+};
 
 export type SiteFormValues = {
   id?: string;

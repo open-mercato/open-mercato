@@ -27,6 +27,7 @@ import {
   terminateProcessTree,
   registerEphemeralShutdownHandlers,
   buildPlaywrightSelectionEnvironment,
+  resolveIntegrationSpecPaths,
   selectIntegrationSpecPaths,
 } from '../integration'
 import type { CapturedOutputProcess, ShutdownProcessRef } from '../integration'
@@ -154,6 +155,12 @@ describe('integration cache and options', () => {
     expect(selectIntegrationSpecPaths(targets, 'sites api')).toEqual([
       targets[0].path,
     ])
+    expect(resolveIntegrationSpecPaths(targets, 'sites api')).toEqual([
+      targets[0].path,
+    ])
+    expect(() => resolveIntegrationSpecPaths(targets, 'missing')).toThrow(
+      'No integration tests matched filter "missing".',
+    )
   })
 
   const restoreEphemeralStateFiles = async (originalStateText: string | null, originalLegacyStateText: string | null) => {

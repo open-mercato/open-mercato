@@ -138,13 +138,17 @@ const itemSchema = z.object({
   customValues: z.record(z.string(), z.unknown()).nullable().optional(),
   customFields: z.array(z.unknown()).optional(),
 });
+const siteCreateOpenApiSchema = siteCreateSchema.omit({
+  organizationId: true,
+  tenantId: true,
+});
 export const openApi = createWmsCrudOpenApi({
   resourceName: "Site",
   pluralName: "Sites",
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(itemSchema),
   create: {
-    schema: siteCreateSchema,
+    schema: siteCreateOpenApiSchema,
     description: "Creates an active-by-default WMS site.",
   },
   update: {

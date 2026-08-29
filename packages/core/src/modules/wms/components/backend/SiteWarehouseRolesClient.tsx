@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { LegacyColumnDef as ColumnDef } from "@tanstack/react-table/legacy";
 import { DataTable } from "@open-mercato/ui/backend/DataTable";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { EmptyState } from "@open-mercato/ui/backend/EmptyState";
@@ -17,7 +16,6 @@ import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { Button } from "@open-mercato/ui/primitives/button";
-import { StatusBadge } from "@open-mercato/ui/primitives/status-badge";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { E } from "#generated/entities.ids.generated";
 import { extensionPoints } from "../../extension-points";
@@ -34,10 +32,10 @@ import {
   type Paged,
   useCanManageSites,
 } from "./wmsSitesShared";
-
-function warehouseLabel(row: SiteWarehouseRoleRow): string {
-  return row.warehouse.name || row.warehouse.code || row.warehouse.id;
-}
+import {
+  buildSiteWarehouseRoleColumns,
+  warehouseLabel,
+} from "./siteWarehouseRoleColumns";
 
 export function SiteWarehouseRolesClient({
   siteId,
@@ -159,43 +157,7 @@ export function SiteWarehouseRolesClient({
     },
     [confirm, refresh, runMutation, t],
   );
-  const columns = React.useMemo<ColumnDef<SiteWarehouseRoleRow>[]>(
-    () => [
-      {
-        accessorKey: "role",
-        header: t("wms.sites.roles.columns.role", "Role"),
-        cell: ({ row }) =>
-          t(`wms.sites.roles.role.${row.original.role}`, row.original.role),
-      },
-      {
-        id: "warehouse",
-        header: t("wms.sites.roles.columns.warehouse", "Warehouse"),
-        cell: ({ row }) => (
-          <div className="space-y-1">
-            <span>{warehouseLabel(row.original)}</span>
-            {!row.original.warehouse.isActive ? (
-              <StatusBadge variant="warning">
-                {t("wms.sites.roles.warehouseInactive", "Warehouse inactive")}
-              </StatusBadge>
-            ) : null}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "isDefault",
-        header: t("wms.sites.roles.columns.default", "Default"),
-        cell: ({ row }) =>
-          row.original.isDefault ? (
-            <StatusBadge variant="success">
-              {t("common.yes", "Yes")}
-            </StatusBadge>
-          ) : (
-            t("common.no", "No")
-          ),
-      },
-    ],
-    [t],
-  );
+  const columns = React.useMemo(() => buildSiteWarehouseRoleColumns(t), [t]);
   return (
     <>
       <DataTable
@@ -218,6 +180,7 @@ export function SiteWarehouseRolesClient({
           pageSize: SITE_WAREHOUSE_ROLES_PAGE_SIZE,
           total: query.data?.total ?? 0,
           totalPages: query.data?.totalPages ?? 1,
+          totalIsCapped: query.data?.totalIsCapped === true,
           onPageChange: setPage,
         }}
         actions={
