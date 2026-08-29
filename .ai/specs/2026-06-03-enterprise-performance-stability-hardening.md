@@ -1,6 +1,6 @@
 # Enterprise Performance & Stability Hardening — Research & Roadmap
 
-**Status:** research / roadmap — restored 2026-08-29 from git history; issue cohort #2958–#2983 filed (see Restoration addendum)
+**Status:** research / roadmap — never previously merged; recovered from snapshot history and landed 2026-08-29; issue cohort #2958–#2983 filed (see Recovery addendum)
 **Owner:** core / shared / platform
 **Date:** 2026-06-03
 **Related:** [`2026-05-24-crud-api-performance-quick-wins.md`](2026-05-24-crud-api-performance-quick-wins.md), [`2026-05-07-lazy-auto-spawn-queue-workers.md`](2026-05-07-lazy-auto-spawn-queue-workers.md), [`2026-05-27-dev-mode-memory-quick-wins.md`](2026-05-27-dev-mode-memory-quick-wins.md)
@@ -168,13 +168,13 @@ The profiler infra already exists (`OM_PROFILE=*`, `packages/shared/src/lib/prof
 3. **Search backend** at target tenant count — commit to HNSW + shared Meilisearch index now, or defer (3.2 is the biggest single effort)?
 4. Is `OM_BOOTSTRAP_CACHE` safe to flip on today (quick win) pending the 3.3 refactor, or treat as blocked?
 
-## Restoration & status addendum (2026-08-29)
+## Recovery & status addendum (2026-08-29)
 
-Everything above this section is the original 2026-06-03 document, restored verbatim; the roadmap tables, per-domain findings, and open questions are unchanged historical content. Only the `Status:` line was updated in place, so the section identifiers the tracker issues cite (e.g. P3.3, P1.5) still resolve.
+Everything above this section is the original 2026-06-03 document, recovered verbatim; the roadmap tables, per-domain findings, and open questions are unchanged historical content. Only the `Status:` line was updated in place, so the section identifiers the tracker issues cite (e.g. P3.3, P1.5) still resolve.
 
 ### Provenance
 
-This file was referenced by fifteen tracker issues but absent from the repository — the situation documented in #4635. It was recovered from git history: the identical blob (`5d69640d9bb325ca7c3a6cb58c887eaad884af6c`) exists in seven `Codex worktree snapshot: startup-cleanup` commits (`cc2fdd68f2` … `0df10c165e`, 2026-06-20 through 2026-07-07), none of which is an ancestor of `develop`. Restoring it resolves #4635 through that issue's first option: the spec existed and never made it to the OSS tree.
+This file was referenced by fifteen tracker issues but absent from the repository — the situation documented in #4635. It was never on `develop` and was never deleted: it existed only in the author's working tree, and survived solely in local Codex CLI crash-recovery refs (`refs/codex/snapshots/*`). The identical blob (`5d69640d9bb325ca7c3a6cb58c887eaad884af6c`) exists in seven `Codex worktree snapshot: startup-cleanup` commits (`cc2fdd68f2` … `0df10c165e`, 2026-06-20 through 2026-07-07), none of which is an ancestor of `develop` — and such snapshot refs never reach GitHub, which is why #4635's search found nothing. Landing it resolves #4635 through that issue's first option: the spec existed and never made it to the OSS tree.
 
 Two of the document's references need correction as of 2026-08-29:
 
@@ -202,10 +202,40 @@ The 2026-06-10 audit filed fifteen issues from this research. Eleven map to item
 | Audit cohort, beyond the P-tables — sales shipment/payment snapshot N+1 in `loadOrderSnapshot` | #2979 | open |
 | Audit cohort, beyond the P-tables — `action_logs` retention prune + drop sales' duplicated undo snapshots | #2980 | open |
 | Search [CRIT/HIGH] per-request infra — hoist stateless search services to process singletons | #2981 | open, bug, priority-high |
-| Search [CRIT] synchronous token chain — checksum-skip unchanged search-token rewrites | #2982 | open |
+| Search [CRIT] synchronous token chain — checksum-skip unchanged search-token rewrites | #2982 | open in tracker; substance largely shipped (batch path via #4681, single-record path via #5650, off-request deferral via #3236) |
 | Audit cohort, beyond the P-tables — server-first data delivery (`initialData` seam seeding react-query) | #2983 | open, priority-high |
 
 Adjacent newer issues from the 2026-08 load-test round extend the same themes: #5604 (sequence hot-row locks), #5605 (queryEngine per-request caches), #5606 (Meilisearch per-document sync), #5607 (bulk-create endpoint gap), #5619 (information_schema probe memoization).
+
+### Roadmap status as of 2026-08-29 (verified against `develop@421cefe668`)
+
+The audit's candidate numbering had gaps (2–5, 7–9, 12–13, 18–19); those candidates were filed as sibling issues (e.g. #2961, #2962, #2964, #2966, #2976, #2987) and have largely shipped since June. Verified current state of the roadmap items themselves — readers should not re-implement the Done rows:
+
+| Item | State | Evidence on `develop` |
+|---|---|---|
+| P0.1 cache singleton in `bootstrap()` | **Done** | `getCachedCacheService()` globalThis guard, default-on (`packages/core/src/bootstrap.ts`; #2961/#3031) |
+| P0.2 bounded memory cache | **Done** | LRU, `DEFAULT_MEMORY_MAX_ENTRIES=50_000`, amortized expiry sweep (#2962/#2995, #3070) |
+| P0.3 + P1.1 single-instance strategy guard | **Done** | `packages/cli/src/lib/single-instance-strategy-guard.ts` fails loud in production multi-instance for local/memory queue, cache, and rate-limit strategies (#2987/#3030) |
+| P0.4 encrypted-sort cap | **Done** | two-phase slim-projection bounded sort + `OM_ENCRYPTED_SORT_MAX_ROWS` (#3386 cohort) |
+| P0.5 statement/lock timeouts | Partial | `DB_STATEMENT_TIMEOUT_MS` / `DB_LOCK_TIMEOUT_MS` wired (#2964/#3033) but unset by default |
+| P1.2 staff-auth cache | Open | `sessionIntegrity.ts` still uncached (#2978) |
+| P1.3 rate-limit breadth | Open | opt-in per route, IP-keyed; ~24 of ~408 API route files declare it |
+| P1.4 request-container memo | Open | `createRequestContainer()` still unmemoized, no AsyncLocalStorage (#2977) |
+| P1.5 super-admin probe | Open | instance-scoped `globalSuperAdminCache` on a `.scoped()` service (#2978) |
+| P2.1 indexing off the write thread | Partial | heavy tail (tokens/vector/search) deferred off-request by default (#3236); projection write still inline, subscriber still ephemeral |
+| P2.2 fire-and-forget | Partial | access-log writes async (#2044 Phase 1); `emit()` still awaits SSE fan-out + `pg_notify` |
+| P2.3 batch embeddings / query-embedding cache | Open | no `embedMany`, no job coalescing, no query-embedding cache |
+| P2.4 per-tenant ceilings | Mostly done | AI chat rate limit + default loop budgets, Akeneo 429 bound + timeout, Gmail timeout (#2976/#3014); webhooks negative cache still open (#2974) |
+| P2.5 events throughput | Partial | async-strategy abandoned-job sweep/DLQ landed; events worker concurrency default still 1; local strategy still has no DLQ |
+| P2.6 SSE scaling | Partial | progress coalescing landed (#2972); connection indexing by tenant, shared heartbeat, and connection caps still open |
+| P3.1 Redis pub/sub bridge | Open | transport still `pg_notify`/`LISTEN` |
+| P3.2 HNSW + shared Meilisearch index | Open | still ivfflat `lists=100`; still index-per-tenant |
+| P3.3 bootstrap cross-request safety | Open | `OM_BOOTSTRAP_CACHE` still default-off (#2963) |
+| P3.4 index work | Partial | token composite index landed (#2966/#3000); GIN on `entity_indexes.doc` still open |
+| DB [HIGH] hot-path search `console.info` | **Done** | level-gated `logger.debug` |
+| Caching [HIGH] nav cache tenant scoping | **Done** | tenant/org/user/locale-keyed cache with scoped invalidation tags |
+
+The org-scope cross-request cache also remains opt-in (`OM_ORG_SCOPE_CACHE_TTL_MS`, default 0 per `organizationScope.ts`).
 
 ### Empirical validation (2026-08 benchmarks)
 
@@ -215,8 +245,10 @@ A local production-topology benchmark (4 vCPU / 8 GB app container, separate Pos
 - Code-level verification against `develop@421cefe668` (branch tip as of 2026-08-29) located the mechanisms at current positions: dispatcher auth at `apps/mercato/src/app/api/[...slug]/route.ts:369` with a second full canonical resolution via `packages/shared/src/lib/crud/factory.ts:1397` → `packages/shared/src/lib/auth/server.ts:357`; unconditional registrar replay per container at `packages/shared/src/lib/di/container.ts:248`; the `custom_field_defs` discovery query at `packages/core/src/modules/query_index/di.ts:255-257` (observed ~4× per HTTP request under load); serial response-enricher execution at `packages/shared/src/lib/crud/enricher-runner.ts:228` (2,104 slow-enricher threshold events in one 3-minute run at 20 journeys/s, with the unthrottled warning itself adding load).
 - The per-request `query_index` `setup()` also re-registers event-bus listeners on the process-shared bus on every request (listener accumulation) — an aggravator of the #2967/#2963 cluster not called out in the 2026-06 audit.
 
-The 2026-08 evidence also revises two of the original assessments upward. Theme D's "2–3×" container count measures ~4 builds on a normal CRUD request. And the enricher runner — listed under *Solid* in the HTTP findings with only a [LOW] item — behaves as a first-order list-tail amplifier under load (serial execution, no per-request field opt-in, read-through cache plumbing present but unused by any shipped enricher); none of that is covered by the original fifteen issues. Priority implication: the measurements strengthen the original ordering — the P0/P1 config-and-guardrail items and the #2958/#2967/#2977 cluster have the strongest measured impact case.
+The 2026-08 evidence also revises two of the original assessments upward. Theme D's "2–3×" container count measures ~4 builds on a normal CRUD request. And the enricher runner — listed under *Solid* in the HTTP findings with only a [LOW] item — behaves as a first-order list-tail amplifier under load (serial execution, no per-request field opt-in, read-through cache plumbing present but unused by any shipped enricher); none of that is covered by the original fifteen issues.
+
+Priority implication: the benchmarked build already contained the shipped P0 fixes (the cache singleton and the two-phase encrypted sort are ancestors of the benchmarked commit), so the measured knee characterizes what is **still open** — the request-container/auth duplication cluster (#2958/#2977/#2978), the query_index metadata caches (#2967), and enricher execution — not the items the June–July wave already fixed. The measurements therefore strengthen the remaining-P1 ordering rather than re-litigating P0.
 
 ## Changelog
 - **2026-06-03** — initial research + roadmap from 8 parallel domain audits; no code change.
-- **2026-08-29** — restored to the repository from the `startup-cleanup` snapshot history (identical blob in all seven snapshots), resolving #4635. Original content unchanged except the `Status:` line; added the Restoration & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
+- **2026-08-29** — landed on `develop` for the first time, recovered from the local `refs/codex/snapshots/*` history (identical blob in all seven `startup-cleanup` snapshots), resolving #4635. Original content unchanged except the `Status:` line; added the Recovery & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), a develop-verified roadmap status table (P0 largely shipped since June — P0.1–P0.4 and P1.1 done, P0.5 partial; P1.2–P1.5, P2.2b, P2.3, P2.4d, P3.1–P3.3 still open), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
