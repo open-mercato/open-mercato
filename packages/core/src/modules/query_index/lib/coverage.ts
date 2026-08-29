@@ -408,7 +408,12 @@ export async function applyCoverageAdjustments(
 ): Promise<void> {
   if (!adjustments.length) return
   const db = (em as any).getKysely() as Kysely<any>
-  const aggregated = aggregateAdjustments(adjustments)
+  // Keep scope initialization in a stable order. A caller-supplied transaction retains
+  // advisory and unique-index locks until commit, so two batches that initialize the same
+  // scopes in opposite orders could otherwise deadlock.
+  const aggregated = aggregateAdjustments(adjustments).sort((left, right) => (
+    scopeKey(left.scope).localeCompare(scopeKey(right.scope))
+  ))
   for (const entry of aggregated) {
     const deltas = {
       deltaBase: entry.deltaBase,

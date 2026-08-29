@@ -26,6 +26,7 @@ import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/cove
  */
 function createRecordingDb() {
   const statements: string[] = []
+  const queries: Array<{ sql: string; parameters: readonly unknown[] }> = []
   const db = new Kysely<any>({
     dialect: {
       createAdapter: () => new PostgresAdapter(),
@@ -34,10 +35,12 @@ function createRecordingDb() {
       createQueryCompiler: () => new PostgresQueryCompiler(),
     },
     log: (event) => {
-      if (event.level === 'query') statements.push(event.query.sql)
+      if (event.level !== 'query') return
+      statements.push(event.query.sql)
+      queries.push({ sql: event.query.sql, parameters: event.query.parameters })
     },
   })
-  return { db, statements }
+  return { db, statements, queries }
 }
 
 function createEm(db: Kysely<any>) {
@@ -103,6 +106,35 @@ describe('applyCoverageAdjustments (#5604)', () => {
     expect(lockIndex).toBeGreaterThan(updateIndexes[0]!)
     expect(updateIndexes[1]).toBeGreaterThan(lockIndex)
     expect(insertIndex).toBeGreaterThan(updateIndexes[1]!)
+  })
+
+  it('initializes multiple scopes in a stable order to avoid cross-transaction deadlocks', async () => {
+    const { db, queries } = createRecordingDb()
+
+    await applyCoverageAdjustments(createEm(db), [
+      ...createCoverageAdjustments({
+        ...scope,
+        entityType: 'query_index:z_scope',
+        tenantId: null,
+        baseDelta: 1,
+        indexDelta: 1,
+      }),
+      ...createCoverageAdjustments({
+        ...scope,
+        entityType: 'query_index:a_scope',
+        tenantId: null,
+        baseDelta: 1,
+        indexDelta: 1,
+      }),
+    ], { trx: db })
+
+    const lockKeys = queries
+      .filter((query) => query.sql.includes('pg_advisory_xact_lock'))
+      .map((query) => query.parameters[0])
+    expect(lockKeys).toEqual([
+      'query_index:a_scope|__null_tenant__|22222222-2222-2222-2222-222222222222|active_only',
+      'query_index:z_scope|__null_tenant__|22222222-2222-2222-2222-222222222222|active_only',
+    ])
   })
 
   it('does not read the coverage row before writing it', async () => {
