@@ -539,7 +539,8 @@ export function SalesShipmentsSection({
                         className="h-8 w-8"
                         onClick={() => handleEdit(shipment)}
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" aria-hidden />
+                        <span className="sr-only">{t('sales.documents.shipments.edit', 'Edit shipment')}</span>
                       </Button>
                       <Button
                         variant="ghost"
@@ -547,7 +548,8 @@ export function SalesShipmentsSection({
                         className="h-8 w-8 text-destructive"
                         onClick={() => void handleDelete(shipment)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        <span className="sr-only">{t('sales.documents.shipments.delete', 'Delete shipment')}</span>
                       </Button>
                     </div>
                   ) : null}
