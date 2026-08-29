@@ -1598,6 +1598,78 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
     )
   })
 
+  it('incrementProgress — applies the delta when a fork heartbeat won the revive race', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    // The throttle entry cached `failed` from the stale sweep, but touchJobHeartbeat's
+    // forked revive already flipped the row back to `running`, so the start CAS matches
+    // zero rows. The delta must still land — increments are relative and unrecoverable.
+    const cached = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'failed',
+      processedCount: 40,
+      totalCount: 100,
+      progressPercent: 40,
+      startedAt: new Date(Date.now() - 10_000),
+      errorMessage: staleSweptError,
+      organizationId: null,
+    } as unknown as ProgressJob
+    const revivedByHeartbeat = { ...cached, status: 'running', errorMessage: null, processedCount: 50, progressPercent: 50 } as ProgressJob
+    em.findOneOrFail.mockResolvedValue(cached)
+    em.nativeUpdate
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1)
+    em.findOne
+      .mockResolvedValueOnce(revivedByHeartbeat)
+      .mockResolvedValueOnce({ ...revivedByHeartbeat, processedCount: 60, progressPercent: 60 } as ProgressJob)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 10, baseCtx)
+
+    expect(result.status).toBe('running')
+    expect(result.processedCount).toBe(60)
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(2)
+    expect(em.nativeUpdate).toHaveBeenNthCalledWith(1, expect.anything(), reviveFilter, expect.anything())
+    const [, persistFilter, persistData] = em.nativeUpdate.mock.calls[1]
+    expect(persistFilter).toEqual(expect.objectContaining({ status: { $in: ['pending', 'running'] } }))
+    expect(typeof persistData.processedCount).not.toBe('number')
+    // The heartbeat that won the race already emitted JOB_STARTED; this call must not double it.
+    expect(eventBus.emit).not.toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_STARTED, expect.anything())
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_UPDATED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 60 }),
+    )
+  })
+
+  it('incrementProgress — still drops the write when the row is genuinely completed', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const cached = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'completed',
+      processedCount: 100,
+      totalCount: 100,
+      progressPercent: 100,
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(cached)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 10, baseCtx)
+
+    expect(result.status).toBe('completed')
+    expect(result.processedCount).toBe(100)
+    // No revive CAS is attempted and no re-read is spent on a status that can never
+    // become writable again.
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
   it('persist CAS miss — a mid-buffer sweep is revived once and the buffered delta is not dropped', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }

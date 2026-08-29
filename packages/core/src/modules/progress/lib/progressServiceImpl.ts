@@ -363,10 +363,25 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
     async incrementProgress(jobId, delta, ctx) {
       const entry = await ensureThrottleEntry(jobId, ctx)
-      const job = entry.job
+      let job = entry.job
       if (TERMINAL_STATUSES.includes(job.status)) {
-        const revived = job.status === 'failed' && (await startJobViaCas(em, job, ctx, { staleSweptOnly: true }))
-        if (!revived) {
+        let writable = false
+        if (job.status === 'failed') {
+          writable = (await startJobViaCas(em, job, ctx, { staleSweptOnly: true })) != null
+          if (!writable) {
+            // The cached snapshot's status lags the row whenever another writer — typically
+            // the forked heartbeat in touchJobHeartbeat — already revived this job: the start
+            // CAS then misses because the row is `running`, not `failed`. Increments are
+            // relative, so returning here would lose the caller's delta for good (unlike
+            // updateProgress, whose next absolute write self-corrects). Re-read and fall
+            // through, mirroring the CAS-miss retry in persistAndMaybeBroadcast.
+            const fresh = await loadFreshJob(jobId, ctx)
+            if (fresh) job = fresh
+            writable = fresh != null && PROGRESS_WRITABLE_STATUSES.includes(fresh.status)
+            if (writable) entry.job = job
+          }
+        }
+        if (!writable) {
           forgetJobThrottle(jobId)
           return job
         }
