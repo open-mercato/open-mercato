@@ -9,6 +9,7 @@ export class Migration20260828234646_wms extends Migration {
         "previous_updated_at" timestamptz null,
         "created_by_migration" boolean not null,
         "applied_features_json" jsonb not null,
+        "applied_updated_at" timestamptz not null,
         constraint "wms_acl_migration_20260828234646_pkey" primary key ("role_acl_id")
       );
     `)
@@ -19,7 +20,8 @@ export class Migration20260828234646_wms extends Migration {
         "previous_features_json",
         "previous_updated_at",
         "created_by_migration",
-        "applied_features_json"
+        "applied_features_json",
+        "applied_updated_at"
       )
       select
         ra."id",
@@ -30,7 +32,8 @@ export class Migration20260828234646_wms extends Migration {
           when ra."features_json" is null or jsonb_typeof(ra."features_json") <> 'array'
             then '["wms.manage_sites"]'::jsonb
           else ra."features_json" || '"wms.manage_sites"'::jsonb
-        end
+        end,
+        now()
       from "role_acls" as ra
       inner join "roles" as r on r."id" = ra."role_id"
         and r."tenant_id" = ra."tenant_id"
@@ -73,16 +76,17 @@ export class Migration20260828234646_wms extends Migration {
               and ra."tenant_id" = r."tenant_id"
               and ra."deleted_at" is null
           )
-        returning "id", "features_json"
+        returning "id", "features_json", "updated_at"
       )
       insert into "wms_acl_migration_20260828234646" (
         "role_acl_id",
         "previous_features_json",
         "previous_updated_at",
         "created_by_migration",
-        "applied_features_json"
+        "applied_features_json",
+        "applied_updated_at"
       )
-      select "id", null, null, true, "features_json"
+      select "id", null, null, true, "features_json", "updated_at"
       from inserted;
     `)
 
@@ -94,10 +98,11 @@ export class Migration20260828234646_wms extends Migration {
             then '["wms.manage_sites"]'::jsonb
           else ra."features_json" || '"wms.manage_sites"'::jsonb
         end,
-        "updated_at" = now()
-      from "roles" as r
+        "updated_at" = backup."applied_updated_at"
+      from "roles" as r, "wms_acl_migration_20260828234646" as backup
       where ra."role_id" = r."id"
         and ra."tenant_id" = r."tenant_id"
+        and backup."role_acl_id" = ra."id"
         and ra."deleted_at" is null
         and r."deleted_at" is null
         and r."name" = 'supervisor'
@@ -119,6 +124,7 @@ export class Migration20260828234646_wms extends Migration {
           left join "role_acls" as ra on ra."id" = backup."role_acl_id"
           where ra."id" is null
             or ra."features_json" is distinct from backup."applied_features_json"
+            or ra."updated_at" is distinct from backup."applied_updated_at"
         ) then
           raise exception 'Cannot roll back WMS ACL migration after role ACL changes';
         end if;
