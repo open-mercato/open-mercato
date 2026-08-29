@@ -3,33 +3,87 @@ import { Migration } from '@mikro-orm/migrations'
 export class Migration20260828234646_wms extends Migration {
   override up(): void {
     this.addSql(`
-      insert into "role_acls" (
-        "role_id",
-        "tenant_id",
-        "features_json",
-        "is_super_admin",
-        "organizations_json",
-        "created_at",
-        "updated_at"
+      create table "wms_acl_migration_20260828234646" (
+        "role_acl_id" uuid not null,
+        "previous_features_json" jsonb null,
+        "previous_updated_at" timestamptz null,
+        "created_by_migration" boolean not null,
+        "applied_features_json" jsonb not null,
+        constraint "wms_acl_migration_20260828234646_pkey" primary key ("role_acl_id")
+      );
+    `)
+
+    this.addSql(`
+      insert into "wms_acl_migration_20260828234646" (
+        "role_acl_id",
+        "previous_features_json",
+        "previous_updated_at",
+        "created_by_migration",
+        "applied_features_json"
       )
       select
-        r."id",
-        r."tenant_id",
-        '["wms.manage_sites"]'::jsonb,
+        ra."id",
+        ra."features_json",
+        ra."updated_at",
         false,
-        null,
-        now(),
-        now()
-      from "roles" as r
+        case
+          when ra."features_json" is null or jsonb_typeof(ra."features_json") <> 'array'
+            then '["wms.manage_sites"]'::jsonb
+          else ra."features_json" || '"wms.manage_sites"'::jsonb
+        end
+      from "role_acls" as ra
+      inner join "roles" as r on r."id" = ra."role_id"
+        and r."tenant_id" = ra."tenant_id"
       where r."name" = 'supervisor'
         and r."deleted_at" is null
-        and not exists (
-          select 1
-          from "role_acls" as ra
-          where ra."role_id" = r."id"
-            and ra."tenant_id" = r."tenant_id"
-            and ra."deleted_at" is null
+        and ra."deleted_at" is null
+        and (
+          ra."features_json" is null
+          or jsonb_typeof(ra."features_json") <> 'array'
+          or not (ra."features_json" ? 'wms.manage_sites')
         );
+    `)
+
+    this.addSql(`
+      with inserted as (
+        insert into "role_acls" (
+          "role_id",
+          "tenant_id",
+          "features_json",
+          "is_super_admin",
+          "organizations_json",
+          "created_at",
+          "updated_at"
+        )
+        select
+          r."id",
+          r."tenant_id",
+          '["wms.manage_sites"]'::jsonb,
+          false,
+          null,
+          now(),
+          now()
+        from "roles" as r
+        where r."name" = 'supervisor'
+          and r."deleted_at" is null
+          and not exists (
+            select 1
+            from "role_acls" as ra
+            where ra."role_id" = r."id"
+              and ra."tenant_id" = r."tenant_id"
+              and ra."deleted_at" is null
+          )
+        returning "id", "features_json"
+      )
+      insert into "wms_acl_migration_20260828234646" (
+        "role_acl_id",
+        "previous_features_json",
+        "previous_updated_at",
+        "created_by_migration",
+        "applied_features_json"
+      )
+      select "id", null, null, true, "features_json"
+      from inserted;
     `)
 
     this.addSql(`
@@ -52,6 +106,44 @@ export class Migration20260828234646_wms extends Migration {
           or jsonb_typeof(ra."features_json") <> 'array'
           or not (ra."features_json" ? 'wms.manage_sites')
         );
+    `)
+  }
+
+  override down(): void {
+    this.addSql(`
+      do $$
+      begin
+        if exists (
+          select 1
+          from "wms_acl_migration_20260828234646" as backup
+          left join "role_acls" as ra on ra."id" = backup."role_acl_id"
+          where ra."id" is null
+            or ra."features_json" is distinct from backup."applied_features_json"
+        ) then
+          raise exception 'Cannot roll back WMS ACL migration after role ACL changes';
+        end if;
+      end $$;
+    `)
+
+    this.addSql(`
+      update "role_acls" as ra
+      set
+        "features_json" = backup."previous_features_json",
+        "updated_at" = backup."previous_updated_at"
+      from "wms_acl_migration_20260828234646" as backup
+      where ra."id" = backup."role_acl_id"
+        and backup."created_by_migration" = false;
+    `)
+
+    this.addSql(`
+      delete from "role_acls" as ra
+      using "wms_acl_migration_20260828234646" as backup
+      where ra."id" = backup."role_acl_id"
+        and backup."created_by_migration" = true;
+    `)
+
+    this.addSql(`
+      drop table "wms_acl_migration_20260828234646";
     `)
   }
 }

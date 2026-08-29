@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
@@ -8,8 +10,28 @@ import { createCrudFixture, ensureRoleFeatures } from './helpers/wmsFixtures'
 
 export const integrationMeta = { dependsOnModules: ['wms'] }
 
+const configuredAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
+const standaloneAppRoot = configuredAppRoot ? path.resolve(configuredAppRoot) : null
+
+function assertWmsOnlyComposition(): void {
+  if (!standaloneAppRoot) return
+
+  const generatedModuleIdsPath = path.join(
+    standaloneAppRoot,
+    '.mercato',
+    'generated',
+    'enabled-module-ids.generated.ts',
+  )
+  const generatedModuleIds = fs.readFileSync(generatedModuleIdsPath, 'utf8')
+  expect(generatedModuleIds).toMatch(/"wms"/)
+  expect(generatedModuleIds).not.toMatch(/"manufacturing"/)
+}
+
 test.describe('TC-WMS-SITES-COMPAT-001: WMS Sites without Manufacturing', () => {
+  test.skip(!standaloneAppRoot, 'requires the disposable standalone app selected by OM_TEST_APP_ROOT')
+
   test('loads WMS-only Site registrations, ACL, custom fields, and backend routes without Manufacturing', async ({ page, request }) => {
+    assertWmsOnlyComposition()
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
