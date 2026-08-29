@@ -183,23 +183,15 @@ export async function GET(req: Request) {
   }
 
   const pageOrganizationIds = Array.from(new Set(
-    users
-      .map((user) => (user.organizationId ? String(user.organizationId) : null))
-      .filter((organizationId): organizationId is string => !!organizationId),
+    users.map((user) => user.organizationId).filter((organizationId): organizationId is string => !!organizationId),
   ))
   const organizations = pageOrganizationIds.length > 0
-    ? await em.find(Organization, { id: { $in: pageOrganizationIds as any }, tenant: auth.tenantId as any, deletedAt: null } as any)
+    ? await em.find(Organization, { id: { $in: pageOrganizationIds }, tenant: auth.tenantId, deletedAt: null })
     : []
-  const organizationNameById = new Map<string, string>()
-  for (const organization of organizations) {
-    const organizationId = organization?.id ? String(organization.id) : null
-    if (!organizationId) continue
-    const name = (organization as any)?.name
-    if (typeof name === 'string' && name.length > 0) organizationNameById.set(organizationId, name)
-  }
+  const organizationNameById = new Map(organizations.map((organization) => [organization.id, organization.name]))
 
   const items = users.map((user) => {
-    const organizationId = user.organizationId ? String(user.organizationId) : null
+    const organizationId = user.organizationId ?? null
     return {
       id: user.id,
       email: user.email,
