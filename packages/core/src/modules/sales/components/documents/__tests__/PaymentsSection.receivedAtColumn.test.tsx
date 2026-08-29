@@ -62,7 +62,7 @@ class ResizeObserverMock {
 // with a `Z`. The Edit dialog seeds itself from `receivedAt.slice(0, 10)` — the UTC day — so
 // the cell must name that same day, or one row contradicts itself with no reload.
 const STORED_RECEIVED_AT = '2026-07-01T00:00:00.000Z'
-// `pl-PL` on purpose: it renders a day the en-US default never produces, so a component that
+// `pl` on purpose: it renders a day the en-US default never produces, so a component that
 // stops threading the locale fails here instead of merely looking plausible — the rule in
 // `.ai/lessons/tests-asserting-intl-output-must-pin-locale-and-date.md`.
 const DIALOG_SEEDS_DAY = '1 lip 2026'
@@ -72,7 +72,7 @@ function renderSection() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0, retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <I18nProvider locale="pl-PL" dict={{}}>
+      <I18nProvider locale="pl" dict={{}}>
         <SalesDocumentPaymentsSection orderId="order-1" currencyCode="EUR" />
       </I18nProvider>
     </QueryClientProvider>,
