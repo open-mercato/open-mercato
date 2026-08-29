@@ -95,19 +95,11 @@ test.describe('TC-QIDX-5613: coverage counters accumulate in every scope', () =>
   test('composes overlapping adjustments instead of letting one overwrite the other', async () => {
     const scope = { tenantId: null, organizationId: ORGANIZATION_CONCURRENT }
 
-    // Create the row first. The insert branch is the one window the unique constraint cannot
-    // close for a NULL tenant, and it is not what this assertion is about — the claim under
-    // test is that adjustments to an existing counter compose.
-    await adjust(scope)
-    const before = await read(scope)
-
     await Promise.all(Array.from({ length: 5 }, () => adjust(scope)))
 
     const after = await read(scope)
-    expect(
-      after.base_count - before.base_count,
-      'five overlapping +1 adjustments must add 5, not collapse to the last one'
-    ).toBe(5)
+    expect(after.base_count, 'five concurrent first adjustments must total 5').toBe(5)
+    expect(after.indexed_count, 'five concurrent first adjustments must total 5').toBe(5)
     expect(after.row_count, 'overlapping adjustments must not fan out into duplicate rows').toBe(1)
   })
 })

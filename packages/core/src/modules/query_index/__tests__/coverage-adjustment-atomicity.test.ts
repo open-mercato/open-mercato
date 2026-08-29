@@ -86,6 +86,25 @@ describe('applyCoverageAdjustments (#5604)', () => {
     expect(update).toContain('"base_count" +')
   })
 
+  it('serializes a missing null-tenant scope and retries the update before inserting', async () => {
+    const { db, statements } = createRecordingDb()
+
+    await applyCoverageAdjustments(
+      createEm(db),
+      createCoverageAdjustments({ ...scope, tenantId: null, baseDelta: 1, indexDelta: 1 })
+    )
+
+    const updateIndexes = statements.flatMap((statement, index) => (
+      statement.startsWith('update "entity_index_coverage"') ? [index] : []
+    ))
+    const lockIndex = statements.findIndex((statement) => statement.includes('pg_advisory_xact_lock'))
+    const insertIndex = statements.findIndex((statement) => statement.startsWith('insert into "entity_index_coverage"'))
+    expect(updateIndexes).toHaveLength(2)
+    expect(lockIndex).toBeGreaterThan(updateIndexes[0]!)
+    expect(updateIndexes[1]).toBeGreaterThan(lockIndex)
+    expect(insertIndex).toBeGreaterThan(updateIndexes[1]!)
+  })
+
   it('does not read the coverage row before writing it', async () => {
     const { db, statements } = createRecordingDb()
 
