@@ -302,5 +302,7 @@ describe('auth.users.update destination scope defense', () => {
     expect(em.begin).toHaveBeenCalledTimes(1)
     expect(em.rollback).toHaveBeenCalledTimes(1)
     expect(em.commit).not.toHaveBeenCalled()
+    const currentLinkRead = mockFindWithDecryption.mock.calls.find(([, entity]) => entity === UserRole)
+    expect(currentLinkRead?.[2]).toMatchObject({ deletedAt: null, role: { deletedAt: null } })
   })
 })

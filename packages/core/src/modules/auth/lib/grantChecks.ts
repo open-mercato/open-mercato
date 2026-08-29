@@ -304,16 +304,65 @@ async function resolveActorIsSuperAdmin(input: GrantCheckContext & { actorIsSupe
   return acl.isSuperAdmin
 }
 
+/**
+ * Answers "is this user effectively a super-admin" about a TARGET — the input to
+ * `assertActorCanModifySuperAdminUserTarget`, not to any authorization decision
+ * about the caller.
+ *
+ * It is bound to the target's OWN tenant (`users.tenant_id`) and to live grant
+ * rows, because that is the reading the two authorities already share:
+ * `RbacService.isGlobalSuperAdmin` and `lib/sessionIntegrity.ts`
+ * (`userAclGrantsSuperAdmin` / `roleAclGrantsSuperAdmin`). A protection
+ * predicate that answered differently would protect people who hold nothing —
+ * a grant stamped a foreign tenant, or one that was revoked — while every
+ * authorization path treats them as ordinary users. That over-protection does
+ * not expire: nothing short of a super-admin could edit such an account again,
+ * and revoking someone's super-admin would leave them permanently unmanageable
+ * by their own tenant's admins.
+ *
+ * Two asymmetries with `isGlobalSuperAdmin` are deliberate:
+ *
+ * - Organization-restricted role grants are NOT excluded. That exclusion only
+ *   keeps them out of the GLOBAL answer; `loadAcl`'s scoped projection still
+ *   returns `isSuperAdmin: true` for such a role inside the organizations it
+ *   names, so its holder is a privileged target. A protection predicate may be
+ *   a superset of the authorization answer; it must never be a subset.
+ * - The `User` load carries no `deletedAt` filter, matching the load in
+ *   `assertActorCanAccessUserTarget` below. A soft-deleted super-admin stays
+ *   protected; it is the ACL rows that must be live.
+ *
+ * "No user row" and "no tenant of their own" both answer false, as
+ * `isGlobalSuperAdmin` does. Neither is exploitable, because every call site
+ * pairs this guard with `assertActorCanAccessUserTarget`: that one delegates a
+ * missing target to the caller's own tenant-scoped load, and 404s a target
+ * whose `tenantId` is absent, so no mutation reaches either case.
+ */
 export async function isUserEffectivelySuperAdmin(em: EntityManager, userId: string): Promise<boolean> {
+  const target = await findOneWithDecryption(
+    em,
+    User,
+    { id: userId } as FilterQuery<User>,
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  const tenantId = normalizeNullableString((target as { tenantId?: string | null } | null)?.tenantId)
+  if (!tenantId) return false
   const directGrant = await em.findOne(
     UserAcl,
-    { user: userId as unknown, isSuperAdmin: true } as FilterQuery<UserAcl>,
+    { user: userId as unknown, tenantId, isSuperAdmin: true, deletedAt: null } as FilterQuery<UserAcl>,
   )
   if (directGrant && (directGrant as { isSuperAdmin?: boolean }).isSuperAdmin === true) return true
   const links = await findWithDecryption(
     em,
     UserRole,
-    { user: userId as unknown } as FilterQuery<UserRole>,
+    // Roles of the user's own tenant, the same restriction `isGlobalSuperAdmin`
+    // applies. The encryption scope stays `{ null, null }`: this is about which
+    // rows count, not about which key decrypts them.
+    {
+      user: userId as unknown,
+      deletedAt: null,
+      role: { tenantId, deletedAt: null },
+    } as FilterQuery<UserRole>,
     { populate: ['role'] },
     { tenantId: null, organizationId: null },
   )
@@ -328,22 +377,75 @@ export async function isUserEffectivelySuperAdmin(em: EntityManager, userId: str
   if (!roleIds.length) return false
   const roleGrant = await em.findOne(
     RoleAcl,
-    { role: { $in: roleIds } as unknown, isSuperAdmin: true } as FilterQuery<RoleAcl>,
+    { role: { $in: roleIds } as unknown, tenantId, isSuperAdmin: true, deletedAt: null } as FilterQuery<RoleAcl>,
   )
   return !!roleGrant && (roleGrant as { isSuperAdmin?: boolean }).isSuperAdmin === true
 }
 
+/**
+ * The role twin of `isUserEffectivelySuperAdmin`, and it carries the same
+ * reading for the same reasons: the grant must be live, and it must be stamped
+ * with the role's OWN tenant. A `role_acls` row stamped elsewhere confers
+ * nothing (`RbacService.loadAcl` reads role ACLs `{ tenantId, deletedAt: null }`),
+ * so protecting a role on the strength of one would refuse an edit that every
+ * authorization path considers ordinary.
+ *
+ * A role that does not exist answers false, which its paired guard
+ * `assertActorCanAccessRoleTarget` then delegates to the caller in the same way
+ * the user side does.
+ */
 export async function isRoleEffectivelySuperAdmin(em: EntityManager, roleId: string): Promise<boolean> {
+  const role = await findOneWithDecryption(
+    em,
+    Role,
+    { id: roleId } as FilterQuery<Role>,
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  const tenantId = normalizeNullableString((role as { tenantId?: string | null } | null)?.tenantId)
+  if (!tenantId) return false
   const grant = await em.findOne(
     RoleAcl,
-    { role: roleId as unknown, isSuperAdmin: true } as FilterQuery<RoleAcl>,
+    { role: roleId as unknown, tenantId, isSuperAdmin: true, deletedAt: null } as FilterQuery<RoleAcl>,
   )
   return !!grant && (grant as { isSuperAdmin?: boolean }).isSuperAdmin === true
 }
 
+/**
+ * The super-admin user ids a non-super-admin must not be shown while looking at
+ * `tenantId` — an exclusion list, not an authorization answer.
+ *
+ * `tenantId` names the tenant whose users are being listed. Because a
+ * super-admin grant is bound to the holder's own tenant (see
+ * `isUserEffectivelySuperAdmin` above and `RbacService.isGlobalSuperAdmin`),
+ * that is also the tenant a grant must be stamped with in order to count here,
+ * so the filter is applied to BOTH ACL tables. It used to reach only
+ * `user_acls`, which made the two halves disagree about what a tenant-scoped
+ * answer meant.
+ *
+ * The narrowing on `role_acls` is only safe TOGETHER with that tenant binding:
+ * while a foreign-stamped row still conferred super-admin, dropping it from this
+ * list would have unhidden a real one.
+ *
+ * The caller owes the other half of the scoping. This returns ids; it is the
+ * caller's own subject query that must already be restricted to `tenantId`.
+ * Both wired call sites are — `auth/api/users/route.ts` filters the user query
+ * by the same tenant, and documents' principals route scopes to `ctx.tenantId`
+ * — so a role member living in another tenant is merely excluded from a list
+ * they were never in. That is not licence to pass a tenant unrelated to the
+ * subject set.
+ *
+ * Deliberately NOT narrowed further: organization-restricted role grants count
+ * (their holders are super-admins inside those organizations), and the
+ * `user_roles` expansion stays tenant-less. Over-inclusion there is bounded by
+ * the caller's subject scoping, and for an exclusion list hiding one user too
+ * many is the safe direction.
+ */
 export async function listSuperAdminUserIds(em: EntityManager, tenantId: string | null): Promise<Set<string>> {
   const ids = new Set<string>()
-  const userAclFilter: Record<string, unknown> = { isSuperAdmin: true }
+  // A revoked override must not keep answering — the same rule the ACL reads in
+  // `RbacService` follow.
+  const userAclFilter: Record<string, unknown> = { isSuperAdmin: true, deletedAt: null }
   if (tenantId) userAclFilter.tenantId = tenantId
   const userAcls = await em.find(UserAcl, userAclFilter as FilterQuery<UserAcl>)
   for (const acl of userAcls) {
@@ -353,10 +455,9 @@ export async function listSuperAdminUserIds(em: EntityManager, tenantId: string 
       : userRef
     if (userId) ids.add(String(userId))
   }
-  const roleAcls = await em.find(
-    RoleAcl,
-    { isSuperAdmin: true } as FilterQuery<RoleAcl>,
-  )
+  const roleAclFilter: Record<string, unknown> = { isSuperAdmin: true, deletedAt: null }
+  if (tenantId) roleAclFilter.tenantId = tenantId
+  const roleAcls = await em.find(RoleAcl, roleAclFilter as FilterQuery<RoleAcl>)
   const roleIds = roleAcls
     .map((acl) => {
       const roleRef = (acl as { role?: { id?: unknown } | string | null }).role
@@ -369,7 +470,10 @@ export async function listSuperAdminUserIds(em: EntityManager, tenantId: string 
     const links = await findWithDecryption(
       em,
       UserRole,
-      { role: { $in: roleIds } as unknown } as FilterQuery<UserRole>,
+      {
+        deletedAt: null,
+        role: { id: { $in: roleIds }, deletedAt: null },
+      } as FilterQuery<UserRole>,
       {},
       { tenantId: null, organizationId: null },
     )
