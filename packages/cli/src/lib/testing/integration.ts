@@ -2177,6 +2177,14 @@ function buildReusableEnvironment(
     // drive real delivery. Production-safe + inert unless a delivery row carries
     // `provider='push_stub'`. Mirrors the fresh-environment app server env below.
     OM_ENABLE_PUSH_STUB_ADAPTER: process.env.OM_ENABLE_PUSH_STUB_ADAPTER ?? '1',
+    // Register the network-free `__test_seed__` / `__test_seed_chat__` channel
+    // adapters and unlock the test-seed route, so the 19 specs that need a
+    // *connected* communication channel can run instead of skipping themselves.
+    // Same shape and same safety argument as the push stub above: gated by
+    // `isTestChannelSeedingEnabled()`, so with the flag unset (the production
+    // default) the adapters are never registered and the route 404s fail-closed.
+    // Mirrors the fresh-environment app server env below.
+    OM_ENABLE_TEST_CHANNEL_SEEDING: process.env.OM_ENABLE_TEST_CHANNEL_SEEDING ?? 'true',
     // Swap the FCM/APNs/Expo SDK clients for network-free fakes so the REAL provider
     // adapters run end-to-end. Unlike `push_stub` (which replaces the whole adapter),
     // this replaces only each SDK client. Mirrors the fresh-environment env below.
@@ -3559,6 +3567,15 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // push channel + device. Applies to the app server, the Playwright process, and
       // any drain/worker child that inherits this environment.
       OM_ENABLE_PUSH_STUB_ADAPTER: process.env.OM_ENABLE_PUSH_STUB_ADAPTER ?? '1',
+      // Register the network-free `__test_seed__` / `__test_seed_chat__` channel
+      // adapters and unlock the test-seed route. Without it every spec that needs a
+      // *connected* communication channel skips itself, so the hub's per-provider
+      // recipient validation, the inbound identity contract and the CRM email-link
+      // chain were all green-by-absence. Same safety argument as the push stub:
+      // `isTestChannelSeedingEnabled()` gates registration, so with the flag unset
+      // (the production default) the adapters do not exist and the seed route 404s.
+      // Applies to the app server, the Playwright process, and any drain/worker child.
+      OM_ENABLE_TEST_CHANNEL_SEEDING: process.env.OM_ENABLE_TEST_CHANNEL_SEEDING ?? 'true',
       // Swap the FCM/APNs/Expo SDK clients for network-free fakes (TC-CHANNEL-PUSH-005+) so the REAL
       // provider adapters — native message construction, credential parsing, client caching, and every
       // error → `device_unregistered` mapping — run end-to-end without live keys. Unlike
