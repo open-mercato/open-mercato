@@ -1,9 +1,11 @@
 # Enterprise Performance & Stability Hardening — Research & Roadmap
 
-**Status:** research / roadmap — never previously merged; recovered from snapshot history and landed 2026-08-29; issue cohort #2958–#2983 filed (see Recovery addendum)
+**Status:** research / roadmap — never previously merged; recovered from snapshot history 2026-08-29 via PR #5777; issue cohort #2958–#2983 filed (see Recovery addendum)
 **Owner:** core / shared / platform
 **Date:** 2026-06-03
-**Related:** [`2026-05-24-crud-api-performance-quick-wins.md`](2026-05-24-crud-api-performance-quick-wins.md), [`2026-05-07-lazy-auto-spawn-queue-workers.md`](2026-05-07-lazy-auto-spawn-queue-workers.md), [`2026-05-27-dev-mode-memory-quick-wins.md`](2026-05-27-dev-mode-memory-quick-wins.md)
+**Related:** [`2026-05-24-crud-api-performance-quick-wins.md`](2026-05-24-crud-api-performance-quick-wins.md), [`implemented/2026-05-07-lazy-auto-spawn-queue-workers.md`](implemented/2026-05-07-lazy-auto-spawn-queue-workers.md), [`2026-05-27-dev-mode-memory-quick-wins.md`](2026-05-27-dev-mode-memory-quick-wins.md)
+
+> **How to read this document (2026-08-29).** This is the recovered June 2026 research roadmap, kept for program context and for the section anchors the #2958–#2983 issue cohort cites. It is **not** an implementation specification: per-item current status lives in the Recovery addendum's status table, `> [2026-08 status]` notes below mark findings that have since shipped or prescriptions that are superseded, and architectural units (P2.1, P2.2, P3.1–P3.4) each require a focused spec — with migration/BC analysis, rollback, and acceptance criteria — before implementation. The per-item tracker issues carry the actionable guidance.
 
 ## TLDR
 
@@ -12,6 +14,8 @@ A read-only audit of the whole monorepo (8 parallel domain audits + existing per
 **Headline:** the platform has the *right primitives* (singleton ORM pool, tag-invalidated cache, queue abstraction, RBAC cache layer, cross-process event bridge, SSRF-safe webhooks, async bcrypt, fail-closed tenant scoping). The enterprise gap is **not** missing architecture — it's that the system **ships single-instance defaults**, and a single config-time bug **silently disables its own caches**. Most of the highest-impact wins are therefore *config/default* fixes and small guardrails, not rewrites.
 
 **The one finding that matters most:** in the default configuration the RBAC cache, org-scope cache, and CF-def cache are **dead** — every authenticated request re-runs full ACL resolution + scope + CF-def SQL. Three independent agents (caching, HTTP-lifecycle, tenancy/RBAC) found this from different directions. Root cause: `packages/core/src/bootstrap.ts` constructs the cache with **no `globalThis` singleton guard** (the rate limiter has one; the cache does not), and `OM_BOOTSTRAP_CACHE` defaults **off**, so `createRequestContainer()` rebuilds an empty in-memory cache **per request**.
+
+> **[2026-08 status]** Fixed — `bootstrap()` now has a default-on `globalThis` cache singleton (#2961) and the memory cache is LRU-bounded (#2962). The org-scope cache remains opt-in (`OM_ORG_SCOPE_CACHE_TTL_MS`, default 0) and `OM_BOOTSTRAP_CACHE` remains off pending #2963. See the Recovery addendum's status table before acting on anything in this document.
 
 ## Method
 
@@ -69,6 +73,8 @@ Ordered by impact ÷ (effort × risk). P0/P1 are mostly **config + small guards*
 | 0.4 | **Cap the encrypted-sort path**: sort on `*_hash` companion column where deterministic, else hard-cap rows / fall back to id-sort. Removes full-table-fetch+decrypt-all. | `query/engine.ts:507,823-883` | M · Med |
 | 0.5 | **Add `statement_timeout` + `lock_timeout`** to the ORM driver options so one runaway query can't exhaust the 20-connection pool. | `db/mikro.ts:107-122` | S · Low |
 
+> **[2026-08 status]** P0.1–P0.4 shipped (#2961, #2962, #2987, #3386 cohort); P0.5 is wired but unset by default (#2964). ⚠️ P0.4's "sort on `*_hash` companion column" prescription is **superseded and was never valid** — a hash does not preserve plaintext ordering; the shipped fix is the two-phase slim-projection bounded sort (`OM_ENCRYPTED_SORT_MAX_ROWS`).
+
 ### P1 — Horizontal-scale-correct defaults
 | # | Action | Evidence | Effort · Risk |
 |---|--------|----------|---------------|
@@ -77,6 +83,8 @@ Ordered by impact ÷ (effort × risk). P0/P1 are mostly **config + small guards*
 | 1.3 | **Broad default rate limiting** (tenant+user keyed, opt-out per route) across authenticated routes, with cost-weighted buckets for export/search/AI/bulk. Today ~30 of 457 routes are limited, IP-keyed only. | dispatcher `route.ts:342-366` | M · Med |
 | 1.4 | **Memoize the request container** (build once per request via `AsyncLocalStorage` / attach to `NextRequest`); thread it through auth, authz, scope, handler. Collapses Theme D's 2–3× overhead; portal's double-build. | `auth/server.ts:263`, dispatcher `:153`, `factory.ts:1264`, `customerAuth.ts:24,60` | M–L · Med |
 | 1.5 | Pass already-resolved `isSuperAdmin` into `loadAcl`/`userHasAllFeatures` to drop the redundant per-request super-admin probe (2–3 queries). | `rbacService.ts:253-258` | M · Med |
+
+> **[2026-08 status]** P1.1 shipped with the P0.3 guard (#2987). P1.2–P1.5 remain open (#2978, #2977) — the 2026-08 benchmarks identify this cluster, with #2958 and #2967, as the strongest remaining lever.
 
 ### P2 — Write-path async + throughput + per-tenant fairness
 | # | Action | Evidence | Effort · Risk |
@@ -88,6 +96,10 @@ Ordered by impact ÷ (effort × risk). P0/P1 are mostly **config + small guards*
 | 2.5 | **Events throughput**: raise `events` worker concurrency default 1→5; add DLQ + configurable retry/`removeOnFail`; job dedup keys; supervisor restart backoff. | `events.worker.ts:6`, `async.ts:134-140` | S–M · Med |
 | 2.6 | **SSE scaling**: coalesce progress emits (min-interval/min-delta, always emit terminal); index connections by `tenantId`; one shared heartbeat interval; per-user/instance connection cap (429); pin `runtime='nodejs'`. | `progressServiceImpl.ts:107`, `stream/route.ts:108,131` | M · Low |
 
+> **[2026-08 status & corrections]** P2.4a–c shipped (#2976/#3014); P2.6's progress coalescing shipped (#2972); the rest is open or partial — see the addendum table. Two prescriptions are corrected:
+> - ⚠️ **P2.1 as written is superseded.** The synchronous boundary is intentional: the projection-row write and coverage accounting stay on the request path for read-your-writes consistency (documented in `query_index/subscribers/upsert_one.ts`), and only the tokens/vector/fulltext tail belongs off-thread (partially shipped as a deferred tail in #3236). The correct design is a **durable, idempotent tail event** consumed by a worker — not flipping the whole `upsert_one` subscriber to `persistent: true`.
+> - ⚠️ **P2.2's "fire-and-forget" needs an event-delivery contract before implementation.** Naked fire-and-forget can lose work at process termination. A focused spec must distinguish best-effort delivery (browser refresh signals) from correctness-critical coordination, and define buffering, retries, deduplication, shutdown flush, failure metrics, and backpressure.
+
 ### P3 — Deeper architecture (design-level)
 | # | Action | Evidence | Effort · Risk |
 |---|--------|----------|---------------|
@@ -95,6 +107,11 @@ Ordered by impact ÷ (effort × risk). P0/P1 are mostly **config + small guards*
 | 3.2 | **Search at tenant scale:** pgvector ivfflat→HNSW (filtered ANN) with per-query `probes`/`ef_search` by tenant size; move Meilisearch from **index-per-tenant** (won't scale to thousands of indexes) to a shared index with a `tenant_id` filter + tenant tokens. | `pgvector/index.ts:189`, `meilisearch/index.ts:57` | L · High |
 | 3.3 | **Bootstrap refactor** so cached services resolve `em`/container lazily from the *current* request instead of closing over the first one — unlocks `OM_BOOTSTRAP_CACHE=on` safely (the deep version of 0.1/1.4). | `container.ts:48-55`, `bootstrap.ts:52-177` | L · Med |
 | 3.4 | **Index-doc & token query indexes**: add GIN on `entity_indexes.doc` (rewrite `doc->>field` filters to containment) and verify the composite index backing the token `GROUP BY/HAVING`. | `engine.ts:1145-1198`, `token.strategy.ts:80-93` | M · Med |
+
+> **[2026-08 corrections]** These are design sketches, not buildable prescriptions — each needs a focused spec. Specifically:
+> - ⚠️ **P3.1**: Redis pub/sub by itself provides no durability and does not fix producer/worker routing — it only replaces the transport. The focused spec must define the delivery contract (trusted scope fields, retries, dedup, failure metrics, backpressure) per the P2.2 correction above.
+> - ⚠️ **P3.2 is security-incomplete as written.** A shared Meilisearch index gated only by a `tenant_id` filter would be a **cross-organization disclosure path within a tenant**. The current driver enforces organization scoping (`_organizationId` filters and filterable attributes, `packages/search/src/fulltext/drivers/meilisearch/index.ts:71-109`) with defense-in-depth result filtering, and results are additionally gated by per-entity `aclFeatures` (`packages/shared/src/lib/search/entityAccess.ts`). Any shared-index design MUST enforce trusted tenant **and** organization filters plus the ACL-feature gate — never tenant-only.
+> - ⚠️ **P3.4's GIN/containment rewrite cannot cover encrypted fields.** `entity_indexes.doc` is encrypted at rest (`encryptIndexDocForStorage`, `packages/core/src/modules/query_index/lib/indexer.ts:207`): encryption-mapped entity and custom fields are ciphertext, so containment predicates would be unindexable or wrong. A focused spec must separate indexable non-sensitive projections (GIN candidates) from encrypted fields, which continue through hashed search tokens or purpose-built companion projections. The token composite-index half already shipped (#2966/#3000).
 
 ## Per-domain findings (condensed, for traceability)
 
@@ -170,7 +187,7 @@ The profiler infra already exists (`OM_PROFILE=*`, `packages/shared/src/lib/prof
 
 ## Recovery & status addendum (2026-08-29)
 
-Everything above this section is the original 2026-06-03 document, recovered verbatim; the roadmap tables, per-domain findings, and open questions are unchanged historical content. Only the `Status:` line was updated in place, so the section identifiers the tracker issues cite (e.g. P3.3, P1.5) still resolve.
+Everything above this section is the original 2026-06-03 document with its prose, tables, findings, and open questions intact — augmented only by the reading-guidance banner under the header and clearly marked `> [2026-08 …]` blockquote annotations that record shipped status and supersede prescriptions now known to conflict with current isolation, encryption, or consistency contracts. No headings were renamed, so the section identifiers the tracker issues cite (e.g. P3.3, P1.5) still resolve; the untouched original is recoverable at blob `5d69640d9bb325ca7c3a6cb58c887eaad884af6c`.
 
 ### Provenance
 
@@ -179,7 +196,7 @@ This file was referenced by fifteen tracker issues but absent from the repositor
 Two of the document's references need correction as of 2026-08-29:
 
 - `.ai/analysis/2026-06-10-perf-stability-backlog.md` (cited by the issue cohort's provenance footers) is absent from the repository and from the snapshot history — it is not recoverable; the fifteen issue bodies themselves are the surviving record of the audit backlog.
-- The `Related:` link to `2026-05-07-lazy-auto-spawn-queue-workers.md` is stale, not dead: that spec was implemented and moved to [`implemented/2026-05-07-lazy-auto-spawn-queue-workers.md`](implemented/2026-05-07-lazy-auto-spawn-queue-workers.md). #2971 tracks the remaining fleet-bounding follow-ups.
+- The original `Related:` link to `2026-05-07-lazy-auto-spawn-queue-workers.md` pointed at the specs root, but that spec was implemented and moved to [`implemented/2026-05-07-lazy-auto-spawn-queue-workers.md`](implemented/2026-05-07-lazy-auto-spawn-queue-workers.md) — the header link has been corrected in place. #2971 tracks the remaining fleet-bounding follow-ups.
 
 Scope clarification: "Enterprise" in the title means enterprise-grade deployment scale. Every finding targets OSS packages (`packages/shared`, `packages/core`, `packages/search`, `packages/events`, `packages/queue`, `packages/cli`), so the spec correctly lives in `.ai/specs/`, not `.ai/specs/enterprise/`.
 
@@ -251,4 +268,5 @@ Priority implication: the benchmarked build already contained the shipped P0 fix
 
 ## Changelog
 - **2026-06-03** — initial research + roadmap from 8 parallel domain audits; no code change.
-- **2026-08-29** — landed on `develop` for the first time, recovered from the local `refs/codex/snapshots/*` history (identical blob in all seven `startup-cleanup` snapshots), resolving #4635. Original content unchanged except the `Status:` line; added the Recovery & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), a develop-verified roadmap status table (P0 largely shipped since June — P0.1–P0.4 and P1.1 done, P0.5 partial; P1.2–P1.5, P2.2b, P2.3, P2.4d, P3.1–P3.3 still open), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
+- **2026-08-29** — recovered from the local `refs/codex/snapshots/*` history (identical blob in all seven `startup-cleanup` snapshots) and submitted to `develop` for the first time via PR #5777, resolving #4635. Added the Recovery & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), a develop-verified roadmap status table (P0 largely shipped since June — P0.1–P0.4 and P1.1 done, P0.5 partial; P1.2–P1.5, P2.2b, P2.3, P2.4d, P3.1–P3.3 still open), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
+- **2026-08-29 (review round)** — architectural-review corrections applied inline as marked annotations: reading-guidance banner (research roadmap, not an implementation spec; architectural units P2.1/P2.2/P3.1–P3.4 require focused specs); superseded P0.4's hash-column sort (a hash does not preserve ordering; the shipped two-phase bounded sort is the fix); corrected P2.1 (projection/coverage stay synchronous for read-your-writes — durable idempotent tail event, not a wholesale persistent subscriber); required an event-delivery contract for P2.2/P3.1; flagged P3.2 as security-incomplete (shared index must enforce tenant + organization filters and ACL-feature gating, never tenant-only); constrained P3.4's GIN idea to non-encrypted projections (`entity_indexes.doc` is encrypted at rest); fixed the `2026-05-07` Related link to its `implemented/` location.
