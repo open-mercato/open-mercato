@@ -9,33 +9,33 @@
 // internals and from the catalog ORM — same pattern used by High #5 in WMS
 // data enrichers.
 
-import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { E } from '#generated/entities.ids.generated'
+import type { CrudCtx } from "@open-mercato/shared/lib/crud/factory";
+import type { QueryEngine } from "@open-mercato/shared/lib/query/types";
+import { createLogger } from "@open-mercato/shared/lib/logger";
+import { E } from "#generated/entities.ids.generated";
 
-const logger = createLogger('wms')
+const logger = createLogger("wms");
 
 type AnyListPayload = {
-  items?: Array<Record<string, unknown>>
-}
+  items?: Array<Record<string, unknown>>;
+};
 
-type LookupRow = Record<string, unknown> & { id?: string | null }
+type LookupRow = Record<string, unknown> & { id?: string | null };
 
-const LOOKUP_BATCH_SIZE = 500
+const LOOKUP_BATCH_SIZE = 500;
 
 function uniqueIdsFromKeys(
   items: Array<Record<string, unknown>>,
   keys: string[],
 ): string[] {
-  const set = new Set<string>()
+  const set = new Set<string>();
   for (const item of items) {
     for (const key of keys) {
-      const value = item?.[key]
-      if (typeof value === 'string' && value.length > 0) set.add(value)
+      const value = item?.[key];
+      if (typeof value === "string" && value.length > 0) set.add(value);
     }
   }
-  return Array.from(set)
+  return Array.from(set);
 }
 
 /**
@@ -51,43 +51,52 @@ async function batchLoadById(
   fields: string[],
   source: string,
 ): Promise<Map<string, LookupRow>> {
-  if (ids.length === 0) return new Map()
-  const tenantId = ctx.auth?.tenantId
-  if (!tenantId) return new Map()
-  const queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
-  const map = new Map<string, LookupRow>()
+  if (ids.length === 0) return new Map();
+  const tenantId = ctx.auth?.tenantId;
+  if (!tenantId) return new Map();
+  const queryEngine = ctx.container.resolve("queryEngine") as QueryEngine;
+  const map = new Map<string, LookupRow>();
   for (let offset = 0; offset < ids.length; offset += LOOKUP_BATCH_SIZE) {
-    const slice = ids.slice(offset, offset + LOOKUP_BATCH_SIZE)
+    const slice = ids.slice(offset, offset + LOOKUP_BATCH_SIZE);
     try {
       const result = await queryEngine.query<LookupRow>(entityId, {
         tenantId,
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+        organizationId:
+          ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
         organizationIds: ctx.organizationIds ?? undefined,
         filters: { id: { $in: slice } },
         fields,
         page: { page: 1, pageSize: slice.length },
-      })
+      });
       for (const row of result.items ?? []) {
-        if (row?.id && typeof row.id === 'string') map.set(row.id, row)
+        if (row?.id && typeof row.id === "string") map.set(row.id, row);
       }
     } catch (err) {
-      logger.warn('batch lookup failed', { source, entityId, err })
+      logger.warn("batch lookup failed", { source, entityId, err });
     }
   }
-  return map
+  return map;
 }
 
-function decorateOnce(item: Record<string, unknown>, key: string, value: unknown): void {
-  if (item[key] === undefined) item[key] = value
+function decorateOnce(
+  item: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (item[key] === undefined) item[key] = value;
 }
 
 // ---------------------------------------------------------------------------
 // Warehouses
 // ---------------------------------------------------------------------------
 
-type WarehouseRow = LookupRow & { name?: string | null; code?: string | null }
+type WarehouseRow = LookupRow & {
+  name?: string | null;
+  code?: string | null;
+  is_active?: boolean | null;
+};
 
-const WAREHOUSE_FIELDS = ['id', 'name', 'code']
+const WAREHOUSE_FIELDS = ["id", "name", "code", "is_active"];
 
 /**
  * Decorate list items with `warehouse_name` and `warehouse_code` when they
@@ -97,25 +106,26 @@ export async function attachWarehouseLabelsToListItems(
   payload: AnyListPayload,
   ctx: CrudCtx,
 ): Promise<void> {
-  const items = Array.isArray(payload?.items) ? payload.items : []
-  if (items.length === 0) return
-  const ids = uniqueIdsFromKeys(items, ['warehouse_id'])
-  if (ids.length === 0) return
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length === 0) return;
+  const ids = uniqueIdsFromKeys(items, ["warehouse_id"]);
+  if (ids.length === 0) return;
   const map = (await batchLoadById(
     ctx,
     E.wms.warehouse,
     ids,
     WAREHOUSE_FIELDS,
-    'warehouse',
-  )) as Map<string, WarehouseRow>
-  if (map.size === 0) return
+    "warehouse",
+  )) as Map<string, WarehouseRow>;
+  if (map.size === 0) return;
   for (const item of items) {
-    const id = item?.warehouse_id
-    if (typeof id !== 'string' || !id) continue
-    const row = map.get(id)
-    if (!row) continue
-    decorateOnce(item, 'warehouse_name', row.name ?? null)
-    decorateOnce(item, 'warehouse_code', row.code ?? null)
+    const id = item?.warehouse_id;
+    if (typeof id !== "string" || !id) continue;
+    const row = map.get(id);
+    if (!row) continue;
+    decorateOnce(item, "warehouse_name", row.name ?? null);
+    decorateOnce(item, "warehouse_code", row.code ?? null);
+    decorateOnce(item, "warehouse_is_active", row.is_active === true);
   }
 }
 
@@ -123,9 +133,12 @@ export async function attachWarehouseLabelsToListItems(
 // Locations
 // ---------------------------------------------------------------------------
 
-type LocationLookupRow = LookupRow & { code?: string | null; type?: string | null }
+type LocationLookupRow = LookupRow & {
+  code?: string | null;
+  type?: string | null;
+};
 
-const LOCATION_FIELDS = ['id', 'code', 'type']
+const LOCATION_FIELDS = ["id", "code", "type"];
 
 /**
  * Decorate list items with location label/type for any of these foreign-key
@@ -142,28 +155,28 @@ export async function attachLocationLabelsToListItems(
   payload: AnyListPayload,
   ctx: CrudCtx,
 ): Promise<void> {
-  const items = Array.isArray(payload?.items) ? payload.items : []
-  if (items.length === 0) return
-  const fkColumns = ['location_id', 'location_from_id', 'location_to_id']
-  const ids = uniqueIdsFromKeys(items, fkColumns)
-  if (ids.length === 0) return
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length === 0) return;
+  const fkColumns = ["location_id", "location_from_id", "location_to_id"];
+  const ids = uniqueIdsFromKeys(items, fkColumns);
+  if (ids.length === 0) return;
   const map = (await batchLoadById(
     ctx,
     E.wms.warehouse_location,
     ids,
     LOCATION_FIELDS,
-    'location',
-  )) as Map<string, LocationLookupRow>
-  if (map.size === 0) return
+    "location",
+  )) as Map<string, LocationLookupRow>;
+  if (map.size === 0) return;
   for (const item of items) {
     for (const fk of fkColumns) {
-      const id = item?.[fk]
-      if (typeof id !== 'string' || !id) continue
-      const row = map.get(id)
-      if (!row) continue
-      const prefix = fk.replace(/_id$/, '')
-      decorateOnce(item, `${prefix}_code`, row.code ?? null)
-      decorateOnce(item, `${prefix}_type`, row.type ?? null)
+      const id = item?.[fk];
+      if (typeof id !== "string" || !id) continue;
+      const row = map.get(id);
+      if (!row) continue;
+      const prefix = fk.replace(/_id$/, "");
+      decorateOnce(item, `${prefix}_code`, row.code ?? null);
+      decorateOnce(item, `${prefix}_type`, row.type ?? null);
     }
   }
 }
@@ -173,12 +186,12 @@ export async function attachLocationLabelsToListItems(
 // ---------------------------------------------------------------------------
 
 type VariantLookupRow = LookupRow & {
-  name?: string | null
-  sku?: string | null
-  product_id?: string | null
-}
+  name?: string | null;
+  sku?: string | null;
+  product_id?: string | null;
+};
 
-const VARIANT_FIELDS = ['id', 'name', 'sku', 'product_id']
+const VARIANT_FIELDS = ["id", "name", "sku", "product_id"];
 
 /**
  * Decorate list items with `variant_name`, `variant_sku`, and `product_id`
@@ -191,26 +204,26 @@ export async function attachVariantLabelsToListItems(
   payload: AnyListPayload,
   ctx: CrudCtx,
 ): Promise<void> {
-  const items = Array.isArray(payload?.items) ? payload.items : []
-  if (items.length === 0) return
-  const ids = uniqueIdsFromKeys(items, ['catalog_variant_id'])
-  if (ids.length === 0) return
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length === 0) return;
+  const ids = uniqueIdsFromKeys(items, ["catalog_variant_id"]);
+  if (ids.length === 0) return;
   const map = (await batchLoadById(
     ctx,
     E.catalog.catalog_product_variant,
     ids,
     VARIANT_FIELDS,
-    'variant',
-  )) as Map<string, VariantLookupRow>
-  if (map.size === 0) return
+    "variant",
+  )) as Map<string, VariantLookupRow>;
+  if (map.size === 0) return;
   for (const item of items) {
-    const id = item?.catalog_variant_id
-    if (typeof id !== 'string' || !id) continue
-    const row = map.get(id)
-    if (!row) continue
-    decorateOnce(item, 'variant_name', row.name ?? null)
-    decorateOnce(item, 'variant_sku', row.sku ?? null)
-    decorateOnce(item, 'catalog_product_id', row.product_id ?? null)
+    const id = item?.catalog_variant_id;
+    if (typeof id !== "string" || !id) continue;
+    const row = map.get(id);
+    if (!row) continue;
+    decorateOnce(item, "variant_name", row.name ?? null);
+    decorateOnce(item, "variant_sku", row.sku ?? null);
+    decorateOnce(item, "catalog_product_id", row.product_id ?? null);
   }
 }
 
@@ -218,9 +231,12 @@ export async function attachVariantLabelsToListItems(
 // Catalog products
 // ---------------------------------------------------------------------------
 
-type ProductLookupRow = LookupRow & { title?: string | null; sku?: string | null }
+type ProductLookupRow = LookupRow & {
+  title?: string | null;
+  sku?: string | null;
+};
 
-const PRODUCT_FIELDS = ['id', 'title', 'sku']
+const PRODUCT_FIELDS = ["id", "title", "sku"];
 
 /**
  * Decorate list items with `product_title` and `product_sku` when they carry a
@@ -230,25 +246,25 @@ export async function attachProductLabelsToListItems(
   payload: AnyListPayload,
   ctx: CrudCtx,
 ): Promise<void> {
-  const items = Array.isArray(payload?.items) ? payload.items : []
-  if (items.length === 0) return
-  const ids = uniqueIdsFromKeys(items, ['catalog_product_id'])
-  if (ids.length === 0) return
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length === 0) return;
+  const ids = uniqueIdsFromKeys(items, ["catalog_product_id"]);
+  if (ids.length === 0) return;
   const map = (await batchLoadById(
     ctx,
     E.catalog.catalog_product,
     ids,
     PRODUCT_FIELDS,
-    'product',
-  )) as Map<string, ProductLookupRow>
-  if (map.size === 0) return
+    "product",
+  )) as Map<string, ProductLookupRow>;
+  if (map.size === 0) return;
   for (const item of items) {
-    const id = item?.catalog_product_id
-    if (typeof id !== 'string' || !id) continue
-    const row = map.get(id)
-    if (!row) continue
-    decorateOnce(item, 'product_title', row.title ?? null)
-    decorateOnce(item, 'product_sku', row.sku ?? null)
+    const id = item?.catalog_product_id;
+    if (typeof id !== "string" || !id) continue;
+    const row = map.get(id);
+    if (!row) continue;
+    decorateOnce(item, "product_title", row.title ?? null);
+    decorateOnce(item, "product_sku", row.sku ?? null);
   }
 }
 
@@ -263,16 +279,16 @@ export async function attachInventoryProfileCatalogLabelsToListItems(
   await Promise.all([
     attachProductLabelsToListItems(payload, ctx),
     attachVariantLabelsToListItems(payload, ctx),
-  ])
+  ]);
 }
 
 // ---------------------------------------------------------------------------
 // Reservation sources
 // ---------------------------------------------------------------------------
 
-type SalesOrderLookupRow = LookupRow & { order_number?: string | null }
+type SalesOrderLookupRow = LookupRow & { order_number?: string | null };
 
-const SALES_ORDER_FIELDS = ['id', 'order_number']
+const SALES_ORDER_FIELDS = ["id", "order_number"];
 
 /**
  * Decorate reservation rows with `source_label` when the source can be resolved
@@ -283,30 +299,30 @@ export async function attachReservationSourceLabelsToListItems(
   payload: AnyListPayload,
   ctx: CrudCtx,
 ): Promise<void> {
-  const items = Array.isArray(payload?.items) ? payload.items : []
-  if (items.length === 0) return
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  if (items.length === 0) return;
 
   const orderIds = uniqueIdsFromKeys(
-    items.filter((item) => item?.source_type === 'order'),
-    ['source_id'],
-  )
-  if (orderIds.length === 0) return
+    items.filter((item) => item?.source_type === "order"),
+    ["source_id"],
+  );
+  if (orderIds.length === 0) return;
 
   const map = (await batchLoadById(
     ctx,
     E.sales.sales_order,
     orderIds,
     SALES_ORDER_FIELDS,
-    'reservation-source',
-  )) as Map<string, SalesOrderLookupRow>
-  if (map.size === 0) return
+    "reservation-source",
+  )) as Map<string, SalesOrderLookupRow>;
+  if (map.size === 0) return;
 
   for (const item of items) {
-    if (item?.source_type !== 'order') continue
-    const id = item?.source_id
-    if (typeof id !== 'string' || !id) continue
-    const row = map.get(id)
-    const orderNumber = row?.order_number?.trim()
-    if (orderNumber) decorateOnce(item, 'source_label', orderNumber)
+    if (item?.source_type !== "order") continue;
+    const id = item?.source_id;
+    if (typeof id !== "string" || !id) continue;
+    const row = map.get(id);
+    const orderNumber = row?.order_number?.trim();
+    if (orderNumber) decorateOnce(item, "source_label", orderNumber);
   }
 }

@@ -25,6 +25,8 @@ export type InventoryMovementType =
   | 'cycle_count'
   | 'return_receive'
 export type InventoryMovementReferenceType = 'po' | 'so' | 'transfer' | 'manual' | 'qc' | 'rma'
+export const SITE_WAREHOUSE_ROLES = ['raw_material', 'line_side', 'wip', 'finished_goods', 'quarantine', 'shipping'] as const
+export type SiteWarehouseRoleType = (typeof SITE_WAREHOUSE_ROLES)[number]
 type WmsOptionalProps = 'createdAt' | 'updatedAt' | 'deletedAt' | 'metadata'
 
 abstract class WmsScopedEntity {
@@ -97,6 +99,58 @@ export class Warehouse extends WmsScopedEntity {
 
   @OneToMany(() => WarehouseLocation, (location) => location.warehouse)
   locations = new Collection<WarehouseLocation>(this)
+}
+
+@Entity({ tableName: 'wms_sites' })
+@Index({ name: 'wms_sites_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'wms_sites_org_code_unique_idx',
+  expression:
+    'create unique index "wms_sites_org_code_unique_idx" on "wms_sites" ("tenant_id", "organization_id", lower("code")) where deleted_at is null',
+})
+export class Site extends WmsScopedEntity {
+  [OptionalProps]?: WmsOptionalProps | 'isActive'
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @OneToMany(() => SiteWarehouseRole, (assignment) => assignment.site)
+  warehouseRoles = new Collection<SiteWarehouseRole>(this)
+}
+
+@Entity({ tableName: 'wms_site_warehouse_roles' })
+@Index({ name: 'wms_site_warehouse_roles_org_tenant_site_idx', properties: ['organizationId', 'tenantId', 'site'] })
+@Index({ name: 'wms_site_warehouse_roles_org_tenant_warehouse_idx', properties: ['organizationId', 'tenantId', 'warehouse'] })
+@Index({
+  name: 'wms_site_warehouse_roles_unique_idx',
+  expression:
+    'create unique index "wms_site_warehouse_roles_unique_idx" on "wms_site_warehouse_roles" ("site_id", "role", "warehouse_id") where deleted_at is null',
+})
+@Index({
+  name: 'wms_site_warehouse_roles_default_unique_idx',
+  expression:
+    'create unique index "wms_site_warehouse_roles_default_unique_idx" on "wms_site_warehouse_roles" ("site_id", "role") where is_default = true and deleted_at is null',
+})
+export class SiteWarehouseRole extends WmsScopedEntity {
+  [OptionalProps]?: WmsOptionalProps | 'isDefault'
+
+  @ManyToOne(() => Site, { fieldName: 'site_id' })
+  site!: Site
+
+  @ManyToOne(() => Warehouse, { fieldName: 'warehouse_id' })
+  warehouse!: Warehouse
+
+  @Property({ type: 'text' })
+  role!: SiteWarehouseRoleType
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
 }
 
 @Entity({ tableName: 'wms_warehouse_zones' })

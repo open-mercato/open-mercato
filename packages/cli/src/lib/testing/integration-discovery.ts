@@ -16,6 +16,7 @@ const DISCOVERY_IGNORED_DIRS = new Set([
   'node_modules',
   '.git',
   '.next',
+  '.mercato',
   'dist',
   '.turbo',
   'coverage',
@@ -57,6 +58,7 @@ function collectNamedDirectories(rootPath: string, directoryName: string): strin
   const collected: string[] = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
+    if (entry.isSymbolicLink()) continue
     if (DISCOVERY_IGNORED_DIRS.has(entry.name)) continue
     const absolutePath = path.join(rootPath, entry.name)
     if (entry.name === directoryName) {

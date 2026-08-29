@@ -58,7 +58,7 @@ type InteractiveIntegrationOptions = {
   reuseExisting: boolean
 }
 
-type IntegrationSpecTarget = {
+export type IntegrationSpecTarget = {
   path: string
   description: string
 }
@@ -158,6 +158,7 @@ const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
+const EPHEMERAL_JWT_SECRET = '32f2f3ddfaa24f6d534165c7e42835a81be1f44a35da998b29367a8d2c7ec0da'
 const EPHEMERAL_POSTGRES_IMAGE_ENV_VAR = 'OM_INTEGRATION_POSTGRES_IMAGE'
 // Dev/prod and the dev container run pgvector-enabled Postgres (see docker-compose*.yml,
 // docker/postgres-init.sh, .devcontainer/docker-compose.yml). The ephemeral integration DB
@@ -2154,7 +2155,7 @@ function buildReusableEnvironment(
     // stale CRUD response until the TTL (TC-CRM-028/079, TC-SX-001).
     CACHE_STRATEGY: 'sqlite',
     CACHE_SQLITE_PATH: EPHEMERAL_CACHE_DB_PATH,
-    JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+    JWT_SECRET: EPHEMERAL_JWT_SECRET,
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
     // Integration probe + tests expect `admin@acme.com / secret` and
     // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
@@ -3255,6 +3256,37 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
   }
 }
 
+export function buildPlaywrightSelectionEnvironment(
+  environment: NodeJS.ProcessEnv,
+  selection: string | string[] | null,
+): NodeJS.ProcessEnv {
+  const selectedPaths = Array.isArray(selection)
+    ? selection.filter((value) => value.length > 0)
+    : typeof selection === 'string' && selection.length > 0
+      ? [selection]
+      : []
+  return selectedPaths.length > 0
+    ? {
+        ...environment,
+        OM_INTEGRATION_SPEC_PATHS: selectedPaths.join(path.delimiter),
+      }
+    : environment
+}
+
+export function selectIntegrationSpecPaths(
+  targets: readonly IntegrationSpecTarget[],
+  filter: string,
+): string[] {
+  const normalizedFilter = normalizePath(filter).trim().toLowerCase()
+  if (!normalizedFilter) return targets.map((target) => target.path)
+  return targets
+    .filter((target) => {
+      const haystack = `${normalizePath(target.path)} ${target.description}`.toLowerCase()
+      return haystack.includes(normalizedFilter)
+    })
+    .map((target) => target.path)
+}
+
 async function runPlaywrightSelection(
   environment: EphemeralEnvironmentHandle,
   selection: string | string[] | null,
@@ -3270,12 +3302,11 @@ async function runPlaywrightSelection(
   if (options.shard) {
     args.push('--shard', options.shard)
   }
-  if (Array.isArray(selection) && selection.length > 0) {
-    args.push(...selection)
-  } else if (typeof selection === 'string' && selection.length > 0) {
-    args.push(selection)
-  }
-  await runNpxCommandWithOutputMonitoring(args, environment.commandEnvironment, {
+  const commandEnvironment = buildPlaywrightSelectionEnvironment(
+    environment.commandEnvironment,
+    selection,
+  )
+  await runNpxCommandWithOutputMonitoring(args, commandEnvironment, {
     detectEnvironmentUnavailable: true,
     abortOnEnvironmentUnavailable: true,
     playwrightFailureHealthCheck: {
@@ -3294,10 +3325,21 @@ async function runIntegrationTestSuiteOnce(
   options: IntegrationOptions,
 ): Promise<void> {
   const testArgs = ['test:integration']
+  let commandEnvironment = environment.commandEnvironment
   if (options.filter) {
-    testArgs.push(options.filter)
+    const selectedPaths = selectIntegrationSpecPaths(
+      await listIntegrationSpecFiles(),
+      options.filter,
+    )
+    if (selectedPaths.length === 0) {
+      throw new Error(`No integration tests matched filter "${options.filter}".`)
+    }
+    commandEnvironment = buildPlaywrightSelectionEnvironment(
+      commandEnvironment,
+      selectedPaths,
+    )
   }
-  await runYarnCommandWithOutputMonitoring(testArgs, environment.commandEnvironment, {
+  await runYarnCommandWithOutputMonitoring(testArgs, commandEnvironment, {
     detectEnvironmentUnavailable: true,
     abortOnEnvironmentUnavailable: true,
     playwrightFailureHealthCheck: {
@@ -3521,7 +3563,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       APP_URL: applicationBaseUrl,
       NEXT_PUBLIC_APP_URL: applicationBaseUrl,
       PLATFORM_PORTAL_BASE_URL: applicationBaseUrl,
-      JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+      JWT_SECRET: EPHEMERAL_JWT_SECRET,
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
       // See the auth-probe block above: pin derived-user passwords to the

@@ -26,6 +26,8 @@ import {
   killProcessTree,
   terminateProcessTree,
   registerEphemeralShutdownHandlers,
+  buildPlaywrightSelectionEnvironment,
+  selectIntegrationSpecPaths,
 } from '../integration'
 import type { CapturedOutputProcess, ShutdownProcessRef } from '../integration'
 import { resolveSpawnCommand } from '../../spawn'
@@ -116,6 +118,44 @@ describe('integration cache and options', () => {
   let originalEphemeralEnvState: string | null = null
   let originalEphemeralLegacyEnvState: string | null = null
 
+  it('passes selected Playwright specs through the explicit-path environment', () => {
+    const environment = buildPlaywrightSelectionEnvironment(
+      { BASE_URL: 'http://127.0.0.1:3000' },
+      ['packages/core/a.spec.ts', 'packages/core/b.spec.ts'],
+    )
+
+    expect(environment).toEqual({
+      BASE_URL: 'http://127.0.0.1:3000',
+      OM_INTEGRATION_SPEC_PATHS: [
+        'packages/core/a.spec.ts',
+        'packages/core/b.spec.ts',
+      ].join(path.delimiter),
+    })
+  })
+
+  it('resolves an integration filter to explicit spec paths', () => {
+    const targets = [
+      {
+        path: 'packages/core/src/modules/wms/__integration__/TC-WMS-SITES-001.spec.ts',
+        description: 'WMS Sites API',
+      },
+      {
+        path: 'packages/core/src/modules/sales/__integration__/TC-SALES-001.spec.ts',
+        description: 'Sales API',
+      },
+    ]
+
+    expect(
+      selectIntegrationSpecPaths(
+        targets,
+        path.join('packages', 'core', 'src', 'modules', 'wms', '__integration__'),
+      ),
+    ).toEqual([targets[0].path])
+    expect(selectIntegrationSpecPaths(targets, 'sites api')).toEqual([
+      targets[0].path,
+    ])
+  })
+
   const restoreEphemeralStateFiles = async (originalStateText: string | null, originalLegacyStateText: string | null) => {
     await clearEphemeralEnvironmentState()
     if (originalStateText !== null) {
@@ -153,7 +193,9 @@ describe('integration cache and options', () => {
 
   it('reuses an existing reachable ephemeral environment state', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
+    const originalJwtSecret = process.env.JWT_SECRET
     delete process.env[CHECKOUT_TEST_INJECTION_FLAG]
+    process.env.JWT_SECRET = 'change-me-dev-secret'
     const fetchSpy = mockHealthyReadinessFetch()
 
     try {
@@ -189,6 +231,9 @@ describe('integration cache and options', () => {
         ownedByCurrentProcess: false,
       })
       expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
+      expect(environment?.commandEnvironment.JWT_SECRET).toBe(
+        '32f2f3ddfaa24f6d534165c7e42835a81be1f44a35da998b29367a8d2c7ec0da',
+      )
       expect(environment?.commandEnvironment.DATABASE_URL).toBe(
         'postgres://integration:integration@127.0.0.1:5432/open_mercato',
       )
@@ -202,6 +247,11 @@ describe('integration cache and options', () => {
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
       fetchSpy.mockRestore()
+      if (originalJwtSecret === undefined) {
+        delete process.env.JWT_SECRET
+      } else {
+        process.env.JWT_SECRET = originalJwtSecret
+      }
     }
   }, REUSE_ENV_TEST_TIMEOUT_MS)
 
